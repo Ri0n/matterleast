@@ -1,7 +1,14 @@
 #include <QtTest>
 
+#include <utility>
+
 #include "chat-area/ThreadTimelineSizing.h"
 #include "widgets/LongListWidget.h"
+
+// This test target intentionally compiles only LongListWidget.cpp in CMake.
+// Pull in the orthogonal layout-reconciliation translation unit here so the
+// identity-remap contract is covered without coupling production source files.
+#include "widgets/LongListWidgetLayout.cpp"
 
 namespace {
 
@@ -15,10 +22,18 @@ void settleEvents(int rounds = 12)
 class FixedRow final : public QWidget
 {
 public:
-    using QWidget::QWidget;
+    explicit FixedRow(QString identity = {}, QWidget* parent = nullptr)
+        : QWidget(parent)
+        , identity_(std::move(identity))
+    {
+    }
 
+    const QString& identity() const { return identity_; }
     QSize sizeHint() const override { return QSize(420, 64); }
     QSize minimumSizeHint() const override { return sizeHint(); }
+
+private:
+    QString identity_;
 };
 
 class TestList final : public Mattermost::LongListWidget
@@ -26,11 +41,52 @@ class TestList final : public Mattermost::LongListWidget
 public:
     using Mattermost::LongListWidget::LongListWidget;
 
-protected:
-    QWidget* createItemWidget(int) override
+    void setIdentities(QStringList identities)
     {
-        return new FixedRow;
+        identities_ = std::move(identities);
     }
+
+    void swapIdentities(int first, int second)
+    {
+        identities_.swapItemsAt(first, second);
+    }
+
+    int destroyedCount() const { return destroyedCount_; }
+
+protected:
+    QWidget* createItemWidget(int index) override
+    {
+        const QString identity = index >= 0 && index < identities_.size()
+            ? identities_.at(index) : QString();
+        return new FixedRow(identity);
+    }
+
+    QString itemIdentity(const QWidget* widget) const override
+    {
+        const auto* row = static_cast<const FixedRow*>(widget);
+        return row ? row->identity() : QString();
+    }
+
+    int indexOfItemIdentity(const QString& identity) const override
+    {
+        return identities_.indexOf(identity);
+    }
+
+    bool isModelItemAvailable(int index) const override
+    {
+        return index >= 0 && index < identities_.size()
+            && !identities_.at(index).isEmpty();
+    }
+
+    void destroyItemWidget(int index, QWidget* widget) override
+    {
+        ++destroyedCount_;
+        Mattermost::LongListWidget::destroyItemWidget(index, widget);
+    }
+
+private:
+    QStringList identities_;
+    int destroyedCount_ = 0;
 };
 
 } // namespace
@@ -108,6 +164,48 @@ private slots:
         QVERIFY(list.itemWidget(0) != nullptr);
         QVERIFY2(qAbs(list.itemWidget(0)->y()) <= 2,
                  "Once the server proves leading logical slots are phantom, the oldest real post must occupy the top");
+    }
+
+    void identityRemapKeepsConcreteWidgetsAndViewportLock()
+    {
+        TestList list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(64);
+        list.setMaterializationLimit(80);
+
+        QStringList identities;
+        for (int index = 0; index < 40; ++index) {
+            identities.push_back(QStringLiteral("item-%1").arg(index));
+        }
+        list.setIdentities(identities);
+        list.setItemCount(identities.size());
+        list.setRangeAvailable(0, identities.size() - 1);
+        list.show();
+        settleEvents();
+
+        list.scrollToIndex(20, Mattermost::LongListWidget::Alignment::Center);
+        settleEvents();
+        QVERIFY(list.lockViewportToItem(20,
+                                        Mattermost::LongListWidget::Alignment::Center,
+                                        0));
+        settleEvents();
+
+        QWidget* target = list.itemWidget(20);
+        QWidget* neighbour = list.itemWidget(21);
+        QVERIFY(target != nullptr);
+        QVERIFY(neighbour != nullptr);
+        const int targetY = target->y();
+        const int destroyedBefore = list.destroyedCount();
+
+        list.swapIdentities(20, 21);
+        list.reconcileItemLayout(20, 21);
+        settleEvents();
+
+        QCOMPARE(list.itemWidget(21), target);
+        QCOMPARE(list.itemWidget(20), neighbour);
+        QCOMPARE(list.destroyedCount(), destroyedBefore);
+        QVERIFY2(qAbs(target->y() - targetY) <= 2,
+                 "A semantic viewport lock must follow the same physical widget across an index remap");
     }
 
     void threadTombstoneDoesNotConsumeFollowingReplySlot()

@@ -67,12 +67,14 @@ signals:
 
 protected:
     QWidget* createItemWidget(int index) override;
+    QString itemIdentity(const QWidget* widget) const override;
+    int indexOfItemIdentity(const QString& identity) const override;
+    bool isModelItemAvailable(int index) const override;
     void destroyItemWidget(int index, QWidget* widget) override;
 
 private:
     static AbstractPostSource::RequestReason toSourceReason(RequestReason reason);
     void reconnectSource();
-    void rematerializeRange(int first, int last);
     bool restoreNavigationTarget();
     bool finalizeNavigationLock();
     void scheduleNavigationFinalize();

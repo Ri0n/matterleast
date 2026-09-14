@@ -322,10 +322,28 @@ void ChatLogWidget::refreshPost(const QString& postId)
     if (!postSource || postId.isEmpty()) {
         return;
     }
+
     const int index = postSource->indexOfPost(postId);
-    if (index >= 0) {
-        rematerializeRange(index, index);
+    PostWidget* widget = findPost(postId);
+    BackendPost* post = index >= 0 ? postSource->postAt(index) : nullptr;
+    if (!widget || !post) {
+        return;
     }
+
+    // BackendPost is the model object already referenced by PostWidget. Refresh
+    // presentation in-place so focus, selection, hover and navigation animation
+    // survive ordinary data updates.
+    if (post->isDeleted) {
+        widget->markAsDeleted();
+        return;
+    }
+
+    widget->setEdited(post->message);
+    widget->updateReactions();
+    if (chatArea && !chatArea->isThread && post->root_id.isEmpty()) {
+        widget->addThreadButton();
+    }
+    itemsChanged(index, index);
 }
 
 void ChatLogWidget::followOwnPost(const QString& postId)
@@ -664,14 +682,31 @@ QWidget* ChatLogWidget::createItemWidget(int index)
     return widget;
 }
 
+QString ChatLogWidget::itemIdentity(const QWidget* widget) const
+{
+    const auto* postWidget = qobject_cast<const PostWidget*>(widget);
+    return postWidget ? postWidget->post.id : QString();
+}
+
+int ChatLogWidget::indexOfItemIdentity(const QString& identity) const
+{
+    return postSource && !identity.isEmpty()
+        ? postSource->indexOfPost(identity) : -1;
+}
+
+bool ChatLogWidget::isModelItemAvailable(int index) const
+{
+    return postSource && postSource->isAvailable(index);
+}
+
 void ChatLogWidget::destroyItemWidget(int index, QWidget* widget)
 {
-    BackendPost* post = postSource ? postSource->postAt(index) : nullptr;
+    const auto* postWidget = qobject_cast<const PostWidget*>(widget);
     qCDebug(lcTimelineTrace).nospace()
         << "DESTROY_WIDGET list=" << static_cast<const void*>(this)
         << " source=" << sourceName(postSource)
         << " index=" << index
-        << " postId=" << (post ? post->id : QString())
+        << " postId=" << (postWidget ? postWidget->post.id : QString())
         << " widget=" << static_cast<const void*>(widget)
         << " y=" << (widget ? widget->y() : 0)
         << " height=" << (widget ? widget->height() : 0);
@@ -758,13 +793,13 @@ void ChatLogWidget::reconnectSource()
             scheduleReadCursorUpdate();
         }
     }));
-    sourceConnections.push_back(connect(postSource, &AbstractPostSource::itemsChanged,
+    sourceConnections.push_back(connect(postSource, &AbstractPostSource::layoutChanged,
                                         this, [this](int first, int last) {
         qCDebug(lcTimelineTrace).nospace()
-            << "SOURCE_CHANGED list=" << static_cast<const void*>(this)
+            << "SOURCE_LAYOUT_CHANGED list=" << static_cast<const void*>(this)
             << " source=" << sourceName(postSource)
             << " range=[" << first << ',' << last << ']';
-        rematerializeRange(first, last);
+        reconcileItemLayout(first, last);
         restoreNavigationTarget();
         scheduleReadCursorUpdate();
     }));
@@ -816,78 +851,60 @@ void ChatLogWidget::reconnectSource()
         finishRangeRequest(first, last);
         scheduleReadCursorUpdate();
     }));
-}
 
-void ChatLogWidget::rematerializeRange(int first, int last)
-{
-    if (!postSource || itemCount() <= 0) {
-        return;
-    }
-    first = std::max(0, first);
-    last = std::min(itemCount() - 1, last);
-    if (last < first) {
+    if (!chatArea) {
         return;
     }
 
-    qCDebug(lcTimelineTrace).nospace()
-        << "REMATERIALIZE_BEGIN list=" << static_cast<const void*>(this)
-        << " source=" << sourceName(postSource)
-        << " range=[" << first << ',' << last << ']';
-
-    // Navigation-context growth is a structural source notification, not a
-    // content edit. ChannelPostSource can publish a broad itemsChanged range
-    // while it extends/reconciles a provisional semantic island. Preserve a
-    // concrete PostWidget when the semantic identity at that logical slot did
-    // not change; otherwise a harmless cursor extension would restart the whole
-    // viewport and kill the navigation-highlight animation with the old widget.
-    const bool navigationContextRefresh = !navigationPostId.isEmpty() && first < last;
-
-    for (int index = first; index <= last; ++index) {
-        const bool sourceAvailable = postSource->isAvailable(index);
-        if (QWidget* existingWidget = itemWidget(index)) {
-            BackendPost* post = postSource->postAt(index);
-            auto* existingPostWidget = qobject_cast<PostWidget*>(existingWidget);
-            if (navigationContextRefresh && sourceAvailable && post
-                && existingPostWidget && existingPostWidget->post.id == post->id) {
-                qCDebug(lcTimelineTrace).nospace()
-                    << "REMATERIALIZE_KEEP list=" << static_cast<const void*>(this)
-                    << " source=" << sourceName(postSource)
-                    << " index=" << index
-                    << " postId=" << post->id
-                    << " widget=" << static_cast<const void*>(existingWidget);
-                continue;
+    BackendChannel& channel = chatArea->getChannel();
+    sourceConnections.push_back(connect(&channel, &BackendChannel::onPostEdited,
+                                        this, [this](BackendPost& post) {
+        if (PostWidget* widget = findPost(post.id)) {
+            widget->setEdited(post.message);
+            const int index = postSource ? postSource->indexOfPost(post.id) : -1;
+            if (index >= 0) {
+                itemsChanged(index, index);
             }
-
-            qCDebug(lcTimelineTrace).nospace()
-                << "REMATERIALIZE_WIDGET list=" << static_cast<const void*>(this)
-                << " source=" << sourceName(postSource)
-                << " index=" << index
-                << " available=" << sourceAvailable
-                << " postId=" << (post ? post->id : QString());
-
-            // If a real authoritative remap moves the highlighted semantic
-            // target, the old widget genuinely has to die. Re-arm the highlight
-            // for the replacement widget instead of letting the animation vanish
-            // with this stale physical object.
-            if (navigationContextRefresh && existingPostWidget
-                && existingPostWidget->post.id == navigationPostId) {
-                pendingHighlightPostId = navigationPostId;
-            }
-
-            // Force replacement so PostWidget gets the source's new identity or
-            // content rather than retaining an object for a provisional slot.
-            setRangeAvailable(index, index, false);
-            if (sourceAvailable) {
-                setRangeAvailable(index, index, true);
-            }
-            continue;
         }
-
-        // Availability itself can change before a QWidget was ever materialized
-        // (notably when an estimated semantic target moves to an authoritative
-        // page). Keep LongListWidget's bitset synchronized with the source too.
-        setRangeAvailable(index, index, sourceAvailable);
-    }
+    }));
+    sourceConnections.push_back(connect(&channel, &BackendChannel::onPostReactionUpdated,
+                                        this, [this](BackendPost& post) {
+        if (PostWidget* widget = findPost(post.id)) {
+            widget->updateReactions();
+            const int index = postSource ? postSource->indexOfPost(post.id) : -1;
+            if (index >= 0) {
+                itemsChanged(index, index);
+            }
+        }
+    }));
+    sourceConnections.push_back(connect(&channel, &BackendChannel::onPostDeleted,
+                                        this, [this](const QString& postId) {
+        if (PostWidget* widget = findPost(postId)) {
+            widget->markAsDeleted();
+        }
+    }));
+    sourceConnections.push_back(connect(&channel, &BackendChannel::onThreadSummaryChanged,
+                                        this, [this](BackendPost& rootPost) {
+        if (!chatArea || chatArea->isThread) {
+            return;
+        }
+        if (PostWidget* widget = findPost(rootPost.id)) {
+            widget->addThreadButton();
+            const int index = postSource ? postSource->indexOfPost(rootPost.id) : -1;
+            if (index >= 0) {
+                itemsChanged(index, index);
+            }
+        }
+    }));
+    sourceConnections.push_back(connect(&channel, &BackendChannel::onNewPost,
+                                        this, [this](BackendPost& post) {
+        // A genuinely new row is materialized from the already-current model.
+        // If this is instead a duplicate/confirmation for an existing resident
+        // identity, refresh that same physical widget in place.
+        if (findPost(post.id)) {
+            refreshPost(post.id);
+        }
+    }));
 }
 
 bool ChatLogWidget::restoreNavigationTarget()

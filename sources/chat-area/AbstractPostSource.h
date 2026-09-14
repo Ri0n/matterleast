@@ -66,6 +66,16 @@ public:
         Q_UNUSED(generation)
     }
 
+protected:
+    /**
+     * Compatibility shim for source implementations that used to emit the
+     * coarse itemsChanged signal. A source-side mapping mutation is structural:
+     * views must preserve widgets by semantic identity and only remap indices.
+     * Post body/reaction/deletion updates are delivered by BackendChannel and
+     * updated in-place by the concrete view.
+     */
+    void itemsChanged(int first, int last) { emit layoutChanged(first, last); }
+
 signals:
     void itemCountChanged(int count);
 
@@ -80,7 +90,11 @@ signals:
     /** Body residency changed and therefore may change effective row availability. */
     void bodyAvailabilityChanged(int first, int last, bool available);
 
-    void itemsChanged(int first, int last);
+    /**
+     * Identity-to-index mapping changed in this logical span. Existing widgets
+     * representing surviving identities must be moved, never recreated.
+     */
+    void layoutChanged(int first, int last);
 
     /** Every requestRange() call must eventually emit this exact requested range. */
     void rangeRequestFinished(int first, int last);

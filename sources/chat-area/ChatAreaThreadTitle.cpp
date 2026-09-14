@@ -68,7 +68,7 @@ void ChatArea::showEvent(QShowEvent* event)
         setProperty("threadTitleSourceConnected", true);
         connect(postSource, &AbstractPostSource::rangeAvailable, this,
                 [this](int, int) { updateThreadWindowTitle(); });
-        connect(postSource, &AbstractPostSource::itemsChanged, this,
+        connect(postSource, &AbstractPostSource::layoutChanged, this,
                 [this](int, int) { updateThreadWindowTitle(); });
         connect(postSource, &AbstractPostSource::itemCountChanged, this,
                 [this](int) { updateThreadWindowTitle(); });
