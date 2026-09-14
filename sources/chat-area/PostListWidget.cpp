@@ -13,6 +13,8 @@
 
 #include <QFrame>
 
+#include "post/PostWidget.h"
+
 namespace Mattermost {
 
 PostListWidget::PostListWidget(QWidget* parent)
@@ -27,6 +29,12 @@ PostListWidget::PostListWidget(QWidget* parent)
     setRequestBlockSize(10);
     setPrefetchScreens(1);
     setSeekDebounceMs(100);
+}
+
+QString PostListWidget::itemIdentity(const QWidget* widget) const
+{
+    const auto* postWidget = qobject_cast<const PostWidget*>(widget);
+    return postWidget ? postWidget->post.id : QString();
 }
 
 } // namespace Mattermost

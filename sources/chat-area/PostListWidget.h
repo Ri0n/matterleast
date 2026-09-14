@@ -26,6 +26,10 @@ class PostListWidget : public LongListWidget
 {
 public:
     explicit PostListWidget(QWidget* parent = nullptr);
+
+protected:
+    /** All post-based LongLists use the semantic post ID as their stable row key. */
+    QString itemIdentity(const QWidget* widget) const override;
 };
 
 } // namespace Mattermost

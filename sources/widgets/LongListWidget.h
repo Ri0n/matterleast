@@ -30,6 +30,7 @@
 #include <QHash>
 #include <QPointer>
 #include <QSet>
+#include <QString>
 #include <QTimer>
 #include <QVector>
 
@@ -129,8 +130,17 @@ public:
         emit rangeRequestFinished(first, last);
     }
 
-    /** Notify the view that data for already available items changed. */
+    /** Re-measure already materialized items after their presentation changed in-place. */
     void itemsChanged(int first, int last);
+
+    /**
+     * Reconcile an identity-to-index mapping change without rebuilding surviving
+     * widgets. Subclasses that support arbitrary remaps provide stable semantic
+     * identity through itemIdentity()/indexOfItemIdentity(). A widget is kept
+     * whenever the same identity still exists and remains available; only its
+     * logical index and geometry change.
+     */
+    void reconcileItemLayout(int first, int last);
 
     QWidget* itemWidget(int index) const;
     QVector<int> materializedIndices() const;
@@ -194,6 +204,30 @@ signals:
 protected:
     /** Return a new widget for an available logical item. Ownership is transferred. */
     virtual QWidget* createItemWidget(int index) = 0;
+
+    /**
+     * Stable semantic identity carried by a concrete widget. Empty means that
+     * this list does not support arbitrary identity remapping; insert/remove
+     * operations still preserve widgets by their shifted logical index.
+     */
+    virtual QString itemIdentity(const QWidget* widget) const
+    {
+        Q_UNUSED(widget)
+        return {};
+    }
+
+    /** Return the current logical index of a stable semantic identity. */
+    virtual int indexOfItemIdentity(const QString& identity) const
+    {
+        Q_UNUSED(identity)
+        return -1;
+    }
+
+    /** Current model-side availability used while reconciling a remapped span. */
+    virtual bool isModelItemAvailable(int index) const
+    {
+        return isItemAvailable(index);
+    }
 
     /** Default destruction policy for an evicted materialized widget. */
     virtual void destroyItemWidget(int index, QWidget* widget);
