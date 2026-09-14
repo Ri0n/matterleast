@@ -774,6 +774,45 @@ void ChatLogWidget::reconnectSource()
             << "SOURCE_REQUEST_FINISHED list=" << static_cast<const void*>(this)
             << " source=" << sourceName(postSource)
             << " range=[" << first << ',' << last << ']';
+
+        // Source and view availability can momentarily diverge when an exact
+        // identity/body is already resident by the time LongList's sparse range
+        // request reaches the source. A source is then allowed to finish without
+        // another network operation, but the view still needs the availability
+        // transition that caused the request to become unnecessary.
+        if (postSource && itemCount() > 0) {
+            const int boundedFirst = std::max(0, first);
+            const int boundedLast = std::min(itemCount() - 1, last);
+            int availableRunFirst = -1;
+            for (int index = boundedFirst; index <= boundedLast; ++index) {
+                const bool reconcile = postSource->isAvailable(index)
+                    && !isItemAvailable(index);
+                if (reconcile) {
+                    if (availableRunFirst < 0) {
+                        availableRunFirst = index;
+                    }
+                    continue;
+                }
+                if (availableRunFirst >= 0) {
+                    qCDebug(lcTimelineTrace).nospace()
+                        << "SOURCE_RECONCILE_AVAILABLE list="
+                        << static_cast<const void*>(this)
+                        << " source=" << sourceName(postSource)
+                        << " range=[" << availableRunFirst << ',' << (index - 1) << ']';
+                    setRangeAvailable(availableRunFirst, index - 1, true);
+                    availableRunFirst = -1;
+                }
+            }
+            if (availableRunFirst >= 0) {
+                qCDebug(lcTimelineTrace).nospace()
+                    << "SOURCE_RECONCILE_AVAILABLE list="
+                    << static_cast<const void*>(this)
+                    << " source=" << sourceName(postSource)
+                    << " range=[" << availableRunFirst << ',' << boundedLast << ']';
+                setRangeAvailable(availableRunFirst, boundedLast, true);
+            }
+        }
+
         finishRangeRequest(first, last);
         scheduleReadCursorUpdate();
     }));
@@ -795,16 +834,46 @@ void ChatLogWidget::rematerializeRange(int first, int last)
         << " source=" << sourceName(postSource)
         << " range=[" << first << ',' << last << ']';
 
+    // Navigation-context growth is a structural source notification, not a
+    // content edit. ChannelPostSource can publish a broad itemsChanged range
+    // while it extends/reconciles a provisional semantic island. Preserve a
+    // concrete PostWidget when the semantic identity at that logical slot did
+    // not change; otherwise a harmless cursor extension would restart the whole
+    // viewport and kill the navigation-highlight animation with the old widget.
+    const bool navigationContextRefresh = !navigationPostId.isEmpty() && first < last;
+
     for (int index = first; index <= last; ++index) {
         const bool sourceAvailable = postSource->isAvailable(index);
-        if (itemWidget(index)) {
+        if (QWidget* existingWidget = itemWidget(index)) {
             BackendPost* post = postSource->postAt(index);
+            auto* existingPostWidget = qobject_cast<PostWidget*>(existingWidget);
+            if (navigationContextRefresh && sourceAvailable && post
+                && existingPostWidget && existingPostWidget->post.id == post->id) {
+                qCDebug(lcTimelineTrace).nospace()
+                    << "REMATERIALIZE_KEEP list=" << static_cast<const void*>(this)
+                    << " source=" << sourceName(postSource)
+                    << " index=" << index
+                    << " postId=" << post->id
+                    << " widget=" << static_cast<const void*>(existingWidget);
+                continue;
+            }
+
             qCDebug(lcTimelineTrace).nospace()
                 << "REMATERIALIZE_WIDGET list=" << static_cast<const void*>(this)
                 << " source=" << sourceName(postSource)
                 << " index=" << index
                 << " available=" << sourceAvailable
                 << " postId=" << (post ? post->id : QString());
+
+            // If a real authoritative remap moves the highlighted semantic
+            // target, the old widget genuinely has to die. Re-arm the highlight
+            // for the replacement widget instead of letting the animation vanish
+            // with this stale physical object.
+            if (navigationContextRefresh && existingPostWidget
+                && existingPostWidget->post.id == navigationPostId) {
+                pendingHighlightPostId = navigationPostId;
+            }
+
             // Force replacement so PostWidget gets the source's new identity or
             // content rather than retaining an object for a provisional slot.
             setRangeAvailable(index, index, false);

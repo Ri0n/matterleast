@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 #include <QLoggingCategory>
 #include <QPointer>
@@ -505,6 +506,7 @@ void ThreadPostSource::requestRange(int first,
     }
 
     // Only a genuinely disconnected random middle window needs timestamp seek.
+    // The estimate is refined by every authoritative island already discovered.
     const int target = (requestedFirst + requestedLast) / 2;
     const uint64_t estimatedTime = estimatedCreateAt(target);
     const int fetchCount = std::max(ServerBlockSize, missingCount);
@@ -515,7 +517,8 @@ void ThreadPostSource::requestRange(int first,
         << " perPage=" << fetchCount;
     PostTimelineService::instance(backend).loadThreadFromTime(
         channel, rootId, fetchCount, estimatedTime,
-        [guard, target, first, last](const PostTimelineService::Page& result) {
+        [guard, target, requestedFirst, requestedLast, first, last, fetchCount](
+            const PostTimelineService::Page& result) {
             if (!guard) {
                 return;
             }
@@ -527,10 +530,91 @@ void ThreadPostSource::requestRange(int first,
                 << " prev=" << shortId(result.prevPostId)
                 << " next=" << shortId(result.nextPostId)
                 << " hasNext=" << result.hasNext;
+
+            PostSourceRequestGate::Range placed;
             if (result.success && !result.postIds.isEmpty()) {
-                guard->placeApproximate(target, result.postIds);
+                placed = guard->placeApproximate(target, result.postIds);
             }
-            emit guard->rangeRequestFinished(first, last);
+
+            const bool missedBefore = placed.isValid() && placed.last < requestedFirst;
+            const bool missedAfter = placed.isValid() && placed.first > requestedLast;
+            if (!missedBefore && !missedAfter) {
+                emit guard->rangeRequestFinished(first, last);
+                return;
+            }
+
+            const int anchorIndex = missedAfter ? placed.first : placed.last;
+            if (!guard->isCursorReadyIndex(anchorIndex)) {
+                emit guard->rangeRequestFinished(first, last);
+                return;
+            }
+
+            const QString anchorId = guard->postIds.at(anchorIndex);
+            BackendPost* anchorPost = guard->channel.postIdToPost.value(anchorId, nullptr);
+            if (!anchorPost) {
+                emit guard->rangeRequestFinished(first, last);
+                return;
+            }
+
+            if (missedAfter) {
+                qCDebug(lcThreadTimelineTrace).nospace()
+                    << "THREAD_REQUEST_BRANCH source=" << static_cast<const void*>(guard.data())
+                    << " branch=approx-bridge-backward anchorIndex=" << anchorIndex
+                    << " anchor=" << shortId(anchorId)
+                    << " requested=[" << requestedFirst << ',' << requestedLast << ']'
+                    << " perPage=" << fetchCount;
+                PostTimelineService::instance(guard->backend).loadThreadBefore(
+                    guard->channel, guard->rootId, anchorId, anchorPost->create_at, fetchCount,
+                    [guard, anchorIndex, anchorId, first, last](
+                        const PostTimelineService::Page& bridge) {
+                        if (!guard) {
+                            return;
+                        }
+                        qCDebug(lcThreadTimelineTrace).nospace()
+                            << "THREAD_RESPONSE source=" << static_cast<const void*>(guard.data())
+                            << " branch=approx-bridge-backward anchorIndex=" << anchorIndex
+                            << " anchor=" << shortId(anchorId)
+                            << " success=" << bridge.success
+                            << " ids=" << idsSummary(bridge.postIds);
+                        if (bridge.success && !bridge.postIds.isEmpty()) {
+                            const int pageCount = std::min(
+                                static_cast<int>(bridge.postIds.size()),
+                                std::max(0, anchorIndex - 1));
+                            if (pageCount > 0) {
+                                const QStringList page = bridge.postIds.mid(
+                                    bridge.postIds.size() - pageCount);
+                                guard->placeExactWindow(anchorIndex - pageCount, page);
+                            }
+                        }
+                        emit guard->rangeRequestFinished(first, last);
+                    });
+                return;
+            }
+
+            qCDebug(lcThreadTimelineTrace).nospace()
+                << "THREAD_REQUEST_BRANCH source=" << static_cast<const void*>(guard.data())
+                << " branch=approx-bridge-forward anchorIndex=" << anchorIndex
+                << " anchor=" << shortId(anchorId)
+                << " requested=[" << requestedFirst << ',' << requestedLast << ']'
+                << " perPage=" << fetchCount;
+            PostTimelineService::instance(guard->backend).loadThreadAfter(
+                guard->channel, guard->rootId, anchorId, anchorPost->create_at, fetchCount,
+                [guard, anchorIndex, anchorId, first, last](
+                    const PostTimelineService::Page& bridge) {
+                    if (!guard) {
+                        return;
+                    }
+                    qCDebug(lcThreadTimelineTrace).nospace()
+                        << "THREAD_RESPONSE source=" << static_cast<const void*>(guard.data())
+                        << " branch=approx-bridge-forward anchorIndex=" << anchorIndex
+                        << " anchor=" << shortId(anchorId)
+                        << " success=" << bridge.success
+                        << " ids=" << idsSummary(bridge.postIds);
+                    if (bridge.success && !bridge.postIds.isEmpty()) {
+                        guard->placeExactWindow(anchorIndex + 1, bridge.postIds);
+                    }
+                    emit guard->rangeRequestFinished(first, last);
+                });
         });
 }
 
@@ -913,13 +997,18 @@ void ThreadPostSource::placeTail(const QStringList& ids)
         << ' ' << slotSummary(postIds);
 }
 
-void ThreadPostSource::placeApproximate(int targetIndex, const QStringList& ids)
+PostSourceRequestGate::Range ThreadPostSource::placeApproximate(
+    int targetIndex,
+    const QStringList& ids)
 {
     if (postIds.size() <= 1 || ids.isEmpty()) {
-        return;
+        return {};
     }
     const int count = std::min(static_cast<int>(ids.size()),
                                static_cast<int>(postIds.size()) - 1);
+    if (count <= 0) {
+        return {};
+    }
     const int maxFirst = std::max(1, static_cast<int>(postIds.size()) - count);
 
     // A forward timestamp page starts near the estimated logical target. The
@@ -968,6 +1057,7 @@ void ThreadPostSource::placeApproximate(int targetIndex, const QStringList& ids)
     qCDebug(lcThreadTimelineTrace).nospace()
         << "THREAD_PLACE_APPROX_DONE source=" << static_cast<const void*>(this)
         << ' ' << slotSummary(postIds);
+    return PostSourceRequestGate::Range { first, last };
 }
 
 uint64_t ThreadPostSource::estimatedCreateAt(int logicalIndex) const
@@ -977,18 +1067,33 @@ uint64_t ThreadPostSource::estimatedCreateAt(int logicalIndex) const
         return root ? root->create_at : 0;
     }
 
-    logicalIndex = std::max(1, std::min(logicalIndex, static_cast<int>(postIds.size()) - 1));
-    const uint64_t oldest = root->create_at;
-    const uint64_t newest = std::max(root->last_reply_at, oldest);
-    if (newest <= oldest) {
-        return oldest;
+    const int lastLogicalIndex = static_cast<int>(postIds.size()) - 1;
+    logicalIndex = std::max(1, std::min(logicalIndex, lastLogicalIndex));
+
+    std::vector<ThreadSeekAnchor> anchors;
+    anchors.reserve(static_cast<std::size_t>(postIds.size()));
+    for (int index = 1; index <= lastLogicalIndex; ++index) {
+        if (!isCursorReadyIndex(index)) {
+            continue;
+        }
+        BackendPost* post = channel.postIdToPost.value(postIds.at(index), nullptr);
+        if (post) {
+            anchors.push_back(ThreadSeekAnchor { index, post->create_at });
+        }
     }
 
-    const long double fraction = static_cast<long double>(logicalIndex - 1)
-        / static_cast<long double>(std::max(1, static_cast<int>(postIds.size()) - 2));
-    const long double estimate = static_cast<long double>(oldest)
-        + fraction * static_cast<long double>(newest - oldest);
-    return static_cast<uint64_t>(std::llround(estimate));
+    const ThreadSeekEstimate estimate = threadSeekEstimate(
+        logicalIndex,
+        lastLogicalIndex,
+        root->create_at,
+        std::max(root->last_reply_at, root->create_at),
+        anchors);
+    qCDebug(lcThreadTimelineTrace).nospace()
+        << "THREAD_SEEK_ESTIMATE source=" << static_cast<const void*>(this)
+        << " target=" << logicalIndex
+        << " anchors=[" << estimate.lowerIndex << ',' << estimate.upperIndex << ']'
+        << " fromCreateAt=" << estimate.createAt;
+    return estimate.createAt;
 }
 
 int ThreadPostSource::estimatedIndexForPost(const BackendPost& post) const
