@@ -314,6 +314,91 @@ void ChannelPostSource::requestRange(int first,
 
     QPointer<ChannelPostSource> guard(this);
 
+    // A navigation context whose absolute slot is still provisional must grow
+    // from its semantic edge identities. Falling back to an absolute /posts
+    // page for the immediately adjacent rows can numerically overlap the
+    // provisional slots without sharing any identity. placePage() must defer
+    // that collision, and repeating the same page then makes no progress.
+    //
+    // Extend the provisional island by cursor instead. The target stays at its
+    // current estimated logical position; reaching either real channel boundary
+    // turns the enlarged context into an exact placement. This path is shared by
+    // public channels, DMs and GMs.
+    if (provisionalWindow.isValid()) {
+        const ProvisionalWindow window = provisionalWindow;
+        const int fetchCount = std::max(ServerPageSize, missingCount);
+
+        if (lastMissing == window.first - 1 && !window.postIds.isEmpty()) {
+            const QString anchorId = window.postIds.first();
+            qCDebug(lcTimelineChannel).nospace()
+                << "NAV_CURSOR_EXTEND direction=before requested=["
+                << requestedFirst << ',' << requestedLast
+                << "] anchorIndex=" << window.first
+                << " anchor=" << anchorId
+                << " perPage=" << fetchCount;
+            PostTimelineService::instance(backend).loadChannelBefore(
+                channel, anchorId, fetchCount,
+                [guard, anchorId, first, last](
+                    const PostTimelineService::Page& result) {
+                    if (!guard) {
+                        return;
+                    }
+                    if (result.success && guard->provisionalWindow.isValid()
+                        && !guard->provisionalWindow.postIds.isEmpty()
+                        && guard->provisionalWindow.postIds.first() == anchorId) {
+                        const ProvisionalWindow current = guard->provisionalWindow;
+                        QStringList extended = result.postIds;
+                        extended.append(current.postIds);
+                        const bool reachedOldest = current.reachedOldest
+                            || result.prevPostId.isEmpty();
+                        if (!result.postIds.isEmpty()
+                            || reachedOldest != current.reachedOldest) {
+                            guard->placeNavigationContext(
+                                current.targetPostId, extended,
+                                reachedOldest, current.reachedNewest);
+                        }
+                    }
+                    emit guard->rangeRequestFinished(first, last);
+                });
+            return;
+        }
+
+        if (firstMissing == window.last() + 1 && !window.postIds.isEmpty()) {
+            const QString anchorId = window.postIds.last();
+            qCDebug(lcTimelineChannel).nospace()
+                << "NAV_CURSOR_EXTEND direction=after requested=["
+                << requestedFirst << ',' << requestedLast
+                << "] anchorIndex=" << window.last()
+                << " anchor=" << anchorId
+                << " perPage=" << fetchCount;
+            PostTimelineService::instance(backend).loadChannelAfter(
+                channel, anchorId, fetchCount,
+                [guard, anchorId, first, last](
+                    const PostTimelineService::Page& result) {
+                    if (!guard) {
+                        return;
+                    }
+                    if (result.success && guard->provisionalWindow.isValid()
+                        && !guard->provisionalWindow.postIds.isEmpty()
+                        && guard->provisionalWindow.postIds.last() == anchorId) {
+                        const ProvisionalWindow current = guard->provisionalWindow;
+                        QStringList extended = current.postIds;
+                        extended.append(result.postIds);
+                        const bool reachedNewest = current.reachedNewest
+                            || result.nextPostId.isEmpty();
+                        if (!result.postIds.isEmpty()
+                            || reachedNewest != current.reachedNewest) {
+                            guard->placeNavigationContext(
+                                current.targetPostId, extended,
+                                current.reachedOldest, reachedNewest);
+                        }
+                    }
+                    emit guard->rangeRequestFinished(first, last);
+                });
+            return;
+        }
+    }
+
     // Sequential history walking should use an exact resident identity, not an
     // absolute page derived from the approximate channel row count. This also
     // keeps join/leave and other count-excluded roots from influencing ordinary

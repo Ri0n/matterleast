@@ -57,7 +57,7 @@ private:
     void placeExactWindow(int first, const QStringList& ids);
     void placeInitial(const QStringList& ids);
     void placeTail(const QStringList& ids);
-    void placeApproximate(int targetIndex, const QStringList& ids);
+    PostSourceRequestGate::Range placeApproximate(int targetIndex, const QStringList& ids);
     uint64_t estimatedCreateAt(int logicalIndex) const;
     int estimatedIndexForPost(const BackendPost& post) const;
     void appendLiveReply(BackendPost& post);
