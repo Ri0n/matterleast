@@ -25,6 +25,24 @@ void LongListWidget::reconcileItemLayout(int first, int last)
         return;
     }
 
+    // A few legacy producers still route an ordinary one-row data update through
+    // the structural notification while the migration away from itemsChanged is
+    // being completed. If the concrete semantic row is demonstrably still at the
+    // same index with the same availability, there is no layout work to do. The
+    // presentation-specific path re-measures that widget independently. Besides
+    // avoiding needless scrollbar restoration, this makes such notifications
+    // harmless during wheel scrolling.
+    if (first == last) {
+        if (QWidget* widget = materialized.value(first, nullptr)) {
+            const QString identity = itemIdentity(widget);
+            if (!identity.isEmpty()
+                && indexOfItemIdentity(identity) == first
+                && isModelItemAvailable(first) == isItemAvailable(first)) {
+                return;
+            }
+        }
+    }
+
     struct WidgetState {
         QWidget* widget = nullptr;
         QString identity;
@@ -149,6 +167,10 @@ void LongListWidget::reconcileItemLayout(int first, int last)
         }
     }
 
+    // Treat a remap as one geometry transaction. New mappings, carried height
+    // measurements and the semantic anchor are committed before the scrollbar is
+    // touched, so wheel input never observes the old widget disappearing through
+    // an intermediate estimated-height state.
     QSignalBlocker blocker(verticalScrollBar());
     viewport()->setUpdatesEnabled(false);
     committingGeometry = true;
