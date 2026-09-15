@@ -89,13 +89,6 @@ public:
     void addThreadButton();
     Backend& getBackend() const { return backend_; }
 
-    // A thread root is presented persistently in the ChatArea header. Keep its
-    // semantic row at index zero for source/navigation/read-state invariants,
-    // but collapse the duplicate timeline presentation to a one-pixel anchor.
-    QSize sizeHint() const override;
-    QSize minimumSizeHint() const override;
-    int heightForWidth(int width) const override;
-
     BackendPost&						post;
     QString								hoveredLink;
     QPushButton*						threadButton;
@@ -120,7 +113,6 @@ protected:
 private:
     friend class ReactionQuickBarController;
 
-    bool isThreadRootTimelineAnchor() const;
     void showPostContextMenu(const QPoint& globalPos);
     void animateReactionAffordance(bool visible);
     void positionReactionAffordance();
