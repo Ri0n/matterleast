@@ -308,6 +308,23 @@ target_link_libraries(post-cache-service-test
 
 add_test(NAME post-cache-service-test COMMAND post-cache-service-test)
 
+add_executable(channel-gap-reconciliation-test
+    ChannelGapReconciliationTest.cpp
+)
+
+target_include_directories(channel-gap-reconciliation-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+
+target_link_libraries(channel-gap-reconciliation-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+
+add_test(NAME channel-gap-reconciliation-test COMMAND channel-gap-reconciliation-test)
+
 add_executable(thread-navigation-placement-test
     ThreadNavigationPlacementTest.cpp
 )

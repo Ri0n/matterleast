@@ -1,5 +1,7 @@
 #include "ChannelPostSource.h"
 
+#include "ChannelGapReconciliation.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -247,7 +249,6 @@ void ChannelPostSource::requestRange(int first,
         emit rangeRequestFinished(first, last);
         return;
     }
-
     const int requestedFirst = std::max(0, first);
     const int requestedLast = std::min(static_cast<int>(postIds.size()) - 1, last);
     if (requestedLast < requestedFirst) {
@@ -314,6 +315,118 @@ void ChannelPostSource::requestRange(int first,
 
     QPointer<ChannelPostSource> guard(this);
 
+    // Cursor responses are stronger than the provisional timestamp estimate.
+    // If a response proves that more concrete rows fit before/after the
+    // provisional island than the current logical spacing allows, first slide
+    // the provisional island through adjacent empty slots. If an authoritative
+    // neighbour blocks that slide, insert logical slots at the boundary instead
+    // of dropping any server-returned identity.
+    const auto makeRoomBeforeProvisional = [](ChannelPostSource* source,
+                                               int requiredLast) {
+        if (!source || !source->provisionalWindow.isValid()) {
+            return;
+        }
+        const ProvisionalWindow window = source->provisionalWindow;
+        if (requiredLast < window.first) {
+            return;
+        }
+
+        const int shift = requiredLast - window.first + 1;
+        const int windowCount = static_cast<int>(window.postIds.size());
+        bool canSlide = window.last() + shift < source->postIds.size();
+        if (canSlide) {
+            for (int index = window.last() + 1;
+                 index <= window.last() + shift; ++index) {
+                if (!source->postIds.at(index).isEmpty()) {
+                    canSlide = false;
+                    break;
+                }
+            }
+        }
+
+        if (canSlide) {
+            const int newFirst = window.first + shift;
+            for (int index = window.first; index <= window.last(); ++index) {
+                if (source->provisionalPostIds.contains(source->postIds.at(index))) {
+                    source->postIds[index].clear();
+                }
+            }
+            for (int offset = 0; offset < windowCount; ++offset) {
+                source->postIds[newFirst + offset] = window.postIds.at(offset);
+            }
+            source->provisionalWindow.first = newFirst;
+            source->rebuildIndex();
+            source->itemsChanged(window.first, window.last());
+            source->itemsChanged(newFirst, newFirst + windowCount - 1);
+            emit source->rangeAvailable(newFirst, newFirst + windowCount - 1);
+            qCDebug(lcTimelineChannel).nospace()
+                << "RANGE_CURSOR_SHIFT_PROVISIONAL direction=after"
+                << " oldFirst=" << window.first
+                << " newFirst=" << newFirst
+                << " shift=" << shift;
+            return;
+        }
+
+        source->provisionalWindow.first += shift;
+        source->insertEmptyLogicalSlots(window.first, shift);
+        qCDebug(lcTimelineChannel).nospace()
+            << "RANGE_CURSOR_INSERT_GAP direction=after"
+            << " first=" << window.first
+            << " count=" << shift;
+    };
+
+    const auto makeRoomAfterProvisional = [](ChannelPostSource* source,
+                                              int requiredFirst) {
+        if (!source || !source->provisionalWindow.isValid()) {
+            return;
+        }
+        const ProvisionalWindow window = source->provisionalWindow;
+        if (requiredFirst > window.last()) {
+            return;
+        }
+
+        const int shift = window.last() - requiredFirst + 1;
+        const int windowCount = static_cast<int>(window.postIds.size());
+        const int newFirst = window.first - shift;
+        bool canSlide = newFirst >= 0;
+        if (canSlide) {
+            for (int index = newFirst; index < window.first; ++index) {
+                if (!source->postIds.at(index).isEmpty()) {
+                    canSlide = false;
+                    break;
+                }
+            }
+        }
+
+        if (canSlide) {
+            for (int index = window.first; index <= window.last(); ++index) {
+                if (source->provisionalPostIds.contains(source->postIds.at(index))) {
+                    source->postIds[index].clear();
+                }
+            }
+            for (int offset = 0; offset < windowCount; ++offset) {
+                source->postIds[newFirst + offset] = window.postIds.at(offset);
+            }
+            source->provisionalWindow.first = newFirst;
+            source->rebuildIndex();
+            source->itemsChanged(window.first, window.last());
+            source->itemsChanged(newFirst, newFirst + windowCount - 1);
+            emit source->rangeAvailable(newFirst, newFirst + windowCount - 1);
+            qCDebug(lcTimelineChannel).nospace()
+                << "RANGE_CURSOR_SHIFT_PROVISIONAL direction=before"
+                << " oldFirst=" << window.first
+                << " newFirst=" << newFirst
+                << " shift=" << shift;
+            return;
+        }
+
+        source->insertEmptyLogicalSlots(window.last() + 1, shift);
+        qCDebug(lcTimelineChannel).nospace()
+            << "RANGE_CURSOR_INSERT_GAP direction=before"
+            << " first=" << (window.last() + 1)
+            << " count=" << shift;
+    };
+
     // A navigation context whose absolute slot is still provisional must grow
     // from its semantic edge identities. Falling back to an absolute /posts
     // page for the immediately adjacent rows can numerically overlap the
@@ -353,9 +466,23 @@ void ChannelPostSource::requestRange(int first,
                             || result.prevPostId.isEmpty();
                         if (!result.postIds.isEmpty()
                             || reachedOldest != current.reachedOldest) {
+                            int exactFirstHint = -1;
+                            if (!result.prevPostId.isEmpty()
+                                && guard->isAuthoritativePost(result.prevPostId)) {
+                                const int predecessorIndex = guard->indexOfPost(
+                                    result.prevPostId);
+                                if (predecessorIndex >= 0) {
+                                    exactFirstHint = predecessorIndex + 1;
+                                    qCDebug(lcTimelineChannel).nospace()
+                                        << "NAV_CURSOR_ADJACENCY direction=before"
+                                        << " predecessor=" << result.prevPostId
+                                        << " contextFirst=" << exactFirstHint;
+                                }
+                            }
                             guard->placeNavigationContext(
                                 current.targetPostId, extended,
-                                reachedOldest, current.reachedNewest);
+                                reachedOldest, current.reachedNewest,
+                                exactFirstHint);
                         }
                     }
                     emit guard->rangeRequestFinished(first, last);
@@ -388,9 +515,25 @@ void ChannelPostSource::requestRange(int first,
                             || result.nextPostId.isEmpty();
                         if (!result.postIds.isEmpty()
                             || reachedNewest != current.reachedNewest) {
+                            int exactFirstHint = -1;
+                            if (!result.nextPostId.isEmpty()
+                                && guard->isAuthoritativePost(result.nextPostId)) {
+                                const int successorIndex = guard->indexOfPost(
+                                    result.nextPostId);
+                                const int extendedCount = static_cast<int>(
+                                    extended.size());
+                                if (successorIndex >= extendedCount) {
+                                    exactFirstHint = successorIndex - extendedCount;
+                                    qCDebug(lcTimelineChannel).nospace()
+                                        << "NAV_CURSOR_ADJACENCY direction=after"
+                                        << " successor=" << result.nextPostId
+                                        << " contextFirst=" << exactFirstHint;
+                                }
+                            }
                             guard->placeNavigationContext(
                                 current.targetPostId, extended,
-                                current.reachedOldest, reachedNewest);
+                                current.reachedOldest, reachedNewest,
+                                exactFirstHint);
                         }
                     }
                     emit guard->rangeRequestFinished(first, last);
@@ -399,16 +542,18 @@ void ChannelPostSource::requestRange(int first,
         }
     }
 
-    // Sequential history walking should use an exact resident identity, not an
-    // absolute page derived from the approximate channel row count. This also
-    // keeps join/leave and other count-excluded roots from influencing ordinary
-    // wheel scrolling once an exact neighbourhood has been established.
-    if (exactPagingAllowed && firstMissing > 0
-        && isCursorReadyIndex(firstMissing - 1)) {
+    // A provisional navigation island must not globally disable semantic cursor
+    // walking elsewhere in the channel. Otherwise a wheel scroll that lands in
+    // the sparse bridge between an authoritative page and the provisional island
+    // falls back to approximate absolute pages forever. Walk from any exact
+    // resident neighbour; if that cursor response reaches an identity from the
+    // provisional island, the overlap itself proves the island's exact mapping.
+    if (firstMissing > 0 && isCursorReadyIndex(firstMissing - 1)) {
         const int anchorIndex = firstMissing - 1;
         const QString anchorId = postIds.at(anchorIndex);
         const int fetchCount = std::max(ServerPageSize, missingCount);
-        const bool gated = reason != RequestReason::Seek && !boundaryRequestGate.isActive();
+        const bool gated = exactPagingAllowed && reason != RequestReason::Seek
+            && !boundaryRequestGate.isActive();
         if (gated) {
             boundaryRequestGate.begin(
                 anchorIndex + 1,
@@ -419,22 +564,90 @@ void ChannelPostSource::requestRange(int first,
             << "RANGE_CURSOR direction=after requested=[" << requestedFirst << ','
             << requestedLast << "] anchorIndex=" << anchorIndex
             << " anchor=" << anchorId << " perPage=" << fetchCount
-            << " gated=" << gated;
+            << " gated=" << gated
+            << " provisional=" << provisionalWindow.isValid();
         PostTimelineService::instance(backend).loadChannelAfter(
             channel, anchorId, fetchCount,
-            [guard, anchorIndex, first, last, gated](
+            [guard, anchorId, first, last, gated, makeRoomBeforeProvisional](
                 const PostTimelineService::Page& result) {
                 if (!guard) {
                     return;
                 }
                 if (result.success && !result.postIds.isEmpty()) {
-                    const int capacity = std::max(
-                        0, static_cast<int>(guard->postIds.size()) - anchorIndex - 1);
-                    const int count = std::min(
-                        static_cast<int>(result.postIds.size()), capacity);
-                    if (count > 0) {
-                        guard->publishExactWindow(guard->assignExactWindow(
-                            anchorIndex + 1, result.postIds.mid(0, count)));
+                    int currentAnchorIndex = guard->indexOfPost(anchorId);
+                    bool safeToPublish = currentAnchorIndex >= 0;
+                    bool reconciledProvisional = false;
+
+                    if (safeToPublish && guard->provisionalWindow.isValid()) {
+                        const ProvisionalWindow window = guard->provisionalWindow;
+                        const auto exactMatch = ChannelGapReconciliation::matchAfter(
+                            currentAnchorIndex, result.postIds,
+                            result.nextPostId, window.postIds);
+                        const int exactContextFirst = exactMatch.first;
+                        if (exactMatch.conflict) {
+                            qCWarning(lcTimelineChannel).nospace()
+                                << "RANGE_CURSOR_RECONCILE direction=after"
+                                << " reason=inconsistent-overlap"
+                                << " anchorIndex=" << currentAnchorIndex;
+                            safeToPublish = false;
+                        } else if (exactMatch.isExact()
+                                   && !window.postIds.isEmpty()
+                                   && result.nextPostId == window.postIds.first()) {
+                            qCDebug(lcTimelineChannel).nospace()
+                                << "RANGE_CURSOR_ADJACENCY direction=after"
+                                << " next=" << result.nextPostId
+                                << " contextFirst=" << exactContextFirst;
+                        }
+                        if (safeToPublish && exactContextFirst >= 0) {
+                            qCDebug(lcTimelineChannel).nospace()
+                                << "RANGE_CURSOR_RECONCILE direction=after"
+                                << " anchorIndex=" << currentAnchorIndex
+                                << " contextFirst=" << exactContextFirst
+                                << " target=" << window.targetPostId;
+                            safeToPublish = guard->placeNavigationContext(
+                                window.targetPostId, window.postIds,
+                                window.reachedOldest, window.reachedNewest,
+                                exactContextFirst);
+                            reconciledProvisional = safeToPublish;
+                        }
+
+                        if (safeToPublish && !reconciledProvisional
+                            && guard->provisionalWindow.isValid()
+                            && currentAnchorIndex < guard->provisionalWindow.first) {
+                            const int pageLast = currentAnchorIndex
+                                + static_cast<int>(result.postIds.size());
+                            switch (ChannelGapReconciliation::gapAfter(
+                                        pageLast, guard->provisionalWindow.first,
+                                        result.nextPostId)) {
+                            case ChannelGapReconciliation::GapDecision::ReserveOne:
+                                makeRoomBeforeProvisional(guard, pageLast + 1);
+                                break;
+                            case ChannelGapReconciliation::GapDecision::Reject:
+                                qCWarning(lcTimelineChannel).nospace()
+                                    << "RANGE_CURSOR_RECONCILE direction=after"
+                                    << " reason=newest-before-provisional"
+                                    << " pageLast=" << pageLast
+                                    << " provisionalFirst="
+                                    << guard->provisionalWindow.first;
+                                safeToPublish = false;
+                                break;
+                            case ChannelGapReconciliation::GapDecision::None:
+                                break;
+                            }
+                        }
+                    }
+
+                    if (safeToPublish) {
+                        currentAnchorIndex = guard->indexOfPost(anchorId);
+                        if (currentAnchorIndex >= 0) {
+                            const int requiredCount = currentAnchorIndex + 1
+                                + static_cast<int>(result.postIds.size());
+                            if (requiredCount > guard->postIds.size()) {
+                                guard->resizeLogicalTail(requiredCount);
+                            }
+                            guard->publishExactWindow(guard->assignExactWindow(
+                                currentAnchorIndex + 1, result.postIds));
+                        }
                     }
                 }
                 if (gated) {
@@ -446,13 +659,13 @@ void ChannelPostSource::requestRange(int first,
         return;
     }
 
-    if (exactPagingAllowed
-        && lastMissing + 1 < static_cast<int>(postIds.size())
+    if (lastMissing + 1 < static_cast<int>(postIds.size())
         && isCursorReadyIndex(lastMissing + 1)) {
         const int anchorIndex = lastMissing + 1;
         const QString anchorId = postIds.at(anchorIndex);
         const int fetchCount = std::max(ServerPageSize, missingCount);
-        const bool gated = reason != RequestReason::Seek && !boundaryRequestGate.isActive();
+        const bool gated = exactPagingAllowed && reason != RequestReason::Seek
+            && !boundaryRequestGate.isActive();
         if (gated) {
             boundaryRequestGate.begin(
                 std::max(0, anchorIndex - fetchCount),
@@ -463,22 +676,90 @@ void ChannelPostSource::requestRange(int first,
             << "RANGE_CURSOR direction=before requested=[" << requestedFirst << ','
             << requestedLast << "] anchorIndex=" << anchorIndex
             << " anchor=" << anchorId << " perPage=" << fetchCount
-            << " gated=" << gated;
+            << " gated=" << gated
+            << " provisional=" << provisionalWindow.isValid();
         PostTimelineService::instance(backend).loadChannelBefore(
             channel, anchorId, fetchCount,
-            [guard, anchorIndex, first, last, gated](
+            [guard, anchorId, first, last, gated, makeRoomAfterProvisional](
                 const PostTimelineService::Page& result) {
                 if (!guard) {
                     return;
                 }
                 if (result.success && !result.postIds.isEmpty()) {
-                    const int count = std::min(
-                        static_cast<int>(result.postIds.size()), anchorIndex);
-                    if (count > 0) {
-                        const QStringList page = result.postIds.mid(
-                            result.postIds.size() - count);
+                    int currentAnchorIndex = guard->indexOfPost(anchorId);
+                    bool safeToPublish = currentAnchorIndex >= 0;
+                    const int count = static_cast<int>(result.postIds.size());
+
+                    if (safeToPublish && count > currentAnchorIndex) {
+                        guard->insertLogicalPrefix(count - currentAnchorIndex);
+                        currentAnchorIndex = guard->indexOfPost(anchorId);
+                    }
+
+                    int pageFirst = currentAnchorIndex - count;
+                    bool reconciledProvisional = false;
+
+                    if (safeToPublish && guard->provisionalWindow.isValid()) {
+                        const ProvisionalWindow window = guard->provisionalWindow;
+                        const auto exactMatch = ChannelGapReconciliation::matchBefore(
+                            pageFirst, result.postIds,
+                            result.prevPostId, window.postIds);
+                        const int exactContextFirst = exactMatch.first;
+                        if (exactMatch.conflict) {
+                            qCWarning(lcTimelineChannel).nospace()
+                                << "RANGE_CURSOR_RECONCILE direction=before"
+                                << " reason=inconsistent-overlap"
+                                << " anchorIndex=" << currentAnchorIndex;
+                            safeToPublish = false;
+                        } else if (exactMatch.isExact()
+                                   && !window.postIds.isEmpty()
+                                   && result.prevPostId == window.postIds.last()) {
+                            qCDebug(lcTimelineChannel).nospace()
+                                << "RANGE_CURSOR_ADJACENCY direction=before"
+                                << " prev=" << result.prevPostId
+                                << " contextFirst=" << exactContextFirst;
+                        }
+                        if (safeToPublish && exactContextFirst >= 0) {
+                            qCDebug(lcTimelineChannel).nospace()
+                                << "RANGE_CURSOR_RECONCILE direction=before"
+                                << " anchorIndex=" << currentAnchorIndex
+                                << " contextFirst=" << exactContextFirst
+                                << " target=" << window.targetPostId;
+                            safeToPublish = guard->placeNavigationContext(
+                                window.targetPostId, window.postIds,
+                                window.reachedOldest, window.reachedNewest,
+                                exactContextFirst);
+                            reconciledProvisional = safeToPublish;
+                        }
+
+                        if (safeToPublish && !reconciledProvisional
+                            && guard->provisionalWindow.isValid()
+                            && currentAnchorIndex > guard->provisionalWindow.last()) {
+                            switch (ChannelGapReconciliation::gapBefore(
+                                        pageFirst, guard->provisionalWindow.last(),
+                                        result.prevPostId)) {
+                            case ChannelGapReconciliation::GapDecision::ReserveOne:
+                                makeRoomAfterProvisional(guard, pageFirst - 1);
+                                currentAnchorIndex = guard->indexOfPost(anchorId);
+                                pageFirst = currentAnchorIndex - count;
+                                break;
+                            case ChannelGapReconciliation::GapDecision::Reject:
+                                qCWarning(lcTimelineChannel).nospace()
+                                    << "RANGE_CURSOR_RECONCILE direction=before"
+                                    << " reason=oldest-after-provisional"
+                                    << " pageFirst=" << pageFirst
+                                    << " provisionalLast="
+                                    << guard->provisionalWindow.last();
+                                safeToPublish = false;
+                                break;
+                            case ChannelGapReconciliation::GapDecision::None:
+                                break;
+                            }
+                        }
+                    }
+
+                    if (safeToPublish && pageFirst >= 0) {
                         guard->publishExactWindow(guard->assignExactWindow(
-                            anchorIndex - count, page));
+                            pageFirst, result.postIds));
                     }
                 }
                 if (gated) {
@@ -1325,12 +1606,24 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
         const int preferredTarget = oldTargetIndex >= 0
             ? oldTargetIndex : estimateIndexForPost(*target);
         const int preferredFirst = preferredTarget - targetOffset;
-        first = findFreeWindowFirst(next, contextCount, preferredFirst);
-        if (first < 0) {
-            qCWarning(lcTimelineChannel) << "no free provisional context span"
-                                         << targetPostId << preferredFirst << contextCount;
+
+        // A provisional island may never become numerically adjacent to an
+        // independently discovered island. Non-boundary sides keep one empty
+        // logical slot until a cursor overlap/continuation proves adjacency.
+        const auto guards = ChannelGapReconciliation::provisionalGuards(
+            reachedOldest, reachedNewest);
+        const int guardedCount = contextCount + guards.left + guards.right;
+        const int guardedPreferredFirst = preferredFirst - guards.left;
+        const int guardedFirst = findFreeWindowFirst(
+            next, guardedCount, guardedPreferredFirst);
+        if (guardedFirst < 0) {
+            qCWarning(lcTimelineChannel)
+                << "no free guarded provisional context span"
+                << targetPostId << preferredFirst << contextCount
+                << guards.left << guards.right;
             return false;
         }
+        first = guardedFirst + guards.left;
     }
 
     for (int offset = 0; offset < contextCount; ++offset) {
@@ -1593,34 +1886,23 @@ void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds)
     // publishing page identities; never overwrite the island by numeric slot.
     if (provisionalWindow.isValid()) {
         const ProvisionalWindow window = provisionalWindow;
-        int exactContextFirst = -1;
-        bool touchesProvisionalIdentity = false;
-        for (int pageOffset = 0; pageOffset < pageIds.size(); ++pageOffset) {
-            const int contextOffset = window.postIds.indexOf(pageIds.at(pageOffset));
-            if (contextOffset < 0) {
-                continue;
-            }
-
-            touchesProvisionalIdentity = true;
-            const int candidate = first + pageOffset - contextOffset;
-            if (exactContextFirst < 0) {
-                exactContextFirst = candidate;
-            } else if (exactContextFirst != candidate) {
-                qCDebug(lcTimelineChannel).nospace()
-                    << "NAV_PAGE_DEFER page=" << page
-                    << " first=" << first
-                    << " last=" << pageLast
-                    << " reason=inconsistent-identity-overlap";
-                return;
-            }
+        const auto exactMatch = ChannelGapReconciliation::matchBefore(
+            first, pageIds, QString(), window.postIds);
+        if (exactMatch.conflict) {
+            qCDebug(lcTimelineChannel).nospace()
+                << "NAV_PAGE_DEFER page=" << page
+                << " first=" << first
+                << " last=" << pageLast
+                << " reason=inconsistent-identity-overlap";
+            return;
         }
 
-        const bool overlapsProvisionalSlots = first <= window.last()
-            && pageLast >= window.first;
-        if (touchesProvisionalIdentity) {
+        const auto decision = ChannelGapReconciliation::absolutePageDecision(
+            first, pageLast, window.first, window.last(), exactMatch.isExact());
+        if (decision == ChannelGapReconciliation::AbsolutePageDecision::Reconcile) {
             if (!placeNavigationContext(window.targetPostId, window.postIds,
                                         window.reachedOldest, window.reachedNewest,
-                                        exactContextFirst)) {
+                                        exactMatch.first)) {
                 qCDebug(lcTimelineChannel).nospace()
                     << "NAV_PAGE_DEFER page=" << page
                     << " first=" << first
@@ -1628,12 +1910,12 @@ void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds)
                     << " reason=context-conflict";
                 return;
             }
-        } else if (overlapsProvisionalSlots) {
+        } else if (decision == ChannelGapReconciliation::AbsolutePageDecision::Defer) {
             qCDebug(lcTimelineChannel).nospace()
                 << "NAV_PAGE_DEFER page=" << page
                 << " first=" << first
                 << " last=" << pageLast
-                << " reason=slot-overlap-without-identity";
+                << " reason=unproven-numeric-contact";
             return;
         }
     }
