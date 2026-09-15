@@ -430,9 +430,15 @@ void PostWidget::positionReactionAffordance()
     if (!reactionAffordance_) {
         return;
     }
-    const int x = 4;
-    const int y = std::max(4, height() - reactionAffordance_->height() - 6);
-    reactionAffordance_->move(x, y);
+    int x = 4;
+    int y = std::max(4, height() - reactionAffordance_->height() - 6);
+    if (threadSummary && threadSummary->isVisible()) {
+        const QPoint threadTopLeft = threadSummary->mapTo(this, QPoint(0, 0));
+        x = std::max(4, threadTopLeft.x() - reactionAffordance_->width() - 4);
+        y = threadTopLeft.y()
+            + (threadSummary->height() - reactionAffordance_->height()) / 2;
+    }
+    reactionAffordance_->move(x, std::max(2, y));
 }
 
 void PostWidget::showPostContextMenu(const QPoint& globalPos)
@@ -499,6 +505,12 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
                                                 tr("Copy post message"));
     connect(copyMessageAction, &QAction::triggered, this, [this] {
         QApplication::clipboard()->setText(formatForClipboardSelection(messageOnly));
+    });
+
+    QAction* unreadAction = menu.addAction(icon(QStringLiteral(":/icons/unread")),
+                                           tr("Mark as unread"));
+    connect(unreadAction, &QAction::triggered, this, [this] {
+        emit markUnreadRequested(post.id);
     });
 
     QAction* saveAction = menu.addAction(icon(QStringLiteral(":/icons/bookmark")),

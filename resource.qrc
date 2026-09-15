@@ -16,6 +16,7 @@
         <file alias="edit">img/edit.svg</file>
         <file alias="copy">img/copy.svg</file>
         <file alias="link">img/link.svg</file>
+        <file alias="unread">img/unread.svg</file>
         <file>img/icon0.ico</file>
         <file>img/icon1.ico</file>
         <file>img/icon2.ico</file>

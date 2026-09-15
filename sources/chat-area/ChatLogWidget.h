@@ -6,6 +6,7 @@
 #include <QString>
 
 #include "AbstractPostSource.h"
+#include "ManualUnreadVisibilityGate.h"
 #include "PostListWidget.h"
 
 class QFrame;
@@ -94,6 +95,8 @@ private:
     void scheduleNavigationFinalize();
     void scheduleReadCursorUpdate();
     void updateReadCursorFromViewport();
+    void markPostUnread(const QString& postId);
+    bool isPostLowerEdgeVisible(const QString& postId) const;
     void setMessageSelectionRange(const QString& currentPostId);
     void setMessagePostSelected(const QString& postId, bool selected);
     void applyMessageSelectionVisuals();
@@ -119,6 +122,7 @@ private:
     bool navigationRecenterPending = false;
     bool readCursorUpdatePending_ = false;
     bool _initialScrollBarPulsePending = true;
+    ManualUnreadVisibilityGate manualUnreadGate_;
 
     bool messageSelectionMode_ = false;
     bool messageSelectionDragActive_ = false;

@@ -100,6 +100,7 @@ private slots:
 signals:
 	void dimensionsChanged ();
     void wholeMessageSelectionToggled(const QString& postId, bool selected);
+    void markUnreadRequested(const QString& postId);
 
 protected:
     bool event(QEvent* event) override;

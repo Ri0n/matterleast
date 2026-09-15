@@ -435,3 +435,21 @@ add_executable(post-selection-policy-test PostSelectionPolicyTest.cpp)
 target_include_directories(post-selection-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(post-selection-policy-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME post-selection-policy-test COMMAND post-selection-policy-test)
+
+
+add_executable(manual-unread-visibility-gate-test ManualUnreadVisibilityGateTest.cpp)
+target_include_directories(manual-unread-visibility-gate-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(manual-unread-visibility-gate-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME manual-unread-visibility-gate-test COMMAND manual-unread-visibility-gate-test)
+
+add_executable(post-unread-request-test PostUnreadRequestTest.cpp)
+target_include_directories(post-unread-request-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(post-unread-request-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME post-unread-request-test COMMAND post-unread-request-test)
+
+if(TARGET mattermost-core)
+    add_executable(post-reaction-interaction-test PostReactionInteractionTest.cpp)
+    target_link_libraries(post-reaction-interaction-test PRIVATE mattermost-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME post-reaction-interaction-test COMMAND post-reaction-interaction-test)
+    set_tests_properties(post-reaction-interaction-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

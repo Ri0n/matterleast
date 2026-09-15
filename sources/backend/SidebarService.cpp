@@ -11,10 +11,12 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkReply>
 #include <QTimer>
 
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
+#include "backend/PostUnreadRequest.h"
 #include "backend/QByteArrayCreator.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
@@ -365,6 +367,67 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
 void SidebarService::markChannelViewedLocally(const BackendChannel& channel)
 {
     recordChannelViewed(channel);
+}
+
+void SidebarService::markPostUnread(const QString& postId,
+                                           std::function<void(bool)> callback)
+{
+    const QString userId = currentUserId();
+    if (userId.isEmpty() || postId.isEmpty()) {
+        if (callback) {
+            callback(false);
+        }
+        return;
+    }
+
+    NetworkRequest request(postUnreadPath(userId, postId));
+    httpConnector.post(
+        request,
+        QByteArrayCreator(postUnreadPayload(collapsedThreadsEnabled)),
+        HttpResponseCallback([this, callback = std::move(callback)](
+                                 QVariant status, const QJsonDocument& doc) mutable {
+            if (status.toInt() != QNetworkReply::NoError || !doc.isObject()) {
+                if (callback) {
+                    callback(false);
+                }
+                return;
+            }
+
+            const QJsonObject object = doc.object();
+            const QString channelId = object.value(QStringLiteral("channel_id")).toString();
+            if (channelId.isEmpty()) {
+                if (callback) {
+                    callback(false);
+                }
+                return;
+            }
+
+            const auto nonNegative = [&object](const char* name) -> uint64_t {
+                const qint64 value = object.value(QString::fromLatin1(name))
+                    .toVariant().toLongLong();
+                return value > 0 ? static_cast<uint64_t>(value) : 0;
+            };
+
+            const bool wasMentioned = activityTracker.hasMention(channelId);
+            activityTracker.markUnread(
+                channelId,
+                nonNegative("last_viewed_at"),
+                nonNegative("msg_count"),
+                nonNegative("msg_count_root"),
+                object.contains(QStringLiteral("msg_count_root")),
+                nonNegative("mention_count"),
+                nonNegative("mention_count_root"),
+                object.contains(QStringLiteral("mention_count_root")));
+
+            const bool isMentioned = activityTracker.hasMention(channelId);
+            if (wasMentioned != isMentioned) {
+                emit channelMentionedChanged(channelId, isMentioned);
+            }
+            emit channelActivityChanged(channelId);
+            if (callback) {
+                callback(true);
+            }
+        }));
 }
 
 void SidebarService::synchronizeChannelActivity()

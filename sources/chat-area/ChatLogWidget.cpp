@@ -490,6 +490,19 @@ void ChatLogWidget::updateReadCursorFromViewport()
         return;
     }
 
+    if (manualUnreadGate_.active()) {
+        const QString gatedPostId = manualUnreadGate_.postId();
+        const bool lowerEdgeVisible = isPostLowerEdgeVisible(gatedPostId);
+        if (manualUnreadGate_.update(lowerEdgeVisible)) {
+            qCDebug(lcTimelineTrace).nospace()
+                << "READ_CURSOR_MANUAL_UNREAD_BLOCK list="
+                << static_cast<const void*>(this)
+                << " post=" << gatedPostId
+                << " lowerEdgeVisible=" << lowerEdgeVisible;
+            return;
+        }
+    }
+
     // Reading is a viewport fact, not a navigation fact. Among concrete posts
     // whose lower edge has entered the viewport, advance through the newest
     // semantic (create_at, id) boundary. Wheel scrolling, dragging/clicking the
@@ -594,6 +607,60 @@ void ChatLogWidget::updateReadCursorFromViewport()
     }
 }
 
+bool ChatLogWidget::isPostLowerEdgeVisible(const QString& postId) const
+{
+    if (!postSource || postId.isEmpty() || viewport()->height() <= 0) {
+        return false;
+    }
+    const int index = postSource->indexOfPost(postId);
+    QWidget* widget = index >= 0 ? itemWidget(index) : nullptr;
+    if (!widget) {
+        return false;
+    }
+    const int bottom = widget->y() + widget->height();
+    return bottom > 0 && bottom <= viewport()->height();
+}
+
+void ChatLogWidget::markPostUnread(const QString& postId)
+{
+    if (!backend || !chatArea || !postSource || postId.isEmpty()) {
+        return;
+    }
+    const int index = postSource->indexOfPost(postId);
+    BackendPost* post = index >= 0 ? postSource->postAt(index) : nullptr;
+    if (!post) {
+        return;
+    }
+
+    const QString channelId = chatArea->getChannel().id;
+    const QString threadId = chatArea->isThread ? chatArea->root_id : QString();
+    const uint64_t createAt = post->create_at;
+    manualUnreadGate_.markUnread(postId, isPostLowerEdgeVisible(postId));
+
+    QPointer<ChatLogWidget> guard(this);
+    SidebarService::instance(*backend).markPostUnread(
+        postId,
+        [guard, channelId, threadId, postId, createAt](bool success) {
+            if (!guard || !guard->backend) {
+                return;
+            }
+            if (!success) {
+                if (guard->manualUnreadGate_.postId() == postId) {
+                    guard->manualUnreadGate_.clear();
+                    guard->scheduleReadCursorUpdate();
+                }
+                return;
+            }
+
+            auto& following = FollowingModel::instance(*guard->backend);
+            following.markPostUnread(channelId, threadId, postId, createAt);
+            if (!threadId.isEmpty()) {
+                following.refreshThreads();
+            }
+            guard->scheduleReadCursorUpdate();
+        });
+}
+
 void ChatLogWidget::clearNavigationLock()
 {
     navigationPostId.clear();
@@ -694,6 +761,8 @@ QWidget* ChatLogWidget::createItemWidget(int index)
             this, [this](const QString& id, bool selected) {
         setMessagePostSelected(id, selected);
     });
+    connect(widget, &PostWidget::markUnreadRequested,
+            this, &ChatLogWidget::markPostUnread);
     if (selectedPostIds_.contains(postId)) {
         cacheSelectedPost(postId);
     }

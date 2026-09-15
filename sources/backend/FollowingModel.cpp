@@ -23,6 +23,13 @@ uint64_t nowMs()
     return static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
 }
 
+QString manualUnreadKey(const QString& channelId, const QString& threadId)
+{
+    return threadId.isEmpty()
+        ? QStringLiteral("c:") + channelId
+        : QStringLiteral("t:") + channelId + QLatin1Char(':') + threadId;
+}
+
 } // namespace
 
 FollowingModel& FollowingModel::instance(Backend& backend)
@@ -59,6 +66,9 @@ FollowingModel::FollowingModel(Backend& backend)
 
     connect(&backend_, &Backend::onChannelViewed, this,
             [this](const BackendChannel& channel) {
+        const QString key = manualUnreadKey(channel.id, QString());
+        manualUnreadMarkers_.remove(key);
+        manualAttentionKeys_.remove(key);
         clearSyntheticMentions(channel.id);
         syncConversations();
         emit changed();
@@ -183,16 +193,22 @@ void FollowingModel::syncConversations()
     for (auto it = backend_.getStorage().channels.cbegin();
          it != backend_.getStorage().channels.cend(); ++it) {
         BackendChannel* channel = it.value();
-        if (!channel
-            || (channel->type != BackendChannel::directChannel
-                && channel->type != BackendChannel::groupChannel)) {
+        if (!channel) {
             continue;
         }
 
-        const bool unread = sidebar.isChannelUnread(*channel);
+        const QString manualKey = manualUnreadKey(channel->id, QString());
+        const bool manualAttention = manualAttentionKeys_.contains(manualKey);
+        const bool conversation = channel->type == BackendChannel::directChannel
+            || channel->type == BackendChannel::groupChannel;
+        if (!conversation && !manualAttention) {
+            continue;
+        }
+
+        const bool serverUnread = sidebar.isChannelUnread(*channel);
         const bool mentioned = sidebar.hasUnreadMention(channel->id);
         const bool muted = sidebar.isChannelMuted(*channel);
-        if (muted || (!unread && !mentioned)) {
+        if (!manualAttention && (muted || (!serverUnread && !mentioned))) {
             continue;
         }
 
@@ -205,9 +221,9 @@ void FollowingModel::syncConversations()
         entry.channelId = channel->id;
         entry.threadId.clear();
         entry.teamId.clear();
-        entry.unread = unread;
+        entry.unread = serverUnread || manualAttention;
         entry.mentioned = mentioned;
-        entry.muted = false;
+        entry.muted = manualAttention ? false : muted;
         entry.unreadReplies = 0;
         entry.unreadMentions = 0;
         entry.synthetic = false;
@@ -215,6 +231,13 @@ void FollowingModel::syncConversations()
         entry.lastReplyAt = sidebar.channelActivityTime(*channel);
         if (entry.lastReplyAt == 0) {
             entry.lastReplyAt = channel->last_post_at;
+        }
+        const auto manualIt = manualUnreadMarkers_.constFind(manualKey);
+        if (manualIt != manualUnreadMarkers_.cend()) {
+            entry.resumeState = ResumeState::FirstUnread;
+            entry.firstUnreadPostId = manualIt->postId;
+            entry.readThroughPostId.clear();
+            entry.readThroughCreateAt = 0;
         }
         noteAttentionTransition(entry, wasAttention);
         next.push_back(std::move(entry));
@@ -319,6 +342,51 @@ void FollowingModel::clearSyntheticMentions(const QString& channelId)
     }
 }
 
+void FollowingModel::markPostUnread(const QString& channelId,
+                                           const QString& threadId,
+                                           const QString& postId,
+                                           uint64_t createAt)
+{
+    if (channelId.isEmpty() || postId.isEmpty()) {
+        return;
+    }
+
+    const QString key = manualUnreadKey(channelId, threadId);
+    manualUnreadMarkers_.insert(
+        key, ManualUnreadMarker {channelId, threadId, postId, createAt});
+    manualAttentionKeys_.insert(key);
+
+    if (threadId.isEmpty()) {
+        syncConversations();
+        emit changed();
+        return;
+    }
+
+    Entry* entry = findThreadMutable(threadId);
+    if (!entry) {
+        Entry created;
+        created.kind = Kind::Thread;
+        created.channelId = channelId;
+        created.threadId = threadId;
+        if (BackendChannel* channel = backend_.getStorage().getChannelById(channelId)) {
+            created.teamId = channel->team ? channel->team->id : QString();
+        }
+        entries_.push_back(std::move(created));
+        entry = &entries_.last();
+    }
+
+    const bool wasAttention = entry->requiresAttention();
+    entry->unreadReplies = std::max(1, entry->unreadReplies);
+    entry->resumeState = ResumeState::FirstUnread;
+    entry->firstUnreadPostId = postId;
+    entry->readThroughPostId.clear();
+    entry->readThroughCreateAt = 0;
+    entry->lastReplyAt = std::max(entry->lastReplyAt, createAt);
+    entry->muted = false;
+    noteAttentionTransition(*entry, wasAttention);
+    emit changed();
+}
+
 void FollowingModel::scheduleThreadRefresh()
 {
     threadSnapshotDirty_ = true;
@@ -420,6 +488,19 @@ void FollowingModel::applyThreadSnapshot(
             ? SidebarService::instance(backend_).isChannelMuted(*channel)
             : false;
 
+        const QString manualKey = manualUnreadKey(entry.channelId, entry.threadId);
+        const bool manualAttention = manualAttentionKeys_.contains(manualKey);
+        const auto manualIt = manualUnreadMarkers_.constFind(manualKey);
+        if (manualAttention) {
+            entry.unreadReplies = std::max(1, entry.unreadReplies);
+            if (manualIt != manualUnreadMarkers_.cend()) {
+                entry.resumeState = ResumeState::FirstUnread;
+                entry.firstUnreadPostId = manualIt->postId;
+                entry.readThroughPostId.clear();
+                entry.readThroughCreateAt = 0;
+            }
+        }
+
         if (readPending) {
             if (entry.unreadReplies <= 0 && entry.unreadMentions <= 0) {
                 entry.readAcknowledgementPending = false;
@@ -516,6 +597,14 @@ void FollowingModel::observeReadThrough(const QString& channelId,
         return;
     }
 
+    const QString manualKey = manualUnreadKey(channelId, threadId);
+    const auto manualIt = manualUnreadMarkers_.constFind(manualKey);
+    if (manualIt != manualUnreadMarkers_.cend()
+        && (post.id == manualIt->postId
+            || isAfter(post.create_at, post.id, manualIt->createAt, manualIt->postId))) {
+        manualUnreadMarkers_.remove(manualKey);
+    }
+
     const bool sameBoundary = entry->readThroughPostId == post.id;
     if (!entry->readThroughPostId.isEmpty() && !sameBoundary
         && !isAfter(post.create_at, post.id,
@@ -567,6 +656,15 @@ void FollowingModel::markThreadRead(const QString& teamId,
             callback(false);
         }
         return;
+    }
+
+    for (auto it = manualAttentionKeys_.begin(); it != manualAttentionKeys_.end();) {
+        if (it->endsWith(QLatin1Char(':') + threadId)) {
+            manualUnreadMarkers_.remove(*it);
+            it = manualAttentionKeys_.erase(it);
+        } else {
+            ++it;
+        }
     }
 
     if (Entry* entry = findThreadMutable(threadId)) {
