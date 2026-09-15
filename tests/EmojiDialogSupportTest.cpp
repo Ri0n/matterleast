@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include <QtTest>
 
 #include "choose-emoji-dialog/EmojiDialogSupport.h"
@@ -74,7 +76,7 @@ private slots:
         model.recordUse(QStringLiteral("eyes"));
 
         auto ranking = model.ranking();
-        QCOMPARE(ranking.size(), 2);
+        QCOMPARE(static_cast<int>(ranking.size()), 2);
         QCOMPARE(ranking.at(0).name, QStringLiteral("eyes"));
         QCOMPARE(ranking.at(0).count, quint64(1));
         QVERIFY(qAbs(ranking.at(0).heat - 1.0) < 1e-12);
@@ -87,6 +89,16 @@ private slots:
         QCOMPARE(ranking.at(0).name, QStringLiteral("fire"));
         QCOMPARE(ranking.at(0).count, quint64(2));
         QVERIFY(qAbs(ranking.at(0).heat - 1.0) < 1e-12);
+
+        Mattermost::ReactionUsageModel established;
+        for (int i = 0; i < 64; ++i) {
+            established.recordUse(QStringLiteral("+1"));
+        }
+        established.recordUse(QStringLiteral("rocket"));
+        const auto establishedRanking = established.ranking();
+        QCOMPARE(establishedRanking.at(0).name, QStringLiteral("rocket"));
+        QCOMPARE(establishedRanking.at(1).count, quint64(64));
+        QVERIFY(establishedRanking.at(1).heat < 1.0);
     }
 
     void establishedReactionCoolsMoreSlowly()
@@ -140,7 +152,8 @@ private slots:
         const auto sourceRanking = source.ranking();
         const auto restoredRanking = restored.ranking();
         QCOMPARE(restoredRanking.size(), sourceRanking.size());
-        for (int i = 0; i < sourceRanking.size(); ++i) {
+        const int count = static_cast<int>(sourceRanking.size());
+        for (int i = 0; i < count; ++i) {
             QCOMPARE(restoredRanking.at(i).name, sourceRanking.at(i).name);
             QCOMPARE(restoredRanking.at(i).count, sourceRanking.at(i).count);
             QVERIFY(qAbs(restoredRanking.at(i).heat - sourceRanking.at(i).heat) < 1e-12);
