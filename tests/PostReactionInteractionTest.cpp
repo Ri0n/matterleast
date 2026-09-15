@@ -25,7 +25,7 @@ private slots:
                          BackendPostReaction {QStringLiteral("Bob")});
         list.resize(220, 32);
         list.show();
-        QTest::qWaitForWindowExposed(&list);
+        QVERIFY(QTest::qWaitForWindowExposed(&list));
         QApplication::processEvents();
 
         auto chips = list.findChildren<PostReaction*>();
