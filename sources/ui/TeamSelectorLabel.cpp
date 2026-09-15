@@ -61,7 +61,7 @@ TeamSelectorLabel::TeamSelectorLabel(QWidget* parent)
     , preferredTeamId_(QSettings().value(QString::fromLatin1(ActiveTeamSetting)).toString())
 {
     setMinimumHeight(18);
-    setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     setToolButtonStyle(Qt::ToolButtonTextOnly);
     setAutoRaise(true);
     setAccessibleName(tr("Current team"));
