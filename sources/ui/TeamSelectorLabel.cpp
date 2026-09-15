@@ -1,12 +1,10 @@
 #include "TeamSelectorLabel.h"
 
 #include <algorithm>
-#include <functional>
 #include <vector>
 
 #include <QAbstractItemModel>
 #include <QAction>
-#include <QEvent>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -17,7 +15,6 @@
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QTimer>
-#include <QToolButton>
 #include <QTreeWidgetItem>
 
 #include "backend/Backend.h"
@@ -57,25 +54,6 @@ QString joinableTeamLabel(const QJsonObject& team)
     return display;
 }
 
-QAction* findLogoutAction(QMenu* menu)
-{
-    if (!menu) {
-        return nullptr;
-    }
-    for (QAction* action : menu->actions()) {
-        if (!action) {
-            continue;
-        }
-        if (action->text() == QStringLiteral("Logout")) {
-            return action;
-        }
-        if (QAction* nested = findLogoutAction(action->menu())) {
-            return nested;
-        }
-    }
-    return nullptr;
-}
-
 } // namespace
 
 TeamSelectorLabel::TeamSelectorLabel(QWidget* parent)
@@ -86,6 +64,11 @@ TeamSelectorLabel::TeamSelectorLabel(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     setTextInteractionFlags(Qt::NoTextInteraction);
     setAccessibleName(tr("Current team"));
+    setCursor(Qt::PointingHandCursor);
+    setAttribute(Qt::WA_Hover, true);
+    setStyleSheet(QStringLiteral(
+        "QLabel { padding-left: 6px; padding-right: 6px; border-radius: 3px; }"
+        "QLabel:hover { background-color: palette(midlight); }"));
 
     QFont labelFont = font();
     labelFont.setBold(true);
@@ -113,24 +96,6 @@ void TeamSelectorLabel::showEvent(QShowEvent* event)
     attachTree();
 }
 
-bool TeamSelectorLabel::eventFilter(QObject* watched, QEvent* event)
-{
-    if (tree_ && watched == tree_->viewport() && event) {
-        switch (event->type()) {
-        case QEvent::Paint:
-        case QEvent::Show:
-        case QEvent::MouseButtonPress:
-        case QEvent::Wheel:
-        case QEvent::KeyPress:
-            enforceInactiveTeamVisibility();
-            break;
-        default:
-            break;
-        }
-    }
-    return ClickableLabel::eventFilter(watched, event);
-}
-
 void TeamSelectorLabel::attachTree()
 {
     auto* tree = window()
@@ -146,7 +111,6 @@ void TeamSelectorLabel::attachTree()
     }
 
     tree_ = tree;
-    tree_->viewport()->installEventFilter(this);
 
     auto refreshLater = [this] {
         QTimer::singleShot(0, this, [this] { refreshTeams(); });
@@ -199,12 +163,16 @@ void TeamSelectorLabel::refreshTeams()
             continue;
         }
         item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
+        // Older selector code hid inactive top-level roots. rootIndex now scopes
+        // the view instead, so every logical team root must remain addressable.
+        item->setHidden(false);
         if (firstRootId.isEmpty()) {
             firstRootId = item->data(0, ChannelTree::ItemTeamIdRole).toString();
         }
     }
 
     if (firstRootId.isEmpty()) {
+        tree_->setRootIndex(QModelIndex());
         setText(tr("Team"));
         return;
     }
@@ -218,11 +186,7 @@ void TeamSelectorLabel::refreshTeams()
     }
 
     if (!activeTeamId_.isEmpty() && hasTeamRoot(activeTeamId_)) {
-        enforceInactiveTeamVisibility();
-        if (BackendTeam* team = backend->getStorage().getTeamById(activeTeamId_)) {
-            setText(teamLabel(*team) + QStringLiteral("  \u25BE"));
-            setToolTip(tr("Switch team"));
-        }
+        setActiveTeam(activeTeamId_, false);
         return;
     }
 
@@ -248,11 +212,7 @@ bool TeamSelectorLabel::setActiveTeam(const QString& teamId, bool persist)
         return false;
     }
 
-    activeTeamId_ = teamId;
-    preferredTeamId_.clear();
-    tree_->setProperty("_mmqt_active_team_id", teamId);
-    backend->setCurrentTeamContextId(teamId);
-
+    QModelIndex rootIndex;
     for (int i = 0; i < tree_->topLevelItemCount(); ++i) {
         QTreeWidgetItem* item = tree_->topLevelItem(i);
         if (!item
@@ -260,42 +220,38 @@ bool TeamSelectorLabel::setActiveTeam(const QString& teamId, bool persist)
                 != ChannelTree::TeamItemKind) {
             continue;
         }
-        const QString rootTeamId = item->data(0, ChannelTree::ItemTeamIdRole).toString();
-        item->setHidden(rootTeamId != activeTeamId_);
+        item->setHidden(false);
+        if (item->data(0, ChannelTree::ItemTeamIdRole).toString() == teamId) {
+            rootIndex = tree_->model()->index(i, 0, QModelIndex());
+        }
+    }
+    if (!rootIndex.isValid()) {
+        return false;
     }
 
     QTreeWidgetItem* current = tree_->currentItem();
     if (current
-        && current->data(0, ChannelTree::ItemTeamIdRole).toString() != activeTeamId_) {
+        && current->data(0, ChannelTree::ItemTeamIdRole).toString() != teamId) {
         tree_->setCurrentItem(nullptr);
     }
 
-    setText(teamLabel(*team) + QStringLiteral("  \u25BE"));
+    activeTeamId_ = teamId;
+    preferredTeamId_.clear();
+    tree_->setProperty("_mmqt_active_team_id", teamId);
+    backend->setCurrentTeamContextId(teamId);
+
+    // Make the TeamItem the QTreeView root instead of trying to paint it away.
+    // Its category children become the visual top level while all existing
+    // TeamItem parentage remains intact for sidebar state, DnD and factories.
+    tree_->setRootIndex(rootIndex);
+
+    setText(teamLabel(*team));
     setToolTip(tr("Switch team"));
     if (persist) {
         QSettings().setValue(QString::fromLatin1(ActiveTeamSetting), activeTeamId_);
     }
     tree_->viewport()->update();
     return true;
-}
-
-void TeamSelectorLabel::enforceInactiveTeamVisibility()
-{
-    if (!tree_ || activeTeamId_.isEmpty()) {
-        return;
-    }
-    for (int i = 0; i < tree_->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* item = tree_->topLevelItem(i);
-        if (!item
-            || item->data(0, ChannelTree::ItemKindRole).toInt()
-                != ChannelTree::TeamItemKind) {
-            continue;
-        }
-        if (item->data(0, ChannelTree::ItemTeamIdRole).toString() != activeTeamId_
-            && !item->isHidden()) {
-            item->setHidden(true);
-        }
-    }
 }
 
 void TeamSelectorLabel::showTeamMenu()
@@ -333,8 +289,6 @@ void TeamSelectorLabel::showTeamMenu()
     }
     menu.addAction(tr("Add another team\u2026"), this,
                    [this] { addAnotherTeam(); });
-    menu.addAction(tr("Log out"), this,
-                   [this] { triggerLogout(); });
 
     menu.exec(mapToGlobal(QPoint(0, height())));
 }
@@ -396,18 +350,6 @@ void TeamSelectorLabel::addAnotherTeam()
             guard->pendingJoinedTeamId_ = choices.at(index).second;
             backend.joinTeam(guard->pendingJoinedTeamId_);
         });
-}
-
-void TeamSelectorLabel::triggerLogout()
-{
-    QWidget* root = window();
-    auto* menuButton = root
-        ? root->findChild<QToolButton*>(QStringLiteral("toolButton"))
-        : nullptr;
-    QAction* logout = menuButton ? findLogoutAction(menuButton->menu()) : nullptr;
-    if (logout) {
-        logout->trigger();
-    }
 }
 
 } // namespace Mattermost
