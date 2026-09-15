@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <QHash>
 #include <QPointer>
 #include <QSet>
@@ -123,6 +125,9 @@ private:
     bool readCursorUpdatePending_ = false;
     bool _initialScrollBarPulsePending = true;
     ManualUnreadVisibilityGate manualUnreadGate_;
+    QString manualUnreadHighWaterPostId_;
+    uint64_t manualUnreadHighWaterCreateAt_ = 0;
+    bool manualUnreadExitedViewport_ = false;
 
     bool messageSelectionMode_ = false;
     bool messageSelectionDragActive_ = false;
