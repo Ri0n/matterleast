@@ -1,0 +1,160 @@
+name: Apply palette rebuild crash fix
+
+on:
+  push:
+    branches:
+      - fix/four-ui-data-regressions
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/four-ui-data-regressions
+          fetch-depth: 0
+
+      - name: Apply fix and regression test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              path.write_text(text.replace(old, new, 1))
+
+          header = Path("sources/chat-area/post/MessageContentWidget.h")
+          replace_once(
+              header,
+              "class QVBoxLayout;\n",
+              "class QEvent;\nclass QVBoxLayout;\n",
+          )
+          replace_once(
+              header,
+              "signals:\n    void linkHovered(const QString& link);\n    void dimensionsChanged();\n\nprivate:\n",
+              "signals:\n    void linkHovered(const QString& link);\n    void dimensionsChanged();\n    void paletteRefreshCompleted();\n\nprotected:\n    void changeEvent(QEvent* event) override;\n\nprivate:\n",
+          )
+          replace_once(
+              header,
+              "    bool dimensionsChangePending = false;\n    QString _sourceMessage;\n",
+              "    bool dimensionsChangePending = false;\n    bool paletteRefreshPending = false;\n    QString _sourceMessage;\n",
+          )
+
+          content = Path("sources/chat-area/post/MessageContentWidget.cpp")
+          marker = "}\n\nvoid MessageContentWidget::setMessage(const QString& message)\n"
+          insertion = """}
+
+void MessageContentWidget::changeEvent(QEvent* event)
+{
+    QWidget::changeEvent(event);
+    if (!event || (event->type() != QEvent::PaletteChange
+                   && event->type() != QEvent::ApplicationPaletteChange)
+        || paletteRefreshPending || _sourceMessage.isEmpty()) {
+        return;
+    }
+
+    // Rebuilding the QTextBrowser/QPlainTextEdit children synchronously from a
+    // PaletteChange handler invalidates QWidgetPrivate's palette-propagation
+    // traversal. Defer and coalesce the rebuild until that traversal has
+    // completed; the context object also cancels the callback on destruction.
+    paletteRefreshPending = true;
+    QTimer::singleShot(0, this, [this] {
+        paletteRefreshPending = false;
+        if (_sourceMessage.isEmpty()) {
+            return;
+        }
+
+        const QString sourceMessage = _sourceMessage;
+        setMessage(sourceMessage);
+        emit paletteRefreshCompleted();
+    });
+}
+
+void MessageContentWidget::setMessage(const QString& message)
+"""
+          replace_once(content, marker, insertion)
+
+          post = Path("sources/chat-area/post/PostWidget.cpp")
+          replace_once(
+              post,
+              "\tconnect(messageContent, &MessageContentWidget::dimensionsChanged,\n"
+              "\t        this, &PostWidget::dimensionsChanged);\n"
+              "\tmessageContent->setMessage(displayMessage(post, post.message));\n",
+              "\tconnect(messageContent, &MessageContentWidget::dimensionsChanged,\n"
+              "\t        this, &PostWidget::dimensionsChanged);\n"
+              "\tconnect(messageContent, &MessageContentWidget::paletteRefreshCompleted,\n"
+              "\t        this, &PostWidget::connectMessageLinks);\n"
+              "\tmessageContent->setMessage(displayMessage(post, post.message));\n",
+          )
+          replace_once(
+              post,
+              "    updateAuthorAvatar();\n    refreshMentionLinks();\n    update();\n",
+              "    updateAuthorAvatar();\n    update();\n",
+          )
+
+          test = Path("tests/MessageContentWidgetTest.cpp")
+          replace_once(
+              test,
+              "#include <QImage>\n#include <QPlainTextEdit>\n",
+              "#include <QImage>\n#include <QPalette>\n#include <QPlainTextEdit>\n#include <QPointer>\n",
+          )
+          test_marker = "    void inlineUnicodeEmojiUsesLargerFont()\n"
+          test_method = """    void paletteChangeDefersContentRebuild()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("theme-sensitive text"));
+        showAndSettle(widget);
+
+        QSignalSpy refreshSpy(&widget, &MessageContentWidget::paletteRefreshCompleted);
+        auto* originalBrowser =
+            widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(originalBrowser != nullptr);
+        QPointer<QTextBrowser> originalBrowserGuard(originalBrowser);
+
+        QPalette firstPalette = widget.palette();
+        firstPalette.setColor(QPalette::Text, Qt::red);
+        widget.setPalette(firstPalette);
+        QPalette secondPalette = firstPalette;
+        secondPalette.setColor(QPalette::Text, Qt::blue);
+        widget.setPalette(secondPalette);
+
+        QVERIFY2(!originalBrowserGuard.isNull(),
+                 "Palette propagation must not synchronously destroy message children");
+        QCOMPARE(refreshSpy.count(), 0);
+
+        QTRY_COMPARE(refreshSpy.count(), 1);
+        QVERIFY2(originalBrowserGuard.isNull(),
+                 "The deferred refresh should replace the old text widget afterwards");
+        auto* rebuiltBrowser =
+            widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(rebuiltBrowser != nullptr);
+        QCOMPARE(rebuiltBrowser->toPlainText(), QStringLiteral("theme-sensitive text"));
+    }
+
+"""
+          replace_once(test, test_marker, test_method + test_marker)
+          PY
+
+          git rm .github/workflows/zz-fix-theme-palette-rebuild.yml
+          git diff --check
+          git diff
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sources/chat-area/post/MessageContentWidget.h \
+                  sources/chat-area/post/MessageContentWidget.cpp \
+                  sources/chat-area/post/PostWidget.cpp \
+                  tests/MessageContentWidgetTest.cpp
+          git commit -m "Fix crash while propagating palette changes"
+          git push origin HEAD:fix/four-ui-data-regressions
