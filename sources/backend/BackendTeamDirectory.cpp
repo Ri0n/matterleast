@@ -1,5 +1,6 @@
 #include "Backend.h"
 #include "NetworkRequest.h"
+#include "QByteArrayCreator.h"
 
 #include <utility>
 
@@ -31,7 +32,7 @@ void Backend::joinTeam(const QString& teamId)
     };
     NetworkRequest request(QStringLiteral("teams/") + teamId
                            + QStringLiteral("/members"));
-    httpConnector.post(request, payload, HttpResponseCallback(
+    httpConnector.post(request, QByteArrayCreator(payload), HttpResponseCallback(
         [this, teamId](QVariant, QByteArray) {
             // The websocket user-added event normally resolves the new team.
             // Also retrieve it from the successful HTTP path so the sidebar is
