@@ -144,11 +144,15 @@ protected:
 	void dragMoveEvent(QDragMoveEvent* event) override;
 	void dropEvent(QDropEvent* event) override;
     void changeEvent(QEvent* event) override;
+    void rowsInserted(const QModelIndex& parent, int start, int end) override;
 
 private:
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
 	void showContextMenu (const QPoint& pos);
 	void handleChannelLeave();
+    void handleChannelUpdated();
+    void scheduleChannelDisplaySync();
+    void syncChannelDisplayRows();
 	void refreshTeamSidebar(Backend& backend, BackendTeam& team);
 	void renderTeamSidebar(Backend& backend, TeamItem& teamItem,
 	                       const SidebarTeamState& state);
@@ -191,6 +195,7 @@ private:
 	Backend*							backendForSidebar;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
+    bool                                channelDisplaySyncScheduled = false;
 };
 
 } /* namespace Mattermost */
