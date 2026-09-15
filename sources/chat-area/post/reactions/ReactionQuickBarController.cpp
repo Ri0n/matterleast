@@ -4,14 +4,12 @@
 #include <QCoreApplication>
 #include <QEvent>
 #include <QFrame>
-#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QPixmap>
 #include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QScreen>
 #include <QSettings>
 #include <QSet>
 #include <QTimer>
@@ -291,11 +289,14 @@ private:
         activePost_ = &post;
         activeHeart_ = &heart;
 
-        auto* popup = new QFrame(nullptr,
-                                 Qt::Tool | Qt::FramelessWindowHint
-                                     | Qt::WindowDoesNotAcceptFocus);
+        // Keep the quick bar inside the post's widget hierarchy. A top-level
+        // Qt::Tool window cannot be positioned reliably on Wayland: the
+        // compositor owns its placement and may ignore QWidget::move(), which
+        // made the bar appear near the middle of the screen instead of next to
+        // the heart. Local widget coordinates are deterministic on every
+        // windowing system and the bar also follows the post while it moves.
+        auto* popup = new QFrame(&post);
         popup_ = popup;
-        popup->setAttribute(Qt::WA_ShowWithoutActivating);
         popup->setFrameShape(QFrame::StyledPanel);
         popup->setFrameShadow(QFrame::Raised);
         popup->setAutoFillBackground(true);
@@ -336,27 +337,22 @@ private:
         });
 
         popup->adjustSize();
-        const QPoint heartGlobal = heart.mapToGlobal(QPoint(0, 0));
-        QPoint position(
-            heartGlobal.x() - popup->width() - 4,
-            heartGlobal.y() + (heart.height() - popup->height()) / 2);
-
-        QScreen* screen = QGuiApplication::screenAt(
-            heartGlobal + QPoint(heart.width() / 2, heart.height() / 2));
-        if (screen) {
-            const QRect available = screen->availableGeometry();
-            if (position.x() < available.left()) {
-                position.setX(heartGlobal.x() + heart.width() + 4);
-            }
-            position.setX(std::max(available.left(),
-                                   std::min(position.x(),
-                                            available.right() - popup->width() + 1)));
-            position.setY(std::max(available.top(),
-                                   std::min(position.y(),
-                                            available.bottom() - popup->height() + 1)));
+        const QPoint heartPosition = heart.mapTo(&post, QPoint(0, 0));
+        const int rightX = heartPosition.x() + heart.width() + 4;
+        int x = heartPosition.x() - popup->width() - 4;
+        if (x < 0 && rightX + popup->width() <= post.width()) {
+            x = rightX;
         }
 
-        popup->move(position);
+        const int maxX = std::max(0, post.width() - popup->width());
+        const int maxY = std::max(0, post.height() - popup->height());
+        x = std::max(0, std::min(x, maxX));
+        const int y = std::max(
+            0,
+            std::min(heartPosition.y() + (heart.height() - popup->height()) / 2,
+                     maxY));
+
+        popup->move(x, y);
         popup->show();
         popup->raise();
     }
