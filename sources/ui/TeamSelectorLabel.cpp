@@ -57,24 +57,21 @@ QString joinableTeamLabel(const QJsonObject& team)
 } // namespace
 
 TeamSelectorLabel::TeamSelectorLabel(QWidget* parent)
-    : ClickableLabel(parent)
+    : QToolButton(parent)
     , preferredTeamId_(QSettings().value(QString::fromLatin1(ActiveTeamSetting)).toString())
 {
     setMinimumHeight(18);
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    setTextInteractionFlags(Qt::NoTextInteraction);
+    setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    setToolButtonStyle(Qt::ToolButtonTextOnly);
+    setAutoRaise(true);
     setAccessibleName(tr("Current team"));
     setCursor(Qt::PointingHandCursor);
-    setAttribute(Qt::WA_Hover, true);
-    setStyleSheet(QStringLiteral(
-        "QLabel { padding-left: 6px; padding-right: 6px; border-radius: 3px; }"
-        "QLabel:hover { background-color: palette(midlight); }"));
 
     QFont labelFont = font();
     labelFont.setBold(true);
     setFont(labelFont);
 
-    connect(this, &ClickableLabel::clicked, this,
+    connect(this, &QToolButton::clicked, this,
             [this] { showTeamMenu(); });
 }
 
@@ -92,7 +89,7 @@ bool TeamSelectorLabel::activateTeam(QWidget* context, const QString& teamId)
 
 void TeamSelectorLabel::showEvent(QShowEvent* event)
 {
-    ClickableLabel::showEvent(event);
+    QToolButton::showEvent(event);
     attachTree();
 }
 
