@@ -87,6 +87,9 @@ signals:
 
     void rangeAvailable(int first, int last);
 
+    /** Initial approximate seek resolved to a concrete row in this generation. */
+    void seekTargetResolved(int index, quint64 generation);
+
     /** Body residency changed and therefore may change effective row availability. */
     void bodyAvailabilityChanged(int first, int last, bool available);
 

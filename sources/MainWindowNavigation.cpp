@@ -169,7 +169,7 @@ void MainWindow::openChannelPost(const QString& channelId,
                 if (!threadGuard || !threadGuard->lockNavigationToPost(postId, 0)) {
                     return;
                 }
-                threadGuard->highlightPostWhenAuthoritative(postId);
+                threadGuard->highlightPostWhenReady(postId);
             });
         return;
     }
@@ -220,7 +220,7 @@ void MainWindow::openChannelPost(const QString& channelId,
             if (!navigationReady) {
                 return;
             }
-            areaGuard->highlightPostWhenAuthoritative(postId);
+            areaGuard->highlightPostWhenReady(postId);
         });
 }
 

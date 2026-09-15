@@ -84,7 +84,7 @@ public:
 	/** Whether removing this resident body would leave no raw root dependency dangling. */
 	bool canEvictPostBody(const QString& postId) const;
 	/** Remove one resident body while preserving all external logical source identities. */
-	bool evictPostBody(const QString& postId);
+	bool evictPostBody(QString postId);
 	/** Re-announce an insertion hidden by a selective quiet-ingest signal blocker. */
 	void notifyPostBodyAvailable(const QString& postId);
 

@@ -414,8 +414,10 @@ bool BackendChannel::canEvictPostBody(const QString& postId) const
 	return true;
 }
 
-bool BackendChannel::evictPostBody(const QString& postId)
+bool BackendChannel::evictPostBody(QString postId)
 {
+    // Callers may pass the body's own id. Own a copy before erasing that body;
+    // the availability signal below must not reference freed storage.
 	if (!canEvictPostBody(postId)) {
 		return false;
 	}

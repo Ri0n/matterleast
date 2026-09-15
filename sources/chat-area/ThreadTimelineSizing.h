@@ -2,9 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <cstdint>
 #include <limits>
-#include <vector>
 
 namespace Mattermost {
 

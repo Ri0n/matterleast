@@ -105,6 +105,7 @@ public:
     int requestBlockSize() const { return blockSize; }
     void setRequestBlockSize(int count);
 
+    /** Optional extra screen buffer beyond the adaptive half-screen row margin. */
     int prefetchScreens() const { return bufferScreens; }
     void setPrefetchScreens(int screens);
 
@@ -119,16 +120,15 @@ public:
     bool isItemAvailable(int index) const;
 
     /**
-     * A data source must finish every range request even when it failed or
-     * returned a differently aligned server page. This releases request
-     * suppression; it intentionally does not reschedule immediately, so a
-     * network failure cannot turn into a tight retry loop.
+     * Complete one source/transport attempt for a logical range.
+     *
+     * Concrete off-target availability may wake the current viewport once after
+     * pending suppression is released. A no-progress completion never polls the
+     * source again on its own: semantic cursor convergence belongs to the source,
+     * while a network/source failure waits for new progress or a user gesture.
      */
-    void finishRangeRequest(int first, int last)
-    {
-        clearPendingRequest(first, last);
-        emit rangeRequestFinished(first, last);
-    }
+    void finishRangeRequest(int first, int last);
+    void resolveSeekTarget(int index, quint64 generation);
 
     /** Re-measure already materialized items after their presentation changed in-place. */
     void itemsChanged(int first, int last);
@@ -304,6 +304,8 @@ private:
                         RequestReason reason,
                         quint64 generation);
     void clearPendingRequest(int first, int last);
+    bool hasMissingItems(const Range& range) const;
+    bool hasMissingVisibleItems() const;
 
     ViewAnchor captureAnchor() const;
     void restoreAnchor(const ViewAnchor& anchor);
@@ -333,7 +335,7 @@ private:
     int defaultHeight = 96;
     int maxMaterializedItems = 200;
     int blockSize = 10;
-    int bufferScreens = 1;
+    int bufferScreens = 0;
     int seekDebounceInterval = 100;
 
     HeightIndex heights;
@@ -361,6 +363,8 @@ private:
     quint64 seekGeneration = 0;
     int seekTarget = -1;
     bool seekActive = false;
+    quint64 availabilityRevision = 0;
+    quint64 observedAvailabilityRevision = 0;
 
     ViewportLock viewportLock;
 

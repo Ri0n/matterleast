@@ -325,6 +325,23 @@ target_link_libraries(channel-gap-reconciliation-test
 
 add_test(NAME channel-gap-reconciliation-test COMMAND channel-gap-reconciliation-test)
 
+add_executable(post-page-cursor-metadata-test
+    PostPageCursorMetadataTest.cpp
+)
+
+target_include_directories(post-page-cursor-metadata-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+
+target_link_libraries(post-page-cursor-metadata-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+
+add_test(NAME post-page-cursor-metadata-test COMMAND post-page-cursor-metadata-test)
+
 add_executable(thread-navigation-placement-test
     ThreadNavigationPlacementTest.cpp
 )
@@ -377,3 +394,10 @@ target_link_libraries(emoji-dialog-support-test
 
 add_test(NAME emoji-dialog-support-test COMMAND emoji-dialog-support-test)
 set_tests_properties(emoji-dialog-support-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+if(TARGET mattermost-core)
+    add_executable(thread-post-source-integration-test ThreadPostSourceIntegrationTest.cpp)
+    target_link_libraries(thread-post-source-integration-test PRIVATE mattermost-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME thread-post-source-integration-test COMMAND thread-post-source-integration-test)
+    set_tests_properties(thread-post-source-integration-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

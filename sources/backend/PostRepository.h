@@ -47,9 +47,11 @@ class PostRepository final : public QObject
 public:
     struct Page {
         QStringList postIds; // chronological: oldest -> newest
+        QHash<QString, uint64_t> createAtById; // source cursor metadata, independent of body residency
         QString prevPostId;
         QString nextPostId;
         bool hasNext = false;
+        bool hasNextKnown = false; // distinguishes server boundary proof from an omitted field
         bool success = false;
     };
 
@@ -162,11 +164,10 @@ public:
                          int perPage,
                          PageCallback callback);
 
-    /** Fetch the newest replies in a thread and normalize to oldest -> newest. */
+    /** Fetch the server newest boundary without relying on thread-summary timestamps. */
     void loadThreadTail(BackendChannel& channel,
                         const QString& rootId,
                         int perPage,
-                        uint64_t lastReplyAt,
                         PageCallback callback);
 
     /** Load a provenance-backed cached newest thread-reply suffix. */

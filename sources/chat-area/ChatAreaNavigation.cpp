@@ -57,7 +57,7 @@ bool ChatArea::lockNavigationToPost(const QString& postId, int quietPeriodMs)
                                                 quietPeriodMs);
 }
 
-void ChatArea::highlightPostWhenAuthoritative(const QString& postId,
+void ChatArea::highlightPostWhenReady(const QString& postId,
                                               std::function<void()> onPresented)
 {
     if (postId.isEmpty() || !ui || !ui->listWidget) {
@@ -65,7 +65,7 @@ void ChatArea::highlightPostWhenAuthoritative(const QString& postId,
     }
 
     auto* source = qobject_cast<ThreadPostSource*>(ui->listWidget->source());
-    if (!source || source->isPostPositionAuthoritative(postId)) {
+    if (!source || source->isPostReadyForNavigation(postId)) {
         ui->listWidget->highlightPost(postId);
         if (onPresented) {
             onPresented();
@@ -73,11 +73,9 @@ void ChatArea::highlightPostWhenAuthoritative(const QString& postId,
         return;
     }
 
-    // A cold permalink can know the reply body before its exact logical thread
-    // position. Flashing that provisional widget races the authoritative page:
-    // the widget is immediately rematerialized and the animation disappears.
-    // Every range request completes after any exact-window placement, so wait
-    // for that semantic confirmation rather than using an arbitrary timer.
+    // A cold permalink may have a renderable semantic island before its ordinal
+    // is known. Wait for that bounded context, not for a full cursor traversal.
+    // Later index reconciliation preserves the widget by post identity.
     const std::uint64_t generation = viewportNavigationGeneration;
     QPointer<ChatArea> guard(this);
     auto connection = std::make_shared<QMetaObject::Connection>();
@@ -89,7 +87,7 @@ void ChatArea::highlightPostWhenAuthoritative(const QString& postId,
             QObject::disconnect(*connection);
             return;
         }
-        if (!source->isPostPositionAuthoritative(postId)) {
+        if (!source->isPostReadyForNavigation(postId)) {
             return;
         }
 

@@ -99,10 +99,19 @@ else()
   # forwarding headers: any remaining dependency on the old chat timeline must
   # fail at its real active call site and become part of the migration checklist.
   list(FILTER SOURCES EXCLUDE REGEX "(^|/)deprecated/")
-  add_executable(${APPID}
-    ${SOURCES}
-    resource.qrc
-  )
+  # Share the production implementation with integration tests, including the
+  # real repository, HTTP connector and source/widget signal wiring.
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
+  add_library(mattermost-core OBJECT ${SOURCES})
+  target_link_libraries(mattermost-core PUBLIC
+    Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
+    Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite)
+  if(TARGET Qt${QT_VERSION_MAJOR}::DBus)
+    target_link_libraries(mattermost-core PUBLIC Qt${QT_VERSION_MAJOR}::DBus)
+    target_compile_definitions(mattermost-core PRIVATE MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS)
+  endif()
+  add_executable(${APPID} sources/main.cpp resource.qrc)
+  target_link_libraries(${APPID} PRIVATE mattermost-core)
   
   if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
 	set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)

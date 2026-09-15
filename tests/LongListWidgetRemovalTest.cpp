@@ -1,7 +1,9 @@
 #include <QtTest>
+#include <QScrollBar>
 
 #include <utility>
 
+#include "channel-tree-dialogs/ChannelMemberPagePolicy.h"
 #include "chat-area/ThreadTimelineSizing.h"
 #include "widgets/LongListWidget.h"
 
@@ -206,6 +208,53 @@ private slots:
         QCOMPARE(list.destroyedCount(), destroyedBefore);
         QVERIFY2(qAbs(target->y() - targetY) <= 2,
                  "A semantic viewport lock must follow the same physical widget across an index remap");
+    }
+
+    void firstPopulationDoesNotInventBottomAnchor()
+    {
+        TestList list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(38);
+        list.show();
+        settleEvents();
+
+        QCOMPARE(list.verticalScrollBar()->minimum(), 0);
+        QCOMPARE(list.verticalScrollBar()->maximum(), 0);
+        QCOMPARE(list.verticalScrollBar()->value(), 0);
+
+        list.setItemCount(9001);
+        settleEvents();
+
+        QVERIFY(list.verticalScrollBar()->maximum() > 0);
+        QCOMPARE(list.verticalScrollBar()->value(), list.verticalScrollBar()->minimum());
+        QVERIFY(list.visibleRange().isValid());
+        QCOMPARE(list.visibleRange().first, 0);
+    }
+
+    void shortRandomMemberPageCannotRedefineLargeCount()
+    {
+        constexpr int memberCount = 9237;
+        constexpr int pageSize = 50;
+
+        const auto randomShort = Mattermost::channelMemberPageDecision(
+            memberCount, 100, pageSize, 0);
+        QVERIFY(!randomShort.acceptPage);
+        QCOMPARE(randomShort.availableCount, 0);
+
+        const auto randomFull = Mattermost::channelMemberPageDecision(
+            memberCount, 100, pageSize, pageSize);
+        QVERIFY(randomFull.acceptPage);
+        QCOMPARE(randomFull.availableCount, pageSize);
+
+        const auto tail = Mattermost::channelMemberPageDecision(
+            memberCount, 9200, pageSize, 37);
+        QVERIFY(tail.acceptPage);
+        QCOMPARE(tail.availableCount, 37);
+
+        const auto shortTail = Mattermost::channelMemberPageDecision(
+            memberCount, 9200, pageSize, 36);
+        QVERIFY(!shortTail.acceptPage);
+        QCOMPARE(shortTail.availableCount, 0);
     }
 
     void threadTombstoneDoesNotConsumeFollowingReplySlot()

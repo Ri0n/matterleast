@@ -1,9 +1,9 @@
 #include "PostRepository.h"
 
+#include "PostPageCursorMetadata.h"
 #include "QByteArrayCreator.h"
 
 #include <algorithm>
-#include <limits>
 #include <memory>
 #include <utility>
 
@@ -826,11 +826,13 @@ void PostRepository::loadCachedThreadTail(BackendChannel& channel,
             guard->ingestCached(*channelGuard, posts, readObservation, true);
             const QStringList ordered = chronologicalOrder(posts, rootId);
             for (const QString& id : ordered) {
-                BackendPost* post = channelGuard->postIdToPost.value(id, nullptr);
-                if (post && post->channel_id == channelId && post->root_id == rootId) {
+                const QJsonObject post = posts.value(id).toObject();
+                if (post.value(QStringLiteral("channel_id")).toString() == channelId
+                    && post.value(QStringLiteral("root_id")).toString() == rootId) {
                     result.postIds.push_back(id);
                 }
             }
+            result.createAtById = postPageCursorCreateAtById(posts, result.postIds);
             result.success = !result.postIds.isEmpty();
             if (callback) {
                 callback(result);
@@ -841,12 +843,12 @@ void PostRepository::loadCachedThreadTail(BackendChannel& channel,
 void PostRepository::loadThreadTail(BackendChannel& channel,
                                     const QString& rootId,
                                     int perPage,
-                                    uint64_t lastReplyAt,
                                     PageCallback callback)
 {
-    const uint64_t afterNewest = lastReplyAt == std::numeric_limits<uint64_t>::max()
-        ? lastReplyAt : lastReplyAt + 1;
-    loadThread(channel, rootId, perPage, QString(), afterNewest,
+    // An unbounded descending query is the server's newest boundary. Thread
+    // summaries may omit last_reply_at or lag behind replies; using that value
+    // as a time cursor can return an empty or historical page instead of tail.
+    loadThread(channel, rootId, perPage, QString(), 0,
                QStringLiteral("up"), std::move(callback));
 }
 
@@ -940,9 +942,11 @@ void PostRepository::loadThread(BackendChannel& channel,
             if (!fromPost.isEmpty()) {
                 result.postIds.removeAll(fromPost);
             }
+            result.createAtById = postPageCursorCreateAtById(posts, result.postIds);
             result.prevPostId = root.value(QStringLiteral("prev_post_id")).toString();
             result.nextPostId = root.value(QStringLiteral("next_post_id")).toString();
             result.hasNext = root.value(QStringLiteral("has_next")).toBool();
+            result.hasNextKnown = root.value(QStringLiteral("has_next")).isBool();
 
             const bool initialReachedNewest = initialPage && !result.hasNext
                 && result.nextPostId.isEmpty();
