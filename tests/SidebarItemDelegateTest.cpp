@@ -15,13 +15,15 @@ class SidebarItemDelegateTest : public QObject
     Q_OBJECT
 
 private:
-    static QImage renderItem(SidebarItem::Kind kind, int channelType, const QString& presence)
+    static QImage renderItem(SidebarItem::Kind kind, int channelType, const QString& presence,
+                             bool unread = false)
     {
         QStandardItemModel model;
         auto* item = new QStandardItem(QStringLiteral("conversation"));
         item->setData(kind, SidebarItem::KindRole);
         item->setData(channelType, SidebarItem::ChannelTypeRole);
         item->setData(presence, SidebarItem::PresenceRole);
+        item->setData(unread, SidebarItem::UnreadRole);
 
         QPixmap avatar(24, 24);
         avatar.fill(Qt::black);
@@ -69,6 +71,15 @@ private slots:
                                                      BackendChannel::groupChannel,
                                                      QString());
         QVERIFY(groupWithPresence == groupWithoutPresence);
+    }
+
+    void unreadRoleMakesConversationVisuallyBold()
+    {
+        const auto read = renderItem(SidebarItem::Channel,
+                                     BackendChannel::publicChannel, QString(), false);
+        const auto unread = renderItem(SidebarItem::Channel,
+                                       BackendChannel::publicChannel, QString(), true);
+        QVERIFY(read != unread);
     }
 
     void rendersPresenceForDirectMessage()

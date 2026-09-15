@@ -178,7 +178,7 @@ void ChannelTree::populateSidebars(Backend& backend)
         if (channel) {
             setChannelUnreadVisual(channelId, sidebar.isChannelUnread(*channel));
         }
-    }, Qt::UniqueConnection);
+    });
     connect(&sidebar, &SidebarService::channelMentionedChanged,
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
 
