@@ -126,6 +126,50 @@ private slots:
         QVERIFY(fire->heat > eyes->heat);
     }
 
+    void effectiveUsageCountsAgeInsteadOfGrowingForever()
+    {
+        Mattermost::ReactionUsageModel model;
+        const quint64 threshold = Mattermost::ReactionUsageModel::CountAgingThreshold;
+
+        for (quint64 i = 0; i < threshold - 1; ++i) {
+            model.recordUse(QStringLiteral("fire"));
+        }
+        QCOMPARE(model.ranking().first().count, threshold - 1);
+
+        // Reaching the threshold ages every familiarity count instead of
+        // allowing one historical favorite to accumulate unbounded inertia.
+        model.recordUse(QStringLiteral("fire"));
+        QCOMPARE(model.ranking().first().count, threshold / 2);
+
+        for (int i = 0; i < 4096; ++i) {
+            model.recordUse(QStringLiteral("fire"));
+        }
+        QVERIFY(model.ranking().first().count < threshold);
+
+        const double slowestCooling = Mattermost::ReactionUsageModel::coolingFactor(
+            threshold - 1);
+        const double longestHalfLife = std::log(0.5) / std::log(slowestCooling);
+        QVERIFY(longestHalfLife < 16.0);
+    }
+
+    void persistedLargeUsageCountsAreAgedOnRestore()
+    {
+        Mattermost::ReactionUsageModel model;
+        model.restore({
+            Mattermost::ReactionUsageEntry {QStringLiteral("fire"), 4096, 0.8},
+            Mattermost::ReactionUsageEntry {QStringLiteral("eyes"), 1024, 0.7},
+        });
+
+        const auto ranking = model.ranking();
+        QCOMPARE(static_cast<int>(ranking.size()), 2);
+        QCOMPARE(ranking.at(0).name, QStringLiteral("fire"));
+        QCOMPARE(ranking.at(0).count, quint64(64));
+        QVERIFY(qAbs(ranking.at(0).heat - 0.8) < 1e-12);
+        QCOMPARE(ranking.at(1).name, QStringLiteral("eyes"));
+        QCOMPARE(ranking.at(1).count, quint64(16));
+        QVERIFY(qAbs(ranking.at(1).heat - 0.7) < 1e-12);
+    }
+
     void popularityMapKeepsOnlyTenHottestEntries()
     {
         Mattermost::ReactionUsageModel model(10);
