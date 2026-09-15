@@ -144,10 +144,21 @@ void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& chann
     });
 
     auto* tree = static_cast<ChannelTree*>(treeWidget());
-    if (tree && tree->canRemoveChannelFromCategory(this)) {
-        menu.addAction(QStringLiteral("Remove from group"), [tree, this] {
-            tree->removeChannelFromCategory(this);
-        });
+    if (tree) {
+        const auto targets = tree->customCategoryTargets(this);
+        if (!targets.isEmpty()) {
+            QMenu* moveMenu = menu.addMenu(QStringLiteral("Move to group"));
+            for (const auto& target : targets) {
+                moveMenu->addAction(target.second, [tree, this, categoryId = target.first] {
+                    tree->moveChannelToCategory(this, categoryId);
+                });
+            }
+        }
+        if (tree->canRemoveChannelFromCategory(this)) {
+            menu.addAction(QStringLiteral("Remove from group"), [tree, this] {
+                tree->removeChannelFromCategory(this);
+            });
+        }
     }
 }
 

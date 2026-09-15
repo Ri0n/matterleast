@@ -31,6 +31,7 @@
 #include "ChannelTreeItem.h"
 #include "SidebarItem.h"
 
+class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
 class QMouseEvent;
@@ -128,6 +129,8 @@ public:
 
 	bool canRemoveChannelFromCategory(const ChannelItem* item) const;
 	void removeChannelFromCategory(ChannelItem* item);
+	QVector<QPair<QString, QString>> customCategoryTargets(const ChannelItem* item) const;
+	void moveChannelToCategory(ChannelItem* item, const QString& categoryId);
 
 signals:
     void virtualDestinationRequested(int destination, const QString& teamId);
@@ -137,6 +140,7 @@ signals:
 protected:
 	void currentChanged(const QModelIndex& current, const QModelIndex& previous) override;
 	void mousePressEvent(QMouseEvent* event) override;
+	void dragMoveEvent(QDragMoveEvent* event) override;
 	void dropEvent(QDropEvent* event) override;
     void changeEvent(QEvent* event) override;
 
@@ -167,6 +171,13 @@ private:
 	void syncCategoryChannels(QTreeWidgetItem* firstCategory, QTreeWidgetItem* secondCategory = nullptr);
 	void syncCategoryOrder(QTreeWidgetItem* teamItem);
 	QStringList channelIds(QTreeWidgetItem* categoryItem) const;
+	bool resolveChannelDropTarget(QTreeWidgetItem* source, const QPoint& pos,
+	                              QTreeWidgetItem*& targetCategoryItem,
+	                              QString& targetChannelId, bool& afterTarget) const;
+	void moveChannel(ChannelItem* item, const QString& targetCategoryId,
+	                 const QString& targetChannelId, bool afterTarget,
+	                 bool explicitPosition);
+	void refreshSidebarTeam(const QString& teamId);
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;

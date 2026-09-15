@@ -49,6 +49,7 @@
 #include "navigation/AppNavigationService.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
+#include "ui/ThemeIconWidgets.h"
 #include "ui_ChatArea.h"
 
 namespace Mattermost {
@@ -202,15 +203,15 @@ ChatArea::ChatArea(Backend& backend,
     // when the thread window opens and use the official PUT/DELETE endpoint.
     if (channel.team && !root_id.isEmpty()) {
         const QString teamId = channel.team->id;
-        const QString threadId = root_id;
-        threadFollowButton = new QToolButton(this);
+        const QString threadId = root_id;        threadFollowButton = new ThemeIconButton(this);
         threadFollowButton->setObjectName(QStringLiteral("threadFollowButton"));
-        threadFollowButton->setAutoRaise(true);
-        threadFollowButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        threadFollowButton->setFixedSize(HeaderActionIconExtent + 8,
+                               HeaderActionIconExtent + 8);
         threadFollowButton->setIconSize(QSize(HeaderActionIconExtent,
-                                              HeaderActionIconExtent));
-        threadFollowButton->setCursor(Qt::PointingHandCursor);
-        threadFollowButton->setEnabled(false);
+                                    HeaderActionIconExtent));
+        threadFollowButton->setProperty(ThemeIconResourceProperty,
+                              QStringLiteral(":/icons/bell"));
+threadFollowButton->setEnabled(false);
         threadFollowButton->setProperty("following", false);
         threadFollowButton->setToolTip(tr("Follow thread"));
         threadFollowButton->setAccessibleName(tr("Follow thread"));
@@ -218,7 +219,7 @@ ChatArea::ChatArea(Backend& backend,
         refreshHeaderActionIcons();
 
         QPointer<ChatArea> areaGuard(this);
-        QPointer<QToolButton> buttonGuard(threadFollowButton);
+        QPointer<ThemeIconButton> buttonGuard(threadFollowButton);
         auto setButtonState = [areaGuard, buttonGuard](bool following) {
             if (!areaGuard || !buttonGuard) {
                 return;
@@ -244,7 +245,7 @@ ChatArea::ChatArea(Backend& backend,
         });
 
         followService.queryFollowing(teamId, threadId, setButtonState);
-        connect(threadFollowButton, &QToolButton::clicked, this,
+        connect(threadFollowButton, &QPushButton::clicked, this,
                 [this, teamId, threadId, buttonGuard, setButtonState] {
             if (!buttonGuard) {
                 return;
@@ -368,13 +369,13 @@ void ChatArea::refreshHeaderActionIcons()
         ui->pinnedPostsButton->setIcon(IconUtils::tintedSymbolicIcon(
             QStringLiteral(":/icons/pin"),
             ui->pinnedPostsButton->palette().color(QPalette::ButtonText)));
-    }
-    if (threadFollowButton) {
+    }    if (threadFollowButton) {
         const bool following = threadFollowButton->property("following").toBool();
-        threadFollowButton->setIcon(IconUtils::tintedSymbolicIcon(
-            following ? QStringLiteral(":/icons/bell-filled")
-                      : QStringLiteral(":/icons/bell"),
-            threadFollowButton->palette().color(QPalette::ButtonText)));
+        threadFollowButton->setProperty(
+  ThemeIconResourceProperty,
+  following ? QStringLiteral(":/icons/bell-filled")
+            : QStringLiteral(":/icons/bell"));
+        threadFollowButton->update();
     }
 }
 

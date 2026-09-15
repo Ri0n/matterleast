@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <QJsonArray>
 #include <QNetworkCookie>
 #include <QObject>
 #include <QList>
@@ -97,8 +98,12 @@ public:
 	//get a team (/teams/teamID)
 	void retrieveTeam (QString teamID);
 
-	//get all public channels for a team (/teams)
-	void retrieveTeamPublicChannels (QString teamID, std::function<void(std::list<BackendChannel>&)> callback);
+	//get one page of public channels for a team (/teams/{team_id}/channels)
+	void retrieveTeamPublicChannelsPage(QString teamID, int page, int perPage,
+	                                    std::function<void(QJsonArray)> callback);
+	//search channels in a team without preloading the public channel directory
+	void searchTeamPublicChannels(QString teamID, QString term,
+	                              std::function<void(QJsonArray)> callback);
 
 	//get own channel memberships (/users/me/teams/teamID/channels)
 	void retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback);
