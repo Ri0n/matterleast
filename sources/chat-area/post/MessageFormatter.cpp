@@ -191,15 +191,15 @@ QString preserveUserLineBreaks(const QString& text)
     while (position < text.size()) {
         const int fenceEnd = fencedBlockEnd(text, position);
         if (fenceEnd != -1) {
-  result += text.mid(position, fenceEnd - position);
-  position = fenceEnd;
-  continue;
+            result += text.mid(position, fenceEnd - position);
+            position = fenceEnd;
+            continue;
         }
 
         const int newline = text.indexOf(QLatin1Char('\n'), position);
         if (newline == -1) {
-  result += text.mid(position);
-  break;
+            result += text.mid(position);
+            break;
         }
 
         result += text.mid(position, newline - position);
@@ -208,18 +208,18 @@ QString preserveUserLineBreaks(const QString& text)
         // block beginning on the next line is also a hard structural boundary.
         // Only ordinary soft line breaks need CommonMark's two-space marker.
         const bool blankBoundary = newline + 1 < text.size()
-  && text.at(newline + 1) == QLatin1Char('\n');
+            && text.at(newline + 1) == QLatin1Char('\n');
         const bool beforeFence = newline + 1 < text.size()
-  && fencedBlockEnd(text, newline + 1) != -1;
+            && fencedBlockEnd(text, newline + 1) != -1;
         if (!blankBoundary && !beforeFence && newline + 1 < text.size()) {
-  int trailingSpaces = 0;
-  for (int i = result.size() - 1;
-       i >= 0 && result.at(i) == QLatin1Char(' '); --i) {
-      ++trailingSpaces;
-  }
-  while (trailingSpaces++ < 2) {
-      result += QLatin1Char(' ');
-  }
+            int trailingSpaces = 0;
+            for (int i = result.size() - 1;
+                 i >= 0 && result.at(i) == QLatin1Char(' '); --i) {
+                ++trailingSpaces;
+            }
+            while (trailingSpaces++ < 2) {
+                result += QLatin1Char(' ');
+            }
         }
 
         result += QLatin1Char('\n');

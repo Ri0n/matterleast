@@ -681,16 +681,9 @@ void FollowingModel::markThreadRead(const QString& teamId,
         return;
     }
 
-    for (auto it = manualAttentionKeys_.begin(); it != manualAttentionKeys_.end();) {
-        if (it->endsWith(QLatin1Char(':') + threadId)) {
-            manualUnreadMarkers_.remove(*it);
-            it = manualAttentionKeys_.erase(it);
-        } else {
-            ++it;
-        }
-    }
-
+    QString manualKey;
     if (Entry* entry = findThreadMutable(threadId)) {
+        manualKey = manualUnreadKey(entry->channelId, threadId);
         entry->unreadReplies = 0;
         entry->unreadMentions = 0;
         entry->mentioned = false;
@@ -708,7 +701,7 @@ void FollowingModel::markThreadRead(const QString& teamId,
     QPointer<FollowingModel> guard(this);
     ThreadFollowService::instance(backend_).markThreadRead(
         teamId, threadId,
-        [guard, threadId, callback = std::move(callback)](bool success) mutable {
+        [guard, threadId, manualKey, callback = std::move(callback)](bool success) mutable {
             if (!guard) {
                 return;
             }
@@ -718,16 +711,21 @@ void FollowingModel::markThreadRead(const QString& teamId,
                     entry->readAcknowledgementPending = false;
                     entry->readAcknowledgementAt = 0;
                 }
-                guard->scheduleThreadRefresh();
-            } else {
-                // Keep the watermark until a shared CRT snapshot confirms it.
-                guard->scheduleThreadRefresh();
+            } else if (!manualKey.isEmpty()) {
+                guard->manualUnreadMarkers_.remove(manualKey);
+                guard->manualAttentionKeys_.remove(manualKey);
             }
+
+            // On failure the retained manual-attention key makes the next CRT
+            // snapshot restore the unread thread. On success the server snapshot
+            // confirms and retires the optimistic read acknowledgement.
+            guard->scheduleThreadRefresh();
 
             if (callback) {
                 callback(success);
             }
         });
 }
+
 
 } // namespace Mattermost

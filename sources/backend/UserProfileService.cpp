@@ -211,15 +211,17 @@ void UserProfileService::ensureAvatar(const BackendUser& user)
             BackendUser* currentUser = backend.getStorage().getUserById(userId);
             if (!currentUser || currentUser->last_picture_update != pictureVersion) {
                 return;
-            }            QPixmap pixmap = decodeAvatarImage(data);
-  if (pixmap.isNull()) {
-      return;
-  }
+            }
 
-  // BackendUser owns the original pixels. Small chat/sidebar avatars
-  // are scaled at their presentation sites; profile dialogs need 128px.
-  currentUser->avatar = std::move(pixmap);
-currentUser->avatar_picture_update = pictureVersion;
+            QPixmap pixmap = decodeAvatarImage(data);
+            if (pixmap.isNull()) {
+                return;
+            }
+
+            // BackendUser owns the original pixels. Small chat/sidebar avatars
+            // are scaled at their presentation sites; profile dialogs need 128px.
+            currentUser->avatar = std::move(pixmap);
+            currentUser->avatar_picture_update = pictureVersion;
             emit currentUser->onAvatarChanged();
         }));
 }

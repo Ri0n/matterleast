@@ -203,15 +203,16 @@ ChatArea::ChatArea(Backend& backend,
     // when the thread window opens and use the official PUT/DELETE endpoint.
     if (channel.team && !root_id.isEmpty()) {
         const QString teamId = channel.team->id;
-        const QString threadId = root_id;        threadFollowButton = new ThemeIconButton(this);
+        const QString threadId = root_id;
+        threadFollowButton = new ThemeIconButton(this);
         threadFollowButton->setObjectName(QStringLiteral("threadFollowButton"));
         threadFollowButton->setFixedSize(HeaderActionIconExtent + 8,
-                               HeaderActionIconExtent + 8);
+                                         HeaderActionIconExtent + 8);
         threadFollowButton->setIconSize(QSize(HeaderActionIconExtent,
-                                    HeaderActionIconExtent));
+                                              HeaderActionIconExtent));
         threadFollowButton->setProperty(ThemeIconResourceProperty,
-                              QStringLiteral(":/icons/bell"));
-threadFollowButton->setEnabled(false);
+                                        QStringLiteral(":/icons/bell"));
+        threadFollowButton->setEnabled(false);
         threadFollowButton->setProperty("following", false);
         threadFollowButton->setToolTip(tr("Follow thread"));
         threadFollowButton->setAccessibleName(tr("Follow thread"));
@@ -369,12 +370,13 @@ void ChatArea::refreshHeaderActionIcons()
         ui->pinnedPostsButton->setIcon(IconUtils::tintedSymbolicIcon(
             QStringLiteral(":/icons/pin"),
             ui->pinnedPostsButton->palette().color(QPalette::ButtonText)));
-    }    if (threadFollowButton) {
+    }
+    if (threadFollowButton) {
         const bool following = threadFollowButton->property("following").toBool();
         threadFollowButton->setProperty(
-  ThemeIconResourceProperty,
-  following ? QStringLiteral(":/icons/bell-filled")
-            : QStringLiteral(":/icons/bell"));
+            ThemeIconResourceProperty,
+            following ? QStringLiteral(":/icons/bell-filled")
+                      : QStringLiteral(":/icons/bell"));
         threadFollowButton->update();
     }
 }
