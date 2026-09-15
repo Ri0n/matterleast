@@ -27,6 +27,7 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QPointer>
 #include <QStackedWidget>
 
@@ -902,6 +903,65 @@ QVector<QPair<QString, QString>> ChannelTree::customCategoryTargets(const Channe
         result.push_back(qMakePair(category->id, categoryDisplayName(*category)));
     }
     return result;
+}
+
+void ChannelTree::createGroupAndMoveChannel(ChannelItem* item)
+{
+    if (!backendForSidebar || !item || !item->parent()) {
+        return;
+    }
+
+    const QString teamId = item->data(0, ItemTeamIdRole).toString();
+    const QString channelId = item->data(0, ItemIdRole).toString();
+    const QString sourceCategoryId = item->parent()->data(0, ItemIdRole).toString();
+    if (teamId.isEmpty() || channelId.isEmpty() || sourceCategoryId.isEmpty()) {
+        return;
+    }
+
+    bool accepted = false;
+    const QString name = QInputDialog::getText(
+        this, tr("Create group"), tr("Group name:"), QLineEdit::Normal,
+        QString(), &accepted).trimmed();
+    if (!accepted || name.isEmpty()) {
+        return;
+    }
+
+    QPointer<ChannelTree> guard(this);
+    SidebarService::instance(*backendForSidebar).createCategory(
+        teamId, name,
+        [guard, teamId, sourceCategoryId, channelId](const SidebarCategory& created) {
+            if (!guard || !guard->backendForSidebar || created.id.isEmpty()) {
+                return;
+            }
+
+            auto& sidebar = SidebarService::instance(*guard->backendForSidebar);
+            SidebarTeamState* state = sidebar.teamState(teamId);
+            const SidebarCategory* source = state ? state->category(sourceCategoryId) : nullptr;
+            const SidebarCategory* target = state ? state->category(created.id) : nullptr;
+            if (!target) {
+                return;
+            }
+
+            QVector<SidebarCategory> updates;
+            if (source && source->id != target->id) {
+                SidebarCategory sourceUpdate = *source;
+                sourceUpdate.channelIds.removeAll(channelId);
+                updates.push_back(std::move(sourceUpdate));
+            }
+
+            SidebarCategory targetUpdate = *target;
+            targetUpdate.channelIds.removeAll(channelId);
+            targetUpdate.channelIds.push_back(channelId);
+            targetUpdate.sorting = QStringLiteral("manual");
+            updates.push_back(std::move(targetUpdate));
+
+            sidebar.updateCategories(teamId, updates,
+                [guard, teamId](const SidebarTeamState&) {
+                    if (guard) {
+                        guard->refreshSidebarTeam(teamId);
+                    }
+                });
+        });
 }
 
 void ChannelTree::moveChannelToCategory(ChannelItem* item, const QString& categoryId)

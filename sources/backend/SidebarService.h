@@ -90,6 +90,8 @@ public:
     const SidebarTeamState* teamState(const QString& teamId) const;
     SidebarTeamState* teamState(const QString& teamId);
 
+    void createCategory(const QString& teamId, const QString& displayName,
+                        std::function<void(const SidebarCategory&)> callback = {});
     void updateCategory(const SidebarCategory& category,
                         std::function<void(const SidebarCategory&)> callback = {});
     void updateCategories(const QString& teamId, const QVector<SidebarCategory>& categories,

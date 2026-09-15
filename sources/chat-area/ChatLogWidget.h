@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QHash>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 
 #include "AbstractPostSource.h"
@@ -12,6 +14,10 @@ class Backend;
 class BackendPost;
 class ChatArea;
 class PostWidget;
+class QFrame;
+class QLabel;
+class QPushButton;
+class QResizeEvent;
 
 /** Mattermost timeline behavior layered on the shared post-list presentation. */
 class ChatLogWidget : public PostListWidget
@@ -62,6 +68,12 @@ public:
     bool editLastOwnPost();
     void postEditFinished();
 
+    bool isMessageSelectionMode() const { return messageSelectionMode_; }
+    void beginMessageSelectionDrag(const QString& anchorPostId, const QString& currentPostId);
+    void updateMessageSelectionDrag(const QString& currentPostId);
+    void finishMessageSelectionDrag();
+    void cancelMessageSelection();
+
 signals:
     void postEditInitiated(BackendPost& post);
 
@@ -71,6 +83,7 @@ protected:
     int indexOfItemIdentity(const QString& identity) const override;
     bool isModelItemAvailable(int index) const override;
     void destroyItemWidget(int index, QWidget* widget) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     static AbstractPostSource::RequestReason toSourceReason(RequestReason reason);
@@ -80,6 +93,15 @@ private:
     void scheduleNavigationFinalize();
     void scheduleReadCursorUpdate();
     void updateReadCursorFromViewport();
+    void setMessageSelectionRange(const QString& currentPostId);
+    void setMessagePostSelected(const QString& postId, bool selected);
+    void applyMessageSelectionVisuals();
+    void cacheSelectedPost(const QString& postId);
+    void ensureSelectionToolbar();
+    void updateSelectionToolbar();
+    void positionSelectionToolbar();
+    void copySelectedPosts();
+    void deleteSelectedOwnPosts();
 
     Backend* backend = nullptr;
     ChatArea* chatArea = nullptr;
@@ -96,6 +118,17 @@ private:
     bool navigationRecenterPending = false;
     bool readCursorUpdatePending_ = false;
     bool _initialScrollBarPulsePending = true;
+
+    bool messageSelectionMode_ = false;
+    bool messageSelectionDragActive_ = false;
+    QString messageSelectionAnchorPostId_;
+    QSet<QString> selectedPostIds_;
+    QSet<QString> selectedOwnPostIds_;
+    QHash<QString, QString> selectedFormattedPosts_;
+    QFrame* selectionToolbar_ = nullptr;
+    QLabel* selectionCountLabel_ = nullptr;
+    QPushButton* selectionDeleteButton_ = nullptr;
+    QPushButton* selectionCopyButton_ = nullptr;
 };
 
 } // namespace Mattermost

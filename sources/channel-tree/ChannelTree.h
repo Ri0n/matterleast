@@ -131,6 +131,7 @@ public:
 	void removeChannelFromCategory(ChannelItem* item);
 	QVector<QPair<QString, QString>> customCategoryTargets(const ChannelItem* item) const;
 	void moveChannelToCategory(ChannelItem* item, const QString& categoryId);
+	void createGroupAndMoveChannel(ChannelItem* item);
 
 signals:
     void virtualDestinationRequested(int destination, const QString& teamId);

@@ -734,6 +734,46 @@ SidebarTeamState* SidebarService::teamState(const QString& teamId)
     return it == sidebarByTeam.end() ? nullptr : &it.value();
 }
 
+void SidebarService::createCategory(
+    const QString& teamId,
+    const QString& displayName,
+    std::function<void(const SidebarCategory&)> callback)
+{
+    const QString name = displayName.trimmed();
+    if (teamId.isEmpty() || name.isEmpty() || currentUserId().isEmpty()) {
+        return;
+    }
+
+    SidebarCategory category;
+    category.userId = currentUserId();
+    category.teamId = teamId;
+    category.sorting = QStringLiteral("manual");
+    category.type = QStringLiteral("custom");
+    category.displayName = name;
+
+    QJsonObject payload = category.toJson();
+    payload.remove(QStringLiteral("id"));
+    payload.remove(QStringLiteral("sort_order"));
+
+    NetworkRequest request(categoriesPath(teamId));
+    httpConnector.post(request, QByteArrayCreator(payload),
+                       HttpResponseCallback([this, teamId, callback](const QJsonDocument& doc) {
+        SidebarCategory created = SidebarCategory::fromJson(doc.object());
+        if (created.id.isEmpty()) {
+            return;
+        }
+        SidebarTeamState& state = sidebarByTeam[teamId];
+        state.categories.insert(created.id, created);
+        if (!state.order.contains(created.id)) {
+            state.order.push_back(created.id);
+        }
+        emit categoriesChanged(teamId);
+        if (callback) {
+            callback(state.categories[created.id]);
+        }
+    }));
+}
+
 void SidebarService::updateCategory(const SidebarCategory& category,
                                     std::function<void(const SidebarCategory&)> callback)
 {

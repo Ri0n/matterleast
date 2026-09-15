@@ -429,3 +429,9 @@ add_executable(sidebar-channel-move-policy-test SidebarChannelMovePolicyTest.cpp
 target_include_directories(sidebar-channel-move-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(sidebar-channel-move-policy-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME sidebar-channel-move-policy-test COMMAND sidebar-channel-move-policy-test)
+
+
+add_executable(post-selection-policy-test PostSelectionPolicyTest.cpp)
+target_include_directories(post-selection-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(post-selection-policy-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME post-selection-policy-test COMMAND post-selection-policy-test)

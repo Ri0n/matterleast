@@ -715,6 +715,28 @@ void MessageContentWidget::clear()
     scheduleDimensionsChanged();
 }
 
+void MessageContentWidget::clearSelection()
+{
+    const auto textEdits = findChildren<QTextEdit*>();
+    for (QTextEdit* edit : textEdits) {
+        if (!edit) {
+            continue;
+        }
+        QTextCursor cursor = edit->textCursor();
+        cursor.setPosition(cursor.position());
+        edit->setTextCursor(cursor);
+    }
+    const auto plainEdits = findChildren<QPlainTextEdit*>();
+    for (QPlainTextEdit* edit : plainEdits) {
+        if (!edit) {
+            continue;
+        }
+        QTextCursor cursor = edit->textCursor();
+        cursor.setPosition(cursor.position());
+        edit->setTextCursor(cursor);
+    }
+}
+
 QString MessageContentWidget::selectedText() const
 {
     QStringList selections;

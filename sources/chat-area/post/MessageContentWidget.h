@@ -18,6 +18,7 @@ public:
     void setMessage(const QString& message);
     void clear();
     QString selectedText() const;
+    void clearSelection();
 
 signals:
     void linkHovered(const QString& link);

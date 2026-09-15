@@ -26,8 +26,13 @@
 #include "backend/PostResidencyLease.h"
 #include "backend/types/BackendPost.h"
 
+class QCheckBox;
 class QContextMenuEvent;
 class QEvent;
+class QGraphicsOpacityEffect;
+class QPaintEvent;
+class QPropertyAnimation;
+class QResizeEvent;
 
 namespace Ui {
 class PostWidget;
@@ -71,6 +76,11 @@ public:
     QString getMessageTimeString (uint64_t timestamp);
     static QString formatMessageText (const QString& str);
     QString formatForClipboardSelection (FormatType formatType) const;
+    void clearTextSelection();
+    void setWholeMessageSelectionMode(bool enabled);
+    void setWholeMessageSelected(bool selected);
+    bool wholeMessageSelectionMode() const { return wholeMessageSelectionMode_; }
+    bool wholeMessageSelected() const { return wholeMessageSelected_; }
 
     void clearMessageText ();
 
@@ -89,13 +99,19 @@ private slots:
 
 signals:
 	void dimensionsChanged ();
+    void wholeMessageSelectionToggled(const QString& postId, bool selected);
 
 protected:
+    bool event(QEvent* event) override;
     void changeEvent(QEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
+    void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void showPostContextMenu(const QPoint& globalPos);
+    void animateReactionAffordance(bool visible);
+    void positionReactionAffordance();
     void setAuthor(Backend& backendInstance, const BackendUser* user);
     void updateAuthorAvatar();
     void connectReactionActions();
@@ -119,6 +135,13 @@ private:
     MessageContentWidget*				messageContent;
     ChatArea*				parentChatArea;
     ThreadSummaryWidget*                threadSummary = nullptr;
+    QCheckBox*                         wholeMessageCheck_ = nullptr;
+    QPushButton*                       reactionAffordance_ = nullptr;
+    QGraphicsOpacityEffect*            reactionOpacity_ = nullptr;
+    QPropertyAnimation*                reactionAnimation_ = nullptr;
+    bool                               reactionAffordanceWanted_ = false;
+    bool                               wholeMessageSelectionMode_ = false;
+    bool                               wholeMessageSelected_ = false;
 };
 
 } /* namespace Mattermost */

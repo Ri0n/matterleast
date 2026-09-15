@@ -3,6 +3,13 @@
 #include <algorithm>
 
 #include <QLoggingCategory>
+#include <QResizeEvent>
+#include <QPushButton>
+#include <QLabel>
+#include <QHBoxLayout>
+#include <QFrame>
+#include <QClipboard>
+#include <QApplication>
 #include <QTimer>
 
 #include "ChatArea.h"
@@ -14,6 +21,8 @@
 #include "backend/types/BackendPost.h"
 #include "post/InteractivePostWidget.h"
 #include "post/PostWidget.h"
+#include "post/PostSelectionPolicy.h"
+#include "ui/IconUtils.h"
 #include "ui/OverlayScrollBarManager.h"
 
 namespace Mattermost {
@@ -679,6 +688,15 @@ QWidget* ChatLogWidget::createItemWidget(int index)
             }
         }
     });
+    widget->setWholeMessageSelectionMode(messageSelectionMode_);
+    widget->setWholeMessageSelected(selectedPostIds_.contains(postId));
+    connect(widget, &PostWidget::wholeMessageSelectionToggled,
+            this, [this](const QString& id, bool selected) {
+        setMessagePostSelected(id, selected);
+    });
+    if (selectedPostIds_.contains(postId)) {
+        cacheSelectedPost(postId);
+    }
     return widget;
 }
 
@@ -946,5 +964,244 @@ bool ChatLogWidget::restoreNavigationTarget()
     navigationLogicalIndex = index;
     return true;
 }
+
+void ChatLogWidget::resizeEvent(QResizeEvent* event)
+{
+    PostListWidget::resizeEvent(event);
+    positionSelectionToolbar();
+}
+
+void ChatLogWidget::beginMessageSelectionDrag(const QString& anchorPostId,
+                                              const QString& currentPostId)
+{
+    if (!postSource || anchorPostId.isEmpty() || currentPostId.isEmpty()) {
+        return;
+    }
+    messageSelectionMode_ = true;
+    messageSelectionDragActive_ = true;
+    messageSelectionAnchorPostId_ = anchorPostId;
+    setMessageSelectionRange(currentPostId);
+}
+
+void ChatLogWidget::updateMessageSelectionDrag(const QString& currentPostId)
+{
+    if (!messageSelectionDragActive_ || currentPostId.isEmpty()) {
+        return;
+    }
+    setMessageSelectionRange(currentPostId);
+}
+
+void ChatLogWidget::finishMessageSelectionDrag()
+{
+    messageSelectionDragActive_ = false;
+}
+
+void ChatLogWidget::setMessageSelectionRange(const QString& currentPostId)
+{
+    if (!postSource) {
+        return;
+    }
+    const int anchor = postSource->indexOfPost(messageSelectionAnchorPostId_);
+    const int current = postSource->indexOfPost(currentPostId);
+    const PostSelectionRange range = postSelectionRange(anchor, current);
+    if (!range.isValid()) {
+        return;
+    }
+
+    selectedPostIds_.clear();
+    selectedOwnPostIds_.clear();
+    selectedFormattedPosts_.clear();
+    for (int index = range.first; index <= range.last; ++index) {
+        BackendPost* selected = postSource->postAt(index);
+        if (!selected || selected->id.isEmpty()) {
+            continue;
+        }
+        selectedPostIds_.insert(selected->id);
+        if (selected->isOwnPost() && !selected->isDeleted) {
+            selectedOwnPostIds_.insert(selected->id);
+        }
+    }
+    applyMessageSelectionVisuals();
+}
+
+void ChatLogWidget::setMessagePostSelected(const QString& postId, bool selected)
+{
+    if (!messageSelectionMode_ || postId.isEmpty()) {
+        return;
+    }
+    if (selected) {
+        selectedPostIds_.insert(postId);
+        cacheSelectedPost(postId);
+        if (postSource) {
+            const int index = postSource->indexOfPost(postId);
+            BackendPost* post = index >= 0 ? postSource->postAt(index) : nullptr;
+            if (post && post->isOwnPost() && !post->isDeleted) {
+                selectedOwnPostIds_.insert(postId);
+            }
+        }
+    } else {
+        selectedPostIds_.remove(postId);
+        selectedOwnPostIds_.remove(postId);
+        selectedFormattedPosts_.remove(postId);
+    }
+
+    if (postSelectionShouldExit(selectedPostIds_.size())) {
+        cancelMessageSelection();
+        return;
+    }
+    applyMessageSelectionVisuals();
+}
+
+void ChatLogWidget::cacheSelectedPost(const QString& postId)
+{
+    PostWidget* widget = findPost(postId);
+    if (!widget) {
+        return;
+    }
+    selectedFormattedPosts_.insert(
+        postId, widget->formatForClipboardSelection(PostWidget::entirePost));
+    if (widget->post.isOwnPost() && !widget->post.isDeleted) {
+        selectedOwnPostIds_.insert(postId);
+    }
+}
+
+void ChatLogWidget::applyMessageSelectionVisuals()
+{
+    const Range range = materializedRange();
+    if (range.isValid()) {
+        for (int index = range.first; index <= range.last; ++index) {
+            auto* widget = qobject_cast<PostWidget*>(itemWidget(index));
+            if (!widget) {
+                continue;
+            }
+            widget->setWholeMessageSelectionMode(messageSelectionMode_);
+            widget->setWholeMessageSelected(selectedPostIds_.contains(widget->post.id));
+            if (messageSelectionMode_) {
+                widget->clearTextSelection();
+                if (selectedPostIds_.contains(widget->post.id)) {
+                    cacheSelectedPost(widget->post.id);
+                }
+            }
+        }
+        // LongListWidget captures/restores the viewport anchor for remeasurement;
+        // widgets are retained and only their geometry changes for the checkbox gutter.
+        itemsChanged(range.first, range.last);
+    }
+    updateSelectionToolbar();
+}
+
+void ChatLogWidget::cancelMessageSelection()
+{
+    if (!messageSelectionMode_ && selectedPostIds_.isEmpty()) {
+        return;
+    }
+    messageSelectionMode_ = false;
+    messageSelectionDragActive_ = false;
+    messageSelectionAnchorPostId_.clear();
+    selectedPostIds_.clear();
+    selectedOwnPostIds_.clear();
+    selectedFormattedPosts_.clear();
+    applyMessageSelectionVisuals();
+}
+
+void ChatLogWidget::ensureSelectionToolbar()
+{
+    if (selectionToolbar_) {
+        return;
+    }
+    selectionToolbar_ = new QFrame(viewport());
+    selectionToolbar_->setFrameShape(QFrame::StyledPanel);
+    selectionToolbar_->setAutoFillBackground(true);
+    auto* layout = new QHBoxLayout(selectionToolbar_);
+    layout->setContentsMargins(8, 4, 8, 4);
+    layout->setSpacing(6);
+
+    selectionCountLabel_ = new QLabel(selectionToolbar_);
+    layout->addWidget(selectionCountLabel_);
+
+    selectionDeleteButton_ = new QPushButton(
+        IconUtils::symbolicIcon(QStringLiteral(":/icons/trash")), tr("Delete"), selectionToolbar_);
+    selectionCopyButton_ = new QPushButton(
+        IconUtils::symbolicIcon(QStringLiteral(":/icons/copy")), tr("Copy"), selectionToolbar_);
+    auto* cancelButton = new QPushButton(tr("Cancel"), selectionToolbar_);
+    layout->addWidget(selectionDeleteButton_);
+    layout->addWidget(selectionCopyButton_);
+    layout->addWidget(cancelButton);
+
+    connect(selectionDeleteButton_, &QPushButton::clicked,
+            this, &ChatLogWidget::deleteSelectedOwnPosts);
+    connect(selectionCopyButton_, &QPushButton::clicked,
+            this, &ChatLogWidget::copySelectedPosts);
+    connect(cancelButton, &QPushButton::clicked,
+            this, &ChatLogWidget::cancelMessageSelection);
+    selectionToolbar_->hide();
+}
+
+void ChatLogWidget::updateSelectionToolbar()
+{
+    if (!messageSelectionMode_) {
+        if (selectionToolbar_) {
+            selectionToolbar_->hide();
+        }
+        return;
+    }
+    ensureSelectionToolbar();
+    selectionCountLabel_->setText(tr("%1 selected").arg(selectedPostIds_.size()));
+    selectionDeleteButton_->setEnabled(!selectedOwnPostIds_.isEmpty());
+    selectionCopyButton_->setEnabled(!selectedPostIds_.isEmpty());
+    selectionToolbar_->adjustSize();
+    positionSelectionToolbar();
+    selectionToolbar_->show();
+    selectionToolbar_->raise();
+}
+
+void ChatLogWidget::positionSelectionToolbar()
+{
+    if (!selectionToolbar_ || !viewport()) {
+        return;
+    }
+    selectionToolbar_->adjustSize();
+    const int x = std::max(8, (viewport()->width() - selectionToolbar_->width()) / 2);
+    selectionToolbar_->move(x, 8);
+}
+
+void ChatLogWidget::copySelectedPosts()
+{
+    if (!postSource || selectedPostIds_.isEmpty()) {
+        return;
+    }
+    QStringList blocks;
+    for (int index = 0; index < postSource->itemCount(); ++index) {
+        BackendPost* post = postSource->postAt(index);
+        if (!post || !selectedPostIds_.contains(post->id)) {
+            continue;
+        }
+        QString formatted = selectedFormattedPosts_.value(post->id);
+        if (formatted.isEmpty()) {
+            if (PostWidget* widget = findPost(post->id)) {
+                formatted = widget->formatForClipboardSelection(PostWidget::entirePost);
+            }
+        }
+        if (!formatted.isEmpty()) {
+            blocks.push_back(formatted);
+        }
+    }
+    if (!blocks.isEmpty()) {
+        QApplication::clipboard()->setText(blocks.join(QStringLiteral("\n\n")));
+    }
+}
+
+void ChatLogWidget::deleteSelectedOwnPosts()
+{
+    if (!backend) {
+        return;
+    }
+    const QSet<QString> ownPosts = selectedOwnPostIds_;
+    for (const QString& postId : ownPosts) {
+        backend->deletePost(postId);
+    }
+    cancelMessageSelection();
+}
+
 
 } // namespace Mattermost
