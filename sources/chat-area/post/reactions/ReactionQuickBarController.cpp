@@ -6,16 +6,19 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QLabel>
 #include <QPixmap>
 #include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSet>
+#include <QStyle>
 #include <QTimer>
 
 #include "backend/Backend.h"
 #include "backend/emoji/EmojiInfo.h"
+#include "chat-area/ChatArea.h"
 #include "chat-area/post/PostWidget.h"
 #include "reactions/ReactionUsage.h"
 #include "reactions/ReactionUsageTracker.h"
@@ -202,7 +205,8 @@ protected:
 
         const QEvent::Type type = event->type();
         if (type != QEvent::Enter && type != QEvent::Leave
-            && type != QEvent::MouseButtonPress && type != QEvent::Destroy) {
+            && type != QEvent::MouseButtonPress && type != QEvent::Destroy
+            && type != QEvent::Show && type != QEvent::Move) {
             return QObject::eventFilter(watched, event);
         }
 
@@ -221,7 +225,13 @@ protected:
             return QObject::eventFilter(watched, event);
         }
 
+        if (type == QEvent::Show || type == QEvent::Move) {
+            positionThreadAffordance(*post, *button);
+            return QObject::eventFilter(watched, event);
+        }
+
         if (type == QEvent::Enter) {
+            positionThreadAffordance(*post, *button);
             hideTimer_.stop();
             showFor(*post, *button);
         } else if (type == QEvent::Leave) {
@@ -244,6 +254,34 @@ private:
         hideTimer_.setInterval(180);
         connect(&hideTimer_, &QTimer::timeout, this,
                 [this] { hidePopup(); });
+    }
+
+    void positionThreadAffordance(PostWidget& post, QPushButton& heart)
+    {
+        if (!post.parentChatArea || !post.parentChatArea->isThread) {
+            return;
+        }
+
+        QLabel* timeLabel = post.findChild<QLabel*>(QStringLiteral("time"));
+        if (!timeLabel || timeLabel->text().isEmpty()) {
+            return;
+        }
+
+        const QFontMetrics metrics = timeLabel->fontMetrics();
+        const QSize textSize(metrics.horizontalAdvance(timeLabel->text()),
+                             metrics.height());
+        const QRect textRect = QStyle::alignedRect(
+            timeLabel->layoutDirection(), timeLabel->alignment(), textSize,
+            timeLabel->contentsRect());
+        const QPoint textTopLeft = timeLabel->mapTo(&post, textRect.topLeft());
+
+        const QPoint position(
+            std::max(4, textTopLeft.x() - heart.width() - 4),
+            std::max(2, textTopLeft.y()
+                            + (textRect.height() - heart.height()) / 2));
+        if (heart.pos() != position) {
+            heart.move(position);
+        }
     }
 
     void scheduleHide()
