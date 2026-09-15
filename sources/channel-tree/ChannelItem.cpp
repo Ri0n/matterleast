@@ -110,6 +110,11 @@ void ChannelItem::setMuted(bool muted)
     }
 }
 
+void ChannelItem::setUnread(bool unread)
+{
+    setData(0, SidebarItem::UnreadRole, unread);
+}
+
 void ChannelItem::setMentioned(bool mentioned)
 {
     setData(0, SidebarItem::MentionedRole, mentioned);

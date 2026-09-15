@@ -169,6 +169,16 @@ void ChannelTree::populateSidebars(Backend& backend)
     auto& sidebar = SidebarService::instance(backend);
     connect(&sidebar, &SidebarService::channelMutedChanged,
             this, &ChannelTree::setChannelMutedVisual, Qt::UniqueConnection);
+    connect(&sidebar, &SidebarService::channelActivityChanged, this,
+            [this, &sidebar](const QString& channelId) {
+        if (!backendForSidebar) {
+            return;
+        }
+        BackendChannel* channel = backendForSidebar->getStorage().getChannelById(channelId);
+        if (channel) {
+            setChannelUnreadVisual(channelId, sidebar.isChannelUnread(*channel));
+        }
+    }, Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::channelMentionedChanged,
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
 
@@ -463,6 +473,7 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     addChannelToItem(channel.id, item);
     auto& sidebar = SidebarService::instance(backend);
     item->setMuted(sidebar.isChannelMuted(channel));
+    item->setUnread(sidebar.isChannelUnread(channel));
     item->setMentioned(sidebar.hasUnreadMention(channel.id));
     return item;
 }
@@ -790,6 +801,16 @@ void ChannelTree::setChannelMutedVisual(const QString& channelId, bool muted)
     for (QTreeWidgetItem* item : items) {
         if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             static_cast<ChannelItem*>(item)->setMuted(muted);
+        }
+    }
+}
+
+void ChannelTree::setChannelUnreadVisual(const QString& channelId, bool unread)
+{
+    const auto items = channelToItemMap.value(channelId);
+    for (QTreeWidgetItem* item : items) {
+        if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
+            static_cast<ChannelItem*>(item)->setUnread(unread);
         }
     }
 }

@@ -168,6 +168,7 @@ private:
     void activateVirtualDestination(QTreeWidgetItem* item);
 	void setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed);
 	void setChannelMutedVisual(const QString& channelId, bool muted);
+	void setChannelUnreadVisual(const QString& channelId, bool unread);
 	void setChannelMentionedVisual(const QString& channelId, bool mentioned);
 	void syncCategoryChannels(QTreeWidgetItem* firstCategory, QTreeWidgetItem* secondCategory = nullptr);
 	void syncCategoryOrder(QTreeWidgetItem* teamItem);

@@ -381,6 +381,8 @@ void FollowingModel::markPostUnread(const QString& channelId,
     entry->firstUnreadPostId = postId;
     entry->readThroughPostId.clear();
     entry->readThroughCreateAt = 0;
+    entry->readAcknowledgementPending = false;
+    entry->readAcknowledgementAt = 0;
     entry->lastReplyAt = std::max(entry->lastReplyAt, createAt);
     entry->muted = false;
     noteAttentionTransition(*entry, wasAttention);
@@ -523,6 +525,27 @@ void FollowingModel::applyThreadSnapshot(
             next[existingNextIndex] = std::move(entry);
         } else {
             next.push_back(std::move(entry));
+        }
+    }
+
+    // A locally requested Mark as unread is authoritative for this client
+    // until the lower-edge read rule consumes it. A followed-thread snapshot
+    // may have started before set_unread, and a non-followed thread may not
+    // appear in that snapshot at all, so retain such entries explicitly.
+    for (const Entry& old : std::as_const(entries_)) {
+        if (!old.isThread()
+            || !manualAttentionKeys_.contains(manualUnreadKey(old.channelId, old.threadId))) {
+            continue;
+        }
+        bool present = false;
+        for (const Entry& candidate : std::as_const(next)) {
+            if (candidate.isThread() && candidate.threadId == old.threadId) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) {
+            next.push_back(old);
         }
     }
 

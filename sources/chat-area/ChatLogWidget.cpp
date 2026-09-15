@@ -492,8 +492,11 @@ void ChatLogWidget::updateReadCursorFromViewport()
 
     if (manualUnreadGate_.active()) {
         const QString gatedPostId = manualUnreadGate_.postId();
+        if (postSource->indexOfPost(gatedPostId) < 0) {
+            manualUnreadGate_.clear();
+        }
         const bool lowerEdgeVisible = isPostLowerEdgeVisible(gatedPostId);
-        if (manualUnreadGate_.update(lowerEdgeVisible)) {
+        if (manualUnreadGate_.active() && manualUnreadGate_.update(lowerEdgeVisible)) {
             qCDebug(lcTimelineTrace).nospace()
                 << "READ_CURSOR_MANUAL_UNREAD_BLOCK list="
                 << static_cast<const void*>(this)
