@@ -191,6 +191,10 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
         << " newCount=" << (sourceInstance ? sourceInstance->itemCount() : 0);
 
     clearNavigationLock();
+    manualUnreadGate_.clear();
+    manualUnreadHighWaterPostId_.clear();
+    manualUnreadHighWaterCreateAt_ = 0;
+    manualUnreadExitedViewport_ = false;
     for (const QMetaObject::Connection& connection : sourceConnections) {
         disconnect(connection);
     }
@@ -490,22 +494,6 @@ void ChatLogWidget::updateReadCursorFromViewport()
         return;
     }
 
-    if (manualUnreadGate_.active()) {
-        const QString gatedPostId = manualUnreadGate_.postId();
-        if (postSource->indexOfPost(gatedPostId) < 0) {
-            manualUnreadGate_.clear();
-        }
-        const bool lowerEdgeVisible = isPostLowerEdgeVisible(gatedPostId);
-        if (manualUnreadGate_.active() && manualUnreadGate_.update(lowerEdgeVisible)) {
-            qCDebug(lcTimelineTrace).nospace()
-                << "READ_CURSOR_MANUAL_UNREAD_BLOCK list="
-                << static_cast<const void*>(this)
-                << " post=" << gatedPostId
-                << " lowerEdgeVisible=" << lowerEdgeVisible;
-            return;
-        }
-    }
-
     // Reading is a viewport fact, not a navigation fact. Among concrete posts
     // whose lower edge has entered the viewport, advance through the newest
     // semantic (create_at, id) boundary. Wheel scrolling, dragging/clicking the
@@ -529,6 +517,74 @@ void ChatLogWidget::updateReadCursorFromViewport()
         if (!readPost || isAfter(*post, *readPost)) {
             readIndex = index;
             readPost = post;
+        }
+    }
+
+    if (manualUnreadGate_.active()) {
+        const QString gatedPostId = manualUnreadGate_.postId();
+        const int gatedIndex = postSource->indexOfPost(gatedPostId);
+        if (gatedIndex < 0) {
+            manualUnreadGate_.clear();
+            manualUnreadHighWaterPostId_.clear();
+            manualUnreadHighWaterCreateAt_ = 0;
+            manualUnreadExitedViewport_ = false;
+        } else {
+            const auto phaseBefore = manualUnreadGate_.phase();
+            const bool lowerEdgeVisible = isPostLowerEdgeVisible(gatedPostId);
+            const bool blocked = manualUnreadGate_.update(lowerEdgeVisible);
+            if (phaseBefore == ManualUnreadVisibilityGate::Phase::WaitForExit
+                && manualUnreadGate_.phase()
+                    == ManualUnreadVisibilityGate::Phase::WaitForEntry) {
+                manualUnreadExitedViewport_ = true;
+            }
+
+            if (blocked) {
+                BackendPost* gatedPost = postSource->postAt(gatedIndex);
+                if (manualUnreadExitedViewport_ && readPost && gatedPost
+                    && isAfter(*readPost, *gatedPost)) {
+                    const bool afterHighWater = manualUnreadHighWaterPostId_.isEmpty()
+                        || readPost->create_at > manualUnreadHighWaterCreateAt_
+                        || (readPost->create_at == manualUnreadHighWaterCreateAt_
+                            && readPost->id > manualUnreadHighWaterPostId_);
+                    if (afterHighWater) {
+                        manualUnreadHighWaterPostId_ = readPost->id;
+                        manualUnreadHighWaterCreateAt_ = readPost->create_at;
+                    }
+                }
+
+                qCDebug(lcTimelineTrace).nospace()
+                    << "READ_CURSOR_MANUAL_UNREAD_BLOCK list="
+                    << static_cast<const void*>(this)
+                    << " post=" << gatedPostId
+                    << " lowerEdgeVisible=" << lowerEdgeVisible
+                    << " highWater=" << manualUnreadHighWaterPostId_;
+                return;
+            }
+
+            // Mark-as-unread intentionally suppresses cursor updates while its
+            // visible marker is being moved out and back into the viewport. Do
+            // not throw away the newer posts that were genuinely read during
+            // that excursion: once the marker is re-entered, resume from the
+            // newest lower edge observed after it left the viewport.
+            if (!manualUnreadHighWaterPostId_.isEmpty()) {
+                const int highWaterIndex =
+                    postSource->indexOfPost(manualUnreadHighWaterPostId_);
+                BackendPost* highWaterPost = highWaterIndex >= 0
+                    ? postSource->postAt(highWaterIndex) : nullptr;
+                if (highWaterPost && (!readPost || isAfter(*highWaterPost, *readPost))) {
+                    readIndex = highWaterIndex;
+                    readPost = highWaterPost;
+                }
+                qCDebug(lcTimelineTrace).nospace()
+                    << "READ_CURSOR_MANUAL_UNREAD_RELEASE list="
+                    << static_cast<const void*>(this)
+                    << " marker=" << gatedPostId
+                    << " highWater=" << manualUnreadHighWaterPostId_
+                    << " effective=" << (readPost ? readPost->id : QString());
+            }
+            manualUnreadHighWaterPostId_.clear();
+            manualUnreadHighWaterCreateAt_ = 0;
+            manualUnreadExitedViewport_ = false;
         }
     }
 
@@ -638,6 +694,9 @@ void ChatLogWidget::markPostUnread(const QString& postId)
     const QString channelId = chatArea->getChannel().id;
     const QString threadId = chatArea->isThread ? chatArea->root_id : QString();
     const uint64_t createAt = post->create_at;
+    manualUnreadHighWaterPostId_.clear();
+    manualUnreadHighWaterCreateAt_ = 0;
+    manualUnreadExitedViewport_ = false;
     manualUnreadGate_.markUnread(postId, isPostLowerEdgeVisible(postId));
 
     QPointer<ChatLogWidget> guard(this);
@@ -650,6 +709,9 @@ void ChatLogWidget::markPostUnread(const QString& postId)
             if (!success) {
                 if (guard->manualUnreadGate_.postId() == postId) {
                     guard->manualUnreadGate_.clear();
+                    guard->manualUnreadHighWaterPostId_.clear();
+                    guard->manualUnreadHighWaterCreateAt_ = 0;
+                    guard->manualUnreadExitedViewport_ = false;
                     guard->scheduleReadCursorUpdate();
                 }
                 return;
