@@ -8,16 +8,17 @@
 #include "AbstractPostSource.h"
 #include "PostListWidget.h"
 
+class QFrame;
+class QLabel;
+class QPushButton;
+class QResizeEvent;
+
 namespace Mattermost {
 
 class Backend;
 class BackendPost;
 class ChatArea;
 class PostWidget;
-class QFrame;
-class QLabel;
-class QPushButton;
-class QResizeEvent;
 
 /** Mattermost timeline behavior layered on the shared post-list presentation. */
 class ChatLogWidget : public PostListWidget
