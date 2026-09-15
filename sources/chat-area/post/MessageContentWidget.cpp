@@ -675,6 +675,32 @@ MessageContentWidget::MessageContentWidget(QWidget* parent)
     });
 }
 
+void MessageContentWidget::changeEvent(QEvent* event)
+{
+    QWidget::changeEvent(event);
+    if (!event || (event->type() != QEvent::PaletteChange
+                   && event->type() != QEvent::ApplicationPaletteChange)
+        || paletteRefreshPending || _sourceMessage.isEmpty()) {
+        return;
+    }
+
+    // Rebuilding the QTextBrowser/QPlainTextEdit children synchronously from a
+    // PaletteChange handler invalidates QWidgetPrivate's palette-propagation
+    // traversal. Defer and coalesce the rebuild until that traversal has
+    // completed; the context object also cancels the callback on destruction.
+    paletteRefreshPending = true;
+    QTimer::singleShot(0, this, [this] {
+        paletteRefreshPending = false;
+        if (_sourceMessage.isEmpty()) {
+            return;
+        }
+
+        const QString sourceMessage = _sourceMessage;
+        setMessage(sourceMessage);
+        emit paletteRefreshCompleted();
+    });
+}
+
 void MessageContentWidget::setMessage(const QString& message)
 {
     _sourceMessage = message;

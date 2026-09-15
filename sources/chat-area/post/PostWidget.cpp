@@ -168,6 +168,8 @@ PostWidget::PostWidget(Backend& backend,
 	ui->verticalLayout->insertWidget(messageIndex, messageContent);
 	connect(messageContent, &MessageContentWidget::dimensionsChanged,
 	        this, &PostWidget::dimensionsChanged);
+	connect(messageContent, &MessageContentWidget::paletteRefreshCompleted,
+	        this, &PostWidget::connectMessageLinks);
 	messageContent->setMessage(displayMessage(post, post.message));
 	connectMessageLinks();
 	refreshPermalinkPreviews();
@@ -309,7 +311,6 @@ void PostWidget::changeEvent(QEvent* event)
     }
 
     updateAuthorAvatar();
-    refreshMentionLinks();
     update();
     const auto childWidgets = findChildren<QWidget*>();
     for (QWidget* child : childWidgets) {
