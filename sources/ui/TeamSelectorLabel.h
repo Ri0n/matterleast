@@ -1,7 +1,6 @@
 #pragma once
 
-#include "ClickableLabel.h"
-
+#include <QToolButton>
 #include <QString>
 
 class QShowEvent;
@@ -18,7 +17,7 @@ class ChannelTree;
  * remains available to the existing category/DnD code but is never rendered;
  * its categories are the visual top level of the sidebar.
  */
-class TeamSelectorLabel final : public ClickableLabel
+class TeamSelectorLabel final : public QToolButton
 {
     Q_OBJECT
 
