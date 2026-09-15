@@ -1,0 +1,266 @@
+name: Sync post hover affordance
+
+on:
+  push:
+    branches:
+      - fix/four-ui-data-regressions
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/four-ui-data-regressions
+          fetch-depth: 0
+
+      - name: Apply hover synchronization fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one occurrence, found {count}: {old!r}')
+              p.write_text(text.replace(old, new))
+
+          replace_once(
+              'sources/widgets/LongListWidget.h',
+              '    void materializedRangeChanged(int first, int last);\n\n    /** Emitted only for direct user scrollbar/wheel movement. */',
+              '    void materializedRangeChanged(int first, int last);\n\n'
+              '    /** Emitted when the same top-level item hover used by the row highlight changes. */\n'
+              '    void hoveredItemChanged(int previousIndex, int currentIndex);\n\n'
+              '    /** Emitted only for direct user scrollbar/wheel movement. */')
+
+          replace_once(
+              'sources/widgets/LongListWidget.cpp',
+              '''void LongListWidget::setHoverHighlightEnabled(bool enabled)\n'''
+              '''{\n'''
+              '''    if (hoverHighlightEnabled == enabled) {\n'''
+              '''        return;\n'''
+              '''    }\n'''
+              '''    hoverHighlightEnabled = enabled;\n'''
+              '''    if (!hoverHighlightEnabled) {\n'''
+              '''        hoveredWidget.clear();\n'''
+              '''    }\n'''
+              '''    viewport()->update();\n'''
+              '''}\n''',
+              '''void LongListWidget::setHoverHighlightEnabled(bool enabled)\n'''
+              '''{\n'''
+              '''    if (hoverHighlightEnabled == enabled) {\n'''
+              '''        return;\n'''
+              '''    }\n'''
+              '''    hoverHighlightEnabled = enabled;\n'''
+              '''    if (!hoverHighlightEnabled && hoveredWidget) {\n'''
+              '''        const int previousIndex = widgetIndexes.value(hoveredWidget.data(), -1);\n'''
+              '''        hoveredWidget.clear();\n'''
+              '''        emit hoveredItemChanged(previousIndex, -1);\n'''
+              '''    }\n'''
+              '''    viewport()->update();\n'''
+              '''}\n''')
+
+          replace_once(
+              'sources/widgets/LongListWidget.cpp',
+              '''    if (it != widgetIndexes.cend()) {\n'''
+              '''        if (event->type() == QEvent::Enter && hoverHighlightEnabled) {\n'''
+              '''            hoveredWidget = qobject_cast<QWidget*>(watched);\n'''
+              '''            viewport()->update();\n'''
+              '''        } else if ((event->type() == QEvent::Leave || event->type() == QEvent::Hide)\n'''
+              '''                   && hoveredWidget.data() == watched) {\n'''
+              '''            hoveredWidget.clear();\n'''
+              '''            viewport()->update();\n'''
+              '''        }\n''',
+              '''    if (it != widgetIndexes.cend()) {\n'''
+              '''        if (event->type() == QEvent::Enter && hoverHighlightEnabled) {\n'''
+              '''            QWidget* current = qobject_cast<QWidget*>(watched);\n'''
+              '''            if (current && hoveredWidget.data() != current) {\n'''
+              '''                const int previousIndex = widgetIndexes.value(hoveredWidget.data(), -1);\n'''
+              '''                hoveredWidget = current;\n'''
+              '''                emit hoveredItemChanged(previousIndex, it.value());\n'''
+              '''            }\n'''
+              '''            viewport()->update();\n'''
+              '''        } else if ((event->type() == QEvent::Leave || event->type() == QEvent::Hide)\n'''
+              '''                   && hoveredWidget.data() == watched) {\n'''
+              '''            const int previousIndex = it.value();\n'''
+              '''            hoveredWidget.clear();\n'''
+              '''            emit hoveredItemChanged(previousIndex, -1);\n'''
+              '''            viewport()->update();\n'''
+              '''        }\n''')
+
+          replace_once(
+              'sources/chat-area/PostListWidget.cpp',
+              '''    setSeekDebounceMs(100);\n'''
+              '''}\n''',
+              '''    setSeekDebounceMs(100);\n\n'''
+              '''    connect(this, &LongListWidget::hoveredItemChanged, this,\n'''
+              '''            [this](int previousIndex, int currentIndex) {\n'''
+              '''        if (auto* previous = qobject_cast<PostWidget*>(itemWidget(previousIndex))) {\n'''
+              '''            previous->setHovered(false);\n'''
+              '''        }\n'''
+              '''        if (auto* current = qobject_cast<PostWidget*>(itemWidget(currentIndex))) {\n'''
+              '''            current->setHovered(true);\n'''
+              '''        }\n'''
+              '''    });\n'''
+              '''}\n''')
+
+          replace_once(
+              'sources/chat-area/post/PostWidget.h',
+              '''    void setWholeMessageSelected(bool selected);\n'''
+              '''    bool wholeMessageSelectionMode() const { return wholeMessageSelectionMode_; }\n''',
+              '''    void setWholeMessageSelected(bool selected);\n'''
+              '''    void setHovered(bool hovered);\n'''
+              '''    bool wholeMessageSelectionMode() const { return wholeMessageSelectionMode_; }\n''')
+
+          replace_once(
+              'sources/chat-area/post/PostWidget.h',
+              '''protected:\n'''
+              '''    bool event(QEvent* event) override;\n'''
+              '''    void changeEvent(QEvent* event) override;\n''',
+              '''protected:\n'''
+              '''    void changeEvent(QEvent* event) override;\n''')
+
+          replace_once(
+              'sources/chat-area/post/PostWidget.h',
+              '''    bool                               reactionAffordanceWanted_ = false;\n'''
+              '''    bool                               wholeMessageSelectionMode_ = false;\n''',
+              '''    bool                               reactionAffordanceWanted_ = false;\n'''
+              '''    bool                               hovered_ = false;\n'''
+              '''    bool                               wholeMessageSelectionMode_ = false;\n''')
+
+          replace_once(
+              'sources/chat-area/post/PostWidget.cpp',
+              '#include <QTimer>\n',
+              '')
+
+          replace_once(
+              'sources/chat-area/post/PostWidget.cpp',
+              '''bool PostWidget::event(QEvent* event)\n'''
+              '''{\n'''
+              '''    const bool handled = QWidget::event(event);\n'''
+              '''    if (!event) {\n'''
+              '''        return handled;\n'''
+              '''    }\n'''
+              '''    if (event->type() == QEvent::Enter || event->type() == QEvent::HoverEnter) {\n'''
+              '''        animateReactionAffordance(true);\n'''
+              '''    } else if (event->type() == QEvent::Leave || event->type() == QEvent::HoverLeave) {\n'''
+              '''        QPointer<PostWidget> guard(this);\n'''
+              '''        QTimer::singleShot(0, this, [guard] {\n'''
+              '''            if (!guard) {\n'''
+              '''                return;\n'''
+              '''            }\n'''
+              '''            const QPoint local = guard->mapFromGlobal(QCursor::pos());\n'''
+              '''            guard->animateReactionAffordance(guard->rect().contains(local));\n'''
+              '''        });\n'''
+              '''    }\n'''
+              '''    return handled;\n'''
+              '''}\n\n''',
+              '')
+
+          replace_once(
+              'sources/chat-area/post/PostWidget.cpp',
+              '''    if (enabled) {\n'''
+              '''        clearTextSelection();\n'''
+              '''        animateReactionAffordance(false);\n'''
+              '''    }\n'''
+              '''    updateGeometry();\n''',
+              '''    if (enabled) {\n'''
+              '''        clearTextSelection();\n'''
+              '''    }\n'''
+              '''    animateReactionAffordance(hovered_);\n'''
+              '''    updateGeometry();\n''')
+
+          replace_once(
+              'sources/chat-area/post/PostWidget.cpp',
+              '''void PostWidget::setWholeMessageSelected(bool selected)\n'''
+              '''{\n'''
+              '''    wholeMessageSelected_ = selected;\n'''
+              '''    if (wholeMessageCheck_) {\n'''
+              '''        const QSignalBlocker blocker(wholeMessageCheck_);\n'''
+              '''        wholeMessageCheck_->setChecked(selected);\n'''
+              '''    }\n'''
+              '''    update();\n'''
+              '''}\n\n''',
+              '''void PostWidget::setWholeMessageSelected(bool selected)\n'''
+              '''{\n'''
+              '''    wholeMessageSelected_ = selected;\n'''
+              '''    if (wholeMessageCheck_) {\n'''
+              '''        const QSignalBlocker blocker(wholeMessageCheck_);\n'''
+              '''        wholeMessageCheck_->setChecked(selected);\n'''
+              '''    }\n'''
+              '''    update();\n'''
+              '''}\n\n'''
+              '''void PostWidget::setHovered(bool hovered)\n'''
+              '''{\n'''
+              '''    if (hovered_ == hovered) {\n'''
+              '''        return;\n'''
+              '''    }\n'''
+              '''    hovered_ = hovered;\n'''
+              '''    animateReactionAffordance(hovered_);\n'''
+              '''}\n\n''')
+
+          replace_once(
+              'tests/LongListWidgetTest.cpp',
+              '#include <QtTest>\n\n#include <QScrollBar>\n',
+              '#include <QtTest>\n\n#include <QEvent>\n#include <QScrollBar>\n')
+
+          replace_once(
+              'tests/LongListWidgetTest.cpp',
+              '''    void missingItemsRequestContiguousViewportDemand()\n''',
+              '''    void hoverStateFollowsLatestTopLevelItem()\n'''
+              '''    {\n'''
+              '''        TestLongListWidget list;\n'''
+              '''        list.resize(480, 180);\n'''
+              '''        list.setDefaultItemHeight(60);\n'''
+              '''        list.setItemCount(2);\n'''
+              '''        list.setRangeAvailable(0, 1);\n'''
+              '''        list.show();\n'''
+              '''        settleEvents();\n\n'''
+              '''        QWidget* first = list.itemWidget(0);\n'''
+              '''        QWidget* second = list.itemWidget(1);\n'''
+              '''        QVERIFY(first);\n'''
+              '''        QVERIFY(second);\n\n'''
+              '''        QSignalSpy hoverChanges(&list, &Mattermost::LongListWidget::hoveredItemChanged);\n\n'''
+              '''        QEvent enterFirst(QEvent::Enter);\n'''
+              '''        QCoreApplication::sendEvent(first, &enterFirst);\n'''
+              '''        QCOMPARE(hoverChanges.count(), 1);\n'''
+              '''        QCOMPARE(hoverChanges.at(0).at(0).toInt(), -1);\n'''
+              '''        QCOMPARE(hoverChanges.at(0).at(1).toInt(), 0);\n\n'''
+              '''        // Entering the next row may be observed before the stale Leave from\n'''
+              '''        // the previous one. The newest Enter must own hover state.\n'''
+              '''        QEvent enterSecond(QEvent::Enter);\n'''
+              '''        QCoreApplication::sendEvent(second, &enterSecond);\n'''
+              '''        QCOMPARE(hoverChanges.count(), 2);\n'''
+              '''        QCOMPARE(hoverChanges.at(1).at(0).toInt(), 0);\n'''
+              '''        QCOMPARE(hoverChanges.at(1).at(1).toInt(), 1);\n\n'''
+              '''        QEvent leaveFirst(QEvent::Leave);\n'''
+              '''        QCoreApplication::sendEvent(first, &leaveFirst);\n'''
+              '''        QCOMPARE(hoverChanges.count(), 2);\n\n'''
+              '''        QEvent leaveSecond(QEvent::Leave);\n'''
+              '''        QCoreApplication::sendEvent(second, &leaveSecond);\n'''
+              '''        QCOMPARE(hoverChanges.count(), 3);\n'''
+              '''        QCOMPARE(hoverChanges.at(2).at(0).toInt(), 1);\n'''
+              '''        QCOMPARE(hoverChanges.at(2).at(1).toInt(), -1);\n'''
+              '''    }\n\n'''
+              '''    void missingItemsRequestContiguousViewportDemand()\n''')
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/zz-sync-post-hover-affordance.yml
+          git config user.name 'Sergei Ilinykh'
+          git config user.email 'rion4ik@gmail.com'
+          git add sources/widgets/LongListWidget.h \
+                  sources/widgets/LongListWidget.cpp \
+                  sources/chat-area/PostListWidget.cpp \
+                  sources/chat-area/post/PostWidget.h \
+                  sources/chat-area/post/PostWidget.cpp \
+                  tests/LongListWidgetTest.cpp \
+                  .github/workflows/zz-sync-post-hover-affordance.yml
+          git commit -m 'Sync reaction affordance with list hover'
+          git push origin HEAD:fix/four-ui-data-regressions
