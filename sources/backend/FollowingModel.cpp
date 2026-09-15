@@ -198,6 +198,14 @@ void FollowingModel::syncConversations()
         }
 
         const QString manualKey = manualUnreadKey(channel->id, QString());
+        const bool serverUnread = sidebar.isChannelUnread(*channel);
+        const bool mentioned = sidebar.hasUnreadMention(channel->id);
+        // Reading consumes the marker; channel acknowledgement consumes the
+        // remaining unread state. Once both happened, the manual projection
+        // must not depend on a later channel_viewed WebSocket echo to disappear.
+        if (!manualUnreadMarkers_.contains(manualKey) && !serverUnread && !mentioned) {
+            manualAttentionKeys_.remove(manualKey);
+        }
         const bool manualAttention = manualAttentionKeys_.contains(manualKey);
         const bool conversation = channel->type == BackendChannel::directChannel
             || channel->type == BackendChannel::groupChannel;
@@ -205,8 +213,6 @@ void FollowingModel::syncConversations()
             continue;
         }
 
-        const bool serverUnread = sidebar.isChannelUnread(*channel);
-        const bool mentioned = sidebar.hasUnreadMention(channel->id);
         const bool muted = sidebar.isChannelMuted(*channel);
         if (!manualAttention && (muted || (!serverUnread && !mentioned))) {
             continue;
@@ -622,9 +628,16 @@ void FollowingModel::observeReadThrough(const QString& channelId,
 
     const QString manualKey = manualUnreadKey(channelId, threadId);
     const auto manualIt = manualUnreadMarkers_.constFind(manualKey);
-    if (manualIt != manualUnreadMarkers_.cend()
+    const bool consumedManualMarker = manualIt != manualUnreadMarkers_.cend()
         && (post.id == manualIt->postId
-            || isAfter(post.create_at, post.id, manualIt->createAt, manualIt->postId))) {
+            || isAfter(post.create_at, post.id, manualIt->createAt, manualIt->postId));
+    const auto publishMarkerConsumption = [&] {
+        if (consumedManualMarker) {
+            if (threadId.isEmpty()) syncConversations();
+            emit changed();
+        }
+    };
+    if (consumedManualMarker) {
         manualUnreadMarkers_.remove(manualKey);
     }
 
@@ -632,11 +645,13 @@ void FollowingModel::observeReadThrough(const QString& channelId,
     if (!entry->readThroughPostId.isEmpty() && !sameBoundary
         && !isAfter(post.create_at, post.id,
                     entry->readThroughCreateAt, entry->readThroughPostId)) {
+        publishMarkerConsumption();
         return;
     }
 
     BackendChannel* channel = backend_.getStorage().getChannelById(channelId);
     if (!channel) {
+        publishMarkerConsumption();
         return;
     }
 
@@ -662,7 +677,11 @@ void FollowingModel::observeReadThrough(const QString& channelId,
         entry->firstUnreadPostId.clear();
     }
 
-    if (oldState != entry->resumeState
+    if (consumedManualMarker) {
+        // Sidebar acknowledgement may have arrived before this visibility pass.
+        // Marker consumption itself must publish the resulting projection too.
+        publishMarkerConsumption();
+    } else if (oldState != entry->resumeState
         || oldFirstUnread != entry->firstUnreadPostId
         || oldReadThrough != entry->readThroughPostId
         || oldReadThroughCreateAt != entry->readThroughCreateAt) {

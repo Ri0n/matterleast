@@ -12,6 +12,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
+#include <QPointer>
 #include <QTimer>
 
 #include "backend/Backend.h"
@@ -116,12 +117,12 @@ const SidebarCategory* SidebarTeamState::categoryByType(const QString& type) con
 
 SidebarService& SidebarService::instance(Backend& backend)
 {
-    static QMap<Backend*, SidebarService*> instances;
-    auto it = instances.find(&backend);
-    if (it == instances.end()) {
-        it = instances.insert(&backend, new SidebarService(backend));
+    static QMap<Backend*, QPointer<SidebarService>> instances;
+    auto& service = instances[&backend];
+    if (!service) {
+        service = new SidebarService(backend);
     }
-    return **it;
+    return *service;
 }
 
 SidebarService::SidebarService(Backend& backend)
