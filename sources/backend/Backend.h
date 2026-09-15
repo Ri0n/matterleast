@@ -95,6 +95,12 @@ public:
 	//get all public teams on the server (/teams)
 	void retrieveAllPublicTeams ();
 
+    // Retrieve public teams suitable for the sidebar's "Add team" action.
+    void retrieveJoinableTeams(std::function<void(QJsonArray)> callback);
+
+    // Join an existing server team as the logged-in user.
+    void joinTeam(const QString& teamId);
+
 	//get a team (/teams/teamID)
 	void retrieveTeam (QString teamID);
 
