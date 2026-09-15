@@ -347,7 +347,8 @@ void TeamChannelsListDialog::reapplyLoadedPages()
     }
     for (int page : std::as_const(loadedPages)) {
         const int first = page * PublicChannelsPerPage;
-        const int last = std::min(first + PublicChannelsPerPage, pageChannels.size()) - 1;
+        const int last = std::min(first + PublicChannelsPerPage,
+                                  static_cast<int>(pageChannels.size())) - 1;
         int concreteLast = last;
         while (concreteLast >= first && !pageChannels.value(concreteLast)) {
             --concreteLast;
