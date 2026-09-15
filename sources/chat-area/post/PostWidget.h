@@ -50,6 +50,7 @@ class PostPoll;
 class ChatArea;
 class KTalkMeetingWidget;
 class MessageContentWidget;
+class ReactionQuickBarController;
 class ThreadSummaryWidget;
 
 class PostWidget: public QWidget
@@ -110,6 +111,8 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
+    friend class ReactionQuickBarController;
+
     void showPostContextMenu(const QPoint& globalPos);
     void animateReactionAffordance(bool visible);
     void positionReactionAffordance();
