@@ -35,6 +35,7 @@ class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
 class QMouseEvent;
+class QPainter;
 class QStackedWidget;
 class QTreeWidgetItem;
 
@@ -145,6 +146,8 @@ protected:
 	void dropEvent(QDropEvent* event) override;
     void changeEvent(QEvent* event) override;
     void rowsInserted(const QModelIndex& parent, int start, int end) override;
+    void drawBranches(QPainter* painter, const QRect& rect,
+                      const QModelIndex& index) const override;
 
 private:
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
