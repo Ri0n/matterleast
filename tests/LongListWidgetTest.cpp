@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QEvent>
 #include <QScrollBar>
 
 #include "widgets/LongListWidget.h"
@@ -92,6 +93,48 @@ private slots:
         const int center = list.indexAtViewportPosition(list.viewport()->height() / 2);
         QVERIFY2(qAbs(center - 5000) <= 3,
                  "A uniform 10k list must map the middle of the scrollbar near logical item 5000");
+    }
+
+    void hoverStateFollowsLatestTopLevelItem()
+    {
+        TestLongListWidget list;
+        list.resize(480, 180);
+        list.setDefaultItemHeight(60);
+        list.setItemCount(2);
+        list.setRangeAvailable(0, 1);
+        list.show();
+        settleEvents();
+
+        QWidget* first = list.itemWidget(0);
+        QWidget* second = list.itemWidget(1);
+        QVERIFY(first);
+        QVERIFY(second);
+
+        QSignalSpy hoverChanges(&list, &Mattermost::LongListWidget::hoveredItemChanged);
+
+        QEvent enterFirst(QEvent::Enter);
+        QCoreApplication::sendEvent(first, &enterFirst);
+        QCOMPARE(hoverChanges.count(), 1);
+        QCOMPARE(hoverChanges.at(0).at(0).toInt(), -1);
+        QCOMPARE(hoverChanges.at(0).at(1).toInt(), 0);
+
+        // Entering the next row may be observed before the stale Leave from
+        // the previous one. The newest Enter must own hover state.
+        QEvent enterSecond(QEvent::Enter);
+        QCoreApplication::sendEvent(second, &enterSecond);
+        QCOMPARE(hoverChanges.count(), 2);
+        QCOMPARE(hoverChanges.at(1).at(0).toInt(), 0);
+        QCOMPARE(hoverChanges.at(1).at(1).toInt(), 1);
+
+        QEvent leaveFirst(QEvent::Leave);
+        QCoreApplication::sendEvent(first, &leaveFirst);
+        QCOMPARE(hoverChanges.count(), 2);
+
+        QEvent leaveSecond(QEvent::Leave);
+        QCoreApplication::sendEvent(second, &leaveSecond);
+        QCOMPARE(hoverChanges.count(), 3);
+        QCOMPARE(hoverChanges.at(2).at(0).toInt(), 1);
+        QCOMPARE(hoverChanges.at(2).at(1).toInt(), -1);
     }
 
     void missingItemsRequestContiguousViewportDemand()

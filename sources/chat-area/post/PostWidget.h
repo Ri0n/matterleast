@@ -79,6 +79,7 @@ public:
     void clearTextSelection();
     void setWholeMessageSelectionMode(bool enabled);
     void setWholeMessageSelected(bool selected);
+    void setHovered(bool hovered);
     bool wholeMessageSelectionMode() const { return wholeMessageSelectionMode_; }
     bool wholeMessageSelected() const { return wholeMessageSelected_; }
 
@@ -103,7 +104,6 @@ signals:
     void markUnreadRequested(const QString& postId);
 
 protected:
-    bool event(QEvent* event) override;
     void changeEvent(QEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
@@ -141,6 +141,7 @@ private:
     QGraphicsOpacityEffect*            reactionOpacity_ = nullptr;
     QPropertyAnimation*                reactionAnimation_ = nullptr;
     bool                               reactionAffordanceWanted_ = false;
+    bool                               hovered_ = false;
     bool                               wholeMessageSelectionMode_ = false;
     bool                               wholeMessageSelected_ = false;
 };

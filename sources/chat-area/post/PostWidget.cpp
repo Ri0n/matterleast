@@ -22,7 +22,6 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QContextMenuEvent>
-#include <QTimer>
 #include <QSignalBlocker>
 #include <QPropertyAnimation>
 #include <QPainter>
@@ -332,27 +331,6 @@ void PostWidget::contextMenuEvent(QContextMenuEvent* event)
     event->accept();
 }
 
-bool PostWidget::event(QEvent* event)
-{
-    const bool handled = QWidget::event(event);
-    if (!event) {
-        return handled;
-    }
-    if (event->type() == QEvent::Enter || event->type() == QEvent::HoverEnter) {
-        animateReactionAffordance(true);
-    } else if (event->type() == QEvent::Leave || event->type() == QEvent::HoverLeave) {
-        QPointer<PostWidget> guard(this);
-        QTimer::singleShot(0, this, [guard] {
-            if (!guard) {
-                return;
-            }
-            const QPoint local = guard->mapFromGlobal(QCursor::pos());
-            guard->animateReactionAffordance(guard->rect().contains(local));
-        });
-    }
-    return handled;
-}
-
 void PostWidget::paintEvent(QPaintEvent* event)
 {
     QWidget::paintEvent(event);
@@ -382,8 +360,8 @@ void PostWidget::setWholeMessageSelectionMode(bool enabled)
     }
     if (enabled) {
         clearTextSelection();
-        animateReactionAffordance(false);
     }
+    animateReactionAffordance(hovered_);
     updateGeometry();
     update();
 }
@@ -396,6 +374,15 @@ void PostWidget::setWholeMessageSelected(bool selected)
         wholeMessageCheck_->setChecked(selected);
     }
     update();
+}
+
+void PostWidget::setHovered(bool hovered)
+{
+    if (hovered_ == hovered) {
+        return;
+    }
+    hovered_ = hovered;
+    animateReactionAffordance(hovered_);
 }
 
 void PostWidget::clearTextSelection()
