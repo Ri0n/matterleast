@@ -209,7 +209,7 @@ PostWidget::PostWidget(Backend& backend,
 			post.user_id, [guard](const BackendUser* user) {
 				if (guard && user) {
 					guard->setAuthor(guard->backend_, user);
-				}
+			}
 			});
 	}
 
@@ -334,7 +334,8 @@ void PostWidget::contextMenuEvent(QContextMenuEvent* event)
 void PostWidget::paintEvent(QPaintEvent* event)
 {
     QWidget::paintEvent(event);
-    if (!wholeMessageSelected_) {
+    if (!wholeMessageSelected_
+        && !property("_mmqt_contextMenuActive").toBool()) {
         return;
     }
     QColor selected = palette().color(QPalette::Highlight);
@@ -435,6 +436,9 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
         return;
     }
 
+    setProperty("_mmqt_contextMenuActive", true);
+    update();
+
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
 
@@ -524,6 +528,8 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     }
 
     menu.exec(globalPos);
+    setProperty("_mmqt_contextMenuActive", false);
+    update();
 }
 
 void PostWidget::setAuthor(Backend& backendInstance, const BackendUser* user)
