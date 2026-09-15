@@ -126,7 +126,7 @@ PostWidget::PostWidget(Backend& backend,
     connect(wholeMessageCheck_, &QCheckBox::toggled, this, [this](bool checked) {
         wholeMessageSelected_ = checked;
         update();
-        emit wholeMessageSelectionToggled(post.id, checked);
+        emit wholeMessageSelectionToggled(this->post.id, checked);
     });
 
     reactionAffordance_ = new QPushButton(QString::fromUtf8("❤️"), this);
@@ -151,7 +151,7 @@ PostWidget::PostWidget(Backend& backend,
     });
     connect(reactionAffordance_, &QPushButton::clicked, this, [this] {
         showEmojiDialog([this](Emoji emoji) {
-            backend_.addPostReaction(post.id, emoji.name);
+            backend_.addPostReaction(this->post.id, emoji.name);
         });
     });
 	ui->authorAvatar->setFrameShape(QFrame::NoFrame);
