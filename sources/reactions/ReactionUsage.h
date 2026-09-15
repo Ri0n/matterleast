@@ -26,16 +26,24 @@ struct ReactionUsageEntry
 /**
  * Small backend-independent popularity model for reactions.
  *
- * Every use cools all existing entries. A reaction with usage count c keeps
- * exp(-0.5 / sqrt(c)) of its previous heat per subsequent reaction event.
- * Therefore its heat half-life is about 1.386 * sqrt(c) events: rarely used
- * reactions cool quickly, while established habits remain useful for longer.
- * The selected reaction is then incremented and reheated to 1.0, which makes
- * the most recently selected reaction the hottest entry unconditionally.
+ * Every use cools all existing entries. A reaction with effective usage count
+ * c keeps exp(-0.5 / sqrt(c)) of its previous heat per subsequent reaction
+ * event. Therefore its heat half-life is about 1.386 * sqrt(c) events: rarely
+ * used reactions cool quickly, while established habits remain useful for
+ * longer. The selected reaction is then incremented and reheated to 1.0, which
+ * makes the most recently selected reaction the hottest entry unconditionally.
+ *
+ * count is deliberately an aging familiarity score rather than a lifetime
+ * total. When any entry reaches CountAgingThreshold all counts are halved
+ * (rounding up). This keeps the counter bounded and gradually forgets old
+ * habits, so newly introduced emoji can become established without competing
+ * with an effectively infinite historical count.
  */
 class ReactionUsageModel
 {
 public:
+    static constexpr quint64 CountAgingThreshold = 128;
+
     explicit ReactionUsageModel(int capacity = 10)
         : capacity_(std::max(1, capacity))
     {
@@ -69,6 +77,7 @@ public:
             selected->heat = 1.0;
         }
 
+        ageCountsIfNeeded();
         trim();
     }
 
@@ -94,6 +103,7 @@ public:
                 existing->heat = std::max(existing->heat, entry.heat);
             }
         }
+        ageCountsIfNeeded();
         trim();
     }
 
@@ -130,6 +140,30 @@ private:
             return left.count > right.count;
         }
         return left.name < right.name;
+    }
+
+    static quint64 agedCount(quint64 count)
+    {
+        // ceil(count / 2) without count + 1, which could overflow on corrupt or
+        // very old persisted data containing the maximum quint64 value.
+        return std::max<quint64>(1, count / 2 + count % 2);
+    }
+
+    void ageCountsIfNeeded()
+    {
+        for (;;) {
+            const bool needsAging = std::any_of(
+                entries_.cbegin(), entries_.cend(), [](const ReactionUsageEntry& entry) {
+                    return entry.count >= CountAgingThreshold;
+                });
+            if (!needsAging) {
+                return;
+            }
+
+            for (ReactionUsageEntry& entry : entries_) {
+                entry.count = agedCount(entry.count);
+            }
+        }
     }
 
     void trim()
