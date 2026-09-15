@@ -146,9 +146,6 @@
            <property name="text">
             <string>Team</string>
            </property>
-           <property name="alignment">
-            <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
-           </property>
           </widget>
          </item>
         </layout>
@@ -314,7 +311,7 @@
   </customwidget>
   <customwidget>
    <class>Mattermost::TeamSelectorLabel</class>
-   <extends>QLabel</extends>
+   <extends>QToolButton</extends>
    <header>ui/TeamSelectorLabel.h</header>
   </customwidget>
  </customwidgets>
