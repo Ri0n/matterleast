@@ -24,6 +24,8 @@
 
 #include "ViewChannelMembersListDialog.h"
 
+#include "ChannelMemberPagePolicy.h"
+
 #include <algorithm>
 #include <functional>
 #include <utility>
@@ -382,27 +384,38 @@ void ViewChannelMembersListDialog::loadMemberPage(int page)
 
             guard->inFlightPages.remove(page);
             const int pageStart = page * ChannelMemberPageSize;
-            const int availableCount = std::max(
-                0, std::min(static_cast<int>(userIds.size()),
-                            guard->memberCount - pageStart));
+            const ChannelMemberPageDecision decision = channelMemberPageDecision(
+                guard->memberCount,
+                pageStart,
+                ChannelMemberPageSize,
+                static_cast<int>(userIds.size()));
 
+            if (!decision.acceptPage) {
+                // /stats owns the logical count. A short random page must not
+                // collapse a 9k-member channel to pageStart (for example 100).
+                // Release LongList's pending suppression so a later user demand
+                // can retry the page instead of caching the bad response.
+                const int pageLast = pageStart + ChannelMemberPageSize - 1;
+                int pendingIndex = 0;
+                while (pendingIndex < guard->pendingRanges.size()) {
+                    const PendingRange range = guard->pendingRanges.at(pendingIndex);
+                    if (range.last < pageStart || range.first > pageLast) {
+                        ++pendingIndex;
+                        continue;
+                    }
+                    guard->memberList->finishRangeRequest(range.first, range.last);
+                    guard->pendingRanges.removeAt(pendingIndex);
+                }
+                return;
+            }
+
+            const int availableCount = decision.availableCount;
             for (int offset = 0; offset < availableCount; ++offset) {
                 guard->memberIds[pageStart + offset] = userIds.at(offset);
             }
             guard->loadedPages.insert(page);
 
-            if (availableCount < ChannelMemberPageSize
-                && pageStart + availableCount < guard->memberCount) {
-                // Membership may have changed between /stats and this page.
-                guard->memberCount = pageStart + availableCount;
-                guard->memberIds.resize(guard->memberCount);
-                if (!guard->searchMode) {
-                    guard->memberList->setItemCount(guard->memberCount);
-                    guard->reapplyLoadedPages();
-                    guard->setItemCountLabel(
-                        static_cast<uint32_t>(guard->memberCount));
-                }
-            } else if (!guard->searchMode && availableCount > 0) {
+            if (!guard->searchMode && availableCount > 0) {
                 guard->memberList->setRangeAvailable(
                     pageStart, pageStart + availableCount - 1, true);
             }

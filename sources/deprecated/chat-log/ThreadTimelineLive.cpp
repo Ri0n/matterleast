@@ -178,7 +178,7 @@ void ThreadTimelineController::openNewestOnInitialOpen()
     initialNewestRequestInFlight = true;
     QPointer<ThreadTimelineController> guard(this);
     PostTimelineService::instance(area.backend).loadThreadTail(
-        area.channel, rootId, InitialThreadWindowSize, rootPost->last_reply_at,
+        area.channel, rootId, InitialThreadWindowSize,
         [guard](const PostTimelineService::Page& page) {
             if (!guard) {
                 return;

@@ -11,7 +11,8 @@ namespace Mattermost {
  *
  * A freshly estimated slot is navigation metadata only: its body may already be
  * resident, but the view must not materialize a QWidget until a server window
- * containing the same identity confirms or relocates it. A target that was
+ * containing the same identity supplies renderable context. That context may
+ * remain a provisional island until its ordinal is proved. A target that was
  * already mapped by cached thread state is still tracked for overlap protection,
  * but remains materializable while that cached placement is validated.
  */

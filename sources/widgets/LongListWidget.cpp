@@ -18,7 +18,6 @@ namespace Mattermost {
 
 namespace {
 
-constexpr int MinimumPrefetchItems = 5;
 constexpr int HoverHighlightAlpha = 24;
 
 bool sameRange(const LongListWidget::Range& lhs, const LongListWidget::Range& rhs)
@@ -538,8 +537,12 @@ void LongListWidget::setRangeAvailable(int first, int last, bool isAvailable)
     const ViewAnchor anchor = !isAvailable ? captureAnchor() : ViewAnchor();
     const qint64 oldOffset = contentOffset();
     bool geometryChanged = false;
+    bool availabilityProgress = false;
 
     for (int index = first; index <= last; ++index) {
+        if (isAvailable && !available.testBit(index)) {
+            availabilityProgress = true;
+        }
         available.setBit(index, isAvailable);
         pendingRequest.clearBit(index);
         if (!isAvailable) {
@@ -556,6 +559,10 @@ void LongListWidget::setRangeAvailable(int first, int last, bool isAvailable)
                 geometryChanged = true;
             }
         }
+    }
+
+    if (availabilityProgress) {
+        ++availabilityRevision;
     }
 
     if (geometryChanged) {
@@ -583,6 +590,36 @@ void LongListWidget::setRangeAvailable(int first, int last, bool isAvailable)
 bool LongListWidget::isItemAvailable(int index) const
 {
     return index >= 0 && index < logicalCount && available.testBit(index);
+}
+
+void LongListWidget::resolveSeekTarget(int index, quint64 generation)
+{
+    if (!seekActive || generation != seekGeneration || index < 0 || index >= logicalCount) return;
+    seekTarget = index;
+    QSignalBlocker blocker(verticalScrollBar());
+    restoreSeekTarget();
+    scheduleSync(RequestReason::Seek);
+}
+
+void LongListWidget::finishRangeRequest(int first, int last)
+{
+    clearPendingRequest(first, last);
+    emit rangeRequestFinished(first, last);
+
+    if (!hasMissingVisibleItems()) {
+        observedAvailabilityRevision = availabilityRevision;
+        return;
+    }
+
+    if (availabilityRevision != observedAvailabilityRevision) {
+        // Concrete off-target progress can establish a better semantic anchor.
+        // Re-evaluate once after pending suppression is released. A completion
+        // with no progress deliberately does not schedule another transport
+        // attempt: source-side cursor convergence owns that responsibility and
+        // the view must never turn a failed seek into an HTTP polling loop.
+        observedAvailabilityRevision = availabilityRevision;
+        scheduleSync(seekActive ? RequestReason::Seek : RequestReason::Scroll);
+    }
 }
 
 void LongListWidget::itemsChanged(int first, int last)
@@ -920,6 +957,16 @@ void LongListWidget::synchronize()
     desired = clampToBudget(desired, preferredCenter);
     synchronizeRange(desired, reason, seekActive ? seekGeneration : 0, seekActive);
     synchronizing = false;
+
+    // Measuring the first real rows can expose additional logical rows around
+    // a seek target. Re-evaluate that changed geometry even if the source has
+    // already finished the original demand; no further availability signal is
+    // guaranteed. This is one layout update, not a retry of an unchanged gap.
+    const Range measuredDesiredRange = clampToBudget(
+        seekActive ? desiredRangeForSeek() : desiredRangeForViewport(), preferredCenter);
+    if (!sameRange(desired, measuredDesiredRange)) {
+        scheduleSync(reason);
+    }
 }
 
 void LongListWidget::synchronizeRange(const Range& desired,
@@ -973,22 +1020,26 @@ LongListWidget::Range LongListWidget::desiredRangeForViewport(int scrollValue) c
     result.first = heights.indexAtPixel(firstPixel);
     result.last = heights.indexAtPixel(std::max(firstPixel, lastPixel));
 
-    // The pixel/screen buffer is not enough by itself: a few unusually tall
-    // items can shrink it to only one or two logical rows. Keep a hard minimum
-    // logical look-ahead so an adjacent unavailable range is requested before
-    // the user can scroll into it. With five items, a request starts as soon as
-    // fewer than five concrete rows remain between the viewport and the gap.
+    // Estimate screen capacity from the average height of the visible rows.
+    // Unknown rows retain their estimated height; measurements refine the margin
+    // through the normal geometry sync. Keep at least one neighbour for tall posts.
     Range visible;
     const qint64 visibleBottom = std::min<qint64>(heights.totalHeight() - 1,
         top + std::max(0, viewport()->height() - 1));
     visible.first = heights.indexAtPixel(top);
     visible.last = heights.indexAtPixel(visibleBottom);
     if (visible.isValid()) {
+        const qint64 rowHeightSum = heights.prefixHeight(visible.last + 1)
+            - heights.prefixHeight(visible.first);
+        const qint64 numerator = qint64(viewport()->height()) * visible.count();
+        const qint64 denominator = 2 * std::max<qint64>(1, rowHeightSum);
+        const int margin = static_cast<int>(std::clamp<qint64>(
+            (numerator + denominator - 1) / denominator, 1, logicalCount));
         result.first = std::min(result.first,
-                                std::max(0, visible.first - MinimumPrefetchItems));
+                                std::max(0, visible.first - margin));
         result.last = std::max(result.last,
                                std::min(logicalCount - 1,
-                                        visible.last + MinimumPrefetchItems));
+                                        visible.last + margin));
     }
     return result;
 }
@@ -1005,11 +1056,15 @@ LongListWidget::Range LongListWidget::desiredRangeForSeek() const
 
     const qint64 targetTop = heights.prefixHeight(seekTarget);
     const qint64 targetCenter = targetTop + heights.value(seekTarget) / 2;
-    const qint64 radius = static_cast<qint64>(viewport()->height())
-        * (2 * bufferScreens + 1) / 2;
-    const qint64 firstPixel = std::max<qint64>(0, targetCenter - radius);
+    // restoreSeekTarget() clamps the centered offset at the source boundaries.
+    // Use that same effective viewport: a symmetric window about the target
+    // misses visible rows on the opposite side when centering is impossible.
+    const qint64 top = contentOffsetForScrollValue(scrollValueForContentOffset(
+        targetCenter - viewport()->height() / 2));
+    const qint64 buffer = static_cast<qint64>(viewport()->height()) * bufferScreens;
+    const qint64 firstPixel = std::max<qint64>(0, top - buffer);
     const qint64 lastPixel = std::min<qint64>(heights.totalHeight() - 1,
-        targetCenter + radius);
+        top + viewport()->height() + buffer - 1);
 
     Range result;
     result.first = heights.indexAtPixel(firstPixel);
@@ -1255,6 +1310,28 @@ void LongListWidget::clearPendingRequest(int first, int last)
     }
 }
 
+bool LongListWidget::hasMissingItems(const Range& range) const
+{
+    if (!range.isValid()) {
+        return false;
+    }
+    const int first = std::max(0, range.first);
+    const int last = std::min(logicalCount - 1, range.last);
+    for (int index = first; index <= last; ++index) {
+        if (!available.testBit(index)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool LongListWidget::hasMissingVisibleItems() const
+{
+    return hasMissingItems(visibleRange());
+}
+
+
+
 LongListWidget::ViewAnchor LongListWidget::captureAnchor() const
 {
     ViewAnchor anchor;
@@ -1263,7 +1340,8 @@ LongListWidget::ViewAnchor LongListWidget::captureAnchor() const
     }
 
     const qint64 offset = contentOffset();
-    if (verticalScrollBar()->value() == verticalScrollBar()->maximum()) {
+    if (verticalScrollBar()->maximum() > verticalScrollBar()->minimum()
+        && verticalScrollBar()->value() == verticalScrollBar()->maximum()) {
         anchor.kind = ViewAnchor::Bottom;
         return anchor;
     }
@@ -1362,6 +1440,8 @@ void LongListWidget::releaseViewportLock(bool notify)
 void LongListWidget::noteUserViewportChange()
 {
     releaseViewportLock(true);
+    // A new viewport consumes only progress observed after this gesture.
+    observedAvailabilityRevision = availabilityRevision;
     emit userViewportChanged(isAtEnd());
 }
 
@@ -1475,6 +1555,8 @@ void LongListWidget::onSliderMoved(int value)
     if (!seekActive || target != seekTarget) {
         ++seekGeneration;
         seekTarget = target;
+        pendingRequest.fill(false);
+        observedAvailabilityRevision = availabilityRevision;
     }
     seekActive = true;
     seekTimer.start(seekDebounceInterval);

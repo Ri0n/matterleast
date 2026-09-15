@@ -793,6 +793,8 @@ void ChatLogWidget::reconnectSource()
             scheduleReadCursorUpdate();
         }
     }));
+    sourceConnections.push_back(connect(postSource, &AbstractPostSource::seekTargetResolved,
+                                        this, &LongListWidget::resolveSeekTarget));
     sourceConnections.push_back(connect(postSource, &AbstractPostSource::layoutChanged,
                                         this, [this](int first, int last) {
         qCDebug(lcTimelineTrace).nospace()

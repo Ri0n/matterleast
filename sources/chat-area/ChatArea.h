@@ -106,7 +106,7 @@ public:
 	 * replaced or confirmed by an authoritative server window. onPresented runs
 	 * only for the still-current navigation after that authoritative placement.
 	 */
-	void highlightPostWhenAuthoritative(const QString& postId,
+	void highlightPostWhenReady(const QString& postId,
 	                                    std::function<void()> onPresented = {});
 
 	void onActivate ();

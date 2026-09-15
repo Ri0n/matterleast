@@ -27,7 +27,7 @@ PostListWidget::PostListWidget(QWidget* parent)
 
     setMaterializationLimit(200);
     setRequestBlockSize(10);
-    setPrefetchScreens(1);
+    setPrefetchScreens(0);
     setSeekDebounceMs(100);
 }
 

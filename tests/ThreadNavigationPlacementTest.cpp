@@ -109,6 +109,7 @@ private slots:
         QVERIFY(!placement.isActive());
     }
 
+
     void seekEstimateUsesNearestKnownAnchors()
     {
         const std::vector<ThreadSeekAnchor> anchors {

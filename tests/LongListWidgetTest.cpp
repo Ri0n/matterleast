@@ -120,44 +120,47 @@ private slots:
         QCOMPARE(list.materializedCount(), 0);
     }
 
-    void requestsGapBeforeFewerThanFiveItemsRemain()
+    void prefetchUsesHalfScreenCapacity_data()
     {
-        TestLongListWidget list;
-        list.resize(480, 120);
-        list.setDefaultItemHeight(100);
-        list.setRequestBlockSize(10);
-        list.setPrefetchScreens(0);
-        list.setItemCount(100);
-        list.setRangeAvailable(50, 99);
-        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
-        list.show();
-        settleEvents();
-        requests.clear();
+        QTest::addColumn<int>("rowHeight");
+        QTest::addColumn<int>("screenHeight");
+        QTest::addColumn<int>("margin");
+        QTest::newRow("short-messages") << 30 << 300 << 5;
+        QTest::newRow("medium-messages") << 60 << 300 << 3;
+        QTest::newRow("tall-message") << 600 << 300 << 1;
+        QTest::newRow("larger-viewport") << 30 << 600 << 10;
+    }
 
-        // Exactly five known logical rows remain before the gap: 50..54.
-        // The hard margin may include index 50, but it must not yet reach 49.
-        list.scrollToIndex(55, Mattermost::LongListWidget::Alignment::Top);
+    void prefetchUsesHalfScreenCapacity()
+    {
+        QFETCH(int, rowHeight);
+        QFETCH(int, screenHeight);
+        QFETCH(int, margin);
+        TestLongListWidget list;
+        list.setFrameShape(QFrame::NoFrame);
+        list.resize(480, screenHeight);
+        list.setDefaultItemHeight(100); // deliberately differs from measured rows
+        list.setItemCount(200);
+        for (int i = 50; i < 200; ++i) list.setSyntheticHeight(i, rowHeight);
+        list.setRangeAvailable(50, 199);
+        list.show();
+        list.scrollToIndex(50 + margin, Mattermost::LongListWidget::Alignment::Top);
+        settleEvents(20);
+        // Discard requests from initial measurement while the default height
+        // still stood in for actual row heights.
+        list.finishRangeRequest(0, 199);
+        settleEvents();
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        list.scrollToIndex(50 + margin, Mattermost::LongListWidget::Alignment::Top);
         settleEvents(12);
         QCOMPARE(requests.count(), 0);
-
-        // Moving one item upward leaves only four known rows (50..53) before
-        // the gap. The desired range must now include index 49 and request that
-        // actual missing run before the viewport reaches it.
-        list.scrollToIndex(54, Mattermost::LongListWidget::Alignment::Top);
+        list.scrollToIndex(49 + margin, Mattermost::LongListWidget::Alignment::Top);
         settleEvents(12);
-        QVERIFY2(requests.count() > 0,
-                 "A gap must be requested before fewer than five known items remain");
-
         bool requestedGap = false;
-        for (int i = 0; i < requests.count(); ++i) {
-            const QList<QVariant> request = requests.at(i);
-            if (request.at(0).toInt() <= 49 && request.at(1).toInt() >= 49) {
-                requestedGap = true;
-                break;
-            }
+        for (const auto& request : requests) {
+            if (request.at(0).toInt() <= 49 && request.at(1).toInt() >= 49) requestedGap = true;
         }
-        QVERIFY2(requestedGap,
-                 "The five-item logical prefetch margin must request the adjacent missing item");
+        QVERIFY2(requestedGap, "Half a screen of measured rows must be kept ahead of the viewport");
     }
 
     void materializationIsBoundedWithoutPlaceholderRows()
@@ -238,6 +241,55 @@ private slots:
         bar->setSliderDown(false);
     }
 
+    void resolvedSeekNearBoundaryMaterializesWholeViewport_data()
+    {
+        QTest::addColumn<int>("target");
+        QTest::addColumn<int>("first");
+        QTest::addColumn<int>("last");
+        QTest::newRow("oldest") << 5 << 0 << 31;
+        QTest::newRow("newest") << 720 << 700 << 731;
+    }
+
+    void resolvedSeekNearBoundaryMaterializesWholeViewport()
+    {
+        QFETCH(int, target);
+        QFETCH(int, first);
+        QFETCH(int, last);
+        TestLongListWidget list;
+        list.resize(480, 360);
+        list.setDefaultItemHeight(40);
+        list.setPrefetchScreens(0);
+        list.setSeekDebounceMs(0);
+        list.setItemCount(732);
+        for (int i = first; i <= last; ++i) list.setSyntheticHeight(i, 14);
+        list.show();
+        settleEvents();
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        auto* bar = list.verticalScrollBar();
+        const int value = bar->maximum() / 2;
+        bar->setSliderDown(true);
+        bar->setValue(value);
+        QVERIFY(QMetaObject::invokeMethod(bar, "sliderMoved", Qt::DirectConnection, Q_ARG(int, value)));
+        bar->setSliderDown(false);
+        settleEvents();
+        QVERIFY(!requests.isEmpty());
+        const auto request = requests.last();
+        const quint64 generation = request.at(3).toULongLong();
+        QVERIFY(generation > 0);
+        // A source resolves a cold seek at a boundary. The factory always
+        // succeeds; there are no HTTP, eviction or delayed-availability races.
+        list.setRangeAvailable(first, last);
+        list.resolveSeekTarget(target, generation);
+        list.finishRangeRequest(request.at(0).toInt(), request.at(1).toInt());
+        settleEvents(20);
+        const auto visible = list.visibleRange();
+        QVERIFY(visible.isValid());
+        for (int i = visible.first; i <= visible.last; ++i) {
+            QVERIFY(list.isItemAvailable(i));
+            QVERIFY2(list.itemWidget(i), qPrintable(QStringLiteral("Visible row %1 has no widget").arg(i)));
+        }
+    }
+
     void absoluteSliderMoveStartsSparseSeek()
     {
         TestLongListWidget list;
@@ -280,6 +332,175 @@ private slots:
         }
         QVERIFY2(sawSeek,
                  "An absolute jump from resident data into a sparse region must start a seek without a slider drag or model wake-up");
+    }
+
+
+    void newerSparseSeekOwnsOverlappingPendingRange()
+    {
+        TestLongListWidget list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(80);
+        list.setRequestBlockSize(10);
+        list.setSeekDebounceMs(0);
+        list.setItemCount(1000);
+        list.setRangeAvailable(0, 9);
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        list.show();
+        settleEvents(12);
+        requests.clear();
+
+        QScrollBar* bar = list.verticalScrollBar();
+        const int firstValue = bar->maximum() / 2;
+        bar->setSliderDown(true);
+        bar->setValue(firstValue);
+        QVERIFY(QMetaObject::invokeMethod(bar, "sliderMoved",
+                                          Qt::DirectConnection,
+                                          Q_ARG(int, firstValue)));
+        bar->setSliderDown(false);
+        settleEvents(12);
+
+        quint64 firstGeneration = 0;
+        for (int i = 0; i < requests.count(); ++i) {
+            firstGeneration = std::max(firstGeneration,
+                                       requests.at(i).at(3).toULongLong());
+        }
+        QVERIFY(firstGeneration > 0);
+
+        // Leave generation 1 pending. The next target is only two rows away, so
+        // its demand overlaps almost entirely with those old pending bits.
+        requests.clear();
+        const int secondValue = std::min(bar->maximum(), firstValue + 160);
+        bar->setSliderDown(true);
+        bar->setValue(secondValue);
+        const int secondTarget = list.indexAtViewportPosition(
+            list.viewport()->height() / 2);
+        QVERIFY(QMetaObject::invokeMethod(bar, "sliderMoved",
+                                          Qt::DirectConnection,
+                                          Q_ARG(int, secondValue)));
+        bar->setSliderDown(false);
+        settleEvents(12);
+
+        bool newGenerationOwnsTarget = false;
+        for (int i = 0; i < requests.count(); ++i) {
+            const QList<QVariant> request = requests.at(i);
+            if (request.at(3).toULongLong() > firstGeneration
+                && request.at(0).toInt() <= secondTarget
+                && request.at(1).toInt() >= secondTarget) {
+                newGenerationOwnsTarget = true;
+                break;
+            }
+        }
+        QVERIFY2(newGenerationOwnsTarget,
+                 "A newer random seek must not inherit pending suppression from the previous generation");
+    }
+
+    void offTargetSeekProgressRetriggersDemand()
+    {
+        TestLongListWidget list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(80);
+        list.setRequestBlockSize(10);
+        list.setSeekDebounceMs(0);
+        list.setItemCount(1000);
+        list.setRangeAvailable(0, 9);
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        list.show();
+        settleEvents(12);
+        requests.clear();
+
+        QScrollBar* bar = list.verticalScrollBar();
+        const int value = bar->maximum() / 2;
+        bar->setSliderDown(true);
+        bar->setValue(value);
+        const int target = list.indexAtViewportPosition(list.viewport()->height() / 2);
+        QVERIFY(QMetaObject::invokeMethod(bar, "sliderMoved",
+                                          Qt::DirectConnection,
+                                          Q_ARG(int, value)));
+        bar->setSliderDown(false);
+        settleEvents(12);
+        QVERIFY(requests.count() > 0);
+
+        const QList<QVariant> firstRequest = requests.takeFirst();
+        const quint64 generation = firstRequest.at(3).toULongLong();
+        QVERIFY(generation > 0);
+        requests.clear();
+
+        // Mirror the trace: the source learned an authoritative island away from
+        // the requested viewport while this seek range remained pending.
+        const int offTargetFirst = std::min(990, target + 30);
+        list.setRangeAvailable(offTargetFirst, offTargetFirst + 3);
+        settleEvents(4);
+        requests.clear();
+
+        list.finishRangeRequest(firstRequest.at(0).toInt(),
+                                firstRequest.at(1).toInt());
+        settleEvents(12);
+
+        bool retriedTarget = false;
+        for (int i = 0; i < requests.count(); ++i) {
+            const QList<QVariant> request = requests.at(i);
+            if (request.at(3).toULongLong() == generation
+                && request.at(0).toInt() <= target
+                && request.at(1).toInt() >= target) {
+                retriedTarget = true;
+                break;
+            }
+        }
+        QVERIFY2(retriedTarget,
+                 "Off-target source progress must wake the still-missing seek viewport after request completion");
+    }
+
+    void unresolvedSeekViewportDoesNotPollWithoutProgress()
+    {
+        TestLongListWidget list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(80);
+        list.setRequestBlockSize(10);
+        list.setSeekDebounceMs(0);
+        list.setItemCount(1000);
+        list.setRangeAvailable(0, 9);
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        list.show();
+        settleEvents(12);
+        requests.clear();
+
+        QScrollBar* bar = list.verticalScrollBar();
+        const int value = bar->maximum() / 2;
+        bar->setSliderDown(true);
+        bar->setValue(value);
+        QVERIFY(QMetaObject::invokeMethod(bar, "sliderMoved",
+                                          Qt::DirectConnection,
+                                          Q_ARG(int, value)));
+        bar->setSliderDown(false);
+        settleEvents(12);
+        QVERIFY(requests.count() > 0);
+
+        const QList<QVariant> request = requests.takeFirst();
+        requests.clear();
+        list.finishRangeRequest(request.at(0).toInt(), request.at(1).toInt());
+        QTest::qWait(150);
+        settleEvents(8);
+        QCOMPARE(requests.count(), 0);
+    }
+
+    void ordinaryBlankViewportDoesNotPollWithoutProgress()
+    {
+        TestLongListWidget list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(80);
+        list.setItemCount(1000);
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        list.show();
+        settleEvents(12);
+        QVERIFY(requests.count() > 0);
+
+        const QList<QVariant> request = requests.takeFirst();
+        QCOMPARE(request.at(3).toULongLong(), quint64(0));
+        requests.clear();
+        list.finishRangeRequest(request.at(0).toInt(), request.at(1).toInt());
+        QTest::qWait(150);
+        settleEvents(8);
+        QCOMPARE(requests.count(), 0);
     }
 
     void delayedRowGrowthKeepsStickyBottom()
