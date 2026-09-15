@@ -16,24 +16,25 @@ void ChannelTree::drawBranches(QPainter* painter, const QRect& rect,
 
     QStyleOption option;
     option.initFrom(this);
-    option.state |= QStyle::State_Children;
-    if (isExpanded(index)) {
-        option.state |= QStyle::State_Open;
-    }
 
-    // QTreeView normally gives PE_IndicatorBranch State_Item/State_Sibling as
-    // well, which makes native styles draw the vertical/horizontal connector
-    // lines. Keep only the current item's disclosure indicator and restrict it
-    // to the final indentation cell so nested depth does not shift the arrow.
-    const int indicatorWidth = qMin(indentation(), rect.width());
-    option.rect = rect;
+    // Do not use PE_IndicatorBranch here. Even without State_Item/State_Sibling,
+    // some native styles still draw a short vertical stem around the disclosure
+    // marker. Draw only the native arrow primitive instead, so category
+    // expand/collapse remains styled by Qt while branch connector lines cannot
+    // appear at all.
+    const int extent = qMin(indentation(), rect.height());
+    option.rect = QRect(0, 0, extent, extent);
+    option.rect.moveCenter(rect.center());
     if (layoutDirection() == Qt::LeftToRight) {
-        option.rect.setLeft(rect.right() - indicatorWidth + 1);
+        option.rect.moveLeft(rect.right() - extent + 1);
     } else {
-        option.rect.setRight(rect.left() + indicatorWidth - 1);
+        option.rect.moveRight(rect.left() + extent - 1);
     }
 
-    style()->drawPrimitive(QStyle::PE_IndicatorBranch, &option, painter, this);
+    style()->drawPrimitive(isExpanded(index)
+                               ? QStyle::PE_IndicatorArrowDown
+                               : QStyle::PE_IndicatorArrowRight,
+                           &option, painter, this);
 }
 
 } // namespace Mattermost
