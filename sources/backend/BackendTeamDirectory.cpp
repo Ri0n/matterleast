@@ -1,4 +1,5 @@
 #include "Backend.h"
+#include "NetworkRequest.h"
 
 #include <utility>
 
