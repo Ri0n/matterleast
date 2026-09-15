@@ -113,11 +113,13 @@ QSet<QString> stringSet(const QStringList& values)
 QStringList storedFavoriteNames(const QByteArray& data)
 {
     QStringList names;
-    if (data.isEmpty() || data.size() % static_cast<int>(sizeof(EmojiID)) != 0) {
+    using ByteSize = decltype(data.size());
+    const ByteSize stride = static_cast<ByteSize>(sizeof(EmojiID));
+    if (data.isEmpty() || data.size() % stride != 0) {
         return names;
     }
 
-    for (int offset = 0; offset < data.size(); offset += sizeof(EmojiID)) {
+    for (ByteSize offset = 0; offset < data.size(); offset += stride) {
         EmojiID id {0, 0};
         std::memcpy(&id, data.constData() + offset, sizeof(id));
         const Emoji emoji = EmojiInfo::getEmoji(id);
