@@ -1,0 +1,51 @@
+name: Fix PostWidget post captures
+
+on:
+  push:
+    branches:
+      - fix/four-ui-data-regressions
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/four-ui-data-regressions
+          fetch-depth: 0
+
+      - name: Apply capture fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('sources/chat-area/post/PostWidget.cpp')
+          text = path.read_text()
+
+          replacements = {
+              'emit wholeMessageSelectionToggled(post.id, checked);':
+                  'emit wholeMessageSelectionToggled(this->post.id, checked);',
+              'backend_.addPostReaction(post.id, emoji.name);':
+                  'backend_.addPostReaction(this->post.id, emoji.name);',
+          }
+
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one occurrence of {old!r}, found {count}')
+              text = text.replace(old, new)
+
+          path.write_text(text)
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/zz-fix-postwidget-post-captures.yml
+          git config user.name 'Sergei Ilinykh'
+          git config user.email 'rion4ik@gmail.com'
+          git add sources/chat-area/post/PostWidget.cpp .github/workflows/zz-fix-postwidget-post-captures.yml
+          git commit -m 'Fix PostWidget lambda member access'
+          git push origin HEAD:fix/four-ui-data-regressions
