@@ -1,0 +1,51 @@
+name: Apply post hover affordance fix
+
+on:
+  push:
+    branches:
+      - fix/four-ui-data-regressions
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/four-ui-data-regressions
+          fetch-depth: 0
+
+      - name: Apply staged patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          source = Path('.github/workflows/zz-sync-post-hover-affordance.yml').read_text()
+          marker = "      - name: Apply hover synchronization fix\n        shell: python\n        run: |\n"
+          start = source.index(marker) + len(marker)
+          end = source.index("\n      - name: Remove one-shot workflow and commit", start)
+          block = source[start:end]
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in block.splitlines()
+          ) + '\n'
+          exec(compile(script, '<hover-patch>', 'exec'))
+
+      - name: Commit clean result
+        run: |
+          rm .github/workflows/zz-sync-post-hover-affordance.yml
+          rm .github/workflows/zz-sync-post-hover-affordance-v2.yml
+          git config user.name 'Sergei Ilinykh'
+          git config user.email 'rion4ik@gmail.com'
+          git add sources/widgets/LongListWidget.h \
+                  sources/widgets/LongListWidget.cpp \
+                  sources/chat-area/PostListWidget.cpp \
+                  sources/chat-area/post/PostWidget.h \
+                  sources/chat-area/post/PostWidget.cpp \
+                  tests/LongListWidgetTest.cpp
+          git add -u .github/workflows
+          git commit -m 'Sync reaction affordance with list hover'
+          git push origin HEAD:fix/four-ui-data-regressions
