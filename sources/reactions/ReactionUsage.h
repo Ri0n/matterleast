@@ -107,7 +107,8 @@ public:
     QStringList topNames(int limit = -1) const
     {
         const QVector<ReactionUsageEntry> ranked = ranking();
-        const int count = limit < 0 ? ranked.size() : std::min(limit, ranked.size());
+        const int rankedSize = static_cast<int>(ranked.size());
+        const int count = limit < 0 ? rankedSize : std::min(limit, rankedSize);
         QStringList names;
         names.reserve(count);
         for (int i = 0; i < count; ++i) {
@@ -116,7 +117,7 @@ public:
         return names;
     }
 
-    int size() const { return entries_.size(); }
+    int size() const { return static_cast<int>(entries_.size()); }
 
 private:
     static bool hotterThan(const ReactionUsageEntry& left,
@@ -134,7 +135,7 @@ private:
     void trim()
     {
         std::sort(entries_.begin(), entries_.end(), hotterThan);
-        if (entries_.size() > capacity_) {
+        if (static_cast<int>(entries_.size()) > capacity_) {
             entries_.resize(capacity_);
         }
     }
@@ -212,8 +213,13 @@ inline QStringList selectQuickReactionNames(const QStringList& popular,
     QStringList selected;
     QSet<QString> seen;
 
+    maxActions = std::max(0, maxActions);
+    preferredPopular = std::max(0, preferredPopular);
+    preferredFavorites = std::max(0, preferredFavorites);
+
     const auto appendUnique = [&selected, &seen, maxActions](const QString& name) {
-        if (selected.size() >= maxActions || name.isEmpty() || seen.contains(name)) {
+        if (static_cast<int>(selected.size()) >= maxActions
+            || name.isEmpty() || seen.contains(name)) {
             return false;
         }
         seen.insert(name);
@@ -221,13 +227,15 @@ inline QStringList selectQuickReactionNames(const QStringList& popular,
         return true;
     };
 
-    for (int i = 0; i < popular.size() && i < preferredPopular; ++i) {
+    const int popularSize = static_cast<int>(popular.size());
+    for (int i = 0; i < popularSize && i < preferredPopular; ++i) {
         appendUnique(popular.at(i));
     }
 
     int favoriteCount = 0;
     for (const QString& favorite : favorites) {
-        if (favoriteCount >= preferredFavorites || selected.size() >= maxActions) {
+        if (favoriteCount >= preferredFavorites
+            || static_cast<int>(selected.size()) >= maxActions) {
             break;
         }
         if (appendUnique(favorite)) {
@@ -235,9 +243,9 @@ inline QStringList selectQuickReactionNames(const QStringList& popular,
         }
     }
 
-    if (selected.size() < maxActions) {
+    if (static_cast<int>(selected.size()) < maxActions) {
         for (const QString& name : popular) {
-            if (selected.size() >= maxActions) {
+            if (static_cast<int>(selected.size()) >= maxActions) {
                 break;
             }
             appendUnique(name);
