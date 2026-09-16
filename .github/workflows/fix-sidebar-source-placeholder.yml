@@ -1,0 +1,80 @@
+name: Fix sidebar source placeholder
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/sidebar-optimistic-dnd
+
+      - name: Apply source-independent placeholder fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # ChannelTree.h
+          path = Path('sources/channel-tree/ChannelTree.h')
+          text = path.read_text()
+
+          old = '''    void ensureDragSourceVisuals(QTreeWidgetItem* source);\n    void animateSourceCollapse(qreal target);\n'''
+          new = '''    void ensureDragSourceVisuals(QTreeWidgetItem* source);\n    QTreeWidgetItem* sourceDropGapAnchor(QTreeWidgetItem* source, bool& gapAfter) const;\n    void animateSourceCollapse(qreal target);\n'''
+          if old not in text:
+              raise SystemExit('header method anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    QPersistentModelIndex               currentDragGapIndex;\n    bool                                currentDragGapAfter = false;\n'''
+          new = '''    QPersistentModelIndex               currentDragGapIndex;\n    QPersistentModelIndex               sourceDragGapIndex;\n    bool                                currentDragGapAfter = false;\n    bool                                sourceDragGapAfter = false;\n'''
+          if old not in text:
+              raise SystemExit('header field anchor not found')
+          path.write_text(text.replace(old, new, 1))
+
+          # ChannelTreeDragVisuals.cpp
+          path = Path('sources/channel-tree/ChannelTreeDragVisuals.cpp')
+          text = path.read_text()
+
+          old = '''    // Replace the dragged block by an equal-sized structural placeholder in a\n    // single layout pass. Starting a drag must not move anything below source.\n    // Only this placeholder travels through the tree afterwards.\n    for (const QPersistentModelIndex& index : dragSourceIndexes) {\n        if (index.isValid()) {\n            model()->setData(index, 1.0, SidebarItem::DragCollapseRole);\n        }\n    }\n    const QPersistentModelIndex placeholder = dragSourceIndexes.front();\n    dragGapIndexes.clear();\n    dragGapIndexes.push_back(placeholder);\n    currentDragGapIndex = placeholder;\n    currentDragGapAfter = false;\n    currentDragGapExtent = draggedRowExtent;\n    model()->setData(placeholder, draggedRowExtent, SidebarItem::DropGapBeforeRole);\n    model()->setData(placeholder, 0, SidebarItem::DropGapAfterRole);\n    doItemsLayout();\n    viewport()->update();\n}\n'''
+          new = '''    // The source itself must never own the structural placeholder. Otherwise\n    // the first vacated slot remains attached to the collapsed source row and\n    // appears to travel through the tree instead of being filled by its\n    // neighbour. Anchor the initial placeholder on an unaffected adjacent\n    // boundary, then collapse the source block to zero.\n    bool gapAfter = false;\n    QTreeWidgetItem* gapAnchor = sourceDropGapAnchor(source, gapAfter);\n    const QPersistentModelIndex placeholder(\n        gapAnchor ? indexFromItem(gapAnchor, 0) : QModelIndex());\n\n    for (const QPersistentModelIndex& index : dragSourceIndexes) {\n        if (index.isValid()) {\n            model()->setData(index, 1.0, SidebarItem::DragCollapseRole);\n        }\n    }\n\n    sourceDragGapIndex = placeholder.isValid() ? placeholder : sourceIndex;\n    sourceDragGapAfter = placeholder.isValid() ? gapAfter : false;\n    dragGapIndexes.clear();\n    dragGapIndexes.push_back(sourceDragGapIndex);\n    currentDragGapIndex = sourceDragGapIndex;\n    currentDragGapAfter = sourceDragGapAfter;\n    currentDragGapExtent = draggedRowExtent;\n    model()->setData(sourceDragGapIndex,\n                     sourceDragGapAfter ? 0 : draggedRowExtent,\n                     SidebarItem::DropGapBeforeRole);\n    model()->setData(sourceDragGapIndex,\n                     sourceDragGapAfter ? draggedRowExtent : 0,\n                     SidebarItem::DropGapAfterRole);\n    doItemsLayout();\n    viewport()->update();\n}\n\nQTreeWidgetItem* ChannelTree::sourceDropGapAnchor(QTreeWidgetItem* source,\n                                                   bool& gapAfter) const\n{\n    gapAfter = false;\n    if (!source || !source->parent()) {\n        return nullptr;\n    }\n\n    QTreeWidgetItem* parent = source->parent();\n    const int sourceRow = parent->indexOfChild(source);\n    if (sourceRow < 0) {\n        return nullptr;\n    }\n\n    if (source->data(0, ItemKindRole).toInt() == ChannelItemKind) {\n        for (int i = sourceRow - 1; i >= 0; --i) {\n            QTreeWidgetItem* sibling = parent->child(i);\n            if (sibling && !sibling->isHidden()) {\n                gapAfter = true;\n                return sibling;\n            }\n        }\n        for (int i = sourceRow + 1; i < parent->childCount(); ++i) {\n            QTreeWidgetItem* sibling = parent->child(i);\n            if (sibling && !sibling->isHidden()) {\n                gapAfter = false;\n                return sibling;\n            }\n        }\n\n        // A single channel in a category: the category header is the only\n        // unaffected boundary available.\n        gapAfter = true;\n        return parent;\n    }\n\n    if (source->data(0, ItemKindRole).toInt() == CategoryItemKind) {\n        for (int i = sourceRow - 1; i >= 0; --i) {\n            QTreeWidgetItem* sibling = parent->child(i);\n            if (!sibling || sibling->isHidden()\n                || sibling->data(0, ItemKindRole).toInt() != CategoryItemKind) {\n                continue;\n            }\n            bool after = true;\n            QTreeWidgetItem* anchor = categoryDropGapAnchor(sibling, true, after);\n            if (anchor) {\n                gapAfter = after;\n                return anchor;\n            }\n        }\n        for (int i = sourceRow + 1; i < parent->childCount(); ++i) {\n            QTreeWidgetItem* sibling = parent->child(i);\n            if (sibling && !sibling->isHidden()\n                && sibling->data(0, ItemKindRole).toInt() == CategoryItemKind) {\n                gapAfter = false;\n                return sibling;\n            }\n        }\n    }\n\n    return nullptr;\n}\n'''
+          if old not in text:
+              raise SystemExit('source placeholder block not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    if (dragSourceIndexes.isEmpty() || draggedRowExtent <= 0\n        || !dragSourceIndexes.front().isValid()) {\n        return;\n    }\n\n    const QPersistentModelIndex source = dragSourceIndexes.front();\n    if (currentDragGapIndex == source && !currentDragGapAfter\n        && currentDragGapExtent == draggedRowExtent) {\n        return;\n    }\n    if (animate) {\n        animateDropGap(source, false, draggedRowExtent);\n        return;\n    }\n'''
+          new = '''    if (dragSourceIndexes.isEmpty() || draggedRowExtent <= 0\n        || !sourceDragGapIndex.isValid()) {\n        return;\n    }\n\n    if (currentDragGapIndex == sourceDragGapIndex\n        && currentDragGapAfter == sourceDragGapAfter\n        && currentDragGapExtent == draggedRowExtent) {\n        return;\n    }\n    if (animate) {\n        animateDropGap(sourceDragGapIndex, sourceDragGapAfter, draggedRowExtent);\n        return;\n    }\n'''
+          if old not in text:
+              raise SystemExit('restore source header not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    dragGapIndexes.clear();\n    dragGapIndexes.push_back(source);\n    model()->setData(source, draggedRowExtent, SidebarItem::DropGapBeforeRole);\n    currentDragGapIndex = source;\n    currentDragGapAfter = false;\n    currentDragGapExtent = draggedRowExtent;\n'''
+          new = '''    dragGapIndexes.clear();\n    dragGapIndexes.push_back(sourceDragGapIndex);\n    model()->setData(sourceDragGapIndex,\n                     sourceDragGapAfter ? 0 : draggedRowExtent,\n                     SidebarItem::DropGapBeforeRole);\n    model()->setData(sourceDragGapIndex,\n                     sourceDragGapAfter ? draggedRowExtent : 0,\n                     SidebarItem::DropGapAfterRole);\n    currentDragGapIndex = sourceDragGapIndex;\n    currentDragGapAfter = sourceDragGapAfter;\n    currentDragGapExtent = draggedRowExtent;\n'''
+          if old not in text:
+              raise SystemExit('restore source body not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    dragGapIndexes.clear();\n    currentDragGapIndex = QPersistentModelIndex();\n    currentDragGapAfter = false;\n    currentDragGapExtent = 0;\n    dragSourceIndexes.clear();\n'''
+          new = '''    dragGapIndexes.clear();\n    currentDragGapIndex = QPersistentModelIndex();\n    sourceDragGapIndex = QPersistentModelIndex();\n    currentDragGapAfter = false;\n    sourceDragGapAfter = false;\n    currentDragGapExtent = 0;\n    dragSourceIndexes.clear();\n'''
+          if old not in text:
+              raise SystemExit('reset fields anchor not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+      - name: Remove temporary workflow
+        run: git rm .github/workflows/fix-sidebar-source-placeholder.yml
+
+      - name: Commit implementation
+        run: |
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add sources/channel-tree/ChannelTree.h sources/channel-tree/ChannelTreeDragVisuals.cpp
+          git diff --cached --check
+          git commit -m "Detach drag placeholder from source row"
+          git push origin HEAD:feature/sidebar-optimistic-dnd
