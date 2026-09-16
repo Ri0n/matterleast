@@ -728,7 +728,8 @@ void SidebarService::setChannelMuted(BackendChannel& channel, bool muted,
 }
 
 void SidebarService::storeCategories(QString teamId, SidebarTeamState state,
-                                     std::function<void(const SidebarTeamState&)> callback)
+                                     std::function<void(const SidebarTeamState&)> callback,
+                                     bool storeResponse)
 {
     QStringList directUserIds;
     for (auto it = state.categories.cbegin(); it != state.categories.cend(); ++it) {
@@ -744,25 +745,30 @@ void SidebarService::storeCategories(QString teamId, SidebarTeamState state,
     UserProfileService::instance(backend).ensureUsers(directUserIds,
         [this, teamId = std::move(teamId), statePtr, directUserIds, callback] {
             UserProfileService::instance(backend).ensureStatuses(directUserIds,
-                [this, teamId, statePtr, callback] {
-                    sidebarByTeam.insert(teamId, std::move(*statePtr));
-                    emit categoriesChanged(teamId);
-                    if (callback) {
-                        callback(sidebarByTeam[teamId]);
+                [this, teamId, statePtr, callback, storeResponse] {
+                    if (storeResponse) {
+                        sidebarByTeam.insert(teamId, *statePtr);
+                        emit categoriesChanged(teamId);
+                        if (callback) {
+                            callback(sidebarByTeam[teamId]);
+                        }
+                    } else if (callback) {
+                        callback(*statePtr);
                     }
                 });
         });
 }
 
 void SidebarService::retrieveCategories(BackendTeam& team,
-                                        std::function<void(const SidebarTeamState&)> callback)
+                                        std::function<void(const SidebarTeamState&)> callback,
+                                        bool storeResponse)
 {
     const QString teamId = team.id;
-    retrieveChannelMemberships([this, teamId, callback] {
-        retrieveChannelPreferences([this, teamId, callback] {
+    retrieveChannelMemberships([this, teamId, callback, storeResponse] {
+        retrieveChannelPreferences([this, teamId, callback, storeResponse] {
             NetworkRequest request(categoriesPath(teamId));
             httpConnector.get(request, HttpResponseCallback(
-                [this, teamId, callback](const QJsonDocument& doc) {
+                [this, teamId, callback, storeResponse](const QJsonDocument& doc) {
                     SidebarTeamState state;
                     const auto object = doc.object();
 
@@ -780,7 +786,7 @@ void SidebarService::retrieveCategories(BackendTeam& team,
                         }
                     }
 
-                    storeCategories(teamId, std::move(state), callback);
+                    storeCategories(teamId, std::move(state), callback, storeResponse);
                 }));
         });
     });

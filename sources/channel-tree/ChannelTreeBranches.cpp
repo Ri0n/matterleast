@@ -35,10 +35,15 @@ void ChannelTree::drawBranches(QPainter* painter, const QRect& rect,
         option.rect.moveRight(contentRect.left() + extent - 1);
     }
 
+    const qreal collapse = qBound<qreal>(
+        0.0, index.data(SidebarItem::DragCollapseRole).toDouble(), 1.0);
+    painter->save();
+    painter->setOpacity(painter->opacity() * (1.0 - collapse));
     style()->drawPrimitive(isExpanded(index)
                                ? QStyle::PE_IndicatorArrowDown
                                : QStyle::PE_IndicatorArrowRight,
                            &option, painter, this);
+    painter->restore();
 }
 
 } // namespace Mattermost

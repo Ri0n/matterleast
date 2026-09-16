@@ -209,6 +209,7 @@ private:
     void moveCategory(QTreeWidgetItem* item, const QString& targetCategoryId,
                       bool afterTarget);
 	void refreshSidebarTeam(const QString& teamId);
+    void verifySidebarTeam(const QString& teamId, quint64 mutation);
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;
@@ -222,7 +223,8 @@ private:
     QVariantAnimation*                  sourceCollapseAnimation = nullptr;
     QVariantAnimation*                  dropGapAnimation = nullptr;
     QVector<QPersistentModelIndex>      dragSourceIndexes;
-    QPersistentModelIndex               dragGapIndex;
+    QVector<QPersistentModelIndex>      dragGapIndexes;
+    QPersistentModelIndex               currentDragGapIndex;
     int                                 draggedRowExtent = 0;
     QMap<QString, quint64>              sidebarMutationGeneration;
 };

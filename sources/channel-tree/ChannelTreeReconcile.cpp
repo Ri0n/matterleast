@@ -79,6 +79,35 @@ void moveChild(QTreeWidgetItem& parent, QTreeWidgetItem* child, int index)
 
 } // namespace
 
+void ChannelTree::verifySidebarTeam(const QString& teamId, quint64 mutation)
+{
+    if (!backendForSidebar
+        || sidebarMutationGeneration.value(teamId) != mutation) {
+        return;
+    }
+
+    BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId);
+    if (!team) {
+        return;
+    }
+
+    QPointer<ChannelTree> guard(this);
+    SidebarService::instance(*backendForSidebar).retrieveCategories(
+        *team,
+        [guard, teamId, mutation](const SidebarTeamState& serverState) {
+            if (!guard || !guard->backendForSidebar
+                || guard->sidebarMutationGeneration.value(teamId) != mutation) {
+                return;
+            }
+            auto& sidebar = SidebarService::instance(*guard->backendForSidebar);
+            sidebar.applyLocalTeamState(teamId, serverState);
+            if (TeamItem* teamItem = guard->teamToItemMap.value(teamId, nullptr)) {
+                guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, serverState);
+            }
+        },
+        false);
+}
+
 void ChannelTree::destroySidebarRow(QTreeWidgetItem* item)
 {
     if (!item) {
@@ -140,8 +169,11 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     // them alive so a server-side move preserves the ChannelItem and ChatArea.
     QMap<QString, QList<QTreeWidgetItem*>> movableChannels;
     for (auto it = categories.cbegin(); it != categories.cend(); ++it) {
-        const QSet<QString> desired(desiredChannels.value(it.key()).cbegin(),
-                                    desiredChannels.value(it.key()).cend());
+        QSet<QString> desired;
+        const QStringList desiredIds = desiredChannels.value(it.key());
+        for (const QString& id : desiredIds) {
+            desired.insert(id);
+        }
         QTreeWidgetItem* category = it.value();
         for (int row = 0; category && row < category->childCount(); ++row) {
             QTreeWidgetItem* child = category->child(row);
@@ -254,8 +286,9 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
 
     // Desired categories were moved to the front in exact order; anything left
     // after them no longer exists in the authoritative state.
-    while (teamItem.childCount() > active.size()) {
-        QTreeWidgetItem* staleCategory = teamItem.takeChild(active.size());
+    const int activeCategoryCount = static_cast<int>(active.size());
+    while (teamItem.childCount() > activeCategoryCount) {
+        QTreeWidgetItem* staleCategory = teamItem.takeChild(activeCategoryCount);
         while (staleCategory && staleCategory->childCount() > 0) {
             destroySidebarRow(staleCategory->takeChild(0));
         }

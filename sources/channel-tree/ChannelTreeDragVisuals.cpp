@@ -27,7 +27,7 @@ void stopAnimation(QVariantAnimation*& animation)
 qreal collapseValue(const QPersistentModelIndex& index)
 {
     return index.isValid()
-        ? qBound<qreal>(0.0, index.data(SidebarItem::DragCollapseRole).toReal(), 1.0)
+        ? qBound<qreal>(0.0, index.data(SidebarItem::DragCollapseRole).toDouble(), 1.0)
         : 0.0;
 }
 
@@ -41,7 +41,7 @@ int gapValue(const QPersistentModelIndex& index, int role)
 void ChannelTree::startDrag(Qt::DropActions supportedActions)
 {
     QTreeWidget::startDrag(supportedActions);
-    if (!dragSourceIndexes.isEmpty() || dragGapIndex.isValid()) {
+    if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
         resetDragVisuals(true);
     }
 }
@@ -118,7 +118,7 @@ void ChannelTree::animateSourceCollapse(qreal target)
             return;
         }
         const qreal progress = value.toReal();
-        for (int i = 0; i < indexes.size(); ++i) {
+        for (qsizetype i = 0; i < indexes.size(); ++i) {
             if (!indexes[i].isValid()) {
                 continue;
             }
@@ -147,15 +147,31 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target, bool after
 {
     stopAnimation(dropGapAnimation);
 
-    const QPersistentModelIndex old = dragGapIndex;
-    const int oldBefore = gapValue(old, SidebarItem::DropGapBeforeRole);
-    const int oldAfter = gapValue(old, SidebarItem::DropGapAfterRole);
-    const int newBefore = gapValue(target, SidebarItem::DropGapBeforeRole);
-    const int newAfter = gapValue(target, SidebarItem::DropGapAfterRole);
-    const int wantedBefore = target.isValid() && !after ? qMax(0, extent) : 0;
-    const int wantedAfter = target.isValid() && after ? qMax(0, extent) : 0;
+    QVector<QPersistentModelIndex> indexes;
+    for (const QPersistentModelIndex& index : dragGapIndexes) {
+        if (index.isValid() && !indexes.contains(index)) {
+            indexes.push_back(index);
+        }
+    }
+    if (target.isValid() && !indexes.contains(target)) {
+        indexes.push_back(target);
+    }
+    dragGapIndexes = indexes;
+    currentDragGapIndex = target;
 
-    dragGapIndex = target;
+    if (indexes.isEmpty()) {
+        return;
+    }
+
+    QVector<int> startBefore;
+    QVector<int> startAfter;
+    startBefore.reserve(indexes.size());
+    startAfter.reserve(indexes.size());
+    for (const QPersistentModelIndex& index : indexes) {
+        startBefore.push_back(gapValue(index, SidebarItem::DropGapBeforeRole));
+        startAfter.push_back(gapValue(index, SidebarItem::DropGapAfterRole));
+    }
+
     auto* animation = new QVariantAnimation(this);
     dropGapAnimation = animation;
     animation->setDuration(DragAnimationMs);
@@ -163,46 +179,55 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target, bool after
     animation->setStartValue(0.0);
     animation->setEndValue(1.0);
 
+    const int wantedExtent = qMax(0, extent);
     connect(animation, &QVariantAnimation::valueChanged, this,
-            [this, animation, old, target, oldBefore, oldAfter,
-             newBefore, newAfter, wantedBefore, wantedAfter](const QVariant& value) {
+            [this, animation, indexes, startBefore, startAfter,
+             target, after, wantedExtent](const QVariant& value) {
         if (dropGapAnimation != animation) {
             return;
         }
-        const qreal progress = value.toReal();
-        if (old.isValid() && old != target) {
-            model()->setData(old, qRound(oldBefore * (1.0 - progress)),
+        const qreal progress = value.toDouble();
+        for (qsizetype i = 0; i < indexes.size(); ++i) {
+            if (!indexes[i].isValid()) {
+                continue;
+            }
+            const bool isTarget = indexes[i] == target;
+            const int wantedBefore = isTarget && !after ? wantedExtent : 0;
+            const int wantedAfter = isTarget && after ? wantedExtent : 0;
+            model()->setData(indexes[i],
+                             qRound(startBefore[i]
+                                    + (wantedBefore - startBefore[i]) * progress),
                              SidebarItem::DropGapBeforeRole);
-            model()->setData(old, qRound(oldAfter * (1.0 - progress)),
+            model()->setData(indexes[i],
+                             qRound(startAfter[i]
+                                    + (wantedAfter - startAfter[i]) * progress),
                              SidebarItem::DropGapAfterRole);
-        }
-        if (target.isValid()) {
-            const int before = qRound(newBefore + (wantedBefore - newBefore) * progress);
-            const int afterValue = qRound(newAfter + (wantedAfter - newAfter) * progress);
-            model()->setData(target, before, SidebarItem::DropGapBeforeRole);
-            model()->setData(target, afterValue, SidebarItem::DropGapAfterRole);
         }
         doItemsLayout();
         viewport()->update();
     });
     connect(animation, &QVariantAnimation::finished, this,
-            [this, animation, old, target] {
+            [this, animation, indexes, target] {
         if (dropGapAnimation != animation) {
             return;
         }
-        if (old.isValid() && old != target) {
-            model()->setData(old, 0, SidebarItem::DropGapBeforeRole);
-            model()->setData(old, 0, SidebarItem::DropGapAfterRole);
+        for (const QPersistentModelIndex& index : indexes) {
+            if (index.isValid() && index != target) {
+                model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
+                model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+            }
         }
         dropGapAnimation = nullptr;
         animation->deleteLater();
-        if (!target.isValid()) {
-            dragGapIndex = QPersistentModelIndex();
+        dragGapIndexes.clear();
+        if (target.isValid()) {
+            dragGapIndexes.push_back(target);
+        } else {
+            currentDragGapIndex = QPersistentModelIndex();
         }
     });
     animation->start();
 }
-
 void ChannelTree::updateDragVisuals(QTreeWidgetItem* source,
                                     QTreeWidgetItem* gapAnchor,
                                     bool gapAfter)
@@ -218,7 +243,7 @@ void ChannelTree::updateDragVisuals(QTreeWidgetItem* source,
 
 void ChannelTree::clearDropGap(bool animate)
 {
-    if (!dragGapIndex.isValid()) {
+    if (dragGapIndexes.isEmpty()) {
         return;
     }
     if (animate) {
@@ -227,11 +252,14 @@ void ChannelTree::clearDropGap(bool animate)
     }
 
     stopAnimation(dropGapAnimation);
-    if (dragGapIndex.isValid()) {
-        model()->setData(dragGapIndex, 0, SidebarItem::DropGapBeforeRole);
-        model()->setData(dragGapIndex, 0, SidebarItem::DropGapAfterRole);
+    for (const QPersistentModelIndex& index : dragGapIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
+            model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+        }
     }
-    dragGapIndex = QPersistentModelIndex();
+    dragGapIndexes.clear();
+    currentDragGapIndex = QPersistentModelIndex();
 }
 
 void ChannelTree::resetDragVisuals(bool animate)
@@ -244,16 +272,19 @@ void ChannelTree::resetDragVisuals(bool animate)
 
     stopAnimation(dropGapAnimation);
     stopAnimation(sourceCollapseAnimation);
-    if (dragGapIndex.isValid()) {
-        model()->setData(dragGapIndex, 0, SidebarItem::DropGapBeforeRole);
-        model()->setData(dragGapIndex, 0, SidebarItem::DropGapAfterRole);
+    for (const QPersistentModelIndex& index : dragGapIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
+            model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+        }
     }
     for (const QPersistentModelIndex& index : dragSourceIndexes) {
         if (index.isValid()) {
             model()->setData(index, 0.0, SidebarItem::DragCollapseRole);
         }
     }
-    dragGapIndex = QPersistentModelIndex();
+    dragGapIndexes.clear();
+    currentDragGapIndex = QPersistentModelIndex();
     dragSourceIndexes.clear();
     draggedRowExtent = 0;
     doItemsLayout();

@@ -961,7 +961,7 @@ void ChannelTree::createGroupAndMoveChannel(ChannelItem* item)
             sidebar.updateCategories(teamId, updates,
                 [guard, teamId](const SidebarTeamState&) {
                     if (guard) {
-                        guard->refreshSidebarTeam(teamId);
+                        guard->verifySidebarTeam(teamId, mutation);
                     }
                 });
         });
@@ -1039,7 +1039,7 @@ void ChannelTree::moveChannel(ChannelItem* item,
         if (!guard || guard->sidebarMutationGeneration.value(teamId) != mutation) {
             return;
         }
-        guard->refreshSidebarTeam(teamId);
+        guard->verifySidebarTeam(teamId, mutation);
     };
     auto rollback = [guard, teamId, mutation, before] {
         if (!guard || !guard->backendForSidebar
@@ -1053,7 +1053,7 @@ void ChannelTree::moveChannel(ChannelItem* item,
         }
         // The rollback is immediate; the GET is only an authoritative check and
         // is reconciled incrementally when it arrives.
-        guard->refreshSidebarTeam(teamId);
+        guard->verifySidebarTeam(teamId, mutation);
     };
 
     if (sameCategory) {
@@ -1161,7 +1161,7 @@ void ChannelTree::moveCategory(QTreeWidgetItem* item,
         if (TeamItem* teamItem = guard->teamToItemMap.value(teamId, nullptr)) {
             guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, before);
         }
-        guard->refreshSidebarTeam(teamId);
+        guard->verifySidebarTeam(teamId, mutation);
     };
 
     sidebar.updateCategoryOrder(

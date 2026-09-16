@@ -87,7 +87,8 @@ public:
                          std::function<void(bool)> callback = {});
 
     void retrieveCategories(BackendTeam& team,
-                            std::function<void(const SidebarTeamState&)> callback = {});
+                            std::function<void(const SidebarTeamState&)> callback = {},
+                            bool storeResponse = true);
     const SidebarTeamState* teamState(const QString& teamId) const;
     SidebarTeamState* teamState(const QString& teamId);
     void applyLocalTeamState(const QString& teamId, SidebarTeamState state);
@@ -126,7 +127,8 @@ private:
     void finishMembershipLoad();
     void finishPreferenceLoad();
     void storeCategories(QString teamId, SidebarTeamState state,
-                         std::function<void(const SidebarTeamState&)> callback);
+                         std::function<void(const SidebarTeamState&)> callback,
+                         bool storeResponse);
 
     Backend& backend;
     HTTPConnector httpConnector;

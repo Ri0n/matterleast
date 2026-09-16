@@ -58,7 +58,7 @@ int transientGap(const QModelIndex& index, int role)
 
 qreal collapseProgress(const QModelIndex& index)
 {
-    return qBound<qreal>(0.0, index.data(SidebarItem::DragCollapseRole).toReal(), 1.0);
+    return qBound<qreal>(0.0, index.data(SidebarItem::DragCollapseRole).toDouble(), 1.0);
 }
 
 QStyleOptionViewItem contentOption(const QStyleOptionViewItem& option,
