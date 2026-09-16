@@ -7,6 +7,7 @@
 
 #include <QPointer>
 #include <QSet>
+#include <QStackedWidget>
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
