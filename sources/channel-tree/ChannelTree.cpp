@@ -961,7 +961,7 @@ void ChannelTree::createGroupAndMoveChannel(ChannelItem* item)
             sidebar.updateCategories(teamId, updates,
                 [guard, teamId](const SidebarTeamState&) {
                     if (guard) {
-                        guard->verifySidebarTeam(teamId, mutation);
+                        guard->refreshSidebarTeam(teamId);
                     }
                 });
         });
@@ -1168,7 +1168,7 @@ void ChannelTree::moveCategory(QTreeWidgetItem* item,
         teamId, optimistic.order,
         [guard, teamId, mutation] {
             if (guard && guard->sidebarMutationGeneration.value(teamId) == mutation) {
-                guard->refreshSidebarTeam(teamId);
+                guard->verifySidebarTeam(teamId, mutation);
             }
         },
         rollback,

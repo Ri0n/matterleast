@@ -743,7 +743,7 @@ void SidebarService::storeCategories(QString teamId, SidebarTeamState state,
 
     const auto statePtr = std::make_shared<SidebarTeamState>(std::move(state));
     UserProfileService::instance(backend).ensureUsers(directUserIds,
-        [this, teamId = std::move(teamId), statePtr, directUserIds, callback] {
+        [this, teamId = std::move(teamId), statePtr, directUserIds, callback, storeResponse] {
             UserProfileService::instance(backend).ensureStatuses(directUserIds,
                 [this, teamId, statePtr, callback, storeResponse] {
                     if (storeResponse) {
@@ -761,14 +761,22 @@ void SidebarService::storeCategories(QString teamId, SidebarTeamState state,
 
 void SidebarService::retrieveCategories(BackendTeam& team,
                                         std::function<void(const SidebarTeamState&)> callback,
+                                        std::function<void()> errorCallback,
                                         bool storeResponse)
 {
     const QString teamId = team.id;
-    retrieveChannelMemberships([this, teamId, callback, storeResponse] {
-        retrieveChannelPreferences([this, teamId, callback, storeResponse] {
+    retrieveChannelMemberships([this, teamId, callback, errorCallback, storeResponse] {
+        retrieveChannelPreferences([this, teamId, callback, errorCallback, storeResponse] {
             NetworkRequest request(categoriesPath(teamId));
             httpConnector.get(request, HttpResponseCallback(
-                [this, teamId, callback, storeResponse](const QJsonDocument& doc) {
+                [this, teamId, callback, errorCallback, storeResponse](
+                    QVariant status, const QJsonDocument& doc) {
+                    if (status.toInt() != QNetworkReply::NoError || !doc.isObject()) {
+                        if (errorCallback) {
+                            errorCallback();
+                        }
+                        return;
+                    }
                     SidebarTeamState state;
                     const auto object = doc.object();
 

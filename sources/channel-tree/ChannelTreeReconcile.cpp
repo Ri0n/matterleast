@@ -105,6 +105,7 @@ void ChannelTree::verifySidebarTeam(const QString& teamId, quint64 mutation)
                 guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, serverState);
             }
         },
+        {},
         false);
 }
 

@@ -88,6 +88,7 @@ public:
 
     void retrieveCategories(BackendTeam& team,
                             std::function<void(const SidebarTeamState&)> callback = {},
+                            std::function<void()> errorCallback = {},
                             bool storeResponse = true);
     const SidebarTeamState* teamState(const QString& teamId) const;
     SidebarTeamState* teamState(const QString& teamId);
