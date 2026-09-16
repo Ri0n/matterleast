@@ -668,7 +668,8 @@ void ChatLogWidget::updateReadCursorFromViewport()
                 || readPost->create_at >= conversationTail);
     }
 
-    followingModel.observeReadThrough(channel.id, QString(), *readPost, channelAtEnd);
+    followingModel.observeReadThrough(
+        channel.id, QString(), *readPost, channelAtEnd, rootUnreadConversation);
     if (channelAtEnd) {
         acknowledgeChannelRead(*backend, channel);
     }

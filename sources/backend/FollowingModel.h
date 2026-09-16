@@ -105,7 +105,8 @@ public:
     void observeReadThrough(const QString& channelId,
                             const QString& threadId,
                             const BackendPost& post,
-                            bool sourceAtEnd);
+                            bool sourceAtEnd,
+                            bool rootOnlyConversation = false);
 
     /** Keep an explicit server-backed Mark as unread in Attention until it is read again. */
     void markPostUnread(const QString& channelId, const QString& threadId,
@@ -135,7 +136,8 @@ private:
 
     QString nextCachedPostId(const BackendChannel& channel,
                              const QString& threadId,
-                             const BackendPost& after) const;
+                             const BackendPost& after,
+                             bool rootOnlyConversation) const;
     static bool isAfter(uint64_t lhsCreateAt,
                         const QString& lhsId,
                         uint64_t rhsCreateAt,

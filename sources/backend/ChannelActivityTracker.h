@@ -27,11 +27,14 @@ public:
         uint64_t rootMentionCount = 0;
         bool hasReadRootMessageCount = false;
         bool hasRootMentionCount = false;
+        bool rootUnreadMode = false;
 
         bool serverUnreadActivity = false;
         bool runtimeUnreadActivity = false;
+        bool runtimeReplyUnreadActivity = false;
         bool serverMentioned = false;
         bool runtimeMentioned = false;
+        bool runtimeReplyMentioned = false;
         bool muted = false;
         bool tracked = false;
     };
@@ -65,7 +68,7 @@ public:
     bool isUnread(const QString& channelId) const;
     bool hasMention(const QString& channelId) const;
     /** Whether CRT root counters, rather than all-message counters, define parent unread state. */
-    bool usesRootUnreadCounts(const QString& channelId, bool hasTotalRootMessageCount) const;
+    bool usesRootUnreadCounts(const QString& channelId) const;
     uint64_t activityTime(const QString& channelId) const;
     uint64_t lastViewedTime(const QString& channelId) const;
     uint64_t recentTime(const QString& channelId) const;
@@ -79,7 +82,6 @@ public:
 
 private:
     QHash<QString, Entry> entries;
-    bool collapsedThreadsEnabled = false;
 };
 
 } // namespace Mattermost

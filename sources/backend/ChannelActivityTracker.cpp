@@ -12,7 +12,6 @@ namespace Mattermost {
 void ChannelActivityTracker::clear()
 {
     entries.clear();
-    collapsedThreadsEnabled = false;
 }
 
 void ChannelActivityTracker::setMembership(const QString& channelId, uint64_t lastViewedAt,
@@ -46,8 +45,6 @@ void ChannelActivityTracker::synchronizeChannel(const QString& channelId, uint64
                                                 bool hasTotalRootMessageCount,
                                                 bool useCollapsedThreads)
 {
-    collapsedThreadsEnabled = useCollapsedThreads;
-
     auto it = entries.find(channelId);
     if (it == entries.end() || !it->tracked) {
         return;
@@ -56,12 +53,16 @@ void ChannelActivityTracker::synchronizeChannel(const QString& channelId, uint64
     Entry& entry = it.value();
     entry.lastActivityAt = std::max(entry.lastActivityAt, lastPostAt);
 
-    const bool useRootCounts = usesRootUnreadCounts(channelId, hasTotalRootMessageCount);
-    const uint64_t readCount = useRootCounts ? entry.readRootMessageCount : entry.readMessageCount;
-    const uint64_t totalCount = useRootCounts ? totalRootMessageCount : totalMessageCount;
+    entry.rootUnreadMode = useCollapsedThreads
+        && entry.hasReadRootMessageCount
+        && hasTotalRootMessageCount;
+    const uint64_t readCount = entry.rootUnreadMode
+        ? entry.readRootMessageCount : entry.readMessageCount;
+    const uint64_t totalCount = entry.rootUnreadMode
+        ? totalRootMessageCount : totalMessageCount;
 
     entry.serverUnreadActivity = totalCount > readCount;
-    entry.serverMentioned = collapsedThreadsEnabled && entry.hasRootMentionCount
+    entry.serverMentioned = entry.rootUnreadMode && entry.hasRootMentionCount
         ? entry.rootMentionCount > 0
         : entry.mentionCount > 0;
 }
@@ -77,19 +78,25 @@ void ChannelActivityTracker::recordPost(const QString& channelId, uint64_t creat
     entry.tracked = true;
     entry.lastActivityAt = std::max(entry.lastActivityAt, createdAt);
 
-    // With CRT enabled, reply activity and mentions belong to the followed
-    // thread model, not to the parent channel's root counters. With CRT off,
-    // replies are ordinary channel activity and use the normal counters.
-    const bool belongsToParentChannel = !threadReply || !collapsedThreadsEnabled;
-    if (mentioned && belongsToParentChannel) {
-        entry.runtimeMentioned = true;
+    // Preserve both runtime domains. Whether reply activity belongs to the
+    // parent is decided by the same root-counter mode as server unread
+    // state, so a late membership/channel snapshot can safely change the
+    // selected domain without losing or inventing WS activity.
+    if (mentioned) {
+        if (threadReply) {
+            entry.runtimeReplyMentioned = true;
+        } else {
+            entry.runtimeMentioned = true;
+        }
     }
 
     if (ownPost) {
         return;
     }
 
-    if (belongsToParentChannel) {
+    if (threadReply) {
+        entry.runtimeReplyUnreadActivity = true;
+    } else {
         entry.runtimeUnreadActivity = true;
     }
 }
@@ -116,8 +123,10 @@ void ChannelActivityTracker::recordViewed(const QString& channelId, uint64_t vie
     entry.rootMentionCount = 0;
     entry.serverUnreadActivity = false;
     entry.runtimeUnreadActivity = false;
+    entry.runtimeReplyUnreadActivity = false;
     entry.serverMentioned = false;
     entry.runtimeMentioned = false;
+    entry.runtimeReplyMentioned = false;
 }
 
 void ChannelActivityTracker::markUnread(const QString& channelId,
@@ -150,10 +159,12 @@ void ChannelActivityTracker::markUnread(const QString& channelId,
     entry.hasRootMentionCount = hasRootMentionCount;
     entry.serverUnreadActivity = true;
     entry.runtimeUnreadActivity = false;
-    entry.serverMentioned = collapsedThreadsEnabled && hasRootMentionCount
+    entry.runtimeReplyUnreadActivity = false;
+    entry.serverMentioned = entry.rootUnreadMode && hasRootMentionCount
         ? rootMentionCount > 0
         : mentionCount > 0;
     entry.runtimeMentioned = false;
+    entry.runtimeReplyMentioned = false;
 }
 
 void ChannelActivityTracker::setRecencyTimes(const QString& channelId, uint64_t approximateViewAt,
@@ -190,6 +201,7 @@ void ChannelActivityTracker::setMentioned(const QString& channelId, bool mention
         it->rootMentionCount = 0;
         it->serverMentioned = false;
         it->runtimeMentioned = false;
+        it->runtimeReplyMentioned = false;
     }
 }
 
@@ -216,26 +228,27 @@ bool ChannelActivityTracker::isUnread(const QString& channelId) const
     }
 
     const Entry& entry = it.value();
-    const bool mentioned = entry.serverMentioned || entry.runtimeMentioned;
-    const bool unreadActivity = entry.serverUnreadActivity || entry.runtimeUnreadActivity;
+    const bool mentioned = entry.serverMentioned || entry.runtimeMentioned
+        || (!entry.rootUnreadMode && entry.runtimeReplyMentioned);
+    const bool unreadActivity = entry.serverUnreadActivity || entry.runtimeUnreadActivity
+        || (!entry.rootUnreadMode && entry.runtimeReplyUnreadActivity);
     return mentioned || (!entry.muted && unreadActivity);
 }
 
 bool ChannelActivityTracker::hasMention(const QString& channelId) const
 {
     const auto it = entries.constFind(channelId);
-    return it != entries.cend() && (it->serverMentioned || it->runtimeMentioned);
+    if (it == entries.cend()) {
+        return false;
+    }
+    return it->serverMentioned || it->runtimeMentioned
+        || (!it->rootUnreadMode && it->runtimeReplyMentioned);
 }
 
-bool ChannelActivityTracker::usesRootUnreadCounts(const QString& channelId,
-                                                   bool hasTotalRootMessageCount) const
+bool ChannelActivityTracker::usesRootUnreadCounts(const QString& channelId) const
 {
     const auto it = entries.constFind(channelId);
-    return collapsedThreadsEnabled
-        && hasTotalRootMessageCount
-        && it != entries.cend()
-        && it->tracked
-        && it->hasReadRootMessageCount;
+    return it != entries.cend() && it->tracked && it->rootUnreadMode;
 }
 
 uint64_t ChannelActivityTracker::activityTime(const QString& channelId) const

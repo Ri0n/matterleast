@@ -59,6 +59,35 @@ BackendChannel* makeChannel(Backend& backend)
     });
 }
 
+BackendChannel* makeConversationChannel(Backend& backend, const QString& type)
+{
+    Storage& storage = backend.getStorage();
+    storage.addUser(QJsonObject {
+        {QStringLiteral("id"), QStringLiteral("me")},
+        {QStringLiteral("username"), QStringLiteral("me")},
+    }, true);
+    storage.addUser(QJsonObject {
+        {QStringLiteral("id"), QStringLiteral("user")},
+        {QStringLiteral("username"), QStringLiteral("user")},
+    });
+
+    QJsonObject json {
+        {QStringLiteral("id"), QStringLiteral("channel")},
+        {QStringLiteral("type"), type},
+        {QStringLiteral("name"), type == QStringLiteral("D")
+            ? QStringLiteral("me__user") : QStringLiteral("group")},
+        {QStringLiteral("display_name"), QStringLiteral("me, user")},
+        {QStringLiteral("last_post_at"), 200.0},
+        {QStringLiteral("last_root_post_at"), 100.0},
+        {QStringLiteral("total_msg_count"), 2},
+        {QStringLiteral("total_msg_count_root"), 1},
+    };
+
+    return type == QStringLiteral("D")
+        ? storage.addDirectChannel(json)
+        : storage.addGroupChannel(json);
+}
+
 } // namespace
 
 class ManualUnreadReadStateTest : public QObject
@@ -129,6 +158,55 @@ private slots:
         QCOMPARE(atEnd->resumeState, FollowingModel::ResumeState::AtEnd);
         QVERIFY(atEnd->firstUnreadPostId.isEmpty());
     }
+    void dmGmRootReadLeavesHiddenThreadUnread_data()
+    {
+        QTest::addColumn<QString>("channelType");
+        QTest::newRow("direct") << QStringLiteral("D");
+        QTest::newRow("group") << QStringLiteral("G");
+    }
+
+    void dmGmRootReadLeavesHiddenThreadUnread()
+    {
+        QFETCH(QString, channelType);
+
+        Backend backend;
+        BackendChannel* channel = makeConversationChannel(backend, channelType);
+        QVERIFY(channel);
+        QCOMPARE(channel->last_root_post_at, uint64_t(100));
+        QCOMPARE(channel->last_post_at, uint64_t(200));
+
+        BackendPost* root = channel->addPost(postJson(QStringLiteral("root"), 100));
+        BackendPost* reply = channel->addPost(
+            postJson(QStringLiteral("reply"), 200, root->id));
+        QVERIFY(root);
+        QVERIFY(reply);
+
+        FollowingModel& model = FollowingModel::instance(backend);
+        model.markPostUnread(channel->id, QString(), root->id, root->create_at);
+        model.markPostUnread(channel->id, root->id, reply->id, reply->create_at);
+
+        const FollowingModel::Entry* parentBefore = model.findEntry(channel->id);
+        const FollowingModel::Entry* threadBefore = model.findEntry(channel->id, root->id);
+        QVERIFY(parentBefore);
+        QVERIFY(parentBefore->requiresAttention());
+        QVERIFY(threadBefore);
+        QVERIFY(threadBefore->requiresAttention());
+
+        // This is the DM/GM regression: the root source is fully consumed
+        // at last_root_post_at, while a newer reply exists only in the
+        // collapsed thread. Parent Attention must disappear, but the
+        // thread's unread state must remain intact.
+        model.observeReadThrough(channel->id, QString(), *root, true, true);
+
+        QVERIFY(!model.findEntry(channel->id));
+        const FollowingModel::Entry* threadAfter =
+            model.findEntry(channel->id, root->id);
+        QVERIFY(threadAfter);
+        QVERIFY(threadAfter->requiresAttention());
+        QCOMPARE(threadAfter->resumeState, FollowingModel::ResumeState::FirstUnread);
+        QCOMPARE(threadAfter->firstUnreadPostId, reply->id);
+    }
+
 };
 
 QTEST_MAIN(ManualUnreadReadStateTest)

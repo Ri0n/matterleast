@@ -240,7 +240,7 @@ bool SidebarService::isChannelUnread(const BackendChannel& channel) const
 
 bool SidebarService::usesRootUnreadCounts(const BackendChannel& channel) const
 {
-    return activityTracker.usesRootUnreadCounts(channel.id, channel.has_total_msg_count_root);
+    return activityTracker.usesRootUnreadCounts(channel.id);
 }
 
 uint64_t SidebarService::channelActivityTime(const BackendChannel& channel) const
