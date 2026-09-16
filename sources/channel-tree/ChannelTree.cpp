@@ -461,6 +461,9 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     QObject::connect(&channel, &BackendChannel::onLeave,
                      this, &ChannelTree::handleChannelLeave,
                      Qt::UniqueConnection);
+    QObject::connect(&channel, &BackendChannel::onUpdated,
+                     this, &ChannelTree::handleChannelUpdated,
+                     Qt::UniqueConnection);
 
     addChannelToItem(channel.id, item);
     auto& sidebar = SidebarService::instance(backend);
@@ -1101,6 +1104,70 @@ bool ChannelTree::resolveChannelDropTarget(QTreeWidgetItem* source,
         && targetCategoryItem->parent() == sourceTeamItem;
 }
 
+void ChannelTree::moveCategory(QTreeWidgetItem* item,
+                               const QString& targetCategoryId,
+                               bool afterTarget)
+{
+    if (!backendForSidebar || !item || targetCategoryId.isEmpty()
+        || item->data(0, ItemKindRole).toInt() != CategoryItemKind) {
+        return;
+    }
+
+    const QString teamId = item->data(0, ItemTeamIdRole).toString();
+    const QString categoryId = item->data(0, ItemIdRole).toString();
+    SidebarTeamState* state = SidebarService::instance(*backendForSidebar).teamState(teamId);
+    if (!state || categoryId.isEmpty() || !state->category(categoryId)
+        || !state->category(targetCategoryId)) {
+        return;
+    }
+
+    QStringList order = state->order;
+    if (!reorderSidebarCategory(order, categoryId, targetCategoryId, afterTarget)) {
+        return;
+    }
+
+    QPointer<ChannelTree> guard(this);
+    SidebarService::instance(*backendForSidebar).updateCategoryOrder(
+        teamId, order,
+        [guard, teamId] {
+            if (guard) {
+                guard->refreshSidebarTeam(teamId);
+            }
+        });
+}
+
+bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
+                                            const QPoint& pos,
+                                            QTreeWidgetItem*& targetCategoryItem,
+                                            bool& afterTarget) const
+{
+    targetCategoryItem = nullptr;
+    afterTarget = false;
+    if (!source || source->data(0, ItemKindRole).toInt() != CategoryItemKind) {
+        return false;
+    }
+
+    QTreeWidgetItem* target = itemAt(pos);
+    if (!target) {
+        return false;
+    }
+
+    const int targetKind = target->data(0, ItemKindRole).toInt();
+    if (targetKind == ChannelItemKind || targetKind == VirtualDestinationItemKind) {
+        target = target->parent();
+    }
+    if (!target || target == source
+        || target->data(0, ItemKindRole).toInt() != CategoryItemKind
+        || target->parent() != source->parent()) {
+        return false;
+    }
+
+    targetCategoryItem = target;
+    const QRect rect = visualItemRect(target);
+    afterTarget = rect.isValid() && pos.y() >= rect.center().y();
+    return true;
+}
+
 void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
 {
     QTreeWidget::dragMoveEvent(event);
@@ -1111,6 +1178,19 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
 #else
     const QPoint pos = event->pos();
 #endif
+
+    if (source && source->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+        QTreeWidgetItem* targetCategoryItem = nullptr;
+        bool afterTarget = false;
+        if (!resolveCategoryDropTarget(source, pos, targetCategoryItem, afterTarget)) {
+            event->ignore();
+            return;
+        }
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+        return;
+    }
+
     QTreeWidgetItem* targetCategoryItem = nullptr;
     QString targetChannelId;
     bool afterTarget = false;
@@ -1128,6 +1208,21 @@ void ChannelTree::dropEvent(QDropEvent* event)
     const auto selected = selectedItems();
     QTreeWidgetItem* source = selected.size() == 1 ? selected.front() : currentItem();
     const QPoint pos = dropEventPosition(event);
+
+    if (source && source->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+        QTreeWidgetItem* targetCategoryItem = nullptr;
+        bool afterTarget = false;
+        if (!resolveCategoryDropTarget(source, pos, targetCategoryItem, afterTarget)) {
+            event->ignore();
+            return;
+        }
+
+        moveCategory(source, targetCategoryItem->data(0, ItemIdRole).toString(), afterTarget);
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+        return;
+    }
+
     QTreeWidgetItem* targetCategoryItem = nullptr;
     QString targetChannelId;
     bool afterTarget = false;

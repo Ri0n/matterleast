@@ -28,6 +28,28 @@ inline bool reorderSidebarChannel(QStringList& channelIds,
     return channelIds != before;
 }
 
+inline bool reorderSidebarCategory(QStringList& categoryIds,
+                                   const QString& categoryId,
+                                   const QString& targetCategoryId,
+                                   bool afterTarget)
+{
+    const QStringList before = categoryIds;
+    const int oldIndex = categoryIds.indexOf(categoryId);
+    if (oldIndex < 0 || targetCategoryId.isEmpty() || categoryId == targetCategoryId) {
+        return false;
+    }
+
+    categoryIds.removeAt(oldIndex);
+    const int targetIndex = categoryIds.indexOf(targetCategoryId);
+    if (targetIndex < 0) {
+        categoryIds = before;
+        return false;
+    }
+
+    categoryIds.insert(targetIndex + (afterTarget ? 1 : 0), categoryId);
+    return categoryIds != before;
+}
+
 inline bool moveSidebarChannel(QStringList& sourceChannelIds,
                                QStringList& targetChannelIds,
                                const QString& channelId,
