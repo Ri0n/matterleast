@@ -1,0 +1,280 @@
+from pathlib import Path
+
+path = Path('sources/channel-tree/ChannelTreeDragVisuals.cpp')
+text = path.read_text()
+
+start = text.index('void ChannelTree::ensureDragSourceVisuals(')
+end = text.index('\nvoid ChannelTree::animateSourceCollapse(', start)
+ensure = r'''void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
+{
+    if (!source) {
+        return;
+    }
+    const QPersistentModelIndex sourceIndex(indexFromItem(source, 0));
+    if (!dragSourceIndexes.isEmpty() && dragSourceIndexes.front() == sourceIndex) {
+        return;
+    }
+
+    resetDragVisuals(false);
+    draggedRowExtent = 0;
+
+    auto append = [this](QTreeWidgetItem* row) {
+        if (!row || row->isHidden()) {
+            return;
+        }
+        const QModelIndex index = indexFromItem(row, 0);
+        const QRect rect = visualItemRect(row);
+        if (!index.isValid() || !rect.isValid() || rect.height() <= 0) {
+            return;
+        }
+        dragSourceIndexes.push_back(QPersistentModelIndex(index));
+        draggedRowExtent += rect.height();
+    };
+
+    append(source);
+    if (source->data(0, ItemKindRole).toInt() == CategoryItemKind && source->isExpanded()) {
+        for (int i = 0; i < source->childCount(); ++i) {
+            append(source->child(i));
+        }
+    }
+
+    if (draggedRowExtent <= 0) {
+        draggedRowExtent = visualItemRect(source).height();
+    }
+
+    // Merely starting a drag must be geometry-neutral. The real source block
+    // keeps its full extent until an actual insertion boundary is crossed.
+    // From then on one animation simultaneously collapses the source and opens
+    // the destination gap, so the total tree extent is conserved per frame.
+    dragGapIndexes.clear();
+    currentDragGapIndex = QPersistentModelIndex();
+    currentDragGapAfter = false;
+    currentDragGapExtent = 0;
+}
+'''
+text = text[:start] + ensure + text[end:]
+
+start = text.index('void ChannelTree::animateDropGap(')
+end = text.index('\nvoid ChannelTree::updateDragVisuals(', start)
+animate = r'''void ChannelTree::animateDropGap(const QPersistentModelIndex& target,
+                                     bool after, int extent)
+{
+    stopAnimation(dropGapAnimation);
+    stopAnimation(sourceCollapseAnimation);
+
+    QVector<QPersistentModelIndex> gapIndexes;
+    for (const QPersistentModelIndex& index : dragGapIndexes) {
+        if (index.isValid() && !gapIndexes.contains(index)) {
+            gapIndexes.push_back(index);
+        }
+    }
+    if (target.isValid() && !gapIndexes.contains(target)) {
+        gapIndexes.push_back(target);
+    }
+    dragGapIndexes = gapIndexes;
+
+    QVector<int> startBefore;
+    QVector<int> startAfter;
+    startBefore.reserve(gapIndexes.size());
+    startAfter.reserve(gapIndexes.size());
+    for (const QPersistentModelIndex& index : gapIndexes) {
+        startBefore.push_back(gapValue(index, SidebarItem::DropGapBeforeRole));
+        startAfter.push_back(gapValue(index, SidebarItem::DropGapAfterRole));
+    }
+
+    QVector<qreal> sourceStarts;
+    sourceStarts.reserve(dragSourceIndexes.size());
+    for (const QPersistentModelIndex& index : dragSourceIndexes) {
+        sourceStarts.push_back(collapseValue(index));
+    }
+
+    currentDragGapIndex = target;
+    currentDragGapAfter = after;
+    currentDragGapExtent = target.isValid() ? qMax(0, extent) : 0;
+
+    if (gapIndexes.isEmpty() && dragSourceIndexes.isEmpty()) {
+        return;
+    }
+
+    auto* animation = new QVariantAnimation(this);
+    dropGapAnimation = animation;
+    animation->setDuration(DragAnimationMs);
+    animation->setEasingCurve(QEasingCurve::OutCubic);
+    animation->setStartValue(0.0);
+    animation->setEndValue(1.0);
+
+    const int wantedExtent = target.isValid() ? qMax(0, extent) : 0;
+    const qreal wantedCollapse = target.isValid() ? 1.0 : 0.0;
+    const auto sourceIndexes = dragSourceIndexes;
+
+    connect(animation, &QVariantAnimation::valueChanged, this,
+            [this, animation, gapIndexes, startBefore, startAfter,
+             target, after, wantedExtent, sourceIndexes, sourceStarts,
+             wantedCollapse](const QVariant& value) {
+        if (dropGapAnimation != animation) {
+            return;
+        }
+        const qreal progress = value.toDouble();
+
+        // Source collapse and gap displacement share one progress value. For a
+        // group every visible row in the dragged subtree uses that same value,
+        // so the removed block extent equals the opened gap extent per frame.
+        for (qsizetype i = 0; i < sourceIndexes.size(); ++i) {
+            if (!sourceIndexes[i].isValid()) {
+                continue;
+            }
+            const qreal current = sourceStarts[i]
+                + (wantedCollapse - sourceStarts[i]) * progress;
+            model()->setData(sourceIndexes[i], current,
+                             SidebarItem::DragCollapseRole);
+        }
+
+        for (qsizetype i = 0; i < gapIndexes.size(); ++i) {
+            if (!gapIndexes[i].isValid()) {
+                continue;
+            }
+            const bool isTarget = gapIndexes[i] == target;
+            const int wantedBefore = isTarget && !after ? wantedExtent : 0;
+            const int wantedAfter = isTarget && after ? wantedExtent : 0;
+            model()->setData(gapIndexes[i],
+                             qRound(startBefore[i]
+                                    + (wantedBefore - startBefore[i]) * progress),
+                             SidebarItem::DropGapBeforeRole);
+            model()->setData(gapIndexes[i],
+                             qRound(startAfter[i]
+                                    + (wantedAfter - startAfter[i]) * progress),
+                             SidebarItem::DropGapAfterRole);
+        }
+
+        doItemsLayout();
+        viewport()->update();
+    });
+
+    connect(animation, &QVariantAnimation::finished, this,
+            [this, animation, gapIndexes, target] {
+        if (dropGapAnimation != animation) {
+            return;
+        }
+        for (const QPersistentModelIndex& index : gapIndexes) {
+            if (index.isValid() && index != target) {
+                model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
+                model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+            }
+        }
+        dropGapAnimation = nullptr;
+        animation->deleteLater();
+        dragGapIndexes.clear();
+        if (target.isValid()) {
+            dragGapIndexes.push_back(target);
+        } else {
+            currentDragGapIndex = QPersistentModelIndex();
+            currentDragGapAfter = false;
+            currentDragGapExtent = 0;
+        }
+    });
+    animation->start();
+}
+'''
+text = text[:start] + animate + text[end:]
+
+start = text.index('void ChannelTree::restoreSourceDropGap(')
+end = text.index('\nvoid ChannelTree::clearDropGap(', start)
+restore = r'''void ChannelTree::restoreSourceDropGap(bool animate)
+{
+    if (dragSourceIndexes.isEmpty()) {
+        return;
+    }
+
+    const bool sourceAlreadyExpanded = collapseValue(dragSourceIndexes.front()) <= 0.0;
+    if (!currentDragGapIndex.isValid() && currentDragGapExtent == 0
+        && sourceAlreadyExpanded) {
+        return;
+    }
+
+    if (animate) {
+        animateDropGap(QPersistentModelIndex(), false, 0);
+        return;
+    }
+
+    stopAnimation(dropGapAnimation);
+    stopAnimation(sourceCollapseAnimation);
+    for (const QPersistentModelIndex& index : dragGapIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
+            model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+        }
+    }
+    for (const QPersistentModelIndex& index : dragSourceIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 0.0, SidebarItem::DragCollapseRole);
+        }
+    }
+    dragGapIndexes.clear();
+    currentDragGapIndex = QPersistentModelIndex();
+    currentDragGapAfter = false;
+    currentDragGapExtent = 0;
+    doItemsLayout();
+    viewport()->update();
+}
+'''
+text = text[:start] + restore + text[end:]
+
+start = text.index('void ChannelTree::clearDropGap(')
+end = text.index('\nvoid ChannelTree::resetDragVisuals(', start)
+clear = r'''void ChannelTree::clearDropGap(bool animate)
+{
+    if (!dragSourceIndexes.isEmpty()) {
+        restoreSourceDropGap(animate);
+        return;
+    }
+
+    if (dragGapIndexes.isEmpty()) {
+        return;
+    }
+    if (animate) {
+        animateDropGap(QPersistentModelIndex(), false, 0);
+        return;
+    }
+
+    stopAnimation(dropGapAnimation);
+    for (const QPersistentModelIndex& index : dragGapIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
+            model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+        }
+    }
+    dragGapIndexes.clear();
+    currentDragGapIndex = QPersistentModelIndex();
+    currentDragGapAfter = false;
+    currentDragGapExtent = 0;
+}
+'''
+text = text[:start] + clear + text[end:]
+
+text = text.replace('''    if (animate) {
+        clearDropGap(true);
+        animateSourceCollapse(0.0);
+        return;
+    }
+''', '''    if (animate) {
+        restoreSourceDropGap(true);
+        return;
+    }
+''', 1)
+
+if 'QTreeWidgetItem* ChannelTree::sourceDropGapAnchor(' in text:
+    start = text.index('QTreeWidgetItem* ChannelTree::sourceDropGapAnchor(')
+    end = text.index('\nvoid ChannelTree::animateSourceCollapse(', start)
+    text = text[:start] + text[end:]
+
+path.write_text(text)
+
+path = Path('sources/channel-tree/ChannelTree.h')
+text = path.read_text()
+text = text.replace('''    QTreeWidgetItem* sourceDropGapAnchor(QTreeWidgetItem* source,
+                                           bool& gapAfter) const;
+''', '')
+text = text.replace('''    QPersistentModelIndex               sourceDragGapIndex;
+    bool                                sourceDragGapAfter = false;
+''', '')
+path.write_text(text)
