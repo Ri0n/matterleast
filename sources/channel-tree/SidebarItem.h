@@ -66,6 +66,10 @@ enum Role {
     DropGapBeforeRole,
     DropGapAfterRole,
     DragCollapseRole,
+    // Visual source suppression is intentionally independent from collapse:
+    // AnyKeep-style DnD hides the source immediately while its layout extent
+    // is still animated out in lockstep with the destination gap.
+    DragSourceHiddenRole,
 };
 
 } // namespace SidebarItem
