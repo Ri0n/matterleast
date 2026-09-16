@@ -1,0 +1,12 @@
+name: Trigger sidebar DnD CI
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "PR CI is authoritative; this workflow only guarantees a branch push event after cleanup."
