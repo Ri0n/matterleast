@@ -36,6 +36,11 @@ bool containsChannel(const SidebarTeamState& state, const QString& channelId)
 
 void ChannelTree::openStoredChannel(QString channelID)
 {
+    if (sidebarDragActive) {
+        pendingStoredChannelOpens.insert(channelID);
+        return;
+    }
+
     auto existing = channelToItemMap.constFind(channelID);
     if (existing != channelToItemMap.cend() && !existing.value().isEmpty()) {
         openChannel(std::move(channelID));

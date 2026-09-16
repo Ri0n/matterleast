@@ -113,22 +113,42 @@ void ChannelTree::verifySidebarTeam(const QString& teamId, quint64 mutation)
 
 void ChannelTree::flushDeferredSidebarReconciles()
 {
-    if (!backendForSidebar || !dragSourceIndexes.isEmpty()
-        || pendingSidebarReconcileTeams.isEmpty()) {
+    if (!backendForSidebar || sidebarDragActive) {
+        return;
+    }
+    if (pendingSidebarReconcileTeams.isEmpty()
+        && pendingSidebarRefreshTeams.isEmpty()
+        && pendingStoredChannelOpens.isEmpty()) {
         return;
     }
 
-    const QSet<QString> pending = pendingSidebarReconcileTeams;
+    const QSet<QString> pendingReconciles = pendingSidebarReconcileTeams;
+    const QSet<QString> pendingRefreshes = pendingSidebarRefreshTeams;
+    const QSet<QString> pendingOpens = pendingStoredChannelOpens;
     pendingSidebarReconcileTeams.clear();
+    pendingSidebarRefreshTeams.clear();
+    pendingStoredChannelOpens.clear();
 
     auto& sidebar = SidebarService::instance(*backendForSidebar);
-    for (const QString& teamId : pending) {
+    for (const QString& teamId : pendingReconciles) {
         TeamItem* teamItem = teamToItemMap.value(teamId, nullptr);
         const SidebarTeamState* state = sidebar.teamState(teamId);
         if (!teamItem || !state) {
             continue;
         }
         reconcileTeamSidebar(*backendForSidebar, *teamItem, *state);
+    }
+
+    // A channel/team leave mutates the tree directly in the legacy path. When
+    // it occurs during DnD, refresh authoritatively after the drag instead.
+    for (const QString& teamId : pendingRefreshes) {
+        refreshSidebarTeam(teamId);
+    }
+
+    // Programmatic materialization can also create rows directly. Resume it
+    // only after the drag-owned tree structure has been released.
+    for (const QString& channelId : pendingOpens) {
+        openStoredChannel(channelId);
     }
 }
 
@@ -163,7 +183,7 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     // drag pixmap, producing a visible duplicate and invalidating gap anchors.
     // SidebarService still receives network state normally; coalesce structural
     // updates per team and apply only the newest state once the drag finishes.
-    if (!dragSourceIndexes.isEmpty()) {
+    if (sidebarDragActive) {
         pendingSidebarReconcileTeams.insert(teamItem.teamId);
         return;
     }

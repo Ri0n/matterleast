@@ -201,6 +201,10 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 	});
 
 	connect (&team, &BackendTeam::onLeave, this, [this, &team, teamList] {
+        if (sidebarDragActive) {
+            pendingSidebarRefreshTeams.insert(team.id);
+            return;
+        }
         clearTeamSidebar(*teamList);
         teamToItemMap.remove(team.id);
 
@@ -500,6 +504,20 @@ void ChannelTree::handleChannelLeave()
 
     const QString channelId = channel->id;
     const QList<QTreeWidgetItem*> items = channelToItemMap.value(channelId);
+    if (sidebarDragActive) {
+        for (QTreeWidgetItem* item : items) {
+            QTreeWidgetItem* category = item ? item->parent() : nullptr;
+            if (!category) {
+                continue;
+            }
+            const QString teamId = category->data(0, ItemTeamIdRole).toString();
+            if (!teamId.isEmpty()) {
+                pendingSidebarRefreshTeams.insert(teamId);
+            }
+        }
+        return;
+    }
+
     for (QTreeWidgetItem* item : items) {
         if (!item || item->data(0, ItemKindRole).toInt() != ChannelItemKind) {
             continue;

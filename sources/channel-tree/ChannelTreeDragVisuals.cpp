@@ -103,12 +103,14 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
         drag.setHotSpot(hotSpot);
     }
 
+    sidebarDragActive = true;
     ensureDragSourceVisuals(source);
     dragStartPointerY = cursorInViewport.y();
     drag.exec(Qt::MoveAction, Qt::MoveAction);
     if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
         resetDragVisuals(false);
     }
+    sidebarDragActive = false;
     flushDeferredSidebarReconciles();
 }
 

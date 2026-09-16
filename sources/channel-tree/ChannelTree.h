@@ -231,6 +231,9 @@ private:
 	Backend*							backendForSidebar;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
+    // True for the complete nested QDrag::exec() lifetime. Structural sidebar
+    // mutations from network/realtime callbacks are deferred while this is set.
+    bool                                sidebarDragActive = false;
     QVariantAnimation*                  sourceCollapseAnimation = nullptr;
     QVariantAnimation*                  dropGapAnimation = nullptr;
     QVector<QPersistentModelIndex>      dragSourceIndexes;
@@ -246,6 +249,8 @@ private:
     int                                 draggedBlockStartLogicalY = 0;
     QVector<CategoryDragBoundary>       categoryDragBoundaries;
     QSet<QString>                       pendingSidebarReconcileTeams;
+    QSet<QString>                       pendingSidebarRefreshTeams;
+    QSet<QString>                       pendingStoredChannelOpens;
     QMap<QString, quint64>              sidebarMutationGeneration;
 };
 

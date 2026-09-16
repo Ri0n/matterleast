@@ -44,6 +44,11 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
             category->channelIds.prepend(channel.id);
         }
 
+        if (sidebarDragActive) {
+            pendingSidebarReconcileTeams.insert(teamIt.key());
+            continue;
+        }
+
         QTreeWidgetItem* categoryItem = nullptr;
         for (int index = 0; index < teamItem->childCount(); ++index) {
             QTreeWidgetItem* candidate = teamItem->child(index);
