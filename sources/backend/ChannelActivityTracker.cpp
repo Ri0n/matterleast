@@ -113,6 +113,25 @@ void ChannelActivityTracker::recordViewed(const QString& channelId, uint64_t vie
     Entry& entry = entries[channelId];
     entry.tracked = true;
     entry.lastViewedAt = std::max(entry.lastViewedAt, viewedAt);
+
+    if (entry.rootUnreadMode) {
+        // A root-only channel acknowledgement consumes only the parent/root
+        // domain. Keep all-message counters and reply runtime activity intact:
+        // they still belong to followed threads and must become visible again
+        // if root counters later become unavailable and fallback semantics apply.
+        if (hasTotalRootMessageCount) {
+            entry.readRootMessageCount = std::max(
+                entry.readRootMessageCount, totalRootMessageCount);
+            entry.hasReadRootMessageCount = true;
+        }
+        entry.rootMentionCount = 0;
+        entry.serverUnreadActivity = false;
+        entry.runtimeUnreadActivity = false;
+        entry.serverMentioned = false;
+        entry.runtimeMentioned = false;
+        return;
+    }
+
     entry.readMessageCount = std::max(entry.readMessageCount, totalMessageCount);
     if (hasTotalRootMessageCount) {
         entry.readRootMessageCount = std::max(entry.readRootMessageCount, totalRootMessageCount);
@@ -130,13 +149,13 @@ void ChannelActivityTracker::recordViewed(const QString& channelId, uint64_t vie
 }
 
 void ChannelActivityTracker::markUnread(const QString& channelId,
-                                                uint64_t lastViewedAt,
-                                                uint64_t readMessageCount,
-                                                uint64_t readRootMessageCount,
-                                                bool hasReadRootMessageCount,
-                                                uint64_t mentionCount,
-                                                uint64_t rootMentionCount,
-                                                bool hasRootMentionCount)
+                                        uint64_t lastViewedAt,
+                                        uint64_t readMessageCount,
+                                        uint64_t readRootMessageCount,
+                                        bool hasReadRootMessageCount,
+                                        uint64_t mentionCount,
+                                        uint64_t rootMentionCount,
+                                        bool hasRootMentionCount)
 {
     if (channelId.isEmpty()) {
         return;
