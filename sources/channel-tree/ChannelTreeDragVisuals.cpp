@@ -10,6 +10,7 @@
 #include <QDragLeaveEvent>
 #include <QEasingCurve>
 #include <QMimeData>
+#include <QSignalBlocker>
 #include <QVariantAnimation>
 
 namespace Mattermost {
@@ -432,34 +433,40 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target,
         }
         const qreal progress = value.toDouble();
 
-        // Source collapse and gap displacement share one progress value. For a
-        // group every visible row in the dragged subtree uses that same value,
-        // so the removed block extent equals the opened gap extent per frame.
-        for (qsizetype i = 0; i < sourceIndexes.size(); ++i) {
-            if (!sourceIndexes[i].isValid()) {
-                continue;
-            }
-            const qreal current = sourceStarts[i]
-                + (wantedCollapse - sourceStarts[i]) * progress;
-            model()->setData(sourceIndexes[i], current,
-                             SidebarItem::DragCollapseRole);
-        }
+        // QTreeView reacts to every dataChanged signal by invalidating row
+        // geometry. Updating the source collapse and destination gap one index
+        // at a time therefore exposes transient frames whose total extent is
+        // larger than the original tree. Apply the whole animation tick as one
+        // geometry transaction and perform exactly one layout afterwards.
+        {
+            QSignalBlocker blocker(model());
 
-        for (qsizetype i = 0; i < gapIndexes.size(); ++i) {
-            if (!gapIndexes[i].isValid()) {
-                continue;
+            for (qsizetype i = 0; i < sourceIndexes.size(); ++i) {
+                if (!sourceIndexes[i].isValid()) {
+                    continue;
+                }
+                const qreal current = sourceStarts[i]
+                    + (wantedCollapse - sourceStarts[i]) * progress;
+                model()->setData(sourceIndexes[i], current,
+                                 SidebarItem::DragCollapseRole);
             }
-            const bool isTarget = gapIndexes[i] == target;
-            const int wantedBefore = isTarget && !after ? wantedExtent : 0;
-            const int wantedAfter = isTarget && after ? wantedExtent : 0;
-            model()->setData(gapIndexes[i],
-                             qRound(startBefore[i]
-                                    + (wantedBefore - startBefore[i]) * progress),
-                             SidebarItem::DropGapBeforeRole);
-            model()->setData(gapIndexes[i],
-                             qRound(startAfter[i]
-                                    + (wantedAfter - startAfter[i]) * progress),
-                             SidebarItem::DropGapAfterRole);
+
+            for (qsizetype i = 0; i < gapIndexes.size(); ++i) {
+                if (!gapIndexes[i].isValid()) {
+                    continue;
+                }
+                const bool isTarget = gapIndexes[i] == target;
+                const int wantedBefore = isTarget && !after ? wantedExtent : 0;
+                const int wantedAfter = isTarget && after ? wantedExtent : 0;
+                model()->setData(gapIndexes[i],
+                                 qRound(startBefore[i]
+                                        + (wantedBefore - startBefore[i]) * progress),
+                                 SidebarItem::DropGapBeforeRole);
+                model()->setData(gapIndexes[i],
+                                 qRound(startAfter[i]
+                                        + (wantedAfter - startAfter[i]) * progress),
+                                 SidebarItem::DropGapAfterRole);
+            }
         }
 
         doItemsLayout();
