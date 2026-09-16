@@ -11,6 +11,13 @@
 
 using namespace Mattermost;
 
+class TestableChannelItemDelegate : public ChannelItemDelegate
+{
+public:
+    using ChannelItemDelegate::ChannelItemDelegate;
+    using ChannelItemDelegate::initStyleOption;
+};
+
 class SidebarItemDelegateTest : public QObject
 {
     Q_OBJECT
@@ -82,11 +89,33 @@ private slots:
 
     void unreadRoleMakesConversationVisuallyBold()
     {
-        const auto read = renderItem(SidebarItem::Channel,
-                                     BackendChannel::publicChannel, QString(), false);
-        const auto unread = renderItem(SidebarItem::Channel,
-                                       BackendChannel::publicChannel, QString(), true);
-        QVERIFY(read != unread);
+        QStandardItemModel model;
+        auto* item = new QStandardItem(QStringLiteral("conversation"));
+        item->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        item->setData(BackendChannel::publicChannel, SidebarItem::ChannelTypeRole);
+        model.appendRow(item);
+
+        QListView view;
+        view.setModel(&model);
+        TestableChannelItemDelegate delegate;
+
+        QStyleOptionViewItem readOption;
+        readOption.initFrom(&view);
+        delegate.initStyleOption(&readOption, model.index(0, 0));
+        QVERIFY(!readOption.font.bold());
+
+        item->setData(true, SidebarItem::UnreadRole);
+        QStyleOptionViewItem unreadOption;
+        unreadOption.initFrom(&view);
+        delegate.initStyleOption(&unreadOption, model.index(0, 0));
+        QVERIFY(unreadOption.font.bold());
+
+        item->setData(false, SidebarItem::UnreadRole);
+        item->setData(true, SidebarItem::MentionedRole);
+        QStyleOptionViewItem mentionedOption;
+        mentionedOption.initFrom(&view);
+        delegate.initStyleOption(&mentionedOption, model.index(0, 0));
+        QVERIFY(mentionedOption.font.bold());
     }
 
     void rendersPresenceForDirectMessage()
