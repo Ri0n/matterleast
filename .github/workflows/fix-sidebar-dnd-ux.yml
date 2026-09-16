@@ -1,0 +1,32 @@
+name: Fix sidebar DnD UX
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/sidebar-optimistic-dnd
+      - name: Apply fixes
+        run: python3 .github/scripts/fix_sidebar_dnd_ux.py
+      - name: Remove temporary patch machinery
+        run: |
+          rm .github/scripts/fix_sidebar_dnd_ux.py
+          rm .github/workflows/fix-sidebar-dnd-ux.yml
+      - name: Commit implementation
+        run: |
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Fix sidebar drag and drop interaction"
+          git push origin HEAD:feature/sidebar-optimistic-dnd
