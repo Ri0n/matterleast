@@ -35,9 +35,8 @@ jobs:
                   sources/backend/FollowingModel.cpp \
                   sources/chat-area/ChatLogWidget.cpp \
                   tests/ChannelActivityTrackerTest.cpp \
-                  docs/following-attention-read-tracking.md \
-                  .github/scripts/apply-gm-crt-read-policy.py \
-                  .github/workflows/apply-gm-crt-read-policy.yml
+                  docs/following-attention-read-tracking.md
+          git add -u .github
           git diff --cached --check
           git commit -m 'Align DM unread state with collapsed threads'
           git push origin HEAD:fix/sidebar-dnd-followup
