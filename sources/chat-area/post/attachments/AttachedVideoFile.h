@@ -23,9 +23,10 @@
 
 #if BUILD_MULTIMEDIA
 
-#include <QWidget>
-#include <QVideoWidget>
 #include <QMediaPlayer>
+#include <QString>
+#include <QVideoWidget>
+#include <QWidget>
 
 namespace Ui {
 class AttachedVideoFile;
@@ -41,17 +42,17 @@ class AttachedVideoFile : public QWidget
     Q_OBJECT
 
 public:
-    explicit AttachedVideoFile (Backend& backend, BackendFile& file, QWidget *parent = nullptr);
+    explicit AttachedVideoFile (Backend& backend, const BackendFile& file, QWidget *parent = nullptr);
     ~AttachedVideoFile();
 public:
-    void mousePressEvent(QMouseEvent *event)	override;
+    void mousePressEvent(QMouseEvent *event) override;
 
 private:
     Ui::AttachedVideoFile*	ui;
     Backend&				backend;
     QMediaPlayer*			mediaPlayer;
     QVideoWidget*			videoWidget;
-    BackendFile&			file;
+    QString                     fileId;
     bool					init;
 };
 
