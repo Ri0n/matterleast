@@ -127,6 +127,15 @@ void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
     }
     const QPersistentModelIndex sourceIndex(indexFromItem(source, 0));
     if (!dragSourceIndexes.isEmpty() && dragSourceIndexes.front() == sourceIndex) {
+        // A QTreeView relayout must never be able to resurrect the real source
+        // underneath the native QDrag pixmap. Keep both suppression mechanisms
+        // asserted for every drag-move event.
+        for (const QPersistentModelIndex& index : dragSourceIndexes) {
+            if (index.isValid()) {
+                model()->setData(index, 1.0, SidebarItem::DragCollapseRole);
+            }
+        }
+        source->setHidden(true);
         return;
     }
 
@@ -184,12 +193,16 @@ void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
         : QPersistentModelIndex();
     sourceDragGapAfter = originalGapAfter;
 
-    // QTreeView caches delegate size hints aggressively during a drag. Trying
-    // to remove the source through an animated sizeHint therefore leaves its
-    // old layout extent around while the replacement gap is already visible.
-    // Hide the real tree item instead: QTreeView then removes the source (and,
-    // for a category, its whole subtree) from layout using its native path.
-    // The equal-size initial gap keeps total geometry unchanged.
+    // Hiding removes the source through QTreeView's native row path. Keep an
+    // independent delegate-level collapse as well: if the view later treats a
+    // hidden row as paintable during its nested drag/layout loop, sizeHint and
+    // paint still reduce the real source (and an expanded category subtree) to
+    // zero. Only the QDrag pixmap can then represent the dragged block.
+    for (const QPersistentModelIndex& index : dragSourceIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 1.0, SidebarItem::DragCollapseRole);
+        }
+    }
     source->setHidden(true);
     if (sourceDragGapIndex.isValid()) {
         model()->setData(sourceDragGapIndex,
@@ -584,6 +597,11 @@ void ChannelTree::resetDragVisuals(bool animate)
         if (index.isValid()) {
             model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
             model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+        }
+    }
+    for (const QPersistentModelIndex& index : dragSourceIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 0.0, SidebarItem::DragCollapseRole);
         }
     }
     if (!dragSourceIndexes.isEmpty() && dragSourceIndexes.front().isValid()) {
