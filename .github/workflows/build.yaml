@@ -91,7 +91,7 @@ jobs:
           cat > Containerfile <<'EOF'
           FROM fedora:latest
           RUN dnf -y update \
-              && dnf -y install cmake gcc-c++ make qt5-qtbase-devel qt5-qtwebsockets-devel \
+              && dnf -y install cmake gcc-c++ make qt5-qtbase-devel qt5-qtsvg qt5-qtwebsockets-devel \
               && dnf clean all
           COPY mattermost-qt /mattermost-qt
           WORKDIR /mattermost-qt
