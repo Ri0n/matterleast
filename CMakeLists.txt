@@ -1,8 +1,42 @@
 cmake_minimum_required(VERSION 3.16)
 
-file(READ .version version)
-string(STRIP "${version}" version)
+set(MATTERLEAST_VERSION "" CACHE STRING "MatterLeast version override (for example 1.0 or v1.0)")
+set(MATTERLEAST_DEBIAN_EXTRA_DEPENDS "" CACHE STRING "Additional Debian runtime dependencies")
+set(version "")
+
+if(MATTERLEAST_VERSION)
+	set(version "${MATTERLEAST_VERSION}")
+	string(REGEX REPLACE "^v" "" version "${version}")
+else()
+	find_package(Git QUIET)
+	if(Git_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+		execute_process(
+			COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match --match "v[0-9]*"
+			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+			RESULT_VARIABLE git_version_result
+			OUTPUT_VARIABLE git_version_tag
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			ERROR_QUIET
+		)
+		if(git_version_result EQUAL 0
+			AND git_version_tag MATCHES "^v[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
+			string(REGEX REPLACE "^v" "" version "${git_version_tag}")
+		endif()
+	endif()
+endif()
+
+if(NOT version)
+	file(READ "${CMAKE_CURRENT_SOURCE_DIR}/.version" version)
+	string(STRIP "${version}" version)
+endif()
+
+if(NOT version MATCHES "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
+	message(FATAL_ERROR "Invalid MatterLeast version '${version}'")
+endif()
+
 project(qmattermost VERSION ${version} LANGUAGES CXX)
+file(WRITE "${CMAKE_BINARY_DIR}/matterleast-version.txt" "${PROJECT_VERSION}\n")
+message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
 if(WIN32)
 	enable_language(RC)
@@ -200,6 +234,9 @@ if(QT_VERSION_MAJOR EQUAL 6)
 	set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6sql6-sqlite")
 else()
 	set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5sql5-sqlite")
+endif()
+if(MATTERLEAST_DEBIAN_EXTRA_DEPENDS)
+	string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", ${MATTERLEAST_DEBIAN_EXTRA_DEPENDS}")
 endif()
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 

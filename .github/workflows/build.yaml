@@ -168,7 +168,9 @@ jobs:
             build-essential \
             dpkg-dev \
             libqt6sql6-sqlite \
+            libqt6svg6 \
             qt6-base-dev \
+            qt6-svg-plugins \
             qt6-websockets-dev
 
       - name: Configure
@@ -178,6 +180,7 @@ jobs:
           -DQT_6=ON
           -DBUILD_TESTING=ON
           -DWARNINGS_AS_ERRORS=ON
+          -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6, qt6-svg-plugins"
 
       - name: Build
         run: cmake --build build --parallel 4
@@ -185,8 +188,24 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
-      - name: Build DEB
-        run: cpack --config build/CPackConfig.cmake -G DEB -B package
+      - name: Build and verify DEB
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpack --config build/CPackConfig.cmake -G DEB -B package
+          deb=$(find package -maxdepth 1 -type f -name '*.deb' -print -quit)
+          test -n "$deb"
+
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          test "$(dpkg-deb -f "$deb" Version)" = "$version"
+
+          depends=$(dpkg-deb -f "$deb" Depends)
+          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins; do
+            if [[ "$depends" != *"$dep"* ]]; then
+              echo "::error::DEB dependency '$dep' is missing: $depends"
+              exit 1
+            fi
+          done
 
       - name: Upload Ubuntu package
         uses: actions/upload-artifact@v4

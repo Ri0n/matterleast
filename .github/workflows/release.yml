@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: matterleast-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Validate release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::Unsupported release tag '$tag'. Expected vMAJOR.MINOR or vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  packages:
+    name: Build release packages
+    needs: version
+    uses: ./.github/workflows/packages.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  release:
+    name: Publish GitHub release
+    needs: [version, packages]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: matterleast-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          expected=(
+            "matterleast-${VERSION}-ubuntu-22.04-amd64.deb"
+            "matterleast-${VERSION}-ubuntu-24.04-amd64.deb"
+            "matterleast-${VERSION}-ubuntu-26.04-amd64.deb"
+            "matterleast-${VERSION}-windows-x64-installer.exe"
+          )
+          for asset in "${expected[@]}"; do
+            test -f "release-assets/$asset" || {
+              echo "::error::Missing release asset: $asset"
+              exit 1
+            }
+          done
+          count=$(find release-assets -maxdepth 1 -type f | wc -l)
+          if [[ "$count" -ne "${#expected[@]}" ]]; then
+            echo "::error::Expected ${#expected[@]} release assets, found $count"
+            find release-assets -maxdepth 1 -type f -printf '%f\n'
+            exit 1
+          fi
+          ls -lh release-assets
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "MatterLeast $VERSION"

@@ -2,6 +2,17 @@ name: Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Optional MatterLeast version override (for example 1.0)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: Optional MatterLeast version override (for example 1.0)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -19,12 +30,18 @@ jobs:
           - ubuntu-version: "22.04"
             runner: ubuntu-22.04
             qt6: "OFF"
+            build-runtime-packages: "libqt5sql5-sqlite libqt5svg5"
+            debian-extra-depends: "libqt5svg5"
           - ubuntu-version: "24.04"
             runner: ubuntu-24.04
             qt6: "ON"
+            build-runtime-packages: "libqt6sql6-sqlite libqt6svg6"
+            debian-extra-depends: "libqt6svg6"
           - ubuntu-version: "26.04"
             runner: ubuntu-26.04
             qt6: "ON"
+            build-runtime-packages: "libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins"
+            debian-extra-depends: "libqt6svg6, qt6-svg-plugins"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
 
@@ -43,6 +60,8 @@ jobs:
           else
             packages+=(qtbase5-dev libqt5websockets5-dev)
           fi
+          read -r -a runtime_packages <<< "${{ matrix.build-runtime-packages }}"
+          packages+=("${runtime_packages[@]}")
           sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
       - name: Configure
@@ -53,7 +72,18 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_6=${{ matrix.qt6 }} \
             -DBUILD_TESTING=ON \
-            -DWARNINGS_AS_ERRORS=ON
+            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_VERSION="${{ inputs.version }}" \
+            -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
+
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          test -n "$version"
+          requested="${{ inputs.version }}"
+          requested=${requested#v}
+          if [[ -n "$requested" && "$version" != "$requested" ]]; then
+            echo "::error::CMake resolved version '$version', expected '$requested'"
+            exit 1
+          fi
 
       - name: Build
         run: cmake --build build --parallel 4
@@ -62,17 +92,44 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       - name: Build DEB
+        id: package
         shell: bash
         run: |
           set -euo pipefail
           cpack --config build/CPackConfig.cmake -G DEB -B package
-          test -n "$(find package -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          deb=$(find package -maxdepth 1 -type f -name '*.deb' -print -quit)
+          test -n "$deb"
+
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          package_version=$(dpkg-deb -f "$deb" Version)
+          if [[ "$package_version" != "$version" ]]; then
+            echo "::error::DEB version '$package_version' does not match MatterLeast version '$version'"
+            exit 1
+          fi
+
+          depends=$(dpkg-deb -f "$deb" Depends)
+          case "${{ matrix.ubuntu-version }}" in
+            22.04) required_deps=(libqt5sql5-sqlite libqt5svg5) ;;
+            24.04) required_deps=(libqt6sql6-sqlite libqt6svg6) ;;
+            26.04) required_deps=(libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins) ;;
+            *) echo "::error::Unknown Ubuntu version"; exit 1 ;;
+          esac
+          for dep in "${required_deps[@]}"; do
+            if [[ "$depends" != *"$dep"* ]]; then
+              echo "::error::DEB dependency '$dep' is missing: $depends"
+              exit 1
+            fi
+          done
+
+          output="package/matterleast-${version}-ubuntu-${{ matrix.ubuntu-version }}-amd64.deb"
+          mv "$deb" "$output"
+          echo "path=$output" >> "$GITHUB_OUTPUT"
 
       - name: Upload DEB
         uses: actions/upload-artifact@v7
         with:
           name: matterleast-deb-ubuntu-${{ matrix.ubuntu-version }}-amd64
-          path: package/*.deb
+          path: ${{ steps.package.outputs.path }}
           if-no-files-found: error
           compression-level: 0
 
@@ -116,8 +173,16 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DQT_6=ON `
             -DBUILD_TESTING=ON `
-            -DWARNINGS_AS_ERRORS=ON
+            -DWARNINGS_AS_ERRORS=ON `
+            -DMATTERLEAST_VERSION="${{ inputs.version }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          if (-not $version) { throw "CMake did not resolve a MatterLeast version" }
+          $requested = "${{ inputs.version }}".TrimStart('v')
+          if ($requested -and $version -ne $requested) {
+            throw "CMake resolved version '$version', expected '$requested'"
+          }
 
       - name: Build
         run: |
@@ -149,17 +214,25 @@ jobs:
           }
 
       - name: Build NSIS installer
+        id: package
         run: |
           cpack --config build/CPackConfig.cmake -G NSIS -B package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Get-ChildItem package -File -Filter "*.exe" | Select-Object -First 1)) {
+
+          $installer = Get-ChildItem package -File -Filter "*.exe" | Select-Object -First 1
+          if (-not $installer) {
             throw "CPack did not produce an NSIS installer"
           }
+
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          $output = Join-Path $installer.DirectoryName "matterleast-$version-windows-x64-installer.exe"
+          Move-Item -LiteralPath $installer.FullName -Destination $output
+          "path=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
           name: matterleast-windows-x64-installer
-          path: package/*.exe
+          path: ${{ steps.package.outputs.path }}
           if-no-files-found: error
           compression-level: 0
