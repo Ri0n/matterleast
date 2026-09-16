@@ -25,11 +25,9 @@
 	<url type="homepage">https://github.com/Ri0n/mattermost-qt</url>
 	<update_contact>https://github.com/Ri0n/mattermost-qt</update_contact>
 	<releases>
-		<release date="2023-01-23" version="1.2"/>
-		<release date="2022-04-25" version="1.1"/>
-		<release date="2022-02-27" version="1.0"/>
+		<release date="2026-09-16" version="@PROJECT_VERSION@"/>
 	</releases>
-	<developer_name>MatterLeast contributors</developer_name>
+	<developer_name>Sergei Ilinykh and MatterLeast contributors</developer_name>
 	<url type="bugtracker">https://github.com/Ri0n/mattermost-qt/issues</url>
 	<url type="help">https://github.com/Ri0n/mattermost-qt</url>
 	<provides>
