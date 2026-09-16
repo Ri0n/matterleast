@@ -217,7 +217,17 @@ jobs:
         id: package
         run: |
           cpack --config build/CPackConfig.cmake -G NSIS -B package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cpackExit = $LASTEXITCODE
+          if ($cpackExit -ne 0) {
+            $log = Get-ChildItem package -Recurse -File -Filter "NSISOutput.log" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($log) {
+              Write-Host "==== $($log.FullName) ===="
+              Get-Content -LiteralPath $log.FullName
+            } else {
+              Write-Host "NSISOutput.log was not produced"
+            }
+            exit $cpackExit
+          }
 
           $installer = Get-ChildItem package -File -Filter "*.exe" | Select-Object -First 1
           if (-not $installer) {
