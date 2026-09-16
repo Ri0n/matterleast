@@ -196,6 +196,7 @@ private:
     void clearDropGap(bool animate);
     void resetDragVisuals(bool animate);
     void ensureDragSourceVisuals(QTreeWidgetItem* source);
+    QTreeWidgetItem* sourceDropGapAnchor(QTreeWidgetItem* source, bool& gapAfter) const;
     void animateSourceCollapse(qreal target);
     void animateDropGap(const QPersistentModelIndex& target, bool after, int extent);
     QTreeWidgetItem* channelDropGapAnchor(QTreeWidgetItem* source,
@@ -226,7 +227,9 @@ private:
     QVector<QPersistentModelIndex>      dragSourceIndexes;
     QVector<QPersistentModelIndex>      dragGapIndexes;
     QPersistentModelIndex               currentDragGapIndex;
+    QPersistentModelIndex               sourceDragGapIndex;
     bool                                currentDragGapAfter = false;
+    bool                                sourceDragGapAfter = false;
     int                                 currentDragGapExtent = 0;
     int                                 draggedRowExtent = 0;
     int                                 draggedBlockHotSpotY = 0;

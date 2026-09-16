@@ -152,24 +152,100 @@ void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
         draggedRowExtent = visualItemRect(source).height();
     }
 
-    // Replace the dragged block by an equal-sized structural placeholder in a
-    // single layout pass. Starting a drag must not move anything below source.
-    // Only this placeholder travels through the tree afterwards.
+    // The source itself must never own the structural placeholder. Otherwise
+    // the first vacated slot remains attached to the collapsed source row and
+    // appears to travel through the tree instead of being filled by its
+    // neighbour. Anchor the initial placeholder on an unaffected adjacent
+    // boundary, then collapse the source block to zero.
+    bool gapAfter = false;
+    QTreeWidgetItem* gapAnchor = sourceDropGapAnchor(source, gapAfter);
+    const QPersistentModelIndex placeholder(
+        gapAnchor ? indexFromItem(gapAnchor, 0) : QModelIndex());
+
     for (const QPersistentModelIndex& index : dragSourceIndexes) {
         if (index.isValid()) {
             model()->setData(index, 1.0, SidebarItem::DragCollapseRole);
         }
     }
-    const QPersistentModelIndex placeholder = dragSourceIndexes.front();
+
+    sourceDragGapIndex = placeholder.isValid() ? placeholder : sourceIndex;
+    sourceDragGapAfter = placeholder.isValid() ? gapAfter : false;
     dragGapIndexes.clear();
-    dragGapIndexes.push_back(placeholder);
-    currentDragGapIndex = placeholder;
-    currentDragGapAfter = false;
+    dragGapIndexes.push_back(sourceDragGapIndex);
+    currentDragGapIndex = sourceDragGapIndex;
+    currentDragGapAfter = sourceDragGapAfter;
     currentDragGapExtent = draggedRowExtent;
-    model()->setData(placeholder, draggedRowExtent, SidebarItem::DropGapBeforeRole);
-    model()->setData(placeholder, 0, SidebarItem::DropGapAfterRole);
+    model()->setData(sourceDragGapIndex,
+                     sourceDragGapAfter ? 0 : draggedRowExtent,
+                     SidebarItem::DropGapBeforeRole);
+    model()->setData(sourceDragGapIndex,
+                     sourceDragGapAfter ? draggedRowExtent : 0,
+                     SidebarItem::DropGapAfterRole);
     doItemsLayout();
     viewport()->update();
+}
+
+QTreeWidgetItem* ChannelTree::sourceDropGapAnchor(QTreeWidgetItem* source,
+                                                   bool& gapAfter) const
+{
+    gapAfter = false;
+    if (!source || !source->parent()) {
+        return nullptr;
+    }
+
+    QTreeWidgetItem* parent = source->parent();
+    const int sourceRow = parent->indexOfChild(source);
+    if (sourceRow < 0) {
+        return nullptr;
+    }
+
+    if (source->data(0, ItemKindRole).toInt() == ChannelItemKind) {
+        for (int i = sourceRow - 1; i >= 0; --i) {
+            QTreeWidgetItem* sibling = parent->child(i);
+            if (sibling && !sibling->isHidden()) {
+                gapAfter = true;
+                return sibling;
+            }
+        }
+        for (int i = sourceRow + 1; i < parent->childCount(); ++i) {
+            QTreeWidgetItem* sibling = parent->child(i);
+            if (sibling && !sibling->isHidden()) {
+                gapAfter = false;
+                return sibling;
+            }
+        }
+
+        // A single channel in a category: the category header is the only
+        // unaffected boundary available.
+        gapAfter = true;
+        return parent;
+    }
+
+    if (source->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+        for (int i = sourceRow - 1; i >= 0; --i) {
+            QTreeWidgetItem* sibling = parent->child(i);
+            if (!sibling || sibling->isHidden()
+                || sibling->data(0, ItemKindRole).toInt() != CategoryItemKind) {
+                continue;
+            }
+            bool after = true;
+            QTreeWidgetItem* anchor = categoryDropGapAnchor(sibling, true, after);
+            if (anchor) {
+                gapAfter = after;
+                return anchor;
+            }
+        }
+        for (int i = sourceRow + 1; i < parent->childCount(); ++i) {
+            QTreeWidgetItem* sibling = parent->child(i);
+            if (sibling && !sibling->isHidden()
+                && sibling->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+                gapAfter = false;
+                return sibling;
+            }
+        }
+    }
+
+    return nullptr;
 }
 
 void ChannelTree::animateSourceCollapse(qreal target)
@@ -335,17 +411,17 @@ void ChannelTree::updateDragVisuals(QTreeWidgetItem* source,
 void ChannelTree::restoreSourceDropGap(bool animate)
 {
     if (dragSourceIndexes.isEmpty() || draggedRowExtent <= 0
-        || !dragSourceIndexes.front().isValid()) {
+        || !sourceDragGapIndex.isValid()) {
         return;
     }
 
-    const QPersistentModelIndex source = dragSourceIndexes.front();
-    if (currentDragGapIndex == source && !currentDragGapAfter
+    if (currentDragGapIndex == sourceDragGapIndex
+        && currentDragGapAfter == sourceDragGapAfter
         && currentDragGapExtent == draggedRowExtent) {
         return;
     }
     if (animate) {
-        animateDropGap(source, false, draggedRowExtent);
+        animateDropGap(sourceDragGapIndex, sourceDragGapAfter, draggedRowExtent);
         return;
     }
 
@@ -357,10 +433,15 @@ void ChannelTree::restoreSourceDropGap(bool animate)
         }
     }
     dragGapIndexes.clear();
-    dragGapIndexes.push_back(source);
-    model()->setData(source, draggedRowExtent, SidebarItem::DropGapBeforeRole);
-    currentDragGapIndex = source;
-    currentDragGapAfter = false;
+    dragGapIndexes.push_back(sourceDragGapIndex);
+    model()->setData(sourceDragGapIndex,
+                     sourceDragGapAfter ? 0 : draggedRowExtent,
+                     SidebarItem::DropGapBeforeRole);
+    model()->setData(sourceDragGapIndex,
+                     sourceDragGapAfter ? draggedRowExtent : 0,
+                     SidebarItem::DropGapAfterRole);
+    currentDragGapIndex = sourceDragGapIndex;
+    currentDragGapAfter = sourceDragGapAfter;
     currentDragGapExtent = draggedRowExtent;
     doItemsLayout();
     viewport()->update();
@@ -416,7 +497,9 @@ void ChannelTree::resetDragVisuals(bool animate)
     }
     dragGapIndexes.clear();
     currentDragGapIndex = QPersistentModelIndex();
+    sourceDragGapIndex = QPersistentModelIndex();
     currentDragGapAfter = false;
+    sourceDragGapAfter = false;
     currentDragGapExtent = 0;
     dragSourceIndexes.clear();
     draggedRowExtent = 0;
