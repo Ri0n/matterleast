@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QImage>
+#include <QListView>
 #include <QPainter>
 #include <QStandardItemModel>
 
@@ -30,10 +31,16 @@ private:
         item->setIcon(QIcon(avatar));
         model.appendRow(item);
 
+        // A styled item delegate is normally invoked by an item view. Keep the
+        // unit test on that real contract as well: some platform styles expect
+        // option.widget to be a valid view while painting CE_ItemViewItem.
+        QListView view;
+        view.setModel(&model);
+
         QStyleOptionViewItem option;
+        option.initFrom(&view);
+        option.widget = &view;
         option.rect = QRect(0, 0, 240, 32);
-        option.palette = QApplication::palette();
-        option.font = QApplication::font();
         option.state = QStyle::State_Enabled;
 
         QImage image(option.rect.size(), QImage::Format_ARGB32_Premultiplied);
@@ -46,14 +53,6 @@ private:
     }
 
 private slots:
-    void initTestCase()
-    {
-        // The test renders directly into a QImage without a real item view.
-        // Keep the style deterministic instead of letting the Windows native
-        // style handle CE_ItemViewItem with a null option.widget.
-        QVERIFY(QApplication::setStyle(QStringLiteral("Fusion")) != nullptr);
-    }
-
     void ignoresPresenceForNonUserRows()
     {
         const auto publicWithPresence = renderItem(SidebarItem::Channel,
