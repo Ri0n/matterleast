@@ -68,7 +68,8 @@ enum Role {
     DragCollapseRole,
     // Visual source suppression is intentionally independent from collapse:
     // AnyKeep-style DnD hides the source immediately while its layout extent
-    // is still animated out in lockstep with the destination gap.
+    // is still animated out in lockstep with the destination gap. This role is
+    // paint-only and must not affect sizeHint/layout geometry.
     DragSourceHiddenRole,
 };
 
