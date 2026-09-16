@@ -90,15 +90,22 @@ public:
                             std::function<void(const SidebarTeamState&)> callback = {});
     const SidebarTeamState* teamState(const QString& teamId) const;
     SidebarTeamState* teamState(const QString& teamId);
+    void applyLocalTeamState(const QString& teamId, SidebarTeamState state);
 
     void createCategory(const QString& teamId, const QString& displayName,
                         std::function<void(const SidebarCategory&)> callback = {});
     void updateCategory(const SidebarCategory& category,
-                        std::function<void(const SidebarCategory&)> callback = {});
+                        std::function<void(const SidebarCategory&)> callback = {},
+                        std::function<void()> errorCallback = {},
+                        bool storeResponse = true);
     void updateCategories(const QString& teamId, const QVector<SidebarCategory>& categories,
-                          std::function<void(const SidebarTeamState&)> callback = {});
+                          std::function<void(const SidebarTeamState&)> callback = {},
+                          std::function<void()> errorCallback = {},
+                          bool storeResponse = true);
     void updateCategoryOrder(const QString& teamId, const QStringList& order,
-                             std::function<void()> callback = {});
+                             std::function<void()> callback = {},
+                             std::function<void()> errorCallback = {},
+                             bool storeResponse = true);
 
 signals:
     void channelMutedChanged(const QString& channelId, bool muted);

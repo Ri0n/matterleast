@@ -60,6 +60,12 @@ enum Role {
     ChannelIdRole,
     ThreadIdRole,
     DestinationRole,
+
+    // Transient geometry roles used only while a ChannelTree drag is active.
+    // Values are view-local: gap roles are pixels, collapse is [0, 1].
+    DropGapBeforeRole,
+    DropGapAfterRole,
+    DragCollapseRole,
 };
 
 } // namespace SidebarItem

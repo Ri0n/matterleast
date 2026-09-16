@@ -798,6 +798,15 @@ SidebarTeamState* SidebarService::teamState(const QString& teamId)
     return it == sidebarByTeam.end() ? nullptr : &it.value();
 }
 
+void SidebarService::applyLocalTeamState(const QString& teamId, SidebarTeamState state)
+{
+    if (teamId.isEmpty()) {
+        return;
+    }
+    sidebarByTeam.insert(teamId, std::move(state));
+    emit categoriesChanged(teamId);
+}
+
 void SidebarService::createCategory(
     const QString& teamId,
     const QString& displayName,
@@ -839,22 +848,44 @@ void SidebarService::createCategory(
 }
 
 void SidebarService::updateCategory(const SidebarCategory& category,
-                                    std::function<void(const SidebarCategory&)> callback)
+                                    std::function<void(const SidebarCategory&)> callback,
+                                    std::function<void()> errorCallback,
+                                    bool storeResponse)
 {
     NetworkRequest request(categoriesPath(category.teamId) + QLatin1Char('/') + category.id);
     httpConnector.put(request, QByteArrayCreator(category.toJson()),
-                      HttpResponseCallback([this, teamId = category.teamId, callback](const QJsonDocument& doc) {
+                      HttpResponseCallback([this, teamId = category.teamId, callback,
+                                            errorCallback, storeResponse](
+                                               QVariant status, const QJsonDocument& doc) {
+        if (status.toInt() != QNetworkReply::NoError || !doc.isObject()) {
+            if (errorCallback) {
+                errorCallback();
+            }
+            return;
+        }
         SidebarCategory updated = SidebarCategory::fromJson(doc.object());
-        sidebarByTeam[teamId].categories.insert(updated.id, updated);
-        emit categoriesChanged(teamId);
-        if (callback) {
-            callback(sidebarByTeam[teamId].categories[updated.id]);
+        if (updated.id.isEmpty()) {
+            if (errorCallback) {
+                errorCallback();
+            }
+            return;
+        }
+        if (storeResponse) {
+            sidebarByTeam[teamId].categories.insert(updated.id, updated);
+            emit categoriesChanged(teamId);
+            if (callback) {
+                callback(sidebarByTeam[teamId].categories[updated.id]);
+            }
+        } else if (callback) {
+            callback(updated);
         }
     }));
 }
 
 void SidebarService::updateCategories(const QString& teamId, const QVector<SidebarCategory>& categories,
-                                      std::function<void(const SidebarTeamState&)> callback)
+                                      std::function<void(const SidebarTeamState&)> callback,
+                                      std::function<void()> errorCallback,
+                                      bool storeResponse)
 {
     QJsonArray payload;
     for (const auto& category : categories) {
@@ -863,20 +894,40 @@ void SidebarService::updateCategories(const QString& teamId, const QVector<Sideb
 
     NetworkRequest request(categoriesPath(teamId));
     httpConnector.put(request, QByteArrayCreator(payload),
-                      HttpResponseCallback([this, teamId, callback](const QJsonDocument& doc) {
+                      HttpResponseCallback([this, teamId, callback, errorCallback,
+                                            storeResponse](QVariant status,
+                                                           const QJsonDocument& doc) {
+        if (status.toInt() != QNetworkReply::NoError || !doc.isArray()) {
+            if (errorCallback) {
+                errorCallback();
+            }
+            return;
+        }
+
+        SidebarTeamState responseState = sidebarByTeam.value(teamId);
         for (const auto& value : doc.array()) {
             SidebarCategory updated = SidebarCategory::fromJson(value.toObject());
-            sidebarByTeam[teamId].categories.insert(updated.id, std::move(updated));
+            if (!updated.id.isEmpty()) {
+                responseState.categories.insert(updated.id, std::move(updated));
+            }
         }
-        emit categoriesChanged(teamId);
-        if (callback) {
-            callback(sidebarByTeam[teamId]);
+
+        if (storeResponse) {
+            sidebarByTeam.insert(teamId, std::move(responseState));
+            emit categoriesChanged(teamId);
+            if (callback) {
+                callback(sidebarByTeam[teamId]);
+            }
+        } else if (callback) {
+            callback(responseState);
         }
     }));
 }
 
 void SidebarService::updateCategoryOrder(const QString& teamId, const QStringList& order,
-                                         std::function<void()> callback)
+                                         std::function<void()> callback,
+                                         std::function<void()> errorCallback,
+                                         bool storeResponse)
 {
     QJsonArray payload;
     for (const auto& categoryId : order) {
@@ -885,13 +936,23 @@ void SidebarService::updateCategoryOrder(const QString& teamId, const QStringLis
 
     NetworkRequest request(categoriesPath(teamId) + QStringLiteral("/order"));
     httpConnector.put(request, QByteArrayCreator(payload),
-                      HttpResponseCallback([this, teamId, callback](const QJsonDocument& doc) {
+                      HttpResponseCallback([this, teamId, callback, errorCallback,
+                                            storeResponse](QVariant status,
+                                                           const QJsonDocument& doc) {
+        if (status.toInt() != QNetworkReply::NoError || !doc.isArray()) {
+            if (errorCallback) {
+                errorCallback();
+            }
+            return;
+        }
         QStringList updatedOrder;
         for (const auto& value : doc.array()) {
             updatedOrder.push_back(value.toString());
         }
-        sidebarByTeam[teamId].order = updatedOrder;
-        emit categoriesChanged(teamId);
+        if (storeResponse) {
+            sidebarByTeam[teamId].order = updatedOrder;
+            emit categoriesChanged(teamId);
+        }
         if (callback) {
             callback();
         }

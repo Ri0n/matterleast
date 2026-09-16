@@ -118,6 +118,30 @@ private slots:
         QVERIFY(mentionedOption.font.bold());
     }
 
+    void dragGapParticipatesInRowGeometry()
+    {
+        QStandardItemModel model;
+        auto* item = new QStandardItem(QStringLiteral("conversation"));
+        item->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        model.appendRow(item);
+
+        QListView view;
+        view.setModel(&model);
+        ChannelItemDelegate delegate;
+        QStyleOptionViewItem option;
+        option.initFrom(&view);
+
+        const QModelIndex index = model.index(0, 0);
+        QCOMPARE(delegate.sizeHint(option, index).height(), 32);
+
+        item->setData(12, SidebarItem::DropGapBeforeRole);
+        item->setData(8, SidebarItem::DropGapAfterRole);
+        QCOMPARE(delegate.sizeHint(option, index).height(), 52);
+
+        item->setData(0.5, SidebarItem::DragCollapseRole);
+        QCOMPARE(delegate.sizeHint(option, index).height(), 36);
+    }
+
     void rendersPresenceForDirectMessage()
     {
         const auto withPresence = renderItem(SidebarItem::Channel,
