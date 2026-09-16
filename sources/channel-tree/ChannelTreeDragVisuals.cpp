@@ -87,7 +87,6 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
     }
 
     const QPoint cursorInViewport = viewport()->mapFromGlobal(QCursor::pos());
-    dragStartPointerY = cursorInViewport.y();
     draggedBlockHotSpotY = blockRect.isValid()
         ? qBound(0, cursorInViewport.y() - blockRect.top(), qMax(0, blockRect.height() - 1))
         : 0;
@@ -104,6 +103,7 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
     }
 
     ensureDragSourceVisuals(source);
+    dragStartPointerY = cursorInViewport.y();
     drag.exec(Qt::MoveAction, Qt::MoveAction);
     if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
         resetDragVisuals(false);
