@@ -1,0 +1,32 @@
+name: Stabilize sidebar insertion gap
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+    paths:
+      - .github/scripts/stabilize_sidebar_gap.py
+      - .github/workflows/sidebar-gap-stabilize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/sidebar-optimistic-dnd
+      - run: python3 .github/scripts/stabilize_sidebar_gap.py
+      - run: |
+          rm .github/scripts/stabilize_sidebar_gap.py
+          rm .github/workflows/sidebar-gap-stabilize.yml
+      - name: Commit
+        run: |
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Stabilize sidebar insertion gap animation"
+          git push
