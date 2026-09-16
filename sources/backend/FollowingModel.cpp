@@ -272,8 +272,12 @@ void FollowingModel::noteIncomingPost(BackendChannel& channel,
     }
 
     if (!post.isOwnPost()) {
-        if (Entry* conversation = findEntryMutable(channel.id, QString())) {
-            noteIncomingForResume(*conversation, post);
+        const bool rootUnreadConversation =
+            SidebarService::instance(backend_).usesRootUnreadCounts(channel);
+        if ((!rootUnreadConversation || post.root_id.isEmpty())) {
+            if (Entry* conversation = findEntryMutable(channel.id, QString())) {
+                noteIncomingForResume(*conversation, post);
+            }
         }
         if (!post.root_id.isEmpty()) {
             if (Entry* thread = findThreadMutable(post.root_id)) {
@@ -589,11 +593,16 @@ bool FollowingModel::isAfter(uint64_t lhsCreateAt,
 
 QString FollowingModel::nextCachedPostId(const BackendChannel& channel,
                                          const QString& threadId,
-                                         const BackendPost& after) const
+                                         const BackendPost& after,
+                                         bool rootOnlyConversation) const
 {
+    rootOnlyConversation = rootOnlyConversation && threadId.isEmpty();
     const BackendPost* next = nullptr;
     for (const BackendPost& candidate : channel.posts) {
         if (candidate.isDeleted || candidate.id.isEmpty()) {
+            continue;
+        }
+        if (rootOnlyConversation && !candidate.root_id.isEmpty()) {
             continue;
         }
         if (!threadId.isEmpty()
@@ -617,7 +626,8 @@ QString FollowingModel::nextCachedPostId(const BackendChannel& channel,
 void FollowingModel::observeReadThrough(const QString& channelId,
                                         const QString& threadId,
                                         const BackendPost& post,
-                                        bool sourceAtEnd)
+                                        bool sourceAtEnd,
+                                        bool rootOnlyConversation)
 {
     Entry* entry = findEntryMutable(channelId, threadId);
     if (!entry || post.id.isEmpty()) {
@@ -663,7 +673,8 @@ void FollowingModel::observeReadThrough(const QString& channelId,
     entry->readThroughPostId = post.id;
     entry->readThroughCreateAt = post.create_at;
 
-    const QString nextPostId = nextCachedPostId(*channel, threadId, post);
+    const QString nextPostId = nextCachedPostId(
+        *channel, threadId, post, rootOnlyConversation);
     if (!nextPostId.isEmpty()) {
         entry->resumeState = ResumeState::FirstUnread;
         entry->firstUnreadPostId = nextPostId;

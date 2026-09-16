@@ -277,13 +277,19 @@ the logical tail of the root-post source, the channel is locally marked viewed
 through `SidebarService` and acknowledged to the server through
 `Backend::markChannelAsViewed()`.
 
-Direct and group conversations need one extra guard. Their Following row
-represents the whole conversation, including replies that may live in collapsed
-threads and therefore are not part of the central root-post source. Reaching the
-root-post tail must not consume a newer hidden reply. For DM/GM, conversation
-acknowledgement therefore also requires that the read post reaches the channel's
-latest activity (`last_post_at`). Reading the actual newest reply in its thread
-advances both the thread cursor and the DM/GM conversation cursor.
+Direct and group conversations follow the same unread domain selected by
+`ChannelActivityTracker`. With Collapsed Reply Threads enabled *and* both
+membership/channel root counters available, the parent conversation contains
+root posts only for unread/resume purposes. A hidden reply belongs to its thread
+entry and must not keep the parent DM/GM unread. The main root source therefore
+uses `last_root_post_at` as its acknowledgement watermark; reading a thread
+advances/acknowledges only that thread.
+
+When CRT is disabled, or root counters are unavailable, replies still belong to
+the parent channel unread domain. In that compatibility mode DM/GM keeps the
+whole-conversation rule: the acknowledgement watermark is `last_post_at`, and
+reading the actual newest reply may also consume the conversation-level unread
+state.
 
 ```mermaid
 flowchart TD
@@ -292,15 +298,21 @@ flowchart TD
     C -- no --> D[Advance local cursor only]
     C -- yes --> E{DM/GM?}
     E -- no --> F[Mark channel viewed]
-    E -- yes --> G{Read post reaches channel last_post_at?}
-    G -- no --> D
-    G -- yes --> F
-    B -- yes --> H{Authoritative thread tail?}
+    E -- yes --> G{CRT root-count unread domain?}
+    G -- yes --> H{Read post reaches last_root_post_at?}
+    H -- yes --> F
     H -- no --> D
-    H -- yes --> I[Mark thread read]
-    I --> J{DM/GM and latest channel activity?}
-    J -- yes --> F
-    J -- no --> K[Thread acknowledgement only]
+    G -- no --> I{Read post reaches last_post_at?}
+    I -- yes --> F
+    I -- no --> D
+    B -- yes --> J{Authoritative thread tail?}
+    J -- no --> D
+    J -- yes --> K[Mark thread read]
+    K --> L{DM/GM and replies belong to parent?}
+    L -- yes --> M{Read post reaches last_post_at?}
+    M -- yes --> F
+    M -- no --> N[Thread acknowledgement only]
+    L -- no --> N
 ```
 
 ## Events that trigger re-evaluation

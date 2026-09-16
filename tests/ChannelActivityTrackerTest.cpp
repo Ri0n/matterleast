@@ -79,6 +79,56 @@ private slots:
         QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
     }
 
+    void crtRootUnreadModeRequiresBothRootCounters()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 20, 5, true);
+        synchronize(tracker, 2000, 20, 5, true, true);
+        QVERIFY(tracker.usesRootUnreadCounts(QStringLiteral("channel")));
+
+        ChannelActivityTracker noChannelRootCount;
+        setMembership(noChannelRootCount, 1000, 20, 5, true);
+        synchronize(noChannelRootCount, 2000, 20, 0, false, true);
+        QVERIFY(!noChannelRootCount.usesRootUnreadCounts(QStringLiteral("channel")));
+
+        ChannelActivityTracker noMembershipRootCount;
+        setMembership(noMembershipRootCount, 1000, 20, 0, false);
+        synchronize(noMembershipRootCount, 2000, 20, 5, true, true);
+        QVERIFY(!noMembershipRootCount.usesRootUnreadCounts(QStringLiteral("channel")));
+    }
+
+    void crtFallbackReclassifiesReplyRuntimeActivity()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 5, 5, true, 0, 0, true, false);
+        synchronize(tracker, 1000, 5, 5, true, true);
+        QVERIFY(tracker.usesRootUnreadCounts(QStringLiteral("channel")));
+
+        tracker.recordPost(QStringLiteral("channel"), 2000, false, true, true);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+
+        // Reading the root-only parent must not consume the hidden reply's
+        // all-message/runtime state.
+        tracker.recordViewed(QStringLiteral("channel"), 1000, 6, 5, true);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+
+        // If the channel-side root counter disappears, that same already
+        // received reply belongs to the whole-message fallback domain.
+        synchronize(tracker, 2000, 6, 0, false, true);
+        QVERIFY(!tracker.usesRootUnreadCounts(QStringLiteral("channel")));
+        QVERIFY(tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(tracker.hasMention(QStringLiteral("channel")));
+
+        // Restoring authoritative root counters moves the reply back to
+        // thread-only activity without losing its runtime bookkeeping.
+        synchronize(tracker, 2000, 6, 5, true, true);
+        QVERIFY(tracker.usesRootUnreadCounts(QStringLiteral("channel")));
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+    }
+
     void crtUsesRootMentionCount()
     {
         ChannelActivityTracker tracker;
