@@ -71,7 +71,7 @@ jobs:
       - name: Upload DEB
         uses: actions/upload-artifact@v7
         with:
-          name: mattermost-qt-deb-ubuntu-${{ matrix.ubuntu-version }}-amd64
+          name: matterleast-deb-ubuntu-${{ matrix.ubuntu-version }}-amd64
           path: package/*.deb
           if-no-files-found: error
           compression-level: 0
@@ -135,7 +135,7 @@ jobs:
           cmake --install build --prefix "$stage"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $required = @(
-            (Join-Path $stage "bin/mattermost-qt.exe"),
+            (Join-Path $stage "bin/matterleast.exe"),
             (Join-Path $stage "bin/Qt6Core.dll"),
             (Join-Path $stage "bin/Qt6Widgets.dll"),
             (Join-Path $stage "bin/Qt6Network.dll"),
@@ -159,7 +159,7 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
-          name: mattermost-qt-windows-x64-installer
+          name: matterleast-windows-x64-installer
           path: package/*.exe
           if-no-files-found: error
           compression-level: 0

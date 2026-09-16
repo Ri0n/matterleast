@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 
 file(READ .version version)
 project(qmattermost VERSION ${version} LANGUAGES CXX)
+
+if(WIN32)
+	enable_language(RC)
+endif()
+
 configure_file(build-config.h.in ${CMAKE_CURRENT_SOURCE_DIR}/sources/build-config.h)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -29,7 +34,9 @@ elseif(MSVC)
 	endif()
 endif()
 
-set(APPID "mattermost-qt")
+set(APPID "matterleast")
+set(PRODUCT_NAME "MatterLeast")
+set(DESKTOP_ID "matterleast")
 
 option(QT_6 "Prefer Qt6" ON)
 
@@ -112,11 +119,12 @@ else()
   endif()
   add_executable(${APPID} sources/main.cpp resource.qrc)
   target_link_libraries(${APPID} PRIVATE mattermost-core)
-  
+
   if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
+	target_sources(${APPID} PRIVATE resources/matterleast.rc)
 	set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
   endif()
-  
+
 endif()
 
 add_subdirectory (tools)
@@ -152,23 +160,23 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 endif()
 
 if(UNIX)
-	set(SRC_ICONS_DIR "resources/icons/application-dark")
-	set(SRC_ICON_PREFIX "${APPID}-dark")
-	set(DST_ICONS_DIR "${CMAKE_INSTALL_DATAROOTDIR}/icons")
+	install(FILES "img/MatterLeast.svg"
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps"
+		RENAME "${DESKTOP_ID}.svg")
 
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-16.png" DESTINATION "${DST_ICONS_DIR}/hicolor/16x16/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-32.png" DESTINATION "${DST_ICONS_DIR}/hicolor/32x32/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-64.png" DESTINATION "${DST_ICONS_DIR}/hicolor/64x64/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-128.png" DESTINATION "${DST_ICONS_DIR}/hicolor/128x128/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-256.png" DESTINATION "${DST_ICONS_DIR}/hicolor/256x256/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-512.png" DESTINATION "${DST_ICONS_DIR}/hicolor/512x512/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-1024.png" DESTINATION "${DST_ICONS_DIR}/hicolor/1024x1024/apps" RENAME "${APPID}.png")
-	install (FILES "resources/svg/${SRC_ICON_PREFIX}.svg" DESTINATION "${DST_ICONS_DIR}/hicolor/scalable/apps" RENAME "${APPID}.svg")
+	configure_file(
+		"resources/matterleast.desktop.in"
+		"${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.desktop"
+		@ONLY)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.desktop"
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
 
-	configure_file("resources/mattermost-qt.desktop.in" "resources/mattermost-qt.desktop" @ONLY)
-	install (FILES "${CMAKE_CURRENT_BINARY_DIR}/resources/mattermost-qt.desktop" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications" RENAME "${APPID}.desktop")
-	configure_file("resources/mattermost-qt.appdata.xml.in" "resources/mattermost-qt.appdata.xml" @ONLY)
-	install (FILES "${CMAKE_CURRENT_BINARY_DIR}/resources/mattermost-qt.appdata.xml" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo" RENAME "${APPID}.appdata.xml")
+	configure_file(
+		"resources/matterleast.appdata.xml.in"
+		"${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.appdata.xml"
+		@ONLY)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.appdata.xml"
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
 endif()
 
 if(BUILD_MULTIMEDIA)
@@ -176,16 +184,17 @@ if(BUILD_MULTIMEDIA)
 endif()
 
 set(CPACK_PACKAGE_NAME "${APPID}")
-set(CPACK_PACKAGE_VENDOR "mattermost-qt")
+set(CPACK_PACKAGE_VENDOR "${PRODUCT_NAME}")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Native Qt client for Mattermost")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MatterLeast - native Qt client for Mattermost")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/Ri0n/mattermost-qt")
-set(CPACK_PACKAGE_CONTACT "Mattermost Qt Maintainers <maintainers@mattermost-qt.invalid>")
+set(CPACK_PACKAGE_CONTACT "MatterLeast Maintainers <maintainers@mattermost-qt.invalid>")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/COPYING.LESSER")
-set(CPACK_PACKAGE_EXECUTABLES "${APPID}" "Mattermost Qt")
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Mattermost Qt Maintainers <maintainers@mattermost-qt.invalid>")
+set(CPACK_PACKAGE_EXECUTABLES "${APPID}" "${PRODUCT_NAME}")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "MatterLeast Maintainers <maintainers@mattermost-qt.invalid>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "net")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_CONFLICTS "mattermost-qt")
 if(QT_VERSION_MAJOR EQUAL 6)
 	set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6sql6-sqlite")
 else()
@@ -194,9 +203,12 @@ endif()
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 
 if(WIN32)
-	set(CPACK_PACKAGE_INSTALL_DIRECTORY "Mattermost Qt")
-	set(CPACK_NSIS_DISPLAY_NAME "Mattermost Qt")
-	set(CPACK_NSIS_PACKAGE_NAME "Mattermost Qt")
+	set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PRODUCT_NAME}")
+	set(CPACK_NSIS_DISPLAY_NAME "${PRODUCT_NAME}")
+	set(CPACK_NSIS_PACKAGE_NAME "${PRODUCT_NAME}")
+	set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
+	set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
+	set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\matterleast.exe")
 	set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 endif()
 

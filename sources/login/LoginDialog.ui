@@ -11,11 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Login - Mattermost</string>
-  </property>
-  <property name="windowIcon">
-   <iconset resource="../../resource.qrc">
-    <normaloff>:/icons/img/icon0.ico</normaloff>:/icons/img/icon0.ico</iconset>
+   <string>MatterLeast — Login</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>

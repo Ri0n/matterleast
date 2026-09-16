@@ -213,15 +213,15 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 MainWindow::~MainWindow() = default;
 
-static QString infoText(QString("Version " PROJECT_VER "<br/>"
-                                "An unofficial Mattermost Client, using the QT framework<br/>") +
+static QString infoText(QString("MatterLeast " PROJECT_VER "<br/>"
+                                "An unofficial native Mattermost client using the Qt framework.<br/>") +
 R"(
 <br/>
 More information:<br/>
-<a href='https://github.com/nuclear868/mattermost-qt'>https://github.com/nuclear868/mattermost-qt</a>
+<a href='https://github.com/Ri0n/mattermost-qt'>https://github.com/Ri0n/mattermost-qt</a>
 <br/>
 <br/>
-Mattermost QT Copyright 2021, 2022 Lyubomir Filipov<br/>
+Based on Mattermost-QT, Copyright 2021, 2022 Lyubomir Filipov<br/>
 <br/>
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -632,7 +632,7 @@ void MainWindow::createMenu()
 		connect(settingsWindow, &QDialog::accepted, [this] {
 			if (QMessageBox::question(
 					this, "Reload?",
-					"In order to apply some settings, Mattermost has to be reloaded.\n"
+					"In order to apply some settings, MatterLeast has to be reloaded.\n"
 					" Do you want to reload now? (If no, settings will be applied on the next startup)")
 				== QMessageBox::Yes) {
 				settingsWindow->applyNewSettings();
@@ -643,9 +643,9 @@ void MainWindow::createMenu()
 	});
 
 	QMenu* helpMenu = mainMenu->addMenu("Help");
-	helpMenu->addAction("About Mattermost", [this] {
+	helpMenu->addAction("About MatterLeast", [this] {
 		auto* msgBox = new QMessageBox(QMessageBox::Information,
-		                               "About Mattermost", infoText);
+		                               "About MatterLeast", infoText);
 		msgBox->setIconPixmap(windowIcon().pixmap(QSize(64, 64)));
 		msgBox->setTextFormat(Qt::RichText);
 		msgBox->setStandardButtons(QMessageBox::Ok);
@@ -845,16 +845,14 @@ void MainWindow::unreadMessagesNotify(const BackendChannel& channel)
 
 void MainWindow::setNotificationsCountVisualization(uint32_t notificationsCount)
 {
+	const QString productName = qApp->applicationDisplayName();
 	if (notificationsCount == 0) {
-		setWindowTitle(qApp->applicationName());
+		setWindowTitle(productName);
 	} else {
-		setWindowTitle("(" + QString::number(notificationsCount) + ") "
-		               + qApp->applicationName());
+		setWindowTitle("(" + QString::number(notificationsCount) + ") " + productName);
 	}
 
-	const uint32_t iconCount = std::min(notificationsCount, 6u);
-	const QString iconName(":/icons/img/icon" + QString::number(iconCount) + ".ico");
-	trayIcon.setIcon(QIcon(iconName));
+	trayIcon.setIcon(IconUtils::applicationIcon(notificationsCount));
 }
 
 void MainWindow::saveState()

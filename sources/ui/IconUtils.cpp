@@ -21,7 +21,11 @@
 
 #include "IconUtils.h"
 
+#include <algorithm>
+
+#include <QApplication>
 #include <QColor>
+#include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QPainter>
@@ -80,6 +84,51 @@ QIcon IconUtils::symbolicIcon(const QString& path)
     const QColor color = QGuiApplication::palette().color(QPalette::WindowText);
     QIcon icon = tintedSymbolicIcon(path, color);
     return icon.isNull() ? QIcon(path) : icon;
+}
+
+QIcon IconUtils::applicationIcon(uint32_t notificationCount)
+{
+    const QIcon source(QStringLiteral(":/icons/matterleast"));
+    if (notificationCount == 0 || source.isNull()) {
+        return source;
+    }
+
+    const QString badgeText = notificationCount > 99
+        ? QStringLiteral("99+")
+        : QString::number(notificationCount);
+
+    QIcon icon;
+    for (int size : {16, 20, 22, 24, 32, 48, 64, 128, 256}) {
+        QPixmap pixmap = source.pixmap(size, size);
+        if (pixmap.isNull()) {
+            continue;
+        }
+
+        const qreal scale = size / 256.0;
+        const qreal badgeHeight = std::max<qreal>(9.0, 80.0 * scale);
+        const qreal horizontalPadding = std::max<qreal>(2.0, 12.0 * scale);
+
+        QFont font = QApplication::font();
+        font.setBold(true);
+        font.setPixelSize(std::max(6, qRound(48.0 * scale)));
+        const QFontMetricsF metrics(font);
+        const qreal badgeWidth = std::max(
+            badgeHeight, metrics.horizontalAdvance(badgeText) + 2.0 * horizontalPadding);
+        const QRectF badgeRect(size - badgeWidth, 0.0, badgeWidth, badgeHeight);
+
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(220, 53, 69));
+        painter.drawRoundedRect(badgeRect, badgeHeight / 2.0, badgeHeight / 2.0);
+
+        painter.setFont(font);
+        painter.setPen(Qt::white);
+        painter.drawText(badgeRect, Qt::AlignCenter, badgeText);
+        icon.addPixmap(pixmap);
+    }
+
+    return icon.isNull() ? source : icon;
 }
 
 } // namespace Mattermost

@@ -24,6 +24,7 @@
 #include <QSettings>
 #include "backend/Backend.h"
 #include "log.h"
+#include "ui/IconUtils.h"
 
 namespace Mattermost {
 
@@ -49,8 +50,7 @@ LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
 	ui->domain_lineEdit->setText (loginData.domain);
 	ui->username_lineEdit->setText (loginData.username);
 
-	QIcon icon (":/icons/img/icon0.ico");
-	ui->icon->setPixmap (icon.pixmap (QSize (64, 64)));
+	ui->icon->setPixmap (IconUtils::applicationIcon().pixmap (QSize (64, 64)));
 	ui->loginInProgressLabel->hide();
 
 	//if all data is available in the settings, use it for the login

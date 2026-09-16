@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/icons">
+        <file alias="matterleast">img/MatterLeast.svg</file>
         <file alias="burger">img/burger_icon.svg</file>
         <file alias="search">img/search.svg</file>
         <file alias="bookmark">img/bookmark.svg</file>
@@ -17,13 +18,6 @@
         <file alias="copy">img/copy.svg</file>
         <file alias="link">img/link.svg</file>
         <file alias="unread">img/unread.svg</file>
-        <file>img/icon0.ico</file>
-        <file>img/icon1.ico</file>
-        <file>img/icon2.ico</file>
-        <file>img/icon3.ico</file>
-        <file>img/icon4.ico</file>
-        <file>img/icon5.ico</file>
-        <file>img/icon6.ico</file>
         <file>img/quote-arrow.png</file>
     </qresource>
     <qresource prefix="/">

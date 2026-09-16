@@ -1,14 +1,14 @@
 ![Build status](https://github.com/Ri0n/mattermost-qt/actions/workflows/build.yaml/badge.svg?branch=master)
 
-# mattermost-qt
+# MatterLeast
 
-A native Mattermost desktop client built with Qt.
+MatterLeast is a native Mattermost desktop client built with Qt.
 
-This repository is a maintained fork of [turok-m-a/mattermost-qt](https://github.com/turok-m-a/mattermost-qt), originally created by nuclear868.
+This repository is a maintained fork of [turok-m-a/mattermost-qt](https://github.com/turok-m-a/mattermost-qt), originally created by nuclear868. The application, executable and package are named `matterleast`. The Debian package explicitly conflicts with the old `mattermost-qt` package.
 
 ## Motivation
 
-The official Mattermost desktop client is based on Electron and embeds the web application. `mattermost-qt` aims to provide a lightweight native alternative with lower resource usage and conventional desktop UI behavior, including native widgets, context menus and thread windows.
+The official Mattermost desktop client is based on Electron and embeds the web application. MatterLeast aims to provide a lightweight native alternative with lower resource usage and conventional desktop UI behavior, including native widgets, context menus and thread windows.
 
 ## Highlights
 
@@ -20,7 +20,7 @@ The official Mattermost desktop client is based on Electron and embeds the web a
 - Markdown rendering, quoted messages and fenced code blocks with syntax highlighting.
 - Pinned posts with direct `Go to message` navigation.
 - Mattermost-style server-backed sidebar categories, Favorites/custom categories, mute state and drag/drop ordering.
-- `Channels`, `Recent` and `Attention` sidebar views, including unread filtering and followed-thread/mention handling.
+- `Channels`, `Following` and `Attention` sidebar views, including unread filtering and followed-thread/mention handling.
 - Direct-message search and lazy server-side user discovery.
 - Presence/status indicators and profile dialogs with full-resolution avatars.
 - Desktop notifications with message/thread targets on supported Linux desktops, with tray notifications as a fallback.
@@ -111,13 +111,13 @@ Windows is actively built in CI with Qt 6.10 and MSVC. A normal Qt/CMake build w
 From the build directory, start:
 
 ```bash
-./mattermost-qt
+./matterleast
 ```
 
-A login dialog appears on first start. After a successful login, the server URL, username and login token are stored using `QSettings`; the password itself is not saved. On Linux the settings normally live under `~/.config/mattermost-native/Mattermost.conf`.
+A login dialog appears on first start. After a successful login, the server URL, username and login token are stored using `QSettings`; the password itself is not saved. On Linux the settings normally live under `~/.config/matterleast/MatterLeast.conf`.
 
 The saved token is currently not encrypted, so the settings file should be treated as sensitive.
 
 ## Contributing
 
-Bug reports and pull requests are welcome. The project is maintained as a lightweight native Mattermost client, so changes that improve compatibility, reliability, resource usage and normal desktop usability are especially useful.
+Bug reports and pull requests are welcome. MatterLeast is maintained as a lightweight native Mattermost client, so changes that improve compatibility, reliability, resource usage and normal desktop usability are especially useful.
