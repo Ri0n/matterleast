@@ -108,16 +108,22 @@ private slots:
         QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
         QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
 
-        // If the channel-side root counter disappears, the same already
+        // Reading the root-only parent must not consume the hidden reply's
+        // all-message/runtime state.
+        tracker.recordViewed(QStringLiteral("channel"), 1000, 6, 5, true);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+
+        // If the channel-side root counter disappears, that same already
         // received reply belongs to the whole-message fallback domain.
-        synchronize(tracker, 2000, 5, 0, false, true);
+        synchronize(tracker, 2000, 6, 0, false, true);
         QVERIFY(!tracker.usesRootUnreadCounts(QStringLiteral("channel")));
         QVERIFY(tracker.isUnread(QStringLiteral("channel")));
         QVERIFY(tracker.hasMention(QStringLiteral("channel")));
 
         // Restoring authoritative root counters moves the reply back to
         // thread-only activity without losing its runtime bookkeeping.
-        synchronize(tracker, 2000, 5, 5, true, true);
+        synchronize(tracker, 2000, 6, 5, true, true);
         QVERIFY(tracker.usesRootUnreadCounts(QStringLiteral("channel")));
         QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
         QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
