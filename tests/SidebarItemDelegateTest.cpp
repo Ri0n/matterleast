@@ -46,6 +46,14 @@ private:
     }
 
 private slots:
+    void initTestCase()
+    {
+        // The test renders directly into a QImage without a real item view.
+        // Keep the style deterministic instead of letting the Windows native
+        // style handle CE_ItemViewItem with a null option.widget.
+        QVERIFY(QApplication::setStyle(QStringLiteral("Fusion")) != nullptr);
+    }
+
     void ignoresPresenceForNonUserRows()
     {
         const auto publicWithPresence = renderItem(SidebarItem::Channel,
