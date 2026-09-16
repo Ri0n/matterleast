@@ -167,6 +167,37 @@ private slots:
         QCOMPARE(delegate.sizeHint(option, index).height(), 0);
     }
 
+    void adjacentPlaceholderPreservesCombinedExtent()
+    {
+        QStandardItemModel model;
+        auto* source = new QStandardItem(QStringLiteral("source"));
+        source->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        auto* neighbour = new QStandardItem(QStringLiteral("neighbour"));
+        neighbour->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        model.appendRow(source);
+        model.appendRow(neighbour);
+
+        QListView view;
+        view.setModel(&model);
+        ChannelItemDelegate delegate;
+        QStyleOptionViewItem option;
+        option.initFrom(&view);
+
+        const QModelIndex sourceIndex = model.index(0, 0);
+        const QModelIndex neighbourIndex = model.index(1, 0);
+        const int sourceHeight = delegate.sizeHint(option, sourceIndex).height();
+        const int neighbourHeight = delegate.sizeHint(option, neighbourIndex).height();
+        QCOMPARE(sourceHeight + neighbourHeight, 64);
+
+        source->setData(1.0, SidebarItem::DragCollapseRole);
+        neighbour->setData(sourceHeight, SidebarItem::DropGapBeforeRole);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height(), 0);
+        QCOMPARE(delegate.sizeHint(option, neighbourIndex).height(), 64);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height()
+                     + delegate.sizeHint(option, neighbourIndex).height(),
+                 64);
+    }
+
     void rendersPresenceForDirectMessage()
     {
         const auto withPresence = renderItem(SidebarItem::Channel,
