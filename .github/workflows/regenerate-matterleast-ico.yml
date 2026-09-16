@@ -1,0 +1,38 @@
+name: Regenerate MatterLeast ICO
+
+on:
+  push:
+    branches:
+      - fix-nsis-installed-icon-path
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix-nsis-installed-icon-path
+
+      - name: Install icon tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y inkscape imagemagick
+
+      - name: Regenerate Windows icon
+        run: |
+          tools/svgToIco.sh "16 24 32 48 64 128 256" img/MatterLeast.svg
+          mv img/MatterLeast.ico resources/matterleast.ico
+          file resources/matterleast.ico
+
+      - name: Commit generated icon and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add resources/matterleast.ico
+          git rm .github/workflows/regenerate-matterleast-ico.yml
+          git commit -m "Regenerate Windows icon for NSIS"
+          git push origin HEAD:fix-nsis-installed-icon-path
