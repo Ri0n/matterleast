@@ -1,0 +1,29 @@
+name: Apply sidebar DnD AnyKeep geometry
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/sidebar-optimistic-dnd
+      - name: Apply DnD geometry patch
+        run: python3 .github/scripts/apply_sidebar_dnd_anykeep.py
+      - name: Remove temporary patch files
+        run: git rm .github/scripts/apply_sidebar_dnd_anykeep.py .github/workflows/apply-sidebar-dnd-anykeep.yml
+      - name: Commit implementation
+        run: |
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add sources/channel-tree/ChannelTree.h sources/channel-tree/ChannelTree.cpp sources/channel-tree/ChannelTreeDragVisuals.cpp tests/SidebarItemDelegateTest.cpp
+          git diff --cached --check
+          git commit -m "Match sidebar DnD geometry to AnyKeep"
+          git push origin HEAD:feature/sidebar-optimistic-dnd
