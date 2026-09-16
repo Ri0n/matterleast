@@ -10,7 +10,8 @@ namespace Mattermost {
 void ChannelTree::drawBranches(QPainter* painter, const QRect& rect,
                                const QModelIndex& index) const
 {
-    if (!painter || !index.isValid() || !model()->hasChildren(index)) {
+    if (!painter || !index.isValid() || !model()->hasChildren(index)
+        || index.data(SidebarItem::DragSourceHiddenRole).toBool()) {
         return;
     }
 
