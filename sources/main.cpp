@@ -27,6 +27,7 @@
 #include "backend/Backend.h"
 #include "backend/CustomEmojiService.h"
 #include "config/Config.h"
+#include "ui/IconUtils.h"
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/SplitterHandleManager.h"
 
@@ -51,16 +52,19 @@ private:
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
-,trayIcon (std::make_unique<QSystemTrayIcon> (QIcon(":/icons/img/icon0.ico"), nullptr))
+,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,currentWindow (nullptr)
 {
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
+    QGuiApplication::setWindowIcon(IconUtils::applicationIcon());
+
     OverlayScrollBarManager::install(*this);
     SplitterHandleManager::install(*this);
     (void)CustomEmojiService::instance(backend);
 
     Config::init ();
-	trayIcon->setToolTip(tr("Mattermost Qt"));
+	trayIcon->setToolTip(applicationDisplayName());
 	trayIcon->setContextMenu (trayIconMenu.get());
 	trayIcon->show();
 
@@ -72,8 +76,8 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 		}
 	});
 
-	trayIconMenu->addAction ("Open Mattermost", this, &MattermostApplication::showWindow);
-	trayIconMenu->addAction ("Quit", qApp, &QApplication::quit);
+	trayIconMenu->addAction (tr("Open MatterLeast"), this, &MattermostApplication::showWindow);
+	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
 
@@ -118,6 +122,7 @@ inline void MattermostApplication::toggleShowWindow ()
 int main( int argc, char *argv[])
 {
 	QCoreApplication::setOrganizationName("mattermost-native");
+	// Keep the settings identity stable so existing logins and preferences survive the rename.
 	QCoreApplication::setApplicationName("Mattermost");
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 

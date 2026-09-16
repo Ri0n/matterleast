@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <QString>
 
 class QColor;
@@ -28,7 +30,7 @@ class QIcon;
 
 namespace Mattermost {
 
-/** Helpers for palette-aware symbolic icons. */
+/** Helpers for palette-aware symbolic and application icons. */
 class IconUtils
 {
 public:
@@ -36,6 +38,7 @@ public:
     static QIcon tintedIcon(const QIcon& icon, const QColor& color);
     static QIcon tintedSymbolicIcon(const QString& path, const QColor& color);
     static QIcon symbolicIcon(const QString& path);
+    static QIcon applicationIcon(uint32_t notificationCount = 0);
 };
 
 } // namespace Mattermost

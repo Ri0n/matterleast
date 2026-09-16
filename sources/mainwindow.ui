@@ -11,11 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Mattermost</string>
-  </property>
-  <property name="windowIcon">
-   <iconset resource="../resource.qrc">
-    <normaloff>:/icons/img/icon0.ico</normaloff>:/icons/img/icon0.ico</iconset>
+   <string>MatterLeast</string>
   </property>
   <property name="windowOpacity">
    <double>1.000000000000000</double>

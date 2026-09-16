@@ -30,6 +30,7 @@ elseif(MSVC)
 endif()
 
 set(APPID "mattermost-qt")
+set(PRODUCT_NAME "MatterLeast")
 
 option(QT_6 "Prefer Qt6" ON)
 
@@ -152,18 +153,10 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 endif()
 
 if(UNIX)
-	set(SRC_ICONS_DIR "resources/icons/application-dark")
-	set(SRC_ICON_PREFIX "${APPID}-dark")
 	set(DST_ICONS_DIR "${CMAKE_INSTALL_DATAROOTDIR}/icons")
-
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-16.png" DESTINATION "${DST_ICONS_DIR}/hicolor/16x16/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-32.png" DESTINATION "${DST_ICONS_DIR}/hicolor/32x32/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-64.png" DESTINATION "${DST_ICONS_DIR}/hicolor/64x64/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-128.png" DESTINATION "${DST_ICONS_DIR}/hicolor/128x128/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-256.png" DESTINATION "${DST_ICONS_DIR}/hicolor/256x256/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-512.png" DESTINATION "${DST_ICONS_DIR}/hicolor/512x512/apps" RENAME "${APPID}.png")
-	install (FILES "${SRC_ICONS_DIR}/${SRC_ICON_PREFIX}-1024.png" DESTINATION "${DST_ICONS_DIR}/hicolor/1024x1024/apps" RENAME "${APPID}.png")
-	install (FILES "resources/svg/${SRC_ICON_PREFIX}.svg" DESTINATION "${DST_ICONS_DIR}/hicolor/scalable/apps" RENAME "${APPID}.svg")
+	install(FILES "img/MatterLeast.svg"
+		DESTINATION "${DST_ICONS_DIR}/hicolor/scalable/apps"
+		RENAME "${APPID}.svg")
 
 	configure_file("resources/mattermost-qt.desktop.in" "resources/mattermost-qt.desktop" @ONLY)
 	install (FILES "${CMAKE_CURRENT_BINARY_DIR}/resources/mattermost-qt.desktop" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications" RENAME "${APPID}.desktop")
@@ -175,15 +168,17 @@ if(BUILD_MULTIMEDIA)
 	target_link_libraries(qmattermost PRIVATE Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::MultimediaWidgets)
 endif()
 
+# Keep the technical package/executable id for upgrade compatibility while
+# presenting MatterLeast as the product name to users.
 set(CPACK_PACKAGE_NAME "${APPID}")
-set(CPACK_PACKAGE_VENDOR "mattermost-qt")
+set(CPACK_PACKAGE_VENDOR "${PRODUCT_NAME}")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Native Qt client for Mattermost")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MatterLeast - native Qt client for Mattermost")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/Ri0n/mattermost-qt")
-set(CPACK_PACKAGE_CONTACT "Mattermost Qt Maintainers <maintainers@mattermost-qt.invalid>")
+set(CPACK_PACKAGE_CONTACT "MatterLeast Maintainers <maintainers@mattermost-qt.invalid>")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/COPYING.LESSER")
-set(CPACK_PACKAGE_EXECUTABLES "${APPID}" "Mattermost Qt")
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Mattermost Qt Maintainers <maintainers@mattermost-qt.invalid>")
+set(CPACK_PACKAGE_EXECUTABLES "${APPID}" "${PRODUCT_NAME}")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "MatterLeast Maintainers <maintainers@mattermost-qt.invalid>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "net")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 if(QT_VERSION_MAJOR EQUAL 6)
@@ -194,9 +189,9 @@ endif()
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 
 if(WIN32)
-	set(CPACK_PACKAGE_INSTALL_DIRECTORY "Mattermost Qt")
-	set(CPACK_NSIS_DISPLAY_NAME "Mattermost Qt")
-	set(CPACK_NSIS_PACKAGE_NAME "Mattermost Qt")
+	set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PRODUCT_NAME}")
+	set(CPACK_NSIS_DISPLAY_NAME "${PRODUCT_NAME}")
+	set(CPACK_NSIS_PACKAGE_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 endif()
 
