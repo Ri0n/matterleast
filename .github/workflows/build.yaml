@@ -136,29 +136,6 @@ jobs:
       - name: Build
         run: cmake --build build --parallel 4
 
-      - name: Diagnose sidebar delegate test
-        shell: pwsh
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: |
-          $tests = @(
-            "ignoresPresenceForNonUserRows",
-            "unreadRoleMakesConversationVisuallyBold",
-            "rendersPresenceForDirectMessage",
-            "rendersVirtualDestinationAsConversationRow",
-            "rendersVirtualDirectDestinationWithSamePresenceChrome"
-          )
-          foreach ($test in $tests) {
-            $out = "sidebar-$test.txt"
-            & .\build\tests\sidebar-item-delegate-test.exe $test -o "$out,txt"
-            $code = $LASTEXITCODE
-            Write-Host "===== $test (exit $code) ====="
-            if (Test-Path $out) {
-              Get-Content $out
-            }
-          }
-          exit 0
-
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
