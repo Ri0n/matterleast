@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 1254 1254"
+   role="img"
+   aria-label="MatterLeast logo"
+   version="1.1"
+   id="svg15"
+   sodipodi:docname="MatterLeast.svg"
+   inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview15"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showguides="true"
+     inkscape:zoom="1.2743222"
+     inkscape:cx="604.2428"
+     inkscape:cy="588.15582"
+     inkscape:window-width="2560"
+     inkscape:window-height="1008"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg15">
+    <sodipodi:guide
+       position="100.44556,801.99499"
+       orientation="0,-1"
+       id="guide15"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="291.46316,561.03662"
+       orientation="0,-1"
+       id="guide16"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="873.40551,702.33417"
+       orientation="0,-1"
+       id="guide17"
+       inkscape:locked="false" />
+  </sodipodi:namedview>
+  <defs
+     id="defs14">
+    <linearGradient
+       id="m"
+       x1="0"
+       y1="339"
+       x2="0"
+       y2="818"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0"
+         stop-color="#39C7F0"
+         id="stop1" />
+      <stop
+         offset="0.17"
+         stop-color="#2EBDEB"
+         id="stop2" />
+      <stop
+         offset="0.33"
+         stop-color="#1CA2DD"
+         id="stop3" />
+      <stop
+         offset="0.50"
+         stop-color="#1792D1"
+         id="stop4" />
+      <stop
+         offset="0.67"
+         stop-color="#137EC2"
+         id="stop5" />
+      <stop
+         offset="0.83"
+         stop-color="#106EB5"
+         id="stop6" />
+      <stop
+         offset="1"
+         stop-color="#0E64AC"
+         id="stop7" />
+    </linearGradient>
+    <linearGradient
+       id="l"
+       x1="0"
+       y1="576"
+       x2="0"
+       y2="926"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0"
+         stop-color="#49C7EA"
+         id="stop8" />
+      <stop
+         offset="0.17"
+         stop-color="#28AFDE"
+         id="stop9" />
+      <stop
+         offset="0.31878957"
+         stop-color="#1F9DD4"
+         id="stop10" />
+      <stop
+         offset="0.50"
+         stop-color="#188ECB"
+         id="stop11" />
+      <stop
+         offset="0.67"
+         stop-color="#137FC1"
+         id="stop12" />
+      <stop
+         offset="0.83"
+         stop-color="#147DBD"
+         id="stop13" />
+      <stop
+         offset="1"
+         stop-color="#0F70B2"
+         id="stop14" />
+    </linearGradient>
+  </defs>
+  <path
+     d="m 624,451.5 c 72.24665,-78.78445 117.95996,-110.61659 151.09177,-112.10978 40.83752,0.47106 165.4724,115.59499 165.70755,213.39795 -0.31362,140.30536 -142.52618,291.0186 -199.89109,257.3765 -85.89356,-58.41754 121.8465,-140.23774 49.54975,-263.70155 -8.79812,-12.77038 -35.7387,-57.38674 -53.71355,-57.9974 -19.32,0.21866 -95.51265,70.99294 -112.29332,71.03428 -15.89533,-0.25377 -73.5222,-71.11954 -95.53687,-71.30532 -18.59444,-0.94045 -53.57111,46.64062 -62.73066,59.3104 -96.34192,137.44131 114.66676,209.1745 21.79755,266.66645 C 427.03478,846.98428 307.44954,693.54525 308.39542,551.03833 308.93072,453.90201 427.1237,340.71531 465,341.5 c 30.43891,0.59165 85.49257,30.09366 159,110 z"
+     fill="url(#m)"
+     id="path14"
+     sodipodi:nodetypes="ccccccccccccc" />
+  <path
+     d="m 620,576.5 c 28.18889,-0.0311 61.33311,1.2629 62.5,47.5 -1.14998,125.57071 -4.48738,194.50896 -3.21355,215.31733 27.10355,0.40157 80.47267,-1.13956 115.06689,0.0789 45.54266,0.35401 50.43954,90.30643 3.75644,89.4331 -37.18872,-0.59367 -142.33053,1.0536 -173.23671,0.78131 -40.39398,0.37643 -65.10546,-32.79737 -64.92796,-97.98199 L 560.5,627.85248 C 560.6357,578.01646 594.71233,576.52792 620,576.5 Z"
+     fill="url(#l)"
+     id="path15"
+     sodipodi:nodetypes="scccccsss"
+     style="fill:url(#l)" />
+</svg>
