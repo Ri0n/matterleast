@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 file(READ .version version)
+string(STRIP "${version}" version)
 project(qmattermost VERSION ${version} LANGUAGES CXX)
 
 if(WIN32)

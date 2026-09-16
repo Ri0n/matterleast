@@ -217,11 +217,15 @@ static QString infoText(QString("MatterLeast " PROJECT_VER "<br/>"
                                 "An unofficial native Mattermost client using the Qt framework.<br/>") +
 R"(
 <br/>
+MatterLeast development and maintenance:<br/>
+<a href='https://github.com/Ri0n'>Sergei Ilinykh (Ri0n)</a><br/>
+<br/>
+Based on Mattermost-QT by Lyubomir Filipov, Copyright 2021, 2022.<br/>
+Further development of the predecessor fork by Maksim Turok.<br/>
+<br/>
 More information:<br/>
 <a href='https://github.com/Ri0n/mattermost-qt'>https://github.com/Ri0n/mattermost-qt</a>
 <br/>
-<br/>
-Based on Mattermost-QT, Copyright 2021, 2022 Lyubomir Filipov<br/>
 <br/>
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -229,7 +233,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Lesser General Public License for more details.<br/>
 <br/>
 You should have received a copy of the GNU Lesser General Public License
-along with Mattermost-QT. if not, see <a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.<br/>
+along with MatterLeast. If not, see <a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.<br/>
 )");
 
 void MainWindow::setupChannelTabs()
