@@ -1,6 +1,7 @@
 #include "ChannelItemDelegate.h"
 
 #include <QApplication>
+#include <QFontMetrics>
 #include <QHash>
 #include <QMetaObject>
 #include <QPainter>
@@ -24,6 +25,11 @@ constexpr int StatusSize = 12;
 constexpr int MuteIconSize = 16;
 constexpr int HorizontalMargin = 4;
 constexpr int ItemSpacing = 4;
+
+bool isTeamRow(const QModelIndex& index)
+{
+    return index.data(SidebarItem::KindRole).toInt() == SidebarItem::Team;
+}
 
 int channelType(const QModelIndex& index)
 {
@@ -66,11 +72,26 @@ ChannelItemDelegate::ChannelItemDelegate(QObject* parent)
 {
 }
 
+void ChannelItemDelegate::initStyleOption(QStyleOptionViewItem* option,
+                                          const QModelIndex& index) const
+{
+    QStyledItemDelegate::initStyleOption(option, index);
+    if (!isConversationRow(index)) {
+        return;
+    }
+
+    const bool unread = index.data(SidebarItem::UnreadRole).toBool();
+    const bool mentioned = index.data(SidebarItem::MentionedRole).toBool();
+    option->font.setBold(unread || mentioned);
+}
+
 QSize ChannelItemDelegate::sizeHint(const QStyleOptionViewItem& option,
                                     const QModelIndex& index) const
 {
     QSize hint = QStyledItemDelegate::sizeHint(option, index);
-    if (isConversationRow(index)) {
+    if (isTeamRow(index)) {
+        hint.setHeight(0);
+    } else if (isConversationRow(index)) {
         hint.setHeight(ChannelRowHeight);
     }
     return hint;
@@ -80,6 +101,9 @@ void ChannelItemDelegate::paint(QPainter* painter,
                                 const QStyleOptionViewItem& option,
                                 const QModelIndex& index) const
 {
+    if (isTeamRow(index)) {
+        return;
+    }
     if (!isConversationRow(index)) {
         QStyledItemDelegate::paint(painter, option, index);
         return;
@@ -183,10 +207,7 @@ void ChannelItemDelegate::paint(QPainter* painter,
 
     QRect textRect(textLeft, contentRect.top(),
                    qMax(0, textRight - textLeft + 1), contentRect.height());
-    QFont font = option.font;
-    const bool unread = index.data(SidebarItem::UnreadRole).toBool();
-    const bool mentioned = index.data(SidebarItem::MentionedRole).toBool();
-    font.setBold(unread || mentioned);
+    const QFont font = base.font;
     painter->setFont(font);
 
     const bool muted = index.data(SidebarItem::MutedRole).toBool();
@@ -196,7 +217,7 @@ void ChannelItemDelegate::paint(QPainter* painter,
                  : option.palette.color(QPalette::Text));
     painter->setPen(textColor);
 
-    const QString elided = option.fontMetrics.elidedText(text, Qt::ElideRight, textRect.width());
+    const QString elided = QFontMetrics(font).elidedText(text, Qt::ElideRight, textRect.width());
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, elided);
 }
 

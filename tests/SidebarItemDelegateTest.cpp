@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QImage>
+#include <QListView>
 #include <QPainter>
 #include <QStandardItemModel>
 
@@ -10,28 +11,43 @@
 
 using namespace Mattermost;
 
+class TestableChannelItemDelegate : public ChannelItemDelegate
+{
+public:
+    using ChannelItemDelegate::ChannelItemDelegate;
+    using ChannelItemDelegate::initStyleOption;
+};
+
 class SidebarItemDelegateTest : public QObject
 {
     Q_OBJECT
 
 private:
-    static QImage renderItem(SidebarItem::Kind kind, int channelType, const QString& presence)
+    static QImage renderItem(SidebarItem::Kind kind, int channelType, const QString& presence,
+                             bool unread = false)
     {
         QStandardItemModel model;
         auto* item = new QStandardItem(QStringLiteral("conversation"));
         item->setData(kind, SidebarItem::KindRole);
         item->setData(channelType, SidebarItem::ChannelTypeRole);
         item->setData(presence, SidebarItem::PresenceRole);
+        item->setData(unread, SidebarItem::UnreadRole);
 
         QPixmap avatar(24, 24);
         avatar.fill(Qt::black);
         item->setIcon(QIcon(avatar));
         model.appendRow(item);
 
+        // A styled item delegate is normally invoked by an item view. Keep the
+        // unit test on that real contract as well: some platform styles expect
+        // option.widget to be a valid view while painting CE_ItemViewItem.
+        QListView view;
+        view.setModel(&model);
+
         QStyleOptionViewItem option;
+        option.initFrom(&view);
+        option.widget = &view;
         option.rect = QRect(0, 0, 240, 32);
-        option.palette = QApplication::palette();
-        option.font = QApplication::font();
         option.state = QStyle::State_Enabled;
 
         QImage image(option.rect.size(), QImage::Format_ARGB32_Premultiplied);
@@ -69,6 +85,37 @@ private slots:
                                                      BackendChannel::groupChannel,
                                                      QString());
         QVERIFY(groupWithPresence == groupWithoutPresence);
+    }
+
+    void unreadRoleMakesConversationVisuallyBold()
+    {
+        QStandardItemModel model;
+        auto* item = new QStandardItem(QStringLiteral("conversation"));
+        item->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        item->setData(BackendChannel::publicChannel, SidebarItem::ChannelTypeRole);
+        model.appendRow(item);
+
+        QListView view;
+        view.setModel(&model);
+        TestableChannelItemDelegate delegate;
+
+        QStyleOptionViewItem readOption;
+        readOption.initFrom(&view);
+        delegate.initStyleOption(&readOption, model.index(0, 0));
+        QVERIFY(!readOption.font.bold());
+
+        item->setData(true, SidebarItem::UnreadRole);
+        QStyleOptionViewItem unreadOption;
+        unreadOption.initFrom(&view);
+        delegate.initStyleOption(&unreadOption, model.index(0, 0));
+        QVERIFY(unreadOption.font.bold());
+
+        item->setData(false, SidebarItem::UnreadRole);
+        item->setData(true, SidebarItem::MentionedRole);
+        QStyleOptionViewItem mentionedOption;
+        mentionedOption.initFrom(&view);
+        delegate.initStyleOption(&mentionedOption, model.index(0, 0));
+        QVERIFY(mentionedOption.font.bold());
     }
 
     void rendersPresenceForDirectMessage()
