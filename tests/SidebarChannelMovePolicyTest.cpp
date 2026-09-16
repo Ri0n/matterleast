@@ -22,6 +22,26 @@ private slots:
         QCOMPARE(ids, QStringList({QStringLiteral("b"), QStringLiteral("a"), QStringLiteral("c")}));
     }
 
+    void reordersCategoriesBeforeTarget()
+    {
+        QStringList ids {QStringLiteral("favorites"), QStringLiteral("channels"),
+                         QStringLiteral("direct")};
+        QVERIFY(reorderSidebarCategory(ids, QStringLiteral("direct"),
+                                       QStringLiteral("channels"), false));
+        QCOMPARE(ids, QStringList({QStringLiteral("favorites"), QStringLiteral("direct"),
+                                  QStringLiteral("channels")}));
+    }
+
+    void reordersCategoriesAfterTarget()
+    {
+        QStringList ids {QStringLiteral("favorites"), QStringLiteral("channels"),
+                         QStringLiteral("direct")};
+        QVERIFY(reorderSidebarCategory(ids, QStringLiteral("favorites"),
+                                       QStringLiteral("channels"), true));
+        QCOMPARE(ids, QStringList({QStringLiteral("channels"), QStringLiteral("favorites"),
+                                  QStringLiteral("direct")}));
+    }
+
     void movesBetweenCategoriesWithoutDuplicates()
     {
         QStringList source {QStringLiteral("a"), QStringLiteral("b")};

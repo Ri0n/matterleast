@@ -11,70 +11,10 @@
 
 #include "ChannelTree.h"
 
-#include <QTimer>
-
-#include "backend/Backend.h"
-#include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "channel-tree/ChannelItem.h"
 
 namespace Mattermost {
-
-void ChannelTree::rowsInserted(const QModelIndex& parent, int start, int end)
-{
-    QTreeWidget::rowsInserted(parent, start, end);
-
-    // QTreeWidgetItem::addChild() notifies the view before ChannelTree has
-    // finished assigning the item's semantic roles and registering it in
-    // channelToItemMap. Defer one event-loop turn and coalesce the startup burst
-    // so the completed rows can be wired to their BackendChannel objects.
-    scheduleChannelDisplaySync();
-}
-
-void ChannelTree::scheduleChannelDisplaySync()
-{
-    if (channelDisplaySyncScheduled) {
-        return;
-    }
-
-    channelDisplaySyncScheduled = true;
-    QTimer::singleShot(0, this, [this] {
-        channelDisplaySyncScheduled = false;
-        syncChannelDisplayRows();
-    });
-}
-
-void ChannelTree::syncChannelDisplayRows()
-{
-    if (!backendForSidebar) {
-        return;
-    }
-
-    for (auto it = channelToItemMap.cbegin(); it != channelToItemMap.cend(); ++it) {
-        BackendChannel* channel = backendForSidebar->getStorage().getChannelById(it.key());
-        if (!channel) {
-            continue;
-        }
-
-        // A channel may have several sidebar rows and those rows are routinely
-        // destroyed/recreated when categories refresh. Keep exactly one
-        // channel-level connection and resolve the currently alive rows from
-        // channelToItemMap when the signal arrives.
-        connect(channel, &BackendChannel::onUpdated,
-                this, &ChannelTree::handleChannelUpdated,
-                Qt::UniqueConnection);
-
-        // The profile update may have raced ahead of the deferred connection.
-        // Synchronize immediately as well so a freshly materialized DM never
-        // remains stuck on the raw server channel id/name.
-        for (QTreeWidgetItem* row : it.value()) {
-            if (!row || row->data(0, ItemKindRole).toInt() != ChannelItemKind) {
-                continue;
-            }
-            static_cast<ChannelItem*>(row)->setLabel(channel->display_name);
-        }
-    }
-}
 
 void ChannelTree::handleChannelUpdated()
 {

@@ -145,7 +145,6 @@ protected:
 	void dragMoveEvent(QDragMoveEvent* event) override;
 	void dropEvent(QDropEvent* event) override;
     void changeEvent(QEvent* event) override;
-    void rowsInserted(const QModelIndex& parent, int start, int end) override;
     void drawBranches(QPainter* painter, const QRect& rect,
                       const QModelIndex& index) const override;
 
@@ -154,8 +153,6 @@ private:
 	void showContextMenu (const QPoint& pos);
 	void handleChannelLeave();
     void handleChannelUpdated();
-    void scheduleChannelDisplaySync();
-    void syncChannelDisplayRows();
 	void refreshTeamSidebar(Backend& backend, BackendTeam& team);
 	void renderTeamSidebar(Backend& backend, TeamItem& teamItem,
 	                       const SidebarTeamState& state);
@@ -184,9 +181,14 @@ private:
 	bool resolveChannelDropTarget(QTreeWidgetItem* source, const QPoint& pos,
 	                              QTreeWidgetItem*& targetCategoryItem,
 	                              QString& targetChannelId, bool& afterTarget) const;
+    bool resolveCategoryDropTarget(QTreeWidgetItem* source, const QPoint& pos,
+                                   QTreeWidgetItem*& targetCategoryItem,
+                                   bool& afterTarget) const;
 	void moveChannel(ChannelItem* item, const QString& targetCategoryId,
 	                 const QString& targetChannelId, bool afterTarget,
 	                 bool explicitPosition);
+    void moveCategory(QTreeWidgetItem* item, const QString& targetCategoryId,
+                      bool afterTarget);
 	void refreshSidebarTeam(const QString& teamId);
     void refreshPaletteDependentIcons();
 
@@ -198,7 +200,6 @@ private:
 	Backend*							backendForSidebar;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
-    bool                                channelDisplaySyncScheduled = false;
 };
 
 } /* namespace Mattermost */
