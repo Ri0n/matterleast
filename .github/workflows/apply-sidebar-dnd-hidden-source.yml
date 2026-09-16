@@ -1,0 +1,31 @@
+name: Apply hidden-source sidebar DnD
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+    paths:
+      - .github/scripts/fix_sidebar_dnd_hidden_source.py
+      - .github/workflows/apply-sidebar-dnd-hidden-source.yml
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/sidebar-optimistic-dnd
+      - name: Apply hidden-source DnD patch
+        run: python3 .github/scripts/fix_sidebar_dnd_hidden_source.py
+      - name: Remove temporary patch files
+        run: rm .github/scripts/fix_sidebar_dnd_hidden_source.py .github/workflows/apply-sidebar-dnd-hidden-source.yml
+      - name: Commit implementation
+        run: |
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Use hidden source rows for sidebar drag geometry"
+          git push origin HEAD:feature/sidebar-optimistic-dnd
