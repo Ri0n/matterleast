@@ -25,12 +25,15 @@
 #pragma once
 
 #include <QMap>
+#include <QPersistentModelIndex>
 #include <QSet>
 #include <QTreeWidget>
+#include <QVector>
 
 #include "ChannelTreeItem.h"
 #include "SidebarItem.h"
 
+class QDragLeaveEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
@@ -38,6 +41,7 @@ class QMouseEvent;
 class QPainter;
 class QStackedWidget;
 class QTreeWidgetItem;
+class QVariantAnimation;
 
 namespace Mattermost {
 
@@ -142,6 +146,8 @@ signals:
 protected:
 	void currentChanged(const QModelIndex& current, const QModelIndex& previous) override;
 	void mousePressEvent(QMouseEvent* event) override;
+    void startDrag(Qt::DropActions supportedActions) override;
+    void dragLeaveEvent(QDragLeaveEvent* event) override;
 	void dragMoveEvent(QDragMoveEvent* event) override;
 	void dropEvent(QDropEvent* event) override;
     void changeEvent(QEvent* event) override;
@@ -156,6 +162,9 @@ private:
 	void refreshTeamSidebar(Backend& backend, BackendTeam& team);
 	void renderTeamSidebar(Backend& backend, TeamItem& teamItem,
 	                       const SidebarTeamState& state);
+    void reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
+                              const SidebarTeamState& state);
+    void destroySidebarRow(QTreeWidgetItem* item);
 	void clearTeamSidebar(TeamItem& teamItem);
 	QTreeWidgetItem* createCategoryItem(TeamItem& teamItem, const QString& categoryId,
 	                                    const QString& displayName, bool collapsed);
@@ -175,21 +184,43 @@ private:
     void refreshChannelUnreadVisual(const QString& channelId);
 	void setChannelUnreadVisual(const QString& channelId, bool unread);
 	void setChannelMentionedVisual(const QString& channelId, bool mentioned);
-	void syncCategoryChannels(QTreeWidgetItem* firstCategory, QTreeWidgetItem* secondCategory = nullptr);
-	void syncCategoryOrder(QTreeWidgetItem* teamItem);
-	QStringList channelIds(QTreeWidgetItem* categoryItem) const;
 	bool resolveChannelDropTarget(QTreeWidgetItem* source, const QPoint& pos,
 	                              QTreeWidgetItem*& targetCategoryItem,
 	                              QString& targetChannelId, bool& afterTarget) const;
+    struct CategoryDragBoundary {
+        int position = 0;
+        QPersistentModelIndex targetCategory;
+        bool afterTarget = false;
+    };
+
     bool resolveCategoryDropTarget(QTreeWidgetItem* source, const QPoint& pos,
                                    QTreeWidgetItem*& targetCategoryItem,
                                    bool& afterTarget) const;
+    void prepareCategoryDragBoundaries(QTreeWidgetItem* source);
+    const CategoryDragBoundary* nearestCategoryDragBoundary(int probe) const;
+    void updateDragVisuals(QTreeWidgetItem* source, QTreeWidgetItem* gapAnchor,
+                           bool gapAfter);
+    void restoreSourceDropGap(bool animate);
+    void clearDropGap(bool animate);
+    void resetDragVisuals(bool animate);
+    void ensureDragSourceVisuals(QTreeWidgetItem* source);
+    QTreeWidgetItem* sourceDropGapAnchor(QTreeWidgetItem* source, bool& gapAfter) const;
+    void animateSourceCollapse(qreal target);
+    void animateDropGap(const QPersistentModelIndex& target, bool after, int extent);
+    QTreeWidgetItem* channelDropGapAnchor(QTreeWidgetItem* source,
+                                            QTreeWidgetItem* targetCategoryItem,
+                                            const QString& targetChannelId,
+                                            bool afterTarget, bool& gapAfter) const;
+    QTreeWidgetItem* categoryDropGapAnchor(QTreeWidgetItem* targetCategoryItem,
+                                             bool afterTarget, bool& gapAfter) const;
 	void moveChannel(ChannelItem* item, const QString& targetCategoryId,
 	                 const QString& targetChannelId, bool afterTarget,
 	                 bool explicitPosition);
     void moveCategory(QTreeWidgetItem* item, const QString& targetCategoryId,
                       bool afterTarget);
 	void refreshSidebarTeam(const QString& teamId);
+    void verifySidebarTeam(const QString& teamId, quint64 mutation);
+    void flushDeferredSidebarReconciles();
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;
@@ -200,6 +231,27 @@ private:
 	Backend*							backendForSidebar;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
+    // True for the complete nested QDrag::exec() lifetime. Structural sidebar
+    // mutations from network/realtime callbacks are deferred while this is set.
+    bool                                sidebarDragActive = false;
+    QVariantAnimation*                  sourceCollapseAnimation = nullptr;
+    QVariantAnimation*                  dropGapAnimation = nullptr;
+    QVector<QPersistentModelIndex>      dragSourceIndexes;
+    QVector<QPersistentModelIndex>      dragGapIndexes;
+    QPersistentModelIndex               currentDragGapIndex;
+    QPersistentModelIndex               sourceDragGapIndex;
+    bool                                currentDragGapAfter = false;
+    bool                                sourceDragGapAfter = false;
+    int                                 currentDragGapExtent = 0;
+    int                                 draggedRowExtent = 0;
+    int                                 draggedBlockHotSpotY = 0;
+    int                                 dragStartPointerY = 0;
+    int                                 draggedBlockStartLogicalY = 0;
+    QVector<CategoryDragBoundary>       categoryDragBoundaries;
+    QSet<QString>                       pendingSidebarReconcileTeams;
+    QSet<QString>                       pendingSidebarRefreshTeams;
+    QSet<QString>                       pendingStoredChannelOpens;
+    QMap<QString, quint64>              sidebarMutationGeneration;
 };
 
 } /* namespace Mattermost */

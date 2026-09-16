@@ -118,6 +118,96 @@ private slots:
         QVERIFY(mentionedOption.font.bold());
     }
 
+    void dragGapParticipatesInRowGeometry()
+    {
+        QStandardItemModel model;
+        auto* item = new QStandardItem(QStringLiteral("conversation"));
+        item->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        model.appendRow(item);
+
+        QListView view;
+        view.setModel(&model);
+        ChannelItemDelegate delegate;
+        QStyleOptionViewItem option;
+        option.initFrom(&view);
+
+        const QModelIndex index = model.index(0, 0);
+        QCOMPARE(delegate.sizeHint(option, index).height(), 32);
+
+        item->setData(12, SidebarItem::DropGapBeforeRole);
+        item->setData(8, SidebarItem::DropGapAfterRole);
+        QCOMPARE(delegate.sizeHint(option, index).height(), 52);
+
+        item->setData(0.5, SidebarItem::DragCollapseRole);
+        QCOMPARE(delegate.sizeHint(option, index).height(), 36);
+    }
+
+    void sourceCollapseAndExternalGapConserveExtent()
+    {
+        QStandardItemModel model;
+        auto* source = new QStandardItem(QStringLiteral("source"));
+        source->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        auto* target = new QStandardItem(QStringLiteral("target"));
+        target->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        model.appendRow(source);
+        model.appendRow(target);
+
+        QListView view;
+        view.setModel(&model);
+        ChannelItemDelegate delegate;
+        QStyleOptionViewItem option;
+        option.initFrom(&view);
+
+        const QModelIndex sourceIndex = model.index(0, 0);
+        const QModelIndex targetIndex = model.index(1, 0);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height(), 32);
+        QCOMPARE(delegate.sizeHint(option, targetIndex).height(), 32);
+
+        for (int step = 0; step <= 4; ++step) {
+            const qreal progress = step / 4.0;
+            source->setData(progress, SidebarItem::DragCollapseRole);
+            target->setData(qRound(32 * progress), SidebarItem::DropGapBeforeRole);
+            QCOMPARE(delegate.sizeHint(option, sourceIndex).height()
+                         + delegate.sizeHint(option, targetIndex).height(),
+                     64);
+        }
+
+        source->setData(true, SidebarItem::DragSourceHiddenRole);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height(), 0);
+        QCOMPARE(delegate.sizeHint(option, targetIndex).height(), 64);
+    }
+
+    void adjacentPlaceholderPreservesCombinedExtent()
+    {
+        QStandardItemModel model;
+        auto* source = new QStandardItem(QStringLiteral("source"));
+        source->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        auto* neighbour = new QStandardItem(QStringLiteral("neighbour"));
+        neighbour->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        model.appendRow(source);
+        model.appendRow(neighbour);
+
+        QListView view;
+        view.setModel(&model);
+        ChannelItemDelegate delegate;
+        QStyleOptionViewItem option;
+        option.initFrom(&view);
+
+        const QModelIndex sourceIndex = model.index(0, 0);
+        const QModelIndex neighbourIndex = model.index(1, 0);
+        const int sourceHeight = delegate.sizeHint(option, sourceIndex).height();
+        const int neighbourHeight = delegate.sizeHint(option, neighbourIndex).height();
+        QCOMPARE(sourceHeight + neighbourHeight, 64);
+
+        source->setData(1.0, SidebarItem::DragCollapseRole);
+        neighbour->setData(sourceHeight, SidebarItem::DropGapBeforeRole);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height(), 0);
+        QCOMPARE(delegate.sizeHint(option, neighbourIndex).height(), 64);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height()
+                     + delegate.sizeHint(option, neighbourIndex).height(),
+                 64);
+    }
+
     void rendersPresenceForDirectMessage()
     {
         const auto withPresence = renderItem(SidebarItem::Channel,

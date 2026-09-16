@@ -8,6 +8,7 @@
 #include <QPainterPath>
 #include <QStyle>
 #include <QStyleOptionViewItem>
+#include <QtMath>
 
 #include "ChannelIcons.h"
 #include "SidebarItem.h"
@@ -48,6 +49,26 @@ bool isSavedDestination(const QModelIndex& index)
 {
     return index.data(SidebarItem::DestinationRole).toInt()
         == SidebarItem::SavedDestination;
+}
+
+int transientGap(const QModelIndex& index, int role)
+{
+    return qMax(0, index.data(role).toInt());
+}
+
+qreal collapseProgress(const QModelIndex& index)
+{
+    return qBound<qreal>(0.0, index.data(SidebarItem::DragCollapseRole).toDouble(), 1.0);
+}
+
+QStyleOptionViewItem contentOption(const QStyleOptionViewItem& option,
+                                   const QModelIndex& index)
+{
+    QStyleOptionViewItem result(option);
+    const int before = transientGap(index, SidebarItem::DropGapBeforeRole);
+    const int after = transientGap(index, SidebarItem::DropGapAfterRole);
+    result.rect.adjust(0, before, 0, -after);
+    return result;
 }
 
 QIcon savedDestinationIcon(const QColor& color)
@@ -91,9 +112,17 @@ QSize ChannelItemDelegate::sizeHint(const QStyleOptionViewItem& option,
     QSize hint = QStyledItemDelegate::sizeHint(option, index);
     if (isTeamRow(index)) {
         hint.setHeight(0);
-    } else if (isConversationRow(index)) {
+        return hint;
+    }
+    if (isConversationRow(index)) {
         hint.setHeight(ChannelRowHeight);
     }
+
+    const int before = transientGap(index, SidebarItem::DropGapBeforeRole);
+    const int after = transientGap(index, SidebarItem::DropGapAfterRole);
+    const qreal collapse = collapseProgress(index);
+    const int contentHeight = qMax(0, qRound(hint.height() * (1.0 - collapse)));
+    hint.setHeight(contentHeight + before + after);
     return hint;
 }
 
@@ -101,25 +130,36 @@ void ChannelItemDelegate::paint(QPainter* painter,
                                 const QStyleOptionViewItem& option,
                                 const QModelIndex& index) const
 {
-    if (isTeamRow(index)) {
-        return;
-    }
-    if (!isConversationRow(index)) {
-        QStyledItemDelegate::paint(painter, option, index);
+    if (isTeamRow(index) || index.data(SidebarItem::DragSourceHiddenRole).toBool()) {
         return;
     }
 
-    QStyleOptionViewItem base(option);
+    const qreal collapse = collapseProgress(index);
+    const QStyleOptionViewItem content = contentOption(option, index);
+    if (content.rect.height() <= 0) {
+        return;
+    }
+
+    painter->save();
+    painter->setOpacity(painter->opacity() * (1.0 - collapse));
+
+    if (!isConversationRow(index)) {
+        QStyledItemDelegate::paint(painter, content, index);
+        painter->restore();
+        return;
+    }
+
+    QStyleOptionViewItem base(content);
     initStyleOption(&base, index);
     const QString text = base.text;
     QIcon icon = base.icon;
     const int type = channelType(index);
-    const bool selected = option.state.testFlag(QStyle::State_Selected);
+    const bool selected = content.state.testFlag(QStyle::State_Selected);
 
     if (isSavedDestination(index)) {
         const QColor iconColor = selected
-            ? option.palette.color(QPalette::HighlightedText)
-            : option.palette.color(QPalette::Text);
+            ? content.palette.color(QPalette::HighlightedText)
+            : content.palette.color(QPalette::Text);
         icon = savedDestinationIcon(iconColor);
     }
 
@@ -127,12 +167,6 @@ void ChannelItemDelegate::paint(QPainter* painter,
         const QString channelId = index.data(SidebarItem::IdRole).toString();
         if (!channelId.isEmpty() && !requestedGroupChannels.contains(channelId)) {
             requestedGroupChannels.insert(channelId);
-
-            // Painting must stay independent from Backend/Storage services: the
-            // delegate is also built in isolation by the rendering unit test.
-            // Ask the owning ChannelTree to resolve this visible group-DM title
-            // asynchronously through its meta-object instead of performing
-            // network/storage work directly from paint().
             if (QObject* owner = parent()) {
                 QMetaObject::invokeMethod(owner,
                                           "ensureGroupChannelDisplayName",
@@ -154,10 +188,10 @@ void ChannelItemDelegate::paint(QPainter* painter,
     base.text.clear();
     base.icon = QIcon();
 
-    const QStyle* style = option.widget ? option.widget->style() : QApplication::style();
-    style->drawControl(QStyle::CE_ItemViewItem, &base, painter, option.widget);
+    const QStyle* style = content.widget ? content.widget->style() : QApplication::style();
+    style->drawControl(QStyle::CE_ItemViewItem, &base, painter, content.widget);
 
-    QRect contentRect = option.rect.adjusted(HorizontalMargin, 0, -HorizontalMargin, 0);
+    QRect contentRect = content.rect.adjusted(HorizontalMargin, 0, -HorizontalMargin, 0);
     int textLeft = contentRect.left();
 
     if (!icon.isNull()) {
@@ -187,8 +221,8 @@ void ChannelItemDelegate::paint(QPainter* painter,
                                    StatusSize,
                                    StatusSize);
             const QColor badgeBackground = selected
-                ? option.palette.color(QPalette::Highlight)
-                : option.palette.color(QPalette::Base);
+                ? content.palette.color(QPalette::Highlight)
+                : content.palette.color(QPalette::Base);
             AvatarUtils::drawStatusBadge(painter, statusRect, status, badgeBackground);
         }
 
@@ -212,13 +246,14 @@ void ChannelItemDelegate::paint(QPainter* painter,
 
     const bool muted = index.data(SidebarItem::MutedRole).toBool();
     const QColor textColor = selected
-        ? option.palette.color(QPalette::HighlightedText)
-        : (muted ? option.palette.color(QPalette::Disabled, QPalette::Text)
-                 : option.palette.color(QPalette::Text));
+        ? content.palette.color(QPalette::HighlightedText)
+        : (muted ? content.palette.color(QPalette::Disabled, QPalette::Text)
+                 : content.palette.color(QPalette::Text));
     painter->setPen(textColor);
 
     const QString elided = QFontMetrics(font).elidedText(text, Qt::ElideRight, textRect.width());
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, elided);
+    painter->restore();
 }
 
 } // namespace Mattermost

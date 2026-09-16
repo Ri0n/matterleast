@@ -60,6 +60,17 @@ enum Role {
     ChannelIdRole,
     ThreadIdRole,
     DestinationRole,
+
+    // Transient geometry roles used only while a ChannelTree drag is active.
+    // Values are view-local: gap roles are pixels, collapse is [0, 1].
+    DropGapBeforeRole,
+    DropGapAfterRole,
+    DragCollapseRole,
+    // Visual source suppression is intentionally independent from collapse:
+    // AnyKeep-style DnD hides the source immediately while its layout extent
+    // is still animated out in lockstep with the destination gap. This role is
+    // paint-only and must not affect sizeHint/layout geometry.
+    DragSourceHiddenRole,
 };
 
 } // namespace SidebarItem
