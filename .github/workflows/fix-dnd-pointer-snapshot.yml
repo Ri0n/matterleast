@@ -1,0 +1,29 @@
+name: Fix DnD pointer snapshot
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/sidebar-optimistic-dnd
+      - name: Apply pointer snapshot fix
+        run: python3 .github/scripts/fix_dnd_pointer_snapshot.py
+      - name: Remove temporary patch files
+        run: git rm .github/scripts/fix_dnd_pointer_snapshot.py .github/workflows/fix-dnd-pointer-snapshot.yml
+      - name: Commit implementation
+        run: |
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add sources/channel-tree/ChannelTreeDragVisuals.cpp
+          git diff --cached --check
+          git commit -m "Fix sidebar drag pointer snapshot"
+          git push origin HEAD:feature/sidebar-optimistic-dnd
