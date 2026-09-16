@@ -1,6 +1,7 @@
 #include "ChannelItemDelegate.h"
 
 #include <QApplication>
+#include <QFontMetrics>
 #include <QHash>
 #include <QMetaObject>
 #include <QPainter>
@@ -69,6 +70,19 @@ QIcon savedDestinationIcon(const QColor& color)
 ChannelItemDelegate::ChannelItemDelegate(QObject* parent)
     : QStyledItemDelegate(parent)
 {
+}
+
+void ChannelItemDelegate::initStyleOption(QStyleOptionViewItem* option,
+                                          const QModelIndex& index) const
+{
+    QStyledItemDelegate::initStyleOption(option, index);
+    if (!isConversationRow(index)) {
+        return;
+    }
+
+    const bool unread = index.data(SidebarItem::UnreadRole).toBool();
+    const bool mentioned = index.data(SidebarItem::MentionedRole).toBool();
+    option->font.setBold(unread || mentioned);
 }
 
 QSize ChannelItemDelegate::sizeHint(const QStyleOptionViewItem& option,
@@ -193,10 +207,7 @@ void ChannelItemDelegate::paint(QPainter* painter,
 
     QRect textRect(textLeft, contentRect.top(),
                    qMax(0, textRight - textLeft + 1), contentRect.height());
-    QFont font = option.font;
-    const bool unread = index.data(SidebarItem::UnreadRole).toBool();
-    const bool mentioned = index.data(SidebarItem::MentionedRole).toBool();
-    font.setBold(unread || mentioned);
+    const QFont font = base.font;
     painter->setFont(font);
 
     const bool muted = index.data(SidebarItem::MutedRole).toBool();
@@ -206,7 +217,7 @@ void ChannelItemDelegate::paint(QPainter* painter,
                  : option.palette.color(QPalette::Text));
     painter->setPen(textColor);
 
-    const QString elided = option.fontMetrics.elidedText(text, Qt::ElideRight, textRect.width());
+    const QString elided = QFontMetrics(font).elidedText(text, Qt::ElideRight, textRect.width());
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, elided);
 }
 
