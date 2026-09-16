@@ -86,28 +86,33 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
         }
     }
 
+    const QPoint cursorInViewport = viewport()->mapFromGlobal(QCursor::pos());
+    draggedBlockHotSpotY = blockRect.isValid()
+        ? qBound(0, cursorInViewport.y() - blockRect.top(), qMax(0, blockRect.height() - 1))
+        : 0;
+
     const QRect previewRect = blockRect.intersected(viewport()->rect());
     QDrag drag(this);
     drag.setMimeData(mimeData);
     if (previewRect.isValid() && !previewRect.isEmpty()) {
         drag.setPixmap(viewport()->grab(previewRect));
-        QPoint hotSpot = viewport()->mapFromGlobal(QCursor::pos()) - previewRect.topLeft();
+        QPoint hotSpot = cursorInViewport - previewRect.topLeft();
         hotSpot.setX(qBound(0, hotSpot.x(), previewRect.width() - 1));
         hotSpot.setY(qBound(0, hotSpot.y(), previewRect.height() - 1));
         drag.setHotSpot(hotSpot);
     }
 
     ensureDragSourceVisuals(source);
-    const Qt::DropAction result = drag.exec(Qt::MoveAction, Qt::MoveAction);
+    drag.exec(Qt::MoveAction, Qt::MoveAction);
     if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
-        resetDragVisuals(result == Qt::IgnoreAction);
+        resetDragVisuals(false);
     }
 }
 
 void ChannelTree::dragLeaveEvent(QDragLeaveEvent* event)
 {
     QTreeWidget::dragLeaveEvent(event);
-    clearDropGap(true);
+    restoreSourceDropGap(true);
 }
 
 void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
@@ -146,7 +151,25 @@ void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
     if (draggedRowExtent <= 0) {
         draggedRowExtent = visualItemRect(source).height();
     }
-    animateSourceCollapse(1.0);
+
+    // Replace the dragged block by an equal-sized structural placeholder in a
+    // single layout pass. Starting a drag must not move anything below source.
+    // Only this placeholder travels through the tree afterwards.
+    for (const QPersistentModelIndex& index : dragSourceIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 1.0, SidebarItem::DragCollapseRole);
+        }
+    }
+    const QPersistentModelIndex placeholder = dragSourceIndexes.front();
+    dragGapIndexes.clear();
+    dragGapIndexes.push_back(placeholder);
+    currentDragGapIndex = placeholder;
+    currentDragGapAfter = false;
+    currentDragGapExtent = draggedRowExtent;
+    model()->setData(placeholder, draggedRowExtent, SidebarItem::DropGapBeforeRole);
+    model()->setData(placeholder, 0, SidebarItem::DropGapAfterRole);
+    doItemsLayout();
+    viewport()->update();
 }
 
 void ChannelTree::animateSourceCollapse(qreal target)
@@ -309,6 +332,40 @@ void ChannelTree::updateDragVisuals(QTreeWidgetItem* source,
     animateDropGap(target, gapAfter, draggedRowExtent);
 }
 
+void ChannelTree::restoreSourceDropGap(bool animate)
+{
+    if (dragSourceIndexes.isEmpty() || draggedRowExtent <= 0
+        || !dragSourceIndexes.front().isValid()) {
+        return;
+    }
+
+    const QPersistentModelIndex source = dragSourceIndexes.front();
+    if (currentDragGapIndex == source && !currentDragGapAfter
+        && currentDragGapExtent == draggedRowExtent) {
+        return;
+    }
+    if (animate) {
+        animateDropGap(source, false, draggedRowExtent);
+        return;
+    }
+
+    stopAnimation(dropGapAnimation);
+    for (const QPersistentModelIndex& index : dragGapIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, 0, SidebarItem::DropGapBeforeRole);
+            model()->setData(index, 0, SidebarItem::DropGapAfterRole);
+        }
+    }
+    dragGapIndexes.clear();
+    dragGapIndexes.push_back(source);
+    model()->setData(source, draggedRowExtent, SidebarItem::DropGapBeforeRole);
+    currentDragGapIndex = source;
+    currentDragGapAfter = false;
+    currentDragGapExtent = draggedRowExtent;
+    doItemsLayout();
+    viewport()->update();
+}
+
 void ChannelTree::clearDropGap(bool animate)
 {
     if (dragGapIndexes.isEmpty()) {
@@ -363,6 +420,7 @@ void ChannelTree::resetDragVisuals(bool animate)
     currentDragGapExtent = 0;
     dragSourceIndexes.clear();
     draggedRowExtent = 0;
+    draggedBlockHotSpotY = 0;
     doItemsLayout();
     viewport()->update();
 }

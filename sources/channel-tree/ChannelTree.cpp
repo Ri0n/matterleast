@@ -84,6 +84,30 @@ QRect dragContentRect(const QTreeWidgetItem* item, QRect rect)
     return rect;
 }
 
+QRect categoryBlockContentRect(const ChannelTree* tree, QTreeWidgetItem* category)
+{
+    if (!tree || !category) {
+        return {};
+    }
+
+    QRect block = dragContentRect(category, tree->visualItemRect(category));
+    if (!category->isExpanded()) {
+        return block;
+    }
+    for (int i = 0; i < category->childCount(); ++i) {
+        QTreeWidgetItem* child = category->child(i);
+        if (!child || child->isHidden()) {
+            continue;
+        }
+        const QRect childRect = dragContentRect(child, tree->visualItemRect(child));
+        if (!childRect.isValid() || childRect.height() <= 0) {
+            continue;
+        }
+        block = block.isValid() ? block.united(childRect) : childRect;
+    }
+    return block;
+}
+
 bool channelDropChangesPosition(QTreeWidgetItem* source,
                                 QTreeWidgetItem* targetCategory,
                                 const QString& targetChannelId,
@@ -1228,29 +1252,42 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
 {
     targetCategoryItem = nullptr;
     afterTarget = false;
-    if (!source || source->data(0, ItemKindRole).toInt() != CategoryItemKind) {
+    if (!source || source->data(0, ItemKindRole).toInt() != CategoryItemKind
+        || !source->parent() || draggedRowExtent <= 0) {
         return false;
     }
 
-    QTreeWidgetItem* target = itemAt(pos);
-    if (!target) {
-        return false;
+    // Sortable-list semantics: a neighbouring group starts moving when the
+    // centre of the dragged whole group crosses the centre of that whole group.
+    const int draggedCenterY = pos.y() - draggedBlockHotSpotY + draggedRowExtent / 2;
+    QTreeWidgetItem* teamItem = source->parent();
+    QTreeWidgetItem* lastCategory = nullptr;
+    for (int i = 0; i < teamItem->childCount(); ++i) {
+        QTreeWidgetItem* category = teamItem->child(i);
+        if (!category || category == source
+            || category->data(0, ItemKindRole).toInt() != CategoryItemKind
+            || category->isHidden()) {
+            continue;
+        }
+
+        const QRect block = categoryBlockContentRect(this, category);
+        if (!block.isValid() || block.height() <= 0) {
+            continue;
+        }
+        lastCategory = category;
+        if (draggedCenterY < block.center().y()) {
+            targetCategoryItem = category;
+            afterTarget = false;
+            return true;
+        }
     }
 
-    const int targetKind = target->data(0, ItemKindRole).toInt();
-    if (targetKind == ChannelItemKind || targetKind == VirtualDestinationItemKind) {
-        target = target->parent();
+    if (lastCategory) {
+        targetCategoryItem = lastCategory;
+        afterTarget = true;
+        return true;
     }
-    if (!target || target == source
-        || target->data(0, ItemKindRole).toInt() != CategoryItemKind
-        || target->parent() != source->parent()) {
-        return false;
-    }
-
-    targetCategoryItem = target;
-    const QRect rect = dragContentRect(target, visualItemRect(target));
-    afterTarget = rect.isValid() && pos.y() >= rect.center().y();
-    return true;
+    return false;
 }
 
 void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
@@ -1268,13 +1305,13 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
         QTreeWidgetItem* targetCategoryItem = nullptr;
         bool afterTarget = false;
         if (!resolveCategoryDropTarget(source, pos, targetCategoryItem, afterTarget)) {
-            clearDropGap(true);
+            restoreSourceDropGap(true);
             event->ignore();
             return;
         }
         if (!categoryDropChangesPosition(source, targetCategoryItem, afterTarget)) {
             ensureDragSourceVisuals(source);
-            clearDropGap(true);
+            restoreSourceDropGap(true);
             event->setDropAction(Qt::MoveAction);
             event->accept();
             return;
@@ -1293,7 +1330,7 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
     bool afterTarget = false;
     if (!resolveChannelDropTarget(source, pos, targetCategoryItem,
                                   targetChannelId, afterTarget)) {
-        clearDropGap(true);
+        restoreSourceDropGap(true);
         event->ignore();
         return;
     }
@@ -1301,7 +1338,7 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
     if (!channelDropChangesPosition(source, targetCategoryItem,
                                     targetChannelId, afterTarget)) {
         ensureDragSourceVisuals(source);
-        clearDropGap(true);
+        restoreSourceDropGap(true);
         event->setDropAction(Qt::MoveAction);
         event->accept();
         return;
@@ -1324,14 +1361,14 @@ void ChannelTree::dropEvent(QDropEvent* event)
         QTreeWidgetItem* targetCategoryItem = nullptr;
         bool afterTarget = false;
         if (!resolveCategoryDropTarget(source, pos, targetCategoryItem, afterTarget)) {
-            resetDragVisuals(true);
+            resetDragVisuals(false);
             event->ignore();
             return;
         }
 
         const QString targetCategoryId = targetCategoryItem->data(0, ItemIdRole).toString();
         if (!categoryDropChangesPosition(source, targetCategoryItem, afterTarget)) {
-            resetDragVisuals(true);
+            resetDragVisuals(false);
             event->setDropAction(Qt::MoveAction);
             event->accept();
             return;
@@ -1348,7 +1385,7 @@ void ChannelTree::dropEvent(QDropEvent* event)
     bool afterTarget = false;
     if (!resolveChannelDropTarget(source, pos, targetCategoryItem,
                                   targetChannelId, afterTarget)) {
-        resetDragVisuals(true);
+        resetDragVisuals(false);
         event->ignore();
         return;
     }
@@ -1357,7 +1394,7 @@ void ChannelTree::dropEvent(QDropEvent* event)
     const QString targetCategoryId = targetCategoryItem->data(0, ItemIdRole).toString();
     if (!channelDropChangesPosition(source, targetCategoryItem,
                                     targetChannelId, afterTarget)) {
-        resetDragVisuals(true);
+        resetDragVisuals(false);
         event->setDropAction(Qt::MoveAction);
         event->accept();
         return;

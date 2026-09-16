@@ -192,6 +192,7 @@ private:
                                    bool& afterTarget) const;
     void updateDragVisuals(QTreeWidgetItem* source, QTreeWidgetItem* gapAnchor,
                            bool gapAfter);
+    void restoreSourceDropGap(bool animate);
     void clearDropGap(bool animate);
     void resetDragVisuals(bool animate);
     void ensureDragSourceVisuals(QTreeWidgetItem* source);
@@ -228,6 +229,7 @@ private:
     bool                                currentDragGapAfter = false;
     int                                 currentDragGapExtent = 0;
     int                                 draggedRowExtent = 0;
+    int                                 draggedBlockHotSpotY = 0;
     QMap<QString, quint64>              sidebarMutationGeneration;
 };
 
