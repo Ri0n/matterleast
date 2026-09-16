@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 
 file(READ .version version)
 project(qmattermost VERSION ${version} LANGUAGES CXX)
+
+if(WIN32)
+	enable_language(RC)
+endif()
+
 configure_file(build-config.h.in ${CMAKE_CURRENT_SOURCE_DIR}/sources/build-config.h)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -114,11 +119,12 @@ else()
   endif()
   add_executable(${APPID} sources/main.cpp resource.qrc)
   target_link_libraries(${APPID} PRIVATE mattermost-core)
-  
+
   if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
+	target_sources(${APPID} PRIVATE resources/matterleast.rc)
 	set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
   endif()
-  
+
 endif()
 
 add_subdirectory (tools)
@@ -200,6 +206,9 @@ if(WIN32)
 	set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PRODUCT_NAME}")
 	set(CPACK_NSIS_DISPLAY_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_PACKAGE_NAME "${PRODUCT_NAME}")
+	set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
+	set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
+	set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\matterleast.exe")
 	set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 endif()
 
