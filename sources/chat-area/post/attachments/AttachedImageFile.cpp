@@ -5,7 +5,7 @@
  *
  * Mattermost-QT is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
  * Mattermost-QT is distributed in the hope that it will be useful,
@@ -69,7 +69,7 @@ std::map <const QWidget*, FilePreview*> AttachedImageFile::currentlyOpenFiles;
 AttachedImageFile::AttachedImageFile (Backend& backend, const BackendFile& file, const QString&, QWidget *parent)
 :QWidget(parent)
 ,ui(new Ui::AttachedImageFile)
-,file(file)
+,fileId(file.id)
 ,backend(backend)
 {
     ui->setupUi(this);
@@ -84,7 +84,6 @@ AttachedImageFile::AttachedImageFile (Backend& backend, const BackendFile& file,
     // item's initial size while the image is still being downloaded.
     setFixedSize(1, 1);
 
-    const QString fileId = file.id;
     const QString fileName = file.name;
     QPointer<AttachedImageFile> self(this);
 
@@ -101,10 +100,10 @@ AttachedImageFile::AttachedImageFile (Backend& backend, const BackendFile& file,
     });
 
     connect(this, &QWidget::customContextMenuRequested, this,
-            [this, fileId, fileName](const QPoint& pos) {
+            [this, fileName](const QPoint& pos) {
         QMenu menu(this);
 
-        menu.addAction("Save image", this, [this, fileId, fileName] {
+        menu.addAction("Save image", this, [this, fileName] {
             QSettings settings;
             const QDir downloadDir = settings.value(DOWNLOAD_LOCATION, QDir::currentPath()).toString();
             const QString saveFileDestination = QFileDialog::getSaveFileName(
@@ -165,7 +164,6 @@ void AttachedImageFile::setPreviewPixmap(QPixmap pixmap)
 
 void AttachedImageFile::mouseReleaseEvent(QMouseEvent*)
 {
-    const QString fileId = file.id;
     QPointer<AttachedImageFile> self(this);
     AttachmentService::instance(backend).retrieveFile(fileId, [self](const QByteArray& fileContents) {
         if (!self) {
