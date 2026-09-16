@@ -71,26 +71,6 @@ QStyleOptionViewItem contentOption(const QStyleOptionViewItem& option,
     return result;
 }
 
-void drawGapMarker(QPainter* painter, const QStyleOptionViewItem& option,
-                   const QModelIndex& index)
-{
-    const int before = transientGap(index, SidebarItem::DropGapBeforeRole);
-    const int after = transientGap(index, SidebarItem::DropGapAfterRole);
-    if (before <= 0 && after <= 0) {
-        return;
-    }
-
-    const int y = before > 0
-        ? option.rect.top() + before / 2
-        : option.rect.bottom() - after / 2;
-    QPen pen(option.palette.color(QPalette::Highlight));
-    pen.setWidth(2);
-    painter->save();
-    painter->setPen(pen);
-    painter->drawLine(option.rect.left() + 6, y, option.rect.right() - 6, y);
-    painter->restore();
-}
-
 QIcon savedDestinationIcon(const QColor& color)
 {
     static QHash<QRgb, QIcon> cache;
@@ -157,7 +137,6 @@ void ChannelItemDelegate::paint(QPainter* painter,
     const qreal collapse = collapseProgress(index);
     const QStyleOptionViewItem content = contentOption(option, index);
     if (content.rect.height() <= 0) {
-        drawGapMarker(painter, option, index);
         return;
     }
 
@@ -167,7 +146,6 @@ void ChannelItemDelegate::paint(QPainter* painter,
     if (!isConversationRow(index)) {
         QStyledItemDelegate::paint(painter, content, index);
         painter->restore();
-        drawGapMarker(painter, option, index);
         return;
     }
 
@@ -276,7 +254,6 @@ void ChannelItemDelegate::paint(QPainter* painter,
     const QString elided = QFontMetrics(font).elidedText(text, Qt::ElideRight, textRect.width());
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, elided);
     painter->restore();
-    drawGapMarker(painter, option, index);
 }
 
 } // namespace Mattermost

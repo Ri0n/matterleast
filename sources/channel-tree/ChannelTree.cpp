@@ -84,6 +84,52 @@ QRect dragContentRect(const QTreeWidgetItem* item, QRect rect)
     return rect;
 }
 
+bool channelDropChangesPosition(QTreeWidgetItem* source,
+                                QTreeWidgetItem* targetCategory,
+                                const QString& targetChannelId,
+                                bool afterTarget)
+{
+    if (!source || !targetCategory) {
+        return false;
+    }
+    if (source->parent() != targetCategory) {
+        return true;
+    }
+
+    QStringList channelIds;
+    for (int i = 0; i < targetCategory->childCount(); ++i) {
+        QTreeWidgetItem* row = targetCategory->child(i);
+        if (row && row->data(0, SidebarItem::KindRole).toInt() == SidebarItem::Channel) {
+            channelIds.push_back(row->data(0, SidebarItem::IdRole).toString());
+        }
+    }
+    return reorderSidebarChannel(channelIds,
+                                 source->data(0, SidebarItem::IdRole).toString(),
+                                 targetChannelId, afterTarget);
+}
+
+bool categoryDropChangesPosition(QTreeWidgetItem* source,
+                                 QTreeWidgetItem* targetCategory,
+                                 bool afterTarget)
+{
+    if (!source || !targetCategory || source->parent() != targetCategory->parent()) {
+        return false;
+    }
+
+    QTreeWidgetItem* team = source->parent();
+    QStringList categoryIds;
+    for (int i = 0; team && i < team->childCount(); ++i) {
+        QTreeWidgetItem* row = team->child(i);
+        if (row && row->data(0, SidebarItem::KindRole).toInt() == SidebarItem::Category) {
+            categoryIds.push_back(row->data(0, SidebarItem::IdRole).toString());
+        }
+    }
+    return reorderSidebarCategory(categoryIds,
+                                  source->data(0, SidebarItem::IdRole).toString(),
+                                  targetCategory->data(0, SidebarItem::IdRole).toString(),
+                                  afterTarget);
+}
+
 class VirtualDestinationItem final : public ChannelItem
 {
 public:
@@ -1226,6 +1272,13 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
             event->ignore();
             return;
         }
+        if (!categoryDropChangesPosition(source, targetCategoryItem, afterTarget)) {
+            ensureDragSourceVisuals(source);
+            clearDropGap(true);
+            event->setDropAction(Qt::MoveAction);
+            event->accept();
+            return;
+        }
         bool gapAfter = afterTarget;
         QTreeWidgetItem* anchor = categoryDropGapAnchor(
             targetCategoryItem, afterTarget, gapAfter);
@@ -1245,6 +1298,14 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
         return;
     }
 
+    if (!channelDropChangesPosition(source, targetCategoryItem,
+                                    targetChannelId, afterTarget)) {
+        ensureDragSourceVisuals(source);
+        clearDropGap(true);
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+        return;
+    }
     bool gapAfter = afterTarget;
     QTreeWidgetItem* anchor = channelDropGapAnchor(
         source, targetCategoryItem, targetChannelId, afterTarget, gapAfter);
@@ -1269,6 +1330,12 @@ void ChannelTree::dropEvent(QDropEvent* event)
         }
 
         const QString targetCategoryId = targetCategoryItem->data(0, ItemIdRole).toString();
+        if (!categoryDropChangesPosition(source, targetCategoryItem, afterTarget)) {
+            resetDragVisuals(true);
+            event->setDropAction(Qt::MoveAction);
+            event->accept();
+            return;
+        }
         resetDragVisuals(false);
         moveCategory(source, targetCategoryId, afterTarget);
         event->setDropAction(Qt::MoveAction);
@@ -1288,6 +1355,13 @@ void ChannelTree::dropEvent(QDropEvent* event)
 
     auto* channelItem = static_cast<ChannelItem*>(source);
     const QString targetCategoryId = targetCategoryItem->data(0, ItemIdRole).toString();
+    if (!channelDropChangesPosition(source, targetCategoryItem,
+                                    targetChannelId, afterTarget)) {
+        resetDragVisuals(true);
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+        return;
+    }
     resetDragVisuals(false);
     moveChannel(channelItem, targetCategoryId, targetChannelId,
                 afterTarget, !targetChannelId.isEmpty());

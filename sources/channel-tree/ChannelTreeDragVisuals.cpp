@@ -5,8 +5,11 @@
 
 #include "ChannelTree.h"
 
+#include <QCursor>
+#include <QDrag>
 #include <QDragLeaveEvent>
 #include <QEasingCurve>
+#include <QMimeData>
 #include <QVariantAnimation>
 
 namespace Mattermost {
@@ -40,9 +43,64 @@ int gapValue(const QPersistentModelIndex& index, int role)
 
 void ChannelTree::startDrag(Qt::DropActions supportedActions)
 {
-    QTreeWidget::startDrag(supportedActions);
+    if (!(supportedActions & Qt::MoveAction)) {
+        return;
+    }
+
+    const auto selected = selectedItems();
+    QTreeWidgetItem* source = selected.size() == 1 ? selected.front() : currentItem();
+    if (!source) {
+        return;
+    }
+    const int kind = source->data(0, ItemKindRole).toInt();
+    if (kind != ChannelItemKind && kind != CategoryItemKind) {
+        return;
+    }
+
+    const QModelIndex sourceIndex = indexFromItem(source, 0);
+    if (!sourceIndex.isValid()) {
+        return;
+    }
+
+    QModelIndexList indexes;
+    indexes.push_back(sourceIndex);
+    QMimeData* mimeData = model()->mimeData(indexes);
+    if (!mimeData) {
+        return;
+    }
+
+    // Capture the drag image before collapsing the source geometry. For an
+    // expanded category the logical dragged block is the category plus all of
+    // its children; the preview shows the visible portion of that subtree.
+    QRect blockRect = visualItemRect(source);
+    if (kind == CategoryItemKind && source->isExpanded()) {
+        for (int i = 0; i < source->childCount(); ++i) {
+            QTreeWidgetItem* child = source->child(i);
+            if (!child || child->isHidden()) {
+                continue;
+            }
+            const QRect childRect = visualItemRect(child);
+            if (childRect.isValid() && childRect.height() > 0) {
+                blockRect = blockRect.united(childRect);
+            }
+        }
+    }
+
+    const QRect previewRect = blockRect.intersected(viewport()->rect());
+    QDrag drag(this);
+    drag.setMimeData(mimeData);
+    if (previewRect.isValid() && !previewRect.isEmpty()) {
+        drag.setPixmap(viewport()->grab(previewRect));
+        QPoint hotSpot = viewport()->mapFromGlobal(QCursor::pos()) - previewRect.topLeft();
+        hotSpot.setX(qBound(0, hotSpot.x(), previewRect.width() - 1));
+        hotSpot.setY(qBound(0, hotSpot.y(), previewRect.height() - 1));
+        drag.setHotSpot(hotSpot);
+    }
+
+    ensureDragSourceVisuals(source);
+    const Qt::DropAction result = drag.exec(Qt::MoveAction, Qt::MoveAction);
     if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
-        resetDragVisuals(true);
+        resetDragVisuals(result == Qt::IgnoreAction);
     }
 }
 
