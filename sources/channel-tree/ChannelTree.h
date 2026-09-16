@@ -225,6 +225,8 @@ private:
     QVector<QPersistentModelIndex>      dragSourceIndexes;
     QVector<QPersistentModelIndex>      dragGapIndexes;
     QPersistentModelIndex               currentDragGapIndex;
+    bool                                currentDragGapAfter = false;
+    int                                 currentDragGapExtent = 0;
     int                                 draggedRowExtent = 0;
     QMap<QString, quint64>              sidebarMutationGeneration;
 };

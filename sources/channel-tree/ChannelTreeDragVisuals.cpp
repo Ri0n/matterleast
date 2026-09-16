@@ -158,6 +158,8 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target, bool after
     }
     dragGapIndexes = indexes;
     currentDragGapIndex = target;
+    currentDragGapAfter = after;
+    currentDragGapExtent = target.isValid() ? qMax(0, extent) : 0;
 
     if (indexes.isEmpty()) {
         return;
@@ -224,6 +226,8 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target, bool after
             dragGapIndexes.push_back(target);
         } else {
             currentDragGapIndex = QPersistentModelIndex();
+            currentDragGapAfter = false;
+            currentDragGapExtent = 0;
         }
     });
     animation->start();
@@ -237,13 +241,23 @@ void ChannelTree::updateDragVisuals(QTreeWidgetItem* source,
         clearDropGap(true);
         return;
     }
-    animateDropGap(QPersistentModelIndex(indexFromItem(gapAnchor, 0)),
-                   gapAfter, draggedRowExtent);
+
+    const QPersistentModelIndex target(indexFromItem(gapAnchor, 0));
+    if (target == currentDragGapIndex
+        && gapAfter == currentDragGapAfter
+        && draggedRowExtent == currentDragGapExtent) {
+        return;
+    }
+    animateDropGap(target, gapAfter, draggedRowExtent);
 }
 
 void ChannelTree::clearDropGap(bool animate)
 {
     if (dragGapIndexes.isEmpty()) {
+        return;
+    }
+    if (animate && !currentDragGapIndex.isValid()
+        && currentDragGapExtent == 0 && dropGapAnimation) {
         return;
     }
     if (animate) {
@@ -260,6 +274,8 @@ void ChannelTree::clearDropGap(bool animate)
     }
     dragGapIndexes.clear();
     currentDragGapIndex = QPersistentModelIndex();
+    currentDragGapAfter = false;
+    currentDragGapExtent = 0;
 }
 
 void ChannelTree::resetDragVisuals(bool animate)
@@ -285,6 +301,8 @@ void ChannelTree::resetDragVisuals(bool animate)
     }
     dragGapIndexes.clear();
     currentDragGapIndex = QPersistentModelIndex();
+    currentDragGapAfter = false;
+    currentDragGapExtent = 0;
     dragSourceIndexes.clear();
     draggedRowExtent = 0;
     doItemsLayout();

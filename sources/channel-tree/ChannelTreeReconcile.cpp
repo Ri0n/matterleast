@@ -5,6 +5,7 @@
 
 #include "ChannelTree.h"
 
+#include <QPointer>
 #include <QSet>
 
 #include "backend/Backend.h"
