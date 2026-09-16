@@ -87,6 +87,7 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
     }
 
     const QPoint cursorInViewport = viewport()->mapFromGlobal(QCursor::pos());
+    dragStartPointerY = cursorInViewport.y();
     draggedBlockHotSpotY = blockRect.isValid()
         ? qBound(0, cursorInViewport.y() - blockRect.top(), qMax(0, blockRect.height() - 1))
         : 0;
@@ -152,14 +153,171 @@ void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
         draggedRowExtent = visualItemRect(source).height();
     }
 
-    // Merely starting a drag must be geometry-neutral. The real source block
-    // keeps its full extent until an actual insertion boundary is crossed.
-    // From then on one animation simultaneously collapses the source and opens
-    // the destination gap, so the total tree extent is conserved per frame.
+    QTreeWidgetItem* originalAnchor = nullptr;
+    bool originalGapAfter = false;
+    if (source->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+        prepareCategoryDragBoundaries(source);
+        if (const CategoryDragBoundary* boundary =
+                nearestCategoryDragBoundary(draggedBlockStartLogicalY)) {
+            QTreeWidgetItem* category = boundary->targetCategory.isValid()
+                ? itemFromIndex(boundary->targetCategory) : nullptr;
+            if (category) {
+                originalGapAfter = boundary->afterTarget;
+                originalAnchor = categoryDropGapAnchor(
+                    category, boundary->afterTarget, originalGapAfter);
+            }
+        }
+    } else {
+        originalAnchor = sourceDropGapAnchor(source, originalGapAfter);
+    }
+
+    // Exactly as in AnyKeep: the drag preview is now the only painted copy of
+    // the source.  Its layout extent is still intact at this instant and will
+    // be animated out together with the original insertion gap.
+    for (const QPersistentModelIndex& index : dragSourceIndexes) {
+        if (index.isValid()) {
+            model()->setData(index, true, SidebarItem::DragSourceHiddenRole);
+        }
+    }
+    viewport()->update();
+
     dragGapIndexes.clear();
     currentDragGapIndex = QPersistentModelIndex();
     currentDragGapAfter = false;
     currentDragGapExtent = 0;
+    sourceDragGapIndex = originalAnchor
+        ? QPersistentModelIndex(indexFromItem(originalAnchor, 0))
+        : QPersistentModelIndex();
+    sourceDragGapAfter = originalGapAfter;
+
+    if (sourceDragGapIndex.isValid()) {
+        animateDropGap(sourceDragGapIndex, sourceDragGapAfter, draggedRowExtent);
+    }
+}
+
+QTreeWidgetItem* ChannelTree::sourceDropGapAnchor(QTreeWidgetItem* source,
+                                                   bool& gapAfter) const
+{
+    gapAfter = false;
+    if (!source || !source->parent()) {
+        return nullptr;
+    }
+
+    QTreeWidgetItem* parent = source->parent();
+    const int row = parent->indexOfChild(source);
+    if (row < 0) {
+        return nullptr;
+    }
+
+    // The source-removed boundary at its old position is "before next" when a
+    // next row exists, otherwise "after previous".  This is the same boundary
+    // representation used by AnyKeep's LinearReorderLayout.
+    for (int i = row + 1; i < parent->childCount(); ++i) {
+        QTreeWidgetItem* sibling = parent->child(i);
+        if (sibling && !sibling->isHidden()) {
+            gapAfter = false;
+            return sibling;
+        }
+    }
+    for (int i = row - 1; i >= 0; --i) {
+        QTreeWidgetItem* sibling = parent->child(i);
+        if (sibling && !sibling->isHidden()) {
+            gapAfter = true;
+            return sibling;
+        }
+    }
+
+    // Single channel in a category: the category header is the remaining
+    // boundary and the gap belongs immediately after it.
+    gapAfter = true;
+    return parent;
+}
+
+void ChannelTree::prepareCategoryDragBoundaries(QTreeWidgetItem* source)
+{
+    categoryDragBoundaries.clear();
+    draggedBlockStartLogicalY = 0;
+    if (!source || !source->parent()) {
+        return;
+    }
+
+    QTreeWidgetItem* team = source->parent();
+    int logicalY = 0;
+    QPersistentModelIndex lastCategory;
+
+    auto blockExtent = [this](QTreeWidgetItem* category) {
+        if (!category) {
+            return 0;
+        }
+        int extent = 0;
+        const QRect categoryRect = visualItemRect(category);
+        if (categoryRect.isValid() && categoryRect.height() > 0) {
+            extent += categoryRect.height();
+        }
+        if (category->isExpanded()) {
+            for (int i = 0; i < category->childCount(); ++i) {
+                QTreeWidgetItem* child = category->child(i);
+                if (!child || child->isHidden()) {
+                    continue;
+                }
+                const QRect childRect = visualItemRect(child);
+                if (childRect.isValid() && childRect.height() > 0) {
+                    extent += childRect.height();
+                }
+            }
+        }
+        return extent;
+    };
+
+    // "before every remaining item, after the final item", exactly matching
+    // LinearReorderLayout.boundaries().  The source contributes no extent.
+    for (int i = 0; i < team->childCount(); ++i) {
+        QTreeWidgetItem* category = team->child(i);
+        if (!category || category->isHidden()
+            || category->data(0, ItemKindRole).toInt() != CategoryItemKind) {
+            continue;
+        }
+
+        if (category == source) {
+            draggedBlockStartLogicalY = logicalY;
+            continue;
+        }
+
+        CategoryDragBoundary boundary;
+        boundary.position = logicalY;
+        boundary.targetCategory = QPersistentModelIndex(indexFromItem(category, 0));
+        boundary.afterTarget = false;
+        categoryDragBoundaries.push_back(boundary);
+
+        logicalY += blockExtent(category);
+        lastCategory = boundary.targetCategory;
+    }
+
+    if (lastCategory.isValid()) {
+        CategoryDragBoundary trailing;
+        trailing.position = logicalY;
+        trailing.targetCategory = lastCategory;
+        trailing.afterTarget = true;
+        categoryDragBoundaries.push_back(trailing);
+    }
+}
+
+const ChannelTree::CategoryDragBoundary*
+ChannelTree::nearestCategoryDragBoundary(int probe) const
+{
+    const CategoryDragBoundary* best = nullptr;
+    int bestDistance = 0;
+    for (const CategoryDragBoundary& boundary : categoryDragBoundaries) {
+        if (!boundary.targetCategory.isValid()) {
+            continue;
+        }
+        const int distance = qAbs(probe - boundary.position);
+        if (!best || distance < bestDistance) {
+            best = &boundary;
+            bestDistance = distance;
+        }
+    }
+    return best;
 }
 
 void ChannelTree::animateSourceCollapse(qreal target)
@@ -354,18 +512,18 @@ void ChannelTree::updateDragVisuals(QTreeWidgetItem* source,
 
 void ChannelTree::restoreSourceDropGap(bool animate)
 {
-    if (dragSourceIndexes.isEmpty()) {
+    if (dragSourceIndexes.isEmpty() || !sourceDragGapIndex.isValid()) {
         return;
     }
 
-    const bool sourceAlreadyExpanded = collapseValue(dragSourceIndexes.front()) <= 0.0;
-    if (!currentDragGapIndex.isValid() && currentDragGapExtent == 0
-        && sourceAlreadyExpanded) {
+    if (currentDragGapIndex == sourceDragGapIndex
+        && currentDragGapAfter == sourceDragGapAfter
+        && currentDragGapExtent == draggedRowExtent) {
         return;
     }
 
     if (animate) {
-        animateDropGap(QPersistentModelIndex(), false, 0);
+        animateDropGap(sourceDragGapIndex, sourceDragGapAfter, draggedRowExtent);
         return;
     }
 
@@ -377,15 +535,22 @@ void ChannelTree::restoreSourceDropGap(bool animate)
             model()->setData(index, 0, SidebarItem::DropGapAfterRole);
         }
     }
+    dragGapIndexes.clear();
+    dragGapIndexes.push_back(sourceDragGapIndex);
+    model()->setData(sourceDragGapIndex,
+                     sourceDragGapAfter ? 0 : draggedRowExtent,
+                     SidebarItem::DropGapBeforeRole);
+    model()->setData(sourceDragGapIndex,
+                     sourceDragGapAfter ? draggedRowExtent : 0,
+                     SidebarItem::DropGapAfterRole);
     for (const QPersistentModelIndex& index : dragSourceIndexes) {
         if (index.isValid()) {
-            model()->setData(index, 0.0, SidebarItem::DragCollapseRole);
+            model()->setData(index, 1.0, SidebarItem::DragCollapseRole);
         }
     }
-    dragGapIndexes.clear();
-    currentDragGapIndex = QPersistentModelIndex();
-    currentDragGapAfter = false;
-    currentDragGapExtent = 0;
+    currentDragGapIndex = sourceDragGapIndex;
+    currentDragGapAfter = sourceDragGapAfter;
+    currentDragGapExtent = draggedRowExtent;
     doItemsLayout();
     viewport()->update();
 }
@@ -436,6 +601,7 @@ void ChannelTree::resetDragVisuals(bool animate)
     for (const QPersistentModelIndex& index : dragSourceIndexes) {
         if (index.isValid()) {
             model()->setData(index, 0.0, SidebarItem::DragCollapseRole);
+            model()->setData(index, false, SidebarItem::DragSourceHiddenRole);
         }
     }
     dragGapIndexes.clear();
@@ -447,6 +613,9 @@ void ChannelTree::resetDragVisuals(bool animate)
     dragSourceIndexes.clear();
     draggedRowExtent = 0;
     draggedBlockHotSpotY = 0;
+    dragStartPointerY = 0;
+    draggedBlockStartLogicalY = 0;
+    categoryDragBoundaries.clear();
     doItemsLayout();
     viewport()->update();
 }

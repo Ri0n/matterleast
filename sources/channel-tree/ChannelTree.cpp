@@ -84,30 +84,6 @@ QRect dragContentRect(const QTreeWidgetItem* item, QRect rect)
     return rect;
 }
 
-QRect categoryBlockContentRect(const ChannelTree* tree, QTreeWidgetItem* category)
-{
-    if (!tree || !category) {
-        return {};
-    }
-
-    QRect block = dragContentRect(category, tree->visualItemRect(category));
-    if (!category->isExpanded()) {
-        return block;
-    }
-    for (int i = 0; i < category->childCount(); ++i) {
-        QTreeWidgetItem* child = category->child(i);
-        if (!child || child->isHidden()) {
-            continue;
-        }
-        const QRect childRect = dragContentRect(child, tree->visualItemRect(child));
-        if (!childRect.isValid() || childRect.height() <= 0) {
-            continue;
-        }
-        block = block.isValid() ? block.united(childRect) : childRect;
-    }
-    return block;
-}
-
 bool channelDropChangesPosition(QTreeWidgetItem* source,
                                 QTreeWidgetItem* targetCategory,
                                 const QString& targetChannelId,
@@ -1253,41 +1229,26 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
     targetCategoryItem = nullptr;
     afterTarget = false;
     if (!source || source->data(0, ItemKindRole).toInt() != CategoryItemKind
-        || !source->parent() || draggedRowExtent <= 0) {
+        || !source->parent() || categoryDragBoundaries.isEmpty()) {
         return false;
     }
 
-    // Sortable-list semantics: a neighbouring group starts moving when the
-    // centre of the dragged whole group crosses the centre of that whole group.
-    const int draggedCenterY = pos.y() - draggedBlockHotSpotY + draggedRowExtent / 2;
-    QTreeWidgetItem* teamItem = source->parent();
-    QTreeWidgetItem* lastCategory = nullptr;
-    for (int i = 0; i < teamItem->childCount(); ++i) {
-        QTreeWidgetItem* category = teamItem->child(i);
-        if (!category || category == source
-            || category->data(0, ItemKindRole).toInt() != CategoryItemKind
-            || category->isHidden()) {
-            continue;
-        }
-
-        const QRect block = categoryBlockContentRect(this, category);
-        if (!block.isValid() || block.height() <= 0) {
-            continue;
-        }
-        lastCategory = category;
-        if (draggedCenterY < block.center().y()) {
-            targetCategoryItem = category;
-            afterTarget = false;
-            return true;
-        }
+    // Match AnyKeep's GenericReorderController: compare the dragged block's
+    // leading edge against insertion boundaries computed after removing the
+    // source.  Nearest-boundary selection means a neighbour moves once the
+    // leading edge has crossed half of that neighbour's extent.  Moving up and
+    // down therefore naturally use the two different half-overlap thresholds.
+    const int probe = draggedBlockStartLogicalY + (pos.y() - dragStartPointerY);
+    const CategoryDragBoundary* boundary = nearestCategoryDragBoundary(probe);
+    if (!boundary || !boundary->targetCategory.isValid()) {
+        return false;
     }
 
-    if (lastCategory) {
-        targetCategoryItem = lastCategory;
-        afterTarget = true;
-        return true;
-    }
-    return false;
+    targetCategoryItem = itemFromIndex(boundary->targetCategory);
+    afterTarget = boundary->afterTarget;
+    return targetCategoryItem
+        && targetCategoryItem->data(0, ItemKindRole).toInt() == CategoryItemKind
+        && targetCategoryItem->parent() == source->parent();
 }
 
 void ChannelTree::dragMoveEvent(QDragMoveEvent* event)

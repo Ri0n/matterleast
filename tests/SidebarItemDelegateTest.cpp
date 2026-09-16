@@ -142,12 +142,15 @@ private slots:
         QCOMPARE(delegate.sizeHint(option, index).height(), 36);
     }
 
-    void sourcePlaceholderPreservesOriginalRowExtent()
+    void sourceCollapseAndExternalGapConserveExtent()
     {
         QStandardItemModel model;
-        auto* item = new QStandardItem(QStringLiteral("conversation"));
-        item->setData(SidebarItem::Channel, SidebarItem::KindRole);
-        model.appendRow(item);
+        auto* source = new QStandardItem(QStringLiteral("source"));
+        source->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        auto* target = new QStandardItem(QStringLiteral("target"));
+        target->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        model.appendRow(source);
+        model.appendRow(target);
 
         QListView view;
         view.setModel(&model);
@@ -155,16 +158,23 @@ private slots:
         QStyleOptionViewItem option;
         option.initFrom(&view);
 
-        const QModelIndex index = model.index(0, 0);
-        const int originalHeight = delegate.sizeHint(option, index).height();
-        QCOMPARE(originalHeight, 32);
+        const QModelIndex sourceIndex = model.index(0, 0);
+        const QModelIndex targetIndex = model.index(1, 0);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height(), 32);
+        QCOMPARE(delegate.sizeHint(option, targetIndex).height(), 32);
 
-        item->setData(1.0, SidebarItem::DragCollapseRole);
-        item->setData(originalHeight, SidebarItem::DropGapBeforeRole);
-        QCOMPARE(delegate.sizeHint(option, index).height(), originalHeight);
+        for (int step = 0; step <= 4; ++step) {
+            const qreal progress = step / 4.0;
+            source->setData(progress, SidebarItem::DragCollapseRole);
+            target->setData(qRound(32 * progress), SidebarItem::DropGapBeforeRole);
+            QCOMPARE(delegate.sizeHint(option, sourceIndex).height()
+                         + delegate.sizeHint(option, targetIndex).height(),
+                     64);
+        }
 
-        item->setData(0, SidebarItem::DropGapBeforeRole);
-        QCOMPARE(delegate.sizeHint(option, index).height(), 0);
+        source->setData(true, SidebarItem::DragSourceHiddenRole);
+        QCOMPARE(delegate.sizeHint(option, sourceIndex).height(), 0);
+        QCOMPARE(delegate.sizeHint(option, targetIndex).height(), 64);
     }
 
     void adjacentPlaceholderPreservesCombinedExtent()

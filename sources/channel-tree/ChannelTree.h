@@ -187,9 +187,17 @@ private:
 	bool resolveChannelDropTarget(QTreeWidgetItem* source, const QPoint& pos,
 	                              QTreeWidgetItem*& targetCategoryItem,
 	                              QString& targetChannelId, bool& afterTarget) const;
+    struct CategoryDragBoundary {
+        int position = 0;
+        QPersistentModelIndex targetCategory;
+        bool afterTarget = false;
+    };
+
     bool resolveCategoryDropTarget(QTreeWidgetItem* source, const QPoint& pos,
                                    QTreeWidgetItem*& targetCategoryItem,
                                    bool& afterTarget) const;
+    void prepareCategoryDragBoundaries(QTreeWidgetItem* source);
+    const CategoryDragBoundary* nearestCategoryDragBoundary(int probe) const;
     void updateDragVisuals(QTreeWidgetItem* source, QTreeWidgetItem* gapAnchor,
                            bool gapAfter);
     void restoreSourceDropGap(bool animate);
@@ -233,6 +241,9 @@ private:
     int                                 currentDragGapExtent = 0;
     int                                 draggedRowExtent = 0;
     int                                 draggedBlockHotSpotY = 0;
+    int                                 dragStartPointerY = 0;
+    int                                 draggedBlockStartLogicalY = 0;
+    QVector<CategoryDragBoundary>       categoryDragBoundaries;
     QMap<QString, quint64>              sidebarMutationGeneration;
 };
 
