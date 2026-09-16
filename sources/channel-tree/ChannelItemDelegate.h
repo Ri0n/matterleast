@@ -5,7 +5,7 @@
 
 namespace Mattermost {
 
-class ChannelItemDelegate final : public QStyledItemDelegate
+class ChannelItemDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
 public:
@@ -16,6 +16,10 @@ public:
     void paint(QPainter* painter,
                const QStyleOptionViewItem& option,
                const QModelIndex& index) const override;
+
+protected:
+    void initStyleOption(QStyleOptionViewItem* option,
+                         const QModelIndex& index) const override;
 
 private:
     mutable QSet<QString> requestedGroupChannels;
