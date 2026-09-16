@@ -1253,7 +1253,10 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
 
 void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
 {
-    QTreeWidget::dragMoveEvent(event);
+    // ChannelTree owns drag target resolution and structural displacement.
+    // Calling QTreeWidget::dragMoveEvent() here would also update Qt's
+    // InternalMove state from the already modified row geometry, so even a
+    // horizontal-only pointer move could perturb the logical drop target.
     const auto selected = selectedItems();
     QTreeWidgetItem* source = selected.size() == 1 ? selected.front() : currentItem();
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
