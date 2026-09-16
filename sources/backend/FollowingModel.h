@@ -101,6 +101,8 @@ public:
      * actually visible. The next cached semantic post becomes FirstUnread; only
      * an authoritative source end becomes AtEnd. Back-scrolling cannot regress
      * this boundary. Random non-Following chats never allocate cursor state.
+     * For a parent conversation using CRT root counters, rootOnlyConversation
+     * excludes cached thread replies from the parent resume sequence.
      */
     void observeReadThrough(const QString& channelId,
                             const QString& threadId,
