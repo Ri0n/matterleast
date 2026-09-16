@@ -170,7 +170,7 @@ ChannelTree::ChannelTree (QWidget* parent)
     setAcceptDrops(true);
     viewport()->setAcceptDrops(true);
     setDropIndicatorShown(false);
-    setDragDropMode(QAbstractItemView::InternalMove);
+    setDragDropMode(QAbstractItemView::DragDrop);
     setDefaultDropAction(Qt::MoveAction);
 }
 
@@ -1257,8 +1257,14 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
     // Calling QTreeWidget::dragMoveEvent() here would also update Qt's
     // InternalMove state from the already modified row geometry, so even a
     // horizontal-only pointer move could perturb the logical drop target.
-    const auto selected = selectedItems();
-    QTreeWidgetItem* source = selected.size() == 1 ? selected.front() : currentItem();
+    QTreeWidgetItem* source = nullptr;
+    if (!dragSourceIndexes.isEmpty() && dragSourceIndexes.front().isValid()) {
+        source = itemFromIndex(dragSourceIndexes.front());
+    }
+    if (!source) {
+        const auto selected = selectedItems();
+        source = selected.size() == 1 ? selected.front() : currentItem();
+    }
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     const QPoint pos = event->position().toPoint();
 #else
@@ -1317,8 +1323,14 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
 
 void ChannelTree::dropEvent(QDropEvent* event)
 {
-    const auto selected = selectedItems();
-    QTreeWidgetItem* source = selected.size() == 1 ? selected.front() : currentItem();
+    QTreeWidgetItem* source = nullptr;
+    if (!dragSourceIndexes.isEmpty() && dragSourceIndexes.front().isValid()) {
+        source = itemFromIndex(dragSourceIndexes.front());
+    }
+    if (!source) {
+        const auto selected = selectedItems();
+        source = selected.size() == 1 ? selected.front() : currentItem();
+    }
     const QPoint pos = dropEventPosition(event);
 
     if (source && source->data(0, ItemKindRole).toInt() == CategoryItemKind) {

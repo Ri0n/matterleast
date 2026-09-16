@@ -181,34 +181,27 @@ void ChannelTree::ensureDragSourceVisuals(QTreeWidgetItem* source)
         : QPersistentModelIndex();
     sourceDragGapAfter = originalGapAfter;
 
-    // The source already occupies exactly the amount of space wanted at the
-    // original insertion boundary. There is nothing useful to animate at drag
-    // start. Replace it atomically by an equal-size gap before the first
-    // repaint; only subsequent boundary-to-boundary moves are animated.
+    // QTreeView caches delegate size hints aggressively during a drag. Trying
+    // to remove the source through an animated sizeHint therefore leaves its
+    // old layout extent around while the replacement gap is already visible.
+    // Hide the real tree item instead: QTreeView then removes the source (and,
+    // for a category, its whole subtree) from layout using its native path.
+    // The equal-size initial gap keeps total geometry unchanged.
+    source->setHidden(true);
     if (sourceDragGapIndex.isValid()) {
-        {
-            QSignalBlocker blocker(model());
-            for (const QPersistentModelIndex& index : dragSourceIndexes) {
-                if (!index.isValid()) {
-                    continue;
-                }
-                model()->setData(index, true, SidebarItem::DragSourceHiddenRole);
-                model()->setData(index, 1.0, SidebarItem::DragCollapseRole);
-            }
-            model()->setData(sourceDragGapIndex,
-                             sourceDragGapAfter ? 0 : draggedRowExtent,
-                             SidebarItem::DropGapBeforeRole);
-            model()->setData(sourceDragGapIndex,
-                             sourceDragGapAfter ? draggedRowExtent : 0,
-                             SidebarItem::DropGapAfterRole);
-        }
+        model()->setData(sourceDragGapIndex,
+                         sourceDragGapAfter ? 0 : draggedRowExtent,
+                         SidebarItem::DropGapBeforeRole);
+        model()->setData(sourceDragGapIndex,
+                         sourceDragGapAfter ? draggedRowExtent : 0,
+                         SidebarItem::DropGapAfterRole);
         dragGapIndexes.push_back(sourceDragGapIndex);
         currentDragGapIndex = sourceDragGapIndex;
         currentDragGapAfter = sourceDragGapAfter;
         currentDragGapExtent = draggedRowExtent;
-        doItemsLayout();
-        viewport()->update();
     }
+    doItemsLayout();
+    viewport()->update();
 }
 
 QTreeWidgetItem* ChannelTree::sourceDropGapAnchor(QTreeWidgetItem* source,
@@ -414,17 +407,11 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target,
         startAfter.push_back(gapValue(index, SidebarItem::DropGapAfterRole));
     }
 
-    QVector<qreal> sourceStarts;
-    sourceStarts.reserve(dragSourceIndexes.size());
-    for (const QPersistentModelIndex& index : dragSourceIndexes) {
-        sourceStarts.push_back(collapseValue(index));
-    }
-
     currentDragGapIndex = target;
     currentDragGapAfter = after;
     currentDragGapExtent = target.isValid() ? qMax(0, extent) : 0;
 
-    if (gapIndexes.isEmpty() && dragSourceIndexes.isEmpty()) {
+    if (gapIndexes.isEmpty()) {
         return;
     }
 
@@ -436,37 +423,19 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target,
     animation->setEndValue(1.0);
 
     const int wantedExtent = target.isValid() ? qMax(0, extent) : 0;
-    const qreal wantedCollapse = target.isValid() ? 1.0 : 0.0;
-    const auto sourceIndexes = dragSourceIndexes;
 
     connect(animation, &QVariantAnimation::valueChanged, this,
             [this, animation, gapIndexes, startBefore, startAfter,
-             target, after, wantedExtent, sourceIndexes, sourceStarts,
-             wantedCollapse](const QVariant& value) {
+             target, after, wantedExtent](const QVariant& value) {
         if (dropGapAnimation != animation) {
             return;
         }
         const qreal progress = value.toDouble();
 
-        // QTreeView reacts to every dataChanged signal by invalidating row
-        // geometry. Updating the source collapse and destination gap one index
-        // at a time therefore exposes transient frames whose total extent is
-        // larger than the original tree. Apply the whole animation tick as one
-        // geometry transaction and perform exactly one layout afterwards.
-        {
-            QSignalBlocker blocker(model());
-
-            for (qsizetype i = 0; i < sourceIndexes.size(); ++i) {
-                if (!sourceIndexes[i].isValid()) {
-                    continue;
-                }
-                const qreal current = sourceStarts[i]
-                    + (wantedCollapse - sourceStarts[i]) * progress;
-                model()->setData(sourceIndexes[i], current,
-                                 SidebarItem::DragCollapseRole);
-            }
-
-            for (qsizetype i = 0; i < gapIndexes.size(); ++i) {
+        // The source item is physically hidden from QTreeView layout. Only the
+        // old and new insertion gaps need animation now; keep normal
+        // dataChanged delivery so the view invalidates cached size hints.
+        for (qsizetype i = 0; i < gapIndexes.size(); ++i) {
                 if (!gapIndexes[i].isValid()) {
                     continue;
                 }
@@ -477,11 +446,10 @@ void ChannelTree::animateDropGap(const QPersistentModelIndex& target,
                                  qRound(startBefore[i]
                                         + (wantedBefore - startBefore[i]) * progress),
                                  SidebarItem::DropGapBeforeRole);
-                model()->setData(gapIndexes[i],
-                                 qRound(startAfter[i]
-                                        + (wantedAfter - startAfter[i]) * progress),
-                                 SidebarItem::DropGapAfterRole);
-            }
+            model()->setData(gapIndexes[i],
+                             qRound(startAfter[i]
+                                    + (wantedAfter - startAfter[i]) * progress),
+                             SidebarItem::DropGapAfterRole);
         }
 
         doItemsLayout();
@@ -565,11 +533,6 @@ void ChannelTree::restoreSourceDropGap(bool animate)
     model()->setData(sourceDragGapIndex,
                      sourceDragGapAfter ? draggedRowExtent : 0,
                      SidebarItem::DropGapAfterRole);
-    for (const QPersistentModelIndex& index : dragSourceIndexes) {
-        if (index.isValid()) {
-            model()->setData(index, 1.0, SidebarItem::DragCollapseRole);
-        }
-    }
     currentDragGapIndex = sourceDragGapIndex;
     currentDragGapAfter = sourceDragGapAfter;
     currentDragGapExtent = draggedRowExtent;
@@ -620,10 +583,9 @@ void ChannelTree::resetDragVisuals(bool animate)
             model()->setData(index, 0, SidebarItem::DropGapAfterRole);
         }
     }
-    for (const QPersistentModelIndex& index : dragSourceIndexes) {
-        if (index.isValid()) {
-            model()->setData(index, 0.0, SidebarItem::DragCollapseRole);
-            model()->setData(index, false, SidebarItem::DragSourceHiddenRole);
+    if (!dragSourceIndexes.isEmpty() && dragSourceIndexes.front().isValid()) {
+        if (QTreeWidgetItem* source = itemFromIndex(dragSourceIndexes.front())) {
+            source->setHidden(false);
         }
     }
     dragGapIndexes.clear();
