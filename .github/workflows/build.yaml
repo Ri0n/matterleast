@@ -136,6 +136,16 @@ jobs:
       - name: Build
         run: cmake --build build --parallel 4
 
+      - name: Diagnose sidebar delegate test
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & .\build\tests\sidebar-item-delegate-test.exe -v2
+          $code = $LASTEXITCODE
+          Write-Host "sidebar-item-delegate-test exit code: $code"
+          exit 0
+
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
