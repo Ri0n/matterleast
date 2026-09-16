@@ -79,6 +79,22 @@ private slots:
         QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
     }
 
+    void crtRootUnreadModeRequiresBothRootCounters()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 20, 5, true);
+        synchronize(tracker, 2000, 20, 5, true, true);
+        QVERIFY(tracker.usesRootUnreadCounts(QStringLiteral("channel"), true));
+
+        QVERIFY(!tracker.usesRootUnreadCounts(QStringLiteral("channel"), false));
+
+        ChannelActivityTracker noMembershipRootCount;
+        setMembership(noMembershipRootCount, 1000, 20, 0, false);
+        synchronize(noMembershipRootCount, 2000, 20, 5, true, true);
+        QVERIFY(!noMembershipRootCount.usesRootUnreadCounts(
+            QStringLiteral("channel"), true));
+    }
+
     void crtUsesRootMentionCount()
     {
         ChannelActivityTracker tracker;

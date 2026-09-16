@@ -238,6 +238,11 @@ bool SidebarService::isChannelUnread(const BackendChannel& channel) const
     return activityTracker.isUnread(channel.id);
 }
 
+bool SidebarService::usesRootUnreadCounts(const BackendChannel& channel) const
+{
+    return activityTracker.usesRootUnreadCounts(channel.id, channel.has_total_msg_count_root);
+}
+
 uint64_t SidebarService::channelActivityTime(const BackendChannel& channel) const
 {
     return std::max(activityTracker.activityTime(channel.id), channel.last_post_at);

@@ -594,7 +594,9 @@ void ChatLogWidget::updateReadCursorFromViewport()
 
     BackendChannel& channel = chatArea->getChannel();
     auto& followingModel = FollowingModel::instance(*backend);
+    auto& sidebar = SidebarService::instance(*backend);
     const bool sourceTailRead = readIndex == postSource->itemCount() - 1;
+    const bool rootUnreadConversation = sidebar.usesRootUnreadCounts(channel);
 
     qCDebug(lcTimelineTrace).nospace()
         << "READ_CURSOR list=" << static_cast<const void*>(this)
@@ -631,11 +633,13 @@ void ChatLogWidget::updateReadCursorFromViewport()
             }
         }
 
-        // A DM/GM Following row represents the whole conversation, including
-        // replies hidden behind collapsed threads. Only the actual latest
-        // channel activity may consume that conversation-level unread state.
-        if (channel.type == BackendChannel::directChannel
-            || channel.type == BackendChannel::groupChannel) {
+        // With CRT root counters, replies are owned by the thread unread
+        // domain and must not advance or acknowledge the parent DM/GM. On
+        // servers/modes where replies still count for the channel, preserve
+        // the legacy whole-conversation behavior.
+        if ((channel.type == BackendChannel::directChannel
+             || channel.type == BackendChannel::groupChannel)
+            && !rootUnreadConversation) {
             const bool channelAtEnd = threadAtEnd
                 && (channel.last_post_at == 0
                     || readPost->create_at >= channel.last_post_at);
@@ -648,16 +652,20 @@ void ChatLogWidget::updateReadCursorFromViewport()
         return;
     }
 
-    // For ordinary channel timelines, the logical source tail is the visible
-    // channel end. DM/GM conversations additionally include collapsed replies,
-    // so do not clear their conversation unread state while newer activity is
-    // known to exist outside this root-post source.
+    // The main ChannelPostSource contains roots only. When CRT root counters
+    // define parent unread state, compare its tail with last_root_post_at; a
+    // newer hidden reply belongs to the thread domain and must not keep a
+    // DM/GM permanently unread. With CRT off (or root counters unavailable),
+    // replies still belong to the whole conversation and last_post_at remains
+    // the correct acknowledgement watermark.
     bool channelAtEnd = sourceTailRead;
     if (channel.type == BackendChannel::directChannel
         || channel.type == BackendChannel::groupChannel) {
+        const uint64_t conversationTail = rootUnreadConversation
+            ? channel.last_root_post_at : channel.last_post_at;
         channelAtEnd = channelAtEnd
-            && (channel.last_post_at == 0
-                || readPost->create_at >= channel.last_post_at);
+            && (conversationTail == 0
+                || readPost->create_at >= conversationTail);
     }
 
     followingModel.observeReadThrough(channel.id, QString(), *readPost, channelAtEnd);

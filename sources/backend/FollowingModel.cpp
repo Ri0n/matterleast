@@ -272,8 +272,12 @@ void FollowingModel::noteIncomingPost(BackendChannel& channel,
     }
 
     if (!post.isOwnPost()) {
-        if (Entry* conversation = findEntryMutable(channel.id, QString())) {
-            noteIncomingForResume(*conversation, post);
+        const bool rootUnreadConversation =
+            SidebarService::instance(backend_).usesRootUnreadCounts(channel);
+        if ((!rootUnreadConversation || post.root_id.isEmpty())) {
+            if (Entry* conversation = findEntryMutable(channel.id, QString())) {
+                noteIncomingForResume(*conversation, post);
+            }
         }
         if (!post.root_id.isEmpty()) {
             if (Entry* thread = findThreadMutable(post.root_id)) {
@@ -591,9 +595,14 @@ QString FollowingModel::nextCachedPostId(const BackendChannel& channel,
                                          const QString& threadId,
                                          const BackendPost& after) const
 {
+    const bool rootOnlyConversation = threadId.isEmpty()
+        && SidebarService::instance(backend_).usesRootUnreadCounts(channel);
     const BackendPost* next = nullptr;
     for (const BackendPost& candidate : channel.posts) {
         if (candidate.isDeleted || candidate.id.isEmpty()) {
+            continue;
+        }
+        if (rootOnlyConversation && !candidate.root_id.isEmpty()) {
             continue;
         }
         if (!threadId.isEmpty()

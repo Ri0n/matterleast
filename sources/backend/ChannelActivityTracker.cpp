@@ -56,9 +56,7 @@ void ChannelActivityTracker::synchronizeChannel(const QString& channelId, uint64
     Entry& entry = it.value();
     entry.lastActivityAt = std::max(entry.lastActivityAt, lastPostAt);
 
-    const bool useRootCounts = collapsedThreadsEnabled
-        && entry.hasReadRootMessageCount
-        && hasTotalRootMessageCount;
+    const bool useRootCounts = usesRootUnreadCounts(channelId, hasTotalRootMessageCount);
     const uint64_t readCount = useRootCounts ? entry.readRootMessageCount : entry.readMessageCount;
     const uint64_t totalCount = useRootCounts ? totalRootMessageCount : totalMessageCount;
 
@@ -227,6 +225,17 @@ bool ChannelActivityTracker::hasMention(const QString& channelId) const
 {
     const auto it = entries.constFind(channelId);
     return it != entries.cend() && (it->serverMentioned || it->runtimeMentioned);
+}
+
+bool ChannelActivityTracker::usesRootUnreadCounts(const QString& channelId,
+                                                   bool hasTotalRootMessageCount) const
+{
+    const auto it = entries.constFind(channelId);
+    return collapsedThreadsEnabled
+        && hasTotalRootMessageCount
+        && it != entries.cend()
+        && it->tracked
+        && it->hasReadRootMessageCount;
 }
 
 uint64_t ChannelActivityTracker::activityTime(const QString& channelId) const

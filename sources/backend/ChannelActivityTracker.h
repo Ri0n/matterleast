@@ -64,6 +64,8 @@ public:
     bool isTracked(const QString& channelId) const;
     bool isUnread(const QString& channelId) const;
     bool hasMention(const QString& channelId) const;
+    /** Whether CRT root counters, rather than all-message counters, define parent unread state. */
+    bool usesRootUnreadCounts(const QString& channelId, bool hasTotalRootMessageCount) const;
     uint64_t activityTime(const QString& channelId) const;
     uint64_t lastViewedTime(const QString& channelId) const;
     uint64_t recentTime(const QString& channelId) const;
