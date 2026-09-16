@@ -130,7 +130,7 @@ void ChannelItemDelegate::paint(QPainter* painter,
                                 const QStyleOptionViewItem& option,
                                 const QModelIndex& index) const
 {
-    if (isTeamRow(index)) {
+    if (isTeamRow(index) || index.data(SidebarItem::DragSourceHiddenRole).toBool()) {
         return;
     }
 
