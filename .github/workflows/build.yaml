@@ -136,6 +136,20 @@ jobs:
           }
           $nsisDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Verify NSIS icon
+        shell: pwsh
+        run: |
+          @'
+          Unicode true
+          Name "MatterLeast icon check"
+          OutFile "matterleast-icon-check.exe"
+          Icon "resources\matterleast.ico"
+          Section
+          SectionEnd
+          '@ | Set-Content -Path matterleast-icon-check.nsi -Encoding utf8
+          makensis /V2 matterleast-icon-check.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja
