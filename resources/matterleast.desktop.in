@@ -1,15 +1,12 @@
 [Desktop Entry]
 Name=@PRODUCT_NAME@
-Version=
 Comment=MatterLeast native Qt client for Mattermost
 Exec=@APPID@ %u
-Icon=@APPID@
+Icon=@DESKTOP_ID@
 Type=Application
-Categories=Qt;Chat;Network
+Categories=Qt;Chat;Network;
 StartupWMClass=@APPID@
 Terminal=false
-MimeType=
 X-GNOME-UsesNotifications=true
 Keywords=MatterLeast;Mattermost;chat;communication;
 X-KDE-Keywords=MatterLeast,Mattermost,chat,communication,
-

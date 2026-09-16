@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright 2022-2023 Lyubomir Filipov, mattermost-qt contributors -->
 <component type="desktop">
-	<id>@APPID@.desktop</id>
+	<id>@DESKTOP_ID@.desktop</id>
 	<metadata_license>FSFUL</metadata_license>
-	<launchable type="desktop-id">@APPID@.desktop</launchable>
+	<launchable type="desktop-id">@DESKTOP_ID@.desktop</launchable>
 	<project_license>LGPL-3.0-or-later AND GPL-3.0-or-later</project_license>
 	<name>@PRODUCT_NAME@</name>
 	<summary>Native Qt client for Mattermost</summary>

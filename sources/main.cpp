@@ -57,6 +57,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 ,currentWindow (nullptr)
 {
     QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("matterleast"));
     QGuiApplication::setWindowIcon(IconUtils::applicationIcon());
 
     OverlayScrollBarManager::install(*this);

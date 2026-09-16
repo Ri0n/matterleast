@@ -31,6 +31,7 @@ endif()
 
 set(APPID "mattermost-qt")
 set(PRODUCT_NAME "MatterLeast")
+set(DESKTOP_ID "matterleast")
 
 option(QT_6 "Prefer Qt6" ON)
 
@@ -153,15 +154,23 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 endif()
 
 if(UNIX)
-	set(DST_ICONS_DIR "${CMAKE_INSTALL_DATAROOTDIR}/icons")
 	install(FILES "img/MatterLeast.svg"
-		DESTINATION "${DST_ICONS_DIR}/hicolor/scalable/apps"
-		RENAME "${APPID}.svg")
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps"
+		RENAME "${DESKTOP_ID}.svg")
 
-	configure_file("resources/mattermost-qt.desktop.in" "resources/mattermost-qt.desktop" @ONLY)
-	install (FILES "${CMAKE_CURRENT_BINARY_DIR}/resources/mattermost-qt.desktop" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications" RENAME "${APPID}.desktop")
-	configure_file("resources/mattermost-qt.appdata.xml.in" "resources/mattermost-qt.appdata.xml" @ONLY)
-	install (FILES "${CMAKE_CURRENT_BINARY_DIR}/resources/mattermost-qt.appdata.xml" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo" RENAME "${APPID}.appdata.xml")
+	configure_file(
+		"resources/matterleast.desktop.in"
+		"${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.desktop"
+		@ONLY)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.desktop"
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+
+	configure_file(
+		"resources/matterleast.appdata.xml.in"
+		"${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.appdata.xml"
+		@ONLY)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.appdata.xml"
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
 endif()
 
 if(BUILD_MULTIMEDIA)
