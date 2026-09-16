@@ -1,0 +1,42 @@
+name: Apply PR55 review fixes
+
+on:
+  push:
+    branches:
+      - fix/sidebar-dnd-followup
+    paths:
+      - .github/workflows/apply-pr55-review-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/sidebar-dnd-followup
+          fetch-depth: 0
+
+      - name: Apply review fixes
+        run: python3 .github/scripts/apply-pr55-review-fixes.py
+
+      - name: Commit implementation
+        run: |
+          rm .github/scripts/apply-pr55-review-fixes.py
+          rm .github/workflows/apply-pr55-review-fixes.yml
+          git config user.name 'Sergei Ilinykh'
+          git config user.email 'rion4ik@gmail.com'
+          git add sources/backend/ChannelActivityTracker.h \
+                  sources/backend/ChannelActivityTracker.cpp \
+                  sources/backend/SidebarService.cpp \
+                  sources/backend/FollowingModel.h \
+                  sources/backend/FollowingModel.cpp \
+                  sources/chat-area/ChatLogWidget.cpp \
+                  tests/ChannelActivityTrackerTest.cpp \
+                  tests/ManualUnreadReadStateTest.cpp
+          git add -u .github
+          git diff --cached --check
+          git commit -m 'Cover DM and GM collapsed-thread read flow'
+          git push origin HEAD:fix/sidebar-dnd-followup
