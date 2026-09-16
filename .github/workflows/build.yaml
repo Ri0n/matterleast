@@ -154,7 +154,17 @@ jobs:
         shell: pwsh
         run: |
           cpack --config build/CPackConfig.cmake -G NSIS -B package-nsis
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cpackExit = $LASTEXITCODE
+          if ($cpackExit -ne 0) {
+            $log = Get-ChildItem package-nsis -Recurse -File -Filter "NSISOutput.log" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($log) {
+              Write-Host "==== $($log.FullName) ===="
+              Get-Content -LiteralPath $log.FullName
+            } else {
+              Write-Host "NSISOutput.log was not produced"
+            }
+            exit $cpackExit
+          }
           $installer = Get-ChildItem package-nsis -File -Filter "*.exe" | Select-Object -First 1
           if (-not $installer) { throw "CPack did not produce an NSIS installer" }
 
