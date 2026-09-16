@@ -29,7 +29,7 @@ elseif(MSVC)
 	endif()
 endif()
 
-set(APPID "mattermost-qt")
+set(APPID "matterleast")
 set(PRODUCT_NAME "MatterLeast")
 set(DESKTOP_ID "matterleast")
 
@@ -177,8 +177,6 @@ if(BUILD_MULTIMEDIA)
 	target_link_libraries(qmattermost PRIVATE Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::MultimediaWidgets)
 endif()
 
-# Keep the technical package/executable id for upgrade compatibility while
-# presenting MatterLeast as the product name to users.
 set(CPACK_PACKAGE_NAME "${APPID}")
 set(CPACK_PACKAGE_VENDOR "${PRODUCT_NAME}")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
@@ -190,6 +188,7 @@ set(CPACK_PACKAGE_EXECUTABLES "${APPID}" "${PRODUCT_NAME}")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "MatterLeast Maintainers <maintainers@mattermost-qt.invalid>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "net")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_CONFLICTS "mattermost-qt")
 if(QT_VERSION_MAJOR EQUAL 6)
 	set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6sql6-sqlite")
 else()

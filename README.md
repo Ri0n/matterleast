@@ -4,7 +4,7 @@
 
 MatterLeast is a native Mattermost desktop client built with Qt.
 
-This repository is a maintained fork of [turok-m-a/mattermost-qt](https://github.com/turok-m-a/mattermost-qt), originally created by nuclear868. The executable and package id remain `mattermost-qt` for upgrade and settings compatibility.
+This repository is a maintained fork of [turok-m-a/mattermost-qt](https://github.com/turok-m-a/mattermost-qt), originally created by nuclear868. The application, executable and package are named `matterleast`. The Debian package explicitly conflicts with the old `mattermost-qt` package.
 
 ## Motivation
 
@@ -111,10 +111,10 @@ Windows is actively built in CI with Qt 6.10 and MSVC. A normal Qt/CMake build w
 From the build directory, start:
 
 ```bash
-./mattermost-qt
+./matterleast
 ```
 
-A login dialog appears on first start. After a successful login, the server URL, username and login token are stored using `QSettings`; the password itself is not saved. On Linux the settings normally live under `~/.config/mattermost-native/Mattermost.conf`.
+A login dialog appears on first start. After a successful login, the server URL, username and login token are stored using `QSettings`; the password itself is not saved. On Linux the settings normally live under `~/.config/matterleast/MatterLeast.conf`.
 
 The saved token is currently not encrypted, so the settings file should be treated as sensitive.
 

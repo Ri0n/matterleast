@@ -122,13 +122,11 @@ inline void MattermostApplication::toggleShowWindow ()
 
 int main( int argc, char *argv[])
 {
-	QCoreApplication::setOrganizationName("mattermost-native");
-	// Keep the settings identity stable so existing logins and preferences survive the rename.
-	QCoreApplication::setApplicationName("Mattermost");
+	QCoreApplication::setOrganizationName("matterleast");
+	QCoreApplication::setApplicationName("MatterLeast");
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 
 	Mattermost::MattermostApplication app (argc, argv);
 	app.openLoginWindow ();
 	return app.exec();
 }
-

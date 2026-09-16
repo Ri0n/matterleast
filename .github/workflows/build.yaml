@@ -103,7 +103,7 @@ jobs:
           RUN cmake --build build --parallel 4
           RUN ctest --test-dir build --output-on-failure
           EOF
-          podman build --tag mattermost-qt-fedora -f Containerfile
+          podman build --tag matterleast-fedora -f Containerfile
 
   qt6-windows:
     name: Qt 6.10 / Windows
@@ -143,14 +143,14 @@ jobs:
         shell: pwsh
         run: |
           cmake --install build --prefix package
-          windeployqt --release --no-translations --compiler-runtime package/bin/mattermost-qt.exe
-          Compress-Archive -Path package/* -DestinationPath mattermost-qt-windows-x64.zip
+          windeployqt --release --no-translations --compiler-runtime package/bin/matterleast.exe
+          Compress-Archive -Path package/* -DestinationPath matterleast-windows-x64.zip
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: mattermost-qt-windows-x64
-          path: mattermost-qt-windows-x64.zip
+          name: matterleast-windows-x64
+          path: matterleast-windows-x64.zip
           if-no-files-found: error
 
   ubuntu-2604-package:
@@ -191,6 +191,6 @@ jobs:
       - name: Upload Ubuntu package
         uses: actions/upload-artifact@v4
         with:
-          name: mattermost-qt-ubuntu-26.04-amd64
+          name: matterleast-ubuntu-26.04-amd64
           path: package/*.deb
           if-no-files-found: error
