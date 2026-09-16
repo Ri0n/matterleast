@@ -111,6 +111,27 @@ void ChannelTree::verifySidebarTeam(const QString& teamId, quint64 mutation)
         false);
 }
 
+void ChannelTree::flushDeferredSidebarReconciles()
+{
+    if (!backendForSidebar || !dragSourceIndexes.isEmpty()
+        || pendingSidebarReconcileTeams.isEmpty()) {
+        return;
+    }
+
+    const QSet<QString> pending = pendingSidebarReconcileTeams;
+    pendingSidebarReconcileTeams.clear();
+
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    for (const QString& teamId : pending) {
+        TeamItem* teamItem = teamToItemMap.value(teamId, nullptr);
+        const SidebarTeamState* state = sidebar.teamState(teamId);
+        if (!teamItem || !state) {
+            continue;
+        }
+        reconcileTeamSidebar(*backendForSidebar, *teamItem, *state);
+    }
+}
+
 void ChannelTree::destroySidebarRow(QTreeWidgetItem* item)
 {
     if (!item) {
@@ -137,8 +158,16 @@ void ChannelTree::destroySidebarRow(QTreeWidgetItem* item)
 void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                                        const SidebarTeamState& state)
 {
-    // A server reconciliation is structural. Never leave transient drag geometry
-    // attached to rows that may be moved or removed underneath it.
+    // A live QDrag owns the tree structure until it finishes. Reconciliation
+    // during a drag would unhide/reparent the real source item underneath the
+    // drag pixmap, producing a visible duplicate and invalidating gap anchors.
+    // SidebarService still receives network state normally; coalesce structural
+    // updates per team and apply only the newest state once the drag finishes.
+    if (!dragSourceIndexes.isEmpty()) {
+        pendingSidebarReconcileTeams.insert(teamItem.teamId);
+        return;
+    }
+
     resetDragVisuals(false);
     renderingSidebar = true;
 

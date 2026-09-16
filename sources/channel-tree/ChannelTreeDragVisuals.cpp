@@ -109,6 +109,7 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
     if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
         resetDragVisuals(false);
     }
+    flushDeferredSidebarReconciles();
 }
 
 void ChannelTree::dragLeaveEvent(QDragLeaveEvent* event)

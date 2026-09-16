@@ -220,6 +220,7 @@ private:
                       bool afterTarget);
 	void refreshSidebarTeam(const QString& teamId);
     void verifySidebarTeam(const QString& teamId, quint64 mutation);
+    void flushDeferredSidebarReconciles();
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;
@@ -244,6 +245,7 @@ private:
     int                                 dragStartPointerY = 0;
     int                                 draggedBlockStartLogicalY = 0;
     QVector<CategoryDragBoundary>       categoryDragBoundaries;
+    QSet<QString>                       pendingSidebarReconcileTeams;
     QMap<QString, quint64>              sidebarMutationGeneration;
 };
 
