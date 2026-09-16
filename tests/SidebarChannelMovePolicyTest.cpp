@@ -22,6 +22,22 @@ private slots:
         QCOMPARE(ids, QStringList({QStringLiteral("b"), QStringLiteral("a"), QStringLiteral("c")}));
     }
 
+    void adjacentChannelBoundariesAreNoOps()
+    {
+        const QStringList original {QStringLiteral("a"), QStringLiteral("b"),
+                                    QStringLiteral("c")};
+
+        QStringList afterPrevious = original;
+        QVERIFY(!reorderSidebarChannel(afterPrevious, QStringLiteral("b"),
+                                       QStringLiteral("a"), true));
+        QCOMPARE(afterPrevious, original);
+
+        QStringList beforeNext = original;
+        QVERIFY(!reorderSidebarChannel(beforeNext, QStringLiteral("b"),
+                                       QStringLiteral("c"), false));
+        QCOMPARE(beforeNext, original);
+    }
+
     void reordersCategoriesBeforeTarget()
     {
         QStringList ids {QStringLiteral("favorites"), QStringLiteral("channels"),
@@ -40,6 +56,22 @@ private slots:
                                        QStringLiteral("channels"), true));
         QCOMPARE(ids, QStringList({QStringLiteral("channels"), QStringLiteral("favorites"),
                                   QStringLiteral("direct")}));
+    }
+
+    void adjacentCategoryBoundariesAreNoOps()
+    {
+        const QStringList original {QStringLiteral("favorites"), QStringLiteral("channels"),
+                                    QStringLiteral("direct")};
+
+        QStringList afterPrevious = original;
+        QVERIFY(!reorderSidebarCategory(afterPrevious, QStringLiteral("channels"),
+                                        QStringLiteral("favorites"), true));
+        QCOMPARE(afterPrevious, original);
+
+        QStringList beforeNext = original;
+        QVERIFY(!reorderSidebarCategory(beforeNext, QStringLiteral("channels"),
+                                        QStringLiteral("direct"), false));
+        QCOMPARE(beforeNext, original);
     }
 
     void movesBetweenCategoriesWithoutDuplicates()
