@@ -1,0 +1,32 @@
+name: Remove base dragMove handling
+
+on:
+  push:
+    branches:
+      - feature/sidebar-optimistic-dnd
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/sidebar-optimistic-dnd
+      - name: Remove base dragMove handling
+        run: python3 .github/scripts/remove_base_dragmove.py
+      - name: Remove temporary patch files
+        run: |
+          rm .github/scripts/remove_base_dragmove.py
+          rm .github/workflows/remove-base-dragmove.yml
+      - name: Commit implementation
+        run: |
+          git config user.name 'Sergei Ilinykh'
+          git config user.email 'rion4ik@gmail.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Own sidebar drag movement completely'
+          git push origin HEAD:feature/sidebar-optimistic-dnd
