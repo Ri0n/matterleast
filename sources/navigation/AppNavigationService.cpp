@@ -290,6 +290,10 @@ AppNavigationService::AppNavigationService(Backend& sourceBackend)
 
 quint64 AppNavigationService::beginNavigation()
 {
+    // The service may have been instantiated before MainWindow existed. Make
+    // sure the synchronous invalidation signal has a receiver before publishing
+    // the new generation.
+    ensureMainWindowConnection();
     const quint64 generation = navigationRequests.begin();
     emit navigationStarted();
     return generation;
