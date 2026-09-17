@@ -17,6 +17,9 @@ private slots:
                  true);
         QCOMPARE(postUnreadPayload(false).value(QStringLiteral("collapsed_threads_supported")).toBool(),
                  false);
+        QCOMPARE(threadUnreadPath(QStringLiteral("user"), QStringLiteral("team"),
+                                  QStringLiteral("thread"), QStringLiteral("reply")),
+                 QStringLiteral("users/user/teams/team/threads/thread/set_unread/reply"));
     }
 };
 

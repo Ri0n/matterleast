@@ -71,6 +71,9 @@ public:
     void queryUnreadThreads(ThreadListCallback callback);
     void setFollowing(const QString& teamId, const QString& threadId, bool following,
                       std::function<void(bool)> callback = {});
+    void markThreadUnread(const QString& teamId, const QString& threadId,
+                          const QString& postId,
+                          std::function<void(bool)> callback = {});
     void markThreadRead(const QString& teamId, const QString& threadId,
                         std::function<void(bool)> callback = {});
 

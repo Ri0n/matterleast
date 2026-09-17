@@ -17,8 +17,10 @@
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
+#include "backend/ThreadFollowService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
+#include "backend/types/BackendTeam.h"
 #include "post/InteractivePostWidget.h"
 #include "post/PostWidget.h"
 #include "post/PostSelectionPolicy.h"
@@ -709,8 +711,7 @@ void ChatLogWidget::markPostUnread(const QString& postId)
     manualUnreadGate_.markUnread(postId, isPostLowerEdgeVisible(postId));
 
     QPointer<ChatLogWidget> guard(this);
-    SidebarService::instance(*backend).markPostUnread(
-        postId,
+    const auto completed =
         [guard, channelId, threadId, postId, createAt](bool success) {
             if (!guard || !guard->backend) {
                 return;
@@ -732,7 +733,31 @@ void ChatLogWidget::markPostUnread(const QString& postId)
                 following.refreshThreads();
             }
             guard->scheduleReadCursorUpdate();
-        });
+        };
+
+    if (threadId.isEmpty()) {
+        SidebarService::instance(*backend).markPostUnread(postId, completed);
+        return;
+    }
+
+    // CRT owns thread unread state independently from the parent channel.
+    // Mattermost exposes a dedicated thread endpoint; using the channel
+    // set_unread endpoint here creates state that markThreadRead() can never
+    // acknowledge. Prefer the model's authoritative team identity and fall
+    // back to the channel/current team for a newly synthesized thread entry.
+    QString teamId;
+    auto& following = FollowingModel::instance(*backend);
+    if (const auto* entry = following.findEntry(channelId, threadId)) {
+        teamId = entry->teamId;
+    }
+    if (teamId.isEmpty() && chatArea->getChannel().team) {
+        teamId = chatArea->getChannel().team->id;
+    }
+    if (teamId.isEmpty()) {
+        teamId = backend->getCurrentTeamContextId();
+    }
+    ThreadFollowService::instance(*backend).markThreadUnread(
+        teamId, threadId, postId, completed);
 }
 
 void ChatLogWidget::clearNavigationLock()
