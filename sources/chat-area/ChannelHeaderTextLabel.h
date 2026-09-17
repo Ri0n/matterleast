@@ -23,19 +23,24 @@
 
 #include <QLabel>
 #include <QPointer>
+#include <QRect>
 #include <QTimer>
 #include <QUrl>
 
-class QTextBrowser;
+class QPropertyAnimation;
+class QScrollArea;
 
 namespace Mattermost {
+
+class MessageContentWidget;
 
 /**
  * Compact channel-header text with Mattermost-like Markdown hover expansion.
  *
  * The collapsed label remains one line high. Overflowing/multiline text is
- * shown in an overlay QTextBrowser while hovered, so expanding the header does
- * not change the chat layout or move the currently visible posts.
+ * shown in an overlay using the same renderer as ordinary messages, so code
+ * blocks and other Markdown stay visually consistent without changing the chat
+ * layout or moving the currently visible posts.
  */
 class ChannelHeaderTextLabel final: public QLabel
 {
@@ -59,22 +64,37 @@ public:
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
+private slots:
+    // Slots so the hover state transitions can be exercised directly in GUI
+    // tests without synthesizing platform mouse events under the offscreen QPA.
+    void showPopover();
+    void hidePopover();
+
 private:
     bool isOverflowing() const;
     void ensurePopover();
-    void showPopover();
-    void positionPopover();
+    void updatePopoverGeometry(bool animate);
+    QRect targetPopoverGeometry() const;
+    void updatePopoverMargins();
+    void configurePopoverLinks();
+    void animatePopoverTo(const QRect& target, bool hideAfterAnimation);
+    void schedulePopoverHide();
     void hidePopoverSoon();
-    void hidePopover();
+    void hidePopoverImmediately();
     void updateCollapsedHeight();
     void openLink(const QUrl& url);
 
     QString sourceText;
     QString formattedText;
-    QPointer<QTextBrowser> popover;
+    QString popoverSourceText;
+    QPointer<QScrollArea> popover;
+    QPointer<QWidget> popoverContainer;
+    QPointer<MessageContentWidget> popoverContent;
+    QPointer<QPropertyAnimation> popoverAnimation;
     QTimer hideTimer;
     LinkHandler linkHandler;
     bool presenceRoutingEnabled = true;
+    bool hideAfterAnimation = false;
 };
 
 } // namespace Mattermost
