@@ -19,6 +19,9 @@ jobs:
       - name: Apply patch
         shell: bash
         run: |
+          sed -i 's/@@ -17,5 +17,16/@@ -17,4 +17,15/' .github/patches/thread-unread-domain.patch
+          sed -i 's/@@ -711,9 +713,9/@@ -711,9 +713,8/' .github/patches/thread-unread-domain.patch
+          sed -i 's/@@ -739,7 +741,30/@@ -739,7 +741,31/' .github/patches/thread-unread-domain.patch
           git apply --check .github/patches/thread-unread-domain.patch
           git apply .github/patches/thread-unread-domain.patch
           git diff --check
