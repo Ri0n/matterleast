@@ -43,7 +43,9 @@ PresenceAvatarLabel::PresenceAvatarLabel(QWidget* parent)
     connectionAnimationTimer.setInterval(BusyIndicator::AnimationIntervalMs);
     connect(&connectionAnimationTimer, &QTimer::timeout, this, [this] {
         connectionAnimationPhase =
-            (connectionAnimationPhase + 1) % BusyIndicator::AnimationSteps;
+            (connectionAnimationPhase + connectionAnimationDirection
+             + BusyIndicator::AnimationSteps)
+            % BusyIndicator::AnimationSteps;
         update();
     });
 }
@@ -73,14 +75,15 @@ void PresenceAvatarLabel::setConnectionIndicatorState(ConnectionIndicatorState s
     if (connectionState == ConnectionIndicatorState::None) {
         connectionAnimationTimer.stop();
         connectionAnimationPhase = 0;
+        connectionAnimationDirection = 1;
         setToolTip(QString());
     } else {
         if (!connectionAnimationTimer.isActive()) {
             connectionAnimationTimer.start();
         }
         setToolTip(connectionState == ConnectionIndicatorState::WaitingForReconnect
-                       ? tr("Reconnecting to Mattermost… Click the indicator to retry now.")
-                       : tr("Connecting to Mattermost…"));
+                       ? tr("Waiting to reconnect to Mattermost… Click the indicator to retry now.")
+                       : tr("Connecting to Mattermost… Click the indicator to retry now."));
     }
 
     refreshPixmap();
@@ -113,9 +116,13 @@ void PresenceAvatarLabel::mouseReleaseEvent(QMouseEvent* event)
                                           BadgeHitMargin, BadgeHitMargin)
                .contains(event->pos())) {
         QLabel::mouseReleaseEvent(event);
-        if (connectionState == ConnectionIndicatorState::WaitingForReconnect) {
-            emit reconnectRequested();
-        }
+        connectionAnimationDirection = -connectionAnimationDirection;
+        connectionAnimationPhase =
+            (connectionAnimationPhase + connectionAnimationDirection
+             + BusyIndicator::AnimationSteps)
+            % BusyIndicator::AnimationSteps;
+        update();
+        emit reconnectRequested();
         return;
     }
 

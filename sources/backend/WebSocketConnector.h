@@ -55,7 +55,7 @@ public:
     ConnectionState connectionState() const;
     void reconnectNow();
 signals:
-	void onConnect (bool isReconnect);
+	void onConnect (bool isReconnect, bool needsHttpResync);
 	void onDisconnect ();
     void connectionStateChanged(ConnectionState state);
 private:

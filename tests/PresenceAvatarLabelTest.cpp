@@ -92,17 +92,17 @@ private slots:
         label.setConnectionIndicatorState(
             PresenceAvatarLabel::ConnectionIndicatorState::Connecting);
         QTest::mouseClick(&label, Qt::LeftButton, Qt::NoModifier, QPoint(42, 42));
-        QCOMPARE(reconnectSpy.count(), 0);
+        QCOMPARE(reconnectSpy.count(), 1);
         QCOMPARE(avatarClickSpy.count(), 0);
 
         label.setConnectionIndicatorState(
             PresenceAvatarLabel::ConnectionIndicatorState::WaitingForReconnect);
         QTest::mouseClick(&label, Qt::LeftButton, Qt::NoModifier, QPoint(42, 42));
-        QCOMPARE(reconnectSpy.count(), 1);
+        QCOMPARE(reconnectSpy.count(), 2);
         QCOMPARE(avatarClickSpy.count(), 0);
 
         QTest::mouseClick(&label, Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
-        QCOMPARE(reconnectSpy.count(), 1);
+        QCOMPARE(reconnectSpy.count(), 2);
         QCOMPARE(avatarClickSpy.count(), 1);
     }
 };
