@@ -1,0 +1,147 @@
+diff --git a/sources/backend/PostUnreadRequest.h b/sources/backend/PostUnreadRequest.h
+--- a/sources/backend/PostUnreadRequest.h
++++ b/sources/backend/PostUnreadRequest.h
+@@ -17,5 +17,16 @@ inline QJsonObject postUnreadPayload(bool collapsedThreadsSupported)
+                          collapsedThreadsSupported}};
+ }
+ 
++inline QString threadUnreadPath(const QString& userId,
++                                const QString& teamId,
++                                const QString& threadId,
++                                const QString& postId)
++{
++    return QStringLiteral("users/") + userId
++        + QStringLiteral("/teams/") + teamId
++        + QStringLiteral("/threads/") + threadId
++        + QStringLiteral("/set_unread/") + postId;
++}
++
+ } // namespace Mattermost
+diff --git a/sources/backend/ThreadFollowService.h b/sources/backend/ThreadFollowService.h
+--- a/sources/backend/ThreadFollowService.h
++++ b/sources/backend/ThreadFollowService.h
+@@ -66,6 +66,9 @@ public:
+     void queryUnreadThreads(ThreadListCallback callback);
+     void setFollowing(const QString& teamId, const QString& threadId, bool following,
+                       std::function<void(bool)> callback = {});
++    void markThreadUnread(const QString& teamId, const QString& threadId,
++                          const QString& postId,
++                          std::function<void(bool)> callback = {});
+     void markThreadRead(const QString& teamId, const QString& threadId,
+                         std::function<void(bool)> callback = {});
+ 
+diff --git a/sources/backend/ThreadFollowService.cpp b/sources/backend/ThreadFollowService.cpp
+--- a/sources/backend/ThreadFollowService.cpp
++++ b/sources/backend/ThreadFollowService.cpp
+@@ -21,6 +21,7 @@
+ 
+ #include "Backend.h"
+ #include "NetworkRequest.h"
++#include "PostUnreadRequest.h"
+ #include "QByteArrayCreator.h"
+ #include "SidebarService.h"
+ #include "Storage.h"
+@@ -449,6 +450,28 @@ void ThreadFollowService::setFollowing(const QString& teamId,
+     }));
+ }
+ 
++void ThreadFollowService::markThreadUnread(const QString& teamId,
++                                           const QString& threadId,
++                                           const QString& postId,
++                                           std::function<void(bool)> callback)
++{
++    const QString userId = _backend.getLoginUser().id;
++    if (userId.isEmpty() || teamId.isEmpty() || threadId.isEmpty() || postId.isEmpty()) {
++        if (callback) {
++            callback(false);
++        }
++        return;
++    }
++
++    NetworkRequest request(threadUnreadPath(userId, teamId, threadId, postId));
++    _httpConnector.post(
++        request, QByteArrayCreator(QByteArray {}),
++        HttpResponseCallback([callback = std::move(callback)](
++                                 QVariant status, const QJsonDocument&) mutable {
++            if (callback) {
++                callback(status.toInt() == QNetworkReply::NoError);
++            }
++        }));
++}
++
+ void ThreadFollowService::markThreadRead(const QString& teamId,
+                                          const QString& threadId,
+                                          std::function<void(bool)> callback)
+diff --git a/sources/chat-area/ChatLogWidget.cpp b/sources/chat-area/ChatLogWidget.cpp
+--- a/sources/chat-area/ChatLogWidget.cpp
++++ b/sources/chat-area/ChatLogWidget.cpp
+@@ -14,9 +14,11 @@
+ #include "ThreadPostSource.h"
+ #include "backend/Backend.h"
+ #include "backend/FollowingModel.h"
+ #include "backend/SidebarService.h"
++#include "backend/ThreadFollowService.h"
+ #include "backend/types/BackendChannel.h"
+ #include "backend/types/BackendPost.h"
++#include "backend/types/BackendTeam.h"
+ #include "post/InteractivePostWidget.h"
+ #include "post/PostWidget.h"
+ #include "post/PostSelectionPolicy.h"
+@@ -711,9 +713,9 @@ void ChatLogWidget::markPostUnread(const QString& postId)
+     manualUnreadGate_.markUnread(postId, isPostLowerEdgeVisible(postId));
+ 
+     QPointer<ChatLogWidget> guard(this);
+-    SidebarService::instance(*backend).markPostUnread(
+-        postId,
+-        [guard, channelId, threadId, postId, createAt](bool success) {
++    const auto completed =
++        [guard, channelId, threadId, postId, createAt](bool success) {
+             if (!guard || !guard->backend) {
+                 return;
+             }
+@@ -739,7 +741,30 @@ void ChatLogWidget::markPostUnread(const QString& postId)
+                 following.refreshThreads();
+             }
+             guard->scheduleReadCursorUpdate();
+-        });
++        };
++
++    if (threadId.isEmpty()) {
++        SidebarService::instance(*backend).markPostUnread(postId, completed);
++        return;
++    }
++
++    // CRT owns thread unread state independently from the parent channel.
++    // Mattermost exposes a dedicated thread endpoint; using the channel
++    // set_unread endpoint here creates state that markThreadRead() can never
++    // acknowledge. Prefer the model's authoritative team identity and fall
++    // back to the channel/current team for a newly synthesized thread entry.
++    QString teamId;
++    auto& following = FollowingModel::instance(*backend);
++    if (const auto* entry = following.findEntry(channelId, threadId)) {
++        teamId = entry->teamId;
++    }
++    if (teamId.isEmpty() && chatArea->getChannel().team) {
++        teamId = chatArea->getChannel().team->id;
++    }
++    if (teamId.isEmpty()) {
++        teamId = backend->getCurrentTeamContextId();
++    }
++    ThreadFollowService::instance(*backend).markThreadUnread(
++        teamId, threadId, postId, completed);
+ }
+ 
+ void ChatLogWidget::clearNavigationLock()
+diff --git a/tests/PostUnreadRequestTest.cpp b/tests/PostUnreadRequestTest.cpp
+--- a/tests/PostUnreadRequestTest.cpp
++++ b/tests/PostUnreadRequestTest.cpp
+@@ -15,6 +15,9 @@ private slots:
+                  true);
+         QCOMPARE(postUnreadPayload(false).value(QStringLiteral("collapsed_threads_supported")).toBool(),
+                  false);
++        QCOMPARE(threadUnreadPath(QStringLiteral("user"), QStringLiteral("team"),
++                                  QStringLiteral("thread"), QStringLiteral("reply")),
++                 QStringLiteral("users/user/teams/team/threads/thread/set_unread/reply"));
+     }
+ };
+ 
