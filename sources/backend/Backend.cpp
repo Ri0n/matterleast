@@ -74,7 +74,7 @@ Backend::Backend(QObject *parent)
 	connect (&webSocketConnector, &WebSocketConnector::onConnect,
 	         [this] (bool isReconnect, bool needsHttpResync) {
 		if (isReconnect) {
-			LOG_DEBUG("WebSocket reconnected - resetting HTTP transport");
+			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
 
 			/**
 			 * A route/interface change can leave QNetworkAccessManager requests
@@ -82,7 +82,7 @@ Backend::Backend(QObject *parent)
 			 * Replace the HTTP transport before notifying listeners so their
 			 * onWebSocketConnect retries are issued on the new network path.
 			 */
-			httpConnector.reset();
+			httpConnector.restartTransport();
 		}
 
 		emit onWebSocketConnect();

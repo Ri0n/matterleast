@@ -24,6 +24,8 @@
 
 #include "WebSocketConnector.h"
 
+#include "HTTPConnector.h"
+
 #include <iostream>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -319,6 +321,15 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
     if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
         if (QNetworkInformation* networkInformation = QNetworkInformation::instance()) {
             auto networkChanged = [this] {
+                if (d->connectionState == ConnectionState::Disconnected) {
+                    return;
+                }
+
+                // REST and realtime use independent transports. A WebSocket can
+                // survive a VPN/route change while QNetworkAccessManager is
+                // still bound to dead connections, so rotate HTTP immediately.
+                HTTPConnector::restartAllTransports();
+
                 if (d->connectionState == ConnectionState::WaitingForReconnect
                     || d->connectionState == ConnectionState::Connecting) {
                     LOG_DEBUG("Network state changed while reconnecting");
