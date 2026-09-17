@@ -22,14 +22,14 @@
 	<content_rating type="oars-1.0">
 		<content_attribute id="social-chat">intense</content_attribute>
 	</content_rating>
-	<url type="homepage">https://github.com/Ri0n/mattermost-qt</url>
-	<update_contact>https://github.com/Ri0n/mattermost-qt</update_contact>
+	<url type="homepage">https://github.com/Ri0n/matterleast</url>
+	<update_contact>https://github.com/Ri0n/matterleast</update_contact>
 	<releases>
 		<release date="2026-09-16" version="@PROJECT_VERSION@"/>
 	</releases>
 	<developer_name>Sergei Ilinykh and MatterLeast contributors</developer_name>
-	<url type="bugtracker">https://github.com/Ri0n/mattermost-qt/issues</url>
-	<url type="help">https://github.com/Ri0n/mattermost-qt</url>
+	<url type="bugtracker">https://github.com/Ri0n/matterleast/issues</url>
+	<url type="help">https://github.com/Ri0n/matterleast</url>
 	<provides>
 		<binary>@APPID@</binary>
 	</provides>
