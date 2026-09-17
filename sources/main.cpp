@@ -42,18 +42,21 @@ public:
 	void toggleShowWindow ();
 	void reopen ();
 private:
-	std::unique_ptr<MainWindow>			mainWindow;
-	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
-	std::unique_ptr<QMenu>				trayIconMenu;
+	// Members are destroyed in reverse declaration order. Keep Backend alive
+	// until every window and tray object that can reference it is gone, and keep
+	// the tray menu alive until after QSystemTrayIcon releases its menu pointer.
 	Backend								backend;
+	std::unique_ptr<QMenu>				trayIconMenu;
+	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
+	std::unique_ptr<MainWindow>			mainWindow;
 	LoginDialog*						loginDialog;
 	QWidget*							currentWindow;
 };
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
-,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
+,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 ,currentWindow (nullptr)
 {
     QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
