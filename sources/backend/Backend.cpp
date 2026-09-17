@@ -71,33 +71,42 @@ Backend::Backend(QObject *parent)
 ,nonFilledTeams (0)
 ,avatarsLoaded(0)
 {
-	connect (&webSocketConnector, &WebSocketConnector::onConnect, [this] (bool isReconnect) {
-
-		emit onWebSocketConnect ();
-
+	connect (&webSocketConnector, &WebSocketConnector::onConnect,
+	         [this] (bool isReconnect, bool needsHttpResync) {
 		if (isReconnect) {
-			LOG_DEBUG ("Reconnect - check for missed posts");
+			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
 
 			/**
-			 * Reset the HTTP connector, so that all waiting requests are cancelled.
-			 * Each element that has sent a request should verify if it has arrived
-			 * and resend it (using the onWebSocketDisconnect / onWebSocketConnect signal).
-			 * Without the httpconnector reset, there may be stuck requests
+			 * A route/interface change can leave QNetworkAccessManager requests
+			 * bound to the dead path even after a fresh WebSocket succeeds.
+			 * Replace the HTTP transport before notifying listeners so their
+			 * onWebSocketConnect retries are issued on the new network path.
 			 */
-			httpConnector.reset ();
+			httpConnector.restartTransport();
+		}
 
-			// Reliable WebSocket replay already covers normal reconnects. If
-			// replay explicitly failed, validate only the conversation the user
-			// is looking at. Bulk-resyncing every joined channel turns one broken
-			// socket into hundreds of history and pinned-post requests.
-			if (currentChannel) {
-				retrieveChannelPosts (*currentChannel, 0, 25);
-			}
+		emit onWebSocketConnect();
+
+		// Reliable WebSocket replay covers normal reconnects. Only when the
+		// server explicitly started a new stream do we need a history fallback.
+		if (needsHttpResync && currentChannel) {
+			LOG_DEBUG("Reliable WebSocket resume failed - refreshing current channel");
+			retrieveChannelPosts(*currentChannel, 0, 25);
+		}
+	});
+
+	connect(&webSocketConnector, &WebSocketConnector::reliableResumeFailed,
+	        this, [this] {
+		LOG_DEBUG("Reliable WebSocket resume failed after authentication");
+		if (currentChannel) {
+			retrieveChannelPosts(*currentChannel, 0, 25);
 		}
 	});
 
 	//these signals are proxied
 	connect (&webSocketConnector, &WebSocketConnector::onDisconnect, this, &Backend::onWebSocketDisconnect);
+    connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,
+            this, &Backend::onWebSocketConnectionStateChanged);
 	connect (&httpConnector, &HTTPConnector::onNetworkError, this, &Backend::onNetworkError);
 
 	connect (&httpConnector, &HTTPConnector::onHttpError, [this] (uint32_t errorNumber, const QString& errorText) {
@@ -213,6 +222,16 @@ void Backend::setCurrentChannel (BackendChannel& channel)
 BackendChannel* Backend::getCurrentChannel () const
 {
 	return currentChannel;
+}
+
+WebSocketConnector::ConnectionState Backend::webSocketConnectionState() const
+{
+    return webSocketConnector.connectionState();
+}
+
+void Backend::retryWebSocketConnectionNow()
+{
+    webSocketConnector.reconnectNow();
 }
 
 bool Backend::autoLoginEnabled ()

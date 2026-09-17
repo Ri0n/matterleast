@@ -26,6 +26,7 @@
 
 #include <memory>
 
+#include <QHash>
 #include <QNetworkReply>
 #include <QQueue>
 #include <QSet>
@@ -46,6 +47,8 @@ public:
 	virtual ~HTTPConnector ();
 
 	void reset ();
+	void restartTransport ();
+	static void restartAllTransports ();
 
 	void get (QNetworkRequest &request, HttpResponseCallback responseHandler);
 	void post (QNetworkRequest &request, const QByteArrayCreator &data, HttpResponseCallback responseHandler);
@@ -87,8 +90,12 @@ private:
 	std::unique_ptr<QNetworkAccessManager> qnetworkManager;
 	QQueue<PendingRequest> highPriorityRequests;
 	QQueue<PendingRequest> lowPriorityRequests;
+	QSet<QNetworkReply*> activeReplies;
+	QHash<QNetworkReply*, PendingRequest> activeGetRequests;
+	QSet<QNetworkReply*> replayedReplies;
 	int activeRequests = 0;
 	quint64 generation = 0;
+	bool restartingTransport = false;
 };
 
 } /* namespace Mattermost */

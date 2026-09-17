@@ -211,6 +211,9 @@ public:
 
 	BackendChannel* getCurrentChannel () const;
 
+    WebSocketConnector::ConnectionState webSocketConnectionState() const;
+    void retryWebSocketConnectionNow();
+
 	// A DM/GM has no intrinsic team, but actions and slash commands on older
 	// Mattermost servers still require the team from which the conversation was
 	// opened. Keep that UI execution context separate from BackendChannel::team.
@@ -265,6 +268,7 @@ signals:
 
     void onWebSocketConnect ();
     void onWebSocketDisconnect ();
+    void onWebSocketConnectionStateChanged(WebSocketConnector::ConnectionState state);
 private:
     void loginSuccess (const QJsonDocument& data, const QNetworkReply& reply, std::function<void(const QString&)> callback);
 private:

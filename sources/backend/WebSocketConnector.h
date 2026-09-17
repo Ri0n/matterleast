@@ -37,6 +37,14 @@ class WebSocketEventHandler;
 class WebSocketConnector: public QObject {
 	Q_OBJECT
 public:
+    enum class ConnectionState {
+        Disconnected,
+        Connecting,
+        Connected,
+        WaitingForReconnect,
+    };
+    Q_ENUM(ConnectionState)
+
 	WebSocketConnector (WebSocketEventHandler& eventHandler);
 	~WebSocketConnector () override;
 public:
@@ -44,10 +52,15 @@ public:
 	void close ();
 	void reset ();
 	void doHandshake ();
+    ConnectionState connectionState() const;
+    void reconnectNow();
 signals:
-	void onConnect (bool isReconnect);
+	void onConnect (bool isReconnect, bool needsHttpResync);
+	void reliableResumeFailed();
 	void onDisconnect ();
+    void connectionStateChanged(ConnectionState state);
 private:
+    void setConnectionState(ConnectionState state);
 	void onNewPacket (const QString& string);
 	void scheduleReconnect ();
 	void openSocket ();

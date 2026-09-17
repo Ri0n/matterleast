@@ -56,11 +56,17 @@ static QNetworkDiskCache* createDiskCache ()
 	return diskCache;
 }
 
-HTTPConnector::HTTPConnector ()
-:qnetworkManager (std::make_unique <QNetworkAccessManager> ())
+static std::unique_ptr<QNetworkAccessManager> createNetworkManager ()
 {
-	qnetworkManager->setCache (createDiskCache ());
-	qnetworkManager->setAutoDeleteReplies(true);
+	auto manager = std::make_unique<QNetworkAccessManager>();
+	manager->setCache(createDiskCache());
+	manager->setAutoDeleteReplies(true);
+	return manager;
+}
+
+HTTPConnector::HTTPConnector ()
+:qnetworkManager (createNetworkManager ())
+{
 	connectors.insert(this);
 }
 
@@ -74,19 +80,80 @@ HTTPConnector::~HTTPConnector ()
 
 void HTTPConnector::reset ()
 {
-	// Requests owned by the old QNetworkAccessManager are aborted when the
-	// manager is replaced. Release their slots in the process-wide limiter and
-	// invalidate their callbacks before starting a new generation.
+	// Full application/session reset: discard queued work and suppress callbacks
+	// from replies owned by the old application/storage generation.
 	++generation;
 	highPriorityRequests.clear ();
 	lowPriorityRequests.clear ();
+	activeReplies.clear();
+	activeGetRequests.clear();
+	replayedReplies.clear();
 	globalActiveRequests = qMax(0, globalActiveRequests - activeRequests);
 	activeRequests = 0;
+	restartingTransport = false;
     LocalPostDeleteTracker::clear();
 
-	qnetworkManager.reset(new QNetworkAccessManager());
-	qnetworkManager->setCache (createDiskCache ());
-	qnetworkManager->setAutoDeleteReplies(true);
+	qnetworkManager = createNetworkManager();
+	processQueues();
+}
+
+void HTTPConnector::restartAllTransports ()
+{
+	// A network route/interface change affects every QNetworkAccessManager in
+	// the process, not just the connector currently used by Backend. Work from a
+	// snapshot because callbacks may indirectly modify the connector set.
+	const QList<HTTPConnector*> snapshot = connectors.values();
+	for (HTTPConnector* connector : snapshot) {
+		if (connector) {
+			connector->restartTransport();
+		}
+	}
+}
+
+void HTTPConnector::restartTransport ()
+{
+	if (restartingTransport) {
+		return;
+	}
+
+	restartingTransport = true;
+	const quint64 restartGeneration = generation;
+	LOG_DEBUG("Restarting HTTP transport after network route change; active="
+	          << activeRequests << " queued="
+	          << (highPriorityRequests.size() + lowPriorityRequests.size()));
+
+	// GET is idempotent, so preserve the logical request and its callback. The
+	// old reply is suppressed and the exact request is replayed on the fresh
+	// QNetworkAccessManager. Mutating requests are deliberately not replayed: an
+	// HTTP response may have been lost after the server committed the mutation.
+	for (auto it = activeGetRequests.cbegin(); it != activeGetRequests.cend(); ++it) {
+		replayedReplies.insert(it.key());
+		const PendingRequest& request = it.value();
+		if (request.request.priority() == QNetworkRequest::LowPriority) {
+			lowPriorityRequests.prepend(request);
+		} else {
+			highPriorityRequests.prepend(request);
+		}
+	}
+
+	// Abort old-route replies while their manager is still alive. Replayed GETs
+	// skip their old callback; writes complete with OperationCanceledError so
+	// their owner can apply its normal retry/uncertain-delivery policy.
+	const QList<QNetworkReply*> replies = activeReplies.values();
+	for (QNetworkReply* reply : replies) {
+		if (reply) {
+			reply->abort();
+		}
+	}
+
+	if (generation != restartGeneration) {
+		// A callback performed a full reset while the old replies were aborted.
+		restartingTransport = false;
+		return;
+	}
+
+	qnetworkManager = createNetworkManager();
+	restartingTransport = false;
 	processQueues();
 }
 
@@ -172,7 +239,7 @@ void HTTPConnector::enqueue(PendingRequest request)
 HTTPConnector* HTTPConnector::connectorWithPendingRequest(bool lowPriority)
 {
 	for (HTTPConnector* connector : connectors) {
-		if (!connector) {
+		if (!connector || connector->restartingTransport) {
 			continue;
 		}
 		const auto& queue = lowPriority
@@ -229,6 +296,10 @@ void HTTPConnector::startRequest(PendingRequest request)
 
 	++activeRequests;
 	++globalActiveRequests;
+	activeReplies.insert(reply);
+	if (request.method == Method::Get) {
+		activeGetRequests.insert(reply, request);
+	}
 	setProcessReply(reply, std::move(request.responseHandler), generation);
 }
 
@@ -244,6 +315,23 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 			// application/storage generation.
 			if (requestGeneration != generation) {
 				reply->deleteLater();
+				return;
+			}
+
+			const bool replayed = replayedReplies.remove(reply);
+			activeReplies.remove(reply);
+			activeGetRequests.remove(reply);
+			if (replayed) {
+				reply->deleteLater();
+				if (activeRequests > 0) {
+					--activeRequests;
+				}
+				if (globalActiveRequests > 0) {
+					--globalActiveRequests;
+				}
+				if (!restartingTransport) {
+					processQueues();
+				}
 				return;
 			}
 
@@ -271,7 +359,9 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 			if (globalActiveRequests > 0) {
 				--globalActiveRequests;
 			}
-			processQueues();
+			if (!restartingTransport) {
+				processQueues();
+			}
 		});
 
 #if QT_VERSION <= QT_VERSION_CHECK(5,15,0)
@@ -280,7 +370,7 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 	connect(reply, qOverload<QNetworkReply::NetworkError>(&QNetworkReply::errorOccurred),
 #endif
 			this, [this, reply, requestGeneration](QNetworkReply::NetworkError error) {
-		if (requestGeneration != generation) {
+		if (requestGeneration != generation || replayedReplies.contains(reply)) {
 			return;
 		}
 		emit onNetworkError (error, reply->errorString());

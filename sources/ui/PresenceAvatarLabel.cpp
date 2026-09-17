@@ -1,7 +1,7 @@
 /**
  * Copyright 2026 Sergei Ilinykh
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  */
 
 #include "PresenceAvatarLabel.h"
@@ -10,11 +10,14 @@
 
 #include <QApplication>
 #include <QEvent>
+#include <QMouseEvent>
+#include <QPainter>
 #include <QPaintEvent>
 #include <QPalette>
 #include <QResizeEvent>
 
 #include "AvatarUtils.h"
+#include "BusyIndicator.h"
 
 namespace Mattermost {
 
@@ -22,6 +25,7 @@ namespace {
 
 constexpr int DefaultAvatarSize = 48;
 constexpr int DefaultBadgeSize = 12;
+constexpr qreal BadgeHitMargin = 3.0;
 
 QColor applicationWindowColor()
 {
@@ -35,6 +39,15 @@ PresenceAvatarLabel::PresenceAvatarLabel(QWidget* parent)
 {
     setFrameShape(QFrame::NoFrame);
     setAlignment(Qt::AlignCenter);
+
+    connectionAnimationTimer.setInterval(BusyIndicator::AnimationIntervalMs);
+    connect(&connectionAnimationTimer, &QTimer::timeout, this, [this] {
+        connectionAnimationPhase =
+            (connectionAnimationPhase + connectionAnimationDirection
+             + BusyIndicator::AnimationSteps)
+            % BusyIndicator::AnimationSteps;
+        update();
+    });
 }
 
 void PresenceAvatarLabel::setPixmap(const QPixmap& pixmap)
@@ -50,6 +63,31 @@ void PresenceAvatarLabel::setStatus(const QString& status)
     }
     presenceStatus = status;
     refreshPixmap();
+}
+
+void PresenceAvatarLabel::setConnectionIndicatorState(ConnectionIndicatorState state)
+{
+    if (connectionState == state) {
+        return;
+    }
+
+    connectionState = state;
+    if (connectionState == ConnectionIndicatorState::None) {
+        connectionAnimationTimer.stop();
+        connectionAnimationPhase = 0;
+        connectionAnimationDirection = 1;
+        setToolTip(QString());
+    } else {
+        if (!connectionAnimationTimer.isActive()) {
+            connectionAnimationTimer.start();
+        }
+        setToolTip(connectionState == ConnectionIndicatorState::WaitingForReconnect
+                       ? tr("Waiting to reconnect to Mattermost… Click the indicator to retry now.")
+                       : tr("Connecting to Mattermost… Click the indicator to retry now."));
+    }
+
+    refreshPixmap();
+    update();
 }
 
 bool PresenceAvatarLabel::isPresenceStatus(const QString& text)
@@ -70,6 +108,27 @@ void PresenceAvatarLabel::changeEvent(QEvent* event)
     }
 }
 
+void PresenceAvatarLabel::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event && event->button() == Qt::LeftButton
+        && connectionState != ConnectionIndicatorState::None
+        && connectionBadgeRect().adjusted(-BadgeHitMargin, -BadgeHitMargin,
+                                          BadgeHitMargin, BadgeHitMargin)
+               .contains(event->pos())) {
+        QLabel::mouseReleaseEvent(event);
+        connectionAnimationDirection = -connectionAnimationDirection;
+        connectionAnimationPhase =
+            (connectionAnimationPhase + connectionAnimationDirection
+             + BusyIndicator::AnimationSteps)
+            % BusyIndicator::AnimationSteps;
+        update();
+        emit reconnectRequested();
+        return;
+    }
+
+    ClickableLabel::mouseReleaseEvent(event);
+}
+
 void PresenceAvatarLabel::paintEvent(QPaintEvent* event)
 {
     // The badge contains a one-pixel background ring. Validate that cached
@@ -80,12 +139,54 @@ void PresenceAvatarLabel::paintEvent(QPaintEvent* event)
         refreshPixmap();
     }
     ClickableLabel::paintEvent(event);
+
+    if (connectionState == ConnectionIndicatorState::None) {
+        return;
+    }
+
+    QPainter painter(this);
+    const QRectF badge = connectionBadgeRect();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(renderedBackground);
+    painter.drawEllipse(badge.adjusted(-1.0, -1.0, 1.0, 1.0));
+
+    QColor spinnerColor = (qApp ? qApp->palette() : palette()).color(QPalette::WindowText);
+    spinnerColor.setAlpha(190);
+    const qreal inset = std::max<qreal>(1.5, badge.width() / 6.0);
+    const qreal penWidth = std::max<qreal>(1.2, badge.width() / 7.0);
+    BusyIndicator::draw(painter, badge.adjusted(inset, inset, -inset, -inset),
+                        connectionAnimationPhase, spinnerColor, penWidth);
 }
 
 void PresenceAvatarLabel::resizeEvent(QResizeEvent* event)
 {
     ClickableLabel::resizeEvent(event);
     refreshPixmap();
+}
+
+QRectF PresenceAvatarLabel::connectionBadgeRect() const
+{
+    if (sourcePixmap.isNull()) {
+        const qreal extent = std::min<qreal>(16.0, std::min(width(), height()));
+        return QRectF((width() - extent) / 2.0,
+                      (height() - extent) / 2.0,
+                      extent,
+                      extent);
+    }
+
+    int avatarSize = std::min(width(), height());
+    if (avatarSize <= 0) {
+        avatarSize = DefaultAvatarSize;
+    }
+    const int badgeSize = std::max(4,
+        qRound(DefaultBadgeSize * avatarSize / static_cast<qreal>(DefaultAvatarSize)));
+    const qreal avatarLeft = (width() - avatarSize) / 2.0;
+    const qreal avatarTop = (height() - avatarSize) / 2.0;
+    return QRectF(avatarLeft + avatarSize - badgeSize - 1,
+                  avatarTop + avatarSize - badgeSize - 1,
+                  badgeSize,
+                  badgeSize);
 }
 
 void PresenceAvatarLabel::refreshPixmap()
@@ -104,11 +205,15 @@ void PresenceAvatarLabel::refreshPixmap()
         qRound(DefaultBadgeSize * avatarSize / static_cast<qreal>(DefaultAvatarSize)));
 
     renderedBackground = applicationWindowColor();
-    QLabel::setPixmap(AvatarUtils::withStatus(sourcePixmap,
-                                               avatarSize,
-                                               presenceStatus,
-                                               badgeSize,
-                                               renderedBackground));
+    if (connectionState == ConnectionIndicatorState::None) {
+        QLabel::setPixmap(AvatarUtils::withStatus(sourcePixmap,
+                                                   avatarSize,
+                                                   presenceStatus,
+                                                   badgeSize,
+                                                   renderedBackground));
+    } else {
+        QLabel::setPixmap(AvatarUtils::circular(sourcePixmap, avatarSize));
+    }
 }
 
 PresenceStatusLabel::PresenceStatusLabel(QWidget* parent)

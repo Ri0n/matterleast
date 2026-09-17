@@ -13,14 +13,13 @@
 #include <QPainter>
 #include <QPalette>
 
+#include "BusyIndicator.h"
 #include "IconUtils.h"
 
 namespace Mattermost {
 namespace {
 
 constexpr qreal RestingOpacity = 0.8;
-constexpr int BusyAnimationIntervalMs = 70;
-constexpr int BusyAnimationSteps = 12;
 constexpr int BusyIndicatorExtent = 18;
 
 QString tintKey(const QColor& color)
@@ -35,9 +34,9 @@ ThemeIconButton::ThemeIconButton(QWidget* parent)
 {
     setCursor(Qt::PointingHandCursor);
 
-    _busyAnimationTimer.setInterval(BusyAnimationIntervalMs);
+    _busyAnimationTimer.setInterval(BusyIndicator::AnimationIntervalMs);
     connect(&_busyAnimationTimer, &QTimer::timeout, this, [this] {
-        _busyPhase = (_busyPhase + 1) % BusyAnimationSteps;
+        _busyPhase = (_busyPhase + 1) % BusyIndicator::AnimationSteps;
         update();
     });
 }
@@ -122,15 +121,12 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
     if (isBusy()) {
         QColor busyColor = currentPalette.color(QPalette::WindowText);
         busyColor.setAlpha(190);
-        painter.setPen(QPen(busyColor, 2.0, Qt::SolidLine, Qt::RoundCap));
-        painter.setBrush(Qt::NoBrush);
-
         const qreal indicatorExtent = BusyIndicatorExtent;
         const QRectF ring((width() - indicatorExtent) / 2.0 + 2.5,
                           (height() - indicatorExtent) / 2.0 + 2.5,
                           indicatorExtent - 5.0,
                           indicatorExtent - 5.0);
-        painter.drawArc(ring, (-90 + _busyPhase * 30) * 16, 105 * 16);
+        BusyIndicator::draw(painter, ring, _busyPhase, busyColor, 2.0);
         return;
     }
 

@@ -24,6 +24,8 @@
 
 #include "WebSocketConnector.h"
 
+#include "HTTPConnector.h"
+
 #include <iostream>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -31,6 +33,9 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+#include <QNetworkInformation>
+#endif
 #include <QRandomGenerator>
 #include <QTimer>
 #include <QUrl>
@@ -45,10 +50,11 @@ namespace Mattermost {
 namespace {
 
 constexpr int HeartbeatIntervalMs = 30000;
-constexpr int MinReconnectDelayMs = 3000;
-constexpr int MaxReconnectDelayMs = 300000;
-constexpr int ReconnectJitterMs = 2000;
-constexpr int BackoffThreshold = 7;
+constexpr int HeartbeatReplyTimeoutMs = 10000;
+constexpr int ConnectionAttemptTimeoutMs = 15000;
+constexpr int MinReconnectDelayMs = 1000;
+constexpr int MaxReconnectDelayMs = 15000;
+constexpr int ReconnectJitterMs = 500;
 constexpr char BrowserUserAgent[] =
     "Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0";
 
@@ -185,18 +191,24 @@ struct WebSocketConnector::Private {
 	QUrl apiBaseUrl;
 	QUrl endpointUrl;
 	QTimer heartbeatTimer;
+	QTimer heartbeatReplyTimer;
 	QTimer reconnectTimer;
+	QTimer connectionAttemptTimer;
 	QString connectionId;
 	quint64 configGeneration = 0;
 	int responseSequence = 1;
 	int serverSequence = 0;
 	int pendingPingSequence = 0;
+	int pendingAuthenticationSequence = 0;
 	int reconnectAttempt = 0;
 	bool waitingForPong = false;
 	bool hasReconnect = false;
 	bool resumeFailed = false;
 	bool helloReceived = false;
+	bool connectNotified = false;
+	bool immediateReconnectPending = false;
 	bool suppressReconnect = false;
+    ConnectionState connectionState = ConnectionState::Disconnected;
 };
 
 WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
@@ -220,6 +232,7 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 		d->reconnectTimer.stop ();
 		d->responseSequence = 1;
 		d->helloReceived = false;
+		d->connectNotified = false;
 		d->resumeFailed = false;
 		doHandshake ();
 		startHeartbeat ();
@@ -227,6 +240,7 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 
 	connect (&d->webSocket, &QWebSocket::disconnected, this, [this] {
 		stopHeartbeat ();
+		d->connectionAttemptTimer.stop();
 		d->responseSequence = 1;
 
 		const bool reconnectSuppressed = d->suppressReconnect;
@@ -235,9 +249,20 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 		LOG_DEBUG ("WebSocket disconnected. Code: " << d->webSocket.closeCode() << " " << d->webSocket.closeReason());
 		emit onDisconnect ();
 		d->helloReceived = false;
+		d->connectNotified = false;
+
+		if (d->immediateReconnectPending && !reconnectSuppressed && !d->token.isEmpty()) {
+			d->immediateReconnectPending = false;
+			LOG_DEBUG("WebSocket restarting immediately after forced reconnect");
+			openSocket();
+			return;
+		}
+		d->immediateReconnectPending = false;
 
 		if (!reconnectSuppressed && !d->token.isEmpty()) {
 			scheduleReconnect ();
+        } else {
+            setConnectionState(ConnectionState::Disconnected);
 		}
 	});
 
@@ -246,6 +271,21 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 
 	d->heartbeatTimer.setInterval (HeartbeatIntervalMs);
 	connect (&d->heartbeatTimer, &QTimer::timeout, this, &WebSocketConnector::sendPing);
+
+	d->heartbeatReplyTimer.setSingleShot(true);
+	connect(&d->heartbeatReplyTimer, &QTimer::timeout, this, [this] {
+		if (!d->waitingForPong) {
+			return;
+		}
+
+		LOG_DEBUG("Mattermost WebSocket ping received no response within "
+		          << HeartbeatReplyTimeoutMs << " ms. Reconnecting");
+		d->waitingForPong = false;
+		d->pendingPingSequence = 0;
+		if (d->webSocket.state() == QAbstractSocket::ConnectedState) {
+			d->webSocket.abort();
+		}
+	});
 
 	d->reconnectTimer.setSingleShot (true);
 	connect (&d->reconnectTimer, &QTimer::timeout, this, [this] {
@@ -260,9 +300,114 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 				   << ", sequence_number=" << d->serverSequence << ")");
 		openSocket ();
 	});
+
+	d->connectionAttemptTimer.setSingleShot(true);
+	connect(&d->connectionAttemptTimer, &QTimer::timeout, this, [this] {
+		if (d->token.isEmpty() || d->suppressReconnect
+		    || d->connectionState == ConnectionState::Connected) {
+			return;
+		}
+
+		LOG_DEBUG("WebSocket connection attempt timed out after "
+		          << ConnectionAttemptTimeoutMs << " ms");
+		if (d->webSocket.state() == QAbstractSocket::UnconnectedState) {
+			scheduleReconnect();
+		} else {
+			d->webSocket.abort();
+		}
+	});
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+    if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
+        if (QNetworkInformation* networkInformation = QNetworkInformation::instance()) {
+            auto networkChanged = [this] {
+                if (d->connectionState == ConnectionState::Disconnected) {
+                    return;
+                }
+
+                // REST and realtime use independent transports. A WebSocket can
+                // survive a VPN/route change while QNetworkAccessManager is
+                // still bound to dead connections, so rotate HTTP immediately.
+                HTTPConnector::restartAllTransports();
+
+                if (d->connectionState == ConnectionState::WaitingForReconnect
+                    || d->connectionState == ConnectionState::Connecting) {
+                    LOG_DEBUG("Network state changed while reconnecting");
+                    reconnectNow();
+                    return;
+                }
+
+                if (d->connectionState == ConnectionState::Connected
+                    && d->webSocket.state() == QAbstractSocket::ConnectedState) {
+                    LOG_DEBUG("Network state changed while connected; probing WebSocket immediately");
+                    // Any outstanding ping belongs to the route that just changed.
+                    // Replace it with a fresh probe and ignore a late reply to the old one.
+                    d->heartbeatReplyTimer.stop();
+                    d->waitingForPong = false;
+                    d->pendingPingSequence = 0;
+                    sendPing();
+                }
+            };
+            connect(networkInformation, &QNetworkInformation::reachabilityChanged,
+                    this, networkChanged);
+            connect(networkInformation, &QNetworkInformation::transportMediumChanged,
+                    this, networkChanged);
+        }
+    }
+#endif
 }
 
 WebSocketConnector::~WebSocketConnector () = default;
+
+WebSocketConnector::ConnectionState WebSocketConnector::connectionState() const
+{
+    return d->connectionState;
+}
+
+void WebSocketConnector::setConnectionState(ConnectionState state)
+{
+    if (d->connectionState == state) {
+        return;
+    }
+    LOG_DEBUG("WebSocket connection state " << static_cast<int>(d->connectionState)
+              << " -> " << static_cast<int>(state));
+    d->connectionState = state;
+    emit connectionStateChanged(state);
+}
+
+void WebSocketConnector::reconnectNow()
+{
+    if (d->token.isEmpty() || d->suppressReconnect
+        || d->connectionState == ConnectionState::Connected) {
+        return;
+    }
+
+    d->reconnectTimer.stop();
+    d->connectionAttemptTimer.stop();
+    LOG_DEBUG("WebSocket reconnect requested immediately (connection_state="
+              << static_cast<int>(d->connectionState)
+              << ", socket_state=" << static_cast<int>(d->webSocket.state())
+              << ", connection_id=" << d->connectionId
+              << ", sequence_number=" << d->serverSequence << ")");
+
+    if (d->webSocket.state() == QAbstractSocket::UnconnectedState) {
+        d->immediateReconnectPending = false;
+        openSocket();
+        return;
+    }
+
+    d->immediateReconnectPending = true;
+    d->webSocket.abort();
+    QTimer::singleShot(0, this, [this] {
+        if (!d->immediateReconnectPending || d->token.isEmpty()
+            || d->suppressReconnect
+            || d->webSocket.state() != QAbstractSocket::UnconnectedState) {
+            return;
+        }
+        d->immediateReconnectPending = false;
+        openSocket();
+    });
+}
 
 void WebSocketConnector::open (const QString& urlString, const QString& authToken)
 {
@@ -272,14 +417,20 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	d->responseSequence = 1;
 	d->serverSequence = 0;
 	d->pendingPingSequence = 0;
+	d->pendingAuthenticationSequence = 0;
 	d->reconnectAttempt = 0;
 	d->waitingForPong = false;
 	d->hasReconnect = false;
 	d->resumeFailed = false;
 	d->helloReceived = false;
+	d->connectNotified = false;
+	d->immediateReconnectPending = false;
 	d->suppressReconnect = false;
 	d->reconnectTimer.stop ();
+	d->connectionAttemptTimer.stop();
 	stopHeartbeat ();
+    d->endpointUrl.clear();
+    setConnectionState(ConnectionState::Connecting);
 
 	const quint64 generation = ++d->configGeneration;
 	QUrl configUrl = d->apiBaseUrl;
@@ -335,7 +486,8 @@ void WebSocketConnector::scheduleReconnect ()
 {
 	stopHeartbeat ();
 
-	if (d->token.isEmpty() || d->suppressReconnect || d->reconnectTimer.isActive()) {
+	if (d->token.isEmpty() || d->suppressReconnect || d->immediateReconnectPending
+	    || d->reconnectTimer.isActive()) {
 		return;
 	}
 	if (d->webSocket.state() != QAbstractSocket::UnconnectedState) {
@@ -345,15 +497,17 @@ void WebSocketConnector::scheduleReconnect ()
 	d->hasReconnect = true;
 	++d->reconnectAttempt;
 
-	int delay = MinReconnectDelayMs;
-	if (d->reconnectAttempt > BackoffThreshold) {
-		const qint64 scaledDelay = static_cast<qint64>(MinReconnectDelayMs)
-			* d->reconnectAttempt * d->reconnectAttempt;
-		delay = static_cast<int>(qMin<qint64>(scaledDelay, MaxReconnectDelayMs));
+	const int exponent = qBound(0, d->reconnectAttempt - 1, 4);
+	int delay = qMin(MaxReconnectDelayMs, MinReconnectDelayMs * (1 << exponent));
+	if (delay < MaxReconnectDelayMs) {
+		delay = qMin(MaxReconnectDelayMs,
+		             delay + static_cast<int>(QRandomGenerator::global()->bounded(
+		                         static_cast<quint32>(ReconnectJitterMs))));
 	}
-	delay += static_cast<int>(QRandomGenerator::global()->bounded(static_cast<quint32>(ReconnectJitterMs)));
 
-	LOG_DEBUG ("WebSocket reconnect scheduled in " << delay << " ms");
+	LOG_DEBUG ("WebSocket reconnect attempt " << d->reconnectAttempt
+		       << " scheduled in " << delay << " ms");
+    setConnectionState(ConnectionState::WaitingForReconnect);
 	d->reconnectTimer.start (delay);
 }
 
@@ -377,6 +531,7 @@ void WebSocketConnector::openSocket ()
 		return;
 	}
 
+    setConnectionState(ConnectionState::Connecting);
 	const QUrl url = socketUrl ();
 	LOG_DEBUG ("WebSocket opening " << url.toString(QUrl::RemovePassword));
 
@@ -386,6 +541,7 @@ void WebSocketConnector::openSocket ()
 	request.setRawHeader("Cookie", "MMAUTHTOKEN=" + d->token.toUtf8());
 	request.setRawHeader("Pragma", "no-cache");
 	request.setRawHeader("Cache-Control", "no-cache");
+	d->connectionAttemptTimer.start(ConnectionAttemptTimeoutMs);
 	d->webSocket.open (request);
 }
 
@@ -396,6 +552,7 @@ void WebSocketConnector::doHandshake ()
 	};
 
 	const int sequence = d->responseSequence++;
+	d->pendingAuthenticationSequence = sequence;
 	QJsonDocument json (QJsonObject {
 		{"seq", sequence},
 		{"action", "authentication_challenge"},
@@ -415,6 +572,7 @@ void WebSocketConnector::startHeartbeat ()
 void WebSocketConnector::stopHeartbeat ()
 {
 	d->heartbeatTimer.stop ();
+	d->heartbeatReplyTimer.stop();
 	d->waitingForPong = false;
 	d->pendingPingSequence = 0;
 }
@@ -426,15 +584,13 @@ void WebSocketConnector::sendPing ()
 	}
 
 	if (d->waitingForPong) {
-		LOG_DEBUG ("Mattermost WebSocket ping received no response within "
-				   << HeartbeatIntervalMs << " ms. Reconnecting");
-		d->webSocket.abort ();
 		return;
 	}
 
 	const int sequence = d->responseSequence++;
 	d->pendingPingSequence = sequence;
 	d->waitingForPong = true;
+	d->heartbeatReplyTimer.start(HeartbeatReplyTimeoutMs);
 
 	QJsonDocument json (QJsonObject {
 		{"seq", sequence},
@@ -447,14 +603,19 @@ void WebSocketConnector::reset ()
 {
 	++d->configGeneration;
 	d->reconnectTimer.stop ();
+	d->connectionAttemptTimer.stop();
 	stopHeartbeat ();
 	d->connectionId.clear ();
 	d->responseSequence = 1;
 	d->serverSequence = 0;
+	d->pendingAuthenticationSequence = 0;
 	d->reconnectAttempt = 0;
 	d->hasReconnect = false;
 	d->resumeFailed = false;
 	d->helloReceived = false;
+	d->connectNotified = false;
+	d->immediateReconnectPending = false;
+    setConnectionState(ConnectionState::Disconnected);
 
 	if (d->webSocket.state() != QAbstractSocket::UnconnectedState) {
 		d->suppressReconnect = true;
@@ -479,11 +640,32 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	if (!seqReply.isUndefined()) {
 		const int replySequence = seqReply.toInt ();
 		if (d->waitingForPong && replySequence == d->pendingPingSequence) {
+			d->heartbeatReplyTimer.stop();
 			d->waitingForPong = false;
 			d->pendingPingSequence = 0;
 		}
 
-		if (jsonObject.contains(QStringLiteral("error"))) {
+		const bool actionFailed = jsonObject.contains(QStringLiteral("error"));
+		if (replySequence == d->pendingAuthenticationSequence) {
+			d->pendingAuthenticationSequence = 0;
+			if (actionFailed) {
+				LOG_DEBUG("WebSocket authentication challenge failed: "
+				          << doc.toJson(QJsonDocument::Compact));
+				d->webSocket.abort();
+				return;
+			}
+
+			if (!d->connectNotified) {
+				d->connectNotified = true;
+				d->connectionAttemptTimer.stop();
+				d->reconnectAttempt = 0;
+				const bool isReconnect = d->hasReconnect;
+				setConnectionState(ConnectionState::Connected);
+				emit onConnect(isReconnect, false);
+			}
+		}
+
+		if (actionFailed) {
 			LOG_DEBUG ("WebSocket action failed: " << doc.toJson(QJsonDocument::Compact));
 		}
 		return;
@@ -492,6 +674,7 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	const QString eventName = jsonObject.value (QStringLiteral("event")).toString ();
 
 	if (eventName == QStringLiteral("hello")) {
+		d->helloReceived = true;
 		const QString oldConnectionId = d->connectionId;
 		const QString newConnectionId = jsonObject.value(QStringLiteral("data"))
 			.toObject().value(QStringLiteral("connection_id")).toString();
@@ -532,18 +715,36 @@ void WebSocketConnector::onNewPacket (const QString& string)
 		d->serverSequence = eventSequence + 1;
 	}
 
-	if (eventName == QStringLiteral("hello") && !d->helloReceived) {
-		d->helloReceived = true;
+	const bool sequencedEvent = !eventSequenceValue.isUndefined();
+	if (!d->connectNotified
+	    && (eventName == QStringLiteral("hello") || sequencedEvent)) {
+		d->connectNotified = true;
+		d->connectionAttemptTimer.stop();
 		d->reconnectAttempt = 0;
 
-		// Historically the signal's bool meant "a socket reconnect occurred",
-		// and Backend consequently performed a full HTTP resync after every
-		// transient disconnect. Keep the signal ABI but narrow the bool to the
-		// only condition that needs that fallback: reliable replay failed.
-		const bool needsHttpResync = d->hasReconnect && d->resumeFailed;
+		const bool isReconnect = d->hasReconnect;
+		const bool needsHttpResync = isReconnect && d->resumeFailed;
+		if (isReconnect && eventName != QStringLiteral("hello")) {
+			LOG_DEBUG("Mattermost resumed the WebSocket stream without a hello event; "
+			          "a correctly sequenced event proves the resumed stream is live");
+		}
 		d->hasReconnect = false;
 		d->resumeFailed = false;
-		emit onConnect (needsHttpResync);
+        setConnectionState(ConnectionState::Connected);
+		emit onConnect(isReconnect, needsHttpResync);
+	} else if (d->connectNotified && d->hasReconnect
+	           && eventName == QStringLiteral("hello")) {
+		const bool needsHttpResync = d->resumeFailed;
+		d->hasReconnect = false;
+		d->resumeFailed = false;
+		if (needsHttpResync) {
+			LOG_DEBUG("Reliable WebSocket resume was rejected after authentication");
+			emit reliableResumeFailed();
+		}
+	} else if (d->connectNotified && d->hasReconnect && sequencedEvent) {
+		LOG_DEBUG("Mattermost reliable WebSocket resume confirmed by sequenced event");
+		d->hasReconnect = false;
+		d->resumeFailed = false;
 	}
 
 	auto it = eventHandlers.find (eventName);
