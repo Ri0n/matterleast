@@ -1,0 +1,108 @@
+name: Patch HTTP route recovery
+
+on:
+  push:
+    branches:
+      - connection-tracking-reconnect
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: connection-tracking-reconnect
+      - name: Apply transport recovery fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f"pattern not found in {path}: {old[:100]!r}")
+              if s.count(old) != 1:
+                  raise SystemExit(f"pattern occurs {s.count(old)} times in {path}")
+              p.write_text(s.replace(old, new, 1))
+
+          # HTTPConnector.h
+          replace_once(
+              'sources/backend/HTTPConnector.h',
+              '#include <QNetworkReply>\n#include <QQueue>\n#include <QSet>\n',
+              '#include <QHash>\n#include <QNetworkReply>\n#include <QQueue>\n#include <QSet>\n')
+          replace_once(
+              'sources/backend/HTTPConnector.h',
+              '\tvoid reset ();\n\n\tvoid get',
+              '\tvoid reset ();\n\tvoid restartTransport ();\n\tstatic void restartAllTransports ();\n\n\tvoid get')
+          replace_once(
+              'sources/backend/HTTPConnector.h',
+              '\tstd::unique_ptr<QNetworkAccessManager> qnetworkManager;\n\tQQueue<PendingRequest> highPriorityRequests;\n\tQQueue<PendingRequest> lowPriorityRequests;\n\tint activeRequests = 0;\n\tquint64 generation = 0;\n',
+              '\tstd::unique_ptr<QNetworkAccessManager> qnetworkManager;\n\tQQueue<PendingRequest> highPriorityRequests;\n\tQQueue<PendingRequest> lowPriorityRequests;\n\tQSet<QNetworkReply*> activeReplies;\n\tQHash<QNetworkReply*, PendingRequest> activeGetRequests;\n\tQSet<QNetworkReply*> replayedReplies;\n\tint activeRequests = 0;\n\tquint64 generation = 0;\n\tbool restartingTransport = false;\n')
+
+          # HTTPConnector.cpp: central manager factory.
+          replace_once(
+              'sources/backend/HTTPConnector.cpp',
+              'static QNetworkDiskCache* createDiskCache ()\n{\n\tQNetworkDiskCache* diskCache = new QNetworkDiskCache ();\n\tdiskCache->setCacheDirectory (QStandardPaths::writableLocation(QStandardPaths::CacheLocation));\n\n\tQSettings settings;\n\tunsigned cacheSizeMB = settings.value(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT).toUInt();\n\n\tdiskCache->setMaximumCacheSize (cacheSizeMB * 1024 * 1024);\n\treturn diskCache;\n}\n\nHTTPConnector::HTTPConnector ()\n:qnetworkManager (std::make_unique <QNetworkAccessManager> ())\n{\n\tqnetworkManager->setCache (createDiskCache ());\n\tqnetworkManager->setAutoDeleteReplies(true);\n\tconnectors.insert(this);\n}\n',
+              'static QNetworkDiskCache* createDiskCache ()\n{\n\tQNetworkDiskCache* diskCache = new QNetworkDiskCache ();\n\tdiskCache->setCacheDirectory (QStandardPaths::writableLocation(QStandardPaths::CacheLocation));\n\n\tQSettings settings;\n\tunsigned cacheSizeMB = settings.value(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT).toUInt();\n\n\tdiskCache->setMaximumCacheSize (cacheSizeMB * 1024 * 1024);\n\treturn diskCache;\n}\n\nstatic std::unique_ptr<QNetworkAccessManager> createNetworkManager ()\n{\n\tauto manager = std::make_unique<QNetworkAccessManager>();\n\tmanager->setCache(createDiskCache());\n\tmanager->setAutoDeleteReplies(true);\n\treturn manager;\n}\n\nHTTPConnector::HTTPConnector ()\n:qnetworkManager (createNetworkManager ())\n{\n\tconnectors.insert(this);\n}\n')
+
+          replace_once(
+              'sources/backend/HTTPConnector.cpp',
+              'void HTTPConnector::reset ()\n{\n\t// Requests owned by the old QNetworkAccessManager are aborted when the\n\t// manager is replaced. Release their slots in the process-wide limiter and\n\t// invalidate their callbacks before starting a new generation.\n\t++generation;\n\thighPriorityRequests.clear ();\n\tlowPriorityRequests.clear ();\n\tglobalActiveRequests = qMax(0, globalActiveRequests - activeRequests);\n\tactiveRequests = 0;\n    LocalPostDeleteTracker::clear();\n\n\tqnetworkManager.reset(new QNetworkAccessManager());\n\tqnetworkManager->setCache (createDiskCache ());\n\tqnetworkManager->setAutoDeleteReplies(true);\n\tprocessQueues();\n}\n',
+              '''void HTTPConnector::reset ()\n{\n\t// Full application/session reset: discard queued work and suppress callbacks\n\t// from replies owned by the old application/storage generation.\n\t++generation;\n\thighPriorityRequests.clear ();\n\tlowPriorityRequests.clear ();\n\tactiveReplies.clear();\n\tactiveGetRequests.clear();\n\treplayedReplies.clear();\n\tglobalActiveRequests = qMax(0, globalActiveRequests - activeRequests);\n\tactiveRequests = 0;\n\trestartingTransport = false;\n    LocalPostDeleteTracker::clear();\n\n\tqnetworkManager = createNetworkManager();\n\tprocessQueues();\n}\n\nvoid HTTPConnector::restartAllTransports ()\n{\n\t// A network route/interface change affects every QNetworkAccessManager in\n\t// the process, not just the connector currently used by Backend. Work from a\n\t// snapshot because callbacks may indirectly modify the connector set.\n\tconst QList<HTTPConnector*> snapshot = connectors.values();\n\tfor (HTTPConnector* connector : snapshot) {\n\t\tif (connector) {\n\t\t\tconnector->restartTransport();\n\t\t}\n\t}\n}\n\nvoid HTTPConnector::restartTransport ()\n{\n\tif (restartingTransport) {\n\t\treturn;\n\t}\n\n\trestartingTransport = true;\n\tconst quint64 restartGeneration = generation;\n\tLOG_DEBUG("Restarting HTTP transport after network route change; active="\n\t          << activeRequests << " queued="\n\t          << (highPriorityRequests.size() + lowPriorityRequests.size()));\n\n\t// GET is idempotent, so preserve the logical request and its callback. The\n\t// old reply is suppressed and the exact request is replayed on the fresh\n\t// QNetworkAccessManager. Mutating requests are deliberately not replayed: an\n\t// HTTP response may have been lost after the server committed the mutation.\n\tfor (auto it = activeGetRequests.cbegin(); it != activeGetRequests.cend(); ++it) {\n\t\treplayedReplies.insert(it.key());\n\t\tconst PendingRequest& request = it.value();\n\t\tif (request.request.priority() == QNetworkRequest::LowPriority) {\n\t\t\tlowPriorityRequests.prepend(request);\n\t\t} else {\n\t\t\thighPriorityRequests.prepend(request);\n\t\t}\n\t}\n\n\t// Abort old-route replies while their manager is still alive. Replayed GETs\n\t// skip their old callback; writes complete with OperationCanceledError so\n\t// their owner can apply its normal retry/uncertain-delivery policy.\n\tconst QList<QNetworkReply*> replies = activeReplies.values();\n\tfor (QNetworkReply* reply : replies) {\n\t\tif (reply) {\n\t\t\treply->abort();\n\t\t}\n\t}\n\n\tif (generation != restartGeneration) {\n\t\t// A callback performed a full reset while the old replies were aborted.\n\t\trestartingTransport = false;\n\t\treturn;\n\t}\n\n\tqnetworkManager = createNetworkManager();\n\trestartingTransport = false;\n\tprocessQueues();\n}\n''')
+
+          # startRequest: remember active replies and replayable GETs.
+          replace_once(
+              'sources/backend/HTTPConnector.cpp',
+              '\t++activeRequests;\n\t++globalActiveRequests;\n\tsetProcessReply(reply, std::move(request.responseHandler), generation);\n',
+              '''\t++activeRequests;\n\t++globalActiveRequests;\n\tactiveReplies.insert(reply);\n\tif (request.method == Method::Get) {\n\t\tactiveGetRequests.insert(reply, request);\n\t}\n\tsetProcessReply(reply, std::move(request.responseHandler), generation);\n''')
+
+          # finished handler: suppress the old half of replayed GETs but release slots.
+          replace_once(
+              'sources/backend/HTTPConnector.cpp',
+              '''\t\t[this, reply, responseHandler = std::move(responseHandler), requestGeneration]() mutable {\n\t\t\t// reset() replaces the QNetworkAccessManager and releases the limiter\n\t\t\t// slots for its old replies. Those aborted replies may still emit\n\t\t\t// finished; never deliver them into callbacks belonging to the new\n\t\t\t// application/storage generation.\n\t\t\tif (requestGeneration != generation) {\n\t\t\t\treply->deleteLater();\n\t\t\t\treturn;\n\t\t\t}\n\n\t\t\tconst int statusCode = reply->error();\n''',
+              '''\t\t[this, reply, responseHandler = std::move(responseHandler), requestGeneration]() mutable {\n\t\t\t// reset() replaces the QNetworkAccessManager and releases the limiter\n\t\t\t// slots for its old replies. Those aborted replies may still emit\n\t\t\t// finished; never deliver them into callbacks belonging to the new\n\t\t\t// application/storage generation.\n\t\t\tif (requestGeneration != generation) {\n\t\t\t\treply->deleteLater();\n\t\t\t\treturn;\n\t\t\t}\n\n\t\t\tconst bool replayed = replayedReplies.remove(reply);\n\t\t\tactiveReplies.remove(reply);\n\t\t\tactiveGetRequests.remove(reply);\n\t\t\tif (replayed) {\n\t\t\t\treply->deleteLater();\n\t\t\t\tif (activeRequests > 0) {\n\t\t\t\t\t--activeRequests;\n\t\t\t\t}\n\t\t\t\tif (globalActiveRequests > 0) {\n\t\t\t\t\t--globalActiveRequests;\n\t\t\t\t}\n\t\t\t\tif (!restartingTransport) {\n\t\t\t\t\tprocessQueues();\n\t\t\t\t}\n\t\t\t\treturn;\n\t\t\t}\n\n\t\t\tconst int statusCode = reply->error();\n''')
+
+          replace_once(
+              'sources/backend/HTTPConnector.cpp',
+              '\t\t\tprocessQueues();\n\t\t});\n\n#if QT_VERSION <= QT_VERSION_CHECK(5,15,0)',
+              '\t\t\tif (!restartingTransport) {\n\t\t\t\tprocessQueues();\n\t\t\t}\n\t\t});\n\n#if QT_VERSION <= QT_VERSION_CHECK(5,15,0)')
+
+          replace_once(
+              'sources/backend/HTTPConnector.cpp',
+              '''\t\t\tthis, [this, reply, requestGeneration](QNetworkReply::NetworkError error) {\n\t\tif (requestGeneration != generation) {\n\t\t\treturn;\n\t\t}\n\t\temit onNetworkError (error, reply->errorString());\n\t});\n''',
+              '''\t\t\tthis, [this, reply, requestGeneration](QNetworkReply::NetworkError error) {\n\t\tif (requestGeneration != generation || replayedReplies.contains(reply)) {\n\t\t\treturn;\n\t\t}\n\t\temit onNetworkError (error, reply->errorString());\n\t});\n''')
+
+          # Reconnects must rotate, not hard-reset, HTTP work.
+          replace_once(
+              'sources/backend/Backend.cpp',
+              'LOG_DEBUG("WebSocket reconnected - resetting HTTP transport");',
+              'LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");')
+          replace_once(
+              'sources/backend/Backend.cpp',
+              '''\t\t\thttpConnector.reset();\n\t\t}\n\n\t\temit onWebSocketConnect();\n''',
+              '''\t\t\thttpConnector.restartTransport();\n\t\t}\n\n\t\temit onWebSocketConnect();\n''')
+
+          # Network changes affect HTTP independently of WebSocket liveness.
+          replace_once(
+              'sources/backend/WebSocketConnector.cpp',
+              '#include "WebSocketConnector.h"\n',
+              '#include "WebSocketConnector.h"\n\n#include "HTTPConnector.h"\n')
+          replace_once(
+              'sources/backend/WebSocketConnector.cpp',
+              '''            auto networkChanged = [this] {\n                if (d->connectionState == ConnectionState::WaitingForReconnect\n''',
+              '''            auto networkChanged = [this] {\n                if (d->connectionState == ConnectionState::Disconnected) {\n                    return;\n                }\n\n                // REST and realtime use independent transports. A WebSocket can\n                // survive a VPN/route change while QNetworkAccessManager is\n                // still bound to dead connections, so rotate HTTP immediately.\n                HTTPConnector::restartAllTransports();\n\n                if (d->connectionState == ConnectionState::WaitingForReconnect\n''')
+          PY
+
+          git diff --check
+          git diff -- sources/backend/HTTPConnector.h sources/backend/HTTPConnector.cpp sources/backend/Backend.cpp sources/backend/WebSocketConnector.cpp
+
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add sources/backend/HTTPConnector.h sources/backend/HTTPConnector.cpp sources/backend/Backend.cpp sources/backend/WebSocketConnector.cpp
+          git commit -m "Recover HTTP transport across network changes"
+          git push origin HEAD:connection-tracking-reconnect
