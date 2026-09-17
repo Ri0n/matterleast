@@ -9,7 +9,8 @@ namespace Mattermost {
  *
  * Every user navigation starts a new generation. Asynchronous callbacks keep
  * the generation they started with and may publish UI state only while it is
- * still current.
+ * still current. This makes the latest user-selected destination authoritative
+ * even when an older HTTP or repository request completes later.
  */
 class NavigationRequestGate
 {
