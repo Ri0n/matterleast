@@ -1,4 +1,4 @@
-![Build status](https://github.com/Ri0n/mattermost-qt/actions/workflows/build.yaml/badge.svg?branch=master)
+![Build status](https://github.com/Ri0n/matterleast/actions/workflows/build.yaml/badge.svg?branch=master)
 
 # MatterLeast
 
@@ -45,7 +45,7 @@ Current CI covers:
 
 Unit tests are run in the CI matrix. Compiler warnings can be promoted to errors with `-DWARNINGS_AS_ERRORS=ON`.
 
-A separate manually triggered [Packages workflow](https://github.com/Ri0n/mattermost-qt/actions/workflows/packages.yml) builds:
+A separate manually triggered [Packages workflow](https://github.com/Ri0n/matterleast/actions/workflows/packages.yml) builds:
 
 - DEB packages for Ubuntu 22.04 / Qt 5;
 - DEB packages for Ubuntu 24.04 / Qt 6;
