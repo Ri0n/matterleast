@@ -195,6 +195,7 @@ struct WebSocketConnector::Private {
 	int responseSequence = 1;
 	int serverSequence = 0;
 	int pendingPingSequence = 0;
+	int pendingAuthenticationSequence = 0;
 	int reconnectAttempt = 0;
 	bool waitingForPong = false;
 	bool hasReconnect = false;
@@ -333,6 +334,8 @@ void WebSocketConnector::setConnectionState(ConnectionState state)
     if (d->connectionState == state) {
         return;
     }
+    LOG_DEBUG("WebSocket connection state " << static_cast<int>(d->connectionState)
+              << " -> " << static_cast<int>(state));
     d->connectionState = state;
     emit connectionStateChanged(state);
 }
@@ -379,6 +382,7 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	d->responseSequence = 1;
 	d->serverSequence = 0;
 	d->pendingPingSequence = 0;
+	d->pendingAuthenticationSequence = 0;
 	d->reconnectAttempt = 0;
 	d->waitingForPong = false;
 	d->hasReconnect = false;
@@ -513,6 +517,7 @@ void WebSocketConnector::doHandshake ()
 	};
 
 	const int sequence = d->responseSequence++;
+	d->pendingAuthenticationSequence = sequence;
 	QJsonDocument json (QJsonObject {
 		{"seq", sequence},
 		{"action", "authentication_challenge"},
@@ -569,6 +574,7 @@ void WebSocketConnector::reset ()
 	d->connectionId.clear ();
 	d->responseSequence = 1;
 	d->serverSequence = 0;
+	d->pendingAuthenticationSequence = 0;
 	d->reconnectAttempt = 0;
 	d->hasReconnect = false;
 	d->resumeFailed = false;
@@ -604,7 +610,27 @@ void WebSocketConnector::onNewPacket (const QString& string)
 			d->pendingPingSequence = 0;
 		}
 
-		if (jsonObject.contains(QStringLiteral("error"))) {
+		const bool actionFailed = jsonObject.contains(QStringLiteral("error"));
+		if (replySequence == d->pendingAuthenticationSequence) {
+			d->pendingAuthenticationSequence = 0;
+			if (actionFailed) {
+				LOG_DEBUG("WebSocket authentication challenge failed: "
+				          << doc.toJson(QJsonDocument::Compact));
+				d->webSocket.abort();
+				return;
+			}
+
+			if (!d->connectNotified) {
+				d->connectNotified = true;
+				d->connectionAttemptTimer.stop();
+				d->reconnectAttempt = 0;
+				const bool isReconnect = d->hasReconnect;
+				setConnectionState(ConnectionState::Connected);
+				emit onConnect(isReconnect, false);
+			}
+		}
+
+		if (actionFailed) {
 			LOG_DEBUG ("WebSocket action failed: " << doc.toJson(QJsonDocument::Compact));
 		}
 		return;
@@ -671,6 +697,19 @@ void WebSocketConnector::onNewPacket (const QString& string)
 		d->resumeFailed = false;
         setConnectionState(ConnectionState::Connected);
 		emit onConnect(isReconnect, needsHttpResync);
+	} else if (d->connectNotified && d->hasReconnect
+	           && eventName == QStringLiteral("hello")) {
+		const bool needsHttpResync = d->resumeFailed;
+		d->hasReconnect = false;
+		d->resumeFailed = false;
+		if (needsHttpResync) {
+			LOG_DEBUG("Reliable WebSocket resume was rejected after authentication");
+			emit reliableResumeFailed();
+		}
+	} else if (d->connectNotified && d->hasReconnect && sequencedEvent) {
+		LOG_DEBUG("Mattermost reliable WebSocket resume confirmed by sequenced event");
+		d->hasReconnect = false;
+		d->resumeFailed = false;
 	}
 
 	auto it = eventHandlers.find (eventName);

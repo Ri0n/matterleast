@@ -95,6 +95,14 @@ Backend::Backend(QObject *parent)
 		}
 	});
 
+	connect(&webSocketConnector, &WebSocketConnector::reliableResumeFailed,
+	        this, [this] {
+		LOG_DEBUG("Reliable WebSocket resume failed after authentication");
+		if (currentChannel) {
+			retrieveChannelPosts(*currentChannel, 0, 25);
+		}
+	});
+
 	//these signals are proxied
 	connect (&webSocketConnector, &WebSocketConnector::onDisconnect, this, &Backend::onWebSocketDisconnect);
     connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,

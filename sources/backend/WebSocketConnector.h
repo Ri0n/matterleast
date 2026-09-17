@@ -56,6 +56,7 @@ public:
     void reconnectNow();
 signals:
 	void onConnect (bool isReconnect, bool needsHttpResync);
+	void reliableResumeFailed();
 	void onDisconnect ();
     void connectionStateChanged(ConnectionState state);
 private:

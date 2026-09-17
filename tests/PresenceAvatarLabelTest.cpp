@@ -76,7 +76,7 @@ private slots:
         QCOMPARE(renderLabel(label), presence);
     }
 
-    void reconnectRequestOnlyComesFromWaitingBadge()
+    void reconnectRequestComesFromConnectionBadge()
     {
         PresenceAvatarLabel label;
         label.setFixedSize(48, 48);
