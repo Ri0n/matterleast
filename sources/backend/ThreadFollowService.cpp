@@ -26,6 +26,7 @@
 
 #include "Backend.h"
 #include "NetworkRequest.h"
+#include "PostUnreadRequest.h"
 #include "QByteArrayCreator.h"
 #include "SidebarService.h"
 #include "Storage.h"
@@ -460,6 +461,30 @@ void ThreadFollowService::setFollowing(const QString& teamId,
             callback(success);
         }
     }));
+}
+
+void ThreadFollowService::markThreadUnread(const QString& teamId,
+                                           const QString& threadId,
+                                           const QString& postId,
+                                           std::function<void(bool)> callback)
+{
+    const QString userId = _backend.getLoginUser().id;
+    if (userId.isEmpty() || teamId.isEmpty() || threadId.isEmpty() || postId.isEmpty()) {
+        if (callback) {
+            callback(false);
+        }
+        return;
+    }
+
+    NetworkRequest request(threadUnreadPath(userId, teamId, threadId, postId));
+    _httpConnector.post(
+        request, QByteArrayCreator(QByteArray {}),
+        HttpResponseCallback([callback = std::move(callback)](
+                                 QVariant status, const QJsonDocument&) mutable {
+            if (callback) {
+                callback(status.toInt() == QNetworkReply::NoError);
+            }
+        }));
 }
 
 void ThreadFollowService::markThreadRead(const QString& teamId,

@@ -17,4 +17,15 @@ inline QJsonObject postUnreadPayload(bool collapsedThreadsSupported)
                          collapsedThreadsSupported}};
 }
 
+inline QString threadUnreadPath(const QString& userId,
+                                const QString& teamId,
+                                const QString& threadId,
+                                const QString& postId)
+{
+    return QStringLiteral("users/") + userId
+        + QStringLiteral("/teams/") + teamId
+        + QStringLiteral("/threads/") + threadId
+        + QStringLiteral("/set_unread/") + postId;
+}
+
 } // namespace Mattermost
