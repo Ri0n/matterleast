@@ -476,3 +476,15 @@ if(TARGET matterleast-core)
     add_test(NAME manual-unread-read-state-test COMMAND manual-unread-read-state-test)
     set_tests_properties(manual-unread-read-state-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+if(TARGET matterleast-core)
+    add_executable(channel-header-text-label-test ChannelHeaderTextLabelTest.cpp)
+    target_link_libraries(channel-header-text-label-test
+        PRIVATE
+            matterleast-core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME channel-header-text-label-test COMMAND channel-header-text-label-test)
+    set_tests_properties(channel-header-text-label-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
