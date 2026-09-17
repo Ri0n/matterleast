@@ -1,0 +1,30 @@
+name: Apply navigation generation fix
+
+on:
+  push:
+    branches:
+      - fix-stale-permalink-navigation
+    paths:
+      - tools/apply_navigation_generation_fix.py
+      - .github/workflows/apply-navigation-generation-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-stale-permalink-navigation
+      - name: Apply fix
+        run: python3 tools/apply_navigation_generation_fix.py
+      - name: Commit fix
+        run: |
+          rm tools/apply_navigation_generation_fix.py .github/workflows/apply-navigation-generation-fix.yml
+          git config user.name 'Sergei Ilinykh'
+          git config user.email 'rion4ik@gmail.com'
+          git add -A
+          git commit -m 'Prevent stale semantic navigation callbacks'
+          git push
