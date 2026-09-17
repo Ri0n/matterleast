@@ -1,0 +1,32 @@
+name: Apply startup connection indicator fix
+
+on:
+  push:
+    branches:
+      - connection-tracking-reconnect
+    paths:
+      - tools/apply_connection_indicator_startup_fix.py
+      - .github/workflows/apply-connection-indicator-startup-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: connection-tracking-reconnect
+          fetch-depth: 0
+      - name: Apply fix
+        run: python3 tools/apply_connection_indicator_startup_fix.py
+      - name: Commit fix
+        run: |
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Show connection activity before avatar loads"
+          git push origin HEAD:connection-tracking-reconnect
