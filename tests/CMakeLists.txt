@@ -231,6 +231,12 @@ target_link_libraries(post-navigation-window-test
 
 add_test(NAME post-navigation-window-test COMMAND post-navigation-window-test)
 
+
+add_executable(navigation-request-gate-test NavigationRequestGateTest.cpp)
+target_include_directories(navigation-request-gate-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(navigation-request-gate-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME navigation-request-gate-test COMMAND navigation-request-gate-test)
+
 add_executable(message-text-edit-widget-test
     MessageTextEditWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/MessageTextEditWidget.cpp"

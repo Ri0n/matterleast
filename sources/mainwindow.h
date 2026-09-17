@@ -58,6 +58,7 @@ public:
 public:
 	void initializationComplete ();
     void installRealtimeUiSync();
+    void beginSemanticNavigation();
 	void openChannelPost(const QString& channelId,
 	                     const QString& postId = QString(),
 	                     const QString& rootId = QString(),
@@ -110,6 +111,7 @@ private:
     PostCollectionView*                 savedMessagesPage = nullptr;
     PostCollectionView*                 searchMessagesPage = nullptr;
 	QString								retainedUnreadFilterChannelId;
+    quint64                             semanticNavigationGeneration = 0;
 	bool								currentTeamRestoredFromSettings;
 	QMenu*								mainMenu;
 	SettingsWindow*						settingsWindow;
