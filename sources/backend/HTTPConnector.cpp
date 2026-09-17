@@ -239,7 +239,7 @@ void HTTPConnector::enqueue(PendingRequest request)
 HTTPConnector* HTTPConnector::connectorWithPendingRequest(bool lowPriority)
 {
 	for (HTTPConnector* connector : connectors) {
-		if (!connector) {
+		if (!connector || connector->restartingTransport) {
 			continue;
 		}
 		const auto& queue = lowPriority
