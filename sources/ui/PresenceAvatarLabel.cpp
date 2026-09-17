@@ -109,7 +109,6 @@ void PresenceAvatarLabel::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event && event->button() == Qt::LeftButton
         && connectionState != ConnectionIndicatorState::None
-        && !sourcePixmap.isNull()
         && connectionBadgeRect().adjusted(-BadgeHitMargin, -BadgeHitMargin,
                                           BadgeHitMargin, BadgeHitMargin)
                .contains(event->pos())) {
@@ -134,7 +133,7 @@ void PresenceAvatarLabel::paintEvent(QPaintEvent* event)
     }
     ClickableLabel::paintEvent(event);
 
-    if (connectionState == ConnectionIndicatorState::None || sourcePixmap.isNull()) {
+    if (connectionState == ConnectionIndicatorState::None) {
         return;
     }
 
@@ -161,6 +160,14 @@ void PresenceAvatarLabel::resizeEvent(QResizeEvent* event)
 
 QRectF PresenceAvatarLabel::connectionBadgeRect() const
 {
+    if (sourcePixmap.isNull()) {
+        const qreal extent = std::min<qreal>(16.0, std::min(width(), height()));
+        return QRectF((width() - extent) / 2.0,
+                      (height() - extent) / 2.0,
+                      extent,
+                      extent);
+    }
+
     int avatarSize = std::min(width(), height());
     if (avatarSize <= 0) {
         avatarSize = DefaultAvatarSize;

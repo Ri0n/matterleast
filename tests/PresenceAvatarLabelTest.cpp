@@ -26,6 +26,28 @@ class PresenceAvatarLabelTest : public QObject
     Q_OBJECT
 
 private slots:
+    void connectionIndicatorIsVisibleBeforeAvatarLoads()
+    {
+        PresenceAvatarLabel label;
+        label.setFixedSize(48, 48);
+        label.setConnectionIndicatorState(
+            PresenceAvatarLabel::ConnectionIndicatorState::Connecting);
+        label.show();
+        QCoreApplication::processEvents();
+
+        const QImage image = renderLabel(label);
+        bool hasPaintedPixel = false;
+        for (int y = 12; y < 36 && !hasPaintedPixel; ++y) {
+            for (int x = 12; x < 36; ++x) {
+                if (image.pixelColor(x, y).alpha() != 0) {
+                    hasPaintedPixel = true;
+                    break;
+                }
+            }
+        }
+        QVERIFY(hasPaintedPixel);
+    }
+
     void connectionIndicatorAnimatesAndRestoresPresence()
     {
         PresenceAvatarLabel label;
