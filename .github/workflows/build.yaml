@@ -84,7 +84,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          path: mattermost-qt
+          path: matterleast
 
       - name: Build and test in Fedora
         run: |
@@ -93,8 +93,8 @@ jobs:
           RUN dnf -y update \
               && dnf -y install cmake gcc-c++ make qt5-qtbase-devel qt5-qtsvg qt5-qtwebsockets-devel \
               && dnf clean all
-          COPY mattermost-qt /mattermost-qt
-          WORKDIR /mattermost-qt
+          COPY matterleast /matterleast
+          WORKDIR /matterleast
           RUN cmake -S . -B build \
               -DCMAKE_BUILD_TYPE=Release \
               -DQT_6=OFF \

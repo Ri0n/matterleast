@@ -34,7 +34,7 @@ if(NOT version MATCHES "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
 	message(FATAL_ERROR "Invalid MatterLeast version '${version}'")
 endif()
 
-project(qmattermost VERSION ${version} LANGUAGES CXX)
+project(matterleast VERSION ${version} LANGUAGES CXX)
 file(WRITE "${CMAKE_BINARY_DIR}/matterleast-version.txt" "${PROJECT_VERSION}\n")
 message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
@@ -120,7 +120,7 @@ include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
 add_subdirectory(third_party/QSourceHighlite)
 
 if(ANDROID)
-  add_library(mattermost-client SHARED
+  add_library(${APPID} SHARED
     main.cpp
     mainwindow.cpp
     mainwindow.h
@@ -144,16 +144,16 @@ else()
   # Share the production implementation with integration tests, including the
   # real repository, HTTP connector and source/widget signal wiring.
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
-  add_library(mattermost-core OBJECT ${SOURCES})
-  target_link_libraries(mattermost-core PUBLIC
+  add_library(matterleast-core OBJECT ${SOURCES})
+  target_link_libraries(matterleast-core PUBLIC
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite)
   if(TARGET Qt${QT_VERSION_MAJOR}::DBus)
-    target_link_libraries(mattermost-core PUBLIC Qt${QT_VERSION_MAJOR}::DBus)
-    target_compile_definitions(mattermost-core PRIVATE MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS)
+    target_link_libraries(matterleast-core PUBLIC Qt${QT_VERSION_MAJOR}::DBus)
+    target_compile_definitions(matterleast-core PRIVATE MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS)
   endif()
   add_executable(${APPID} sources/main.cpp resource.qrc)
-  target_link_libraries(${APPID} PRIVATE mattermost-core)
+  target_link_libraries(${APPID} PRIVATE matterleast-core)
 
   if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
 	target_sources(${APPID} PRIVATE resources/matterleast.rc)
@@ -215,18 +215,18 @@ if(UNIX)
 endif()
 
 if(BUILD_MULTIMEDIA)
-	target_link_libraries(qmattermost PRIVATE Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::MultimediaWidgets)
+	target_link_libraries(${APPID} PRIVATE Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::MultimediaWidgets)
 endif()
 
 set(CPACK_PACKAGE_NAME "${APPID}")
 set(CPACK_PACKAGE_VENDOR "${PRODUCT_NAME}")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MatterLeast - native Qt client for Mattermost")
-set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/Ri0n/mattermost-qt")
-set(CPACK_PACKAGE_CONTACT "MatterLeast Maintainers <maintainers@mattermost-qt.invalid>")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/Ri0n/matterleast")
+set(CPACK_PACKAGE_CONTACT "Sergei Ilinykh <rion4ik@gmail.com>")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/COPYING.LESSER")
 set(CPACK_PACKAGE_EXECUTABLES "${APPID}" "${PRODUCT_NAME}")
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "MatterLeast Maintainers <maintainers@mattermost-qt.invalid>")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Sergei Ilinykh <rion4ik@gmail.com>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "net")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_CONFLICTS "mattermost-qt")
