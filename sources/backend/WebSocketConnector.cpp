@@ -48,6 +48,7 @@ namespace Mattermost {
 namespace {
 
 constexpr int HeartbeatIntervalMs = 30000;
+constexpr int HeartbeatReplyTimeoutMs = 10000;
 constexpr int ConnectionAttemptTimeoutMs = 15000;
 constexpr int MinReconnectDelayMs = 1000;
 constexpr int MaxReconnectDelayMs = 15000;
@@ -188,6 +189,7 @@ struct WebSocketConnector::Private {
 	QUrl apiBaseUrl;
 	QUrl endpointUrl;
 	QTimer heartbeatTimer;
+	QTimer heartbeatReplyTimer;
 	QTimer reconnectTimer;
 	QTimer connectionAttemptTimer;
 	QString connectionId;
@@ -268,6 +270,21 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 	d->heartbeatTimer.setInterval (HeartbeatIntervalMs);
 	connect (&d->heartbeatTimer, &QTimer::timeout, this, &WebSocketConnector::sendPing);
 
+	d->heartbeatReplyTimer.setSingleShot(true);
+	connect(&d->heartbeatReplyTimer, &QTimer::timeout, this, [this] {
+		if (!d->waitingForPong) {
+			return;
+		}
+
+		LOG_DEBUG("Mattermost WebSocket ping received no response within "
+		          << HeartbeatReplyTimeoutMs << " ms. Reconnecting");
+		d->waitingForPong = false;
+		d->pendingPingSequence = 0;
+		if (d->webSocket.state() == QAbstractSocket::ConnectedState) {
+			d->webSocket.abort();
+		}
+	});
+
 	d->reconnectTimer.setSingleShot (true);
 	connect (&d->reconnectTimer, &QTimer::timeout, this, [this] {
 		if (d->token.isEmpty() || d->suppressReconnect) {
@@ -301,22 +318,29 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 #if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
     if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
         if (QNetworkInformation* networkInformation = QNetworkInformation::instance()) {
+            auto networkChanged = [this] {
+                if (d->connectionState == ConnectionState::WaitingForReconnect
+                    || d->connectionState == ConnectionState::Connecting) {
+                    LOG_DEBUG("Network state changed while reconnecting");
+                    reconnectNow();
+                    return;
+                }
+
+                if (d->connectionState == ConnectionState::Connected
+                    && d->webSocket.state() == QAbstractSocket::ConnectedState) {
+                    LOG_DEBUG("Network state changed while connected; probing WebSocket immediately");
+                    // Any outstanding ping belongs to the route that just changed.
+                    // Replace it with a fresh probe and ignore a late reply to the old one.
+                    d->heartbeatReplyTimer.stop();
+                    d->waitingForPong = false;
+                    d->pendingPingSequence = 0;
+                    sendPing();
+                }
+            };
             connect(networkInformation, &QNetworkInformation::reachabilityChanged,
-                    this, [this](QNetworkInformation::Reachability) {
-                if (d->connectionState == ConnectionState::WaitingForReconnect
-                    || d->connectionState == ConnectionState::Connecting) {
-                    LOG_DEBUG("Network reachability changed while reconnecting");
-                    reconnectNow();
-                }
-            });
+                    this, networkChanged);
             connect(networkInformation, &QNetworkInformation::transportMediumChanged,
-                    this, [this](QNetworkInformation::TransportMedium) {
-                if (d->connectionState == ConnectionState::WaitingForReconnect
-                    || d->connectionState == ConnectionState::Connecting) {
-                    LOG_DEBUG("Network transport changed while reconnecting");
-                    reconnectNow();
-                }
-            });
+                    this, networkChanged);
         }
     }
 #endif
@@ -537,6 +561,7 @@ void WebSocketConnector::startHeartbeat ()
 void WebSocketConnector::stopHeartbeat ()
 {
 	d->heartbeatTimer.stop ();
+	d->heartbeatReplyTimer.stop();
 	d->waitingForPong = false;
 	d->pendingPingSequence = 0;
 }
@@ -548,15 +573,13 @@ void WebSocketConnector::sendPing ()
 	}
 
 	if (d->waitingForPong) {
-		LOG_DEBUG ("Mattermost WebSocket ping received no response within "
-				   << HeartbeatIntervalMs << " ms. Reconnecting");
-		d->webSocket.abort ();
 		return;
 	}
 
 	const int sequence = d->responseSequence++;
 	d->pendingPingSequence = sequence;
 	d->waitingForPong = true;
+	d->heartbeatReplyTimer.start(HeartbeatReplyTimeoutMs);
 
 	QJsonDocument json (QJsonObject {
 		{"seq", sequence},
@@ -606,6 +629,7 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	if (!seqReply.isUndefined()) {
 		const int replySequence = seqReply.toInt ();
 		if (d->waitingForPong && replySequence == d->pendingPingSequence) {
+			d->heartbeatReplyTimer.stop();
 			d->waitingForPong = false;
 			d->pendingPingSequence = 0;
 		}
