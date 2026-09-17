@@ -1,0 +1,33 @@
+name: Apply thread unread domain patch
+
+on:
+  push:
+    branches:
+      - fix-thread-mark-unread-domain
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-thread-mark-unread-domain
+      - name: Apply patch
+        shell: bash
+        run: |
+          git apply --check .github/patches/thread-unread-domain.patch
+          git apply .github/patches/thread-unread-domain.patch
+          git diff --check
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git add sources/backend/PostUnreadRequest.h \
+                  sources/backend/ThreadFollowService.h \
+                  sources/backend/ThreadFollowService.cpp \
+                  sources/chat-area/ChatLogWidget.cpp \
+                  tests/PostUnreadRequestTest.cpp
+          git commit -m "Use CRT endpoint for thread mark unread"
+          git push origin HEAD:fix-thread-mark-unread-domain
