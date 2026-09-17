@@ -1,0 +1,31 @@
+name: Rebase connection tracking
+
+on:
+  push:
+    branches:
+      - connection-tracking-reconnect
+    paths:
+      - .github/workflows/rebase-connection-tracking.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: connection-tracking-reconnect
+      - name: Rebase onto master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Sergei Ilinykh"
+          git config user.email "rion4ik@gmail.com"
+          git fetch origin master
+          git rebase origin/master
+          git rm .github/workflows/rebase-connection-tracking.yml
+          git commit -m "Remove temporary rebase workflow"
+          git push --force-with-lease origin HEAD:connection-tracking-reconnect
