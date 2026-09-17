@@ -19,6 +19,7 @@
 
 #include "SettingsWindow.h"
 
+#include <QCheckBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -34,6 +35,7 @@
 #include <QVBoxLayout>
 
 #include "Settings.h"
+#include "options/MLOptions.h"
 #include "ui_SettingsWindow.h"
 
 namespace Mattermost {
@@ -94,6 +96,26 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* tabs = new QTabWidget(this);
     ui->downloads->setParent(tabs);
     tabs->addTab(ui->downloads, tr("Attachments"));
+
+    auto* composerPage = new QWidget(tabs);
+    auto* composerLayout = new QVBoxLayout(composerPage);
+    composerLayout->setContentsMargins(12, 12, 12, 12);
+    composerLayout->setSpacing(8);
+
+    sendWithCtrlEnter = new QCheckBox(
+        tr("Send messages with Ctrl+Enter instead of Enter"), composerPage);
+    sendWithCtrlEnter->setChecked(
+        MLOptions::instance()
+            ->optionObject<bool>(COMPOSER_SEND_WITH_CTRL_ENTER,
+                                 COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
+            ->value().toBool());
+    composerLayout->addWidget(sendWithCtrlEnter);
+    composerLayout->addWidget(makeDescription(
+        composerPage,
+        tr("When enabled, Enter inserts a new line and Ctrl+Enter sends the message. "
+           "Shift+Enter always inserts a new line.")));
+    composerLayout->addStretch(1);
+    tabs->addTab(composerPage, tr("Composer"));
 
     auto* cacheScroll = new QScrollArea(tabs);
     cacheScroll->setWidgetResizable(true);
@@ -226,6 +248,10 @@ void SettingsWindow::applyNewSettings ()
     settings.setValue (DOWNLOAD_ASK, ui->askLocationCheckBox->isChecked());
     settings.setValue (DOWNLOAD_IMAGE_MAX_WIDTH, ui->imageMaxWidthValue->text());
     settings.setValue (DOWNLOAD_IMAGE_MAX_HEIGHT, ui->imageMaxHeightValue->text());
+    MLOptions::instance()
+        ->optionObject<bool>(COMPOSER_SEND_WITH_CTRL_ENTER,
+                             COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
+        ->setValue(sendWithCtrlEnter->isChecked());
 
     settings.setValue(CACHE_SIZE_MB, attachmentCacheSizeMB->value());
     settings.setValue(POST_CACHE_DISK_CHANNEL_IDLE_HOURS, diskChannelIdleHours->value());

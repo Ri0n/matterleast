@@ -2,7 +2,9 @@
 
 #include <QCoreApplication>
 
+#include "Settings.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
+#include "options/MLOptions.h"
 
 using namespace Mattermost;
 
@@ -54,6 +56,70 @@ private slots:
         QCoreApplication::processEvents();
 
         QCOMPARE(editor.height(), 300);
+    }
+
+    void submitShortcutFollowsLiveOption()
+    {
+        auto* sendWithCtrlEnter = MLOptions::instance()->optionObject<bool>(
+            COMPOSER_SEND_WITH_CTRL_ENTER,
+            COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT);
+        const bool previous = sendWithCtrlEnter->value().toBool();
+
+        MessageTextEditWidget editor;
+        editor.resize(320, 40);
+        editor.show();
+        editor.setFocus();
+        QSignalSpy submitted(&editor, &MessageTextEditWidget::enterPressed);
+        QCoreApplication::processEvents();
+
+        sendWithCtrlEnter->setValue(false);
+
+        editor.setPlainText(QStringLiteral("first"));
+        editor.moveCursor(QTextCursor::End);
+        QTest::keyClick(&editor, Qt::Key_Return);
+        QCOMPARE(submitted.count(), 1);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("first"));
+
+        submitted.clear();
+        editor.setPlainText(QStringLiteral("first"));
+        editor.moveCursor(QTextCursor::End);
+        QTest::keyClick(&editor, Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(submitted.count(), 0);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("first\n"));
+
+        submitted.clear();
+        editor.setPlainText(QStringLiteral("first"));
+        editor.moveCursor(QTextCursor::End);
+        QTest::keyClick(&editor, Qt::Key_Return, Qt::ShiftModifier);
+        QCOMPARE(submitted.count(), 0);
+        QVERIFY(editor.toPlainText().startsWith(QStringLiteral("first")));
+        QVERIFY(editor.toPlainText().size() > QStringLiteral("first").size());
+
+        sendWithCtrlEnter->setValue(true);
+
+        submitted.clear();
+        editor.setPlainText(QStringLiteral("first"));
+        editor.moveCursor(QTextCursor::End);
+        QTest::keyClick(&editor, Qt::Key_Return);
+        QCOMPARE(submitted.count(), 0);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("first\n"));
+
+        submitted.clear();
+        editor.setPlainText(QStringLiteral("first"));
+        editor.moveCursor(QTextCursor::End);
+        QTest::keyClick(&editor, Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(submitted.count(), 1);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("first"));
+
+        submitted.clear();
+        editor.setPlainText(QStringLiteral("first"));
+        editor.moveCursor(QTextCursor::End);
+        QTest::keyClick(&editor, Qt::Key_Return, Qt::ShiftModifier);
+        QCOMPARE(submitted.count(), 0);
+        QVERIFY(editor.toPlainText().startsWith(QStringLiteral("first")));
+        QVERIFY(editor.toPlainText().size() > QStringLiteral("first").size());
+
+        sendWithCtrlEnter->setValue(previous);
     }
 
     void completesAtMentionWithoutReplacingSurroundingMessage()

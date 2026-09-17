@@ -36,6 +36,9 @@
 #include <QTextDocument>
 #include <QTimer>
 
+#include "Settings.h"
+#include "options/MLOptions.h"
+
 namespace Mattermost {
 namespace {
 
@@ -47,6 +50,16 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
     : InteractiveTextEdit(parent)
 {
     setSubmitOnEnter(true);
+
+    auto* sendWithCtrlEnter = MLOptions::instance()->optionObject<bool>(
+        COMPOSER_SEND_WITH_CTRL_ENTER,
+        COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT);
+    setSubmitOnCtrlEnter(sendWithCtrlEnter->value().toBool());
+    connect(sendWithCtrlEnter, &MLOptionObject::changed, this,
+            [this](const QVariant& value) {
+        setSubmitOnCtrlEnter(value.toBool());
+    });
+
     setSubmitHandler([this] { emit enterPressed(); });
 
     // Keep the composer visually continuous with the action row below it.
