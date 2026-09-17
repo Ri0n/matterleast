@@ -75,10 +75,10 @@ jobs:
           \tQJsonDocument json (QJsonObject {''')
 
           replace_once(p,
-          '''\td->pendingPingSequence = 0;
+          '''\td->serverSequence = 0;
           \td->reconnectAttempt = 0;
           \td->hasReconnect = false;''',
-          '''\td->pendingPingSequence = 0;
+          '''\td->serverSequence = 0;
           \td->pendingAuthenticationSequence = 0;
           \td->reconnectAttempt = 0;
           \td->hasReconnect = false;''')
