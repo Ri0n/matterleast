@@ -24,6 +24,7 @@
 #include "notifications/NotificationManager.h"
 #include "post-collection/PostCollectionView.h"
 #include "server-dialog/ServerDialog.h"
+#include "ui/PresenceAvatarLabel.h"
 #include "ui/TeamSelectorLabel.h"
 
 namespace Mattermost {
@@ -35,6 +36,22 @@ void MainWindow::installRealtimeUiSync()
         return;
     }
     setProperty(InstalledProperty, true);
+
+    auto updateConnectionIndicator = [this](WebSocketConnector::ConnectionState state) {
+        using IndicatorState = PresenceAvatarLabel::ConnectionIndicatorState;
+        IndicatorState indicatorState = IndicatorState::None;
+        if (state == WebSocketConnector::ConnectionState::Connecting) {
+            indicatorState = IndicatorState::Connecting;
+        } else if (state == WebSocketConnector::ConnectionState::WaitingForReconnect) {
+            indicatorState = IndicatorState::WaitingForReconnect;
+        }
+        ui->usericon_label->setConnectionIndicatorState(indicatorState);
+    };
+    connect(&backend, &Backend::onWebSocketConnectionStateChanged,
+            this, updateConnectionIndicator);
+    connect(ui->usericon_label, &PresenceAvatarLabel::reconnectRequested,
+            this, [this] { backend.retryWebSocketConnectionNow(); });
+    updateConnectionIndicator(backend.webSocketConnectionState());
 
     // Active webapp plugins are the server-owned discovery surface for native
     // integrations too. Keep the manifest snapshot session-local; adapters can

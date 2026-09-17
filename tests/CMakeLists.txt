@@ -431,6 +431,16 @@ target_link_libraries(theme-icon-widgets-test PRIVATE Qt${QT_VERSION_MAJOR}::Tes
 add_test(NAME theme-icon-widgets-test COMMAND theme-icon-widgets-test)
 set_tests_properties(theme-icon-widgets-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(presence-avatar-label-test
+    PresenceAvatarLabelTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/ui/PresenceAvatarLabel.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/ui/ClickableLabel.cpp"
+)
+target_include_directories(presence-avatar-label-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(presence-avatar-label-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME presence-avatar-label-test COMMAND presence-avatar-label-test)
+set_tests_properties(presence-avatar-label-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(sidebar-channel-move-policy-test SidebarChannelMovePolicyTest.cpp)
 target_include_directories(sidebar-channel-move-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(sidebar-channel-move-policy-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)

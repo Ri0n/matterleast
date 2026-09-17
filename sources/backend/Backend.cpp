@@ -98,6 +98,8 @@ Backend::Backend(QObject *parent)
 
 	//these signals are proxied
 	connect (&webSocketConnector, &WebSocketConnector::onDisconnect, this, &Backend::onWebSocketDisconnect);
+    connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,
+            this, &Backend::onWebSocketConnectionStateChanged);
 	connect (&httpConnector, &HTTPConnector::onNetworkError, this, &Backend::onNetworkError);
 
 	connect (&httpConnector, &HTTPConnector::onHttpError, [this] (uint32_t errorNumber, const QString& errorText) {
@@ -213,6 +215,16 @@ void Backend::setCurrentChannel (BackendChannel& channel)
 BackendChannel* Backend::getCurrentChannel () const
 {
 	return currentChannel;
+}
+
+WebSocketConnector::ConnectionState Backend::webSocketConnectionState() const
+{
+    return webSocketConnector.connectionState();
+}
+
+void Backend::retryWebSocketConnectionNow()
+{
+    webSocketConnector.reconnectNow();
 }
 
 bool Backend::autoLoginEnabled ()
