@@ -657,9 +657,17 @@ void ChatArea::onDeactivate()
     if (!isThread && ui && ui->listWidget) {
         showPinnedPosts(false);
 
-        QString postId;
-        if (ui->listWidget->captureViewportBookmark(postId)) {
-            storedViewportPostId = postId;
+        // The live edge is a viewport state of its own. Reducing it to the
+        // semantic center of the currently visible rows makes reopening a
+        // channel restore that center with Alignment::Center and pulls the
+        // viewport away from the newest post. An empty bookmark means
+        // "reopen at newest", so also clear any older stored bookmark here.
+        storedViewportPostId.clear();
+        if (!ui->listWidget->isAtEnd()) {
+            QString postId;
+            if (ui->listWidget->captureViewportBookmark(postId)) {
+                storedViewportPostId = postId;
+            }
         }
     }
 
