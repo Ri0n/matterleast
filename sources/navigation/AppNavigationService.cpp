@@ -288,6 +288,17 @@ AppNavigationService::AppNavigationService(Backend& sourceBackend)
     ensureMainWindowConnection();
 }
 
+quint64 AppNavigationService::beginNavigation()
+{
+    // The service may have been instantiated before MainWindow existed. Make
+    // sure the synchronous invalidation signal has a receiver before publishing
+    // the new generation.
+    ensureMainWindowConnection();
+    const quint64 generation = navigationRequests.begin();
+    emit navigationStarted();
+    return generation;
+}
+
 void AppNavigationService::ensureMainWindowConnection()
 {
     // The singleton can be instantiated by cached-link/sidebar code before the
@@ -296,6 +307,9 @@ void AppNavigationService::ensureMainWindowConnection()
     // dependence from semantic navigation.
     for (QWidget* widget : QApplication::topLevelWidgets()) {
         if (auto* mainWindow = qobject_cast<MainWindow*>(widget)) {
+            connect(this, &AppNavigationService::navigationStarted,
+                    mainWindow, &MainWindow::beginSemanticNavigation,
+                    Qt::UniqueConnection);
             connect(this, &AppNavigationService::channelRequested,
                     mainWindow, &MainWindow::openChannelPost,
                     Qt::UniqueConnection);
@@ -349,6 +363,7 @@ BackendChannel* AppNavigationService::findPostChannel(const QString& postId) con
 
 void AppNavigationService::openChannel(const QString& channelId)
 {
+    beginNavigation();
     if (!channelId.isEmpty() && backend.getStorage().getChannelById(channelId)) {
         ensureMainWindowConnection();
         emit channelRequested(channelId, QString(), QString(), QStringList(),
@@ -358,6 +373,7 @@ void AppNavigationService::openChannel(const QString& channelId)
 
 void AppNavigationService::openThread(const QString& channelId, const QString& rootId)
 {
+    beginNavigation();
     if (channelId.isEmpty() || rootId.isEmpty()
         || !backend.getStorage().getChannelById(channelId)) {
         return;
@@ -379,6 +395,7 @@ void AppNavigationService::openUrl(const QUrl& url)
     }
 
     if (!isLocalUrl(url)) {
+        beginNavigation();
         QDesktopServices::openUrl(url);
         return;
     }
@@ -417,18 +434,20 @@ void AppNavigationService::openUrl(const QUrl& url)
     const QUrl browserUrl = url.isRelative()
         ? QUrl(NetworkRequest::host()).resolved(url)
         : url;
+    beginNavigation();
     QDesktopServices::openUrl(browserUrl);
 }
 
 void AppNavigationService::openPost(const QString& postId)
 {
+    const quint64 navigationGeneration = beginNavigation();
     if (postId.isEmpty()) {
         qCWarning(lcNavigationResolve) << "Ignoring navigation to an empty post id";
         return;
     }
 
     if (BackendChannel* channel = findPostChannel(postId)) {
-        openPostInChannel(*channel, postId);
+        openPostInChannel(*channel, postId, navigationGeneration);
         return;
     }
 
@@ -436,8 +455,8 @@ void AppNavigationService::openPost(const QString& postId)
     auto* resolver = new NavigationPostResolver(
         backend,
         postId,
-        [guard, postId](BackendChannel* channel) {
-            if (!guard) {
+        [guard, postId, navigationGeneration](BackendChannel* channel) {
+            if (!guard || !guard->navigationRequests.isCurrent(navigationGeneration)) {
                 return;
             }
             if (!channel) {
@@ -445,7 +464,7 @@ void AppNavigationService::openPost(const QString& postId)
                     << "Navigation target could not be resolved" << postId;
                 return;
             }
-            guard->openPostInChannel(*channel, postId);
+            guard->openPostInChannel(*channel, postId, navigationGeneration);
         },
         this);
     resolver->start();
@@ -458,6 +477,7 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
                                                   NavigationCallback callback,
                                                   bool preserveIfOpen)
 {
+    const quint64 navigationGeneration = beginNavigation();
     BackendChannel* channel = backend.getStorage().getChannelById(channelId);
     if (!channel || rootId.isEmpty()) {
         if (callback) {
@@ -470,8 +490,11 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
     PostRepository::instance(backend).loadThreadFromTime(
         *channel, rootId, 30, lastViewedAt,
         [guard, channelId, rootId, lastViewedAt, fallbackPostId, preserveIfOpen,
-         callback = std::move(callback)](const PostRepository::Page& page) mutable {
-            if (!guard) {
+         navigationGeneration, callback = std::move(callback)](const PostRepository::Page& page) mutable {
+            if (!guard || !guard->navigationRequests.isCurrent(navigationGeneration)) {
+                if (callback) {
+                    callback(false);
+                }
                 return;
             }
 
@@ -534,13 +557,20 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
 }
 
 void AppNavigationService::openPostInChannel(BackendChannel& channel,
-                                             const QString& postId)
+                                             const QString& postId,
+                                             quint64 navigationGeneration)
 {
+    if (!navigationRequests.isCurrent(navigationGeneration)) {
+        return;
+    }
     if (BackendPost* cached = channel.postIdToPost.value(postId, nullptr)) {
         if (!cached->root_id.isEmpty()) {
             const QString channelId = channel.id;
             const QString rootId = cached->root_id;
-            const auto presentReply = [this, channelId, postId, rootId] {
+            const auto presentReply = [this, channelId, postId, rootId, navigationGeneration] {
+                if (!navigationRequests.isCurrent(navigationGeneration)) {
+                    return;
+                }
                 ensureMainWindowConnection();
                 emit channelRequested(channelId,
                                       postId,
@@ -563,8 +593,10 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
             QPointer<AppNavigationService> guard(this);
             PostRepository::instance(backend).loadPost(
                 rootId,
-                [guard, channelId, postId, rootId](const PostRepository::PostResult& result) {
-                    if (!guard || !result.success || result.channelId != channelId) {
+                [guard, channelId, postId, rootId, navigationGeneration](const PostRepository::PostResult& result) {
+                    if (!guard
+                        || !guard->navigationRequests.isCurrent(navigationGeneration)
+                        || !result.success || result.channelId != channelId) {
                         return;
                     }
 
@@ -595,8 +627,9 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
     const QString channelId = channel.id;
     PostRepository::instance(backend).loadChannelAround(
         channel, postId,
-        [guard, channelId, postId](const PostRepository::Context& context) {
-            if (!guard || !context.success) {
+        [guard, channelId, postId, navigationGeneration](const PostRepository::Context& context) {
+            if (!guard || !guard->navigationRequests.isCurrent(navigationGeneration)
+                || !context.success) {
                 return;
             }
 

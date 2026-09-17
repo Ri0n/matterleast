@@ -21,6 +21,14 @@ Q_LOGGING_CATEGORY(lcNavigationJump, "mattermost.navigation.jump", QtWarningMsg)
 
 } // namespace
 
+void MainWindow::beginSemanticNavigation()
+{
+    ++semanticNavigationGeneration;
+    if (semanticNavigationGeneration == 0) {
+        ++semanticNavigationGeneration;
+    }
+}
+
 void MainWindow::openChannelPost(const QString& channelId,
                                  const QString& postId,
                                  const QString& rootId,
@@ -29,6 +37,7 @@ void MainWindow::openChannelPost(const QString& channelId,
                                  bool reachedNewest,
                                  bool preserveIfOpen)
 {
+    const quint64 navigationGeneration = semanticNavigationGeneration;
     if (channelId.isEmpty()) {
         return;
     }
@@ -64,27 +73,29 @@ void MainWindow::openChannelPost(const QString& channelId,
     // leaving the newly joined channel open at its default position.
     const auto armStoredChannelRetry = [this, channelId, postId, rootId,
                                         contextPostIds, reachedOldest,
-                                        reachedNewest, preserveIfOpen] {
+                                        reachedNewest, preserveIfOpen,
+                                        navigationGeneration] {
         auto connection = std::make_shared<QMetaObject::Connection>();
         QPointer<MainWindow> guard(this);
         *connection = connect(ui->channelList, &ChannelTree::storedChannelOpenFinished,
                               this,
                               [guard, connection, channelId, postId, rootId,
                                contextPostIds, reachedOldest, reachedNewest,
-                               preserveIfOpen](const QString& completedChannelId,
+                               preserveIfOpen, navigationGeneration](const QString& completedChannelId,
                                               bool opened) {
             if (completedChannelId != channelId) {
                 return;
             }
             QObject::disconnect(*connection);
-            if (!guard || !opened) {
+            if (!guard || !opened
+                || navigationGeneration != guard->semanticNavigationGeneration) {
                 return;
             }
 
             QTimer::singleShot(0, guard.data(),
                 [guard, channelId, postId, rootId, contextPostIds,
-                 reachedOldest, reachedNewest, preserveIfOpen] {
-                    if (guard) {
+                 reachedOldest, reachedNewest, preserveIfOpen, navigationGeneration] {
+                    if (guard && navigationGeneration == guard->semanticNavigationGeneration) {
                         guard->openChannelPost(channelId, postId, rootId,
                                                contextPostIds, reachedOldest,
                                                reachedNewest, preserveIfOpen);
@@ -118,8 +129,8 @@ void MainWindow::openChannelPost(const QString& channelId,
             QPointer<MainWindow> guard(this);
             QTimer::singleShot(0, this,
                 [guard, channelId, postId, rootId, contextPostIds,
-                 reachedOldest, reachedNewest, preserveIfOpen] {
-                    if (guard) {
+                 reachedOldest, reachedNewest, preserveIfOpen, navigationGeneration] {
+                    if (guard && navigationGeneration == guard->semanticNavigationGeneration) {
                         guard->openChannelPost(channelId, postId, rootId,
                                                contextPostIds, reachedOldest,
                                                reachedNewest, preserveIfOpen);
@@ -164,9 +175,12 @@ void MainWindow::openChannelPost(const QString& channelId,
         navigationUi.presentThread(threadArea);
 
         QPointer<ChatArea> threadGuard(threadArea);
+        QPointer<MainWindow> windowGuard(this);
         QTimer::singleShot(0, threadArea,
-            [threadGuard, postId] {
-                if (!threadGuard || !threadGuard->lockNavigationToPost(postId, 0)) {
+            [threadGuard, windowGuard, postId, navigationGeneration] {
+                if (!threadGuard || !windowGuard
+                    || navigationGeneration != windowGuard->semanticNavigationGeneration
+                    || !threadGuard->lockNavigationToPost(postId, 0)) {
                     return;
                 }
                 threadGuard->highlightPostWhenReady(postId);
@@ -199,9 +213,12 @@ void MainWindow::openChannelPost(const QString& channelId,
     // event-loop turn. Publish the already-fetched permalink context before
     // asking ChatLogWidget to establish the one semantic viewport lock.
     QPointer<ChatArea> areaGuard(area);
+    QPointer<MainWindow> windowGuard(this);
     QTimer::singleShot(0, area,
-        [areaGuard, postId, contextPostIds, reachedOldest, reachedNewest] {
-            if (!areaGuard) {
+        [areaGuard, windowGuard, postId, contextPostIds, reachedOldest, reachedNewest,
+         navigationGeneration] {
+            if (!areaGuard || !windowGuard
+                || navigationGeneration != windowGuard->semanticNavigationGeneration) {
                 return;
             }
 

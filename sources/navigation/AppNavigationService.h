@@ -7,6 +7,8 @@
 #include <QStringList>
 #include <QUrl>
 
+#include "NavigationRequestGate.h"
+
 namespace Mattermost {
 
 class Backend;
@@ -33,6 +35,9 @@ public:
                                 bool preserveIfOpen = true);
 
 signals:
+    /** Emitted synchronously whenever a newer semantic navigation supersedes pending work. */
+    void navigationStarted();
+
     void channelRequested(const QString& channelId,
                           const QString& postId,
                           const QString& rootId,
@@ -44,14 +49,17 @@ signals:
 private:
     explicit AppNavigationService(Backend& backend);
 
+    quint64 beginNavigation();
     void ensureMainWindowConnection();
     bool isLocalUrl(const QUrl& url) const;
     BackendChannel* findChannel(const QString& teamName,
                                 const QString& channelName) const;
     BackendChannel* findPostChannel(const QString& postId) const;
-    void openPostInChannel(BackendChannel& channel, const QString& postId);
+    void openPostInChannel(BackendChannel& channel, const QString& postId,
+                           quint64 navigationGeneration);
 
     Backend& backend;
+    NavigationRequestGate navigationRequests;
 };
 
 } // namespace Mattermost
