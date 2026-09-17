@@ -65,9 +65,11 @@ private slots:
         const QImage firstFrame = renderLabel(label);
         QVERIFY(firstFrame != presence);
 
-        QTest::qWait(80);
-        const QImage secondFrame = renderLabel(label);
-        QVERIFY(secondFrame != firstFrame);
+        // At a 12 px badge two adjacent 30-degree phases can rasterize to the
+        // same pixels on some Qt/platform combinations. Wait until any later
+        // animation phase is visibly different instead of assuming the very
+        // next timer tick must differ bit-for-bit.
+        QTRY_VERIFY_WITH_TIMEOUT(renderLabel(label) != firstFrame, 1000);
 
         label.setConnectionIndicatorState(
             PresenceAvatarLabel::ConnectionIndicatorState::None);
