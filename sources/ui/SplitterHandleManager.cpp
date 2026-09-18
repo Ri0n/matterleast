@@ -45,11 +45,10 @@ bool SplitterHandleManager::eventFilter(QObject* watched, QEvent* event)
 
     QPainter painter(handle);
 
-    // Keep the 4 px mouse target, but make only one logical pixel visible.
-    // The application palette is the source of the actual dark content surface;
-    // sampling a child widget here is unreliable because its (0,0) can itself
-    // contain a frame/border.
-    const QColor background = qApp->palette().color(QPalette::Window);
+    // The actual chat surface is QPalette::Base (the same role used by the
+    // scroll-area viewport), not QPalette::Window. Keep the full handle for
+    // hit testing, but visually merge it into that surface.
+    const QColor background = handle->palette().color(QPalette::Base);
     painter.fillRect(handle->rect(), background);
 
     const QColor divider = handle->palette().color(QPalette::Mid);
