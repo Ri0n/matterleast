@@ -60,6 +60,7 @@
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
+#include "ui_ChatArea.h"
 #include "chat-area/QuotedPostPreview.h"
 #include "chat-area/QuotedReplyController.h"
 #include "chat-area/QuotedReplyFormat.h"
