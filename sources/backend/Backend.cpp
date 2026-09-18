@@ -26,6 +26,7 @@
 
 #include <iostream>
 #include <utility>
+#include <QSharedPointer>
 #include <QtWebSockets/QWebSocket>
 #include <QNetworkCookie>
 #include <QNetworkReply>
@@ -37,7 +38,10 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
+#include <QHttpMultiPart>
+#include <QMimeDatabase>
 #include <QStandardPaths>
+#include <QUuid>
 #include <QDebug>
 #include <QList>
 
@@ -1162,39 +1166,108 @@ void Backend::sendPostAction (const BackendPost& post, const QString& action)
 	}));
 }
 
-void Backend::uploadFile (BackendChannel& channel, const QString& filePath, std::function<void (QString)> responseHandler)
+void Backend::uploadFile(BackendChannel& channel,
+                         const QString& filePath,
+                         std::function<void(QString, QString)> responseHandler)
 {
-	QFileInfo fileInfo (filePath);
+    const QFileInfo fileInfo(filePath);
+    auto multipart =
+        QSharedPointer<QHttpMultiPart>::create(QHttpMultiPart::FormDataType);
 
-	NetworkRequest request ("files?channel_id=" + channel.id + "&filename=" + fileInfo.fileName());
-	request.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
+    QHttpPart channelPart;
+    channelPart.setHeader(
+        QNetworkRequest::ContentDispositionHeader,
+        QStringLiteral("form-data; name=\"channel_id\""));
+    channelPart.setBody(channel.id.toUtf8());
+    multipart->append(channelPart);
 
-	QFile file (filePath);
+    const QString clientId =
+        QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QHttpPart clientIdPart;
+    clientIdPart.setHeader(
+        QNetworkRequest::ContentDispositionHeader,
+        QStringLiteral("form-data; name=\"client_ids\""));
+    clientIdPart.setBody(clientId.toUtf8());
+    multipart->append(clientIdPart);
 
-	if (!file.open(QIODevice::ReadOnly)) {
-		qDebug() << "Cannot open file " << filePath;
-		return;
-	}
+    // Mattermost's streaming multipart parser expects metadata first and the
+    // file part last. This is also the order used by the official web client.
+    auto* file = new QFile(filePath, multipart.data());
+    if (!file->open(QIODevice::ReadOnly)) {
+        const QString error = file->errorString();
+        qWarning() << "Cannot open attachment" << filePath << ':' << error;
+        if (responseHandler) {
+            responseHandler(QString(), error);
+        }
+        return;
+    }
 
-	QByteArray data = file.readAll();
-	qDebug() << data.size();
+    QString escapedName = fileInfo.fileName();
+    escapedName.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    escapedName.replace(QLatin1Char('"'), QStringLiteral("\\\""));
 
-	httpConnector.post (request, data, HttpResponseCallback ([this, responseHandler](QVariant, const QJsonDocument& doc) {
+    QHttpPart filePart;
+    filePart.setHeader(
+        QNetworkRequest::ContentDispositionHeader,
+        QStringLiteral("form-data; name=\"files\"; filename=\"%1\"")
+            .arg(escapedName));
 
-#if 1
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		std::cout << jsonString.toStdString() << std::endl;
-#endif
+    const QString mimeType =
+        QMimeDatabase().mimeTypeForFile(
+            filePath, QMimeDatabase::MatchExtension).name();
+    if (!mimeType.isEmpty()) {
+        filePart.setHeader(QNetworkRequest::ContentTypeHeader, mimeType);
+    }
+    filePart.setBodyDevice(file);
+    multipart->append(filePart);
 
-		QJsonObject root = doc.object();
-		QJsonArray arr = root.value ("file_infos").toArray();
+    NetworkRequest request(QStringLiteral("files"));
+    request.setRawHeader("Accept", "application/json");
 
-		if (arr.size() < 1) {
-			return responseHandler ("");
-		}
+    httpConnector.post(
+        request,
+        multipart,
+        HttpResponseCallback(
+            [responseHandler = std::move(responseHandler)](
+                QVariant status, QByteArray data, const QNetworkReply& reply) mutable {
+                if (!responseHandler) {
+                    return;
+                }
 
-		responseHandler (arr.at(0).toObject().value("id").toString());
-	}));
+                const QJsonDocument document = QJsonDocument::fromJson(data);
+                if (status.toInt() != QNetworkReply::NoError) {
+                    QString error = reply.errorString();
+                    if (document.isObject()) {
+                        const QString serverMessage =
+                            document.object().value("message").toString();
+                        if (!serverMessage.isEmpty()) {
+                            error = serverMessage;
+                        }
+                    }
+                    responseHandler(QString(), error);
+                    return;
+                }
+
+                const QJsonArray infos =
+                    document.object().value("file_infos").toArray();
+                if (infos.isEmpty()) {
+                    responseHandler(
+                        QString(),
+                        QStringLiteral("Upload returned no file information"));
+                    return;
+                }
+
+                const QString fileId =
+                    infos.first().toObject().value("id").toString();
+                if (fileId.isEmpty()) {
+                    responseHandler(
+                        QString(),
+                        QStringLiteral("Upload returned an empty file id"));
+                    return;
+                }
+
+                responseHandler(fileId, QString());
+            }));
 }
 
 void Backend::createDirectChannel(const BackendUser& user,

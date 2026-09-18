@@ -172,7 +172,9 @@ public:
 	void sendPostAction (const BackendPost& post, const QString& action);
 
 	//upload a file, to be added to a post (/files)
-	void uploadFile (BackendChannel& channel, const QString& filePath, std::function<void(QString)> responseHandler);
+	void uploadFile(BackendChannel& channel,
+	                const QString& filePath,
+	                std::function<void(QString, QString)> responseHandler);
 
 	//create a direct channel with given user (/channels/direct)
 	void createDirectChannel(const BackendUser& user,
