@@ -31,6 +31,10 @@ static constexpr const char* DOWNLOAD_ASK = "config/downloadAsk";
 static constexpr const char* DOWNLOAD_IMAGE_MAX_WIDTH = "config/imageMaxWidth";
 static constexpr const char* DOWNLOAD_IMAGE_MAX_HEIGHT = "config/imageMaxHeight";
 
+static constexpr const char* COMPOSER_SEND_WITH_CTRL_ENTER =
+    "composer/sendWithCtrlEnter";
+static constexpr bool COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT = false;
+
 // Historical attachment-file cache setting. Keep the key stable for existing
 // installations, but expose it explicitly on the Cache settings tab.
 static constexpr const char* CACHE_SIZE_MB = "config/cacheSizeMB";

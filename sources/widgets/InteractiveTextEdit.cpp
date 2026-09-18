@@ -324,13 +324,28 @@ void InteractiveTextEdit::keyPressEvent(QKeyEvent* event)
         }
     }
 
-    if (submitOnEnter
-        && (event->key() == Qt::Key_Enter || event->key() == Qt::Key_Return)
-        && !(event->modifiers() & Qt::ShiftModifier)) {
-        if (submitHandler) {
-            submitHandler();
+    const bool returnKey = event->key() == Qt::Key_Enter || event->key() == Qt::Key_Return;
+    const bool shiftPressed = event->modifiers() & Qt::ShiftModifier;
+    const bool ctrlPressed = event->modifiers() & Qt::ControlModifier;
+
+    if (submitOnEnter && returnKey && !shiftPressed) {
+        const bool shouldSubmit = submitOnCtrlEnter ? ctrlPressed : !ctrlPressed;
+        if (shouldSubmit) {
+            if (submitHandler) {
+                submitHandler();
+            }
+            event->accept();
+            return;
         }
+
+        // The alternate Return shortcut is always a newline. Do this explicitly
+        // instead of relying on platform-specific QTextEdit handling of
+        // Ctrl+Return so the two submit modes behave identically on Qt 5/6.
+        QTextCursor cursor = textCursor();
+        cursor.insertBlock();
+        setTextCursor(cursor);
         event->accept();
+        QTimer::singleShot(0, this, [this] { refreshCompletion(); });
         return;
     }
 

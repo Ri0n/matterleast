@@ -21,6 +21,7 @@
 
 #include <QDialog>
 
+class QCheckBox;
 class QSpinBox;
 
 namespace Ui {
@@ -42,6 +43,7 @@ public:
 private:
     Ui::SettingsWindow *ui;
 
+    QCheckBox* sendWithCtrlEnter = nullptr;
     QSpinBox* attachmentCacheSizeMB = nullptr;
     QSpinBox* diskChannelIdleHours = nullptr;
     QSpinBox* diskMaxMB = nullptr;

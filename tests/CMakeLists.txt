@@ -240,6 +240,7 @@ add_test(NAME navigation-request-gate-test COMMAND navigation-request-gate-test)
 add_executable(message-text-edit-widget-test
     MessageTextEditWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/MessageTextEditWidget.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
     "${CMAKE_SOURCE_DIR}/sources/widgets/InteractiveTextEdit.cpp"
 )
 
@@ -256,6 +257,24 @@ target_link_libraries(message-text-edit-widget-test
 
 add_test(NAME message-text-edit-widget-test COMMAND message-text-edit-widget-test)
 set_tests_properties(message-text-edit-widget-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(ml-options-test
+    MLOptionsTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
+)
+
+target_include_directories(ml-options-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+
+target_link_libraries(ml-options-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+
+add_test(NAME ml-options-test COMMAND ml-options-test)
 
 add_executable(quoted-reply-format-test
     QuotedReplyFormatTest.cpp
