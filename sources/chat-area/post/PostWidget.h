@@ -31,6 +31,7 @@ class QCheckBox;
 class QContextMenuEvent;
 class QEvent;
 class QGraphicsOpacityEffect;
+class QMouseEvent;
 class QPaintEvent;
 class QPropertyAnimation;
 class QResizeEvent;
@@ -109,6 +110,9 @@ protected:
     void changeEvent(QEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
 private:
@@ -149,6 +153,8 @@ private:
     bool                               hovered_ = false;
     bool                               wholeMessageSelectionMode_ = false;
     bool                               wholeMessageSelected_ = false;
+    QPoint                              selectionPressPos_;
+    bool                                rowSelectionDragPending_ = false;
     QFont                              chatFont_;
 };
 
