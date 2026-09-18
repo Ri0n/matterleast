@@ -45,6 +45,7 @@
 #include "backend/PostCreateService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
+#include "backend/UploadTrace.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatLogWidget.h"
 #include "chat-area/QuotedReplyFormat.h"
@@ -256,6 +257,8 @@ void OutgoingPostCreator::sendPostButtonAction()
 {
 	if (outgoingPostData) {
 		if (!sendFailed) {
+			qCInfo(lcUploadTrace)
+                << "COMPOSER_SEND_IGNORED reason=already-sending";
 			return;
 		}
 
@@ -274,6 +277,13 @@ void OutgoingPostCreator::sendPostButtonAction()
 	if (message.isEmpty() && !attachmentList) {
 		return;
 	}
+
+    if (hasAttachmentUploadsInProgress()) {
+        qCInfo(lcUploadTrace)
+            << "COMPOSER_SEND_IGNORED reason=attachment-upload-in-progress";
+        updateSendButtonState();
+        return;
+    }
 
 	const QString replyToPostId = property(PostProps::ReplyToPostId).toString();
 	if (message.startsWith("/poll")) {
@@ -342,13 +352,35 @@ void OutgoingPostCreator::sendPostButtonAction()
 	postToEdit = nullptr;
 
 	if (attachmentList) {
-		outgoingPostData->attachmentPaths = attachmentList->getAllFiles();
-        while (outgoingPostData->attachmentIds.size()
-               < outgoingPostData->attachmentPaths.size()) {
-            outgoingPostData->attachmentIds.append(QString());
+        const QList<OutgoingAttachmentItem> items = attachmentList->attachments();
+        for (const OutgoingAttachmentItem& item : items) {
+            outgoingPostData->attachmentPaths.push_back(item.path);
+
+            const auto upload = attachmentUploads.constFind(item.id);
+            const QString readyFileId =
+                upload != attachmentUploads.cend()
+                && upload->path == item.path
+                && !upload->uploading
+                    ? upload->fileId
+                    : QString();
+            outgoingPostData->attachmentIds.push_back(readyFileId);
+
+            qCInfo(lcUploadTrace).nospace()
+                << "COMPOSER_SNAPSHOT itemId=" << item.id
+                << " file=" << item.path
+                << " uploadKnown=" << (upload != attachmentUploads.cend())
+                << " uploading="
+                << (upload != attachmentUploads.cend() && upload->uploading)
+                << " fileId=" << readyFileId;
         }
 		attachmentList->setDisableInput(true);
 	}
+
+    qCInfo(lcUploadTrace).nospace()
+        << "COMPOSER_SEND_START attachments="
+        << outgoingPostData->attachmentPaths.size()
+        << " rootId=" << outgoingPostData->rootId
+        << " replyTo=" << outgoingPostData->replyToPostId;
 
 	startSendPostSequence();
 }
@@ -414,10 +446,17 @@ void OutgoingPostCreator::prepareAndSendPost()
     }
 
     if (missingIndexes.isEmpty()) {
+        qCInfo(lcUploadTrace).nospace()
+            << "COMPOSER_UPLOADS_READY count="
+            << outgoingPostData->attachmentIds.size();
         setSendActivityText();
         sendPost();
         return;
     }
+
+    qCInfo(lcUploadTrace).nospace()
+        << "COMPOSER_UPLOAD_RETRY_BATCH missing=" << missingIndexes.size()
+        << " total=" << outgoingPostData->attachmentPaths.size();
 
     outgoingPostData->pendingUploadCount = missingIndexes.size();
     outgoingPostData->uploadFailureText.clear();
@@ -425,6 +464,9 @@ void OutgoingPostCreator::prepareAndSendPost()
     QPointer<OutgoingPostCreator> guard(this);
     for (const qsizetype index : missingIndexes) {
         const QString filePath = outgoingPostData->attachmentPaths.at(index);
+        qCInfo(lcUploadTrace).nospace()
+            << "COMPOSER_UPLOAD_RETRY index=" << index
+            << " file=" << filePath;
         backend->uploadFile(
             *channel,
             filePath,
@@ -434,6 +476,11 @@ void OutgoingPostCreator::prepareAndSendPost()
                     || index >= guard->outgoingPostData->attachmentIds.size()) {
                     return;
                 }
+
+                qCInfo(lcUploadTrace).nospace()
+                    << "COMPOSER_UPLOAD_RETRY_RESULT index=" << index
+                    << " fileId=" << fileId
+                    << " error=" << errorText;
 
                 if (fileId.isEmpty()) {
                     if (guard->outgoingPostData->uploadFailureText.isEmpty()) {
@@ -488,6 +535,13 @@ void OutgoingPostCreator::sendPost()
 	if (!outgoingPostData) {
 		return;
 	}
+
+    qCInfo(lcUploadTrace).nospace()
+        << "POST_SUBMIT attachmentPaths="
+        << outgoingPostData->attachmentPaths.size()
+        << " attachmentIds=" << outgoingPostData->attachmentIds
+        << " rootId=" << outgoingPostData->rootId
+        << " pendingPostId=" << outgoingPostData->pendingPostId;
 
 	const QString attachmentsLogStr(outgoingPostData->attachmentIds.isEmpty()
 	                                    ? "" : " (+attachments)");
@@ -624,7 +678,11 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
 		emit postEditFinished();
 	}
 
+	qCInfo(lcUploadTrace).nospace()
+        << "COMPOSER_SEND_FINISH postId=" << confirmedPostId;
+
 	outgoingPostData.reset();
+    attachmentUploads.clear();
 	editResidencyLease.reset();
 	sendFailed = false;
 	setProperty(PostProps::ReplyToPostId, QString());
@@ -698,12 +756,31 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
 	if (!attachmentList) {
 		attachmentList = new OutgoingAttachmentList(this);
 		attachmentParent->insertWidget(0, attachmentList);
-		updateSendButtonState();
 
+        connect(attachmentList,
+                &OutgoingAttachmentList::fileAdded,
+                this,
+                [this](const QString& itemId, const QString& path) {
+                    qCInfo(lcUploadTrace).nospace()
+                        << "COMPOSER_ATTACHMENT_ADDED itemId=" << itemId
+                        << " file=" << path;
+                    startAttachmentUpload(itemId, path);
+                });
+        connect(attachmentList,
+                &OutgoingAttachmentList::fileRemoved,
+                this,
+                [this](const QString& itemId, const QString& path) {
+                    qCInfo(lcUploadTrace).nospace()
+                        << "COMPOSER_ATTACHMENT_REMOVED itemId=" << itemId
+                        << " file=" << path;
+                    attachmentUploads.remove(itemId);
+                    updateSendButtonState();
+                });
 		connect(attachmentList, &OutgoingAttachmentList::deleted, this, [this] {
 			attachmentParent->removeWidget(attachmentList);
 			delete attachmentList;
 			attachmentList = nullptr;
+            attachmentUploads.clear();
 			updateSendButtonState();
 		});
 	}
@@ -711,6 +788,89 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
 	for (auto& filename : files) {
 		attachmentList->addFile(filename);
 	}
+    updateSendButtonState();
+}
+
+void OutgoingPostCreator::startAttachmentUpload(const QString& itemId,
+                                                const QString& path)
+{
+    if (!backend || !channel || itemId.isEmpty() || path.isEmpty()) {
+        return;
+    }
+
+    AttachmentUploadState& state = attachmentUploads[itemId];
+    state.path = path;
+    state.fileId.clear();
+    state.error.clear();
+    state.uploading = true;
+    const quint64 generation = ++state.generation;
+
+    qCInfo(lcUploadTrace).nospace()
+        << "COMPOSER_UPLOAD_START itemId=" << itemId
+        << " generation=" << generation
+        << " channel=" << channel->id
+        << " file=" << path;
+
+    updateSendButtonState();
+
+    QPointer<OutgoingPostCreator> guard(this);
+    backend->uploadFile(
+        *channel,
+        path,
+        [guard, itemId, generation](QString fileId, QString errorText) {
+            if (!guard) {
+                return;
+            }
+
+            auto upload = guard->attachmentUploads.find(itemId);
+            if (upload == guard->attachmentUploads.end()
+                || upload->generation != generation) {
+                qCInfo(lcUploadTrace).nospace()
+                    << "COMPOSER_UPLOAD_STALE itemId=" << itemId
+                    << " generation=" << generation;
+                return;
+            }
+
+            upload->uploading = false;
+            upload->fileId = fileId;
+            upload->error = errorText.trimmed();
+
+            if (fileId.isEmpty()) {
+                qCWarning(lcUploadTrace).nospace()
+                    << "COMPOSER_UPLOAD_FAILED itemId=" << itemId
+                    << " generation=" << generation
+                    << " file=" << upload->path
+                    << " error=" << upload->error;
+            } else {
+                qCInfo(lcUploadTrace).nospace()
+                    << "COMPOSER_UPLOAD_READY itemId=" << itemId
+                    << " generation=" << generation
+                    << " file=" << upload->path
+                    << " fileId=" << fileId;
+            }
+
+            guard->updateSendButtonState();
+        });
+}
+
+bool OutgoingPostCreator::hasAttachmentUploadsInProgress() const
+{
+    for (auto it = attachmentUploads.cbegin(); it != attachmentUploads.cend(); ++it) {
+        if (it->uploading) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool OutgoingPostCreator::hasAttachmentUploadFailures() const
+{
+    for (auto it = attachmentUploads.cbegin(); it != attachmentUploads.cend(); ++it) {
+        if (!it->uploading && it->fileId.isEmpty() && !it->error.isEmpty()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void OutgoingPostCreator::updateSendButtonState()
@@ -739,9 +899,14 @@ void OutgoingPostCreator::updateSendButtonState()
 			sendButtonEnabled = false;
 			tooltipText = editing ? tr("Saving edited message") : tr("Waiting for server response");
 		}
+    } else if (hasAttachmentUploadsInProgress()) {
+        sendButtonEnabled = false;
+        tooltipText = tr("Uploading attachments…");
 	} else if (!isCreatingPost()) {
 		sendButtonEnabled = false;
 		tooltipText = tr("Cannot send empty message");
+    } else if (hasAttachmentUploadFailures()) {
+        tooltipText = tr("Send · failed attachment uploads will be retried");
 	} else if (editing) {
 		tooltipText = tr("Save edited message · Esc to cancel");
 	} else {

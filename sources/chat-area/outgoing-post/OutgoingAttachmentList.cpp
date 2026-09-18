@@ -31,6 +31,7 @@
 #include <QFileInfo>
 #include <QDebug>
 #include <QMimeDatabase>
+#include <QUuid>
 #include "OutgoingAttachmentList.h"
 
 namespace Mattermost {
@@ -60,9 +61,12 @@ OutgoingAttachmentList::OutgoingAttachmentList (QWidget* parent)
 void OutgoingAttachmentList::addFile (const QString& filename)
 {
 	QFileInfo fileInfo (filename);
+    const QString itemId =
+        QUuid::createUuid().toString(QUuid::WithoutBraces);
 
 	QTreeWidgetItem* newItem = new QTreeWidgetItem (this, QStringList() << fileInfo.baseName());
 	newItem->setData (0, Qt::UserRole, filename);
+    newItem->setData(0, Qt::UserRole + 1, itemId);
 	newItem->setToolTip (0, filename);
 
 	static QMimeDatabase mimeDatabase;
@@ -89,8 +93,11 @@ void OutgoingAttachmentList::addFile (const QString& filename)
 	QPushButton* button = new QPushButton ("Remove");
 	button->setMaximumWidth (70);
 	button->setMaximumHeight (25);
-	connect (button, &QPushButton::clicked, [this, newItem] {
-		delete (newItem);
+	connect(button, &QPushButton::clicked, this, [this, newItem] {
+        const QString path = newItem->data(0, Qt::UserRole).toString();
+        const QString itemId = newItem->data(0, Qt::UserRole + 1).toString();
+        emit fileRemoved(itemId, path);
+		delete newItem;
 
 		if (topLevelItemCount() == 0) {
 			emit deleted ();
@@ -100,6 +107,7 @@ void OutgoingAttachmentList::addFile (const QString& filename)
 	setItemWidget (newItem, 2, button);
 
 	addTopLevelItem (newItem);
+    emit fileAdded(itemId, filename);
 	updateGeometry();
 }
 
@@ -117,15 +125,28 @@ QSize OutgoingAttachmentList::sizeHint () const
 	return size;
 }
 
-QList<QString> OutgoingAttachmentList::getAllFiles ()
+QList<QString> OutgoingAttachmentList::getAllFiles() const
 {
 	QList<QString> ret;
 
 	for (int i = 0; i < topLevelItemCount(); ++i) {
-		ret.push_back (topLevelItem (i)->data (0, Qt::UserRole).toString());
+		ret.push_back(topLevelItem(i)->data(0, Qt::UserRole).toString());
 	}
 
 	return ret;
+}
+
+QList<OutgoingAttachmentItem> OutgoingAttachmentList::attachments() const
+{
+    QList<OutgoingAttachmentItem> result;
+    for (int i = 0; i < topLevelItemCount(); ++i) {
+        const QTreeWidgetItem* item = topLevelItem(i);
+        result.push_back({
+            item->data(0, Qt::UserRole + 1).toString(),
+            item->data(0, Qt::UserRole).toString(),
+        });
+    }
+    return result;
 }
 
 void OutgoingAttachmentList::setDisableInput (bool flag)

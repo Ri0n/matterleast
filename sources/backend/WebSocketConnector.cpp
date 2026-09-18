@@ -375,6 +375,11 @@ void WebSocketConnector::setConnectionState(ConnectionState state)
     emit connectionStateChanged(state);
 }
 
+QString WebSocketConnector::connectionId() const
+{
+    return d->connectionId;
+}
+
 void WebSocketConnector::reconnectNow()
 {
     if (d->token.isEmpty() || d->suppressReconnect

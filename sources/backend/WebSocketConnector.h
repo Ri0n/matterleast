@@ -53,6 +53,7 @@ public:
 	void reset ();
 	void doHandshake ();
     ConnectionState connectionState() const;
+    QString connectionId() const;
     void reconnectNow();
 signals:
 	void onConnect (bool isReconnect, bool needsHttpResync);

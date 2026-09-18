@@ -28,6 +28,11 @@
 
 namespace Mattermost {
 
+struct OutgoingAttachmentItem {
+    QString id;
+    QString path;
+};
+
 class OutgoingAttachmentList: public QTreeWidget {
 	Q_OBJECT
 public:
@@ -37,10 +42,13 @@ public:
 
 	QSize sizeHint () const override;
 
-	QList<QString> getAllFiles ();
+	QList<QString> getAllFiles() const;
+    QList<OutgoingAttachmentItem> attachments() const;
 
 	void setDisableInput (bool flag);
 signals:
+    void fileAdded(const QString& itemId, const QString& path);
+    void fileRemoved(const QString& itemId, const QString& path);
 	void deleted ();
 };
 
