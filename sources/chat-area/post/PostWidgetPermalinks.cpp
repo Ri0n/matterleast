@@ -18,6 +18,7 @@
 #include "MessageContentWidget.h"
 #include "backend/Backend.h"
 #include "backend/Storage.h"
+#include "backend/types/BackendFile.h"
 #include "backend/types/BackendUser.h"
 #include "chat-area/QuotedPostPreview.h"
 #include "navigation/AppNavigationService.h"
@@ -84,14 +85,29 @@ void PostWidget::refreshPermalinkPreviews()
 
         const QJsonObject previewMetadata =
             previewPost.value(QStringLiteral("metadata")).toObject();
+        std::list<BackendFile> previewFiles;
+        for (const QJsonValue& fileValue :
+             previewMetadata.value(QStringLiteral("files")).toArray()) {
+            if (fileValue.isObject()) {
+                previewFiles.emplace_back(fileValue.toObject());
+            }
+        }
         const bool hasAttachments =
             !previewPost.value(QStringLiteral("file_ids")).toArray().isEmpty()
-            || !previewMetadata.value(QStringLiteral("files")).toArray().isEmpty();
+            || !previewFiles.empty();
 
         auto preview = std::make_unique<QuotedPostPreview>(this, 4);
         preview->setPreview(title,
                             previewPost.value(QStringLiteral("message")).toString(),
                             hasAttachments);
+        if (!previewFiles.empty()) {
+            preview->setInteractiveAttachments(
+                backend_, previewFiles, authorName);
+        }
+        connect(preview.get(),
+                &QuotedPostPreview::dimensionsChanged,
+                this,
+                &PostWidget::dimensionsChanged);
         preview->setActivatedCallback([this, postId] {
             AppNavigationService::instance(backend_).openPost(postId);
         });
