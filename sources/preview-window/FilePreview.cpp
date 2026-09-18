@@ -5,7 +5,7 @@
  *
  * Mattermost-QT is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation; either version 3 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * Mattermost-QT is distributed in the hope that it will be useful,
@@ -21,9 +21,12 @@
 #include "ui_FilePreview.h"
 
 #include <algorithm>
-#include <QFrame>
-#include <QScrollArea>
-#include <QVBoxLayout>
+
+#include <QApplication>
+#include <QGuiApplication>
+#include <QResizeEvent>
+#include <QScreen>
+#include <QSizePolicy>
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
 #include <QDesktopWidget>
 #endif
@@ -48,28 +51,28 @@ FilePreview::FilePreview(const QImage& image,
     ui->setupUi(this);
     setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
 
-    pixmap = QPixmap::fromImage(image);
-    ui->fileContents->setPixmap(pixmap);
-    ui->fileContents->setScaledContents(true);
+    sourcePixmap = QPixmap::fromImage(image);
+    ui->fileContents->setScaledContents(false);
     ui->fileContents->setAlignment(Qt::AlignCenter);
-
-    // Keep the dialog itself bounded. Very wide screenshots remain readable by
-    // scrolling horizontally instead of collapsing their short side to a few
-    // dozen pixels just to preserve the whole aspect ratio on screen.
-    ui->verticalLayout->removeWidget(ui->fileContents);
-    scrollArea = new QScrollArea(ui->frame);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setWidgetResizable(false);
-    scrollArea->setAlignment(Qt::AlignCenter);
-    scrollArea->setWidget(ui->fileContents);
-    ui->verticalLayout->addWidget(scrollArea);
-
+    ui->fileContents->setMinimumSize(1, 1);
+    ui->fileContents->setSizePolicy(QSizePolicy::Expanding,
+                                    QSizePolicy::Expanding);
     ui->fileInfo->setText(fileName);
 
-    const QSize viewport = initialViewportSize();
-    scrollArea->setMinimumSize(viewport);
-    updateImageGeometry(viewport);
-    adjustSize();
+    if (layout()) {
+        layout()->activate();
+    }
+
+    // Measure the non-image part of the dialog once. Resize handling then uses
+    // the requested dialog geometry directly instead of feeding the current
+    // QLabel/viewport size back into the next layout pass.
+    imageChromeSize = QSize(
+        std::max(0, width() - ui->fileContents->width()),
+        std::max(0, height() - ui->fileContents->height()));
+
+    const QSize imageArea = initialImageAreaSize();
+    resize(imageArea + imageChromeSize);
+    updateDisplayedPixmap(imageArea);
 }
 
 FilePreview::~FilePreview()
@@ -77,78 +80,76 @@ FilePreview::~FilePreview()
     delete ui;
 }
 
-QSize FilePreview::displaySizeForViewport(const QSize& viewportSize) const
+QSize FilePreview::fitImageSize(const QSize& availableSize) const
 {
-    if (pixmap.isNull() || viewportSize.isEmpty()) {
+    if (sourcePixmap.isNull() || availableSize.isEmpty()) {
         return QSize(1, 1);
     }
 
-    QSize fit = pixmap.size();
-    fit.scale(viewportSize, Qt::KeepAspectRatio);
+    QSize fitted = sourcePixmap.size();
+    fitted.scale(availableSize.expandedTo(QSize(1, 1)), Qt::KeepAspectRatio);
 
-    // Do not upscale ordinary small images.
-    if (fit.width() > pixmap.width() || fit.height() > pixmap.height()) {
-        fit = pixmap.size();
+    // The popup is a view of the original image. Do not enlarge it beyond its
+    // native raster size, but always scale down as needed to fit the window.
+    if (fitted.width() > sourcePixmap.width()
+        || fitted.height() > sourcePixmap.height()) {
+        fitted = sourcePixmap.size();
     }
 
-    constexpr qreal ExtremeAspectRatio = 4.0;
-    constexpr int MinReadableShortSide = 160;
-
-    const QSize source = pixmap.size();
-    const bool veryWide =
-        source.height() > 0
-        && static_cast<qreal>(source.width()) / source.height()
-               >= ExtremeAspectRatio;
-    const bool veryTall =
-        source.width() > 0
-        && static_cast<qreal>(source.height()) / source.width()
-               >= ExtremeAspectRatio;
-
-    if ((veryWide && fit.height() < MinReadableShortSide)
-        || (veryTall && fit.width() < MinReadableShortSide)) {
-        const int sourceShortSide =
-            veryWide ? source.height() : source.width();
-        const qreal readableScale = std::min<qreal>(
-            1.0,
-            static_cast<qreal>(MinReadableShortSide) / sourceShortSide);
-        const QSize readable(
-            std::max(1, qRound(source.width() * readableScale)),
-            std::max(1, qRound(source.height() * readableScale)));
-
-        if ((veryWide && readable.height() > fit.height())
-            || (veryTall && readable.width() > fit.width())) {
-            return readable;
-        }
-    }
-
-    return fit.expandedTo(QSize(1, 1));
+    return fitted.expandedTo(QSize(1, 1));
 }
 
-QSize FilePreview::initialViewportSize() const
+QSize FilePreview::initialImageAreaSize() const
 {
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-    QRect screenGeometry = QApplication::desktop()->screenGeometry(this);
+    const QRect screenGeometry = QApplication::desktop()->screenGeometry(
+        const_cast<FilePreview*>(this));
 #else
-    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
+    QScreen* targetScreen = screen();
+    if (!targetScreen) {
+        targetScreen = QGuiApplication::primaryScreen();
+    }
+    const QRect screenGeometry = targetScreen
+        ? targetScreen->availableGeometry()
+        : QRect(0, 0, 1024, 768);
 #endif
+
     const QSize bounds(
         std::max(240, qRound(screenGeometry.width() * 0.9)),
         std::max(180, qRound(screenGeometry.height() * 0.8)));
-
-    const QSize display = displaySizeForViewport(bounds);
-    return QSize(
-        std::min(display.width(), bounds.width()),
-        std::min(display.height(), bounds.height()));
+    return fitImageSize(bounds);
 }
 
-void FilePreview::updateImageGeometry(const QSize& viewportSize)
+QSize FilePreview::imageAreaForDialogSize(const QSize& dialogSize) const
 {
-    if (!ui || !ui->fileContents || pixmap.isNull()) {
+    return QSize(
+               std::max(1, dialogSize.width() - imageChromeSize.width()),
+               std::max(1, dialogSize.height() - imageChromeSize.height()))
+        .expandedTo(QSize(1, 1));
+}
+
+void FilePreview::updateDisplayedPixmap(const QSize& availableSize)
+{
+    if (!ui || !ui->fileContents || sourcePixmap.isNull()) {
         return;
     }
 
-    const QSize display = displaySizeForViewport(viewportSize);
-    ui->fileContents->setFixedSize(display);
+    const QSize fitted = fitImageSize(availableSize);
+    ui->fileContents->setPixmap(
+        sourcePixmap.scaled(
+            fitted,
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation));
+}
+
+void FilePreview::resizeEvent(QResizeEvent* event)
+{
+    QDialog::resizeEvent(event);
+    if (!event) {
+        return;
+    }
+
+    updateDisplayedPixmap(imageAreaForDialogSize(event->size()));
 }
 
 } /* namespace Mattermost */
