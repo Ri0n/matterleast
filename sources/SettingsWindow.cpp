@@ -31,7 +31,6 @@
 #include <QIntValidator>
 #include <QLabel>
 #include <QScrollArea>
-#include <QSettings>
 #include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
@@ -101,11 +100,16 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
 
     QString defaultDownloadDir (QStandardPaths::writableLocation (QStandardPaths::DownloadLocation));
 
-    QSettings settings;
-    ui->downloadLocationValue->setText (settings.value (DOWNLOAD_LOCATION, defaultDownloadDir).toString());
-    ui->askLocationCheckBox->setChecked (settings.value (DOWNLOAD_ASK, 0).toBool());
-    ui->imageMaxWidthValue->setText (settings.value (DOWNLOAD_IMAGE_MAX_WIDTH, 400).toString());
-    ui->imageMaxHeightValue->setText (settings.value (DOWNLOAD_IMAGE_MAX_HEIGHT, 400).toString());
+    auto* options = MLOptions::instance();
+    ui->downloadLocationValue->setText(
+        options->optionObject<QString>(DOWNLOAD_LOCATION, defaultDownloadDir)
+            ->value().toString());
+    ui->askLocationCheckBox->setChecked(
+        options->optionObject<bool>(DOWNLOAD_ASK, DOWNLOAD_ASK_DEFAULT)->value().toBool());
+    ui->imageMaxWidthValue->setText(QString::number(
+        options->optionObject<int>(DOWNLOAD_IMAGE_MAX_WIDTH, DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT)->value().toInt()));
+    ui->imageMaxHeightValue->setText(QString::number(
+        options->optionObject<int>(DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)->value().toInt()));
 
     // The old form mixed attachment settings with one unlabeled cache-size
     // field. Keep the generated UI stable for now, but move all cache policy to
@@ -239,7 +243,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* attachmentForm = new QFormLayout(attachmentGroup);
     attachmentCacheSizeMB = makeSpinBox(
         attachmentGroup, 16, 102400,
-        settings.value(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT).toInt(), tr(" MB"));
+        options->optionObject<int>(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT)->value().toInt(), tr(" MB"));
     attachmentForm->addRow(tr("Maximum disk cache:"), attachmentCacheSizeMB);
     cacheLayout->addWidget(attachmentGroup);
 
@@ -247,26 +251,31 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* diskForm = new QFormLayout(diskGroup);
     diskChannelIdleHours = makeSpinBox(
         diskGroup, 1, 720,
-        settings.value(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
-                       POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
+                                   POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT)
+            ->value().toInt(),
         tr(" h"));
     diskMaxMB = makeSpinBox(
         diskGroup, 64, 102400,
-        settings.value(POST_CACHE_DISK_MAX_MB,
-                       POST_CACHE_DISK_MAX_MB_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_DISK_MAX_MB,
+                                   POST_CACHE_DISK_MAX_MB_DEFAULT)
+            ->value().toInt(),
         tr(" MB"));
     diskMaxPosts = makeSpinBox(
         diskGroup, 100, 1000000,
-        settings.value(POST_CACHE_DISK_MAX_POSTS,
-                       POST_CACHE_DISK_MAX_POSTS_DEFAULT).toInt());
+        options->optionObject<int>(POST_CACHE_DISK_MAX_POSTS,
+                                   POST_CACHE_DISK_MAX_POSTS_DEFAULT)
+            ->value().toInt());
     diskMaxThreadReplies = makeSpinBox(
         diskGroup, 10, 100000,
-        settings.value(POST_CACHE_DISK_MAX_THREAD_REPLIES,
-                       POST_CACHE_DISK_MAX_THREAD_REPLIES_DEFAULT).toInt());
+        options->optionObject<int>(POST_CACHE_DISK_MAX_THREAD_REPLIES,
+                                   POST_CACHE_DISK_MAX_THREAD_REPLIES_DEFAULT)
+            ->value().toInt());
     diskMaintenanceMinutes = makeSpinBox(
         diskGroup, 1, 1440,
-        settings.value(POST_CACHE_DISK_MAINTENANCE_MINUTES,
-                       POST_CACHE_DISK_MAINTENANCE_MINUTES_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_DISK_MAINTENANCE_MINUTES,
+                                   POST_CACHE_DISK_MAINTENANCE_MINUTES_DEFAULT)
+            ->value().toInt(),
         tr(" min"));
 
     diskForm->addRow(tr("Keep channels opened within:"), diskChannelIdleHours);
@@ -280,28 +289,33 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* memoryForm = new QFormLayout(memoryGroup);
     memoryChannelIdleMinutes = makeSpinBox(
         memoryGroup, 1, 1440,
-        settings.value(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
-                       POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
+                                   POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT)
+            ->value().toInt(),
         tr(" min"));
     memoryHardMB = makeSpinBox(
         memoryGroup, 64, 32768,
-        settings.value(POST_CACHE_MEMORY_HARD_MB,
-                       POST_CACHE_MEMORY_HARD_MB_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_MEMORY_HARD_MB,
+                                   POST_CACHE_MEMORY_HARD_MB_DEFAULT)
+            ->value().toInt(),
         tr(" MB"));
     memoryTargetMB = makeSpinBox(
         memoryGroup, 32, memoryHardMB->value(),
-        settings.value(POST_CACHE_MEMORY_TARGET_MB,
-                       POST_CACHE_MEMORY_TARGET_MB_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_MEMORY_TARGET_MB,
+                                   POST_CACHE_MEMORY_TARGET_MB_DEFAULT)
+            ->value().toInt(),
         tr(" MB"));
     memoryPostTtlMinutes = makeSpinBox(
         memoryGroup, 1, 1440,
-        settings.value(POST_CACHE_MEMORY_POST_TTL_MINUTES,
-                       POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_MEMORY_POST_TTL_MINUTES,
+                                   POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT)
+            ->value().toInt(),
         tr(" min"));
     memorySweepSeconds = makeSpinBox(
         memoryGroup, 5, 3600,
-        settings.value(POST_CACHE_MEMORY_SWEEP_SECONDS,
-                       POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT).toInt(),
+        options->optionObject<int>(POST_CACHE_MEMORY_SWEEP_SECONDS,
+                                   POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT)
+            ->value().toInt(),
         tr(" s"));
 
     connect(memoryHardMB, qOverload<int>(&QSpinBox::valueChanged), this,
@@ -354,28 +368,56 @@ void SettingsWindow::reject()
 
 void SettingsWindow::applyNewSettings ()
 {
-    QSettings settings;
-    settings.setValue (DOWNLOAD_LOCATION, ui->downloadLocationValue->text());
-    settings.setValue (DOWNLOAD_ASK, ui->askLocationCheckBox->isChecked());
-    settings.setValue (DOWNLOAD_IMAGE_MAX_WIDTH, ui->imageMaxWidthValue->text());
-    settings.setValue (DOWNLOAD_IMAGE_MAX_HEIGHT, ui->imageMaxHeightValue->text());
-    MLOptions::instance()
-        ->optionObject<bool>(COMPOSER_SEND_WITH_CTRL_ENTER,
-                             COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
+    auto* options = MLOptions::instance();
+
+    options->optionObject<QString>(
+        DOWNLOAD_LOCATION,
+        QStandardPaths::writableLocation(QStandardPaths::DownloadLocation))
+        ->setValue(ui->downloadLocationValue->text());
+    options->optionObject<bool>(DOWNLOAD_ASK, DOWNLOAD_ASK_DEFAULT)
+        ->setValue(ui->askLocationCheckBox->isChecked());
+    options->optionObject<int>(DOWNLOAD_IMAGE_MAX_WIDTH, DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT)
+        ->setValue(ui->imageMaxWidthValue->text().toInt());
+    options->optionObject<int>(DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)
+        ->setValue(ui->imageMaxHeightValue->text().toInt());
+
+    options->optionObject<bool>(COMPOSER_SEND_WITH_CTRL_ENTER,
+                                COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
         ->setValue(sendWithCtrlEnter->isChecked());
 
-    settings.setValue(CACHE_SIZE_MB, attachmentCacheSizeMB->value());
-    settings.setValue(POST_CACHE_DISK_CHANNEL_IDLE_HOURS, diskChannelIdleHours->value());
-    settings.setValue(POST_CACHE_DISK_MAX_MB, diskMaxMB->value());
-    settings.setValue(POST_CACHE_DISK_MAX_POSTS, diskMaxPosts->value());
-    settings.setValue(POST_CACHE_DISK_MAX_THREAD_REPLIES, diskMaxThreadReplies->value());
-    settings.setValue(POST_CACHE_DISK_MAINTENANCE_MINUTES, diskMaintenanceMinutes->value());
-    settings.setValue(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES, memoryChannelIdleMinutes->value());
-    settings.setValue(POST_CACHE_MEMORY_HARD_MB, memoryHardMB->value());
-    settings.setValue(POST_CACHE_MEMORY_TARGET_MB, memoryTargetMB->value());
-    settings.setValue(POST_CACHE_MEMORY_POST_TTL_MINUTES, memoryPostTtlMinutes->value());
-    settings.setValue(POST_CACHE_MEMORY_SWEEP_SECONDS, memorySweepSeconds->value());
-    settings.sync ();
+    options->optionObject<int>(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT)
+        ->setValue(attachmentCacheSizeMB->value());
+    options->optionObject<int>(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
+                               POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT)
+        ->setValue(diskChannelIdleHours->value());
+    options->optionObject<int>(POST_CACHE_DISK_MAX_MB,
+                               POST_CACHE_DISK_MAX_MB_DEFAULT)
+        ->setValue(diskMaxMB->value());
+    options->optionObject<int>(POST_CACHE_DISK_MAX_POSTS,
+                               POST_CACHE_DISK_MAX_POSTS_DEFAULT)
+        ->setValue(diskMaxPosts->value());
+    options->optionObject<int>(POST_CACHE_DISK_MAX_THREAD_REPLIES,
+                               POST_CACHE_DISK_MAX_THREAD_REPLIES_DEFAULT)
+        ->setValue(diskMaxThreadReplies->value());
+    options->optionObject<int>(POST_CACHE_DISK_MAINTENANCE_MINUTES,
+                               POST_CACHE_DISK_MAINTENANCE_MINUTES_DEFAULT)
+        ->setValue(diskMaintenanceMinutes->value());
+
+    options->optionObject<int>(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
+                               POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT)
+        ->setValue(memoryChannelIdleMinutes->value());
+    options->optionObject<int>(POST_CACHE_MEMORY_HARD_MB,
+                               POST_CACHE_MEMORY_HARD_MB_DEFAULT)
+        ->setValue(memoryHardMB->value());
+    options->optionObject<int>(POST_CACHE_MEMORY_TARGET_MB,
+                               POST_CACHE_MEMORY_TARGET_MB_DEFAULT)
+        ->setValue(memoryTargetMB->value());
+    options->optionObject<int>(POST_CACHE_MEMORY_POST_TTL_MINUTES,
+                               POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT)
+        ->setValue(memoryPostTtlMinutes->value());
+    options->optionObject<int>(POST_CACHE_MEMORY_SWEEP_SECONDS,
+                               POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT)
+        ->setValue(memorySweepSeconds->value());
 }
 
 } /* namespace Mattermost */

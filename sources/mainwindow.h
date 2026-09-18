@@ -83,7 +83,6 @@ protected:
 	bool eventFilter(QObject* watched, QEvent* event) override;
 private:
 	void createMenu ();
-	void reload ();
 	void setupChannelTabs ();
 	void refreshSidebarViews ();
 	void refreshChannelUnreadFilter ();

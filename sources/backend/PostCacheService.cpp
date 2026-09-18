@@ -9,11 +9,11 @@
 #include <QHash>
 #include <QMetaObject>
 #include <QPointer>
-#include <QSettings>
 #include <QStandardPaths>
 
 #include "PostCacheStore.h"
 #include "Settings.h"
+#include "options/MLOptions.h"
 
 namespace Mattermost {
 namespace {
@@ -30,29 +30,37 @@ QString defaultDatabasePath()
 
 PostCacheStore::Limits configuredLimits()
 {
-    QSettings settings;
+    auto* options = MLOptions::instance();
     PostCacheStore::Limits limits;
     limits.maxBytes = std::max<qint64>(
         MiB,
-        settings.value(POST_CACHE_DISK_MAX_MB,
-                       POST_CACHE_DISK_MAX_MB_DEFAULT).toLongLong() * MiB);
+        static_cast<qint64>(
+            options->optionObject<int>(POST_CACHE_DISK_MAX_MB,
+                                       POST_CACHE_DISK_MAX_MB_DEFAULT)
+                ->value().toInt())
+            * MiB);
     limits.maxPosts = std::max(
         1,
-        settings.value(POST_CACHE_DISK_MAX_POSTS,
-                       POST_CACHE_DISK_MAX_POSTS_DEFAULT).toInt());
+        options->optionObject<int>(POST_CACHE_DISK_MAX_POSTS,
+                                   POST_CACHE_DISK_MAX_POSTS_DEFAULT)
+            ->value().toInt());
     limits.maxPostsPerThread = std::max(
         1,
-        settings.value(POST_CACHE_DISK_MAX_THREAD_REPLIES,
-                       POST_CACHE_DISK_MAX_THREAD_REPLIES_DEFAULT).toInt());
+        options->optionObject<int>(POST_CACHE_DISK_MAX_THREAD_REPLIES,
+                                   POST_CACHE_DISK_MAX_THREAD_REPLIES_DEFAULT)
+            ->value().toInt());
     limits.maxChannelIdleMs = std::max<qint64>(
         60LL * 60 * 1000,
-        settings.value(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
-                       POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT).toLongLong()
+        static_cast<qint64>(
+            options->optionObject<int>(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
+                                       POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT)
+                ->value().toInt())
             * 60LL * 60 * 1000);
     limits.maintenanceIntervalMs = std::max(
         60 * 1000,
-        settings.value(POST_CACHE_DISK_MAINTENANCE_MINUTES,
-                       POST_CACHE_DISK_MAINTENANCE_MINUTES_DEFAULT).toInt()
+        options->optionObject<int>(POST_CACHE_DISK_MAINTENANCE_MINUTES,
+                                   POST_CACHE_DISK_MAINTENANCE_MINUTES_DEFAULT)
+                ->value().toInt()
             * 60 * 1000);
     return limits;
 }
@@ -220,6 +228,14 @@ public:
         return store->loadTailWindow(channelId, rootId, limit);
     }
 
+    void setLimits(const PostCacheStore::Limits& newLimits)
+    {
+        limits = newLimits;
+        if (store) {
+            store->setLimits(limits);
+        }
+    }
+
     void shutdown()
     {
         if (store) {
@@ -287,6 +303,42 @@ PostCacheService::PostCacheService(QString databasePath)
     QObject::connect(&workerThread, &QThread::finished,
                      worker, &QObject::deleteLater);
     workerThread.start();
+
+    auto* options = MLOptions::instance();
+    const char* const keys[] = {
+        POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
+        POST_CACHE_DISK_MAX_MB,
+        POST_CACHE_DISK_MAX_POSTS,
+        POST_CACHE_DISK_MAX_THREAD_REPLIES,
+        POST_CACHE_DISK_MAINTENANCE_MINUTES,
+    };
+    const int defaults[] = {
+        POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT,
+        POST_CACHE_DISK_MAX_MB_DEFAULT,
+        POST_CACHE_DISK_MAX_POSTS_DEFAULT,
+        POST_CACHE_DISK_MAX_THREAD_REPLIES_DEFAULT,
+        POST_CACHE_DISK_MAINTENANCE_MINUTES_DEFAULT,
+    };
+    for (int i = 0; i < 5; ++i) {
+        auto* option = options->optionObject<int>(keys[i], defaults[i]);
+        QObject::connect(option, &MLOptionObject::changed, &callbackContext,
+                         [this](const QVariant&) { updateConfiguredLimits(); });
+    }
+}
+
+void PostCacheService::updateConfiguredLimits()
+{
+    if (!worker || !workerThread.isRunning()) {
+        return;
+    }
+
+    PostCacheWorker* const currentWorker = worker;
+    const PostCacheStore::Limits limits = configuredLimits();
+    QMetaObject::invokeMethod(currentWorker,
+                              [currentWorker, limits] {
+                                  currentWorker->setLimits(limits);
+                              },
+                              Qt::QueuedConnection);
 }
 
 PostCacheService::~PostCacheService()

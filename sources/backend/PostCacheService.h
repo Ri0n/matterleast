@@ -102,6 +102,8 @@ public:
                               ReadCallback callback);
 
 private:
+    void updateConfiguredLimits();
+
     QObject callbackContext;
     QThread workerThread;
     PostCacheWorker* worker = nullptr;

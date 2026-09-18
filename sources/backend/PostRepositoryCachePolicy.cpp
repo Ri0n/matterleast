@@ -3,11 +3,11 @@
 #include <algorithm>
 
 #include <QDateTime>
-#include <QSettings>
 
 #include "Backend.h"
 #include "Settings.h"
 #include "SidebarService.h"
+#include "options/MLOptions.h"
 #include "types/BackendChannel.h"
 
 namespace Mattermost {
@@ -23,8 +23,11 @@ qint64 configuredMemoryChannelHorizonMs()
 {
     return std::max<qint64>(
         MinuteMs,
-        QSettings().value(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
-                          POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT).toLongLong()
+        static_cast<qint64>(
+            MLOptions::instance()
+                ->optionObject<int>(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
+                                    POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT)
+                ->value().toInt())
             * MinuteMs);
 }
 
@@ -32,8 +35,11 @@ qint64 configuredDiskChannelHorizonMs()
 {
     return std::max<qint64>(
         HourMs,
-        QSettings().value(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
-                          POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT).toLongLong()
+        static_cast<qint64>(
+            MLOptions::instance()
+                ->optionObject<int>(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
+                                    POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT)
+                ->value().toInt())
             * HourMs);
 }
 

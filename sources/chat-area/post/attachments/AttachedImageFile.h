@@ -19,12 +19,12 @@
 
 #pragma once
 
+#include <QPixmap>
 #include <QString>
 #include <QWidget>
 #include <map>
 #include "preview-window/FilePreview.h"
 
-class QPixmap;
 
 namespace Ui {
 class AttachedImageFile;
@@ -46,6 +46,7 @@ public:
 private:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void setPreviewPixmap(QPixmap pixmap);
+    void refreshPreviewPixmap();
 signals:
 	void dimensionsChanged ();
 
@@ -54,6 +55,7 @@ private:
     FilePreviewData			filePreviewData;
     static std::map <const QWidget*, FilePreview*>	currentlyOpenFiles;
     QString                     fileId;
+    QPixmap                      originalPreviewPixmap;
     Backend&		backend;
 };
 
