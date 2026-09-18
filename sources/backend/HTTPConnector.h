@@ -75,6 +75,7 @@ private:
 		HttpResponseCallback responseHandler;
 	};
 
+	void applyCacheSize(int cacheSizeMB);
 	void enqueue (PendingRequest request);
 	static void processQueues ();
 	static HTTPConnector* connectorWithPendingRequest (bool lowPriority);

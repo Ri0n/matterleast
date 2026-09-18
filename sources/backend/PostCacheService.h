@@ -102,9 +102,12 @@ public:
                               ReadCallback callback);
 
 private:
+    void scheduleConfiguredLimitsUpdate();
+
     QObject callbackContext;
     QThread workerThread;
     PostCacheWorker* worker = nullptr;
+    bool limitsUpdatePending = false;
 };
 
 } // namespace Mattermost

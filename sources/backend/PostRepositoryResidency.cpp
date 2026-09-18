@@ -9,11 +9,11 @@
 #include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QSet>
-#include <QSettings>
 
 #include "Backend.h"
 #include "PostResidencyLease.h"
 #include "Settings.h"
+#include "options/MLOptions.h"
 #include "Storage.h"
 #include "types/BackendChannel.h"
 #include "types/BackendPost.h"
@@ -31,34 +31,43 @@ QString residencyKey(const QString& channelId, const QString& postId)
     return channelId + QChar(0x1f) + postId;
 }
 
+int optionInt(const char* key, int defaultValue)
+{
+    return MLOptions::instance()
+        ->optionObject<int>(QString::fromLatin1(key), defaultValue)
+        ->value().toInt();
+}
+
 qint64 configuredHardBytes()
 {
-    const qint64 mb = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_HARD_MB, POST_CACHE_MEMORY_HARD_MB_DEFAULT).toLongLong());
+    const qint64 mb = std::max<qint64>(
+        1, optionInt(POST_CACHE_MEMORY_HARD_MB,
+                     POST_CACHE_MEMORY_HARD_MB_DEFAULT));
     return mb * MiB;
 }
 
 qint64 configuredTargetBytes()
 {
     const qint64 hard = configuredHardBytes();
-    const qint64 mb = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_TARGET_MB, POST_CACHE_MEMORY_TARGET_MB_DEFAULT).toLongLong());
+    const qint64 mb = std::max<qint64>(
+        1, optionInt(POST_CACHE_MEMORY_TARGET_MB,
+                     POST_CACHE_MEMORY_TARGET_MB_DEFAULT));
     return std::min(hard, mb * MiB);
 }
 
 qint64 configuredTtlMs()
 {
-    const qint64 minutes = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_POST_TTL_MINUTES,
-        POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT).toLongLong());
+    const qint64 minutes = std::max<qint64>(
+        1, optionInt(POST_CACHE_MEMORY_POST_TTL_MINUTES,
+                     POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT));
     return minutes * 60LL * 1000;
 }
 
 int configuredSweepMs()
 {
-    const qint64 seconds = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_SWEEP_SECONDS,
-        POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT).toLongLong());
+    const qint64 seconds = std::max<qint64>(
+        1, optionInt(POST_CACHE_MEMORY_SWEEP_SECONDS,
+                     POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT));
     return static_cast<int>(std::min<qint64>(seconds * 1000,
                                              std::numeric_limits<int>::max()));
 }
@@ -123,6 +132,7 @@ struct EvictionCandidate {
     QString postId;
     qint64 touchedAt = 0;
     qint64 accountedBytes = 0;
+    bool channelMemoryEligible = true;
 };
 
 } // namespace
@@ -183,6 +193,29 @@ void PostRepository::initializeResidentMemory()
     connect(&residentSweepTimer, &QTimer::timeout,
             this, &PostRepository::sweepResidentBodies);
     residentSweepTimer.start();
+
+    const auto watchResidentSetting = [this](const char* key, int defaultValue) {
+        auto* option = MLOptions::instance()->optionObject<int>(
+            QString::fromLatin1(key), defaultValue);
+        connect(option, &MLOptionObject::changed, this,
+                [this](const QVariant&) {
+            const int sweepMs = configuredSweepMs();
+            if (residentSweepTimer.interval() != sweepMs) {
+                residentSweepTimer.setInterval(sweepMs);
+            }
+            scheduleResidentSweep();
+        });
+    };
+    watchResidentSetting(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
+                         POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT);
+    watchResidentSetting(POST_CACHE_MEMORY_HARD_MB,
+                         POST_CACHE_MEMORY_HARD_MB_DEFAULT);
+    watchResidentSetting(POST_CACHE_MEMORY_TARGET_MB,
+                         POST_CACHE_MEMORY_TARGET_MB_DEFAULT);
+    watchResidentSetting(POST_CACHE_MEMORY_POST_TTL_MINUTES,
+                         POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT);
+    watchResidentSetting(POST_CACHE_MEMORY_SWEEP_SECONDS,
+                         POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT);
 }
 
 void PostRepository::noteResidentSnapshot(const QJsonObject& postObject,
@@ -330,6 +363,8 @@ void PostRepository::sweepResidentBodies()
             continue;
         }
         seenChannels.insert(channel);
+        const bool channelMemoryEligible =
+            shouldRetainChannelInMemory(channel->id);
 
         for (const BackendPost& post : channel->posts) {
             const QString key = residencyKey(channel->id, post.id);
@@ -354,6 +389,7 @@ void PostRepository::sweepResidentBodies()
                 post.id,
                 state->touchedAt,
                 state->accountedBytes,
+                channelMemoryEligible,
             });
         }
     }
@@ -398,6 +434,15 @@ void PostRepository::sweepResidentBodies()
         residentLeaseCounts.remove(key);
         return true;
     };
+
+    // The channel-open horizon is a retention gate as well as an admission
+    // gate. Lowering it in Settings should therefore make already-resident,
+    // unleased posts immediately eligible for eviction.
+    for (const EvictionCandidate& candidate : std::as_const(candidates)) {
+        if (!candidate.channelMemoryEligible) {
+            evict(candidate);
+        }
+    }
 
     // TTL is independent from pressure: an unleased body not touched for the
     // configured period is cold even when plenty of budget remains.

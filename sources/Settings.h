@@ -29,7 +29,9 @@
 static constexpr const char* DOWNLOAD_LOCATION = "config/downloadLocation";
 static constexpr const char* DOWNLOAD_ASK = "config/downloadAsk";
 static constexpr const char* DOWNLOAD_IMAGE_MAX_WIDTH = "config/imageMaxWidth";
+static constexpr int DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT = 400;
 static constexpr const char* DOWNLOAD_IMAGE_MAX_HEIGHT = "config/imageMaxHeight";
+static constexpr int DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT = 400;
 
 static constexpr const char* COMPOSER_SEND_WITH_CTRL_ENTER =
     "composer/sendWithCtrlEnter";

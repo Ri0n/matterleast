@@ -3,10 +3,10 @@
 #include <algorithm>
 
 #include <QDateTime>
-#include <QSettings>
 
 #include "Backend.h"
 #include "Settings.h"
+#include "options/MLOptions.h"
 #include "SidebarService.h"
 #include "types/BackendChannel.h"
 
@@ -19,22 +19,29 @@ constexpr qint64 HourMs = 60LL * MinuteMs;
 // Both memory and disk channel horizons are user-facing cache policy. Read
 // them at decision time so SettingsWindow changes take effect immediately
 // rather than only after the next process start.
+int optionInt(const char* key, int defaultValue)
+{
+    return MLOptions::instance()
+        ->optionObject<int>(QString::fromLatin1(key), defaultValue)
+        ->value().toInt();
+}
+
 qint64 configuredMemoryChannelHorizonMs()
 {
     return std::max<qint64>(
         MinuteMs,
-        QSettings().value(POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
-                          POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT).toLongLong()
-            * MinuteMs);
+        static_cast<qint64>(optionInt(
+            POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES,
+            POST_CACHE_MEMORY_CHANNEL_IDLE_MINUTES_DEFAULT)) * MinuteMs);
 }
 
 qint64 configuredDiskChannelHorizonMs()
 {
     return std::max<qint64>(
         HourMs,
-        QSettings().value(POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
-                          POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT).toLongLong()
-            * HourMs);
+        static_cast<qint64>(optionInt(
+            POST_CACHE_DISK_CHANNEL_IDLE_HOURS,
+            POST_CACHE_DISK_CHANNEL_IDLE_HOURS_DEFAULT)) * HourMs);
 }
 
 QString channelInterestKey(const QString& server,

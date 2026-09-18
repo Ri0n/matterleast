@@ -24,6 +24,7 @@
 #include <QMimeDatabase>
 #include <QPointer>
 #include <QStyle>
+#include <QStandardPaths>
 
 #include "Settings.h"
 #include "AttachedBinaryFile.h"
@@ -31,6 +32,7 @@
 #include "backend/AttachmentService.h"
 #include "backend/types/BackendFile.h"
 #include "config/Config.h"
+#include "options/MLOptions.h"
 
 namespace Mattermost {
 
@@ -54,8 +56,12 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
 
     connect(ui->downloadButton, &QPushButton::clicked, this,
             [this, &backend, fileId, fileName, fileSize] {
-        QSettings settings;
-        const QDir downloadDir = settings.value(DOWNLOAD_LOCATION, QDir::currentPath()).toString();
+        const QString defaultDownloadLocation =
+            QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        const QString downloadLocation = MLOptions::instance()
+            ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDownloadLocation)
+            ->value().toString();
+        const QDir downloadDir(downloadLocation);
         const QString fileDestination = downloadDir.filePath(fileName);
         const QFileInfo fileInfo(fileDestination);
 

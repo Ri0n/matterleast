@@ -45,6 +45,7 @@ public:
     ~AttachedImageFile();
 private:
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void reloadPreview();
     void setPreviewPixmap(QPixmap pixmap);
 signals:
 	void dimensionsChanged ();
