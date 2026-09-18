@@ -12,6 +12,7 @@ class QUrl;
 namespace Mattermost {
 
 class BackendPost;
+class QuotedAttachmentSummary;
 
 class QuotedPostPreview final : public QFrame
 {
@@ -36,6 +37,7 @@ private:
 
     QLabel* authorLabel = nullptr;
     QTextBrowser* messageBrowser = nullptr;
+    QuotedAttachmentSummary* attachmentSummary = nullptr;
     QFrame* bar = nullptr;
     QString fullText;
     int maximumLines = 2;

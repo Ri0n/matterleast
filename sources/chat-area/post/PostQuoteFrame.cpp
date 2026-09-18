@@ -27,6 +27,7 @@
 #include "backend/types/BackendPoll.h"
 #include "backend/Storage.h"
 #include "MessageContentWidget.h"
+#include "chat-area/QuotedAttachmentSummary.h"
 #include "PostWidget.h"
 
 namespace Mattermost {
@@ -76,12 +77,23 @@ PostQuoteFrame::PostQuoteFrame (const BackendPost& quotedPost, const Storage& st
 			ui->header->setText ("Originally posted by deleted user");
 		}
 
-		QString message;
-		for (auto& file: quotedPost.files) {
-			message += "[attachment] " + file.name + "\n";
-		}
-		message += quotedPost.message;
-		messageContent->setMessage(message);
+        QStringList fileNames;
+        fileNames.reserve(static_cast<qsizetype>(quotedPost.files.size()));
+        for (const auto& file : quotedPost.files) {
+            fileNames.push_back(file.name);
+        }
+        if (!fileNames.isEmpty()) {
+            auto* attachmentSummary = new QuotedAttachmentSummary(this);
+            attachmentSummary->setFiles(fileNames);
+            ui->verticalLayout->insertWidget(
+                ui->verticalLayout->indexOf(messageContent), attachmentSummary);
+        }
+
+        if (quotedPost.message.trimmed().isEmpty() && !fileNames.isEmpty()) {
+            messageContent->hide();
+        } else {
+            messageContent->setMessage(quotedPost.message);
+        }
 
 	}
 
