@@ -165,8 +165,9 @@ public:
 	//add a poll (/actions/dialogs/submit /plugins/com.github.matterpoll.matterpoll/api/v1/polls/create)
 	void addPoll (BackendChannel& channel, const BackendNewPollData& pollData);
 
-	//add a reaction to a post (/reactions)
-	void addPostReaction (const QString& postID, const QString& emojiName);
+	//add/remove the logged-in user's reaction
+	void addPostReaction(const QString& postID, const QString& emojiName);
+	void removePostReaction(const QString& postID, const QString& emojiName);
 
 	//send a post action (/posts/{post_id}/actions/{action})
 	void sendPostAction (const BackendPost& post, const QString& action);

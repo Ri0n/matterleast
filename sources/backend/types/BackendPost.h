@@ -70,8 +70,8 @@ public:
 	 * @return true when observable post state changed.
 	 */
 	bool refreshFromJson (const QJsonObject& jsonObject, const Storage& storage);
-	void addReaction (QString userName, QString emojiName);
-	void removeReaction (QString userName, QString emojiName);
+	void addReaction(QString userId, QString emojiName);
+	void removeReaction(QString userId, QString emojiName);
 private:
 	QString getAuthorName () const;
 public:

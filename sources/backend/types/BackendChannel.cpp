@@ -346,47 +346,44 @@ void BackendChannel::editPost (BackendPost& newPost)
 	}
 }
 
-void BackendChannel::addPostReaction (QString postId, QString userId, QString emojiName)
+void BackendChannel::addPostReaction(QString postId, QString userId, QString emojiName)
 {
-	BackendPost* existingPost = findPostById (postId);
-
+	BackendPost* existingPost = findPostById(postId);
 	if (!existingPost) {
-		LOG_DEBUG ("BackendChannel::addPostReaction: post with ID " << postId << " not found");
+		LOG_DEBUG("BackendChannel::addPostReaction: post with ID " << postId << " not found");
 		return;
 	}
 
-	const QString userName = storage.getUserDisplayNameByUserId(userId, true);
 	const bool ownReaction = storage.loginUser && userId == storage.loginUser->id;
 	const EmojiID emojiId = ownReaction
 		? EmojiInfo::findByName(emojiName) : EmojiID {0, 0};
-	const auto hasOwnReaction = [&] {
-		if (!emojiId) {
-			return false;
-		}
-		const auto reaction = existingPost->reactions.find(emojiId);
-		return reaction != existingPost->reactions.end()
-			&& reaction->second.contains(userName);
-	};
+    const auto hasOwnReaction = [&] {
+        if (!emojiId || !storage.loginUser) {
+            return false;
+        }
+        const auto reaction = existingPost->reactions.find(emojiId);
+        return reaction != existingPost->reactions.end()
+            && reaction->second.contains(storage.loginUser->id);
+    };
 	const bool alreadyPresent = ownReaction && hasOwnReaction();
 
-	existingPost->addReaction (userName, emojiName);
+	existingPost->addReaction(userId, emojiName);
 	if (ownReaction && !alreadyPresent && hasOwnReaction()) {
 		ReactionUsageTracker::instance().recordUse(emojiName);
 	}
-	emit onPostReactionUpdated (*existingPost);
+	emit onPostReactionUpdated(*existingPost);
 }
 
-void BackendChannel::removePostReaction (QString postId, QString userId, QString emojiName)
+void BackendChannel::removePostReaction(QString postId, QString userId, QString emojiName)
 {
-	BackendPost* existingPost = findPostById (postId);
-
+	BackendPost* existingPost = findPostById(postId);
 	if (!existingPost) {
-		LOG_DEBUG ("BackendChannel::addPostReaction: post with ID " << postId << " not found");
+		LOG_DEBUG("BackendChannel::removePostReaction: post with ID " << postId << " not found");
 		return;
 	}
 
-	existingPost->removeReaction (storage.getUserDisplayNameByUserId (userId, true), emojiName);
-	emit onPostReactionUpdated (*existingPost);
+	existingPost->removeReaction(userId, emojiName);
+	emit onPostReactionUpdated(*existingPost);
 }
 
 QSet<const BackendUser*> BackendChannel::getAllMembers () const

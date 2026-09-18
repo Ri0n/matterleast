@@ -42,6 +42,7 @@
 #include <QMimeDatabase>
 #include <QStandardPaths>
 #include <QUuid>
+#include <QUrl>
 #include <QDebug>
 #include <QList>
 
@@ -1132,7 +1133,7 @@ void Backend::addPoll (BackendChannel& channel, const BackendNewPollData& pollDa
 	return;
 }
 
-void Backend::addPostReaction (const QString& postID, const QString& emojiName)
+void Backend::addPostReaction(const QString& postID, const QString& emojiName)
 {
 	QJsonObject json {
 		{"user_id", getLoginUser().id},
@@ -1141,10 +1142,21 @@ void Backend::addPostReaction (const QString& postID, const QString& emojiName)
 		{"create_at", 0},
 	};
 
-	NetworkRequest request ("reactions");
-	httpConnector.post (request, json, HttpResponseCallback ([this](QVariant, QByteArray) {
-		//no callbacks are required. the server will send a WebSocket packet 'reaction_added'
+	NetworkRequest request("reactions");
+	httpConnector.post(request, json, HttpResponseCallback([](QVariant, QByteArray) {
+		// The authoritative model update arrives as reaction_added.
 	}));
+}
+
+void Backend::removePostReaction(const QString& postID, const QString& emojiName)
+{
+    const QByteArray encodedEmoji = QUrl::toPercentEncoding(emojiName);
+    NetworkRequest request(
+        QStringLiteral("users/") + getLoginUser().id
+        + QStringLiteral("/posts/") + postID
+        + QStringLiteral("/reactions/")
+        + QString::fromLatin1(encodedEmoji));
+    httpConnector.del(request);
 }
 
 void Backend::sendPostAction (const BackendPost& post, const QString& action)

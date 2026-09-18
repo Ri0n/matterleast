@@ -84,10 +84,10 @@ BackendPost::BackendPost (const QJsonObject& jsonObject, const Storage& storage)
 		files.emplace_back (fileElement.toObject());
 	}
 
-	for (const auto &reactionElement: metadata.value("reactions").toArray()) {
-
-		QString userName = storage.getUserDisplayNameByUserId (reactionElement.toObject().value ("user_id").toString(), true);
-		addReaction (userName, reactionElement.toObject().value ("emoji_name").toString());
+	for (const auto& reactionElement : metadata.value("reactions").toArray()) {
+        const QJsonObject reaction = reactionElement.toObject();
+        addReaction(reaction.value("user_id").toString(),
+                    reaction.value("emoji_name").toString());
 	}
 
 	/**
@@ -146,51 +146,42 @@ QString BackendPost::getDisplayAuthorName () const
 	return getAuthorName();
 }
 
-void BackendPost::addReaction (QString userName, QString emojiName)
+void BackendPost::addReaction(QString userId, QString emojiName)
 {
-	EmojiID emojiId = EmojiInfo::findByName(emojiName);
-
+	const EmojiID emojiId = EmojiInfo::findByName(emojiName);
 	if (!emojiId) {
-		LOG_DEBUG ("Missing emoji: " << emojiName);
+		LOG_DEBUG("Missing emoji: " << emojiName);
 		return;
 	}
+    if (userId.isEmpty()) {
+        return;
+    }
 
-	auto& vec = reactions[emojiId];
-
-	/**
-	 * If the same reaction from the same user already exists, remove it.
-	 * The official Mattermost client sends 'reaction added' on each reaction add,
-	 * but the reaction is removed if it already exists
-	 */
-	auto it = std::find (vec.begin(), vec.end(), userName);
-	if (it != vec.end()) {
-		vec.erase (it);
-
-		//if this was the only user used this reaction, remove the reaction
-		if (vec.isEmpty()) {
-			reactions.erase (emojiId);
-		}
-	} else {
-		vec.push_back (userName);
-	}
+	auto& users = reactions[emojiId];
+    // WebSocket events may be replayed after reconnect. reaction_added is an
+    // idempotent fact, never a toggle.
+    if (!users.contains(userId)) {
+        users.push_back(userId);
+    }
 }
 
-void BackendPost::removeReaction (QString userName, QString emojiName)
+void BackendPost::removeReaction(QString userId, QString emojiName)
 {
-	EmojiID emojiId = EmojiInfo::findByName(emojiName);
-
+	const EmojiID emojiId = EmojiInfo::findByName(emojiName);
 	if (!emojiId) {
-		LOG_DEBUG ("Missing emoji: " << emojiName);
+		LOG_DEBUG("Missing emoji: " << emojiName);
 		return;
 	}
 
-	auto& vec = reactions[emojiId];
+    auto reaction = reactions.find(emojiId);
+    if (reaction == reactions.end()) {
+        return;
+    }
 
-	vec.erase(std::remove(vec.begin(), vec.end(), userName), vec.end());
-
-	//if this was the only user used this reaction, remove the reaction
-	if (vec.isEmpty()) {
-		reactions.erase (emojiId);
+	auto& users = reaction->second;
+	users.erase(std::remove(users.begin(), users.end(), userId), users.end());
+	if (users.isEmpty()) {
+		reactions.erase(reaction);
 	}
 }
 
