@@ -146,7 +146,7 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
     // item's initial size while the image is still being downloaded.
     setFixedSize(1, 1);
 
-    const QString fileName = file.name;
+    const QString attachmentFileName = file.name;
     QPointer<AttachedImageFile> self(this);
 
     // Inline previews should never decode the original attachment on the GUI
@@ -178,10 +178,10 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
         });
 
     connect(this, &QWidget::customContextMenuRequested, this,
-            [this, fileName](const QPoint& pos) {
+            [this, attachmentFileName](const QPoint& pos) {
         QMenu menu(this);
 
-        menu.addAction("Save image", this, [this, fileName] {
+        menu.addAction("Save image", this, [this, attachmentFileName] {
             const QString defaultDownloadDir =
                 QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
             const QDir downloadDir(
@@ -189,7 +189,7 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
                     ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDownloadDir)
                     ->value().toString());
             const QString saveFileDestination = QFileDialog::getSaveFileName(
-                this, "Save image as... - Mattermost", downloadDir.filePath(fileName));
+                this, "Save image as... - Mattermost", downloadDir.filePath(attachmentFileName));
 
             if (saveFileDestination.isEmpty()) {
                 return;
