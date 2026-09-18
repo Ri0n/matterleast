@@ -7,6 +7,9 @@
 #include <QtTest>
 
 #include "backend/Backend.h"
+#include "backend/Storage.h"
+#include "backend/emoji/EmojiInfo.h"
+#include "backend/types/BackendPost.h"
 #include "chat-area/post/ReactionChipStyle.h"
 #include "chat-area/post/reactions/PostReaction.h"
 #include "chat-area/post/reactions/PostReactionList.h"
@@ -45,6 +48,56 @@ private slots:
         QVERIFY(list.minimumHeight() >= ReactionChipStyle::chipHeight(chatFont));
         QVERIFY2(list.minimumHeight() > 27,
                  "Reaction list must not retain the legacy 27px height cap");
+    }
+
+    void reactionEventsAreIdempotentAndUseUserIds()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+
+        const QString userId = QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaa");
+        QJsonObject user {
+            {QStringLiteral("id"), userId},
+            {QStringLiteral("username"), QStringLiteral("alice")},
+            {QStringLiteral("first_name"), QStringLiteral("Alice")},
+        };
+        BackendUser* loginUser = storage.addUser(user, true);
+        QVERIFY(loginUser);
+        loginUser->isLoginUser = true;
+
+        QJsonArray reactionArray {
+            QJsonObject {
+                {QStringLiteral("user_id"), userId},
+                {QStringLiteral("emoji_name"), QStringLiteral("eyes")},
+            },
+        };
+        QJsonObject metadata {
+            {QStringLiteral("reactions"), reactionArray},
+        };
+        QJsonObject postJson {
+            {QStringLiteral("id"), QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbb")},
+            {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+            {QStringLiteral("user_id"), userId},
+            {QStringLiteral("create_at"), 1},
+            {QStringLiteral("metadata"), metadata},
+        };
+
+        BackendPost post(postJson, storage);
+        const EmojiID eyes = EmojiInfo::findByName(QStringLiteral("eyes"));
+        QVERIFY(eyes);
+
+        auto reaction = post.reactions.find(eyes);
+        QVERIFY(reaction != post.reactions.end());
+        QCOMPARE(reaction->second, BackendPostReaction {userId});
+
+        // A replayed reaction_added event is a repeated fact, not a toggle.
+        post.addReaction(userId, QStringLiteral("eyes"));
+        reaction = post.reactions.find(eyes);
+        QVERIFY(reaction != post.reactions.end());
+        QCOMPARE(reaction->second, BackendPostReaction {userId});
+
+        post.removeReaction(userId, QStringLiteral("eyes"));
+        QVERIFY(post.reactions.find(eyes) == post.reactions.end());
     }
 
     void secondChipIsOneClickableHitTarget()

@@ -830,7 +830,19 @@ void PostWidget::connectReactionActions()
 
 	connect(reactions.get(), &PostReactionList::reactionClicked,
 	        this, [this](const QString& emojiName) {
-		backend_.addPostReaction(post.id, emojiName);
+            const EmojiID emojiId = EmojiInfo::findByName(emojiName);
+            const auto reaction = emojiId
+                ? post.reactions.find(emojiId) : post.reactions.end();
+            const QString loginUserId = backend_.getLoginUser().id;
+            const bool alreadyReacted =
+                reaction != post.reactions.end()
+                && reaction->second.contains(loginUserId);
+
+            if (alreadyReacted) {
+                backend_.removePostReaction(post.id, emojiName);
+            } else {
+                backend_.addPostReaction(post.id, emojiName);
+            }
 	});
     connect(reactions.get(), &PostReactionList::dimensionsChanged,
             this, &PostWidget::dimensionsChanged);

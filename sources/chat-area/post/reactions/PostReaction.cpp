@@ -190,7 +190,13 @@ void PostReaction::updateToolTip()
             tooltip += QStringLiteral(" (%1)").arg(unresolved);
         }
     }
-    tooltip += QLatin1Char('\n') + tr("Click to add this reaction");
+    const BackendUser* loginUser = backend_.getStorage().loginUser;
+    const QString loginUserId = loginUser ? loginUser->id : QString();
+    const bool ownReaction = !loginUserId.isEmpty()
+        && reactionData_.contains(loginUserId);
+    tooltip += QLatin1Char('\n')
+        + (ownReaction ? tr("Click to remove your reaction")
+                       : tr("Click to add this reaction"));
     setToolTip(tooltip);
 }
 
