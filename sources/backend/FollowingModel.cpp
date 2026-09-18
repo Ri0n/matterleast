@@ -414,6 +414,11 @@ void FollowingModel::ensureThreadsFresh()
     }
 }
 
+void FollowingModel::noteThreadUpdated()
+{
+    scheduleThreadRefresh();
+}
+
 void FollowingModel::refreshThreads()
 {
     if (threadRefreshInFlight_) {

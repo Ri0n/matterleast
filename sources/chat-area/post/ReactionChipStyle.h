@@ -9,8 +9,11 @@
 
 namespace Mattermost::ReactionChipStyle {
 
-constexpr int Height = 24;
+constexpr int Height = 26;
 constexpr int IconExtent = 20;
+constexpr int BorderWidth = 1;
+constexpr int TopMargin = 2;
+constexpr int BottomMargin = 1;
 constexpr int IconPointSize = 14;
 constexpr int CountPointSize = 8;
 constexpr qreal ReferencePointSize = 10.0;
@@ -38,7 +41,12 @@ inline int iconExtent(const QFont& chatFont)
 
 inline int chipHeight(const QFont& chatFont)
 {
-    return std::max(Height, iconExtent(chatFont) + 4);
+    // The content area must account for both stylesheet borders and layout
+    // margins. The old "+4" was one pixel too small for a 20px custom image:
+    // 20 + (2+1 margins) + (1+1 borders) = 25px before any rounding.
+    return std::max(
+        Height,
+        iconExtent(chatFont) + TopMargin + BottomMargin + 2 * BorderWidth);
 }
 
 inline QFont countFont(QFont chatFont)
@@ -91,7 +99,7 @@ inline void apply(QWidget* widget, QHBoxLayout* layout, const QString& objectNam
     widget->setCursor(Qt::PointingHandCursor);
     widget->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     widget->setStyleSheet(styleSheet(objectName));
-    layout->setContentsMargins(4, 2, 4, 1);
+    layout->setContentsMargins(4, TopMargin, 4, BottomMargin);
     layout->setSpacing(2);
     updateMetrics(widget, layout, widget->font());
 }

@@ -800,14 +800,11 @@ void PostWidget::openGroupMention(const QString& groupId)
 void PostWidget::updateReactions()
 {
 	if (reactions) {
+        ui->verticalLayout->removeWidget(reactions.get());
 		reactions.reset();
 	}
 
-	if (post.isDeleted) {
-		return;
-	}
-
-	if (!post.reactions.empty()) {
+	if (!post.isDeleted && !post.reactions.empty()) {
 		reactions = std::make_unique<PostReactionList>(backend_, this);
         if (!chatFont_.family().isEmpty()) {
             reactions->setFont(chatFont_);
@@ -820,6 +817,40 @@ void PostWidget::updateReactions()
 		connectReactionActions();
 		ui->verticalLayout->addWidget(reactions.get(), 0, Qt::AlignLeft);
 	}
+
+    // PostReactionList computes its own metrics while chips are added, before it
+    // is connected to this widget and before it joins the parent layout. Commit
+    // the parent layout only after the row has actually been inserted/removed,
+    // then notify LongListWidget on the next event-loop turn using the settled
+    // PostWidget sizeHint. This applies equally to Unicode and custom/GIF emoji.
+    ui->verticalLayout->invalidate();
+    ui->verticalLayout->activate();
+    updateGeometry();
+
+    QPointer<PostWidget> guard(this);
+    QTimer::singleShot(0, this, [guard] {
+        if (!guard) {
+            return;
+        }
+        guard->ui->verticalLayout->invalidate();
+        guard->ui->verticalLayout->activate();
+        guard->updateGeometry();
+
+        // A layout request updates sizeHint(), but a standalone/materialized
+        // PostWidget keeps its old rect until its owner performs another layout
+        // pass. Grow or shrink immediately so reaction contents cannot be
+        // clipped during that gap; LongListWidget will then commit the same
+        // measured height to its virtual geometry.
+        const int settledHeight = std::max(
+            1,
+            std::max(guard->sizeHint().height(),
+                     guard->minimumSizeHint().height()));
+        if (guard->height() != settledHeight) {
+            guard->resize(std::max(1, guard->width()), settledHeight);
+        }
+
+        emit guard->dimensionsChanged();
+    });
 }
 
 void PostWidget::connectReactionActions()

@@ -10,6 +10,7 @@
 #include "backend/Storage.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/types/BackendPost.h"
+#include "chat-area/post/PostWidget.h"
 #include "chat-area/post/ReactionChipStyle.h"
 #include "chat-area/post/reactions/PostReaction.h"
 #include "chat-area/post/reactions/PostReactionList.h"
@@ -98,6 +99,52 @@ private slots:
 
         post.removeReaction(userId, QStringLiteral("eyes"));
         QVERIFY(post.reactions.find(eyes) == post.reactions.end());
+    }
+
+    void liveReactionUpdateCommitsPostGeometry()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+
+        const QString userId = QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaa");
+        BackendUser* user = storage.addUser(
+            QJsonObject {
+                {QStringLiteral("id"), userId},
+                {QStringLiteral("username"), QStringLiteral("alice")},
+                {QStringLiteral("first_name"), QStringLiteral("Alice")},
+            },
+            true);
+        QVERIFY(user);
+        user->isLoginUser = true;
+
+        BackendPost post(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbb")},
+                {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+                {QStringLiteral("user_id"), userId},
+                {QStringLiteral("create_at"), 1},
+                {QStringLiteral("message"), QStringLiteral("hello")},
+            },
+            storage);
+
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        widget.resize(480, widget.sizeHint().height());
+        widget.show();
+        QApplication::processEvents();
+        const int before = widget.sizeHint().height();
+
+        QSignalSpy dimensions(&widget, &PostWidget::dimensionsChanged);
+        post.addReaction(userId, QStringLiteral("eyes"));
+        widget.updateReactions();
+
+        QTRY_VERIFY_WITH_TIMEOUT(dimensions.count() > 0, 1000);
+        QTRY_VERIFY_WITH_TIMEOUT(widget.sizeHint().height() > before, 1000);
+
+        auto* list = widget.findChild<PostReactionList*>();
+        QVERIFY(list);
+        QVERIFY(list->height() >= list->minimumSizeHint().height());
+        QVERIFY(widget.rect().contains(
+            list->mapTo(&widget, list->rect().bottomRight())));
     }
 
     void secondChipIsOneClickableHitTarget()

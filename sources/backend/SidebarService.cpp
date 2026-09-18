@@ -138,10 +138,6 @@ SidebarService::SidebarService(Backend& backend)
             [this](BackendChannel& channel, const BackendPost& post) {
         recordChannelPost(channel, post);
     });
-    connect(&backend, &Backend::onChannelViewed, this,
-            [this](const BackendChannel& channel) {
-        recordChannelViewed(channel);
-    });
     connect(&backend, &Backend::onAllTeamChannelsPopulated,
             this, &SidebarService::synchronizeChannelActivity);
 
@@ -373,6 +369,24 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
 void SidebarService::markChannelViewedLocally(const BackendChannel& channel)
 {
     recordChannelViewed(channel);
+}
+
+void SidebarService::applyServerChannelViewed(const BackendChannel& channel,
+                                              uint64_t viewedAt)
+{
+    const bool wasMentioned = activityTracker.hasMention(channel.id);
+
+    activityTracker.recordViewed(
+        channel.id,
+        viewedAt,
+        static_cast<uint64_t>(std::max(0, channel.total_msg_count)),
+        static_cast<uint64_t>(std::max(0, channel.total_msg_count_root)),
+        channel.has_total_msg_count_root);
+
+    if (wasMentioned) {
+        emit channelMentionedChanged(channel.id, false);
+    }
+    emit channelActivityChanged(channel.id);
 }
 
 void SidebarService::markPostUnread(const QString& postId,

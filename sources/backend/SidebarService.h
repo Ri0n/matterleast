@@ -79,6 +79,7 @@ public:
     }
     QStringList visibleChannelIds(const SidebarCategory& category) const;
     void markChannelViewedLocally(const BackendChannel& channel);
+    void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
     void markPostUnread(const QString& postId, std::function<void(bool)> callback = {});
     void synchronizeChannelActivity();
 
