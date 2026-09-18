@@ -23,9 +23,7 @@
 #include <QDialog>
 #include <QImage>
 #include <QPixmap>
-#include <QTimer>
 
-class QResizeEvent;
 class QScrollArea;
 
 namespace Ui {
@@ -49,9 +47,6 @@ public:
                 const QString& fileAuthor,
                 QWidget* parent = nullptr);
     ~FilePreview();
-protected:
-    void resizeEvent(QResizeEvent* event) override;
-
 private:
     QSize displaySizeForViewport(const QSize& viewportSize) const;
     QSize initialViewportSize() const;
