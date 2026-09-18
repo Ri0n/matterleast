@@ -46,10 +46,10 @@ class MLOptionsTest : public QObject
 private slots:
     void initTestCase()
     {
-        // MLOptions uses the application's native QSettings scope. The real
-        // application sets both values in main.cpp before the first settings
-        // access; the standalone test executable must do the same, especially
-        // for the Windows registry backend.
+        // MLOptions uses the application's native persistent-settings scope.
+        // The real application sets both values in main.cpp before the first
+        // settings access; the standalone test executable must do the same,
+        // especially for the Windows registry backend.
         QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
         QCoreApplication::setApplicationName(QStringLiteral("ml-options-test"));
     }
