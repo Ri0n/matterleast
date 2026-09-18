@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QCoreApplication>
 #include <QUuid>
 
 #include "options/MLOptions.h"
@@ -43,6 +44,16 @@ class MLOptionsTest : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase()
+    {
+        // MLOptions uses the application's native persistent-settings scope.
+        // The real application sets both values in main.cpp before the first
+        // settings access; the standalone test executable must do the same,
+        // especially for the Windows registry backend.
+        QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
+        QCoreApplication::setApplicationName(QStringLiteral("ml-options-test"));
+    }
+
     void boolOption()
     {
         verifyOption<bool>(QStringLiteral("bool"), false, true);
