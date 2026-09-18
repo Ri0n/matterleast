@@ -20,6 +20,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QString>
 
 class QCheckBox;
 class QSpinBox;
@@ -40,10 +41,14 @@ public:
 public:
     void applyNewSettings ();
 
+protected:
+    void reject() override;
+
 private:
     Ui::SettingsWindow *ui;
 
     QCheckBox* sendWithCtrlEnter = nullptr;
+    QString originalChatFont;
     QSpinBox* attachmentCacheSizeMB = nullptr;
     QSpinBox* diskChannelIdleHours = nullptr;
     QSpinBox* diskMaxMB = nullptr;

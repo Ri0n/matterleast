@@ -1,5 +1,8 @@
 #include <QtTest>
 
+#include <cmath>
+
+#include <QApplication>
 #include <QAbstractTextDocumentLayout>
 #include <QFontMetrics>
 #include <QImage>
@@ -17,8 +20,10 @@
 #include <QTextLayout>
 #include <QTextOption>
 
+#include "Settings.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "chat-area/post/MessageContentWidget.h"
+#include "options/MLOptions.h"
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
 #include "qsourcehighliter.h"
@@ -85,6 +90,18 @@ qreal emojiPointSize(const QTextBrowser& browser, const QString& emoji)
     }
     return size;
 }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+qreal firstRenderedLineHeight(const QTextBlock& block)
+{
+    const QTextLayout* layout = block.layout();
+    if (!layout || layout->lineCount() == 0) {
+        return -1.0;
+    }
+    return layout->lineAt(0).height();
+}
+
+#endif
 
 } // namespace
 
@@ -167,6 +184,120 @@ private slots:
         QVERIFY(rebuiltBrowser != nullptr);
         QCOMPARE(rebuiltBrowser->toPlainText(), QStringLiteral("theme-sensitive text"));
     }
+
+    void chatFontChangesMaterializedContentLive()
+    {
+        auto* fontOption = MLOptions::instance()->optionObject<QString>(
+            CHAT_FONT, QApplication::font().toString());
+        const QString previousFont = fontOption->value().toString();
+
+        QFont firstFont = QApplication::font();
+        firstFont.setPointSizeF(10.0);
+        firstFont.setItalic(false);
+        fontOption->setValue(firstFont.toString());
+
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("live font"));
+        showAndSettle(widget);
+
+        auto currentFont = [&widget]() {
+            auto* browser =
+                widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+            return browser ? browser->document()->defaultFont() : QFont();
+        };
+
+        QCOMPARE(currentFont().pointSizeF(), 10.0);
+        QCOMPARE(currentFont().italic(), false);
+        QSignalSpy geometrySpy(&widget, &MessageContentWidget::dimensionsChanged);
+
+        QFont secondFont = firstFont;
+        secondFont.setPointSizeF(15.0);
+        secondFont.setItalic(true);
+        fontOption->setValue(secondFont.toString());
+
+        QTRY_COMPARE(currentFont().pointSizeF(), 15.0);
+        QTRY_COMPARE(currentFont().italic(), true);
+        QTRY_VERIFY_WITH_TIMEOUT(geometrySpy.count() > 0, 1000);
+
+        fontOption->setValue(previousFont);
+    }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    void markdownHeadingAndCodeScaleWithChatText()
+    {
+        auto* fontOption = MLOptions::instance()->optionObject<QString>(
+            CHAT_FONT, QApplication::font().toString());
+        const QString previousFont = fontOption->value().toString();
+
+        QFont smallFont = QApplication::font();
+        smallFont.setPointSizeF(10.0);
+        fontOption->setValue(smallFont.toString());
+
+        MessageContentWidget widget;
+        widget.setMessage(
+            QStringLiteral("# Heading\nBody\n\n```cpp\nint answer = 42;\n```"));
+        showAndSettle(widget, QSize(320, 260));
+
+        struct Sizes {
+            qreal heading = -1.0;
+            qreal body = -1.0;
+            qreal code = -1.0;
+        };
+
+        auto sizes = [&widget]() {
+            Sizes result;
+            auto* browser =
+                widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+            if (browser) {
+                QTextDocument* document = browser->document();
+                document->documentLayout()->documentSize();
+
+                QTextBlock block = document->begin();
+                if (block.isValid()) {
+                    result.heading = firstRenderedLineHeight(block);
+                    block = block.next();
+                }
+                while (block.isValid() && block.text().trimmed().isEmpty()) {
+                    block = block.next();
+                }
+                if (block.isValid()) {
+                    result.body = firstRenderedLineHeight(block);
+                }
+            }
+
+            auto* code =
+                widget.findChild<QPlainTextEdit*>(QStringLiteral("messageCodeBlock"));
+            if (code) {
+                result.code = code->font().pointSizeF();
+            }
+            return result;
+        };
+
+        const Sizes before = sizes();
+        QVERIFY(before.heading > before.body);
+        QVERIFY(before.body > 0.0);
+        QVERIFY(before.code > 0.0);
+
+        QFont largeFont = smallFont;
+        largeFont.setPointSizeF(15.0);
+        fontOption->setValue(largeFont.toString());
+        Sizes after;
+        QTRY_VERIFY(([&] {
+            after = sizes();
+            return after.body > before.body * 1.45
+                && after.code > before.code * 1.45;
+        })());
+
+        const qreal beforeHeadingRatio = before.heading / before.body;
+        const qreal afterHeadingRatio = after.heading / after.body;
+        QVERIFY2(std::abs(beforeHeadingRatio - afterHeadingRatio) < 0.08,
+                 "Markdown heading/body proportions must stay stable when chat text scales");
+        QVERIFY2(after.code < before.code * 1.55,
+                 "Fenced code should follow the same chat text scale");
+
+        fontOption->setValue(previousFont);
+    }
+#endif
 
     void inlineUnicodeEmojiUsesLargerFont()
     {

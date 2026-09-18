@@ -7,6 +7,7 @@
 #include <utility>
 
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QEvent>
 #include <QFontDatabase>
 #include <QFontMetrics>
@@ -30,8 +31,10 @@
 #include <QVector>
 
 #include "MessageFormatter.h"
+#include "Settings.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistryNotifier.h"
+#include "options/MLOptions.h"
 #include "ui/EmojiPresentation.h"
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
@@ -165,7 +168,8 @@ void applyEmojiPresentation(QTextDocument& document, bool jumbo)
 class WrappedRichText final : public QTextBrowser
 {
 public:
-    explicit WrappedRichText(std::function<void()> heightChanged, QWidget* parent = nullptr)
+    explicit WrappedRichText(std::function<void()> heightChanged,
+                             QWidget* parent = nullptr)
         : QTextBrowser(parent)
         , heightChanged(std::move(heightChanged))
     {
@@ -190,7 +194,9 @@ public:
 
     void setContentHtml(const QString& html, bool jumboEmoji = false)
     {
+        document()->setDefaultFont(font());
         setHtml(html);
+        document()->setDefaultFont(font());
         document()->setDocumentMargin(0);
         applyEmojiPresentation(*document(), jumboEmoji);
         applyWrapMode();
@@ -555,7 +561,16 @@ public:
         setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         setMinimumWidth(0);
         setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-        setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        QFont codeFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        qreal pointSize = font().pointSizeF();
+        if (pointSize <= 0.0) {
+            pointSize = fontInfo().pointSizeF();
+        }
+        if (pointSize > 0.0) {
+            codeFont.setPointSizeF(pointSize);
+        }
+        setFont(codeFont);
+        document()->setDefaultFont(codeFont);
         document()->setDocumentMargin(6);
 
         QPalette codePalette = palette();
@@ -650,6 +665,19 @@ QString fragmentHtml(QTextDocument& document, int start, int end)
 
 #endif
 
+QString formatRichTextForFont(const QString& message, const QFont& font)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    QTextDocument document;
+    document.setDefaultFont(font);
+    MessageFormatter::buildMarkdownDocument(document, message);
+    return document.toHtml();
+#else
+    Q_UNUSED(font);
+    return MessageFormatter::formatMessageText(message);
+#endif
+}
+
 } // namespace
 
 MessageContentWidget::MessageContentWidget(QWidget* parent)
@@ -660,6 +688,14 @@ MessageContentWidget::MessageContentWidget(QWidget* parent)
     contentLayout->setSpacing(2);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     setMinimumWidth(0);
+
+    auto* chatFontOption = MLOptions::instance()->optionObject<QString>(
+        CHAT_FONT, font().toString());
+    applyChatFont(chatFontOption->value().toString());
+    connect(chatFontOption, &MLOptionObject::changed, this,
+            [this](const QVariant& value) {
+        applyChatFont(value.toString());
+    });
 
     connect(&EmojiRegistryNotifier::instance(),
             &EmojiRegistryNotifier::customEmojiAdded,
@@ -717,7 +753,7 @@ void MessageContentWidget::setMessage(const QString& message)
     const QVector<MessageSegment> segments = splitMessageSegments(message);
     for (const MessageSegment& segment : segments) {
         if (segment.quote) {
-            addQuote(MessageFormatter::formatMessageText(segment.text));
+            addQuote(formatRichTextForFont(segment.text, font()));
             continue;
         }
         if (segment.text.isEmpty()) {
@@ -802,6 +838,23 @@ void MessageContentWidget::clearContent()
     }
 }
 
+void MessageContentWidget::applyChatFont(const QString& serializedFont)
+{
+    QFont nextFont;
+    if (serializedFont.isEmpty() || !nextFont.fromString(serializedFont)) {
+        nextFont = QApplication::font();
+    }
+    if (font() == nextFont) {
+        return;
+    }
+
+    setFont(nextFont);
+    if (!_sourceMessage.isEmpty()) {
+        const QString sourceMessage = _sourceMessage;
+        setMessage(sourceMessage);
+    }
+}
+
 void MessageContentWidget::scheduleDimensionsChanged()
 {
     updateGeometry();
@@ -826,7 +879,8 @@ void MessageContentWidget::addQuote(const QString& html)
         return;
     }
 
-    auto* quote = new QuoteBlock(html, [this] { scheduleDimensionsChanged(); }, this);
+    auto* quote = new QuoteBlock(
+        html, [this] { scheduleDimensionsChanged(); }, this);
     connect(quote->browser(),
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
             this,
@@ -842,7 +896,8 @@ void MessageContentWidget::addRichText(const QString& html)
         return;
     }
 
-    auto* richText = new WrappedRichText([this] { scheduleDimensionsChanged(); }, this);
+    auto* richText = new WrappedRichText(
+        [this] { scheduleDimensionsChanged(); }, this);
     richText->setContentHtml(html, _jumboEmojiMessage);
     connect(richText,
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
@@ -857,6 +912,7 @@ void MessageContentWidget::addRichText(const QString& html)
 void MessageContentWidget::addMarkdownContent(const QString& message)
 {
     QTextDocument document;
+    document.setDefaultFont(font());
     MessageFormatter::buildMarkdownDocument(document, message);
 
     int richStart = 0;
