@@ -19,6 +19,7 @@
 #include "QuotedAttachmentSummary.h"
 #include "backend/types/BackendPost.h"
 #include "post/MessageFormatter.h"
+#include "post/attachments/PostAttachmentList.h"
 
 namespace Mattermost {
 
@@ -41,9 +42,9 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     bar->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     layout->addWidget(bar);
 
-    auto* textLayout = new QVBoxLayout;
-    textLayout->setContentsMargins(0, 0, 0, 0);
-    textLayout->setSpacing(0);
+    contentLayout = new QVBoxLayout;
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    contentLayout->setSpacing(0);
 
     authorLabel = new QLabel(this);
     QFont authorFont = authorLabel->font();
@@ -73,10 +74,10 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
 
     attachmentSummary = new QuotedAttachmentSummary(this);
 
-    textLayout->addWidget(authorLabel);
-    textLayout->addWidget(messageBrowser);
-    textLayout->addWidget(attachmentSummary);
-    layout->addLayout(textLayout, 1);
+    contentLayout->addWidget(authorLabel);
+    contentLayout->addWidget(messageBrowser);
+    contentLayout->addWidget(attachmentSummary);
+    layout->addLayout(contentLayout, 1);
 
     refreshPalette();
 }
@@ -87,13 +88,8 @@ void QuotedPostPreview::setPost(const BackendPost& post)
                post.message,
                !post.files.empty());
 
-    QStringList fileNames;
-    fileNames.reserve(static_cast<qsizetype>(post.files.size()));
-    for (const auto& file : post.files) {
-        fileNames.push_back(file.name);
-    }
     if (attachmentSummary) {
-        attachmentSummary->setFiles(fileNames);
+        attachmentSummary->setFiles(post.files);
     }
 }
 
@@ -101,6 +97,12 @@ void QuotedPostPreview::setPreview(const QString& title,
                                    const QString& message,
                                    bool hasAttachments)
 {
+    if (attachmentList) {
+        contentLayout->removeWidget(attachmentList);
+        delete attachmentList;
+        attachmentList = nullptr;
+    }
+
     authorLabel->setText(title);
     const QString visibleMessage = QuotedReplyFormat::stripFallback(message);
     if (visibleMessage.trimmed().isEmpty()) {
@@ -116,6 +118,42 @@ void QuotedPostPreview::setPreview(const QString& title,
         messageBrowser->setToolTip(visibleMessage);
     }
     refreshText();
+}
+
+void QuotedPostPreview::setInteractiveAttachments(
+    Backend& backend,
+    const std::list<BackendFile>& files,
+    const QString& authorName)
+{
+    if (files.empty() || !contentLayout) {
+        return;
+    }
+
+    if (attachmentSummary) {
+        attachmentSummary->setGenericAttachment(false);
+    }
+
+    if (attachmentList) {
+        contentLayout->removeWidget(attachmentList);
+        delete attachmentList;
+    }
+
+    attachmentList = new PostAttachmentList(backend, this);
+    connect(attachmentList,
+            &PostAttachmentList::dimensionsChanged,
+            this,
+            [this] {
+                updateGeometry();
+                emit dimensionsChanged();
+            });
+
+    for (const BackendFile& file : files) {
+        attachmentList->addFile(file, authorName);
+    }
+
+    contentLayout->addWidget(attachmentList, 0, Qt::AlignLeft);
+    updateGeometry();
+    emit dimensionsChanged();
 }
 
 void QuotedPostPreview::setActivatedCallback(std::function<void()> callback)
