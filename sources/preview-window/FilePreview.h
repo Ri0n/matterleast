@@ -53,7 +53,7 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
-    QSize fitImageSize(const QSize& availableSize) const;
+    QSize fitImageSize(const QSize& availableSize, bool allowUpscale) const;
     QSize initialImageAreaSize() const;
     QSize imageAreaForDialogSize(const QSize& dialogSize) const;
     void updateDisplayedPixmap(const QSize& availableSize);
