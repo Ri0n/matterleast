@@ -30,10 +30,12 @@
 #include <QNetworkReply>
 #include <QQueue>
 #include <QSet>
+#include <QSharedPointer>
 
 #include "backend/HttpResponseCallback.h"
 #include "backend/types/BackendError.h"
 
+class QHttpMultiPart;
 class QNetworkAccessManager;
 
 namespace Mattermost {
@@ -52,6 +54,8 @@ public:
 
 	void get (QNetworkRequest &request, HttpResponseCallback responseHandler);
 	void post (QNetworkRequest &request, const QByteArrayCreator &data, HttpResponseCallback responseHandler);
+	void post(QNetworkRequest& request, QSharedPointer<QHttpMultiPart> data,
+	          HttpResponseCallback responseHandler);
 	void put (QNetworkRequest &request, const QByteArrayCreator &data, HttpResponseCallback responseHandler);
 	void del (QNetworkRequest &request);
 
@@ -73,6 +77,7 @@ private:
 		QByteArray data;
 		bool jsonData = false;
 		HttpResponseCallback responseHandler;
+		QSharedPointer<QHttpMultiPart> multipartData;
 	};
 
 	void enqueue (PendingRequest request);
@@ -92,6 +97,7 @@ private:
 	QQueue<PendingRequest> lowPriorityRequests;
 	QSet<QNetworkReply*> activeReplies;
 	QHash<QNetworkReply*, PendingRequest> activeGetRequests;
+	QHash<QNetworkReply*, QSharedPointer<QHttpMultiPart>> activeMultipartRequests;
 	QSet<QNetworkReply*> replayedReplies;
 	int activeRequests = 0;
 	quint64 generation = 0;

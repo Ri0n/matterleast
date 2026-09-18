@@ -29,6 +29,7 @@
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHttpMultiPart>
 #include <QNetworkAccessManager>
 #include <QNetworkDiskCache>
 #include <QNetworkReply>
@@ -95,6 +96,12 @@ HTTPConnector::~HTTPConnector ()
 	connectors.remove(this);
 	globalActiveRequests = qMax(0, globalActiveRequests - activeRequests);
 	activeRequests = 0;
+
+    // QNetworkReply may still reference a multipart request body. Tear down the
+    // manager before releasing those devices.
+    qnetworkManager.reset();
+    activeMultipartRequests.clear();
+
 	processQueues();
 }
 
@@ -113,7 +120,11 @@ void HTTPConnector::reset ()
 	restartingTransport = false;
     LocalPostDeleteTracker::clear();
 
+    // Destroy the old network manager while multipart request bodies are still
+    // alive. Its replies may still reference their multipart body during
+    // teardown.
 	qnetworkManager = createNetworkManager();
+    activeMultipartRequests.clear();
 	processQueues();
 }
 
@@ -189,6 +200,7 @@ void HTTPConnector::get (QNetworkRequest& request, HttpResponseCallback response
 		QByteArray(),
 		false,
 		std::move(responseHandler),
+        {},
 	});
 }
 
@@ -205,7 +217,28 @@ void HTTPConnector::post (QNetworkRequest& request, const QByteArrayCreator& dat
 		data,
 		data.isJson(),
 		std::move(responseHandler),
+        {},
 	});
+}
+
+void HTTPConnector::post(QNetworkRequest& request,
+                         QSharedPointer<QHttpMultiPart> data,
+                         HttpResponseCallback responseHandler)
+{
+    if (request.priority() != QNetworkRequest::LowPriority) {
+        request.setPriority(QNetworkRequest::HighPriority);
+    }
+
+    // Match the official client's upload path: multipart uploads keep the
+    // transport defaults, including HTTP/2 when negotiated.
+    enqueue(PendingRequest {
+        Method::Post,
+        request,
+        QByteArray(),
+        false,
+        std::move(responseHandler),
+        std::move(data),
+    });
 }
 
 void HTTPConnector::put (QNetworkRequest& request, const QByteArrayCreator& data, HttpResponseCallback responseHandler)
@@ -221,6 +254,7 @@ void HTTPConnector::put (QNetworkRequest& request, const QByteArrayCreator& data
 		data,
 		data.isJson(),
 		std::move(responseHandler),
+        {},
 	});
 }
 
@@ -243,6 +277,7 @@ void HTTPConnector::del (QNetworkRequest& request)
 		QByteArray(),
 		false,
 		HttpResponseCallback([](QVariant, QByteArray, const QNetworkReply&) {}),
+        {},
 	});
 }
 
@@ -304,7 +339,11 @@ void HTTPConnector::startRequest(PendingRequest request)
 		reply = qnetworkManager->get(request.request);
 		break;
 	case Method::Post:
-		reply = qnetworkManager->post(request.request, request.data);
+        if (request.multipartData) {
+            reply = qnetworkManager->post(request.request, request.multipartData.data());
+        } else {
+            reply = qnetworkManager->post(request.request, request.data);
+        }
 		break;
 	case Method::Put:
 		reply = qnetworkManager->put(request.request, request.data);
@@ -317,6 +356,9 @@ void HTTPConnector::startRequest(PendingRequest request)
 	++activeRequests;
 	++globalActiveRequests;
 	activeReplies.insert(reply);
+    if (request.multipartData) {
+        activeMultipartRequests.insert(reply, request.multipartData);
+    }
 	if (request.method == Method::Get) {
 		activeGetRequests.insert(reply, request);
 	}
@@ -334,6 +376,7 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 			// finished; never deliver them into callbacks belonging to the new
 			// application/storage generation.
 			if (requestGeneration != generation) {
+                activeMultipartRequests.remove(reply);
 				reply->deleteLater();
 				return;
 			}
@@ -341,6 +384,7 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 			const bool replayed = replayedReplies.remove(reply);
 			activeReplies.remove(reply);
 			activeGetRequests.remove(reply);
+            activeMultipartRequests.remove(reply);
 			if (replayed) {
 				reply->deleteLater();
 				if (activeRequests > 0) {

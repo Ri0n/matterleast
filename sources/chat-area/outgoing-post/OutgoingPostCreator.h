@@ -102,7 +102,8 @@ private:
 	void setEditingVisual(bool editing);
 	void setSendActivityText();
 	void finishSend(const QString& confirmedPostId = QString());
-	void failSend();
+	void failSend(const QString& statusText = QString());
+    void failAttachmentUpload(const QString& statusText);
 	bool isEditingPost() const;
 	bool isCreatingPost ();
 	bool isWaitingForPostServerResponse ();

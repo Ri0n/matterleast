@@ -64,8 +64,11 @@ struct OutgoingPostData {
 	QString message;
 	QString replyToPostId;
 	QString pendingPostId;
+    QString rootId;
 	QList<QString> attachmentPaths;
 	QList<QString> attachmentIds;
+    qsizetype pendingUploadCount = 0;
+    QString uploadFailureText;
 };
 
 OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
@@ -330,6 +333,7 @@ void OutgoingPostCreator::sendPostButtonAction()
 	outgoingPostData = std::make_unique<OutgoingPostData>();
 	outgoingPostData->message = message;
 	outgoingPostData->postToEdit = postToEdit;
+    outgoingPostData->rootId = root_id;
 	if (!outgoingPostData->postToEdit) {
 		outgoingPostData->replyToPostId = replyToPostId;
 		outgoingPostData->pendingPostId = backend->getLoginUser().id
@@ -339,6 +343,10 @@ void OutgoingPostCreator::sendPostButtonAction()
 
 	if (attachmentList) {
 		outgoingPostData->attachmentPaths = attachmentList->getAllFiles();
+        while (outgoingPostData->attachmentIds.size()
+               < outgoingPostData->attachmentPaths.size()) {
+            outgoingPostData->attachmentIds.append(QString());
+        }
 		attachmentList->setDisableInput(true);
 	}
 
@@ -361,8 +369,16 @@ void OutgoingPostCreator::setSendActivityText()
 	}
 
 	QString activityText;
-	if (!outgoingPostData->attachmentPaths.isEmpty()) {
-		activityText = outgoingPostData->attachmentPaths.size() == 1
+    qsizetype remainingUploads = 0;
+    for (qsizetype i = 0; i < outgoingPostData->attachmentPaths.size(); ++i) {
+        if (i >= outgoingPostData->attachmentIds.size()
+            || outgoingPostData->attachmentIds.at(i).isEmpty()) {
+            ++remainingUploads;
+        }
+    }
+
+	if (remainingUploads > 0) {
+		activityText = remainingUploads == 1
 			? tr("Uploading attachment…") : tr("Uploading attachments…");
 	} else if (outgoingPostData->postToEdit) {
 		activityText = tr("Saving edited message…");
@@ -379,36 +395,92 @@ void OutgoingPostCreator::prepareAndSendPost()
 	if (!outgoingPostData) {
 		return;
 	}
-	if (outgoingPostData->attachmentPaths.isEmpty()) {
-		sendPost();
-		return;
-	}
 
-	for (auto it = outgoingPostData->attachmentPaths.begin();
-	     it != outgoingPostData->attachmentPaths.end(); ++it) {
-		auto& file = *it;
-		backend->uploadFile(*channel, file, [this, it](QString fileId) {
-			if (!outgoingPostData) {
-				return;
-			}
-			outgoingPostData->attachmentIds.push_back(fileId);
-			outgoingPostData->attachmentPaths.erase(it);
-			const qsizetype uploadedFilesCount = outgoingPostData->attachmentIds.size();
-			const qsizetype remainingFileCount = outgoingPostData->attachmentPaths.size();
+    while (outgoingPostData->attachmentIds.size()
+           < outgoingPostData->attachmentPaths.size()) {
+        outgoingPostData->attachmentIds.append(QString());
+    }
+    while (outgoingPostData->attachmentIds.size()
+           > outgoingPostData->attachmentPaths.size()) {
+        outgoingPostData->attachmentIds.removeLast();
+    }
 
-			qDebug() << "Remaining file count:" << remainingFileCount;
-			if (remainingFileCount == 0) {
-				setStatusLabelText(outgoingPostData->postToEdit
-					? tr("Saving edited message…") : tr("Sending message…"));
-				sendPost();
-			} else {
-				setStatusLabelText(
-					tr("Uploading attachments · %1 of %2 complete")
-						.arg(uploadedFilesCount)
-						.arg(uploadedFilesCount + remainingFileCount));
-			}
-		});
-	}
+    QVector<qsizetype> missingIndexes;
+    missingIndexes.reserve(outgoingPostData->attachmentPaths.size());
+    for (qsizetype i = 0; i < outgoingPostData->attachmentPaths.size(); ++i) {
+        if (outgoingPostData->attachmentIds.at(i).isEmpty()) {
+            missingIndexes.push_back(i);
+        }
+    }
+
+    if (missingIndexes.isEmpty()) {
+        setSendActivityText();
+        sendPost();
+        return;
+    }
+
+    outgoingPostData->pendingUploadCount = missingIndexes.size();
+    outgoingPostData->uploadFailureText.clear();
+
+    QPointer<OutgoingPostCreator> guard(this);
+    for (const qsizetype index : missingIndexes) {
+        const QString filePath = outgoingPostData->attachmentPaths.at(index);
+        backend->uploadFile(
+            *channel,
+            filePath,
+            [guard, index](QString fileId, QString errorText) {
+                if (!guard || !guard->outgoingPostData
+                    || index < 0
+                    || index >= guard->outgoingPostData->attachmentIds.size()) {
+                    return;
+                }
+
+                if (fileId.isEmpty()) {
+                    if (guard->outgoingPostData->uploadFailureText.isEmpty()) {
+                        guard->outgoingPostData->uploadFailureText =
+                            errorText.trimmed();
+                    }
+                } else {
+                    guard->outgoingPostData->attachmentIds[index] = fileId;
+                }
+
+                if (guard->outgoingPostData->pendingUploadCount > 0) {
+                    --guard->outgoingPostData->pendingUploadCount;
+                }
+
+                qsizetype uploadedCount = 0;
+                for (const QString& id : guard->outgoingPostData->attachmentIds) {
+                    if (!id.isEmpty()) {
+                        ++uploadedCount;
+                    }
+                }
+
+                if (guard->outgoingPostData->pendingUploadCount > 0) {
+                    guard->setStatusLabelText(
+                        guard->tr("Uploading attachments · %1 of %2 complete")
+                            .arg(uploadedCount)
+                            .arg(guard->outgoingPostData->attachmentPaths.size()));
+                    return;
+                }
+
+                for (const QString& id : guard->outgoingPostData->attachmentIds) {
+                    if (id.isEmpty()) {
+                        QString status = guard->tr(
+                            "Attachment upload failed · click Send to retry");
+                        if (!guard->outgoingPostData->uploadFailureText.isEmpty()) {
+                            status = guard->tr(
+                                "Attachment upload failed: %1 · click Send to retry")
+                                .arg(guard->outgoingPostData->uploadFailureText);
+                        }
+                        guard->failAttachmentUpload(status);
+                        return;
+                    }
+                }
+
+                guard->setSendActivityText();
+                guard->sendPost();
+            });
+    }
 }
 
 void OutgoingPostCreator::sendPost()
@@ -475,7 +547,8 @@ void OutgoingPostCreator::sendPost()
 			}
 		}
 		service.createPost(*channel, wireMessage, outgoingPostData->attachmentIds,
-		                   root_id, props, outgoingPostData->pendingPostId,
+		                   outgoingPostData->rootId, props,
+                       outgoingPostData->pendingPostId,
 		                   [guard](BackendPost* post) {
 			if (!guard) {
 				return;
@@ -572,7 +645,35 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
 	}
 }
 
-void OutgoingPostCreator::failSend()
+void OutgoingPostCreator::failAttachmentUpload(const QString& statusText)
+{
+    if (!outgoingPostData) {
+        return;
+    }
+
+    // Upload failure is not an ambiguous post mutation. Return to the editable
+    // draft instead of trapping the composer in retry-only mode. This also lets
+    // the user remove a file rejected by server policy before sending again.
+    const BackendPost* editingPost = outgoingPostData->postToEdit;
+    outgoingPostData.reset();
+    postToEdit = editingPost;
+    sendFailed = false;
+
+    setReadOnly(false);
+    if (attachmentList) {
+        attachmentList->setDisableInput(false);
+    }
+    if (attachButton) {
+        attachButton->setProperty(ComposerBusyTextProperty, QString());
+        attachButton->setToolTip(tr("Add"));
+    }
+
+    setStatusLabelText(statusText);
+    updateSendButtonState();
+    setFocus();
+}
+
+void OutgoingPostCreator::failSend(const QString& statusText)
 {
 	if (!outgoingPostData) {
 		return;
@@ -580,7 +681,9 @@ void OutgoingPostCreator::failSend()
 
 	sendFailed = true;
 	setReadOnly(true);
-	if (outgoingPostData->postToEdit) {
+    if (!statusText.isEmpty()) {
+        setStatusLabelText(statusText);
+	} else if (outgoingPostData->postToEdit) {
 		setStatusLabelText(tr("Save failed · click Send to retry"));
 	} else if (outgoingPostData->pollData) {
 		setStatusLabelText(tr("Poll send failed · click Send to retry"));

@@ -83,7 +83,9 @@ void PostCreateService::createPost(BackendChannel& channel,
 {
     QJsonArray files;
     for (const QString& id : attachments) {
-        files.push_back(id);
+        if (!id.isEmpty()) {
+            files.push_back(id);
+        }
     }
 
     QJsonObject json;
@@ -127,7 +129,9 @@ void PostCreateService::editPost(const QString& postId,
 {
     QJsonArray files;
     for (const QString& id : attachments) {
-        files.push_back(id);
+        if (!id.isEmpty()) {
+            files.push_back(id);
+        }
     }
 
     QJsonObject json;
