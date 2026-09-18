@@ -22,6 +22,8 @@
 #include <QWidget>
 #include <QTemporaryFile>
 
+class QPaintEvent;
+
 namespace Ui {
 class AttachedBinaryFile;
 }
@@ -37,6 +39,10 @@ class AttachedBinaryFile: public QWidget {
 public:
     explicit AttachedBinaryFile (Backend& backend, const BackendFile& file, QWidget *parent = nullptr);
     ~AttachedBinaryFile();
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
 private:
     void setFileMimeIcon (const QString& filename);
 private:

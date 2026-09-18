@@ -844,11 +844,13 @@ void MessageContentWidget::applyChatFont(const QString& serializedFont)
     if (serializedFont.isEmpty() || !nextFont.fromString(serializedFont)) {
         nextFont = QApplication::font();
     }
-    if (font() == nextFont) {
-        return;
+    if (font() != nextFont) {
+        setFont(nextFont);
     }
-
-    setFont(nextFont);
+    // The same target font may already have reached us through QWidget font
+    // inheritance before the option notification. The rich-text documents keep
+    // their own default font/height state, so the option change must still
+    // rebuild materialized content.
     if (!_sourceMessage.isEmpty()) {
         const QString sourceMessage = _sourceMessage;
         setMessage(sourceMessage);

@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <QFont>
 #include <QPushButton>
 #include <memory>
 #include <vector>
@@ -124,6 +125,7 @@ private:
     void refreshPermalinkPreviews();
     void openUserProfile(const QString& username);
     void openGroupMention(const QString& groupId);
+    void applyChatFont(const QString& serializedFont);
     QString mentionTeamId() const;
 
     Backend&                            backend_;
@@ -147,6 +149,7 @@ private:
     bool                               hovered_ = false;
     bool                               wholeMessageSelectionMode_ = false;
     bool                               wholeMessageSelected_ = false;
+    QFont                              chatFont_;
 };
 
 } /* namespace Mattermost */

@@ -63,12 +63,12 @@ ThreadSummaryWidget::ThreadSummaryWidget(Backend& backend,
     , rootPost(rootPost)
     , layout(new QHBoxLayout(this))
     , chip(new QWidget(this))
+    , chipLayout(new QHBoxLayout(chip))
 {
     setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(2);
 
-    auto* chipLayout = new QHBoxLayout(chip);
     ReactionChipStyle::apply(chip, chipLayout, QStringLiteral("threadReactionChip"));
     chip->setToolTip(tr("Open thread"));
     chip->setAccessibleName(tr("Open thread"));
@@ -82,13 +82,13 @@ ThreadSummaryWidget::ThreadSummaryWidget(Backend& backend,
     chipLayout->addWidget(chipIcon, 0, Qt::AlignVCenter);
 
     chipCount = new QLabel(chip);
-    chipCount->setMaximumSize(20, ReactionChipStyle::IconExtent);
+    chipCount->setObjectName(QStringLiteral("threadSummaryCount"));
     chipCount->setAlignment(Qt::AlignCenter);
-    QFont countFont = chipCount->font();
-    countFont.setPointSize(ReactionChipStyle::CountPointSize);
-    chipCount->setFont(countFont);
+    chipCount->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     chipCount->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     chipLayout->addWidget(chipCount, 0, Qt::AlignBottom);
+
+    applyPresentationFont();
 
     connect(&channel, &BackendChannel::onPostEdited, this,
             [this](BackendPost& edited) {
@@ -136,11 +136,34 @@ void ThreadSummaryWidget::refresh()
 void ThreadSummaryWidget::changeEvent(QEvent* event)
 {
     QWidget::changeEvent(event);
-    if (event && (event->type() == QEvent::PaletteChange
-                  || event->type() == QEvent::ApplicationPaletteChange
-                  || event->type() == QEvent::StyleChange)) {
+    if (!event) {
+        return;
+    }
+    if (event->type() == QEvent::FontChange) {
+        applyPresentationFont();
+    }
+    if (event->type() == QEvent::PaletteChange
+        || event->type() == QEvent::ApplicationPaletteChange
+        || event->type() == QEvent::StyleChange) {
         refreshTheme();
     }
+}
+
+void ThreadSummaryWidget::applyPresentationFont()
+{
+    if (!chip || !chipCount || !chipLayout) {
+        return;
+    }
+
+    chip->setFont(font());
+    const int extent = ReactionChipStyle::iconExtent(font());
+    chipIcon->setFixedSize(extent, extent);
+    chipCount->setFont(ReactionChipStyle::countFont(font()));
+    chipCount->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    ReactionChipStyle::updateMetrics(chip, chipLayout, font());
+    refreshTheme();
+    chip->adjustSize();
+    updateGeometry();
 }
 
 void ThreadSummaryWidget::refreshTheme()
@@ -155,8 +178,7 @@ void ThreadSummaryWidget::refreshTheme()
     const QColor iconColor = currentPalette.color(QPalette::WindowText);
     chipIcon->setPixmap(IconUtils::tintedSymbolicIcon(
         QStringLiteral(":/icons/message-balloon"), iconColor)
-                            .pixmap(ReactionChipStyle::IconExtent,
-                                    ReactionChipStyle::IconExtent));
+                            .pixmap(chipIcon->width(), chipIcon->height()));
     chipIcon->update();
     chipCount->update();
 }

@@ -22,6 +22,8 @@
 #include <QVector>
 #include <QWidget>
 
+class QEvent;
+
 namespace Ui {
 class PostReactionList;
 }
@@ -45,8 +47,13 @@ public:
 
 signals:
     void reactionClicked(const QString& emojiName);
+    void dimensionsChanged();
+
+protected:
+    void changeEvent(QEvent* event) override;
 
 private:
+    void applyPresentationFont();
     Backend& backend_;
     Ui::PostReactionList* ui_;
 };

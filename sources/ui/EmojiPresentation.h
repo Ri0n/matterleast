@@ -46,7 +46,9 @@ inline QFont fontForMode(QFont font, Mode mode)
     font = EmojiFont::applySystemEmojiFamily(font);
 
     if (mode == Mode::Reaction) {
-        font.setPixelSize(ReactionExtent);
+        if (font.pixelSize() <= 0) {
+            font.setPixelSize(ReactionExtent);
+        }
         return font;
     }
 
@@ -62,7 +64,7 @@ inline QFont fontForMode(QFont font, Mode mode)
 inline int extent(const QFont& font, Mode mode)
 {
     if (mode == Mode::Reaction) {
-        return ReactionExtent;
+        return font.pixelSize() > 0 ? font.pixelSize() : ReactionExtent;
     }
     return std::max(1, qRound(QFontMetricsF(font).ascent() * fontScale(mode)));
 }

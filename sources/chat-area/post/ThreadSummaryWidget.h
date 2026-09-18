@@ -52,6 +52,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    void applyPresentationFont();
     void refreshTheme();
     void rebuildParticipantAvatars();
     void watchUser(const BackendUser* user);
@@ -61,6 +62,7 @@ private:
     BackendPost& rootPost;
     QHBoxLayout* layout = nullptr;
     QWidget* chip = nullptr;
+    QHBoxLayout* chipLayout = nullptr;
     QLabel* chipIcon = nullptr;
     QLabel* chipCount = nullptr;
 };

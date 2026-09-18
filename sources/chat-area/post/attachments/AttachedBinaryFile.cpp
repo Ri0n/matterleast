@@ -23,6 +23,9 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QMimeDatabase>
+#include <QPainter>
+#include <QPalette>
+#include <QPaintEvent>
 #include <QPointer>
 #include <QStandardPaths>
 #include <QStyle>
@@ -42,6 +45,9 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     , ui(new Ui::AttachedBinaryFile)
 {
     ui->setupUi(this);
+    ui->fileNameLabel->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->fileTypeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->fileSizeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
     ui->fileNameLabel->setText("File: " + file.name);
     ui->downloadedLabel->setText("");
 
@@ -174,6 +180,15 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
 AttachedBinaryFile::~AttachedBinaryFile()
 {
     delete ui;
+}
+
+void AttachedBinaryFile::paintEvent(QPaintEvent* event)
+{
+    QWidget::paintEvent(event);
+
+    QPainter painter(this);
+    painter.fillRect(QRect(0, 0, 3, height()),
+                     palette().color(QPalette::Highlight));
 }
 
 void AttachedBinaryFile::setFileMimeIcon(const QString& filename)

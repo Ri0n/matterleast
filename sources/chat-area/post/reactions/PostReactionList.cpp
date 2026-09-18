@@ -19,6 +19,8 @@
 
 #include "PostReactionList.h"
 
+#include <QEvent>
+
 #include "PostReaction.h"
 #include "ui_PostReactionList.h"
 
@@ -43,9 +45,37 @@ void PostReactionList::addReaction(const QString& emojiName,
 {
     auto* reaction = new PostReaction(
         backend_, emojiName, emojiValue, reactionData, this);
+    reaction->setPresentationFont(font());
     connect(reaction, &PostReaction::clicked,
             this, &PostReactionList::reactionClicked);
     ui_->horizontalLayout_2->addWidget(reaction, 0, Qt::AlignLeft);
+    applyPresentationFont();
+}
+
+void PostReactionList::changeEvent(QEvent* event)
+{
+    QWidget::changeEvent(event);
+    if (event && event->type() == QEvent::FontChange) {
+        applyPresentationFont();
+    }
+}
+
+void PostReactionList::applyPresentationFont()
+{
+    const auto chips = findChildren<PostReaction*>(QString(), Qt::FindDirectChildrenOnly);
+    for (PostReaction* reaction : chips) {
+        if (reaction) {
+            reaction->setPresentationFont(font());
+        }
+    }
+    ui_->horizontalLayout_2->invalidate();
+    ui_->horizontalLayout_2->activate();
+
+    const int requiredHeight = ui_->horizontalLayout_2->sizeHint().height();
+    setMinimumHeight(requiredHeight);
+    setMaximumHeight(QWIDGETSIZE_MAX);
+    updateGeometry();
+    emit dimensionsChanged();
 }
 
 } /* namespace Mattermost */
