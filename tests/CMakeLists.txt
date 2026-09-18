@@ -526,3 +526,15 @@ target_link_libraries(multiple-channels-viewed-event-test
 )
 add_test(NAME multiple-channels-viewed-event-test COMMAND multiple-channels-viewed-event-test)
 
+
+if(TARGET matterleast-core)
+    add_executable(file-preview-test FilePreviewTest.cpp)
+    target_link_libraries(file-preview-test
+        PRIVATE
+            matterleast-core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME file-preview-test COMMAND file-preview-test)
+    set_tests_properties(file-preview-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
