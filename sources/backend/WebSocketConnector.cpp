@@ -168,6 +168,7 @@ bool printEvent (const QString& name)
 			name == "status_change" 	||
 			name == "posted" 			||
 			name == "reaction_removed"	||
+            name == "typing"           ||
 			name == "user_removed"		||
 			name == "user_updated"		||
 			name == "leave_team"      ||
