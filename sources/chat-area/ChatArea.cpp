@@ -34,6 +34,8 @@
 #include "AbstractPostSource.h"
 #include "ChannelPostSource.h"
 #include "ChatLogWidget.h"
+#include "FilteredPostSource.h"
+#include "PostFilterPolicy.h"
 #include "ThreadPostSource.h"
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
@@ -42,6 +44,7 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
+#include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/ChannelItemWidget.h"
 #include "channel-tree-dialogs/ViewChannelMembersListDialog.h"
@@ -420,7 +423,17 @@ void ChatArea::setupPostSource()
         if (isThread) {
             postSource = new ThreadPostSource(backend, channel, root_id, this);
         } else {
-            postSource = new ChannelPostSource(backend, channel, this);
+            auto* channelSource = new ChannelPostSource(backend, channel, this);
+            postSource = new FilteredPostSource(
+                *channelSource,
+                [this](const BackendPost& post) {
+                    const BackendUser* loginUser = backend.getStorage().loginUser;
+                    return shouldShowMainTimelinePost(
+                        post.type,
+                        post.props.toObject(),
+                        loginUser ? loginUser->username : QString());
+                },
+                this);
         }
     }
     ui->listWidget->setSource(postSource);
