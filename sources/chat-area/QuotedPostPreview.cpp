@@ -87,13 +87,8 @@ void QuotedPostPreview::setPost(const BackendPost& post)
                post.message,
                !post.files.empty());
 
-    QStringList fileNames;
-    fileNames.reserve(static_cast<qsizetype>(post.files.size()));
-    for (const auto& file : post.files) {
-        fileNames.push_back(file.name);
-    }
     if (attachmentSummary) {
-        attachmentSummary->setFiles(fileNames);
+        attachmentSummary->setFiles(post.files);
     }
 }
 

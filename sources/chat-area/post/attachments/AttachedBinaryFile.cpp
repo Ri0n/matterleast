@@ -22,16 +22,15 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QMessageBox>
-#include <QMimeDatabase>
 #include <QPainter>
 #include <QPalette>
 #include <QPaintEvent>
 #include <QPointer>
 #include <QStandardPaths>
-#include <QStyle>
 
 #include "Settings.h"
 #include "AttachedBinaryFile.h"
+#include "AttachmentPresentation.h"
 #include "ui_AttachedBinaryFile.h"
 #include "backend/AttachmentService.h"
 #include "backend/types/BackendFile.h"
@@ -193,19 +192,11 @@ void AttachedBinaryFile::paintEvent(QPaintEvent* event)
 
 void AttachedBinaryFile::setFileMimeIcon(const QString& filename)
 {
-    static QMimeDatabase mimeDatabase;
+    const auto presentation = AttachmentPresentation::describeFile(filename);
+    ui->fileTypeLabel->setText("Type: " + presentation.mimeTypeName);
 
-    const QMimeType mimeType = mimeDatabase.mimeTypeForUrl(filename);
-    QIcon icon = QIcon::fromTheme(mimeType.iconName());
-
-    ui->fileTypeLabel->setText("Type: " + mimeType.name());
-
-    if (icon.isNull()) {
-        icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon);
-    }
-
-    if (!icon.isNull()) {
-        const QPixmap pixmap = icon.pixmap(QSize(64, 64));
+    if (!presentation.icon.isNull()) {
+        const QPixmap pixmap = presentation.icon.pixmap(QSize(64, 64));
         ui->fileIcon->setPixmap(pixmap);
         ui->fileIcon->setFixedSize(pixmap.size());
     }

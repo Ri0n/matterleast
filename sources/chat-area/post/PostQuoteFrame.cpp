@@ -77,19 +77,14 @@ PostQuoteFrame::PostQuoteFrame (const BackendPost& quotedPost, const Storage& st
 			ui->header->setText ("Originally posted by deleted user");
 		}
 
-        QStringList fileNames;
-        fileNames.reserve(static_cast<qsizetype>(quotedPost.files.size()));
-        for (const auto& file : quotedPost.files) {
-            fileNames.push_back(file.name);
-        }
-        if (!fileNames.isEmpty()) {
+        if (!quotedPost.files.empty()) {
             auto* attachmentSummary = new QuotedAttachmentSummary(this);
-            attachmentSummary->setFiles(fileNames);
+            attachmentSummary->setFiles(quotedPost.files);
             ui->verticalLayout->insertWidget(
                 ui->verticalLayout->indexOf(messageContent), attachmentSummary);
         }
 
-        if (quotedPost.message.trimmed().isEmpty() && !fileNames.isEmpty()) {
+        if (quotedPost.message.trimmed().isEmpty() && !quotedPost.files.empty()) {
             messageContent->hide();
         } else {
             messageContent->setMessage(quotedPost.message);

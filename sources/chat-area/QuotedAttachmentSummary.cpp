@@ -1,15 +1,13 @@
 #include "QuotedAttachmentSummary.h"
 
+#include "backend/types/BackendFile.h"
+#include "post/attachments/AttachmentPresentation.h"
+
 #include <algorithm>
 
-#include <QApplication>
 #include <QEvent>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QLabel>
-#include <QMimeDatabase>
-#include <QMimeType>
-#include <QStyle>
 
 namespace Mattermost {
 
@@ -35,9 +33,13 @@ QuotedAttachmentSummary::QuotedAttachmentSummary(QWidget* parent)
     hide();
 }
 
-void QuotedAttachmentSummary::setFiles(const QStringList& names)
+void QuotedAttachmentSummary::setFiles(const std::list<BackendFile>& files)
 {
-    fileNames = names;
+    fileNames.clear();
+    fileNames.reserve(static_cast<int>(files.size()));
+    for (const BackendFile& file : files) {
+        fileNames.push_back(file.name);
+    }
     genericAttachment = false;
     refresh();
 }
@@ -91,23 +93,16 @@ void QuotedAttachmentSummary::refresh()
         tooltip = displayText;
     }
 
-    QIcon icon;
-    if (!firstFileName.isEmpty()) {
-        static QMimeDatabase mimeDatabase;
-        const QMimeType mimeType =
-            mimeDatabase.mimeTypeForFile(firstFileName, QMimeDatabase::MatchExtension);
-        icon = QIcon::fromTheme(mimeType.iconName());
-        if (icon.isNull()) {
-            icon = QIcon::fromTheme(mimeType.genericIconName());
-        }
-    }
-    if (icon.isNull()) {
-        icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon);
-    }
+    const QIcon icon =
+        AttachmentPresentation::describeFile(firstFileName).icon;
 
     const int extent = std::clamp(fontMetrics().height(), 14, 24);
     iconLabel->setFixedSize(extent, extent);
-    iconLabel->setPixmap(icon.pixmap(extent, extent));
+    if (icon.isNull()) {
+        iconLabel->clear();
+    } else {
+        iconLabel->setPixmap(icon.pixmap(extent, extent));
+    }
     textLabel->setFont(font());
     textLabel->setText(displayText);
     setToolTip(tooltip);

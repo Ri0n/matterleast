@@ -1,5 +1,7 @@
 #pragma once
 
+#include <list>
+
 #include <QStringList>
 #include <QWidget>
 
@@ -7,6 +9,8 @@ class QEvent;
 class QLabel;
 
 namespace Mattermost {
+
+class BackendFile;
 
 /**
  * Compact one-line representation of quoted post attachments.
@@ -20,7 +24,7 @@ class QuotedAttachmentSummary final : public QWidget
 public:
     explicit QuotedAttachmentSummary(QWidget* parent = nullptr);
 
-    void setFiles(const QStringList& fileNames);
+    void setFiles(const std::list<BackendFile>& files);
     void setGenericAttachment(bool visible);
 
 protected:
