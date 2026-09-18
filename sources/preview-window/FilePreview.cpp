@@ -62,7 +62,6 @@ FilePreview::FilePreview(const QImage& image,
     ui->fileContents->setMinimumSize(1, 1);
     ui->fileContents->setSizePolicy(QSizePolicy::Expanding,
                                     QSizePolicy::Expanding);
-    ui->fileInfo->setText(fileName);
 
     if (layout()) {
         layout()->activate();
