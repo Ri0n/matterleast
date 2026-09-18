@@ -10,10 +10,10 @@
 
 namespace Mattermost::ReactionChipStyle {
 
-constexpr int Height = 26;
+constexpr int Height = 22;
 constexpr int BorderWidth = 1;
-constexpr int TopMargin = 2;
-constexpr int BottomMargin = 1;
+constexpr int TopMargin = 0;
+constexpr int BottomMargin = 0;
 constexpr int IconPadding = 2;
 constexpr qreal CountScale = 0.75;
 constexpr qreal MinCountPointSize = 8.0;
@@ -38,8 +38,7 @@ inline int chipHeight(const QFont& chatFont)
 {
     return std::max(
         Height,
-        iconBoxExtent(chatFont)
-            + TopMargin + BottomMargin + 2 * BorderWidth);
+        iconBoxExtent(chatFont) + 2 * BorderWidth);
 }
 
 inline QFont countFont(QFont chatFont)
