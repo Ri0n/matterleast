@@ -13,7 +13,7 @@ class QEvent;
 
 namespace Mattermost {
 
-/** Paint splitter handles with the surrounding panel background. */
+/** Paint splitter handles as a thin divider while preserving their full hit area. */
 class SplitterHandleManager final : public QObject
 {
 public:

@@ -547,3 +547,12 @@ target_link_libraries(following-presentation-test
         Qt${QT_VERSION_MAJOR}::Core
 )
 add_test(NAME following-presentation-test COMMAND following-presentation-test)
+
+add_executable(splitter-handle-style-test SplitterHandleStyleTest.cpp)
+target_include_directories(splitter-handle-style-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(splitter-handle-style-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME splitter-handle-style-test COMMAND splitter-handle-style-test)
