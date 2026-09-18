@@ -47,6 +47,7 @@
 #include <QList>
 
 #include "NetworkRequest.h"
+#include "UploadTrace.h"
 #include "AvatarImage.h"
 #include "PublicChannelPaging.h"
 #include "RealtimeFallbackService.h"
@@ -1236,15 +1237,44 @@ void Backend::uploadFile(BackendChannel& channel,
     NetworkRequest request(QStringLiteral("files"));
     request.setRawHeader("Accept", "application/json");
 
+    const QString connectionId = webSocketConnector.connectionId();
+    if (!connectionId.isEmpty()) {
+        request.setRawHeader("Connection-Id", connectionId.toUtf8());
+    }
+
+    qCInfo(lcUploadTrace).nospace()
+        << "UPLOAD_PREPARE clientId=" << clientId
+        << " channel=" << channel.id
+        << " file=" << fileInfo.fileName()
+        << " bytes=" << fileInfo.size()
+        << " mime=" << mimeType
+        << " url=" << request.url().toString()
+        << " ua=" << request.rawHeader("User-Agent")
+        << " cookie=" << (!request.rawHeader("Cookie").isEmpty() ? "yes" : "no")
+        << " requestedWith=" << request.rawHeader("X-Requested-With")
+        << " connectionId=" << (connectionId.isEmpty() ? "none" : connectionId);
+
     httpConnector.post(
         request,
         multipart,
         HttpResponseCallback(
-            [responseHandler = std::move(responseHandler)](
+            [responseHandler = std::move(responseHandler),
+             clientId,
+             fileName = fileInfo.fileName()](
                 QVariant status, QByteArray data, const QNetworkReply& reply) mutable {
-                if (!responseHandler) {
-                    return;
-                }
+                const int httpStatus =
+                    reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                qCInfo(lcUploadTrace).nospace()
+                    << "UPLOAD_REPLY clientId=" << clientId
+                    << " file=" << fileName
+                    << " networkError=" << status.toInt()
+                    << " http=" << httpStatus
+                    << " error="
+                    << (status.toInt() == QNetworkReply::NoError
+                            ? QStringLiteral("none")
+                            : reply.errorString())
+                    << " contentType=" << reply.header(QNetworkRequest::ContentTypeHeader).toString()
+                    << " responseBytes=" << data.size();
 
                 const QJsonDocument document = QJsonDocument::fromJson(data);
                 if (status.toInt() != QNetworkReply::NoError) {
@@ -1256,29 +1286,61 @@ void Backend::uploadFile(BackendChannel& channel,
                             error = serverMessage;
                         }
                     }
-                    responseHandler(QString(), error);
+
+                    const QByteArray responsePreview = data.left(1024);
+                    qCWarning(lcUploadTrace).nospace()
+                        << "UPLOAD_FAILED clientId=" << clientId
+                        << " file=" << fileName
+                        << " http=" << httpStatus
+                        << " error=" << error
+                        << " body=" << QString::fromUtf8(responsePreview);
+
+                    if (responseHandler) {
+                        responseHandler(QString(), error);
+                    }
                     return;
                 }
 
                 const QJsonArray infos =
                     document.object().value("file_infos").toArray();
                 if (infos.isEmpty()) {
-                    responseHandler(
-                        QString(),
-                        QStringLiteral("Upload returned no file information"));
+                    qCWarning(lcUploadTrace).nospace()
+                        << "UPLOAD_INVALID_REPLY clientId=" << clientId
+                        << " file=" << fileName
+                        << " reason=no-file-infos body="
+                        << QString::fromUtf8(data.left(1024));
+                    if (responseHandler) {
+                        responseHandler(
+                            QString(),
+                            QStringLiteral("Upload returned no file information"));
+                    }
                     return;
                 }
 
                 const QString fileId =
                     infos.first().toObject().value("id").toString();
                 if (fileId.isEmpty()) {
-                    responseHandler(
-                        QString(),
-                        QStringLiteral("Upload returned an empty file id"));
+                    qCWarning(lcUploadTrace).nospace()
+                        << "UPLOAD_INVALID_REPLY clientId=" << clientId
+                        << " file=" << fileName
+                        << " reason=empty-file-id body="
+                        << QString::fromUtf8(data.left(1024));
+                    if (responseHandler) {
+                        responseHandler(
+                            QString(),
+                            QStringLiteral("Upload returned an empty file id"));
+                    }
                     return;
                 }
 
-                responseHandler(fileId, QString());
+                qCInfo(lcUploadTrace).nospace()
+                    << "UPLOAD_ACCEPTED clientId=" << clientId
+                    << " file=" << fileName
+                    << " fileId=" << fileId;
+
+                if (responseHandler) {
+                    responseHandler(fileId, QString());
+                }
             }));
 }
 

@@ -168,6 +168,7 @@ bool printEvent (const QString& name)
 			name == "status_change" 	||
 			name == "posted" 			||
 			name == "reaction_removed"	||
+            name == "typing"           ||
 			name == "user_removed"		||
 			name == "user_updated"		||
 			name == "leave_team"      ||
@@ -373,6 +374,11 @@ void WebSocketConnector::setConnectionState(ConnectionState state)
               << " -> " << static_cast<int>(state));
     d->connectionState = state;
     emit connectionStateChanged(state);
+}
+
+QString WebSocketConnector::connectionId() const
+{
+    return d->connectionId;
 }
 
 void WebSocketConnector::reconnectNow()

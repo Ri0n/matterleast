@@ -38,6 +38,7 @@
 #include "LocalPostDeleteTracker.h"
 #include "QByteArrayCreator.h"
 #include "Settings.h"
+#include "UploadTrace.h"
 #include "log.h"
 #include "options/MLOptions.h"
 
@@ -229,6 +230,16 @@ void HTTPConnector::post(QNetworkRequest& request,
         request.setPriority(QNetworkRequest::HighPriority);
     }
 
+    qCInfo(lcUploadTrace).nospace()
+        << "HTTP_UPLOAD_QUEUE url=" << request.url().toString()
+        << " priority=" << static_cast<int>(request.priority())
+        << " ua=" << request.rawHeader("User-Agent")
+        << " cookie=" << (!request.rawHeader("Cookie").isEmpty() ? "yes" : "no")
+        << " connectionId="
+        << (request.rawHeader("Connection-Id").isEmpty()
+                ? QByteArrayLiteral("none")
+                : request.rawHeader("Connection-Id"));
+
     // Match the official client's upload path: multipart uploads keep the
     // transport defaults, including HTTP/2 when negotiated.
     enqueue(PendingRequest {
@@ -341,6 +352,39 @@ void HTTPConnector::startRequest(PendingRequest request)
 	case Method::Post:
         if (request.multipartData) {
             reply = qnetworkManager->post(request.request, request.multipartData.data());
+
+            qCInfo(lcUploadTrace).nospace()
+                << "HTTP_UPLOAD_START reply=" << static_cast<const void*>(reply)
+                << " url=" << reply->request().url().toString()
+                << " contentType=" << reply->request().rawHeader("Content-Type")
+                << " ua=" << reply->request().rawHeader("User-Agent")
+                << " http2Allowed="
+                << reply->request()
+                       .attribute(QNetworkRequest::Http2AllowedAttribute, true)
+                       .toBool();
+
+            connect(reply,
+                    &QNetworkReply::uploadProgress,
+                    this,
+                    [reply, lastPercent = -10](qint64 sent, qint64 total) mutable {
+                        if (total <= 0) {
+                            return;
+                        }
+
+                        const int percent =
+                            static_cast<int>((sent * 100) / total);
+                        if (percent < 100
+                            && percent - lastPercent < 10) {
+                            return;
+                        }
+                        lastPercent = percent;
+                        qCInfo(lcUploadTrace).nospace()
+                            << "HTTP_UPLOAD_PROGRESS reply="
+                            << static_cast<const void*>(reply)
+                            << " sent=" << sent
+                            << " total=" << total
+                            << " percent=" << percent;
+                    });
         } else {
             reply = qnetworkManager->post(request.request, request.data);
         }
