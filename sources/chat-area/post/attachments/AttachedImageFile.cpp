@@ -122,6 +122,8 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
     , fileId(file.id)
     , fileName(file.name)
     , fileAuthor(authorName)
+    , fileMimeType(file.mimeType)
+    , fileExtension(file.extension)
     , backend(backend)
 {
     ui->setupUi(this);
@@ -149,33 +151,76 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
     const QString attachmentFileName = file.name;
     QPointer<AttachedImageFile> self(this);
 
-    // Inline previews should never decode the original attachment on the GUI
-    // thread. Mattermost's thumbnail endpoint returns a bounded JPEG and avoids
-    // expensive SVG filter rendering entirely.
-    AttachmentService::instance(backend).retrieveThumbnail(
-        fileId,
-        [self](const QByteArray& thumbnailContents) {
-            if (!self) {
-                return;
-            }
-            if (thumbnailContents.isEmpty()) {
-                self->showPreviewFallback();
-                return;
-            }
+    const bool isSvg =
+        file.mimeType.compare(QStringLiteral("image/svg+xml"), Qt::CaseInsensitive) == 0
+        || file.extension.compare(QStringLiteral("svg"), Qt::CaseInsensitive) == 0;
 
-            decodeImageAsync(
-                thumbnailContents,
-                [self](QImage image) {
-                    if (!self) {
-                        return;
-                    }
-                    if (image.isNull()) {
-                        self->showPreviewFallback();
-                        return;
-                    }
-                    self->setPreviewPixmap(QPixmap::fromImage(image));
-                });
-        });
+    const auto requestThumbnailFallback = [self] {
+        if (!self) {
+            return;
+        }
+
+        AttachmentService::instance(self->backend).retrieveThumbnail(
+            self->fileId,
+            [self](const QByteArray& thumbnailContents) {
+                if (!self) {
+                    return;
+                }
+                if (thumbnailContents.isEmpty()) {
+                    self->showPreviewFallback();
+                    return;
+                }
+
+                decodeImageAsync(
+                    thumbnailContents,
+                    [self](QImage image) {
+                        if (!self) {
+                            return;
+                        }
+                        if (image.isNull()) {
+                            self->showPreviewFallback();
+                            return;
+                        }
+                        self->setPreviewPixmap(QPixmap::fromImage(image));
+                    });
+            });
+    };
+
+    // Mattermost thumbnails are only 120x100. They are useful as a fallback,
+    // but using them as the primary inline source turns panoramic screenshots
+    // into an unreadable strip. Use the server-generated preview (up to 1920px
+    // wide) and fit that into the configured preview rectangle instead.
+    //
+    // SVG files deliberately stay out of the local decode path: pathological
+    // SVG filter graphs were the source of the old multi-second GUI stalls.
+    if (isSvg) {
+        showPreviewFallback();
+    } else {
+        AttachmentService::instance(backend).retrievePreview(
+            fileId,
+            [self, requestThumbnailFallback](const QByteArray& previewContents) {
+                if (!self) {
+                    return;
+                }
+                if (previewContents.isEmpty()) {
+                    requestThumbnailFallback();
+                    return;
+                }
+
+                decodeImageAsync(
+                    previewContents,
+                    [self, requestThumbnailFallback](QImage image) {
+                        if (!self) {
+                            return;
+                        }
+                        if (image.isNull()) {
+                            requestThumbnailFallback();
+                            return;
+                        }
+                        self->setPreviewPixmap(QPixmap::fromImage(image));
+                    });
+            });
+    }
 
     connect(this, &QWidget::customContextMenuRequested, this,
             [this, attachmentFileName](const QPoint& pos) {
@@ -318,57 +363,108 @@ void AttachedImageFile::mouseReleaseEvent(QMouseEvent*)
     fullPreviewDecodePending = true;
 
     QPointer<AttachedImageFile> self(this);
-    // Use Mattermost's rasterized preview rather than decoding the original
-    // attachment. In particular, an SVG with an expensive filter graph must
-    // never enter QtSvg from the GUI presentation path.
-    AttachmentService::instance(backend).retrievePreview(
+
+    const auto showDecodedImage = [self](QImage image) {
+        if (!self) {
+            return;
+        }
+        self->fullPreviewDecodePending = false;
+        if (image.isNull()) {
+            return;
+        }
+
+        const QWidget* const key = self.data();
+        auto openFile = currentlyOpenFiles.find(key);
+        if (openFile != currentlyOpenFiles.end()) {
+            openFile->second->raise();
+            openFile->second->activateWindow();
+            return;
+        }
+
+        auto* filePreview = new FilePreview(
+            image, self->fileName, self->fileAuthor, nullptr);
+        currentlyOpenFiles.emplace(key, filePreview);
+        filePreview->setAttribute(Qt::WA_DeleteOnClose);
+        filePreview->show();
+
+        connect(
+            filePreview,
+            &QDialog::rejected,
+            filePreview,
+            [key, filePreview] {
+                auto it = AttachedImageFile::currentlyOpenFiles.find(key);
+                if (it != AttachedImageFile::currentlyOpenFiles.end()
+                    && it->second == filePreview) {
+                    AttachedImageFile::currentlyOpenFiles.erase(it);
+                }
+            });
+    };
+
+    const auto requestServerPreview = [self, showDecodedImage] {
+        if (!self) {
+            return;
+        }
+        AttachmentService::instance(self->backend).retrievePreview(
+            self->fileId,
+            [self, showDecodedImage](const QByteArray& previewContents) {
+                if (!self) {
+                    return;
+                }
+                if (previewContents.isEmpty()) {
+                    self->fullPreviewDecodePending = false;
+                    return;
+                }
+                decodeImageAsync(
+                    previewContents,
+                    [self, showDecodedImage](QImage image) {
+                        if (!self) {
+                            return;
+                        }
+                        if (image.isNull()) {
+                            self->fullPreviewDecodePending = false;
+                            return;
+                        }
+                        showDecodedImage(std::move(image));
+                    });
+            });
+    };
+
+    const bool isSvg =
+        fileMimeType.compare(QStringLiteral("image/svg+xml"), Qt::CaseInsensitive) == 0
+        || fileExtension.compare(QStringLiteral("svg"), Qt::CaseInsensitive) == 0;
+
+    if (isSvg) {
+        // Never decode the original SVG locally. Keep the old server-side
+        // rasterization safety boundary for expensive filter graphs.
+        requestServerPreview();
+        return;
+    }
+
+    // Opening a raster image is an explicit user action, so use the original
+    // bytes instead of Mattermost's 1920px server preview. Decode still happens
+    // off the GUI thread. Fall back to /preview for older/unavailable files.
+    AttachmentService::instance(backend).retrieveFile(
         fileId,
-        [self](const QByteArray& previewContents) {
+        [self, showDecodedImage, requestServerPreview](const QByteArray& contents) {
             if (!self) {
                 return;
             }
-            if (previewContents.isEmpty()) {
-                self->fullPreviewDecodePending = false;
+            if (contents.isEmpty()) {
+                requestServerPreview();
                 return;
             }
 
             decodeImageAsync(
-                previewContents,
-                [self](QImage image) {
+                contents,
+                [self, showDecodedImage, requestServerPreview](QImage image) {
                     if (!self) {
                         return;
                     }
-                    self->fullPreviewDecodePending = false;
                     if (image.isNull()) {
+                        requestServerPreview();
                         return;
                     }
-
-                    const QWidget* const key = self.data();
-                    auto openFile = currentlyOpenFiles.find(key);
-                    if (openFile != currentlyOpenFiles.end()) {
-                        openFile->second->raise();
-                        openFile->second->activateWindow();
-                        return;
-                    }
-
-                    auto* filePreview = new FilePreview(
-                        image, self->fileName, self->fileAuthor, nullptr);
-                    currentlyOpenFiles.emplace(key, filePreview);
-                    filePreview->setAttribute(Qt::WA_DeleteOnClose);
-                    filePreview->show();
-
-                    connect(
-                        filePreview,
-                        &QDialog::rejected,
-                        filePreview,
-                        [key, filePreview] {
-                            auto it =
-                                AttachedImageFile::currentlyOpenFiles.find(key);
-                            if (it != AttachedImageFile::currentlyOpenFiles.end()
-                                && it->second == filePreview) {
-                                AttachedImageFile::currentlyOpenFiles.erase(it);
-                            }
-                        });
+                    showDecodedImage(std::move(image));
                 });
         });
 }

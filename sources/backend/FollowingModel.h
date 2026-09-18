@@ -96,6 +96,9 @@ public:
     /** Force one followed-thread reconciliation, coalescing concurrent callers. */
     void refreshThreads();
 
+    /** Reconcile CRT state after Mattermost reports a thread_updated event. */
+    void noteThreadUpdated();
+
     /**
      * Advance the local high-water mark through a post whose lower edge was
      * actually visible. The next cached semantic post becomes FirstUnread; only

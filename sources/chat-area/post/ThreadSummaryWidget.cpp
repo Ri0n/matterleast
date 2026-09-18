@@ -76,7 +76,6 @@ ThreadSummaryWidget::ThreadSummaryWidget(Backend& backend,
 
     chipIcon = new QLabel(chip);
     chipIcon->setObjectName(QStringLiteral("threadSummaryIcon"));
-    chipIcon->setFixedSize(ReactionChipStyle::IconExtent, ReactionChipStyle::IconExtent);
     chipIcon->setAlignment(Qt::AlignCenter);
     chipIcon->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     chipLayout->addWidget(chipIcon, 0, Qt::AlignVCenter);

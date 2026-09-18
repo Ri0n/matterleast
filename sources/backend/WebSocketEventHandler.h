@@ -32,6 +32,7 @@
 #include "events/ChannelCreatedEvent.h"
 #include "events/ChannelUpdatedEvent.h"
 #include "events/ChannelViewedEvent.h"
+#include "events/MultipleChannelsViewedEvent.h"
 #include "events/PostEvent.h"
 #include "events/PostEditedEvent.h"
 #include "events/PostDeletedEvent.h"
@@ -39,6 +40,7 @@
 #include "events/PostReactionRemovedEvent.h"
 #include "events/TypingEvent.h"
 #include "events/StatusChangeEvent.h"
+#include "events/ThreadUpdatedEvent.h"
 #include "events/NewDirectChannelEvent.h"
 #include "events/NewUserEvent.h"
 #include "events/UserUpdatedEvent.h"
@@ -60,6 +62,7 @@ public:
 	virtual ~WebSocketEventHandler ();
 public:
 	void handleEvent (const ChannelViewedEvent& event);
+    void handleEvent(const MultipleChannelsViewedEvent& event);
 	void handleEvent (const PostEvent& event);
 	void handleEvent (const PostEditedEvent& event);
 	void handleEvent (const PostDeletedEvent& event);
@@ -67,6 +70,7 @@ public:
 	void handleEvent (const PostReactionRemovedEvent& event);
 	void handleEvent (const TypingEvent& event);
 	void handleEvent (const StatusChangeEvent& event);
+    void handleEvent(const ThreadUpdatedEvent& event);
 	void handleEvent (const NewDirectChannelEvent& event);
 	void handleEvent (const NewUserEvent& event);
 	void handleEvent (const UserUpdatedEvent& event);

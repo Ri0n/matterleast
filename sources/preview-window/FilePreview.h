@@ -25,6 +25,9 @@
 #include <QPixmap>
 #include <QTimer>
 
+class QResizeEvent;
+class QScrollArea;
+
 namespace Ui {
 class FilePreview;
 }
@@ -46,16 +49,17 @@ public:
                 const QString& fileAuthor,
                 QWidget* parent = nullptr);
     ~FilePreview();
-public:
-    QSize getMinimumSize (const QPixmap& pixmap);
-
+protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
-    Ui::FilePreview*	ui;
-    QPixmap				pixmap;
-    QTimer				resizeTimer;
-    QSize				newWindowSize;
+    QSize displaySizeForViewport(const QSize& viewportSize) const;
+    QSize initialViewportSize() const;
+    void updateImageGeometry(const QSize& viewportSize);
+
+    Ui::FilePreview* ui;
+    QPixmap pixmap;
+    QScrollArea* scrollArea = nullptr;
 };
 
 } /* namespace Mattermost */

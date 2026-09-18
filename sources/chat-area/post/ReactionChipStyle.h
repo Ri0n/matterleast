@@ -3,42 +3,42 @@
 #include <algorithm>
 
 #include <QFont>
+#include <QFontMetricsF>
 #include <QHBoxLayout>
 #include <QString>
 #include <QWidget>
 
 namespace Mattermost::ReactionChipStyle {
 
-constexpr int Height = 24;
-constexpr int IconExtent = 20;
-constexpr int IconPointSize = 14;
-constexpr int CountPointSize = 8;
-constexpr qreal ReferencePointSize = 10.0;
+constexpr int Height = 22;
+constexpr int BorderWidth = 1;
+constexpr int TopMargin = 0;
+constexpr int BottomMargin = 0;
+constexpr int IconPadding = 2;
 constexpr qreal CountScale = 0.75;
 constexpr qreal MinCountPointSize = 8.0;
 constexpr qreal MaxCountPointSize = 24.0;
-constexpr int MinIconExtent = 16;
-constexpr int MaxIconExtent = 32;
 
 inline int iconExtent(const QFont& chatFont)
 {
-    qreal pointSize = chatFont.pointSizeF();
-    if (pointSize <= 0.0 && chatFont.pixelSize() > 0) {
-        pointSize = chatFont.pixelSize() * 72.0 / 96.0;
-    }
-    if (pointSize <= 0.0) {
-        pointSize = ReferencePointSize;
-    }
+    // Reactions should read like normal inline text, not like enlarged emoji.
+    // Use the actual chat-font line height as the visual emoji/image extent.
+    return std::max(1, qRound(QFontMetricsF(chatFont).height()));
+}
 
-    return std::clamp(
-        qRound(IconExtent * pointSize / ReferencePointSize),
-        MinIconExtent,
-        MaxIconExtent);
+inline int iconBoxExtent(const QFont& chatFont)
+{
+    // Rich-text QLabel layout (used by custom/GIF emoji) needs a little room
+    // around the image for line metrics and vertical-align. Keep that padding
+    // outside the visual emoji extent so the emoji itself is not enlarged.
+    return iconExtent(chatFont) + 2 * IconPadding;
 }
 
 inline int chipHeight(const QFont& chatFont)
 {
-    return std::max(Height, iconExtent(chatFont) + 4);
+    return std::max(
+        Height,
+        iconBoxExtent(chatFont) + 2 * BorderWidth);
 }
 
 inline QFont countFont(QFont chatFont)
@@ -91,7 +91,7 @@ inline void apply(QWidget* widget, QHBoxLayout* layout, const QString& objectNam
     widget->setCursor(Qt::PointingHandCursor);
     widget->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     widget->setStyleSheet(styleSheet(objectName));
-    layout->setContentsMargins(4, 2, 4, 1);
+    layout->setContentsMargins(4, TopMargin, 4, BottomMargin);
     layout->setSpacing(2);
     updateMetrics(widget, layout, widget->font());
 }

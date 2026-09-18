@@ -30,6 +30,8 @@
 #include <QTimer>
 #include "Backend.h"
 #include "PostRepository.h"
+#include "SidebarService.h"
+#include "FollowingModel.h"
 #include "Storage.h"
 #include "UserProfileService.h"
 #include "log.h"
@@ -64,9 +66,50 @@ void WebSocketEventHandler::handleEvent (const ChannelViewedEvent& event)
 
 	if (channel) {
 		PostRepository::instance(backend).recordChannelOpened(channel->id);
+        SidebarService::instance(backend).applyServerChannelViewed(
+            *channel, channel->last_post_at);
 		emit channel->onViewed ();
 		emit backend.onChannelViewed (*channel);
 	}
+}
+
+void WebSocketEventHandler::handleEvent(const MultipleChannelsViewedEvent& event)
+{
+    if (!storage.loginUser || event.userId != storage.loginUser->id) {
+        return;
+    }
+
+    auto& sidebar = SidebarService::instance(backend);
+    for (auto it = event.channelTimes.cbegin(); it != event.channelTimes.cend(); ++it) {
+        BackendChannel* channel = storage.getChannelById(it.key());
+        if (!channel) {
+            continue;
+        }
+
+        sidebar.applyServerChannelViewed(*channel, it.value());
+
+        // Keep the existing semantic fan-out used by FollowingModel and other
+        // consumers. Do not call recordChannelOpened(): a read action performed
+        // by another client is not evidence that this client opened the channel.
+        emit channel->onViewed();
+        emit backend.onChannelViewed(*channel);
+    }
+}
+
+void WebSocketEventHandler::handleEvent(const ThreadUpdatedEvent& event)
+{
+    if (!event.valid) {
+        return;
+    }
+    if (!event.userId.isEmpty()
+        && (!storage.loginUser || event.userId != storage.loginUser->id)) {
+        return;
+    }
+
+    // FollowingModel owns the canonical CRT snapshot/reconciliation logic.
+    // Coalesce bursts of thread_updated packets rather than duplicating that
+    // state machine in the websocket layer.
+    FollowingModel::instance(backend).noteThreadUpdated();
 }
 
 void WebSocketEventHandler::handleEvent (const PostEvent& event)

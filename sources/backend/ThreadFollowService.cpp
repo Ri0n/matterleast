@@ -42,7 +42,7 @@ namespace {
 constexpr int FollowingThreadsPerPage = 25;
 constexpr int UnreadThreadsPerPage = 100;
 
-Q_LOGGING_CATEGORY(lcFollowing, "mattermost.following")
+Q_LOGGING_CATEGORY(lcFollowing, "mattermost.following", QtWarningMsg)
 
 void logFollowingState(Backend& backend,
                        const QVector<ThreadFollowService::ThreadSummary>& threads,

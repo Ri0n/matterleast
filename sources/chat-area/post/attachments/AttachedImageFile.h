@@ -55,6 +55,8 @@ private:
     QString                     fileId;
     QString                     fileName;
     QString                     fileAuthor;
+    QString                     fileMimeType;
+    QString                     fileExtension;
     QPixmap                     sourcePixmap;
     bool                        fullPreviewDecodePending = false;
     Backend&		backend;

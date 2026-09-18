@@ -20,8 +20,12 @@
 #include "FilePreview.h"
 #include "ui_FilePreview.h"
 
+#include <algorithm>
 #include <QResizeEvent>
 #include <QDebug>
+#include <QFrame>
+#include <QScrollArea>
+#include <QVBoxLayout>
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
 #include <QDesktopWidget>
 #endif
@@ -43,20 +47,31 @@ FilePreview::FilePreview(const QImage& image,
     : QDialog(parent)
     , ui(new Ui::FilePreview)
 {
-	ui->setupUi(this);
-	setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
+    ui->setupUi(this);
+    setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
 
-	pixmap = QPixmap::fromImage(image);
-	ui->fileContents->setPixmap(pixmap);
-	ui->fileContents->setMinimumSize(getMinimumSize(pixmap));
+    pixmap = QPixmap::fromImage(image);
+    ui->fileContents->setPixmap(pixmap);
+    ui->fileContents->setScaledContents(true);
+    ui->fileContents->setAlignment(Qt::AlignCenter);
 
-	ui->fileInfo->setText(fileName);
-	adjustSize();
+    // Keep the dialog itself bounded. Very wide screenshots remain readable by
+    // scrolling horizontally instead of collapsing their short side to a few
+    // dozen pixels just to preserve the whole aspect ratio on screen.
+    ui->verticalLayout->removeWidget(ui->fileContents);
+    scrollArea = new QScrollArea(ui->frame);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setWidgetResizable(false);
+    scrollArea->setAlignment(Qt::AlignCenter);
+    scrollArea->setWidget(ui->fileContents);
+    ui->verticalLayout->addWidget(scrollArea);
 
-	resizeTimer.setSingleShot(true);
-	connect(&resizeTimer, &QTimer::timeout, [this] {
-		resize(newWindowSize);
-	});
+    ui->fileInfo->setText(fileName);
+
+    const QSize viewport = initialViewportSize();
+    scrollArea->setMinimumSize(viewport);
+    updateImageGeometry(viewport);
+    adjustSize();
 }
 
 FilePreview::~FilePreview()
@@ -64,72 +79,91 @@ FilePreview::~FilePreview()
     delete ui;
 }
 
-QSize FilePreview::getMinimumSize (const QPixmap& sourcePixmap)
+QSize FilePreview::displaySizeForViewport(const QSize& viewportSize) const
 {
-	QSize ret = sourcePixmap.size();
+    if (pixmap.isNull() || viewportSize.isEmpty()) {
+        return QSize(1, 1);
+    }
 
-#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-	QRect screenGeometry = QApplication::desktop()->screenGeometry (this);
-#else
-	QRect screenGeometry = QGuiApplication::primaryScreen()->geometry ();
-#endif
-	screenGeometry.setWidth(screenGeometry.width() * 0.9);
-	screenGeometry.setHeight(screenGeometry.height() * 0.8);
+    QSize fit = pixmap.size();
+    fit.scale(viewportSize, Qt::KeepAspectRatio);
 
-	ret.scale (std::min (sourcePixmap.width(), screenGeometry.width()), std::min (sourcePixmap.height(), screenGeometry.height()), Qt::KeepAspectRatio);
-	return ret;
+    // Do not upscale ordinary small images.
+    if (fit.width() > pixmap.width() || fit.height() > pixmap.height()) {
+        fit = pixmap.size();
+    }
+
+    constexpr qreal ExtremeAspectRatio = 4.0;
+    constexpr int MinReadableShortSide = 160;
+
+    const QSize source = pixmap.size();
+    const bool veryWide =
+        source.height() > 0
+        && static_cast<qreal>(source.width()) / source.height()
+               >= ExtremeAspectRatio;
+    const bool veryTall =
+        source.width() > 0
+        && static_cast<qreal>(source.height()) / source.width()
+               >= ExtremeAspectRatio;
+
+    if ((veryWide && fit.height() < MinReadableShortSide)
+        || (veryTall && fit.width() < MinReadableShortSide)) {
+        const int sourceShortSide =
+            veryWide ? source.height() : source.width();
+        const qreal readableScale = std::min<qreal>(
+            1.0,
+            static_cast<qreal>(MinReadableShortSide) / sourceShortSide);
+        const QSize readable(
+            std::max(1, qRound(source.width() * readableScale)),
+            std::max(1, qRound(source.height() * readableScale)));
+
+        if ((veryWide && readable.height() > fit.height())
+            || (veryTall && readable.width() > fit.width())) {
+            return readable;
+        }
+    }
+
+    return fit.expandedTo(QSize(1, 1));
 }
 
-void FilePreview::resizeEvent (QResizeEvent* event)
+QSize FilePreview::initialViewportSize() const
 {
-	//new window size
-	QSize requestedWindowSize (event->size());
+#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
+    QRect screenGeometry = QApplication::desktop()->screenGeometry(this);
+#else
+    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
+#endif
+    const QSize bounds(
+        std::max(240, qRound(screenGeometry.width() * 0.9)),
+        std::max(180, qRound(screenGeometry.height() * 0.8)));
 
-	//difference between the current and the previous size. Used to determine whether the user wants to expand or to shrink the window
-	QSize diff (event->size() - event->oldSize());
-	//qDebug () << "Window Resize to:" << event->size();
+    const QSize display = displaySizeForViewport(bounds);
+    return QSize(
+        std::min(display.width(), bounds.width()),
+        std::min(display.height(), bounds.height()));
+}
 
-	/*
-	 * Apply the new size in order to get the new image size
-	 */
-	QDialog::resizeEvent (event);
+void FilePreview::updateImageGeometry(const QSize& viewportSize)
+{
+    if (!ui || !ui->fileContents || pixmap.isNull()) {
+        return;
+    }
 
-	/*
-	 * Get the new image size. It will be scaled, so that the aspect ratio is preserved
-	 */
-	QSize newImageSize (ui->fileContents->size());
-	//qDebug () << "Image Resize to:" << newImageSize;
+    const QSize display = displaySizeForViewport(viewportSize);
+    ui->fileContents->setFixedSize(display);
+}
 
-	QSize newImageSizeScaled (pixmap.size());
+void FilePreview::resizeEvent(QResizeEvent* event)
+{
+    QDialog::resizeEvent(event);
+    if (!scrollArea) {
+        return;
+    }
 
-	//if the window is being expanded, keep aspect ratio by expanding
-	if (diff.width() > 0 || diff.height() > 0) {
-		newImageSizeScaled.scale (newImageSize, Qt::KeepAspectRatioByExpanding);
-	} else {
-		newImageSizeScaled.scale (newImageSize, Qt::KeepAspectRatio);
-	}
-
-	/*
-	 * Get the difference between the new image size and the new image size, with preserved aspect ratio
-	 * The same difference will be applied to the window
-	 */
-	QSize aspectRatioDiff = newImageSizeScaled - newImageSize;
-	//qDebug () << "Image Scale to:" << newImageSizeScaled;
-
-	/*
-	 * Apply this difference to the window, so that the aspect ratio is preserved.
-	 * Use a timer, so that the resize is done (hopefully) only when the user stops resizing
-	 */
-	int absWidth = abs (aspectRatioDiff.width());
-	int absHeight = abs (aspectRatioDiff.height());
-
-	if (absWidth > newImageSizeScaled.width() * 0.05 || absHeight > newImageSizeScaled.height() * 0.05) {
-		newWindowSize = requestedWindowSize + aspectRatioDiff;
-		//qDebug () << "Window start resize timer:" << aspectRatioDiff << " new size: " << requestedWindowSize + aspectRatioDiff;
-		resizeTimer.start (200);
-	}
-
-	qDebug () << " ";
+    const QSize viewport = scrollArea->viewport()->size();
+    if (!viewport.isEmpty()) {
+        updateImageGeometry(viewport);
+    }
 }
 
 } /* namespace Mattermost */
