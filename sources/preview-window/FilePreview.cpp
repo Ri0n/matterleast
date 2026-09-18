@@ -72,11 +72,6 @@ FilePreview::FilePreview(const QImage& image,
     setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
 
     sourcePixmap = QPixmap::fromImage(image);
-    // Keep only the native window-manager decoration. The designer file has
-    // legacy Box frames around the image area which become visible as a white
-    // border once the pixmap is scaled explicitly.
-    ui->frame->setFrameShape(QFrame::NoFrame);
-    ui->fileContents->setFrameShape(QFrame::NoFrame);
     ui->fileContents->setScaledContents(false);
     ui->fileContents->setAlignment(Qt::AlignCenter);
     ui->fileContents->setMinimumSize(1, 1);
@@ -86,19 +81,8 @@ FilePreview::FilePreview(const QImage& image,
     connect(ui->fileContents, &QWidget::customContextMenuRequested,
             this, &FilePreview::showContextMenu);
 
-    if (layout()) {
-        layout()->activate();
-    }
-
-    // Measure the non-image part of the dialog once. Resize handling then uses
-    // the requested dialog geometry directly instead of feeding the current
-    // QLabel/viewport size back into the next layout pass.
-    imageChromeSize = QSize(
-        std::max(0, width() - ui->fileContents->width()),
-        std::max(0, height() - ui->fileContents->height()));
-
     const QSize imageArea = initialImageAreaSize();
-    resize(imageArea + imageChromeSize);
+    resize(imageArea);
     updateDisplayedPixmap(imageArea);
 }
 
@@ -150,14 +134,6 @@ QSize FilePreview::initialImageAreaSize() const
     return fitImageSize(bounds, false);
 }
 
-QSize FilePreview::imageAreaForDialogSize(const QSize& dialogSize) const
-{
-    return QSize(
-               std::max(1, dialogSize.width() - imageChromeSize.width()),
-               std::max(1, dialogSize.height() - imageChromeSize.height()))
-        .expandedTo(QSize(1, 1));
-}
-
 void FilePreview::updateDisplayedPixmap(const QSize& availableSize)
 {
     if (!ui || !ui->fileContents || sourcePixmap.isNull()) {
@@ -179,7 +155,7 @@ void FilePreview::resizeEvent(QResizeEvent* event)
         return;
     }
 
-    updateDisplayedPixmap(imageAreaForDialogSize(event->size()));
+    updateDisplayedPixmap(event->size());
 }
 
 void FilePreview::showContextMenu(const QPoint& pos)
