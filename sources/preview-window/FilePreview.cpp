@@ -5,7 +5,7 @@
  *
  * Mattermost-QT is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation; either version 3 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * Mattermost-QT is distributed in the hope that it will be useful,
@@ -21,11 +21,19 @@
 #include "ui_FilePreview.h"
 
 #include <algorithm>
-#include <QResizeEvent>
+#include <utility>
+
+#include <QApplication>
 #include <QDebug>
-#include <QFrame>
-#include <QScrollArea>
-#include <QVBoxLayout>
+#include <QDir>
+#include <QFile>
+#include <QFileDialog>
+#include <QGuiApplication>
+#include <QMenu>
+#include <QResizeEvent>
+#include <QScreen>
+#include <QSizePolicy>
+#include <QStandardPaths>
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
 #include <QDesktopWidget>
 #endif
@@ -33,45 +41,49 @@
 namespace Mattermost  {
 
 FilePreview::FilePreview(const FilePreviewData& file, QWidget* parent)
-    : FilePreview(QImage::fromData(file.fileContents),
-                  file.fileName,
-                  file.fileAuthor,
-                  parent)
+    : FilePreview(
+          QImage::fromData(file.fileContents),
+          file.fileName,
+          file.fileAuthor,
+          parent,
+          [contents = file.fileContents](const QString& destination) {
+              QFile output(destination);
+              if (!output.open(QIODevice::WriteOnly)) {
+                  qWarning() << "Cannot save image to" << destination << ":"
+                             << output.errorString();
+                  return;
+              }
+              output.write(contents);
+          })
 {
 }
 
 FilePreview::FilePreview(const QImage& image,
                          const QString& fileName,
                          const QString& fileAuthor,
-                         QWidget* parent)
+                         QWidget* parent,
+                         SaveCallback saveCallback)
     : QDialog(parent)
     , ui(new Ui::FilePreview)
+    , fileName(fileName)
+    , saveCallback(std::move(saveCallback))
 {
     ui->setupUi(this);
     setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
 
-    pixmap = QPixmap::fromImage(image);
-    ui->fileContents->setPixmap(pixmap);
-    ui->fileContents->setScaledContents(true);
+    sourcePixmap = QPixmap::fromImage(image);
+    ui->fileContents->setScaledContents(false);
     ui->fileContents->setAlignment(Qt::AlignCenter);
+    ui->fileContents->setMinimumSize(1, 1);
+    ui->fileContents->setSizePolicy(QSizePolicy::Expanding,
+                                    QSizePolicy::Expanding);
+    ui->fileContents->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->fileContents, &QWidget::customContextMenuRequested,
+            this, &FilePreview::showContextMenu);
 
-    // Keep the dialog itself bounded. Very wide screenshots remain readable by
-    // scrolling horizontally instead of collapsing their short side to a few
-    // dozen pixels just to preserve the whole aspect ratio on screen.
-    ui->verticalLayout->removeWidget(ui->fileContents);
-    scrollArea = new QScrollArea(ui->frame);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setWidgetResizable(false);
-    scrollArea->setAlignment(Qt::AlignCenter);
-    scrollArea->setWidget(ui->fileContents);
-    ui->verticalLayout->addWidget(scrollArea);
-
-    ui->fileInfo->setText(fileName);
-
-    const QSize viewport = initialViewportSize();
-    scrollArea->setMinimumSize(viewport);
-    updateImageGeometry(viewport);
-    adjustSize();
+    const QSize imageArea = initialImageAreaSize();
+    resize(imageArea);
+    updateDisplayedPixmap(imageArea);
 }
 
 FilePreview::~FilePreview()
@@ -79,91 +91,94 @@ FilePreview::~FilePreview()
     delete ui;
 }
 
-QSize FilePreview::displaySizeForViewport(const QSize& viewportSize) const
+QSize FilePreview::fitImageSize(const QSize& availableSize,
+                                bool allowUpscale) const
 {
-    if (pixmap.isNull() || viewportSize.isEmpty()) {
+    if (sourcePixmap.isNull() || availableSize.isEmpty()) {
         return QSize(1, 1);
     }
 
-    QSize fit = pixmap.size();
-    fit.scale(viewportSize, Qt::KeepAspectRatio);
+    QSize fitted = sourcePixmap.size();
+    fitted.scale(availableSize.expandedTo(QSize(1, 1)), Qt::KeepAspectRatio);
 
-    // Do not upscale ordinary small images.
-    if (fit.width() > pixmap.width() || fit.height() > pixmap.height()) {
-        fit = pixmap.size();
+    // Initial presentation should never blow a small source up to screen size.
+    // Once the user explicitly enlarges the window, however, use the whole
+    // available area just like an ordinary image viewer.
+    if (!allowUpscale
+        && (fitted.width() > sourcePixmap.width()
+            || fitted.height() > sourcePixmap.height())) {
+        fitted = sourcePixmap.size();
     }
 
-    constexpr qreal ExtremeAspectRatio = 4.0;
-    constexpr int MinReadableShortSide = 160;
-
-    const QSize source = pixmap.size();
-    const bool veryWide =
-        source.height() > 0
-        && static_cast<qreal>(source.width()) / source.height()
-               >= ExtremeAspectRatio;
-    const bool veryTall =
-        source.width() > 0
-        && static_cast<qreal>(source.height()) / source.width()
-               >= ExtremeAspectRatio;
-
-    if ((veryWide && fit.height() < MinReadableShortSide)
-        || (veryTall && fit.width() < MinReadableShortSide)) {
-        const int sourceShortSide =
-            veryWide ? source.height() : source.width();
-        const qreal readableScale = std::min<qreal>(
-            1.0,
-            static_cast<qreal>(MinReadableShortSide) / sourceShortSide);
-        const QSize readable(
-            std::max(1, qRound(source.width() * readableScale)),
-            std::max(1, qRound(source.height() * readableScale)));
-
-        if ((veryWide && readable.height() > fit.height())
-            || (veryTall && readable.width() > fit.width())) {
-            return readable;
-        }
-    }
-
-    return fit.expandedTo(QSize(1, 1));
+    return fitted.expandedTo(QSize(1, 1));
 }
 
-QSize FilePreview::initialViewportSize() const
+QSize FilePreview::initialImageAreaSize() const
 {
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
-    QRect screenGeometry = QApplication::desktop()->screenGeometry(this);
+    const QRect screenGeometry = QApplication::desktop()->screenGeometry(
+        const_cast<FilePreview*>(this));
 #else
-    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
+    QScreen* targetScreen = screen();
+    if (!targetScreen) {
+        targetScreen = QGuiApplication::primaryScreen();
+    }
+    const QRect screenGeometry = targetScreen
+        ? targetScreen->availableGeometry()
+        : QRect(0, 0, 1024, 768);
 #endif
+
     const QSize bounds(
         std::max(240, qRound(screenGeometry.width() * 0.9)),
         std::max(180, qRound(screenGeometry.height() * 0.8)));
-
-    const QSize display = displaySizeForViewport(bounds);
-    return QSize(
-        std::min(display.width(), bounds.width()),
-        std::min(display.height(), bounds.height()));
+    return fitImageSize(bounds, false);
 }
 
-void FilePreview::updateImageGeometry(const QSize& viewportSize)
+void FilePreview::updateDisplayedPixmap(const QSize& availableSize)
 {
-    if (!ui || !ui->fileContents || pixmap.isNull()) {
+    if (!ui || !ui->fileContents || sourcePixmap.isNull()) {
         return;
     }
 
-    const QSize display = displaySizeForViewport(viewportSize);
-    ui->fileContents->setFixedSize(display);
+    const QSize fitted = fitImageSize(availableSize, true);
+    ui->fileContents->setPixmap(
+        sourcePixmap.scaled(
+            fitted,
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation));
 }
 
 void FilePreview::resizeEvent(QResizeEvent* event)
 {
     QDialog::resizeEvent(event);
-    if (!scrollArea) {
+    if (!event) {
         return;
     }
 
-    const QSize viewport = scrollArea->viewport()->size();
-    if (!viewport.isEmpty()) {
-        updateImageGeometry(viewport);
+    updateDisplayedPixmap(event->size());
+}
+
+void FilePreview::showContextMenu(const QPoint& pos)
+{
+    if (!saveCallback || !ui || !ui->fileContents) {
+        return;
     }
+
+    QMenu menu(this);
+    menu.addAction(tr("Save As…"), this, [this] {
+        const QString downloadDir =
+            QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        const QString suggestedPath =
+            QDir(downloadDir).filePath(fileName);
+        const QString destination = QFileDialog::getSaveFileName(
+            this,
+            tr("Save image as…"),
+            suggestedPath);
+        if (!destination.isEmpty() && saveCallback) {
+            saveCallback(destination);
+        }
+    });
+    menu.exec(ui->fileContents->mapToGlobal(pos));
 }
 
 } /* namespace Mattermost */

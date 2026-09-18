@@ -5,7 +5,7 @@
  *
  * Mattermost-QT is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation; either version 3 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * Mattermost-QT is distributed in the hope that it will be useful,
@@ -20,13 +20,14 @@
 #ifndef FILEPREVIEW_H
 #define FILEPREVIEW_H
 
+#include <functional>
+
 #include <QDialog>
 #include <QImage>
 #include <QPixmap>
-#include <QTimer>
+#include <QSize>
 
 class QResizeEvent;
-class QScrollArea;
 
 namespace Ui {
 class FilePreview;
@@ -43,23 +44,29 @@ struct FilePreviewData {
 class FilePreview: public QDialog {
     Q_OBJECT
 public:
+    using SaveCallback = std::function<void(const QString&)>;
+
     explicit FilePreview (const FilePreviewData& file, QWidget *parent = nullptr);
     FilePreview(const QImage& image,
                 const QString& fileName,
                 const QString& fileAuthor,
-                QWidget* parent = nullptr);
+                QWidget* parent = nullptr,
+                SaveCallback saveCallback = {});
     ~FilePreview();
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
-    QSize displaySizeForViewport(const QSize& viewportSize) const;
-    QSize initialViewportSize() const;
-    void updateImageGeometry(const QSize& viewportSize);
+    QSize fitImageSize(const QSize& availableSize, bool allowUpscale) const;
+    QSize initialImageAreaSize() const;
+    void updateDisplayedPixmap(const QSize& availableSize);
+    void showContextMenu(const QPoint& pos);
 
     Ui::FilePreview* ui;
-    QPixmap pixmap;
-    QScrollArea* scrollArea = nullptr;
+    QPixmap sourcePixmap;
+    QString fileName;
+    SaveCallback saveCallback;
 };
 
 } /* namespace Mattermost */
