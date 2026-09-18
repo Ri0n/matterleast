@@ -362,7 +362,7 @@ void PostWidget::paintEvent(QPaintEvent* event)
 
 ChatLogWidget* PostWidget::chatLog() const
 {
-    return qobject_cast<ChatLogWidget*>(parentWidget());
+    return qobject_cast<ChatLogWidget*>(parentWidget() ? parentWidget()->parentWidget() : nullptr);
 }
 
 void PostWidget::mousePressEvent(QMouseEvent* event)
