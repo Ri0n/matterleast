@@ -38,9 +38,11 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QTextBrowser>
+#include <QTimer>
 #include <QUrl>
 
 #include "MessageContentWidget.h"
+#include "Settings.h"
 #include "MessageFormatter.h"
 #include "PostPermalinkUtils.h"
 #include "PostQuoteFrame.h"
@@ -64,6 +66,7 @@
 #include "info-dialogs/UserProfileDialog.h"
 #include "integrations/KTalkMeetingWidget.h"
 #include "navigation/AppNavigationService.h"
+#include "options/MLOptions.h"
 #include "reactions/PostReactionList.h"
 #include "ui/AvatarUtils.h"
 #include "ui/IconUtils.h"
@@ -276,6 +279,9 @@ PostWidget::PostWidget(Backend& backend,
 
 	if (!post.isDeleted && !post.reactions.empty()) {
 		reactions = std::make_unique<PostReactionList>(backend_, this);
+        if (!chatFont_.family().isEmpty()) {
+            reactions->setFont(chatFont_);
+        }
 		for (auto& it : post.reactions) {
 			const EmojiID emojiID = it.first;
 			const Emoji emoji = EmojiInfo::getEmoji(emojiID);
@@ -294,6 +300,14 @@ PostWidget::PostWidget(Backend& backend,
 	if (parentChatArea && !parentChatArea->isThread) {
 		addThreadButton();
 	}
+
+    auto* chatFontOption = MLOptions::instance()->optionObject<QString>(
+        CHAT_FONT, font().toString());
+    applyChatFont(chatFontOption->value().toString());
+    connect(chatFontOption, &MLOptionObject::changed, this,
+            [this](const QVariant& value) {
+        applyChatFont(value.toString());
+    });
 }
 
 PostWidget::~PostWidget()
@@ -705,6 +719,33 @@ void PostWidget::openUserProfile(const QString& username)
         });
 }
 
+void PostWidget::applyChatFont(const QString& serializedFont)
+{
+    QFont nextFont;
+    if (serializedFont.isEmpty() || !nextFont.fromString(serializedFont)) {
+        nextFont = QApplication::font();
+    }
+
+    chatFont_ = nextFont;
+    ui->time->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->time->setFont(chatFont_);
+
+    if (threadSummary) {
+        threadSummary->setFont(chatFont_);
+    }
+    if (reactions) {
+        reactions->setFont(chatFont_);
+    }
+    if (attachments) {
+        attachments->setFont(chatFont_);
+    }
+
+    QTimer::singleShot(0, this, [this] {
+        updateGeometry();
+        emit dimensionsChanged();
+    });
+}
+
 void PostWidget::openGroupMention(const QString& groupId)
 {
     const QString teamId = mentionTeamId();
@@ -768,6 +809,9 @@ void PostWidget::updateReactions()
 
 	if (!post.reactions.empty()) {
 		reactions = std::make_unique<PostReactionList>(backend_, this);
+        if (!chatFont_.family().isEmpty()) {
+            reactions->setFont(chatFont_);
+        }
 		for (auto& it : post.reactions) {
 			const EmojiID emojiID = it.first;
 			const Emoji emoji = EmojiInfo::getEmoji(emojiID);
@@ -788,6 +832,8 @@ void PostWidget::connectReactionActions()
 	        this, [this](const QString& emojiName) {
 		backend_.addPostReaction(post.id, emojiName);
 	});
+    connect(reactions.get(), &PostReactionList::dimensionsChanged,
+            this, &PostWidget::dimensionsChanged);
 }
 
 void PostWidget::addThreadButton()
@@ -796,6 +842,9 @@ void PostWidget::addThreadButton()
 		threadSummary = new ThreadSummaryWidget(backend_,
 		                                        parentChatArea->getChannel(),
 		                                        post, this);
+        if (!chatFont_.family().isEmpty()) {
+            threadSummary->setFont(chatFont_);
+        }
 		connect(threadSummary, &ThreadSummaryWidget::clicked,
 		        this, &PostWidget::openThreadWindow);
 

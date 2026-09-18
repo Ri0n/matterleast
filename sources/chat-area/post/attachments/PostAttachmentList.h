@@ -27,6 +27,7 @@ namespace Ui {
 class PostAttachmentList;
 }
 
+class QEvent;
 class QListWidgetItem;
 
 namespace Mattermost {
@@ -47,7 +48,11 @@ public:
 signals:
     void dimensionsChanged();
 
+protected:
+    void changeEvent(QEvent* event) override;
+
 private:
+    void refreshItemSizeHints();
     Backend& 						backend;
     Ui::PostAttachmentList*			ui;
 };

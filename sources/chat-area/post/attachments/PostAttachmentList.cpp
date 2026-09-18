@@ -21,8 +21,10 @@
 #include "ui_PostAttachmentList.h"
 
 #include <QDebug>
+#include <QEvent>
 #include <QLabel>
 #include <QListWidgetItem>
+#include <QTimer>
 #include "AttachedBinaryFile.h"
 #include "AttachedImageFile.h"
 #include "AttachedVideoFile.h"
@@ -75,8 +77,39 @@ void PostAttachmentList::addFile (const BackendFile& file, const QString& author
     ui->listWidget->setItemWidget(newItem, fileWidget);
 
     fileWidget->adjustSize();
-    newItem->setSizeHint(fileWidget->size());
+    newItem->setSizeHint(fileWidget->sizeHint().expandedTo(fileWidget->minimumSizeHint()));
     updateDimensions();
+}
+
+void PostAttachmentList::changeEvent(QEvent* event)
+{
+    QWidget::changeEvent(event);
+    if (!event || event->type() != QEvent::FontChange) {
+        return;
+    }
+
+    // Font propagation reaches the item widgets after their parent chain.
+    // Recompute on the next event turn so every child has its new metrics.
+    QTimer::singleShot(0, this, [this] {
+        refreshItemSizeHints();
+        updateDimensions();
+    });
+}
+
+void PostAttachmentList::refreshItemSizeHints()
+{
+    for (int i = 0; i < ui->listWidget->count(); ++i) {
+        QListWidgetItem* item = ui->listWidget->item(i);
+        QWidget* widget = item ? ui->listWidget->itemWidget(item) : nullptr;
+        if (!item || !widget) {
+            continue;
+        }
+
+        widget->adjustSize();
+        const QSize size = widget->sizeHint().expandedTo(widget->minimumSizeHint());
+        widget->resize(size);
+        item->setSizeHint(size);
+    }
 }
 
 void PostAttachmentList::updateDimensions()

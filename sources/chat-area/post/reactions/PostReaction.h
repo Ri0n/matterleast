@@ -22,6 +22,8 @@
 #include <QVector>
 #include <QWidget>
 
+class QEvent;
+class QFont;
 class QMouseEvent;
 
 namespace Ui {
@@ -45,17 +47,22 @@ public:
                           QWidget* parent = nullptr);
     ~PostReaction();
 
+    void setPresentationFont(const QFont& font);
+
 signals:
     void clicked(const QString& emojiName);
 
 protected:
+    void changeEvent(QEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
 
 private:
+    void applyPresentationFont();
     void updateToolTip();
 
     Backend& backend_;
     QString emojiName_;
+    QString emojiSource_;
     QString emojiValue_;
     BackendPostReaction reactionData_;
     bool profileLookupFinished_ = false;

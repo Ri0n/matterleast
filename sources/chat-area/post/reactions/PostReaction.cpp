@@ -19,6 +19,7 @@
 
 #include "PostReaction.h"
 
+#include <QEvent>
 #include <QMouseEvent>
 #include <QPointer>
 #include <QStringList>
@@ -58,6 +59,7 @@ PostReaction::PostReaction(Backend& backend,
     : QWidget(parent)
     , backend_(backend)
     , emojiName_(emojiName)
+    , emojiSource_(emojiValue)
     , reactionData_(reactionData)
     , ui_(new Ui::PostReaction)
 {
@@ -68,14 +70,6 @@ PostReaction::PostReaction(Backend& backend,
     ui_->emoji->setAttribute(Qt::WA_TransparentForMouseEvents);
     ui_->count->setAttribute(Qt::WA_TransparentForMouseEvents);
 
-    const QFont reactionFont = EmojiPresentation::fontForMode(
-        ui_->emoji->font(), EmojiPresentation::Mode::Reaction);
-    ui_->emoji->setFont(reactionFont);
-    emojiValue_ = EmojiPresentation::normalizeHtml(
-        emojiValue,
-        reactionFont,
-        EmojiPresentation::Mode::Reaction);
-    ui_->emoji->setText(emojiValue_);
     ui_->count->setText(QString::number(reactionData_.size()));
 
     QStringList unresolvedUserIds;
@@ -84,6 +78,10 @@ PostReaction::PostReaction(Backend& backend,
             unresolvedUserIds.push_back(value);
         }
     }
+
+    ReactionChipStyle::apply(this, ui_->horizontalLayout,
+                             QStringLiteral("postReaction"));
+    applyPresentationFont();
 
     profileLookupFinished_ = unresolvedUserIds.isEmpty();
     updateToolTip();
@@ -101,13 +99,52 @@ PostReaction::PostReaction(Backend& backend,
             });
     }
 
-    ReactionChipStyle::apply(this, ui_->horizontalLayout,
-                             QStringLiteral("postReaction"));
 }
 
 PostReaction::~PostReaction()
 {
     delete ui_;
+}
+
+void PostReaction::setPresentationFont(const QFont& presentationFont)
+{
+    if (font() != presentationFont) {
+        QWidget::setFont(presentationFont);
+    }
+    applyPresentationFont();
+}
+
+void PostReaction::changeEvent(QEvent* event)
+{
+    QWidget::changeEvent(event);
+    if (event && event->type() == QEvent::FontChange) {
+        applyPresentationFont();
+    }
+}
+
+void PostReaction::applyPresentationFont()
+{
+    if (!ui_ || !ui_->count) {
+        return;
+    }
+
+    const int extent = ReactionChipStyle::iconExtent(font());
+
+    QFont reactionFont = font();
+    reactionFont.setPixelSize(extent);
+    reactionFont = EmojiPresentation::fontForMode(
+        reactionFont, EmojiPresentation::Mode::Reaction);
+    ui_->emoji->setFont(reactionFont);
+    ui_->emoji->setFixedSize(extent, extent);
+    emojiValue_ = EmojiPresentation::normalizeHtml(
+        emojiSource_, reactionFont, EmojiPresentation::Mode::Reaction);
+    ui_->emoji->setText(emojiValue_);
+
+    ui_->count->setFont(ReactionChipStyle::countFont(font()));
+    ui_->count->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    ReactionChipStyle::updateMetrics(this, ui_->horizontalLayout, font());
+    updateToolTip();
+    updateGeometry();
 }
 
 void PostReaction::updateToolTip()

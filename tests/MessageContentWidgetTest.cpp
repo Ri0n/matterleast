@@ -185,6 +185,53 @@ private slots:
         QCOMPARE(rebuiltBrowser->toPlainText(), QStringLiteral("theme-sensitive text"));
     }
 
+    void inheritedTargetFontStillRebuildsRichText()
+    {
+        auto* fontOption = MLOptions::instance()->optionObject<QString>(
+            CHAT_FONT, QApplication::font().toString());
+        const QString previousFont = fontOption->value().toString();
+
+        QFont smallFont = QApplication::font();
+        smallFont.setPointSizeF(10.0);
+        fontOption->setValue(smallFont.toString());
+
+        QWidget parent;
+        MessageContentWidget widget(&parent);
+        widget.setMessage(QStringLiteral(
+            "A long line that should visibly require more vertical space "
+            "after the chat font grows substantially."));
+        parent.resize(360, 200);
+        widget.resize(320, 120);
+        parent.show();
+        showAndSettle(widget);
+
+        auto* beforeBrowser =
+            widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(beforeBrowser);
+        const qreal beforeSize = beforeBrowser->document()->defaultFont().pointSizeF();
+
+        QSignalSpy geometrySpy(&widget, &MessageContentWidget::dimensionsChanged);
+        QFont largeFont = smallFont;
+        largeFont.setPointSizeF(20.0);
+
+        // Reproduce the ordering that caused the post-row bug: QWidget font
+        // inheritance reaches the message first, then the persistent option
+        // notification arrives with the same target font.
+        parent.setFont(largeFont);
+        QApplication::processEvents();
+        fontOption->setValue(largeFont.toString());
+
+        QTRY_VERIFY_WITH_TIMEOUT(([&] {
+            auto* browser =
+                widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+            return browser
+                && browser->document()->defaultFont().pointSizeF() > beforeSize * 1.8;
+        })(), 1000);
+        QTRY_VERIFY_WITH_TIMEOUT(geometrySpy.count() > 0, 1000);
+
+        fontOption->setValue(previousFont);
+    }
+
     void chatFontChangesMaterializedContentLive()
     {
         auto* fontOption = MLOptions::instance()->optionObject<QString>(
