@@ -30,6 +30,7 @@
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendUser.h"
 #include "chat-area/post/ReactionChipStyle.h"
+#include "ui/EmojiFont.h"
 #include "ui/EmojiPresentation.h"
 #include "ui_PostReaction.h"
 
@@ -129,15 +130,20 @@ void PostReaction::applyPresentationFont()
     }
 
     const int extent = ReactionChipStyle::iconExtent(font());
+    const int boxExtent = ReactionChipStyle::iconBoxExtent(font());
 
-    QFont reactionFont = font();
-    reactionFont.setPixelSize(extent);
-    reactionFont = EmojiPresentation::fontForMode(
-        reactionFont, EmojiPresentation::Mode::Reaction);
+    // Preserve the normal chat font size for Unicode emoji. Only swap in the
+    // platform emoji family where older Qt versions need it.
+    const QFont reactionFont = EmojiFont::applySystemEmojiFamily(font());
     ui_->emoji->setFont(reactionFont);
-    ui_->emoji->setFixedSize(extent, extent);
+    ui_->emoji->setFixedSize(boxExtent, boxExtent);
+
+    // Custom emoji is rich-text <img>. Size the image itself to the normal chat
+    // line height, while the QLabel box above provides separate clipping room.
+    QFont imageSizingFont = font();
+    imageSizingFont.setPixelSize(extent);
     emojiValue_ = EmojiPresentation::normalizeHtml(
-        emojiSource_, reactionFont, EmojiPresentation::Mode::Reaction);
+        emojiSource_, imageSizingFont, EmojiPresentation::Mode::Reaction);
     ui_->emoji->setText(emojiValue_);
 
     ui_->count->setFont(ReactionChipStyle::countFont(font()));
