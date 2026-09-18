@@ -556,3 +556,15 @@ target_link_libraries(splitter-handle-style-test
         Qt${QT_VERSION_MAJOR}::Core
 )
 add_test(NAME splitter-handle-style-test COMMAND splitter-handle-style-test)
+
+if(TARGET matterleast-core)
+    add_executable(user-search-dialog-test UserSearchDialogTest.cpp)
+    target_link_libraries(user-search-dialog-test
+        PRIVATE
+            matterleast-core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME user-search-dialog-test COMMAND user-search-dialog-test)
+    set_tests_properties(user-search-dialog-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
