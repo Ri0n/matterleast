@@ -32,6 +32,7 @@
 #include <QDebug>
 #include <QEvent>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -58,6 +59,7 @@
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatArea.h"
+#include "chat-area/ChatLogWidget.h"
 #include "chat-area/QuotedPostPreview.h"
 #include "chat-area/QuotedReplyController.h"
 #include "chat-area/QuotedReplyFormat.h"
@@ -356,6 +358,51 @@ void PostWidget::paintEvent(QPaintEvent* event)
     selected.setAlpha(34);
     QPainter painter(this);
     painter.fillRect(rect(), selected);
+}
+
+ChatLogWidget* PostWidget::chatLog() const
+{
+    return qobject_cast<ChatLogWidget*>(parentWidget() ? parentWidget()->parentWidget() : nullptr);
+}
+
+void PostWidget::mousePressEvent(QMouseEvent* event)
+{
+    rowSelectionDragPending_ = event && event->button() == Qt::LeftButton;
+    if (rowSelectionDragPending_) {
+        selectionPressPos_ = event->pos();
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void PostWidget::mouseMoveEvent(QMouseEvent* event)
+{
+    if (rowSelectionDragPending_ && event
+        && (event->buttons() & Qt::LeftButton)
+        && (event->pos() - selectionPressPos_).manhattanLength()
+            >= QApplication::startDragDistance()) {
+        rowSelectionDragPending_ = false;
+        if (chatLog()) {
+            chatLog()->beginMessageSelectionDrag(post.id, post.id);
+        }
+    }
+    if (chatLog()
+        && chatLog()->isMessageSelectionMode() && event) {
+        const QPoint viewportPos = mapTo(parentWidget(), event->pos());
+        const int index = chatLog()->indexAtViewportPosition(viewportPos.y());
+        if (auto* target = qobject_cast<PostWidget*>(chatLog()->itemWidget(index))) {
+            chatLog()->updateMessageSelectionDrag(target->post.id);
+        }
+    }
+    QWidget::mouseMoveEvent(event);
+}
+
+void PostWidget::mouseReleaseEvent(QMouseEvent* event)
+{
+    rowSelectionDragPending_ = false;
+    if (chatLog()) {
+        chatLog()->finishMessageSelectionDrag();
+    }
+    QWidget::mouseReleaseEvent(event);
 }
 
 void PostWidget::resizeEvent(QResizeEvent* event)
