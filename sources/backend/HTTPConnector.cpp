@@ -367,12 +367,13 @@ void HTTPConnector::startRequest(PendingRequest request)
                     &QNetworkReply::uploadProgress,
                     this,
                     [reply, lastPercent = -10](qint64 sent, qint64 total) mutable {
-                        int percent = -1;
-                        if (total > 0) {
-                            percent = static_cast<int>((sent * 100) / total);
+                        if (total <= 0) {
+                            return;
                         }
-                        if (percent >= 0
-                            && percent < 100
+
+                        const int percent =
+                            static_cast<int>((sent * 100) / total);
+                        if (percent < 100
                             && percent - lastPercent < 10) {
                             return;
                         }
