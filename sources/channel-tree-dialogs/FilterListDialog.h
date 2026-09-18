@@ -53,7 +53,15 @@ private:
     virtual void addContextMenuActions (QMenu& menu, const QVariant& selectedItemData) = 0;
     virtual void setItemCountLabel (uint32_t count) = 0;
 protected:
+    void setClientSideFilteringEnabled(bool enabled)
+    {
+        clientSideFilteringEnabled = enabled;
+    }
+
     Ui::FilterListDialog *ui;
+
+private:
+    bool clientSideFilteringEnabled = true;
 };
 
 } /* namespace Mattermost */
