@@ -28,24 +28,34 @@
 
 namespace Mattermost  {
 
-FilePreview::FilePreview (const FilePreviewData& file, QWidget *parent)
-:QDialog(parent)
-,ui(new Ui::FilePreview)
+FilePreview::FilePreview(const FilePreviewData& file, QWidget* parent)
+    : FilePreview(QImage::fromData(file.fileContents),
+                  file.fileName,
+                  file.fileAuthor,
+                  parent)
+{
+}
+
+FilePreview::FilePreview(const QImage& image,
+                         const QString& fileName,
+                         const QString& fileAuthor,
+                         QWidget* parent)
+    : QDialog(parent)
+    , ui(new Ui::FilePreview)
 {
 	ui->setupUi(this);
-	setWindowTitle(file.fileName + " [" + file.fileAuthor + "] - Mattermost");
+	setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
 
-	QImage img = QImage::fromData (file.fileContents);
-	pixmap = QPixmap::fromImage(img);
-	ui->fileContents->setPixmap (pixmap);
-	ui->fileContents->setMinimumSize (getMinimumSize (pixmap));
+	pixmap = QPixmap::fromImage(image);
+	ui->fileContents->setPixmap(pixmap);
+	ui->fileContents->setMinimumSize(getMinimumSize(pixmap));
 
-	ui->fileInfo->setText (file.fileName);
+	ui->fileInfo->setText(fileName);
 	adjustSize();
 
-	resizeTimer.setSingleShot (true);
-	connect (&resizeTimer, &QTimer::timeout, [this] {
-		resize (newWindowSize);
+	resizeTimer.setSingleShot(true);
+	connect(&resizeTimer, &QTimer::timeout, [this] {
+		resize(newWindowSize);
 	});
 }
 

@@ -33,7 +33,6 @@ namespace Mattermost {
 
 class Backend;
 class BackendFile;
-struct FilePreviewData;
 class FilePreview;
 
 class AttachedImageFile: public QWidget {
@@ -45,16 +44,19 @@ public:
 private:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void setPreviewPixmap(QPixmap pixmap);
+    void showPreviewFallback();
     void updatePreviewPixmap();
 signals:
 	void dimensionsChanged ();
 
 private:
     Ui::AttachedImageFile*	ui;
-    FilePreviewData			filePreviewData;
     static std::map <const QWidget*, FilePreview*>	currentlyOpenFiles;
     QString                     fileId;
+    QString                     fileName;
+    QString                     fileAuthor;
     QPixmap                     sourcePixmap;
+    bool                        fullPreviewDecodePending = false;
     Backend&		backend;
 };
 
