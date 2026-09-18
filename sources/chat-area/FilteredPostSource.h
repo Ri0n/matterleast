@@ -2,8 +2,8 @@
 
 #include <functional>
 
-#include <QHash>
 #include <QPointer>
+#include <QSet>
 #include <QVector>
 
 #include "AbstractPostSource.h"
@@ -13,15 +13,13 @@ namespace Mattermost {
 /**
  * Predicate-filtered projection over an arbitrary post source.
  *
- * The wrapped source remains the authority for transport, absolute logical
- * positions and semantic identity. This layer only exposes a filtered logical
- * coordinate system to its consumer. Rows whose identity/body is not resolved
- * yet stay provisionally visible so the consumer can request them; once a body
- * becomes available the predicate is evaluated before that row is published as
- * available.
+ * The wrapped source remains authoritative for transport, absolute logical
+ * positions and semantic identity. This layer exposes a second logical
+ * coordinate system that simply omits rows rejected by the predicate.
  *
- * A false predicate result removes the row from this projection only. It never
- * mutates the wrapped source.
+ * Unresolved/non-resident rows are kept in the projection until their body can
+ * be classified. A rejected identity remains rejected across body eviction, so
+ * filtering does not depend on the residency cache.
  */
 class FilteredPostSource final : public AbstractPostSource
 {
@@ -48,32 +46,18 @@ public:
     bool canRequestBeforeFirst() const override;
     void requestBeforeFirst(RequestReason reason, quint64 generation) override;
 
-    /**
-     * Replace the predicate and re-project every row that can currently be
-     * classified. Rows with non-resident bodies become unresolved until loaded.
-     */
+    /** Replace the predicate and re-project all currently resident rows. */
     void setPredicate(Predicate predicate);
 
     /**
-     * Forget one cached predicate result and re-evaluate it when possible.
-     * Useful for predicates that depend on mutable post data.
+     * Drop the cached decision for one post and re-evaluate it when possible.
+     * Predicates over immutable fields never need to call this.
      */
     void invalidatePost(const QString& postId);
 
     AbstractPostSource* wrappedSource() const { return source.data(); }
 
 private:
-    enum class Decision {
-        Unknown,
-        Accepted,
-        Rejected,
-    };
-
-    struct SourceRow {
-        QString postId;
-        Decision decision = Decision::Unknown;
-    };
-
     struct PendingRequest {
         int sourceFirst = -1;
         int sourceLast = -1;
@@ -81,16 +65,10 @@ private:
         int filteredLast = -1;
     };
 
-    SourceRow resolvedRow(int sourceIndex);
-    bool isIncluded(const SourceRow& row) const;
-    void rebuildProjection();
-
-    /**
-     * Re-read identity/body state for a source range. Visibility transitions are
-     * emitted incrementally so the consumer and this projection have matching
-     * coordinates after every structural signal.
-     */
-    void synchronizeRange(int first, int last, bool forceLayoutSignal = false);
+    void evaluateRange(int first, int last);
+    QVector<int> currentRejectedSourceIndices() const;
+    void applyRejectedSourceIndices(const QVector<int>& target);
+    void emitLayoutForSourceRange(int first, int last);
 
     void handleItemCountChanged(int count);
     void handleItemsInserted(int first, int count);
@@ -104,16 +82,21 @@ private:
     void emitAvailableRuns(int sourceFirst, int sourceLast);
     void emitBodyAvailabilityRuns(int sourceFirst, int sourceLast, bool available);
 
+    bool isRejectedSourceIndex(int sourceIndex) const;
+    int rejectedBefore(int sourceIndex) const;
+    int filteredIndexForSource(int sourceIndex) const;
     int sourceIndexForFiltered(int index) const;
     int filteredInsertionIndexForSource(int sourceIndex) const;
 
     QPointer<AbstractPostSource> source;
     Predicate predicate;
 
-    QVector<SourceRow> rows;
-    QVector<int> filteredToSource;
-    QVector<int> sourceToFiltered;
-    QHash<QString, Decision> decisionsByPostId;
+    // Cache only rejected identities. Accepted and unresolved rows have the same
+    // projection behavior, which keeps this adapter sparse even for huge chats.
+    QSet<QString> rejectedPostIds;
+    QVector<int> rejectedSourceIndices;
+    int sourceCount = 0;
+
     QVector<PendingRequest> pendingRequests;
 };
 
