@@ -39,6 +39,12 @@ BackendPost* IndexedPostSource::postAt(int index) const
     return channel.postIdToPost.value(postIds.at(index), nullptr);
 }
 
+QString IndexedPostSource::postIdAt(int index) const
+{
+    return index >= 0 && index < static_cast<int>(postIds.size())
+        ? postIds.at(index) : QString();
+}
+
 int IndexedPostSource::indexOfPost(const QString& postId) const
 {
     return postIndexes.value(postId, -1);

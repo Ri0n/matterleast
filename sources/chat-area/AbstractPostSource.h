@@ -35,6 +35,13 @@ public:
     virtual int itemCount() const = 0;
     virtual bool isAvailable(int index) const = 0;
     virtual BackendPost* postAt(int index) const = 0;
+
+    /**
+     * Stable semantic identity for a logical row, even when its body is not
+     * currently resident. Empty means the slot has not been resolved yet.
+     */
+    virtual QString postIdAt(int index) const = 0;
+
     virtual int indexOfPost(const QString& postId) const = 0;
 
     /**

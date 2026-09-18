@@ -28,6 +28,7 @@ public:
     int itemCount() const override { return static_cast<int>(postIds.size()); }
     bool isAvailable(int index) const override;
     BackendPost* postAt(int index) const override;
+    QString postIdAt(int index) const override;
     int indexOfPost(const QString& postId) const override;
 
 protected:

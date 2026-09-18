@@ -7,6 +7,7 @@
 
 #include "ChannelPostSource.h"
 #include "ChatLogWidget.h"
+#include "FilteredPostSource.h"
 #include "ThreadPostSource.h"
 #include "ui_ChatArea.h"
 
@@ -29,7 +30,11 @@ bool ChatArea::ensurePinnedPostVisible(const QString& postId,
         return false;
     }
 
-    auto* source = qobject_cast<ChannelPostSource*>(ui->listWidget->source());
+    AbstractPostSource* listSource = ui->listWidget->source();
+    while (auto* filtered = qobject_cast<FilteredPostSource*>(listSource)) {
+        listSource = filtered->wrappedSource();
+    }
+    auto* source = qobject_cast<ChannelPostSource*>(listSource);
     if (!source) {
         return ensurePostVisible(postId);
     }

@@ -568,3 +568,25 @@ if(TARGET matterleast-core)
     set_tests_properties(user-search-dialog-test
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+
+add_executable(post-filter-policy-test PostFilterPolicyTest.cpp)
+target_include_directories(post-filter-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(post-filter-policy-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME post-filter-policy-test COMMAND post-filter-policy-test)
+
+if(TARGET matterleast-core)
+    add_executable(filtered-post-source-test FilteredPostSourceTest.cpp)
+    target_link_libraries(filtered-post-source-test
+        PRIVATE
+            matterleast-core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME filtered-post-source-test COMMAND filtered-post-source-test)
+    set_tests_properties(filtered-post-source-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

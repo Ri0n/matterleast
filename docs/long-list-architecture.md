@@ -29,10 +29,13 @@ QAbstractScrollArea
    ChatLogWidget                   Mattermost post UI + semantic post identity
         |
         v
- AbstractPostSource              source/view contract only
+ FilteredPostSource                optional predicate projection
         |
         v
-  IndexedPostSource              shared logical ID slots + structural signals
+ AbstractPostSource                source/view contract
+        |
+        v
+  IndexedPostSource                raw logical ID slots + structural signals
         |
         +-------------------+
         |                   |
@@ -45,14 +48,19 @@ QAbstractScrollArea
           memory / HTTP / SQLite
 ```
 
+`FilteredPostSource` is optional: thread timelines currently connect `ChatLogWidget` directly to
+`ThreadPostSource`, while the main channel timeline wraps `ChannelPostSource` in a predicate
+projection.
+
 `LongListWidget` owns geometry, scrolling, viewport anchoring and persistent logical-item viewport
 locks. `ChatLogWidget` owns post-specific presentation, actions and semantic post-ID identity.
-`AbstractPostSource` is the view/source interface; `IndexedPostSource` owns the transport-agnostic
-logical ID slot map, exact-window mutation and structural source signals shared by channel/thread
-sources. Concrete sources alone decide what server evidence makes a placement exact and how current
-logical demand maps to edge/cursor/page transport. `PostTimelineService` owns retrieval, physical HTTP
-request coalescing and cache tiers. See `post-source-architecture.md` for the complete source-layer
-contract.
+`AbstractPostSource` is the view/source interface; `FilteredPostSource` may expose a second
+view-facing logical coordinate system without modifying the wrapped source; `IndexedPostSource` owns
+the raw transport-agnostic logical ID slot map, exact-window mutation and structural source signals
+shared by channel/thread sources. Concrete sources alone decide what server evidence makes a placement
+exact and how raw logical demand maps to edge/cursor/page transport. `PostTimelineService` owns
+retrieval, physical HTTP request coalescing and cache tiers. See `post-source-architecture.md` for the
+complete source-layer contract.
 
 Channel and thread logs share the same widget and therefore the same scrollbar, materialization,
 seek, resize and pruning semantics. Their meaningful differences are how logical ranges are
@@ -400,7 +408,10 @@ Day separators and the new-messages marker must not become fake logical list ite
 1. decoration height associated with a real logical post, or
 2. rendering inside the corresponding post widget.
 
-This keeps one logical post index equal to one source item index.
+This keeps one list logical index equal to one item in the **view-facing** source.
+A model decorator such as `FilteredPostSource` may intentionally map that index to a different raw
+`ChannelPostSource` index; geometry still sees only one contiguous logical sequence and never a fake
+row for filtered data.
 
 ## Semantic navigation and provisional indices
 
@@ -416,10 +427,11 @@ that provisional occurrence and map the same post ID to its real index.
 The ownership split is:
 
 ```text
-post ID / provisional -> authoritative index    PostSource
-semantic post ID identity                       ChatLogWidget
-logical item -> persistent viewport position    LongListWidget
-index -> pixels / scrollbar / geometry           LongListWidget
+post ID / provisional -> authoritative raw index    concrete PostSource
+raw index <-> filtered index                         FilteredPostSource (when used)
+semantic post ID identity                            ChatLogWidget
+view-facing logical item -> persistent viewport      LongListWidget
+view-facing index -> pixels / scrollbar / geometry   LongListWidget
 ```
 
 While semantic navigation is active, `ChatLogWidget` remembers only the target post ID and the last
@@ -446,6 +458,7 @@ public:
     virtual int itemCount() const = 0;
     virtual bool isAvailable(int index) const = 0;
     virtual BackendPost* postAt(int index) const = 0;
+    virtual QString postIdAt(int index) const = 0;
     virtual int indexOfPost(const QString& postId) const = 0;
     virtual int ensurePostIndex(const QString& postId);
     virtual void requestRange(int first, int last, RequestReason, quint64 generation) = 0;
@@ -457,20 +470,33 @@ signals:
     itemsInserted(first, count);
     itemsRemoved(first, count);
     rangeAvailable(first, last);
-    itemsChanged(first, last);
+    bodyAvailabilityChanged(first, last, available);
+    seekTargetResolved(index, generation);
+    layoutChanged(first, last);
     rangeRequestFinished(first, last);
 };
 ```
 
-`ChannelPostSource` and `ThreadPostSource` adapt different Mattermost endpoints into the same logical
-contract. Their common index-to-ID bookkeeping lives in `IndexedPostSource`; channel count repair,
-thread root/cursor semantics and endpoint-specific boundary proofs remain in the concrete source. A
-small shared `PostSourceRequestGate` handles only attachment of compatible logical waiters to one
-exact in-flight boundary request. None of these source objects manipulate widgets or scrollbars.
+`postIdAt(index)` is stable semantic identity independent of resident body availability. That is what
+allows view-model decorators to keep an acceptance/rejection decision while a `BackendPost` body is
+evicted.
 
-`BackendPost::hidden` is a channel-root-list concern: replies are intentionally marked hidden by
-`BackendChannel` so they do not appear as root rows. `ThreadPostSource` must still expose posts whose
-`root_id` matches its thread. It must not interpret `hidden` as "not visible inside this thread".
+`ChannelPostSource` and `ThreadPostSource` adapt different Mattermost endpoints into the same raw
+logical contract. Their common index-to-ID bookkeeping lives in `IndexedPostSource`; channel count
+repair, thread root/cursor semantics and endpoint-specific boundary proofs remain in the concrete
+source. `FilteredPostSource` can wrap any `AbstractPostSource` with an arbitrary
+`std::function<bool(const BackendPost&)>` predicate and translate structural/data signals into a
+second contiguous coordinate space. A small shared `PostSourceRequestGate` handles only attachment of
+compatible logical waiters to one exact in-flight boundary request. None of these source objects
+manipulate widgets or scrollbars.
+
+`BackendPost::hidden` is a channel/thread topology concern: replies are intentionally marked hidden
+from the raw channel-root sequence. It must not be repurposed for presentation filtering.
+`ThreadPostSource` still exposes posts whose `root_id` matches its thread.
+
+Optional presentation filtering belongs in a source projection such as `FilteredPostSource`. A
+rejected post has no `LongListWidget` row at all; it is not represented by a zero-height/one-pixel
+widget and it is not deleted from the wrapped source.
 
 Normal open policy also belongs outside geometry:
 
@@ -611,4 +637,9 @@ Domain integration additionally needs tests that:
   viewport away from that post;
 - clearing a provisional source slot clears list availability even if no widget existed there;
 - cached and live thread replies remain visible despite the channel-root `hidden` flag;
-- a server without `total_msg_count_root` can discover older root posts without fake UI rows.
+- a server without `total_msg_count_root` can discover older root posts without fake UI rows;
+- predicate filtering removes model rows rather than creating placeholder widgets;
+- filtering a row immediately before a viewport-locked target remaps the target index while preserving
+  the exact target widget and screen Y;
+- filtered range requests and insert/remove/layout signals translate correctly between view-facing and
+  raw source coordinates.
