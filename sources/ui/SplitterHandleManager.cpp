@@ -11,6 +11,8 @@
 #include <QPainter>
 #include <QPalette>
 #include <QSplitter>
+#include <QStyle>
+#include <QStyleOption>
 
 #include "SplitterHandleStyle.h"
 
@@ -43,13 +45,11 @@ bool SplitterHandleManager::eventFilter(QObject* watched, QEvent* event)
         return QObject::eventFilter(watched, event);
     }
 
-    const QWidget* panel = handle->parentWidget();
-    const QColor background = panel
-        ? panel->palette().color(QPalette::Window)
-        : handle->palette().color(QPalette::Window);
-
     QPainter painter(handle);
-    painter.fillRect(handle->rect(), background);
+
+    QStyleOption option;
+    option.initFrom(handle);
+    handle->style()->drawPrimitive(QStyle::PE_Widget, &option, &painter, handle);
 
     const QColor divider = handle->palette().color(QPalette::Mid);
     painter.fillRect(splitterDividerRect(handle->rect(), handle->orientation()),
