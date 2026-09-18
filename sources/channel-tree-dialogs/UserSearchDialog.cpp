@@ -40,6 +40,13 @@ UserSearchDialog::UserSearchDialog(Backend& backend,
     , searchOptions(std::move(options))
     , disabledUserIds(disabledUserIds)
 {
+    // This dialog owns filtering itself: local DM/GM rows are matched against
+    // the same multi-field predicate as remote users, while remote discovery
+    // is debounced and generation-gated. The generic FilterListDialog filter
+    // only looks at column 0 (display name), so running both filters can hide a
+    // valid username/email match and leave its QTableWidget row hidden across a
+    // subsequent asynchronous rebuild.
+    setClientSideFilteringEnabled(false);
     setProfileBackend(&backend);
     create(cfg, {}, {QStringLiteral("Full Name"), QStringLiteral("Status")});
     ui->filterLineEdit->setPlaceholderText(QStringLiteral("Filter DMs or search users"));
