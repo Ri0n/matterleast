@@ -44,7 +44,10 @@ private slots:
         auto* emoji = chip->findChild<QLabel*>(QStringLiteral("emoji"));
         QVERIFY(emoji);
         const int expectedExtent = ReactionChipStyle::iconExtent(chatFont);
-        QCOMPARE(emoji->size(), QSize(expectedExtent, expectedExtent));
+        const int expectedBoxExtent = ReactionChipStyle::iconBoxExtent(chatFont);
+        QCOMPARE(emoji->size(), QSize(expectedBoxExtent, expectedBoxExtent));
+        QCOMPARE(emoji->font().pointSizeF(), chatFont.pointSizeF());
+        QVERIFY(expectedBoxExtent > expectedExtent);
         QCOMPARE(chip->minimumHeight(), ReactionChipStyle::chipHeight(chatFont));
         QVERIFY(list.minimumHeight() >= ReactionChipStyle::chipHeight(chatFont));
         QVERIFY2(list.minimumHeight() > 27,
