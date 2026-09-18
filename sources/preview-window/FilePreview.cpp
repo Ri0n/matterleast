@@ -21,8 +21,10 @@
 #include "ui_FilePreview.h"
 
 #include <algorithm>
+#include <utility>
 
 #include <QApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
