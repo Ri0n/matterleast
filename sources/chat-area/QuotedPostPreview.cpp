@@ -16,6 +16,7 @@
 #include <QVBoxLayout>
 
 #include "QuotedReplyFormat.h"
+#include "QuotedAttachmentSummary.h"
 #include "backend/types/BackendPost.h"
 #include "post/MessageFormatter.h"
 
@@ -70,8 +71,11 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     messageBrowser->viewport()->setAutoFillBackground(false);
     messageBrowser->viewport()->installEventFilter(this);
 
+    attachmentSummary = new QuotedAttachmentSummary(this);
+
     textLayout->addWidget(authorLabel);
     textLayout->addWidget(messageBrowser);
+    textLayout->addWidget(attachmentSummary);
     layout->addLayout(textLayout, 1);
 
     refreshPalette();
@@ -82,6 +86,15 @@ void QuotedPostPreview::setPost(const BackendPost& post)
     setPreview(QObject::tr("Replying to %1").arg(post.getDisplayAuthorName()),
                post.message,
                !post.files.empty());
+
+    QStringList fileNames;
+    fileNames.reserve(static_cast<qsizetype>(post.files.size()));
+    for (const auto& file : post.files) {
+        fileNames.push_back(file.name);
+    }
+    if (attachmentSummary) {
+        attachmentSummary->setFiles(fileNames);
+    }
 }
 
 void QuotedPostPreview::setPreview(const QString& title,
@@ -91,11 +104,12 @@ void QuotedPostPreview::setPreview(const QString& title,
     authorLabel->setText(title);
     const QString visibleMessage = QuotedReplyFormat::stripFallback(message);
     if (visibleMessage.trimmed().isEmpty()) {
-        fullText = hasAttachments
-            ? QStringLiteral("[attachment]")
-            : QStringLiteral("[empty message]");
+        fullText = hasAttachments ? QString() : QStringLiteral("[empty message]");
     } else {
         fullText = visibleMessage;
+    }
+    if (attachmentSummary) {
+        attachmentSummary->setGenericAttachment(hasAttachments);
     }
     setToolTip(visibleMessage);
     if (messageBrowser) {
@@ -201,10 +215,12 @@ void QuotedPostPreview::refreshText()
     if (!messageBrowser || fullText.isEmpty()) {
         if (messageBrowser) {
             messageBrowser->clear();
+            messageBrowser->hide();
         }
         return;
     }
 
+    messageBrowser->show();
     messageBrowser->setHtml(MessageFormatter::formatMessageText(fullText));
     messageBrowser->document()->setDocumentMargin(0);
 }
