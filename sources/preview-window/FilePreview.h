@@ -60,13 +60,11 @@ protected:
 private:
     QSize fitImageSize(const QSize& availableSize, bool allowUpscale) const;
     QSize initialImageAreaSize() const;
-    QSize imageAreaForDialogSize(const QSize& dialogSize) const;
     void updateDisplayedPixmap(const QSize& availableSize);
     void showContextMenu(const QPoint& pos);
 
     Ui::FilePreview* ui;
     QPixmap sourcePixmap;
-    QSize imageChromeSize;
     QString fileName;
     SaveCallback saveCallback;
 };
