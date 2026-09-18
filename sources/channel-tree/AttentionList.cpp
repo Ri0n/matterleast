@@ -29,12 +29,12 @@
 #include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelIcons.h"
 #include "channel-tree/FollowingNavigation.h"
+#include "channel-tree/FollowingPresentation.h"
 #include "navigation/AppNavigationService.h"
 
 namespace Mattermost {
 namespace {
 
-constexpr int ThreadSnippetLength = 120;
 constexpr int SelectionSettleDelayMs = 180;
 
 QString entryKey(const FollowingModel::Entry& entry)
@@ -42,16 +42,6 @@ QString entryKey(const FollowingModel::Entry& entry)
     return entry.isThread()
         ? QStringLiteral("t:") + entry.threadId
         : QStringLiteral("c:") + entry.channelId;
-}
-
-QString compactMessage(QString message)
-{
-    message = message.simplified();
-    if (message.size() > ThreadSnippetLength) {
-        message.truncate(ThreadSnippetLength - 1);
-        message += QChar(0x2026);
-    }
-    return message;
 }
 
 } // namespace
@@ -248,18 +238,12 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
 QString AttentionList::threadLabel(const FollowingModel::Entry& entry) const
 {
     if (!backend_) {
-        return compactMessage(entry.message);
+        return compactFollowingMessage(entry.message);
     }
 
     const BackendChannel* channel = backend_->getStorage().getChannelById(entry.channelId);
     const QString channelName = channel ? channel->display_name : entry.channelId;
-    const QString snippet = compactMessage(entry.message);
-    const QString prefix = entry.synthetic || entry.unreadMentions > 0
-        ? QStringLiteral("@ ") : QStringLiteral("\u21aa ");
-
-    return snippet.isEmpty()
-        ? prefix + channelName
-        : prefix + channelName + QStringLiteral(" \u2014 ") + snippet;
+    return followingThreadLabel(channelName, entry.message);
 }
 
 void AttentionList::openThread(const FollowingModel::Entry& entry)
