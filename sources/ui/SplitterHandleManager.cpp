@@ -12,6 +12,8 @@
 #include <QPalette>
 #include <QSplitter>
 
+#include "SplitterHandleStyle.h"
+
 namespace Mattermost {
 namespace {
 
@@ -48,6 +50,10 @@ bool SplitterHandleManager::eventFilter(QObject* watched, QEvent* event)
 
     QPainter painter(handle);
     painter.fillRect(handle->rect(), background);
+
+    const QColor divider = handle->palette().color(QPalette::Mid);
+    painter.fillRect(splitterDividerRect(handle->rect(), handle->orientation()),
+                     divider);
     return true;
 }
 
