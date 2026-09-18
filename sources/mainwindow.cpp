@@ -28,7 +28,6 @@
 #include <QMessageBox>
 #include <QPalette>
 #include <QPointer>
-#include <QSettings>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStyle>
@@ -56,6 +55,7 @@
 #include "chat-area/ChatArea.h"
 #include "log.h"
 #include "notifications/NotificationManager.h"
+#include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
 
@@ -198,9 +198,10 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 	LOG_DEBUG("MainWindow signal register finish");
 
-	QSettings settings;
-	restoreGeometry(settings.value("geometry", saveGeometry()).toByteArray());
-	const QByteArray splitterState = settings.value("sidebar_splitter_state").toByteArray();
+	auto* options = MLOptions::instance();
+	restoreGeometry(options->value<QByteArray>(QStringLiteral("geometry"), saveGeometry()));
+	const QByteArray splitterState = options->value<QByteArray>(
+		QStringLiteral("sidebar_splitter_state"));
 	if (sidebarSplitter && !splitterState.isEmpty()) {
 		sidebarSplitter->restoreState(splitterState);
 	} else if (sidebarSplitter) {
@@ -846,10 +847,11 @@ void MainWindow::setNotificationsCountVisualization(uint32_t notificationsCount)
 void MainWindow::saveState()
 {
 	LOG_DEBUG("MainWindow saveState");
-	QSettings settings;
-	settings.setValue("geometry", saveGeometry());
+	auto* options = MLOptions::instance();
+	options->setValue(QStringLiteral("geometry"), saveGeometry());
 	if (sidebarSplitter) {
-		settings.setValue("sidebar_splitter_state", sidebarSplitter->saveState());
+		options->setValue(
+			QStringLiteral("sidebar_splitter_state"), sidebarSplitter->saveState());
 	}
 }
 

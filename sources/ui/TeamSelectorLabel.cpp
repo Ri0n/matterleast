@@ -11,7 +11,6 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
-#include <QSettings>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QTimer>
@@ -21,6 +20,7 @@
 #include "backend/Storage.h"
 #include "backend/types/BackendTeam.h"
 #include "channel-tree/ChannelTree.h"
+#include "options/MLOptions.h"
 
 namespace Mattermost {
 namespace {
@@ -58,7 +58,8 @@ QString joinableTeamLabel(const QJsonObject& team)
 
 TeamSelectorLabel::TeamSelectorLabel(QWidget* parent)
     : QToolButton(parent)
-    , preferredTeamId_(QSettings().value(QString::fromLatin1(ActiveTeamSetting)).toString())
+    , preferredTeamId_(MLOptions::instance()->value<QString>(
+          QString::fromLatin1(ActiveTeamSetting)))
 {
     setMinimumHeight(18);
     setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
@@ -245,7 +246,8 @@ bool TeamSelectorLabel::setActiveTeam(const QString& teamId, bool persist)
     setText(teamLabel(*team));
     setToolTip(tr("Switch team"));
     if (persist) {
-        QSettings().setValue(QString::fromLatin1(ActiveTeamSetting), activeTeamId_);
+        MLOptions::instance()->setValue(
+            QString::fromLatin1(ActiveTeamSetting), activeTeamId_);
     }
     tree_->viewport()->update();
     return true;

@@ -54,6 +54,27 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Persistent application settings have one owner. Bypassing MLOptions would
+# skip its in-process state and change notifications.
+file(GLOB_RECURSE SETTINGS_ACCESS_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/sources/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sources/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.h")
+set(forbidden_settings_tokens "Q" "Settings")
+string(JOIN "" forbidden_settings_type ${forbidden_settings_tokens})
+foreach(source_file IN LISTS SETTINGS_ACCESS_SOURCES)
+    if(source_file MATCHES "/sources/options/MLOptions\\.(cpp|h)$")
+        continue()
+    endif()
+    file(READ "${source_file}" source_contents)
+    string(FIND "${source_contents}" "${forbidden_settings_type}" settings_position)
+    if(NOT settings_position EQUAL -1)
+        message(FATAL_ERROR
+            "Direct Qt settings access is forbidden outside MLOptions: ${source_file}")
+    endif()
+endforeach()
+
 option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -21,7 +21,6 @@
 #include "LoginDialog.h"
 #include "ui_LoginDialog.h"
 
-#include <QSettings>
 #include "backend/Backend.h"
 #include "log.h"
 #include "ui/IconUtils.h"
@@ -34,9 +33,8 @@ LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
 ,ui(new Ui::LoginDialog)
 {
 	setAttribute (Qt::WA_DeleteOnClose);
-	QSettings settings;
 	BackendLoginData loginData;
-	loginData.loadFromSettings (settings);
+	loginData.loadFromOptions ();
 
 	ui->setupUi(this);
 
@@ -66,7 +64,6 @@ LoginDialog::~LoginDialog()
 
 void LoginDialog::on_login_pushButton_clicked()
 {
-	QSettings settings;
 	BackendLoginData loginData;
 
 	loginData.domain = ui->domain_lineEdit->text();
@@ -74,7 +71,7 @@ void LoginDialog::on_login_pushButton_clicked()
 	loginData.password = ui->password_lineEdit->text();
 	loginData.token = "";
 
-	loginData.saveToSettings (settings);
+	loginData.saveToOptions ();
 	loginToServer (loginData);
 }
 
@@ -103,8 +100,7 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
 		}
 
 		loginData.token = token;
-		QSettings settings;
-		loginData.saveToSettings (settings);
+		loginData.saveToOptions ();
 		accept();
 	});
 }

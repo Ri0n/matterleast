@@ -114,7 +114,7 @@ From the build directory, start:
 ./matterleast
 ```
 
-A login dialog appears on first start. After a successful login, the server URL, username and login token are stored using `QSettings`; the password itself is not saved. On Linux the settings normally live under `~/.config/matterleast/MatterLeast.conf`.
+A login dialog appears on first start. After a successful login, the server URL, username and login token are stored in MatterLeast's persistent application settings; the password itself is not saved. On Linux the settings normally live under `~/.config/matterleast/MatterLeast.conf`.
 
 The saved token is currently not encrypted, so the settings file should be treated as sensitive.
 
