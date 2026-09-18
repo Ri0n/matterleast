@@ -20,6 +20,8 @@
 #ifndef FILEPREVIEW_H
 #define FILEPREVIEW_H
 
+#include <functional>
+
 #include <QDialog>
 #include <QImage>
 #include <QPixmap>
@@ -42,11 +44,14 @@ struct FilePreviewData {
 class FilePreview: public QDialog {
     Q_OBJECT
 public:
+    using SaveCallback = std::function<void(const QString&)>;
+
     explicit FilePreview (const FilePreviewData& file, QWidget *parent = nullptr);
     FilePreview(const QImage& image,
                 const QString& fileName,
                 const QString& fileAuthor,
-                QWidget* parent = nullptr);
+                QWidget* parent = nullptr,
+                SaveCallback saveCallback = {});
     ~FilePreview();
 
 protected:
@@ -57,10 +62,13 @@ private:
     QSize initialImageAreaSize() const;
     QSize imageAreaForDialogSize(const QSize& dialogSize) const;
     void updateDisplayedPixmap(const QSize& availableSize);
+    void showContextMenu(const QPoint& pos);
 
     Ui::FilePreview* ui;
     QPixmap sourcePixmap;
     QSize imageChromeSize;
+    QString fileName;
+    SaveCallback saveCallback;
 };
 
 } /* namespace Mattermost */
