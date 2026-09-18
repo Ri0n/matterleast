@@ -59,6 +59,7 @@
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatArea.h"
+#include "chat-area/ChatLogWidget.h"
 #include "chat-area/QuotedPostPreview.h"
 #include "chat-area/QuotedReplyController.h"
 #include "chat-area/QuotedReplyFormat.h"
@@ -359,6 +360,12 @@ void PostWidget::paintEvent(QPaintEvent* event)
     painter.fillRect(rect(), selected);
 }
 
+ChatLogWidget* PostWidget::chatLog() const
+{
+    return parentChatArea && parentChatArea->ui
+        ? parentChatArea->ui->listWidget : nullptr;
+}
+
 void PostWidget::mousePressEvent(QMouseEvent* event)
 {
     rowSelectionDragPending_ = event && event->button() == Qt::LeftButton;
@@ -375,16 +382,16 @@ void PostWidget::mouseMoveEvent(QMouseEvent* event)
         && (event->position().toPoint() - selectionPressPos_).manhattanLength()
             >= QApplication::startDragDistance()) {
         rowSelectionDragPending_ = false;
-        if (parentChatArea && parentChatArea->chatLog) {
-            parentChatArea->chatLog->beginMessageSelectionDrag(post.id, post.id);
+        if (chatLog()) {
+            chatLog()->beginMessageSelectionDrag(post.id, post.id);
         }
     }
-    if (parentChatArea && parentChatArea->chatLog
-        && parentChatArea->chatLog->isMessageSelectionMode() && event) {
+    if (chatLog()
+        && chatLog()->isMessageSelectionMode() && event) {
         const QPoint viewportPos = mapTo(parentWidget(), event->position().toPoint());
-        const int index = parentChatArea->chatLog->indexAtViewportPosition(viewportPos.y());
-        if (auto* target = qobject_cast<PostWidget*>(parentChatArea->chatLog->itemWidget(index))) {
-            parentChatArea->chatLog->updateMessageSelectionDrag(target->post.id);
+        const int index = chatLog()->indexAtViewportPosition(viewportPos.y());
+        if (auto* target = qobject_cast<PostWidget*>(chatLog()->itemWidget(index))) {
+            chatLog()->updateMessageSelectionDrag(target->post.id);
         }
     }
     QWidget::mouseMoveEvent(event);
@@ -393,8 +400,8 @@ void PostWidget::mouseMoveEvent(QMouseEvent* event)
 void PostWidget::mouseReleaseEvent(QMouseEvent* event)
 {
     rowSelectionDragPending_ = false;
-    if (parentChatArea && parentChatArea->chatLog) {
-        parentChatArea->chatLog->finishMessageSelectionDrag();
+    if (chatLog()) {
+        chatLog()->finishMessageSelectionDrag();
     }
     QWidget::mouseReleaseEvent(event);
 }
