@@ -1269,7 +1269,10 @@ void Backend::uploadFile(BackendChannel& channel,
                     << " file=" << fileName
                     << " networkError=" << status.toInt()
                     << " http=" << httpStatus
-                    << " error=" << reply.errorString()
+                    << " error="
+                    << (status.toInt() == QNetworkReply::NoError
+                            ? QStringLiteral("none")
+                            : reply.errorString())
                     << " contentType=" << reply.header(QNetworkRequest::ContentTypeHeader).toString()
                     << " responseBytes=" << data.size();
 
