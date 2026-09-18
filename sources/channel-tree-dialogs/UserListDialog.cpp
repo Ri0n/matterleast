@@ -197,6 +197,13 @@ void UserListDialog::create (const FilterListDialogConfig& cfg, const std::set<U
 	FilterListDialog::create (cfg);
     clearVisualConnections();
 
+    // A QTableWidget keeps per-row hidden state even after clearContents().
+    // Server-backed user search rebuilds this table asynchronously, so carrying
+    // visibility by row index into the next result set can make fresh users
+    // silently disappear. Drop the old rows before materializing the new set.
+    ui->tableWidget->setRowCount(0);
+    ui->tableWidget->clearContents();
+
 	//2 columns: name (with image) and status
 	ui->tableWidget->setColumnCount (columnNames.size());
 	for (int i = 0; i < columnNames.size(); ++i) {
