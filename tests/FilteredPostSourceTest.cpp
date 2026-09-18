@@ -121,9 +121,9 @@ public:
     {
         first = std::max(0, std::min(first, itemCount()));
         count = std::max(0, count);
-        slots_.insert(slots_.begin() + first,
-                      static_cast<std::size_t>(count),
-                      Slot {});
+        for (int i = 0; i < count; ++i) {
+            slots_.insert(slots_.begin() + first, Slot {});
+        }
         emit itemsInserted(first, count);
     }
 
