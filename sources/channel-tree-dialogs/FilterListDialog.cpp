@@ -82,6 +82,10 @@ void FilterListDialog::create (const FilterListDialogConfig& cfg)
 
 void FilterListDialog::applyFilter (const QString& text)
 {
+    if (!clientSideFilteringEnabled) {
+        return;
+    }
+
 	uint32_t count = 0;
 
 	for (int row = 0; row < ui->tableWidget->rowCount(); ++row) {
