@@ -50,6 +50,7 @@ class PostAttachmentList;
 class PostReactionList;
 class PostPoll;
 class ChatArea;
+class ChatLogWidget;
 class KTalkMeetingWidget;
 class MessageContentWidget;
 class ReactionQuickBarController;
@@ -155,6 +156,7 @@ private:
     bool                               wholeMessageSelected_ = false;
     QPoint                              selectionPressPos_;
     bool                                rowSelectionDragPending_ = false;
+    ChatLogWidget* chatLog() const;
     QFont                              chatFont_;
 };
 
