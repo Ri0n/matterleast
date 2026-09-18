@@ -21,8 +21,6 @@
 #include "ui_FilePreview.h"
 
 #include <algorithm>
-#include <QResizeEvent>
-#include <QDebug>
 #include <QFrame>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -151,19 +149,6 @@ void FilePreview::updateImageGeometry(const QSize& viewportSize)
 
     const QSize display = displaySizeForViewport(viewportSize);
     ui->fileContents->setFixedSize(display);
-}
-
-void FilePreview::resizeEvent(QResizeEvent* event)
-{
-    QDialog::resizeEvent(event);
-    if (!scrollArea) {
-        return;
-    }
-
-    const QSize viewport = scrollArea->viewport()->size();
-    if (!viewport.isEmpty()) {
-        updateImageGeometry(viewport);
-    }
 }
 
 } /* namespace Mattermost */
