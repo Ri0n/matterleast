@@ -205,8 +205,8 @@ public:
                     setRangeAvailable(first, last, true);
                 });
         connect(&source_, &AbstractPostSource::bodyAvailabilityChanged,
-                this, [this](int first, int last, bool available) {
-                    setRangeAvailable(first, last, available);
+                this, [this](int first, int last, bool bodyAvailable) {
+                    setRangeAvailable(first, last, bodyAvailable);
                 });
         connect(&source_, &AbstractPostSource::layoutChanged,
                 this, [this](int first, int last) {
