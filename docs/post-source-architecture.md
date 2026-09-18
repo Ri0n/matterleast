@@ -11,15 +11,18 @@ pixels.
 flowchart TD
     LL[LongListWidget\ngeometry / viewport / materialization]
     CL[ChatLogWidget\nMattermost post presentation / semantic navigation]
+    FPS[FilteredPostSource\noptional predicate projection]
     APS[AbstractPostSource\nsource interface]
-    IPS[IndexedPostSource\nlogical slots / identity map / structural signals]
+    IPS[IndexedPostSource\nraw logical slots / identity map / structural signals]
     G[PostSourceRequestGate\nshort-lived boundary request attachment]
     CPS[ChannelPostSource\nedge/cursor paging / count repair]
     TPS[ThreadPostSource\nroot + replies / edge/cursor paging]
     PTR[PostTimelineService / PostRepository\nHTTP coalescing / resident ingest / SQLite cache]
 
     LL --> CL
-    CL --> APS
+    CL --> FPS
+    CL -. direct when no projection .-> APS
+    FPS --> APS
     APS --> IPS
     IPS --> CPS
     IPS --> TPS
@@ -30,8 +33,12 @@ flowchart TD
 ```
 
 `ChatLogWidget` intentionally does not own `postIds`, page arithmetic or thread cursor state. Both
-concrete sources expose the same logical contract through `AbstractPostSource`; common identity
+concrete sources expose the same logical contract through `AbstractPostSource`; common raw identity
 bookkeeping lives in `IndexedPostSource`.
+
+`FilteredPostSource` is an optional decorator above another `AbstractPostSource`. It owns a second,
+filtered logical coordinate system, not transport truth. The wrapped source remains authoritative for
+server paging, absolute/channel coordinates, count repair, cursor placement and permalink context.
 
 `PostSourceRequestGate` is deliberately a small helper rather than another source base class. Channel
 and thread sources share the mechanics of attaching adjacent logical demand to one exact in-flight
@@ -46,19 +53,26 @@ transport policy behind inheritance.
 itemCount();
 isAvailable(index);
 postAt(index);
+postIdAt(index);
 indexOfPost(postId);
 ensurePostIndex(postId);
 requestRange(first, last, reason, generation);
 ```
 
-and the structural/data signals consumed by `ChatLogWidget`:
+`postIdAt(index)` is intentionally independent of body residency. A source can therefore retain
+semantic identity while the corresponding `BackendPost` body is evicted, and decorators can preserve
+policy decisions without confusing "not resident" with "unknown identity".
+
+The structural/data signals consumed by `ChatLogWidget` are:
 
 ```text
 itemCountChanged(count)
 itemsInserted(first, count)
 itemsRemoved(first, count)
 rangeAvailable(first, last)
-itemsChanged(first, last)
+bodyAvailabilityChanged(first, last, available)
+seekTargetResolved(index, generation)
+layoutChanged(first, last)
 rangeRequestFinished(first, last)
 ```
 
@@ -148,6 +162,71 @@ eraseLogicalSlots(first, count)
 ```
 
 The base does not choose which primitive a count correction requires. That is topology-specific.
+
+## `FilteredPostSource`: predicate projection
+
+`FilteredPostSource` is a reusable model-layer decorator:
+
+```cpp
+using Predicate = std::function<bool(const BackendPost&)>;
+
+FilteredPostSource(AbstractPostSource& source, Predicate predicate, QObject* parent = nullptr);
+```
+
+A predicate returning `true` keeps the post in the projected sequence; `false` removes it from that
+sequence entirely. There is no zero-height or one-pixel view row. The view sees a real contiguous
+logical model containing only accepted posts.
+
+The key invariant is that filtering creates a **projection**, not a new transport authority:
+
+```text
+server / cache
+      |
+      v
+ChannelPostSource                 raw coordinate system
+  [A B C D E F]
+      |
+      | predicate rejects B,E
+      v
+FilteredPostSource                view coordinate system
+  [A C D F]
+      |
+      v
+ChatLogWidget / LongListWidget
+```
+
+The decorator is responsible for:
+
+- filtered-index -> wrapped-source-index translation for `requestRange()`;
+- wrapped-source -> filtered-index translation for availability, seek and layout signals;
+- structural `itemsInserted` / `itemsRemoved` when predicate decisions change visible topology;
+- preserving semantic identity through `postIdAt()`;
+- caching rejected post IDs across resident-body eviction;
+- leaving unresolved/non-resident rows provisionally present until there is enough post data to
+  evaluate the predicate;
+- `setPredicate()` / `invalidatePost()` for future policies whose acceptance can change.
+
+It must **not**:
+
+- modify `ChannelPostSource::postIds`;
+- change `total_msg_count_root` reconciliation or absolute-page placement;
+- reinterpret thread cursor/count semantics;
+- invent placeholder rows to preserve old indices;
+- perform pixel/viewport work.
+
+The projection deliberately has its own indices. When a newly resolved post becomes rejected, the
+decorator emits a structural removal in filtered coordinates. `LongListWidget` then shifts its
+logical geometry through the normal `removeItems()` transaction. A semantic viewport lock survives
+because the target widget identity is remapped to its new filtered index; its screen Y is preserved.
+
+Navigation that must seed raw Mattermost context first (for example
+`ChannelPostSource::adoptNavigationContext()`) unwraps the decorator and talks to the raw channel
+source. The resulting source mutations flow back through the projection before
+`ChatLogWidget` establishes its semantic post-ID lock. This keeps permalink placement and filtering
+as separate responsibilities.
+
+The current main-channel policy uses this decorator to hide routine membership churn. Thread timelines
+currently consume `ThreadPostSource` directly.
 
 ## Shared boundary-request attachment
 
@@ -330,6 +409,7 @@ The following concepts must not move into `IndexedPostSource`, `ChatLogWidget` o
 | thread `fromPost/fromCreateAt` cursors | `ThreadPostSource` / repository transport |
 | thread initial/tail authority | `ThreadPostSource` |
 | short-lived adjacent demand attachment | shared `PostSourceRequestGate` helper |
+| predicate-based view projection / filtered index mapping | `FilteredPostSource` |
 | scrollbar, pixels, viewport anchor | `LongListWidget` |
 | semantic post-ID navigation lock | `ChatLogWidget` + `LongListWidget` lock |
 | physical HTTP coalescing / snapshot freshness | `PostRepository` / `PostCacheService` |
@@ -359,13 +439,15 @@ When adding a new source behavior, decide in this order:
 
 1. **Does it manipulate pixels, scrollbar or materialized widgets?** It belongs in `LongListWidget`.
 2. **Does it present or navigate by semantic post ID?** It belongs in `ChatLogWidget`.
-3. **Is it pure logical ID/slot bookkeeping independent of Mattermost transport?** It belongs in
+3. **Does it expose a predicate-filtered logical projection while leaving transport truth unchanged?**
+   It belongs in `FilteredPostSource` or another `AbstractPostSource` decorator.
+4. **Is it pure raw logical ID/slot bookkeeping independent of Mattermost transport?** It belongs in
    `IndexedPostSource`.
-4. **Is it generic short-lived attachment of logical demand to an exact in-flight boundary request?**
+5. **Is it generic short-lived attachment of logical demand to an exact in-flight boundary request?**
    It belongs in `PostSourceRequestGate`.
-5. **Does it prove where a result belongs using channel pages or thread cursors?** It stays in the
+6. **Does it prove where a result belongs using channel pages or thread cursors?** It stays in the
    concrete source.
-6. **Does it retrieve/cache/fence post snapshots or coalesce equivalent physical HTTP?** It belongs
+7. **Does it retrieve/cache/fence post snapshots or coalesce equivalent physical HTTP?** It belongs
    below the sources in `PostRepository`/`PostCacheService`.
 
 The goal is not maximum inheritance. The goal is one owner for each invariant.
