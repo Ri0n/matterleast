@@ -423,6 +423,8 @@ void ChatArea::setupPostSource()
         if (isThread) {
             postSource = new ThreadPostSource(backend, channel, root_id, this);
         } else {
+            // ChannelPostSource keeps the unfiltered server coordinate system;
+            // only its view-facing model projection applies presentation policy.
             auto* channelSource = new ChannelPostSource(backend, channel, this);
             postSource = new FilteredPostSource(
                 *channelSource,
