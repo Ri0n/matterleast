@@ -16,12 +16,7 @@ QSize displayedPixmapSize(const QLabel* label)
         return {};
     }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     return label->pixmap(Qt::ReturnByValue).size();
-#else
-    const QPixmap* pixmap = label->pixmap();
-    return pixmap ? pixmap->size() : QSize();
-#endif
 }
 
 bool sameAspectRatio(const QSize& size, const QSize& source)
