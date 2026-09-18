@@ -24,6 +24,7 @@
 
 #include "HTTPConnector.h"
 
+#include <algorithm>
 #include <QAbstractNetworkCache>
 #include <QDebug>
 #include <QJsonDocument>
@@ -31,13 +32,13 @@
 #include <QNetworkAccessManager>
 #include <QNetworkDiskCache>
 #include <QNetworkReply>
-#include <QSettings>
 #include <QStandardPaths>
 
 #include "LocalPostDeleteTracker.h"
 #include "QByteArrayCreator.h"
 #include "Settings.h"
 #include "log.h"
+#include "options/MLOptions.h"
 
 namespace Mattermost {
 
@@ -49,8 +50,11 @@ static QNetworkDiskCache* createDiskCache ()
 	QNetworkDiskCache* diskCache = new QNetworkDiskCache ();
 	diskCache->setCacheDirectory (QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
 
-	QSettings settings;
-	unsigned cacheSizeMB = settings.value(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT).toUInt();
+	const qint64 cacheSizeMB = std::max<qint64>(
+		1,
+		MLOptions::instance()
+			->optionObject<int>(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT)
+			->value().toLongLong());
 
 	diskCache->setMaximumCacheSize (cacheSizeMB * 1024 * 1024);
 	return diskCache;
@@ -68,6 +72,22 @@ HTTPConnector::HTTPConnector ()
 :qnetworkManager (createNetworkManager ())
 {
 	connectors.insert(this);
+
+	auto* cacheSize = MLOptions::instance()->optionObject<int>(
+		CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT);
+	connect(cacheSize, &MLOptionObject::changed, this,
+		[this](const QVariant& value) {
+			if (!qnetworkManager) {
+				return;
+			}
+			auto* diskCache =
+				qobject_cast<QNetworkDiskCache*>(qnetworkManager->cache());
+			if (!diskCache) {
+				return;
+			}
+			const qint64 cacheSizeMB = std::max<qint64>(1, value.toLongLong());
+			diskCache->setMaximumCacheSize(cacheSizeMB * 1024 * 1024);
+		});
 }
 
 HTTPConnector::~HTTPConnector ()

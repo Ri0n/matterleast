@@ -318,6 +318,7 @@ add_executable(post-cache-service-test
     PostCacheServiceTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheService.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheStore.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
 )
 
 target_include_directories(post-cache-service-test

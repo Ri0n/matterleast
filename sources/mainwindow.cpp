@@ -632,17 +632,10 @@ void MainWindow::createMenu()
 	});
 
 	mainMenu->addAction("Settings", [this] {
-		settingsWindow = new SettingsWindow(this);
-		connect(settingsWindow, &QDialog::accepted, [this] {
-			if (QMessageBox::question(
-					this, "Reload?",
-					"In order to apply some settings, MatterLeast has to be reloaded.\n"
-					" Do you want to reload now? (If no, settings will be applied on the next startup)")
-				== QMessageBox::Yes) {
-				settingsWindow->applyNewSettings();
-			}
-			reload();
-		});
+		auto* settingsWindow = new SettingsWindow(this);
+		settingsWindow->setAttribute(Qt::WA_DeleteOnClose);
+		connect(settingsWindow, &QDialog::accepted, settingsWindow,
+		        [settingsWindow] { settingsWindow->applyNewSettings(); });
 		settingsWindow->show();
 	});
 
@@ -733,15 +726,6 @@ void MainWindow::moveEvent(QMoveEvent*)
 void MainWindow::dragMoveEvent(QDragMoveEvent*)
 {
 	qDebug() << "dragMove" << mapToGlobal(pos());
-}
-
-void MainWindow::reload()
-{
-	QTimer::singleShot(0, [this] {
-		backend.reset();
-		doDeinit = true;
-		QMainWindow::close();
-	});
 }
 
 void MainWindow::changeEvent(QEvent* event)

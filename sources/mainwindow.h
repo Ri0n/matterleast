@@ -48,7 +48,6 @@ class BackendTeam;
 class ChannelQuickList;
 class NotificationManager;
 class PostCollectionView;
-class SettingsWindow;
 
 class MainWindow: public QMainWindow {
 	Q_OBJECT
@@ -83,7 +82,6 @@ protected:
 	bool eventFilter(QObject* watched, QEvent* event) override;
 private:
 	void createMenu ();
-	void reload ();
 	void setupChannelTabs ();
 	void refreshSidebarViews ();
 	void refreshChannelUnreadFilter ();
@@ -114,7 +112,6 @@ private:
     quint64                             semanticNavigationGeneration = 0;
 	bool								currentTeamRestoredFromSettings;
 	QMenu*								mainMenu;
-	SettingsWindow*						settingsWindow;
 	bool								doDeinit;
 };
 

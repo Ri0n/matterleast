@@ -33,10 +33,11 @@
 #include <QPainterPath>
 #include <QPixmap>
 #include <QPointer>
-#include <QSettings>
+#include <QStandardPaths>
 #include "backend/types/BackendFile.h"
 #include "backend/AttachmentService.h"
 #include "Settings.h"
+#include "options/MLOptions.h"
 
 namespace {
 
@@ -80,6 +81,16 @@ AttachedImageFile::AttachedImageFile (Backend& backend, const BackendFile& file,
     ui->imagePreview->clear();
     ui->imagePreview->hide();
 
+    const auto refreshPreview = [this](const QVariant&) {
+        updatePreviewPixmap();
+    };
+    auto* maxWidth = MLOptions::instance()->optionObject<int>(
+        DOWNLOAD_IMAGE_MAX_WIDTH, DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT);
+    auto* maxHeight = MLOptions::instance()->optionObject<int>(
+        DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT);
+    connect(maxWidth, &MLOptionObject::changed, this, refreshPreview);
+    connect(maxHeight, &MLOptionObject::changed, this, refreshPreview);
+
     // Do not let the designer-time 400x300 geometry participate in the list
     // item's initial size while the image is still being downloaded.
     setFixedSize(1, 1);
@@ -104,8 +115,12 @@ AttachedImageFile::AttachedImageFile (Backend& backend, const BackendFile& file,
         QMenu menu(this);
 
         menu.addAction("Save image", this, [this, fileName] {
-            QSettings settings;
-            const QDir downloadDir = settings.value(DOWNLOAD_LOCATION, QDir::currentPath()).toString();
+            const QString defaultDownloadDir =
+                QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+            const QDir downloadDir(
+                MLOptions::instance()
+                    ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDownloadDir)
+                    ->value().toString());
             const QString saveFileDestination = QFileDialog::getSaveFileName(
                 this, "Save image as... - Mattermost", downloadDir.filePath(fileName));
 
@@ -136,10 +151,30 @@ AttachedImageFile::~AttachedImageFile()
 
 void AttachedImageFile::setPreviewPixmap(QPixmap pixmap)
 {
-    QSettings settings;
-    const int maxWidth = std::max(1, settings.value(DOWNLOAD_IMAGE_MAX_WIDTH, 500).toInt());
-    const int maxHeight = std::max(1, settings.value(DOWNLOAD_IMAGE_MAX_HEIGHT, 500).toInt());
+    sourcePixmap = std::move(pixmap);
+    updatePreviewPixmap();
+}
 
+void AttachedImageFile::updatePreviewPixmap()
+{
+    if (sourcePixmap.isNull()) {
+        return;
+    }
+
+    const int maxWidth = std::max(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                DOWNLOAD_IMAGE_MAX_WIDTH, DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT)
+            ->value().toInt());
+    const int maxHeight = std::max(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)
+            ->value().toInt());
+
+    QPixmap pixmap = sourcePixmap;
     if (pixmap.width() > maxWidth || pixmap.height() > maxHeight) {
         pixmap = pixmap.scaled(
             QSize(maxWidth, maxHeight), Qt::KeepAspectRatio, Qt::SmoothTransformation);
