@@ -52,6 +52,11 @@ FilePreview::FilePreview(const QImage& image,
     setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
 
     sourcePixmap = QPixmap::fromImage(image);
+    // Keep only the native window-manager decoration. The designer file has
+    // legacy Box frames around the image area which become visible as a white
+    // border once the pixmap is scaled explicitly.
+    ui->frame->setFrameShape(QFrame::NoFrame);
+    ui->fileContents->setFrameShape(QFrame::NoFrame);
     ui->fileContents->setScaledContents(false);
     ui->fileContents->setAlignment(Qt::AlignCenter);
     ui->fileContents->setMinimumSize(1, 1);
@@ -80,7 +85,8 @@ FilePreview::~FilePreview()
     delete ui;
 }
 
-QSize FilePreview::fitImageSize(const QSize& availableSize) const
+QSize FilePreview::fitImageSize(const QSize& availableSize,
+                                bool allowUpscale) const
 {
     if (sourcePixmap.isNull() || availableSize.isEmpty()) {
         return QSize(1, 1);
@@ -89,10 +95,12 @@ QSize FilePreview::fitImageSize(const QSize& availableSize) const
     QSize fitted = sourcePixmap.size();
     fitted.scale(availableSize.expandedTo(QSize(1, 1)), Qt::KeepAspectRatio);
 
-    // The popup is a view of the original image. Do not enlarge it beyond its
-    // native raster size, but always scale down as needed to fit the window.
-    if (fitted.width() > sourcePixmap.width()
-        || fitted.height() > sourcePixmap.height()) {
+    // Initial presentation should never blow a small source up to screen size.
+    // Once the user explicitly enlarges the window, however, use the whole
+    // available area just like an ordinary image viewer.
+    if (!allowUpscale
+        && (fitted.width() > sourcePixmap.width()
+            || fitted.height() > sourcePixmap.height())) {
         fitted = sourcePixmap.size();
     }
 
@@ -117,7 +125,7 @@ QSize FilePreview::initialImageAreaSize() const
     const QSize bounds(
         std::max(240, qRound(screenGeometry.width() * 0.9)),
         std::max(180, qRound(screenGeometry.height() * 0.8)));
-    return fitImageSize(bounds);
+    return fitImageSize(bounds, false);
 }
 
 QSize FilePreview::imageAreaForDialogSize(const QSize& dialogSize) const
@@ -134,7 +142,7 @@ void FilePreview::updateDisplayedPixmap(const QSize& availableSize)
         return;
     }
 
-    const QSize fitted = fitImageSize(availableSize);
+    const QSize fitted = fitImageSize(availableSize, true);
     ui->fileContents->setPixmap(
         sourcePixmap.scaled(
             fitted,
