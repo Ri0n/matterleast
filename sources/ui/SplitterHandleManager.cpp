@@ -64,7 +64,7 @@ bool SplitterHandleManager::eventFilter(QObject* watched, QEvent* event)
     // so using the palette here produced a visibly different 4 px strip.
     QColor background = handle->palette().color(QPalette::Window);
     if (splitter && handleIndex > 0) {
-        const QWidget* content = splitter->widget(handleIndex);
+        QWidget* content = splitter->widget(handleIndex);
         if (content) {
             const QPixmap sample = content->grab(QRect(0, 0, 1, 1));
             if (!sample.isNull()) {
