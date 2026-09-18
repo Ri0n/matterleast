@@ -9,11 +9,11 @@
 #include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QSet>
-#include <QSettings>
 
 #include "Backend.h"
 #include "PostResidencyLease.h"
 #include "Settings.h"
+#include "options/MLOptions.h"
 #include "Storage.h"
 #include "types/BackendChannel.h"
 #include "types/BackendPost.h"
@@ -33,32 +33,48 @@ QString residencyKey(const QString& channelId, const QString& postId)
 
 qint64 configuredHardBytes()
 {
-    const qint64 mb = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_HARD_MB, POST_CACHE_MEMORY_HARD_MB_DEFAULT).toLongLong());
+    const qint64 mb = std::max<qint64>(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                POST_CACHE_MEMORY_HARD_MB, POST_CACHE_MEMORY_HARD_MB_DEFAULT)
+            ->value().toLongLong());
     return mb * MiB;
 }
 
 qint64 configuredTargetBytes()
 {
     const qint64 hard = configuredHardBytes();
-    const qint64 mb = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_TARGET_MB, POST_CACHE_MEMORY_TARGET_MB_DEFAULT).toLongLong());
+    const qint64 mb = std::max<qint64>(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                POST_CACHE_MEMORY_TARGET_MB, POST_CACHE_MEMORY_TARGET_MB_DEFAULT)
+            ->value().toLongLong());
     return std::min(hard, mb * MiB);
 }
 
 qint64 configuredTtlMs()
 {
-    const qint64 minutes = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_POST_TTL_MINUTES,
-        POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT).toLongLong());
+    const qint64 minutes = std::max<qint64>(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                POST_CACHE_MEMORY_POST_TTL_MINUTES,
+                POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT)
+            ->value().toLongLong());
     return minutes * 60LL * 1000;
 }
 
 int configuredSweepMs()
 {
-    const qint64 seconds = std::max<qint64>(1, QSettings().value(
-        POST_CACHE_MEMORY_SWEEP_SECONDS,
-        POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT).toLongLong());
+    const qint64 seconds = std::max<qint64>(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                POST_CACHE_MEMORY_SWEEP_SECONDS,
+                POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT)
+            ->value().toLongLong());
     return static_cast<int>(std::min<qint64>(seconds * 1000,
                                              std::numeric_limits<int>::max()));
 }
@@ -182,6 +198,28 @@ void PostRepository::initializeResidentMemory()
     residentSweepTimer.setInterval(configuredSweepMs());
     connect(&residentSweepTimer, &QTimer::timeout,
             this, &PostRepository::sweepResidentBodies);
+
+    const auto watchForSweep = [this](const char* key, int defaultValue) {
+        auto* option = MLOptions::instance()->optionObject<int>(key, defaultValue);
+        connect(option, &MLOptionObject::changed, this,
+                [this](const QVariant&) { scheduleResidentSweep(); });
+    };
+    watchForSweep(POST_CACHE_MEMORY_HARD_MB, POST_CACHE_MEMORY_HARD_MB_DEFAULT);
+    watchForSweep(POST_CACHE_MEMORY_TARGET_MB, POST_CACHE_MEMORY_TARGET_MB_DEFAULT);
+    watchForSweep(POST_CACHE_MEMORY_POST_TTL_MINUTES,
+                  POST_CACHE_MEMORY_POST_TTL_MINUTES_DEFAULT);
+
+    auto* sweepInterval = MLOptions::instance()->optionObject<int>(
+        POST_CACHE_MEMORY_SWEEP_SECONDS,
+        POST_CACHE_MEMORY_SWEEP_SECONDS_DEFAULT);
+    connect(sweepInterval, &MLOptionObject::changed, this,
+            [this](const QVariant& value) {
+        const qint64 seconds = std::max<qint64>(1, value.toLongLong());
+        residentSweepTimer.setInterval(static_cast<int>(
+            std::min<qint64>(seconds * 1000, std::numeric_limits<int>::max())));
+        scheduleResidentSweep();
+    });
+
     residentSweepTimer.start();
 }
 

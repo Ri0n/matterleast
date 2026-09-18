@@ -5,7 +5,9 @@
 #include <QTest>
 #include <QTimer>
 
+#include "Settings.h"
 #include "backend/PostCacheService.h"
+#include "options/MLOptions.h"
 
 using namespace Mattermost;
 
@@ -51,6 +53,7 @@ class PostCacheServiceTest : public QObject
     Q_OBJECT
 private slots:
     void asyncReadsFollowQueuedWrites();
+    void liveLimitChangesReachExistingWorker();
 };
 
 void PostCacheServiceTest::asyncReadsFollowQueuedWrites()
@@ -102,6 +105,52 @@ void PostCacheServiceTest::asyncReadsFollowQueuedWrites()
     });
     QCOMPARE(threadTail.size(), 1);
     QVERIFY(threadTail.contains(QStringLiteral("reply")));
+}
+
+void PostCacheServiceTest::liveLimitChangesReachExistingWorker()
+{
+    auto* maxPosts = MLOptions::instance()->optionObject<int>(
+        POST_CACHE_DISK_MAX_POSTS, POST_CACHE_DISK_MAX_POSTS_DEFAULT);
+    const int previousMaxPosts = maxPosts->value().toInt();
+    maxPosts->setValue(100);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString server = QStringLiteral("https://example.invalid");
+    const QString user = QStringLiteral("user");
+    const QString channel = QStringLiteral("channel");
+    PostCacheService service(dir.filePath(QStringLiteral("posts.sqlite3")));
+
+    service.recordChannelOpened(
+        server, user, channel, QDateTime::currentMSecsSinceEpoch());
+
+    QJsonObject posts;
+    posts.insert(QStringLiteral("one"),
+                 makePost(QStringLiteral("one"), channel, QString(), 100));
+    posts.insert(QStringLiteral("two"),
+                 makePost(QStringLiteral("two"), channel, QString(), 200));
+    posts.insert(QStringLiteral("three"),
+                 makePost(QStringLiteral("three"), channel, QString(), 300));
+    service.storePosts(server, user, posts, 1);
+
+    const QJsonObject before = waitForRead([&](PostCacheService::ReadCallback callback) {
+        service.loadLatestChannelRoots(server, user, channel, 10, std::move(callback));
+    });
+    QCOMPARE(before.size(), 3);
+
+    maxPosts->setValue(2);
+
+    const QJsonObject after = waitForRead([&](PostCacheService::ReadCallback callback) {
+        service.loadLatestChannelRoots(server, user, channel, 10, std::move(callback));
+    });
+    // PostCacheStore deliberately trims to a 95% low-water mark once a
+    // hard limit is crossed. With a tiny test-only maxPosts=2 that means one
+    // newest row remains; the production UI minimum (100) trims to 95.
+    QCOMPARE(after.size(), 1);
+    QVERIFY(after.contains(QStringLiteral("three")));
+
+    maxPosts->setValue(previousMaxPosts);
 }
 
 QTEST_MAIN(PostCacheServiceTest)
