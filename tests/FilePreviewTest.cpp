@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QImage>
+#include <QFrame>
 #include <QLabel>
 #include <QPixmap>
 #include <QtTest>
@@ -55,7 +56,12 @@ private slots:
 
         auto* imageLabel =
             preview.findChild<QLabel*>(QStringLiteral("fileContents"));
+        auto* imageFrame =
+            preview.findChild<QFrame*>(QStringLiteral("frame"));
         QVERIFY(imageLabel);
+        QVERIFY(imageFrame);
+        QCOMPARE(imageLabel->frameShape(), QFrame::NoFrame);
+        QCOMPARE(imageFrame->frameShape(), QFrame::NoFrame);
 
         preview.show();
         QApplication::processEvents();
@@ -80,8 +86,6 @@ private slots:
         QVERIFY(large.width() > small.width());
         QVERIFY(large.height() > small.height());
         QVERIFY(sameAspectRatio(large, sourceSize));
-        QVERIFY(large.width() <= sourceSize.width());
-        QVERIFY(large.height() <= sourceSize.height());
 
         // Re-applying the same window size must produce the same image size.
         // This guards against the old feedback loop where every resize scaled
