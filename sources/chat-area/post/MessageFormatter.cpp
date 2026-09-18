@@ -562,7 +562,12 @@ void separateLargeImages(QTextDocument& document)
 
 void buildMarkdownDocument(QTextDocument& document, const QString& text)
 {
+    // QTextDocument::clear() is allowed to reset document-level state. Preserve
+    // the caller's base font explicitly because Markdown heading sizes are
+    // relative to it and chat typography can change at runtime.
+    const QFont baseFont = document.defaultFont();
     document.clear();
+    document.setDefaultFont(baseFont);
     document.setDocumentMargin(0);
 
     // Parse the original Markdown verbatim. In particular, do not HTML-escape

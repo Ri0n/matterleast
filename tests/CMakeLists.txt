@@ -79,6 +79,7 @@ add_executable(message-content-widget-test
     MessageContentWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/post/MessageContentWidget.cpp"
     "${CMAKE_SOURCE_DIR}/sources/chat-area/post/MessageFormatter.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiInfo.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiMap.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiRegistryNotifier.cpp"

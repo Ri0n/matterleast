@@ -31,6 +31,7 @@ protected:
 
 private:
     void clearContent();
+    void applyChatFont(const QString& serializedFont);
     void addRichText(const QString& html);
     void addQuote(const QString& html);
     void scheduleDimensionsChanged();
