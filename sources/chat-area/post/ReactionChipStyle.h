@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include <QFont>
+#include <QFontMetricsF>
 #include <QHBoxLayout>
 #include <QString>
 #include <QWidget>
@@ -10,43 +11,35 @@
 namespace Mattermost::ReactionChipStyle {
 
 constexpr int Height = 26;
-constexpr int IconExtent = 20;
 constexpr int BorderWidth = 1;
 constexpr int TopMargin = 2;
 constexpr int BottomMargin = 1;
-constexpr int IconPointSize = 14;
-constexpr int CountPointSize = 8;
-constexpr qreal ReferencePointSize = 10.0;
+constexpr int IconPadding = 2;
 constexpr qreal CountScale = 0.75;
 constexpr qreal MinCountPointSize = 8.0;
 constexpr qreal MaxCountPointSize = 24.0;
-constexpr int MinIconExtent = 16;
-constexpr int MaxIconExtent = 32;
 
 inline int iconExtent(const QFont& chatFont)
 {
-    qreal pointSize = chatFont.pointSizeF();
-    if (pointSize <= 0.0 && chatFont.pixelSize() > 0) {
-        pointSize = chatFont.pixelSize() * 72.0 / 96.0;
-    }
-    if (pointSize <= 0.0) {
-        pointSize = ReferencePointSize;
-    }
+    // Reactions should read like normal inline text, not like enlarged emoji.
+    // Use the actual chat-font line height as the visual emoji/image extent.
+    return std::max(1, qRound(QFontMetricsF(chatFont).height()));
+}
 
-    return std::clamp(
-        qRound(IconExtent * pointSize / ReferencePointSize),
-        MinIconExtent,
-        MaxIconExtent);
+inline int iconBoxExtent(const QFont& chatFont)
+{
+    // Rich-text QLabel layout (used by custom/GIF emoji) needs a little room
+    // around the image for line metrics and vertical-align. Keep that padding
+    // outside the visual emoji extent so the emoji itself is not enlarged.
+    return iconExtent(chatFont) + 2 * IconPadding;
 }
 
 inline int chipHeight(const QFont& chatFont)
 {
-    // The content area must account for both stylesheet borders and layout
-    // margins. The old "+4" was one pixel too small for a 20px custom image:
-    // 20 + (2+1 margins) + (1+1 borders) = 25px before any rounding.
     return std::max(
         Height,
-        iconExtent(chatFont) + TopMargin + BottomMargin + 2 * BorderWidth);
+        iconBoxExtent(chatFont)
+            + TopMargin + BottomMargin + 2 * BorderWidth);
 }
 
 inline QFont countFont(QFont chatFont)
