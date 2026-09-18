@@ -48,7 +48,8 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     ui->fileTypeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
     ui->fileSizeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
     ui->fileNameLabel->setText("File: " + file.name);
-    ui->downloadedLabel->setText("");
+    ui->downloadedLabel->clear();
+    ui->downloadedLabel->hide();
 
     static QLocale locale = QLocale::system();
     ui->fileSizeLabel->setText(
@@ -116,6 +117,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
 
         ui->openButton->setDisabled(true);
         ui->downloadedLabel->setText("Downloading...");
+        ui->downloadedLabel->show();
 
         QPointer<AttachedBinaryFile> self(this);
         AttachmentService::instance(backend).retrieveFile(
