@@ -23,10 +23,15 @@
 #include <algorithm>
 
 #include <QApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileDialog>
 #include <QGuiApplication>
+#include <QMenu>
 #include <QResizeEvent>
 #include <QScreen>
 #include <QSizePolicy>
+#include <QStandardPaths>
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
 #include <QDesktopWidget>
 #endif
@@ -34,19 +39,32 @@
 namespace Mattermost  {
 
 FilePreview::FilePreview(const FilePreviewData& file, QWidget* parent)
-    : FilePreview(QImage::fromData(file.fileContents),
-                  file.fileName,
-                  file.fileAuthor,
-                  parent)
+    : FilePreview(
+          QImage::fromData(file.fileContents),
+          file.fileName,
+          file.fileAuthor,
+          parent,
+          [contents = file.fileContents](const QString& destination) {
+              QFile output(destination);
+              if (!output.open(QIODevice::WriteOnly)) {
+                  qWarning() << "Cannot save image to" << destination << ":"
+                             << output.errorString();
+                  return;
+              }
+              output.write(contents);
+          })
 {
 }
 
 FilePreview::FilePreview(const QImage& image,
                          const QString& fileName,
                          const QString& fileAuthor,
-                         QWidget* parent)
+                         QWidget* parent,
+                         SaveCallback saveCallback)
     : QDialog(parent)
     , ui(new Ui::FilePreview)
+    , fileName(fileName)
+    , saveCallback(std::move(saveCallback))
 {
     ui->setupUi(this);
     setWindowTitle(fileName + " [" + fileAuthor + "] - Mattermost");
@@ -62,6 +80,9 @@ FilePreview::FilePreview(const QImage& image,
     ui->fileContents->setMinimumSize(1, 1);
     ui->fileContents->setSizePolicy(QSizePolicy::Expanding,
                                     QSizePolicy::Expanding);
+    ui->fileContents->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->fileContents, &QWidget::customContextMenuRequested,
+            this, &FilePreview::showContextMenu);
 
     if (layout()) {
         layout()->activate();
@@ -157,6 +178,29 @@ void FilePreview::resizeEvent(QResizeEvent* event)
     }
 
     updateDisplayedPixmap(imageAreaForDialogSize(event->size()));
+}
+
+void FilePreview::showContextMenu(const QPoint& pos)
+{
+    if (!saveCallback || !ui || !ui->fileContents) {
+        return;
+    }
+
+    QMenu menu(this);
+    menu.addAction(tr("Save As…"), this, [this] {
+        const QString downloadDir =
+            QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        const QString suggestedPath =
+            QDir(downloadDir).filePath(fileName);
+        const QString destination = QFileDialog::getSaveFileName(
+            this,
+            tr("Save image as…"),
+            suggestedPath);
+        if (!destination.isEmpty() && saveCallback) {
+            saveCallback(destination);
+        }
+    });
+    menu.exec(ui->fileContents->mapToGlobal(pos));
 }
 
 } /* namespace Mattermost */
