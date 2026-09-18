@@ -49,13 +49,29 @@ bool SplitterHandleManager::eventFilter(QObject* watched, QEvent* event)
     // to the content surface: fill the whole hit area with the adjacent chat
     // background and draw a single separator line on its leading edge.
     const QSplitter* splitter = qobject_cast<const QSplitter*>(handle->parentWidget());
-    const int handleIndex = splitter ? splitter->indexOf(handle) : -1;
-    const QWidget* content = splitter && handleIndex > 0
-        ? splitter->widget(handleIndex - 1)
-        : nullptr;
-    const QColor background = content
-        ? content->palette().color(QPalette::Window)
-        : handle->palette().color(QPalette::Window);
+    int handleIndex = -1;
+    if (splitter) {
+        for (int index = 1; index < splitter->count(); ++index) {
+            if (splitter->handle(index) == handle) {
+                handleIndex = index;
+                break;
+            }
+        }
+    }
+
+    // Sample the actual rendered surface immediately to the right of the
+    // divider. The chat surfaces can be styled independently of QPalette::Window,
+    // so using the palette here produced a visibly different 4 px strip.
+    QColor background = handle->palette().color(QPalette::Window);
+    if (splitter && handleIndex > 0) {
+        const QWidget* content = splitter->widget(handleIndex);
+        if (content) {
+            const QPixmap sample = content->grab(QRect(0, 0, 1, 1));
+            if (!sample.isNull()) {
+                background = sample.toImage().pixelColor(0, 0);
+            }
+        }
+    }
     painter.fillRect(handle->rect(), background);
 
     const QColor divider = handle->palette().color(QPalette::Mid);
