@@ -11,8 +11,6 @@
 #include <QPainter>
 #include <QPalette>
 #include <QSplitter>
-#include <QStyle>
-#include <QStyleOption>
 
 #include "SplitterHandleStyle.h"
 
@@ -47,13 +45,26 @@ bool SplitterHandleManager::eventFilter(QObject* watched, QEvent* event)
 
     QPainter painter(handle);
 
-    QStyleOption option;
-    option.initFrom(handle);
-    handle->style()->drawPrimitive(QStyle::PE_Widget, &option, &painter, handle);
+    // The handle remains 4 px wide for mouse interaction. Visually it belongs
+    // to the content surface: fill the whole hit area with the adjacent chat
+    // background and draw a single separator line on its leading edge.
+    const QSplitter* splitter = qobject_cast<const QSplitter*>(handle->parentWidget());
+    const int handleIndex = splitter ? splitter->indexOf(handle) : -1;
+    const QWidget* content = splitter && handleIndex > 0
+        ? splitter->widget(handleIndex - 1)
+        : nullptr;
+    const QColor background = content
+        ? content->palette().color(QPalette::Window)
+        : handle->palette().color(QPalette::Window);
+    painter.fillRect(handle->rect(), background);
 
     const QColor divider = handle->palette().color(QPalette::Mid);
-    painter.fillRect(splitterDividerRect(handle->rect(), handle->orientation()),
-                     divider);
+    const QRect dividerRect = handle->orientation() == Qt::Horizontal
+        ? QRect(handle->rect().left(), handle->rect().top(),
+                SplitterVisibleDividerExtent, handle->rect().height())
+        : QRect(handle->rect().left(), handle->rect().top(),
+                handle->rect().width(), SplitterVisibleDividerExtent);
+    painter.fillRect(dividerRect, divider);
     return true;
 }
 
