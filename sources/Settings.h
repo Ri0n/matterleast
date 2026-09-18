@@ -24,8 +24,6 @@
 
 #pragma once
 
-#include <QSettings>
-
 static constexpr const char* DOWNLOAD_LOCATION = "config/downloadLocation";
 static constexpr const char* DOWNLOAD_ASK = "config/downloadAsk";
 static constexpr bool DOWNLOAD_ASK_DEFAULT = false;

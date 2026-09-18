@@ -24,20 +24,24 @@
 
 #include "BackendLoginData.h"
 
+#include "options/MLOptions.h"
+
 namespace Mattermost {
 
-void BackendLoginData::loadFromSettings (const QSettings& settings)
+void BackendLoginData::loadFromOptions ()
 {
-	domain = settings.value("domain").toString();
-	username = settings.value("username").toString();
-	token = settings.value("token").toString();
+	auto* options = MLOptions::instance();
+	domain = options->value<QString>(QStringLiteral("domain"));
+	username = options->value<QString>(QStringLiteral("username"));
+	token = options->value<QString>(QStringLiteral("token"));
 }
 
-void BackendLoginData::saveToSettings (QSettings& settings) const
+void BackendLoginData::saveToOptions () const
 {
-	settings.setValue("domain", domain);
-	settings.setValue("username", username);
-	settings.setValue("token", token);
+	auto* options = MLOptions::instance();
+	options->setValue(QStringLiteral("domain"), domain);
+	options->setValue(QStringLiteral("username"), username);
+	options->setValue(QStringLiteral("token"), token);
 }
 
 bool BackendLoginData::areAllFieldsFilled () const

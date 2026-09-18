@@ -25,14 +25,13 @@
 #pragma once
 
 #include <QString>
-#include <QSettings>
 
 namespace Mattermost {
 
 class BackendLoginData {
 public:
-	void loadFromSettings (const QSettings& settings);
-	void saveToSettings (QSettings& settings)	const;
+	void loadFromOptions ();
+	void saveToOptions ()	const;
 	bool areAllFieldsFilled () 					const;
 public:
 	QString 	domain;

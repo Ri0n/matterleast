@@ -1,6 +1,6 @@
 #include "ReactionUsageTracker.h"
 
-#include <QSettings>
+#include "options/MLOptions.h"
 
 namespace Mattermost {
 namespace {
@@ -17,9 +17,9 @@ ReactionUsageTracker& ReactionUsageTracker::instance()
 
 ReactionUsageTracker::ReactionUsageTracker()
 {
-    QSettings settings;
     model_.restore(deserializeReactionUsage(
-        settings.value(QLatin1String(reactionUsageSettingsKey)).toByteArray()));
+        MLOptions::instance()->value<QByteArray>(
+            QString::fromLatin1(reactionUsageSettingsKey))));
 }
 
 void ReactionUsageTracker::recordUse(const QString& emojiName)
@@ -43,9 +43,9 @@ QStringList ReactionUsageTracker::topNames(int limit) const
 
 void ReactionUsageTracker::save() const
 {
-    QSettings settings;
-    settings.setValue(QLatin1String(reactionUsageSettingsKey),
-                      serializeReactionUsage(model_.ranking()));
+    MLOptions::instance()->setValue(
+        QString::fromLatin1(reactionUsageSettingsKey),
+        serializeReactionUsage(model_.ranking()));
 }
 
 } // namespace Mattermost

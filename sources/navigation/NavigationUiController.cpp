@@ -13,7 +13,6 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
-#include <QSettings>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -29,6 +28,7 @@
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
 #include "mainwindow.h"
+#include "options/MLOptions.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ThreadPaneLayout.h"
 
@@ -89,8 +89,8 @@ NavigationUiController::~NavigationUiController()
         qApp->removeEventFilter(this);
     }
     if (contentSplitter) {
-        QSettings().setValue(QStringLiteral("content_splitter_state"),
-                             contentSplitter->saveState());
+        MLOptions::instance()->setValue(
+            QStringLiteral("content_splitter_state"), contentSplitter->saveState());
     }
 }
 
@@ -120,8 +120,8 @@ void NavigationUiController::setupMainWindow()
 
     connect(qApp, &QApplication::aboutToQuit, this, [this] {
         if (contentSplitter) {
-            QSettings().setValue(QStringLiteral("content_splitter_state"),
-                                 contentSplitter->saveState());
+            MLOptions::instance()->setValue(
+            QStringLiteral("content_splitter_state"), contentSplitter->saveState());
         }
     });
 
@@ -225,8 +225,8 @@ void NavigationUiController::setupThreadPane()
         sidebarSplitter->setSizes(outerSizes);
     }
 
-    const QByteArray state = QSettings().value(
-        QStringLiteral("content_splitter_state")).toByteArray();
+    const QByteArray state = MLOptions::instance()->value<QByteArray>(
+        QStringLiteral("content_splitter_state"));
     if (!state.isEmpty()) {
         threadSplitterStateRestored = contentSplitter->restoreState(state);
     }

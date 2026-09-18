@@ -11,7 +11,6 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSettings>
 #include <QSet>
 #include <QStyle>
 #include <QTimer>
@@ -22,6 +21,7 @@
 #include "chat-area/post/PostWidget.h"
 #include "reactions/ReactionUsage.h"
 #include "reactions/ReactionUsageTracker.h"
+#include "options/MLOptions.h"
 #include "ui/EmojiPresentation.h"
 
 namespace Mattermost {
@@ -131,7 +131,7 @@ QStringList storedFavoriteNames(const QByteArray& data)
     return names;
 }
 
-void saveFavoriteNames(QSettings& settings, const QStringList& names)
+void saveFavoriteNames(const QStringList& names)
 {
     QVector<EmojiID> ids;
     ids.reserve(names.size());
@@ -144,17 +144,17 @@ void saveFavoriteNames(QSettings& settings, const QStringList& names)
 
     const QByteArray data(reinterpret_cast<const char*>(ids.constData()),
                           ids.size() * static_cast<int>(sizeof(EmojiID)));
-    settings.setValue(QStringLiteral("emoji_favorites"), data);
+    MLOptions::instance()->setValue(QStringLiteral("emoji_favorites"), data);
 }
 
 void ensureFourDefaultFavorites()
 {
-    QSettings settings;
+    auto* options = MLOptions::instance();
     const QString key = QStringLiteral("emoji_favorites");
     const QStringList desired = defaultReactionFavorites();
 
-    if (!settings.contains(key)) {
-        saveFavoriteNames(settings, desired);
+    if (!options->contains(key)) {
+        saveFavoriteNames(desired);
         return;
     }
 
@@ -176,12 +176,13 @@ void ensureFourDefaultFavorites()
         QStringLiteral("heavy_check_mark"),
     };
 
-    const QStringList stored = storedFavoriteNames(settings.value(key).toByteArray());
+    const QStringList stored = storedFavoriteNames(
+        options->value<QByteArray>(key));
     if (stored.size() == legacyDefaults.size()
         && stringSet(stored) == stringSet(legacyDefaults)) {
         // Migrate the old untouched default list, but preserve a user's custom
         // favorites even if they were created by an older version.
-        saveFavoriteNames(settings, desired);
+        saveFavoriteNames(desired);
     }
 }
 
@@ -412,9 +413,9 @@ void installReactionQuickBarController()
 
     application->installEventFilter(&ReactionQuickBarController::instance());
 
-    // Do not touch arbitrary QSettings stores used by unit-test executables.
-    if (QCoreApplication::organizationName() == QStringLiteral("mattermost-native")
-        && QCoreApplication::applicationName() == QStringLiteral("Mattermost")) {
+    // Do not initialize persistent application state in unit-test executables.
+    if (QCoreApplication::organizationName() == QStringLiteral("matterleast")
+        && QCoreApplication::applicationName() == QStringLiteral("MatterLeast")) {
         ensureFourDefaultFavorites();
     }
 }

@@ -32,12 +32,12 @@
 #include <QMenu>
 #include <QPixmap>
 #include <QPushButton>
-#include <QSettings>
 #include <QSpacerItem>
 #include <QTabBar>
 #include <QTimer>
 
 #include "EmojiDialogSupport.h"
+#include "options/MLOptions.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "ui_ChooseEmojiDialog.h"
 
@@ -126,8 +126,8 @@ QGridLayout* ChooseEmojiDialog::createTab (uint32_t categoryIdx, int tabIndex)
 
 void ChooseEmojiDialog::restoreEmojiFavorites ()
 {
-	QSettings settings;
-	QByteArray favoritesArray = settings.value("emoji_favorites").value<QByteArray>();
+	QByteArray favoritesArray = MLOptions::instance()
+		->value<QByteArray>(QStringLiteral("emoji_favorites"));
 
 #if QT_VERSION >= QT_VERSION_CHECK(5,14,0)
 	QVector<EmojiID> favoriteEmojisVec ((EmojiID*)favoritesArray.begin(), (EmojiID*)favoritesArray.end());
@@ -176,11 +176,10 @@ void ChooseEmojiDialog::restoreEmojiFavorites ()
 
 void ChooseEmojiDialog::saveEmojiFavorites ()
 {
-	QSettings settings;
-
 	QVector<EmojiID> vec = favorites.keys().toVector();
 	QByteArray favoritesArray ((const char*)vec.data(), vec.size() * sizeof (vec[0]));
-	settings.setValue ("emoji_favorites", QVariant::fromValue(favoritesArray));
+	MLOptions::instance()->setValue(
+		QStringLiteral("emoji_favorites"), favoritesArray);
 	qDebug() << "Save Emoji Favorites";
 }
 

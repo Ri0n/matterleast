@@ -65,6 +65,47 @@ private slots:
             QStringLiteral("first"),
             QStringLiteral("second"));
     }
+
+    void variantOverloads()
+    {
+        const QString key = uniqueOptionName(QStringLiteral("variant"));
+        auto* options = MLOptions::instance();
+
+        options->setValue(key, QVariant(QStringLiteral("stored")));
+        QCOMPARE(options->value(key, QVariant(QStringLiteral("default"))).toString(),
+                 QStringLiteral("stored"));
+
+        auto* observable = options->optionObject(
+            key, QVariant(QStringLiteral("default")));
+        QSignalSpy changed(observable, &MLOptionObject::changed);
+
+        options->setValue(key, QVariant(QStringLiteral("updated")));
+        QCOMPARE(observable->value().toString(), QStringLiteral("updated"));
+        QCOMPARE(changed.count(), 1);
+    }
+
+    void plainValueRoundTrip()
+    {
+        const QString key = uniqueOptionName(QStringLiteral("plain-byte-array"));
+        const QByteArray first("first");
+        const QByteArray second("second");
+        auto* options = MLOptions::instance();
+
+        QVERIFY(!options->contains(key));
+        options->setValue(key, first);
+        QVERIFY(options->contains(key));
+        QCOMPARE(options->value<QByteArray>(key), first);
+
+        auto* observable = options->optionObject<QByteArray>(key);
+        QCOMPARE(observable->value().toByteArray(), first);
+
+        QSignalSpy changed(observable, &MLOptionObject::changed);
+        options->setValue(key, second);
+        QCOMPARE(observable->value().toByteArray(), second);
+        QCOMPARE(options->value<QByteArray>(key), second);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(changed.constFirst().constFirst().toByteArray(), second);
+    }
 };
 
 QTEST_MAIN(MLOptionsTest)

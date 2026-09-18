@@ -28,7 +28,7 @@ flowchart LR
     C[BackendChannel]
     T[ReactionUsageTracker\napplication-global singleton]
     M[ReactionUsageModel\nbackend-independent ranking]
-    S[QSettings]
+    S[MLOptions persistent store]
     R[EmojiInfo / custom emoji resolver]
 
     UI -->|choose emoji| B
@@ -45,7 +45,7 @@ flowchart LR
 
 `ReactionUsageModel` contains no `Backend`, network, channel or server identity. It only knows reaction names and ranking values.
 
-`ReactionUsageTracker` is an application-global singleton. It owns the ten-entry model and persists it in `QSettings`.
+`ReactionUsageTracker` is an application-global singleton. It owns the ten-entry model and persists it through `MLOptions`.
 
 `BackendChannel` is only an integration point: when a reaction-added update actually changes a post from "our reaction is absent" to "our reaction is present", it records that canonical emoji name in the global tracker. The ranking algorithm itself does not live in the backend.
 
@@ -188,7 +188,7 @@ The tracker stores the ranking under:
 reaction_usage/popularity_v1
 ```
 
-in `QSettings`.
+through `MLOptions`.
 
 The payload is a compact JSON array containing only:
 
@@ -275,7 +275,7 @@ sources/reactions/ReactionUsage.h
     quick-strip selection policy
 
 sources/reactions/ReactionUsageTracker.{h,cpp}
-    process-wide singleton and QSettings persistence
+    process-wide singleton and MLOptions persistence
 
 sources/backend/types/BackendChannel.cpp
     confirmed-own-reaction integration point

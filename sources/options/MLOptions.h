@@ -1,5 +1,7 @@
 #pragma once
 
+#include <type_traits>
+
 #include <QHash>
 #include <QObject>
 #include <QSettings>
@@ -47,33 +49,52 @@ class MLOptions final : public QObject
 public:
     static MLOptions* instance();
 
+    QVariant value(const QString& name,
+                   const QVariant& defaultValue) const;
+
+    template<typename T>
+    T value(const QString& name, const T& defaultValue = T()) const
+    {
+        static_assert(!std::is_same_v<std::decay_t<T>, QVariant>,
+                      "Use the QVariant value() overload directly");
+
+        const QVariant stored = value(name, QVariant::fromValue(defaultValue));
+        return stored.value<T>();
+    }
+
+    void setValue(const QString& name, const QVariant& value);
+
+    template<typename T>
+    void setValue(const QString& name, const T& value)
+    {
+        static_assert(!std::is_same_v<std::decay_t<T>, QVariant>,
+                      "Use the QVariant setValue() overload directly");
+
+        setValue(name, QVariant::fromValue(value));
+    }
+
+    bool contains(const QString& name) const;
+
+    MLOptionObject* optionObject(const QString& name,
+                                 const QVariant& defaultValue);
+
     template<typename T>
     MLOptionObject* optionObject(const QString& name,
                                  const T& defaultValue = T())
     {
-        const QVariant typedDefault = QVariant::fromValue(defaultValue);
-        const int requestedType = typedDefault.userType();
+        static_assert(!std::is_same_v<std::decay_t<T>, QVariant>,
+                      "Use the QVariant optionObject() overload directly");
 
-        if (auto* existing = optionObjects.value(name, nullptr)) {
-            if (existing->typeId() != requestedType) {
-                qFatal("MatterLeast option '%s' was requested with a different type",
-                       qPrintable(name));
-            }
-            return existing;
-        }
-
-        const QVariant stored = settings.value(name, typedDefault);
-        const T typedValue = stored.value<T>();
-        auto* option = new MLOptionObject(
-            this, name, QVariant::fromValue(typedValue), requestedType);
-        optionObjects.insert(name, option);
-        return option;
+        return optionObject(name, QVariant::fromValue(defaultValue));
     }
 
 private:
     friend class MLOptionObject;
 
     MLOptions();
+    static void ensureOptionType(const QString& name,
+                                 const MLOptionObject* option,
+                                 int requestedType);
     void persistValue(const QString& name, const QVariant& value);
 
     QSettings settings;
