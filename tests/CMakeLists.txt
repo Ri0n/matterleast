@@ -538,3 +538,12 @@ if(TARGET matterleast-core)
     set_tests_properties(file-preview-test
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+add_executable(following-presentation-test FollowingPresentationTest.cpp)
+target_include_directories(following-presentation-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(following-presentation-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME following-presentation-test COMMAND following-presentation-test)
