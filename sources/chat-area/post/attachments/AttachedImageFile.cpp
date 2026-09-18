@@ -381,8 +381,32 @@ void AttachedImageFile::mouseReleaseEvent(QMouseEvent*)
             return;
         }
 
+        QPointer<AttachedImageFile> saveOwner(self);
         auto* filePreview = new FilePreview(
-            image, self->fileName, self->fileAuthor, nullptr);
+            image,
+            self->fileName,
+            self->fileAuthor,
+            nullptr,
+            [saveOwner](const QString& destination) {
+                if (!saveOwner) {
+                    return;
+                }
+                AttachmentService::instance(saveOwner->backend).retrieveFile(
+                    saveOwner->fileId,
+                    [destination](const QByteArray& contents) {
+                        if (contents.isEmpty()) {
+                            return;
+                        }
+
+                        QFile output(destination);
+                        if (!output.open(QIODevice::WriteOnly)) {
+                            qWarning() << "Cannot save image to" << destination
+                                       << ":" << output.errorString();
+                            return;
+                        }
+                        output.write(contents);
+                    });
+            });
         currentlyOpenFiles.emplace(key, filePreview);
         filePreview->setAttribute(Qt::WA_DeleteOnClose);
         filePreview->show();
