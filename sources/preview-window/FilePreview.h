@@ -21,6 +21,8 @@
 #define FILEPREVIEW_H
 
 #include <QDialog>
+#include <QImage>
+#include <QPixmap>
 #include <QTimer>
 
 namespace Ui {
@@ -39,6 +41,10 @@ class FilePreview: public QDialog {
     Q_OBJECT
 public:
     explicit FilePreview (const FilePreviewData& file, QWidget *parent = nullptr);
+    FilePreview(const QImage& image,
+                const QString& fileName,
+                const QString& fileAuthor,
+                QWidget* parent = nullptr);
     ~FilePreview();
 public:
     QSize getMinimumSize (const QPixmap& pixmap);

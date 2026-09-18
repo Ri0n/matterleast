@@ -21,25 +21,71 @@
 #include "ui_AttachedImageFile.h"
 
 #include <algorithm>
+#include <functional>
 #include <utility>
 
+#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QImage>
 #include <QLayout>
 #include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
 #include <QPointer>
+#include <QRunnable>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include "backend/types/BackendFile.h"
 #include "backend/AttachmentService.h"
 #include "Settings.h"
 #include "options/MLOptions.h"
 
 namespace {
+
+class ImageDecodeTask final : public QRunnable
+{
+public:
+    using Callback = std::function<void(QImage)>;
+
+    ImageDecodeTask(QByteArray data, Callback callback)
+        : data(std::move(data))
+        , callback(std::move(callback))
+    {
+        setAutoDelete(true);
+    }
+
+    void run() override
+    {
+        QImage image = QImage::fromData(data);
+        QObject* dispatcher = QCoreApplication::instance();
+        if (!dispatcher) {
+            return;
+        }
+
+        QMetaObject::invokeMethod(
+            dispatcher,
+            [callback = std::move(callback), image = std::move(image)]() mutable {
+                if (callback) {
+                    callback(std::move(image));
+                }
+            },
+            Qt::QueuedConnection);
+    }
+
+private:
+    QByteArray data;
+    Callback callback;
+};
+
+void decodeImageAsync(const QByteArray& data, ImageDecodeTask::Callback callback)
+{
+    QThreadPool::globalInstance()->start(
+        new ImageDecodeTask(data, std::move(callback)));
+}
 
 QPixmap roundedPixmap(const QPixmap& source, qreal radius)
 {
@@ -67,11 +113,16 @@ namespace Mattermost {
 
 std::map <const QWidget*, FilePreview*> AttachedImageFile::currentlyOpenFiles;
 
-AttachedImageFile::AttachedImageFile (Backend& backend, const BackendFile& file, const QString&, QWidget *parent)
-:QWidget(parent)
-,ui(new Ui::AttachedImageFile)
-,fileId(file.id)
-,backend(backend)
+AttachedImageFile::AttachedImageFile(Backend& backend,
+                                     const BackendFile& file,
+                                     const QString& authorName,
+                                     QWidget* parent)
+    : QWidget(parent)
+    , ui(new Ui::AttachedImageFile)
+    , fileId(file.id)
+    , fileName(file.name)
+    , fileAuthor(authorName)
+    , backend(backend)
 {
     ui->setupUi(this);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -98,17 +149,33 @@ AttachedImageFile::AttachedImageFile (Backend& backend, const BackendFile& file,
     const QString fileName = file.name;
     QPointer<AttachedImageFile> self(this);
 
-    AttachmentService::instance(backend).retrieveFile(fileId, [self](const QByteArray& fileContents) {
-        if (!self) {
-            return;
-        }
+    // Inline previews should never decode the original attachment on the GUI
+    // thread. Mattermost's thumbnail endpoint returns a bounded JPEG and avoids
+    // expensive SVG filter rendering entirely.
+    AttachmentService::instance(backend).retrieveThumbnail(
+        fileId,
+        [self](const QByteArray& thumbnailContents) {
+            if (!self) {
+                return;
+            }
+            if (thumbnailContents.isEmpty()) {
+                self->showPreviewFallback();
+                return;
+            }
 
-        QPixmap pixmap;
-        if (!pixmap.loadFromData(fileContents)) {
-            return;
-        }
-        self->setPreviewPixmap(std::move(pixmap));
-    });
+            decodeImageAsync(
+                thumbnailContents,
+                [self](QImage image) {
+                    if (!self) {
+                        return;
+                    }
+                    if (image.isNull()) {
+                        self->showPreviewFallback();
+                        return;
+                    }
+                    self->setPreviewPixmap(QPixmap::fromImage(image));
+                });
+        });
 
     connect(this, &QWidget::customContextMenuRequested, this,
             [this, fileName](const QPoint& pos) {
@@ -152,7 +219,45 @@ AttachedImageFile::~AttachedImageFile()
 void AttachedImageFile::setPreviewPixmap(QPixmap pixmap)
 {
     sourcePixmap = std::move(pixmap);
+    ui->imagePreview->setText(QString());
+    ui->imagePreview->setMargin(0);
+    ui->imagePreview->setStyleSheet(QString());
     updatePreviewPixmap();
+}
+
+void AttachedImageFile::showPreviewFallback()
+{
+    const int maxWidth = std::max(
+        120,
+        MLOptions::instance()
+            ->optionObject<int>(
+                DOWNLOAD_IMAGE_MAX_WIDTH, DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT)
+            ->value().toInt());
+
+    const int availableTextWidth = std::max(80, std::min(maxWidth, 360) - 16);
+    const QString displayName = fontMetrics().elidedText(
+        fileName, Qt::ElideMiddle, availableTextWidth);
+
+    ui->imagePreview->setPixmap(QPixmap());
+    ui->imagePreview->setText(displayName);
+    ui->imagePreview->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    ui->imagePreview->setMargin(7);
+    ui->imagePreview->setStyleSheet(QStringLiteral(
+        "QLabel { border: 1px solid palette(mid); border-radius: 4px; }"));
+    ui->imagePreview->setFixedSize(
+        std::min(maxWidth, availableTextWidth + 16),
+        fontMetrics().height() + 16);
+    ui->imagePreview->show();
+
+    if (layout()) {
+        layout()->activate();
+        setFixedSize(layout()->sizeHint().expandedTo(QSize(1, 1)));
+    } else {
+        setFixedSize(ui->imagePreview->size());
+    }
+
+    updateGeometry();
+    emit dimensionsChanged();
 }
 
 void AttachedImageFile::updatePreviewPixmap()
@@ -199,36 +304,73 @@ void AttachedImageFile::updatePreviewPixmap()
 
 void AttachedImageFile::mouseReleaseEvent(QMouseEvent*)
 {
+    const QWidget* const key = this;
+    auto openFile = currentlyOpenFiles.find(key);
+    if (openFile != currentlyOpenFiles.end()) {
+        openFile->second->raise();
+        openFile->second->activateWindow();
+        return;
+    }
+
+    if (fullPreviewDecodePending) {
+        return;
+    }
+    fullPreviewDecodePending = true;
+
     QPointer<AttachedImageFile> self(this);
-    AttachmentService::instance(backend).retrieveFile(fileId, [self](const QByteArray& fileContents) {
-        if (!self) {
-            return;
-        }
+    // Use Mattermost's rasterized preview rather than decoding the original
+    // attachment. In particular, an SVG with an expensive filter graph must
+    // never enter QtSvg from the GUI presentation path.
+    AttachmentService::instance(backend).retrievePreview(
+        fileId,
+        [self](const QByteArray& previewContents) {
+            if (!self) {
+                return;
+            }
+            if (previewContents.isEmpty()) {
+                self->fullPreviewDecodePending = false;
+                return;
+            }
 
-        const QWidget* const key = self.data();
-        auto openFile = currentlyOpenFiles.find(key);
-        FilePreview* filePreview = nullptr;
+            decodeImageAsync(
+                previewContents,
+                [self](QImage image) {
+                    if (!self) {
+                        return;
+                    }
+                    self->fullPreviewDecodePending = false;
+                    if (image.isNull()) {
+                        return;
+                    }
 
-        if (openFile == currentlyOpenFiles.end()) {
-            FilePreviewData previewData { fileContents, "", "" };
-            filePreview = new FilePreview(previewData, nullptr);
-            currentlyOpenFiles.emplace(key, filePreview);
-            filePreview->setAttribute(Qt::WA_DeleteOnClose);
-            filePreview->show();
+                    const QWidget* const key = self.data();
+                    auto openFile = currentlyOpenFiles.find(key);
+                    if (openFile != currentlyOpenFiles.end()) {
+                        openFile->second->raise();
+                        openFile->second->activateWindow();
+                        return;
+                    }
 
-            connect(filePreview, &QDialog::rejected, filePreview, [key, filePreview] {
-                qDebug() << "Rejected";
-                auto it = AttachedImageFile::currentlyOpenFiles.find(key);
-                if (it != AttachedImageFile::currentlyOpenFiles.end() && it->second == filePreview) {
-                    AttachedImageFile::currentlyOpenFiles.erase(it);
-                }
-            });
-        } else {
-            filePreview = openFile->second;
-            filePreview->raise();
-            filePreview->activateWindow();
-        }
-    });
+                    auto* filePreview = new FilePreview(
+                        image, self->fileName, self->fileAuthor, nullptr);
+                    currentlyOpenFiles.emplace(key, filePreview);
+                    filePreview->setAttribute(Qt::WA_DeleteOnClose);
+                    filePreview->show();
+
+                    connect(
+                        filePreview,
+                        &QDialog::rejected,
+                        filePreview,
+                        [key, filePreview] {
+                            auto it =
+                                AttachedImageFile::currentlyOpenFiles.find(key);
+                            if (it != AttachedImageFile::currentlyOpenFiles.end()
+                                && it->second == filePreview) {
+                                AttachedImageFile::currentlyOpenFiles.erase(it);
+                            }
+                        });
+                });
+        });
 }
 
 } /* namespace Mattermost */
