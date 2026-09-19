@@ -43,17 +43,21 @@ bool SplitterHandleManager::eventFilter(QObject* watched, QEvent* event)
         return QObject::eventFilter(watched, event);
     }
 
-    const QWidget* panel = handle->parentWidget();
-    const QColor background = panel
-        ? panel->palette().color(QPalette::Window)
-        : handle->palette().color(QPalette::Window);
-
     QPainter painter(handle);
+
+    // The actual chat surface is QPalette::Base (the same role used by the
+    // scroll-area viewport), not QPalette::Window. Keep the full handle for
+    // hit testing, but visually merge it into that surface.
+    const QColor background = handle->palette().color(QPalette::Base);
     painter.fillRect(handle->rect(), background);
 
     const QColor divider = handle->palette().color(QPalette::Mid);
-    painter.fillRect(splitterDividerRect(handle->rect(), handle->orientation()),
-                     divider);
+    const QRect dividerRect = handle->orientation() == Qt::Horizontal
+        ? QRect(handle->rect().left(), handle->rect().top(),
+                SplitterVisibleDividerExtent, handle->rect().height())
+        : QRect(handle->rect().left(), handle->rect().top(),
+                handle->rect().width(), SplitterVisibleDividerExtent);
+    painter.fillRect(dividerRect, divider);
     return true;
 }
 
