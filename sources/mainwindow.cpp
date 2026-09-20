@@ -58,6 +58,7 @@
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
+#include "ui/ThinSplitter.h"
 
 namespace Mattermost {
 namespace {
@@ -207,6 +208,11 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	} else if (sidebarSplitter) {
 		sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
 	}
+	if (sidebarSplitter) {
+		// Older saved QSplitter states include the previous 4 px handle width.
+		// Keep state-compatible pane sizes, but always restore the thin geometry.
+		sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+	}
 
 	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
 	LOG_DEBUG("MainWindow create finish");
@@ -292,9 +298,8 @@ void MainWindow::setupChannelTabs()
 	leftLayout->addWidget(sidebarFilterRow);
 	leftLayout->addWidget(channelTabs, 1);
 
-	sidebarSplitter = new QSplitter(Qt::Horizontal, ui->centralwidget);
+	sidebarSplitter = new ThinSplitter(Qt::Horizontal, ui->centralwidget);
 	sidebarSplitter->setChildrenCollapsible(false);
-	sidebarSplitter->setHandleWidth(4);
 	sidebarSplitter->setOpaqueResize(true);
 	sidebarSplitter->addWidget(leftSidebar);
 	sidebarSplitter->addWidget(ui->chatAreaStackedWidget);

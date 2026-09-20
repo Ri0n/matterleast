@@ -548,14 +548,18 @@ target_link_libraries(following-presentation-test
 )
 add_test(NAME following-presentation-test COMMAND following-presentation-test)
 
-add_executable(splitter-handle-style-test SplitterHandleStyleTest.cpp)
-target_include_directories(splitter-handle-style-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(splitter-handle-style-test
+add_executable(thin-splitter-test
+    ThinSplitterTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/ui/ThinSplitter.cpp"
+)
+target_include_directories(thin-splitter-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(thin-splitter-test
     PRIVATE
         Qt${QT_VERSION_MAJOR}::Test
-        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Widgets
 )
-add_test(NAME splitter-handle-style-test COMMAND splitter-handle-style-test)
+add_test(NAME thin-splitter-test COMMAND thin-splitter-test)
+set_tests_properties(thin-splitter-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 if(TARGET matterleast-core)
     add_executable(user-search-dialog-test UserSearchDialogTest.cpp)

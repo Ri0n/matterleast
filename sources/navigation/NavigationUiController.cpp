@@ -31,6 +31,7 @@
 #include "options/MLOptions.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ThreadPaneLayout.h"
+#include "ui/ThinSplitter.h"
 
 namespace Mattermost {
 namespace {
@@ -205,10 +206,9 @@ void NavigationUiController::setupThreadPane()
     const int oldIndex = sidebarSplitter->indexOf(mainStack);
     const QList<int> outerSizes = sidebarSplitter->sizes();
 
-    contentSplitter = new QSplitter(Qt::Horizontal);
+    contentSplitter = new ThinSplitter(Qt::Horizontal);
     contentSplitter->setObjectName(QStringLiteral("contentSplitter"));
     contentSplitter->setChildrenCollapsible(true);
-    contentSplitter->setHandleWidth(4);
     contentSplitter->setOpaqueResize(true);
 
     contentSplitter->addWidget(mainStack);
@@ -230,6 +230,9 @@ void NavigationUiController::setupThreadPane()
     if (!state.isEmpty()) {
         threadSplitterStateRestored = contentSplitter->restoreState(state);
     }
+    // QSplitter persists handle width in its state; do not let legacy 4 px
+    // states reintroduce layout space between channel and thread panes.
+    contentSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
 }
 
 void NavigationUiController::updateIdentityTooltip()

@@ -29,7 +29,6 @@
 #include "config/Config.h"
 #include "ui/IconUtils.h"
 #include "ui/OverlayScrollBarManager.h"
-#include "ui/SplitterHandleManager.h"
 
 namespace Mattermost {
 
@@ -64,7 +63,6 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     QGuiApplication::setWindowIcon(IconUtils::applicationIcon());
 
     OverlayScrollBarManager::install(*this);
-    SplitterHandleManager::install(*this);
     (void)CustomEmojiService::instance(backend);
 
     Config::init ();
