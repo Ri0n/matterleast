@@ -103,6 +103,11 @@ void NavigationUiController::setupMainWindow()
     setupSidebarHeader();
     setupThreadPane();
 
+    if (mainStack) {
+        connect(mainStack, &QStackedWidget::currentChanged, this,
+                [this](int) { syncSplitterEdgeGutters(); });
+    }
+
     if (channelTree) {
         connect(channelTree, &QTreeWidget::currentItemChanged, this,
                 [this](QTreeWidgetItem*, QTreeWidgetItem*) {
@@ -528,15 +533,20 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
             }
 
             const bool wasActive = activeArea == area;
+            bool wasDockedCurrent = false;
             if (threadStack && threadStack->indexOf(area) >= 0) {
-                const bool wasCurrent = threadStack->currentWidget() == area;
+                wasDockedCurrent = threadStack->currentWidget() == area;
                 area->hide();
                 threadStack->removeWidget(area);
-                if (wasCurrent) {
+                if (wasDockedCurrent) {
                     threadStack->hide();
                 }
             }
 
+            if (wasDockedCurrent) {
+                syncSplitterEdgeGutters();
+            }
+            area->setSplitterEdgeGutters(false, false);
             area->close();
             if (wasActive) {
                 QTimer::singleShot(0, this, [this] {
@@ -576,6 +586,12 @@ void NavigationUiController::attachThread(ChatArea* area)
     }
 
     ensureThreadButton(area);
+
+    if (auto* previous = qobject_cast<ChatArea*>(threadStack->currentWidget());
+        previous && previous != area) {
+        previous->setSplitterEdgeGutters(false, false);
+    }
+
     area->hide();
     if (threadStack->indexOf(area) < 0) {
         area->setWindowFlag(Qt::Window, false);
@@ -589,6 +605,7 @@ void NavigationUiController::attachThread(ChatArea* area)
     // whether the restored/current geometry is actually usable.
     threadStack->show();
     area->show();
+    syncSplitterEdgeGutters();
 
     if (ensureThreadPaneExpanded(*contentSplitter, !threadSplitterStateRestored)) {
         threadSplitterStateRestored = true;
@@ -606,6 +623,9 @@ void NavigationUiController::detachThread(ChatArea* area)
     const bool wasCurrent = threadStack->currentWidget() == area;
     area->hide();
     threadStack->removeWidget(area);
+
+    area->setSplitterEdgeGutters(false, false);
+
     area->setParent(nullptr);
     area->setWindowFlag(Qt::Window, true);
     area->setAttribute(Qt::WA_DeleteOnClose, true);
@@ -615,10 +635,33 @@ void NavigationUiController::detachThread(ChatArea* area)
     if (wasCurrent) {
         threadStack->hide();
     }
+    syncSplitterEdgeGutters();
     area->show();
     area->raise();
     area->activateWindow();
     recordArea(area);
+}
+
+void NavigationUiController::syncSplitterEdgeGutters()
+{
+    auto* channelArea = mainStack
+        ? qobject_cast<ChatArea*>(mainStack->currentWidget())
+        : nullptr;
+    auto* threadArea = threadStack
+        ? qobject_cast<ChatArea*>(threadStack->currentWidget())
+        : nullptr;
+
+    const bool threadDocked = threadStack && !threadStack->isHidden()
+        && threadArea && !threadArea->property("threadDetached").toBool();
+
+    if (channelArea) {
+        // The main chat always touches the sidebar splitter on the left.
+        // Its right edge touches the thread splitter only while that pane is open.
+        channelArea->setSplitterEdgeGutters(true, threadDocked);
+    }
+    if (threadArea && threadDocked) {
+        threadArea->setSplitterEdgeGutters(true, false);
+    }
 }
 
 void NavigationUiController::presentThread(ChatArea* area)

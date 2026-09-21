@@ -73,6 +73,11 @@ public:
     QString storedNavigationBookmark() const { return storedViewportPostId; }
 	void handleUserTyping (const BackendUser& user);
 	void editPost(BackendPost& post);
+    /**
+     * Suppress only selected outer horizontal gutters when a ChatArea touches
+     * another chat surface through a splitter. Vertical/inner layout stays intact.
+     */
+    void setSplitterEdgeGutters(bool suppressLeft, bool suppressRight);
 
 	/**
 	 * Explicit semantic navigation supersedes weak queued activation positioning
@@ -159,6 +164,8 @@ private:
 	PostCollectionView* pinnedPostsView = nullptr;
 	int pendingMessageLoads = 0;
     int channelMemberCount = -1;
+    int defaultOuterLeftMargin = 0;
+    int defaultOuterRightMargin = 0;
 
 public:
 	Ui::ChatArea* ui;
