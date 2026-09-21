@@ -67,6 +67,7 @@ private:
     void attachThread(ChatArea* area);
     void detachThread(ChatArea* area);
     void updateThreadButton(ChatArea* area);
+    void syncSplitterEdgeGutters();
 
     Backend* backend() const;
 

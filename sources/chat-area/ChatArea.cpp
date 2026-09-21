@@ -23,6 +23,7 @@
 #include <QClipboard>
 #include <QIcon>
 #include <QMenu>
+#include <QMargins>
 #include <QPalette>
 #include <QPointer>
 #include <QResizeEvent>
@@ -107,6 +108,15 @@ ChatArea::ChatArea(Backend& backend,
 {
     setAcceptDrops(true);
     ui->setupUi(this);
+    {
+        const QMargins outerMargins = ui->verticalLayout->contentsMargins();
+        defaultOuterLeftMargin = outerMargins.left();
+        defaultOuterRightMargin = outerMargins.right();
+    }
+    // The main channel surface always sits directly to the right of the
+    // sidebar splitter, so its outer left gutter should not decorate that
+    // one-pixel divider.
+    setSplitterEdgeGutters(true, false);
     ui->listWidget->configure(backend, *this);
     setupHeaderUi();
     setupPinnedPostsView();
@@ -173,6 +183,11 @@ ChatArea::ChatArea(Backend& backend,
     setAttribute(Qt::WA_DeleteOnClose);
     setAcceptDrops(true);
     ui->setupUi(this);
+    {
+        const QMargins outerMargins = ui->verticalLayout->contentsMargins();
+        defaultOuterLeftMargin = outerMargins.left();
+        defaultOuterRightMargin = outerMargins.right();
+    }
     ui->listWidget->configure(backend, *this);
     setupHeaderUi();
     setupComposerUi();
@@ -618,6 +633,18 @@ Backend& ChatArea::getBackend()
 BackendChannel& ChatArea::getChannel()
 {
     return channel;
+}
+
+void ChatArea::setSplitterEdgeGutters(bool suppressLeft, bool suppressRight)
+{
+    if (!ui || !ui->verticalLayout) {
+        return;
+    }
+
+    QMargins margins = ui->verticalLayout->contentsMargins();
+    margins.setLeft(suppressLeft ? 0 : defaultOuterLeftMargin);
+    margins.setRight(suppressRight ? 0 : defaultOuterRightMargin);
+    ui->verticalLayout->setContentsMargins(margins);
 }
 
 void ChatArea::updatePinnedPostsButton()
