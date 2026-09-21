@@ -296,6 +296,13 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                 saved = createSavedItem(backend, teamItem, *categoryItem);
             }
             moveChild(*categoryItem, saved, rowIndex++);
+
+            QTreeWidgetItem* drafts = findVirtualChild(
+                categoryItem, SidebarItem::DraftsDestination);
+            if (!drafts) {
+                drafts = createDraftsItem(backend, teamItem, *categoryItem);
+            }
+            moveChild(*categoryItem, drafts, rowIndex++);
         }
 
         for (const QString& channelId : desiredChannels.value(entry.category->id)) {

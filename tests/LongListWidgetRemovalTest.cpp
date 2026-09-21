@@ -145,6 +145,45 @@ private slots:
         QCOMPARE(list.itemWidget(50), following);
     }
 
+    void removingTailKeepsStickyBottomOnNewestRemainingRow()
+    {
+        TestList list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(64);
+
+        QStringList identities;
+        for (int index = 0; index < 40; ++index) {
+            identities.push_back(QStringLiteral("item-%1").arg(index));
+        }
+        list.setIdentities(identities);
+        list.setItemCount(identities.size());
+        list.setRangeAvailable(0, identities.size() - 1);
+        list.show();
+        settleEvents();
+
+        list.scrollToEnd();
+        settleEvents();
+        QCOMPARE(list.verticalScrollBar()->value(),
+                 list.verticalScrollBar()->maximum());
+        QVERIFY(list.visibleRange().contains(39));
+
+        identities.removeLast();
+        list.setIdentities(identities);
+        list.removeItems(39, 1);
+        settleEvents();
+
+        QCOMPARE(list.itemCount(), 39);
+        QCOMPARE(list.verticalScrollBar()->value(),
+                 list.verticalScrollBar()->maximum());
+        QVERIFY2(list.visibleRange().contains(38),
+                 "Removing the visible tail must keep the viewport anchored at the newest remaining row");
+
+        QWidget* tail = list.itemWidget(38);
+        QVERIFY(tail != nullptr);
+        QVERIFY2(qAbs(tail->y() + tail->height() - list.viewport()->height()) <= 2,
+                 "The newest remaining row must stay aligned with the viewport bottom");
+    }
+
     void removingPhantomOldestPrefixEliminatesBlankTop()
     {
         TestList list;

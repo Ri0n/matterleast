@@ -123,10 +123,18 @@ bool QuotedReplyController::eventFilter(QObject* watched, QEvent* event)
     const QByteArray name = propertyEvent->propertyName();
 
     if (name == QByteArray(PostProps::ReplyToPostId)) {
-        const bool hasReply = !editor->property(PostProps::ReplyToPostId).toString().isEmpty();
-        if (!hasReply && mode == Mode::Reply) {
-            mode = Mode::None;
-            replyResidencyLease.reset();
+        const QString replyPostId =
+            editor->property(PostProps::ReplyToPostId).toString();
+        const bool hasReply = !replyPostId.isEmpty();
+        if (!hasReply) {
+            if (mode == Mode::Reply) {
+                mode = Mode::None;
+                replyResidencyLease.reset();
+            }
+            pendingReplyPostId.clear();
+        } else if (mode == Mode::None
+                   && !editor->property(EditingPostProperty).toBool()) {
+            restoreReply(replyPostId);
         }
         syncVisibility();
     } else if (name == QByteArray(EditingPostProperty)) {
@@ -161,6 +169,67 @@ bool QuotedReplyController::eventFilter(QObject* watched, QEvent* event)
     }
 
     return QObject::eventFilter(watched, event);
+}
+
+void QuotedReplyController::restoreReply(const QString& postId)
+{
+    if (postId.isEmpty() || !editor || !preview
+        || editor->property(EditingPostProperty).toBool()) {
+        return;
+    }
+
+    auto present = [this, &postId](BackendPost* post) {
+        if (!post || post->isDeleted
+            || editor->property(PostProps::ReplyToPostId).toString() != postId) {
+            return false;
+        }
+        mode = Mode::Reply;
+        replyResidencyLease =
+            PostRepository::instance(area.getBackend()).leasePost(*post);
+        preview->setActivatedCallback({});
+        preview->setPost(*post);
+        syncVisibility();
+        return true;
+    };
+
+    if (present(area.channel.postIdToPost.value(postId, nullptr))) {
+        pendingReplyPostId.clear();
+        return;
+    }
+
+    if (pendingReplyPostId == postId) {
+        return;
+    }
+    pendingReplyPostId = postId;
+
+    QPointer<QuotedReplyController> guard(this);
+    PostRepository::instance(area.getBackend()).loadPost(
+        postId,
+        [guard, postId](const PostRepository::PostResult& result) {
+            if (!guard || guard->pendingReplyPostId != postId) {
+                return;
+            }
+            guard->pendingReplyPostId.clear();
+            if (!result.success || result.channelId != guard->area.channel.id
+                || !guard->editor
+                || guard->editor->property(PostProps::ReplyToPostId).toString()
+                    != postId) {
+                return;
+            }
+
+            BackendPost* post =
+                guard->area.channel.postIdToPost.value(postId, nullptr);
+            if (!post || post->isDeleted) {
+                return;
+            }
+
+            guard->mode = Mode::Reply;
+            guard->replyResidencyLease =
+                PostRepository::instance(guard->area.getBackend()).leasePost(*post);
+            guard->preview->setActivatedCallback({});
+            guard->preview->setPost(*post);
+            guard->syncVisibility();
+        });
 }
 
 void QuotedReplyController::syncVisibility()

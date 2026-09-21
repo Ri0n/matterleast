@@ -61,7 +61,14 @@ class PostWidget: public QWidget
     Q_OBJECT
 
 public:
-    explicit PostWidget (Backend& backend, BackendPost &post, QWidget *parent, ChatArea* chatArea, BackendPost* lastRootPost);
+    enum class PresentationMode {
+        Interactive,
+        ReadOnlySnapshot,
+    };
+
+    explicit PostWidget(Backend& backend, BackendPost& post, QWidget* parent,
+                        ChatArea* chatArea, BackendPost* lastRootPost,
+                        PresentationMode presentationMode = PresentationMode::Interactive);
     ~PostWidget();
 public:
 
@@ -145,6 +152,7 @@ private:
     std::unique_ptr<KTalkMeetingWidget> ktalkMeeting_;
     MessageContentWidget*				messageContent;
     ChatArea*				parentChatArea;
+    PresentationMode                    presentationMode_ = PresentationMode::Interactive;
     ThreadSummaryWidget*                threadSummary = nullptr;
     QCheckBox*                         wholeMessageCheck_ = nullptr;
     QPushButton*                       reactionAffordance_ = nullptr;

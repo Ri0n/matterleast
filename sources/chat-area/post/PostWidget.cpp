@@ -110,7 +110,8 @@ PostWidget::PostWidget(Backend& backend,
                        BackendPost& post,
                        QWidget* parent,
                        ChatArea* chatArea,
-                       BackendPost* lastRootPost)
+                       BackendPost* lastRootPost,
+                       PresentationMode presentationMode)
     : QWidget(parent)
     , post(post)
     , threadButton(nullptr)
@@ -119,6 +120,7 @@ PostWidget::PostWidget(Backend& backend,
     , ui(new Ui::PostWidget)
     , messageContent(nullptr)
     , parentChatArea(chatArea)
+    , presentationMode_(presentationMode)
 {
 	ui->setupUi(this);
 
@@ -133,31 +135,35 @@ PostWidget::PostWidget(Backend& backend,
         emit wholeMessageSelectionToggled(this->post.id, checked);
     });
 
-    reactionAffordance_ = new QPushButton(QString::fromUtf8("❤️"), this);
-    reactionAffordance_->setFlat(true);
-    reactionAffordance_->setFixedSize(28, 28);
-    reactionAffordance_->setCursor(Qt::PointingHandCursor);
-    reactionAffordance_->setToolTip(tr("Add reaction"));
-    reactionAffordance_->setAccessibleName(tr("Add reaction"));
-    QFont reactionFont = EmojiFont::applySystemEmojiFamily(reactionAffordance_->font());
-    reactionFont.setPointSize(14);
-    reactionAffordance_->setFont(reactionFont);
-    reactionOpacity_ = new QGraphicsOpacityEffect(reactionAffordance_);
-    reactionOpacity_->setOpacity(0.0);
-    reactionAffordance_->setGraphicsEffect(reactionOpacity_);
-    reactionAnimation_ = new QPropertyAnimation(reactionOpacity_, "opacity", this);
-    reactionAnimation_->setDuration(140);
-    reactionAffordance_->hide();
-    connect(reactionAnimation_, &QPropertyAnimation::finished, this, [this] {
-        if (reactionAffordance_ && !reactionAffordanceWanted_) {
-            reactionAffordance_->hide();
-        }
-    });
-    connect(reactionAffordance_, &QPushButton::clicked, this, [this] {
-        showEmojiDialog([this](Emoji emoji) {
-            backend_.addPostReaction(this->post.id, emoji.name);
+    if (presentationMode_ == PresentationMode::Interactive) {
+        reactionAffordance_ = new QPushButton(QString::fromUtf8("❤️"), this);
+        reactionAffordance_->setFlat(true);
+        reactionAffordance_->setFixedSize(28, 28);
+        reactionAffordance_->setCursor(Qt::PointingHandCursor);
+        reactionAffordance_->setToolTip(tr("Add reaction"));
+        reactionAffordance_->setAccessibleName(tr("Add reaction"));
+        QFont reactionFont =
+            EmojiFont::applySystemEmojiFamily(reactionAffordance_->font());
+        reactionFont.setPointSize(14);
+        reactionAffordance_->setFont(reactionFont);
+        reactionOpacity_ = new QGraphicsOpacityEffect(reactionAffordance_);
+        reactionOpacity_->setOpacity(0.0);
+        reactionAffordance_->setGraphicsEffect(reactionOpacity_);
+        reactionAnimation_ = new QPropertyAnimation(
+            reactionOpacity_, "opacity", this);
+        reactionAnimation_->setDuration(140);
+        reactionAffordance_->hide();
+        connect(reactionAnimation_, &QPropertyAnimation::finished, this, [this] {
+            if (reactionAffordance_ && !reactionAffordanceWanted_) {
+                reactionAffordance_->hide();
+            }
         });
-    });
+        connect(reactionAffordance_, &QPushButton::clicked, this, [this] {
+            showEmojiDialog([this](Emoji emoji) {
+                backend_.addPostReaction(this->post.id, emoji.name);
+            });
+        });
+    }
 	ui->authorAvatar->setFrameShape(QFrame::NoFrame);
 	ui->authorName->setText(post.getDisplayAuthorName());
 
@@ -440,6 +446,11 @@ void PostWidget::setWholeMessageSelected(bool selected)
 
 void PostWidget::setHovered(bool hovered)
 {
+    if (presentationMode_ == PresentationMode::ReadOnlySnapshot) {
+        hovered_ = false;
+        animateReactionAffordance(false);
+        return;
+    }
     if (hovered_ == hovered) {
         return;
     }
@@ -459,7 +470,9 @@ void PostWidget::clearTextSelection()
 
 void PostWidget::animateReactionAffordance(bool visible)
 {
-    visible = visible && !wholeMessageSelectionMode_ && !post.isDeleted;
+    visible = visible
+        && presentationMode_ == PresentationMode::Interactive
+        && !wholeMessageSelectionMode_ && !post.isDeleted;
     reactionAffordanceWanted_ = visible;
     if (!reactionAffordance_ || !reactionOpacity_ || !reactionAnimation_) {
         return;
@@ -502,6 +515,53 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
 
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
+
+    if (presentationMode_ == PresentationMode::ReadOnlySnapshot) {
+        if (!hoveredLink.isEmpty()) {
+            QAction* copyLinkAction = menu.addAction(
+                icon(QStringLiteral(":/icons/link")), tr("Copy link to clipboard"));
+            connect(copyLinkAction, &QAction::triggered, this, [this] {
+                QApplication::clipboard()->setText(hoveredLink);
+            });
+        }
+
+        const QString selectedText = getSelectedText();
+        if (!selectedText.isEmpty()) {
+            QAction* copySelectedAction = menu.addAction(
+                icon(QStringLiteral(":/icons/copy")), tr("Copy selected text"));
+            connect(copySelectedAction, &QAction::triggered, this, [selectedText] {
+                QApplication::clipboard()->setText(selectedText);
+            });
+        }
+
+        QAction* copyMessageAction = menu.addAction(
+            icon(QStringLiteral(":/icons/copy")), tr("Copy message text"));
+        connect(copyMessageAction, &QAction::triggered, this, [this] {
+            QApplication::clipboard()->setText(
+                formatForClipboardSelection(messageOnly));
+        });
+
+        if (post.author) {
+            menu.addSeparator();
+            QAction* profileAction = menu.addAction(
+                icon(QStringLiteral(":/icons/members")),
+                tr("View %1's profile").arg(post.author->getDisplayName()));
+            connect(profileAction, &QAction::triggered, this, [this] {
+                if (!post.author) {
+                    return;
+                }
+                auto* dialog =
+                    new UserProfileDialog(backend_, *post.author, this);
+                dialog->setAttribute(Qt::WA_DeleteOnClose);
+                dialog->show();
+            });
+        }
+
+        menu.exec(globalPos);
+        setProperty("_mmqt_contextMenuActive", false);
+        update();
+        return;
+    }
 
     if (parentChatArea) {
         QAction* replyAction = menu.addAction(icon(QStringLiteral(":/icons/message-balloon")),

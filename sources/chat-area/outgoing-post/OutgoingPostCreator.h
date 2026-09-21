@@ -37,8 +37,10 @@ class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QLabel;
+class QEvent;
 class QMimeData;
 class QPushButton;
+class QTimer;
 
 namespace Mattermost {
 
@@ -70,6 +72,8 @@ public:
 	          QPushButton& sendButton);
 	void setRootId(QString id);
 	const QString& rootId() const { return root_id; }
+    void restorePersistentDraft();
+    void flushPersistentDraft();
 	QString pollCommandTeamId() const;
 	void armPollRealtimeAcknowledgement(const BackendNewPollData& pollData);
 	void onDragEnterEvent (QDragEnterEvent* event);
@@ -85,24 +89,13 @@ public slots:
 	void onPostReceived (BackendPost& post);
 	void sendPostButtonAction ();
 	void postEditInitiated (BackendPost& post);
-	void cancelPostEdit ()
-	{
-		// Once an edit has been submitted, keep the immutable request data until
-		// the HTTP transaction succeeds or the user explicitly retries it.
-		if (!postToEdit || outgoingPostData) {
-			return;
-		}
-		clear();
-		postToEdit = nullptr;
-		editResidencyLease.reset();
-		setEditingVisual(false);
-		emit postEditFinished();
-	}
+	void cancelPostEdit ();
 
 signals:
 	void postEditFinished ();
 
 protected:
+    bool event(QEvent* event) override;
 	void insertFromMimeData(const QMimeData* source) override;
 
 private:
@@ -115,6 +108,9 @@ private:
 	void setSendActivityText();
 	void finishSend(const QString& confirmedPostId = QString());
 	void failSend(const QString& statusText = QString());
+    void schedulePersistentDraftSave();
+    void savePersistentDraftNow();
+    void discardPersistentDraft();
     void failAttachmentUpload(const QString& statusText);
 	bool isEditingPost() const;
 	bool isCreatingPost ();
@@ -141,6 +137,8 @@ private:
 	bool								sendFailed = false;
 	QBoxLayout* 						attachmentParent = nullptr;
 	QString						root_id;
+    QTimer*                             draftSaveTimer = nullptr;
+    bool                                suppressDraftPersistence = false;
 };
 
 } /* namespace Mattermost */

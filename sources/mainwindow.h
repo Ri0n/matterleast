@@ -89,6 +89,8 @@ private:
 	void openDirectMessageSearch ();
     void openMessageSearch();
     void openSavedMessages(const QString& teamId = QString());
+    void openDrafts(const QString& teamId = QString());
+    void openDraft(const QString& channelId, const QString& rootId);
     void showCollectionPage(PostCollectionView* page);
 	void refreshMenuButtonIcon ();
     void refreshSearchButtonIcon();
@@ -107,6 +109,7 @@ private:
 	ChannelQuickList*					recentChannels = nullptr;
 	AttentionList*						attentionList = nullptr;
     PostCollectionView*                 savedMessagesPage = nullptr;
+    PostCollectionView*                 draftsPage = nullptr;
     PostCollectionView*                 searchMessagesPage = nullptr;
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;

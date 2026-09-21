@@ -28,6 +28,8 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDragMoveEvent>
+#include <QDynamicPropertyChangeEvent>
+#include <QEvent>
 #include <QFileDialog>
 #include <QJsonObject>
 #include <QLabel>
@@ -38,10 +40,12 @@
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QTextCursor>
+#include <QTimer>
 
 #include "NewPollDialog.h"
 #include "OutgoingAttachmentList.h"
 #include "backend/Backend.h"
+#include "backend/DraftService.h"
 #include "backend/PostCreateService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
@@ -82,6 +86,12 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
     setContextMenuPolicy(Qt::NoContextMenu);
     setAcceptRichText(false);
     setPlaceholderText(tr("Write a message"));
+
+    draftSaveTimer = new QTimer(this);
+    draftSaveTimer->setSingleShot(true);
+    draftSaveTimer->setInterval(600);
+    connect(draftSaveTimer, &QTimer::timeout,
+            this, &OutgoingPostCreator::savePersistentDraftNow);
 }
 
 void OutgoingPostCreator::init(Backend& backendInstance,
@@ -106,15 +116,21 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 		if (outgoingPostData) {
 			return;
 		}
-		if (!isEditingPost()
-		    && !property(PostProps::ReplyToPostId).toString().isEmpty()) {
+        if (isEditingPost()) {
+            cancelPostEdit();
+            return;
+        }
+		if (!property(PostProps::ReplyToPostId).toString().isEmpty()) {
 			setProperty(PostProps::ReplyToPostId, QString());
 			return;
 		}
+        suppressDraftPersistence = true;
 		clear();
 		postToEdit = nullptr;
 		editResidencyLease.reset();
 		setEditingVisual(false);
+        suppressDraftPersistence = false;
+        discardPersistentDraft();
 		emit postEditFinished();
 	});
 
@@ -123,6 +139,8 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 
 	connect(this, &QTextEdit::textChanged,
 	        this, &OutgoingPostCreator::updateSendButtonState);
+    connect(this, &QTextEdit::textChanged,
+            this, &OutgoingPostCreator::schedulePersistentDraftSave);
 
 	connect(sendButton, &QPushButton::clicked,
 	        this, &OutgoingPostCreator::sendPostButtonAction);
@@ -146,7 +164,10 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 	updateSendButtonState();
 }
 
-OutgoingPostCreator::~OutgoingPostCreator() = default;
+OutgoingPostCreator::~OutgoingPostCreator()
+{
+    flushPersistentDraft();
+}
 
 void OutgoingPostCreator::setStatusLabelText(const QString& string)
 {
@@ -187,16 +208,38 @@ void OutgoingPostCreator::postEditInitiated(BackendPost& post)
 		return;
 	}
 
+    flushPersistentDraft();
+
 	// Editing and quoted reply are mutually exclusive composer modes. Keep the
 	// interoperability blockquote out of the editor; it is restored on send.
+    suppressDraftPersistence = true;
 	setProperty(PostProps::ReplyToPostId, QString());
 	postToEdit = &post;
 	editResidencyLease = PostRepository::instance(*backend).leasePost(post);
-	setText(QuotedReplyFormat::stripFallback(post.message));
+	setPlainText(QuotedReplyFormat::stripFallback(post.message));
+    suppressDraftPersistence = false;
 	setFocus();
 	moveCursor(QTextCursor::End);
 	setEditingVisual(true);
 	updateSendButtonState();
+}
+
+void OutgoingPostCreator::cancelPostEdit()
+{
+    // Once an edit has been submitted, keep the immutable request data until
+    // the HTTP transaction succeeds or the user explicitly retries it.
+    if (!postToEdit || outgoingPostData) {
+        return;
+    }
+
+    suppressDraftPersistence = true;
+    clear();
+    postToEdit = nullptr;
+    editResidencyLease.reset();
+    setEditingVisual(false);
+    suppressDraftPersistence = false;
+    emit postEditFinished();
+    restorePersistentDraft();
 }
 
 void OutgoingPostCreator::setEditingVisual(bool editing)
@@ -685,6 +728,12 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
     attachmentUploads.clear();
 	editResidencyLease.reset();
 	sendFailed = false;
+
+    if (!wasEdit && backend && channel) {
+        DraftService::instance(*backend).removeDraft(channel->id, root_id);
+    }
+
+    suppressDraftPersistence = true;
 	setProperty(PostProps::ReplyToPostId, QString());
 
 	if (attachmentList) {
@@ -695,8 +744,13 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
 	clear();
 	setReadOnly(false);
 	setEditingVisual(false);
+    suppressDraftPersistence = false;
 	setStatusLabelText(QString());
 	updateSendButtonState();
+
+    if (wasEdit) {
+        restorePersistentDraft();
+    }
 
 	if (!wasEdit && !wasPoll && !confirmedPostId.isEmpty() && chatLogWidget) {
 		chatLogWidget->followOwnPost(confirmedPostId);
@@ -938,6 +992,88 @@ bool OutgoingPostCreator::isCreatingPost()
 bool OutgoingPostCreator::isWaitingForPostServerResponse()
 {
 	return outgoingPostData != nullptr;
+}
+
+bool OutgoingPostCreator::event(QEvent* event)
+{
+    const bool replyPropertyChanged = event
+        && event->type() == QEvent::DynamicPropertyChange
+        && static_cast<QDynamicPropertyChangeEvent*>(event)->propertyName()
+            == QByteArray(PostProps::ReplyToPostId);
+
+    const bool handled = MessageTextEditWidget::event(event);
+    if (replyPropertyChanged) {
+        schedulePersistentDraftSave();
+    }
+    return handled;
+}
+
+void OutgoingPostCreator::schedulePersistentDraftSave()
+{
+    if (suppressDraftPersistence || !draftSaveTimer || !backend || !channel
+        || isEditingPost()) {
+        return;
+    }
+    draftSaveTimer->start();
+}
+
+void OutgoingPostCreator::savePersistentDraftNow()
+{
+    if (suppressDraftPersistence || !backend || !channel || isEditingPost()) {
+        return;
+    }
+
+    DraftService::instance(*backend).updateDraft(
+        channel->id,
+        root_id,
+        toPlainText(),
+        property(PostProps::ReplyToPostId).toString());
+}
+
+void OutgoingPostCreator::flushPersistentDraft()
+{
+    if (!draftSaveTimer || !draftSaveTimer->isActive()) {
+        return;
+    }
+    draftSaveTimer->stop();
+    savePersistentDraftNow();
+}
+
+void OutgoingPostCreator::discardPersistentDraft()
+{
+    if (draftSaveTimer) {
+        draftSaveTimer->stop();
+    }
+    if (backend && channel) {
+        DraftService::instance(*backend).removeDraft(channel->id, root_id);
+    }
+}
+
+void OutgoingPostCreator::restorePersistentDraft()
+{
+    if (!backend || !channel || isEditingPost() || outgoingPostData) {
+        return;
+    }
+
+    if (draftSaveTimer) {
+        draftSaveTimer->stop();
+    }
+
+    DraftEntry draft;
+    const bool found = DraftService::instance(*backend).findDraft(
+        channel->id, root_id, draft);
+
+    suppressDraftPersistence = true;
+    if (found) {
+        setPlainText(draft.message);
+        setProperty(PostProps::ReplyToPostId, draft.replyToPostId);
+        moveCursor(QTextCursor::End);
+    } else {
+        clear();
+        setProperty(PostProps::ReplyToPostId, QString());
+    }
+    suppressDraftPersistence = false;
+    updateSendButtonState();
 }
 
 void OutgoingPostCreator::setRootId(QString id)
