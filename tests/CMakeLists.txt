@@ -594,3 +594,16 @@ if(TARGET matterleast-core)
     set_tests_properties(filtered-post-source-test
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+
+add_executable(draft-store-test
+    DraftStoreTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/DraftStore.cpp"
+)
+target_include_directories(draft-store-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(draft-store-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME draft-store-test COMMAND draft-store-test)

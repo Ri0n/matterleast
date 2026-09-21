@@ -107,6 +107,8 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
             this, [this](int destination, const QString& teamId) {
         if (destination == SidebarItem::SavedDestination) {
             openSavedMessages(teamId);
+        } else if (destination == SidebarItem::DraftsDestination) {
+            openDrafts(teamId);
         }
     });
 	ui->channelList->setChatAreaStackedWidget(ui->chatAreaStackedWidget);
@@ -577,6 +579,20 @@ void MainWindow::openSavedMessages(const QString& teamId)
     }
     showCollectionPage(savedMessagesPage);
     savedMessagesPage->activateSaved();
+}
+
+void MainWindow::openDrafts(const QString& teamId)
+{
+    Q_UNUSED(teamId)
+    if (!draftsPage) {
+        draftsPage = new PostCollectionView(
+            backend, PostCollectionView::Mode::Drafts,
+            ui->chatAreaStackedWidget);
+        connect(draftsPage, &PostCollectionView::draftActivated,
+                this, &MainWindow::openDraft);
+    }
+    showCollectionPage(draftsPage);
+    draftsPage->activateDrafts();
 }
 
 void MainWindow::openMessageSearch()

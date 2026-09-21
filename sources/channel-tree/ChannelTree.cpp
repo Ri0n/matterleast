@@ -358,6 +358,23 @@ ChannelItem* ChannelTree::createSavedItem(Backend& backend, TeamItem& teamItem,
     return item;
 }
 
+ChannelItem* ChannelTree::createDraftsItem(Backend& backend, TeamItem& teamItem,
+                                           QTreeWidgetItem& categoryItem)
+{
+    auto* item = new VirtualDestinationItem(backend, nullptr);
+    categoryItem.addChild(item);
+    item->setData(0, ItemKindRole, VirtualDestinationItemKind);
+    item->setData(0, ItemIdRole, QStringLiteral("virtual:drafts"));
+    item->setData(0, ItemTeamIdRole, teamItem.teamId);
+    item->setData(0, ItemDestinationRole, SidebarItem::DraftsDestination);
+    item->setData(0, Qt::UserRole, QVariant::fromValue(static_cast<ChatArea*>(nullptr)));
+    item->setFlags(item->flags()
+                   & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled | Qt::ItemIsEditable));
+    item->setLabel(tr("Drafts"));
+    item->setIcon(QIcon(QStringLiteral(":/icons/edit")));
+    return item;
+}
+
 QTreeWidgetItem* ChannelTree::personalItemForTeam(const QString& teamId) const
 {
     TeamItem* teamItem = teamToItemMap.value(teamId, nullptr);
@@ -642,7 +659,8 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
     }
 
     const int destination = item->data(0, ItemDestinationRole).toInt();
-    if (destination == SidebarItem::SavedDestination) {
+    if (destination == SidebarItem::SavedDestination
+        || destination == SidebarItem::DraftsDestination) {
         emit virtualDestinationRequested(destination,
                                          item->data(0, ItemTeamIdRole).toString());
         return;

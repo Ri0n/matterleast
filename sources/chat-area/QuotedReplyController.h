@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QString>
 
 #include "backend/PostResidencyLease.h"
 
@@ -37,6 +38,7 @@ private:
     explicit QuotedReplyController(ChatArea& area);
     void ensureUi();
     void syncVisibility();
+    void restoreReply(const QString& postId);
 
     ChatArea& area;
     QWidget* wrapper = nullptr;
@@ -46,6 +48,7 @@ private:
     OutgoingPostCreator* editor = nullptr;
     PostResidencyLease replyResidencyLease;
     Mode mode = Mode::None;
+    QString pendingReplyPostId;
 };
 
 } // namespace Mattermost

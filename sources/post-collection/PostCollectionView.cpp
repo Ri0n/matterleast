@@ -15,14 +15,18 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QToolButton>
+#include <QVariant>
 #include <QVBoxLayout>
 #include <QWidgetAction>
 
 #include "backend/Backend.h"
+#include "backend/DraftService.h"
 #include "backend/NetworkRequest.h"
+#include "backend/PostProps.h"
 #include "backend/PostRepository.h"
 #include "backend/QByteArrayCreator.h"
 #include "backend/Storage.h"
+#include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
@@ -86,6 +90,11 @@ PostCollectionView::PostCollectionView(Backend& backendInstance, Mode viewMode, 
     connect(&actionConnector, &HTTPConnector::onHttpError,
             &backend, &Backend::onHttpError);
     buildUi();
+
+    if (mode == Mode::Drafts) {
+        connect(&DraftService::instance(backend), &DraftService::draftsChanged,
+                this, &PostCollectionView::refreshDrafts);
+    }
 }
 
 PostCollectionView::~PostCollectionView()
@@ -114,6 +123,9 @@ void PostCollectionView::buildUi()
     case Mode::Saved:
         titleText = tr("0 saved messages");
         break;
+    case Mode::Drafts:
+        titleText = tr("0 drafts");
+        break;
     case Mode::Search:
         titleText = tr("Search messages");
         break;
@@ -129,17 +141,25 @@ void PostCollectionView::buildUi()
     header->addWidget(_titleLabel);
     header->addStretch();
 
-    if (mode == Mode::Saved) {
+    if (mode == Mode::Saved || mode == Mode::Drafts) {
         _refreshButton = new ThemeIconButton(this);
         _refreshButton->setText(QString());
         _refreshButton->setFixedSize(28, 28);
         _refreshButton->setIconSize(QSize(16, 16));
         _refreshButton->setProperty(ThemeIconResourceProperty,
                                     QStringLiteral(":/icons/refresh"));
-        _refreshButton->setToolTip(tr("Refresh saved messages"));
-        _refreshButton->setAccessibleName(tr("Refresh saved messages"));
-        connect(_refreshButton, &QPushButton::clicked,
-                this, &PostCollectionView::activateSaved);
+        const bool draftsMode = mode == Mode::Drafts;
+        const QString refreshLabel = draftsMode
+            ? tr("Refresh drafts") : tr("Refresh saved messages");
+        _refreshButton->setToolTip(refreshLabel);
+        _refreshButton->setAccessibleName(refreshLabel);
+        if (draftsMode) {
+            connect(_refreshButton, &QPushButton::clicked,
+                    this, &PostCollectionView::activateDrafts);
+        } else {
+            connect(_refreshButton, &QPushButton::clicked,
+                    this, &PostCollectionView::activateSaved);
+        }
         header->addWidget(_refreshButton);
     }
     root->addLayout(header);
@@ -244,6 +264,131 @@ void PostCollectionView::activateSaved()
     activeTeamId.clear();
     resetCollection();
     loadNextPage();
+}
+
+void PostCollectionView::activateDrafts()
+{
+    if (mode != Mode::Drafts) {
+        return;
+    }
+    refreshDrafts();
+    DraftService::instance(backend).syncAllTeams();
+}
+
+void PostCollectionView::refreshDrafts()
+{
+    if (mode != Mode::Drafts) {
+        return;
+    }
+
+    ++generation;
+
+    const QVector<DraftEntry> drafts = DraftService::instance(backend).drafts();
+    const BackendUser& currentUser = backend.getLoginUser();
+    const QString senderName = currentUser.getDisplayName();
+
+    const auto syntheticId = [](const DraftEntry& draft) {
+        return QStringLiteral("_draft:") + draft.channelId
+            + QLatin1Char(':') + draft.rootId;
+    };
+
+    const auto replyToPostId = [](const BackendPost& post) {
+        return post.props.toObject()
+            .value(QString::fromLatin1(PostProps::ReplyToPostId))
+            .toString();
+    };
+
+    const auto snapshotMatches = [&](const BackendPost& post,
+                                     const DraftEntry& draft) {
+        return post.id == syntheticId(draft)
+            && post.channel_id == draft.channelId
+            && post.root_id == draft.rootId
+            && post.message == draft.message
+            && post.create_at == static_cast<uint64_t>(draft.updateAt)
+            && replyToPostId(post) == draft.replyToPostId;
+    };
+
+    const auto makeSnapshot = [&](const DraftEntry& draft) {
+        QJsonObject props;
+        if (!draft.replyToPostId.isEmpty()) {
+            props.insert(QString::fromLatin1(PostProps::ReplyToPostId),
+                         draft.replyToPostId);
+        }
+
+        const QJsonObject raw {
+            {QStringLiteral("id"), syntheticId(draft)},
+            {QStringLiteral("create_at"), static_cast<double>(draft.updateAt)},
+            {QStringLiteral("update_at"), static_cast<double>(draft.updateAt)},
+            {QStringLiteral("user_id"), currentUser.id},
+            {QStringLiteral("_mmqt_sender_name"), senderName},
+            {QStringLiteral("channel_id"), draft.channelId},
+            {QStringLiteral("root_id"), draft.rootId},
+            {QStringLiteral("message"), draft.message},
+            {QStringLiteral("props"), props},
+        };
+        return std::make_unique<BackendPost>(raw, backend.getStorage());
+    };
+
+    const auto removeAt = [&](int index) {
+        if (index < 0 || index >= static_cast<int>(posts.size())) {
+            return;
+        }
+
+        // LongListWidget::removeItems() preserves the concrete viewport anchor.
+        // Destroy the materialized PostWidget before releasing its snapshot.
+        if (list) {
+            list->removeItems(index, 1);
+        }
+        postIds.remove(posts[index]->id);
+        posts.erase(posts.begin() + index);
+        ownedPosts.erase(ownedPosts.begin() + index);
+    };
+
+    const auto insertAt = [&](int index, const DraftEntry& draft) {
+        index = std::max(0, std::min(index, static_cast<int>(posts.size())));
+        auto owned = makeSnapshot(draft);
+        BackendPost* post = owned.get();
+
+        posts.insert(posts.begin() + index, post);
+        ownedPosts.insert(ownedPosts.begin() + index, std::move(owned));
+        postIds.insert(post->id);
+
+        if (list) {
+            list->insertItems(index, 1);
+            list->setRangeAvailable(index, index, true);
+        }
+    };
+
+    // Reconcile by stable draft identity rather than resetting the whole
+    // collection. Besides avoiding needless PostWidget churn, this preserves
+    // the scroll anchor when a draft is deleted from the visible tail.
+    for (int desiredIndex = 0;
+         desiredIndex < static_cast<int>(drafts.size());
+         ++desiredIndex) {
+        const DraftEntry& draft = drafts.at(desiredIndex);
+        const QString id = syntheticId(draft);
+        const int existingIndex = indexOfPost(id);
+
+        if (existingIndex == desiredIndex) {
+            if (!posts[desiredIndex]
+                || !snapshotMatches(*posts[desiredIndex], draft)) {
+                removeAt(desiredIndex);
+                insertAt(desiredIndex, draft);
+            }
+            continue;
+        }
+
+        if (existingIndex >= 0) {
+            removeAt(existingIndex);
+        }
+        insertAt(desiredIndex, draft);
+    }
+
+    while (posts.size() > static_cast<size_t>(drafts.size())) {
+        removeAt(static_cast<int>(posts.size()) - 1);
+    }
+
+    updateStatus();
 }
 
 void PostCollectionView::activateSearch(const QString& preferredTeamId)
@@ -468,7 +613,7 @@ void PostCollectionView::resetCollection()
 
 bool PostCollectionView::hasMoreResults() const
 {
-    return mode != Mode::Pinned
+    return mode != Mode::Pinned && mode != Mode::Drafts
         && (serverHasMore
             || bufferedOffset < static_cast<int>(bufferedPosts.size()));
 }
@@ -500,7 +645,7 @@ void PostCollectionView::appendPosts(const QVector<QJsonObject>& rawPosts)
     // Search is a result collection, not a live chat timeline. The first result
     // is the collection origin and should be shown at the top; later pages keep
     // the user's current viewport while extending the list downward.
-    if (mode == Mode::Search && oldCount == 0) {
+    if ((mode == Mode::Search || mode == Mode::Drafts) && oldCount == 0) {
         list->scrollToIndex(0, LongListWidget::Alignment::Top);
     }
 }
@@ -531,7 +676,7 @@ bool PostCollectionView::appendBufferedPage()
 
 void PostCollectionView::loadNextPage()
 {
-    if (mode == Mode::Pinned || loading) {
+    if (mode == Mode::Pinned || mode == Mode::Drafts || loading) {
         return;
     }
     if (bufferedOffset < static_cast<int>(bufferedPosts.size())) {
@@ -629,6 +774,41 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
         originFont.setBold(true);
         origin->setFont(originFont);
         metadata->addWidget(origin);
+
+        if (BackendChannel* channel =
+                backend.getStorage().getChannelById(post.channel_id)) {
+            const QString rootSuffix =
+                post.root_id.isEmpty() ? QString() : tr(" • thread");
+
+            if (channel->type == BackendChannel::directChannel
+                && !backend.getStorage().getUserById(channel->name)) {
+                const QString userId = channel->name;
+                QPointer<QLabel> originGuard(origin);
+                UserProfileService::instance(backend).ensureUser(
+                    userId,
+                    [originGuard, rootSuffix](const BackendUser* user) {
+                        if (!originGuard || !user) {
+                            return;
+                        }
+                        originGuard->setText(
+                            user->getDisplayName() + rootSuffix);
+                    });
+            } else if (channel->type == BackendChannel::groupChannel
+                       && channel->display_name.isEmpty()) {
+                QPointer<QLabel> originGuard(origin);
+                QPointer<BackendChannel> channelGuard(channel);
+                UserProfileService::instance(backend).ensureGroupChannelMembers(
+                    *channel,
+                    [originGuard, channelGuard, rootSuffix] {
+                        if (!originGuard || !channelGuard
+                            || channelGuard->display_name.isEmpty()) {
+                            return;
+                        }
+                        originGuard->setText(
+                            channelGuard->display_name + rootSuffix);
+                    });
+            }
+        }
     }
     metadata->addStretch();
 
@@ -639,16 +819,29 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
         button->setProperty(ThemeIconResourceProperty, resource);
     };
 
-    if (mode == Mode::Saved || mode == Mode::Pinned) {
+    if (mode == Mode::Saved || mode == Mode::Drafts || mode == Mode::Pinned) {
         auto* remove = new ThemeIconButton(row);
         configureActionButton(remove, QStringLiteral(":/icons/trash"));
-        const QString removeLabel = mode == Mode::Pinned
-            ? tr("Unpin message") : tr("Remove from saved");
+        QString removeLabel;
+        if (mode == Mode::Pinned) {
+            removeLabel = tr("Unpin message");
+        } else if (mode == Mode::Drafts) {
+            removeLabel = tr("Delete draft");
+        } else {
+            removeLabel = tr("Remove from saved");
+        }
         remove->setToolTip(removeLabel);
         remove->setAccessibleName(removeLabel);
         if (mode == Mode::Pinned) {
             connect(remove, &QPushButton::clicked, this,
                     [this, postId, remove] { unpinPost(postId, remove); });
+        } else if (mode == Mode::Drafts) {
+            const QString channelId = post.channel_id;
+            const QString rootId = post.root_id;
+            connect(remove, &QPushButton::clicked, this,
+                    [this, channelId, rootId] {
+                DraftService::instance(backend).removeDraft(channelId, rootId);
+            });
         } else {
             connect(remove, &QPushButton::clicked, this,
                     [this, postId] { removeSavedPost(postId); });
@@ -658,19 +851,34 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
 
     auto* jump = new ThemeIconButton(row);
     configureActionButton(jump, QStringLiteral(":/icons/jump"));
-    jump->setToolTip(tr("Show this message in its conversation"));
-    jump->setAccessibleName(tr("Jump to message"));
-    connect(jump, &QPushButton::clicked, this, [this, postId] {
-        if (mode == Mode::Pinned) {
-            emit postActivated(postId);
-            return;
-        }
-        AppNavigationService::instance(backend).openPost(postId);
-    });
+    if (mode == Mode::Drafts) {
+        jump->setToolTip(tr("Open draft"));
+        jump->setAccessibleName(tr("Open draft"));
+        const QString channelId = post.channel_id;
+        const QString rootId = post.root_id;
+        connect(jump, &QPushButton::clicked, this,
+                [this, channelId, rootId] {
+            emit draftActivated(channelId, rootId);
+        });
+    } else {
+        jump->setToolTip(tr("Show this message in its conversation"));
+        jump->setAccessibleName(tr("Jump to message"));
+        connect(jump, &QPushButton::clicked, this, [this, postId] {
+            if (mode == Mode::Pinned) {
+                emit postActivated(postId);
+                return;
+            }
+            AppNavigationService::instance(backend).openPost(postId);
+        });
+    }
     metadata->addWidget(jump);
     layout->addLayout(metadata);
 
-    auto* postWidget = new PostWidget(backend, post, row, nullptr, nullptr);
+    const auto presentationMode = mode == Mode::Drafts
+        ? PostWidget::PresentationMode::ReadOnlySnapshot
+        : PostWidget::PresentationMode::Interactive;
+    auto* postWidget =
+        new PostWidget(backend, post, row, nullptr, nullptr, presentationMode);
     layout->addWidget(postWidget);
     connect(postWidget, &PostWidget::dimensionsChanged, this, [this, postId] {
         const int currentIndex = indexOfPost(postId);
@@ -694,10 +902,25 @@ int PostCollectionView::indexOfPost(const QString& postId) const
 QString PostCollectionView::originLabel(const BackendPost& post) const
 {
     QString label;
-    if (BackendChannel* channel = backend.getStorage().getChannelById(post.channel_id)) {
-        label = channel->display_name;
-        if (label.isEmpty()) {
-            label = channel->name;
+    if (BackendChannel* channel =
+            backend.getStorage().getChannelById(post.channel_id)) {
+        if (channel->type == BackendChannel::directChannel) {
+            if (BackendUser* user =
+                    backend.getStorage().getUserById(channel->name)) {
+                label = user->getDisplayName();
+            } else {
+                label = tr("Direct message");
+            }
+        } else if (channel->type == BackendChannel::groupChannel) {
+            label = channel->display_name;
+            if (label.isEmpty()) {
+                label = tr("Group message");
+            }
+        } else {
+            label = channel->display_name;
+            if (label.isEmpty()) {
+                label = channel->name;
+            }
         }
     }
     if (label.isEmpty()) {
@@ -784,6 +1007,8 @@ void PostCollectionView::updateStatus()
 
     if (_titleLabel && mode == Mode::Saved) {
         _titleLabel->setText(tr("%n saved message(s)", nullptr, count));
+    } else if (_titleLabel && mode == Mode::Drafts) {
+        _titleLabel->setText(tr("%n draft(s)", nullptr, count));
     }
     if (_refreshButton) {
         _refreshButton->setProperty(ThemeIconBusyProperty, loading);
@@ -795,9 +1020,10 @@ void PostCollectionView::updateStatus()
 
     statusLabel->setVisible(false);
 
-    // Saved uses its compact count as the title and the refresh icon itself as
-    // the loading indicator, so a second status line would only duplicate it.
-    if (mode == Mode::Saved) {
+    // Saved and Drafts use their compact count as the title and the refresh
+    // icon itself as the sync/loading affordance, so a second status line would
+    // only duplicate the collection state.
+    if (mode == Mode::Saved || mode == Mode::Drafts) {
         return;
     }
 

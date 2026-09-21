@@ -39,6 +39,7 @@ enum Destination {
     NoDestination = 0,
     PersonalDestination,
     SavedDestination,
+    DraftsDestination,
 };
 
 /**

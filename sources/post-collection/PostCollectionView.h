@@ -25,9 +25,10 @@ class InteractiveTextEdit;
 class ThemeIconButton;
 
 /**
- * Virtualized post collection used by Saved, Search, and an in-channel Pinned view.
+ * Virtualized post collection used by Saved, Drafts, Search, and an in-channel Pinned view.
  *
- * Saved/Search entries own endpoint snapshots and keep their original
+ * Saved/Search entries own endpoint snapshots, Drafts owns local synthetic
+ * snapshots, and all modes keep their original
  * channel/thread identity without becoming a fake BackendChannel timeline.
  * Pinned mode borrows the current channel's authoritative pinned-post objects;
  * LongListWidget only virtualizes collection presentation in all modes.
@@ -38,6 +39,7 @@ class PostCollectionView final : public QWidget
 public:
     enum class Mode {
         Saved,
+        Drafts,
         Search,
         Pinned,
     };
@@ -46,6 +48,7 @@ public:
     ~PostCollectionView() override;
 
     void activateSaved();
+    void activateDrafts();
     void activateSearch(const QString& preferredTeamId = QString());
     void activatePinned(BackendChannel& channel);
 
@@ -58,6 +61,7 @@ public:
 
 signals:
     void postActivated(const QString& postId);
+    void draftActivated(const QString& channelId, const QString& rootId);
 
 private:
     class CollectionList;
@@ -67,6 +71,7 @@ private:
     void configureSearchCompletions();
     void insertSearchToken(const QString& token);
     void startSearch();
+    void refreshDrafts();
     void resetCollection();
     void loadNextPage();
     void appendPosts(const QVector<QJsonObject>& rawPosts);

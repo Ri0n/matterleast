@@ -174,6 +174,8 @@ private:
                                     QTreeWidgetItem& categoryItem);
     ChannelItem* createSavedItem(Backend& backend, TeamItem& teamItem,
                                  QTreeWidgetItem& categoryItem);
+    ChannelItem* createDraftsItem(Backend& backend, TeamItem& teamItem,
+                                  QTreeWidgetItem& categoryItem);
     QTreeWidgetItem* personalItemForTeam(const QString& teamId) const;
     void refreshPersonalItems();
 	ChatArea* ensureChatArea(QTreeWidgetItem* item);

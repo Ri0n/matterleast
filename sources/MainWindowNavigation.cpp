@@ -29,6 +29,83 @@ void MainWindow::beginSemanticNavigation()
     }
 }
 
+void MainWindow::openDraft(const QString& channelId, const QString& rootId)
+{
+    if (channelId.isEmpty()
+        || !backend.getStorage().getChannelById(channelId)) {
+        return;
+    }
+
+    beginSemanticNavigation();
+
+    if (rootId.isEmpty()) {
+        auto completion = std::make_shared<QMetaObject::Connection>();
+        QPointer<MainWindow> guard(this);
+        *completion = connect(
+            ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
+            [guard, completion, channelId](const QString& completedChannelId,
+                                           bool opened) {
+                if (completedChannelId != channelId) {
+                    return;
+                }
+                QObject::disconnect(*completion);
+                if (!guard || !opened) {
+                    return;
+                }
+                QTimer::singleShot(0, guard.data(), [guard, channelId] {
+                    if (!guard) {
+                        return;
+                    }
+                    ChatArea* area = guard->ui->channelList->getCurrentPage();
+                    if (area && area->getChannel().id == channelId) {
+                        area->restoreDraftAndFocus();
+                    }
+                });
+            });
+
+        ui->channelList->openStoredChannel(channelId);
+        ChatArea* area = ui->channelList->getCurrentPage();
+        if (area && area->getChannel().id == channelId) {
+            QObject::disconnect(*completion);
+            area->restoreDraftAndFocus();
+        }
+        return;
+    }
+
+    auto completion = std::make_shared<QMetaObject::Connection>();
+    QPointer<MainWindow> guard(this);
+    *completion = connect(
+        ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
+        [guard, completion, channelId, rootId](const QString& completedChannelId,
+                                               bool opened) {
+            if (completedChannelId != channelId) {
+                return;
+            }
+            QObject::disconnect(*completion);
+            if (!guard || !opened) {
+                return;
+            }
+            QTimer::singleShot(0, guard.data(), [guard, channelId, rootId] {
+                if (!guard) {
+                    return;
+                }
+                if (ChatArea* thread = NavigationUiController::instance(*guard)
+                                           .findThread(channelId, rootId)) {
+                    thread->restoreDraftAndFocus();
+                }
+            });
+        });
+
+    openChannelPost(channelId, QString(), rootId);
+    QTimer::singleShot(0, this, [this, completion, channelId, rootId] {
+        if (ChatArea* thread = NavigationUiController::instance(*this)
+                                   .findThread(channelId, rootId)) {
+            QObject::disconnect(*completion);
+            thread->restoreDraftAndFocus();
+        }
+    });
+}
+
 void MainWindow::openChannelPost(const QString& channelId,
                                  const QString& postId,
                                  const QString& rootId,

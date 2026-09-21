@@ -126,6 +126,7 @@ ChatArea::ChatArea(Backend& backend,
                                   ui->footerLayout, *ui->composerStatusLabel,
                                   *ui->attachButton, *ui->addEmojiButton,
                                   *ui->sendButton);
+    ui->outgoingPostCreator->restorePersistentDraft();
 
     ui->titleLabel->setText(channel.display_name);
     ui->statusLabel->setText(channel.getChannelDescription());
@@ -197,6 +198,7 @@ ChatArea::ChatArea(Backend& backend,
                                   *ui->attachButton, *ui->addEmojiButton,
                                   *ui->sendButton);
     ui->outgoingPostCreator->setRootId(root_id);
+    ui->outgoingPostCreator->restorePersistentDraft();
 
     // Match the web client: a thread keeps the parent chat name in its header,
     // but the name links back to the root message that anchors this thread in
@@ -696,6 +698,10 @@ void ChatArea::onActivate()
 
 void ChatArea::onDeactivate()
 {
+    if (ui && ui->outgoingPostCreator) {
+        ui->outgoingPostCreator->flushPersistentDraft();
+    }
+
     if (!isThread && ui && ui->listWidget) {
         showPinnedPosts(false);
 
@@ -721,6 +727,15 @@ void ChatArea::onDeactivate()
         // destroys every materialized PostWidget and releases its residency lease.
         ui->listWidget->setSource(nullptr);
     }
+}
+
+void ChatArea::restoreDraftAndFocus()
+{
+    goToNewest();
+    if (ui && ui->outgoingPostCreator) {
+        ui->outgoingPostCreator->restorePersistentDraft();
+    }
+    focusComposer();
 }
 
 void ChatArea::onMainWindowActivate()
