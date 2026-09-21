@@ -148,16 +148,33 @@ QString BackendPost::getDisplayAuthorName () const
 
 void BackendPost::addReaction(QString userId, QString emojiName)
 {
-	const EmojiID emojiId = EmojiInfo::findByName(emojiName);
-	if (!emojiId) {
-		LOG_DEBUG("Missing emoji: " << emojiName);
-		return;
-	}
-    if (userId.isEmpty()) {
+    if (userId.isEmpty() || emojiName.isEmpty()) {
         return;
     }
 
-	auto& users = reactions[emojiId];
+	const EmojiID emojiId = EmojiInfo::findByName(emojiName);
+	if (!emojiId) {
+        // Custom emoji registration is asynchronous. Preserve the authoritative
+        // server reaction by name while EmojiInfo/CustomEmojiService resolves
+        // its image; otherwise this reaction is lost permanently.
+        auto& users = unresolvedReactions[emojiName];
+        if (!users.contains(userId)) {
+            users.push_back(userId);
+        }
+		return;
+	}
+
+    auto& users = reactions[emojiId];
+    const auto unresolved = unresolvedReactions.find(emojiName);
+    if (unresolved != unresolvedReactions.end()) {
+        for (const QString& pendingUserId : unresolved->second) {
+            if (!users.contains(pendingUserId)) {
+                users.push_back(pendingUserId);
+            }
+        }
+        unresolvedReactions.erase(unresolved);
+    }
+
     // WebSocket events may be replayed after reconnect. reaction_added is an
     // idempotent fact, never a toggle.
     if (!users.contains(userId)) {
@@ -167,22 +184,91 @@ void BackendPost::addReaction(QString userId, QString emojiName)
 
 void BackendPost::removeReaction(QString userId, QString emojiName)
 {
-	const EmojiID emojiId = EmojiInfo::findByName(emojiName);
-	if (!emojiId) {
-		LOG_DEBUG("Missing emoji: " << emojiName);
-		return;
-	}
-
-    auto reaction = reactions.find(emojiId);
-    if (reaction == reactions.end()) {
+    if (userId.isEmpty() || emojiName.isEmpty()) {
         return;
     }
 
-	auto& users = reaction->second;
-	users.erase(std::remove(users.begin(), users.end(), userId), users.end());
-	if (users.isEmpty()) {
-		reactions.erase(reaction);
-	}
+	const EmojiID emojiId = EmojiInfo::findByName(emojiName);
+	if (emojiId) {
+        auto reaction = reactions.find(emojiId);
+        if (reaction != reactions.end()) {
+            auto& users = reaction->second;
+            users.erase(std::remove(users.begin(), users.end(), userId), users.end());
+            if (users.isEmpty()) {
+                reactions.erase(reaction);
+            }
+        }
+    }
+
+    auto unresolved = unresolvedReactions.find(emojiName);
+    if (unresolved == unresolvedReactions.end()) {
+        return;
+    }
+    auto& users = unresolved->second;
+    users.erase(std::remove(users.begin(), users.end(), userId), users.end());
+    if (users.isEmpty()) {
+        unresolvedReactions.erase(unresolved);
+    }
+}
+
+bool BackendPost::hasReaction(const QString& userId, const QString& emojiName) const
+{
+    if (userId.isEmpty() || emojiName.isEmpty()) {
+        return false;
+    }
+
+    const EmojiID emojiId = EmojiInfo::findByName(emojiName);
+    if (emojiId) {
+        const auto resolved = reactions.find(emojiId);
+        if (resolved != reactions.end() && resolved->second.contains(userId)) {
+            return true;
+        }
+    }
+
+    const auto unresolved = unresolvedReactions.find(emojiName);
+    return unresolved != unresolvedReactions.end()
+        && unresolved->second.contains(userId);
+}
+
+bool BackendPost::resolveReactionEmoji(const QString& emojiName)
+{
+    auto unresolved = unresolvedReactions.find(emojiName);
+    if (unresolved == unresolvedReactions.end()) {
+        return false;
+    }
+
+    const EmojiID emojiId = EmojiInfo::findByName(emojiName);
+    if (!emojiId) {
+        return false;
+    }
+
+    auto& resolvedUsers = reactions[emojiId];
+    for (const QString& userId : unresolved->second) {
+        if (!resolvedUsers.contains(userId)) {
+            resolvedUsers.push_back(userId);
+        }
+    }
+    unresolvedReactions.erase(unresolved);
+    return true;
+}
+
+bool BackendPost::resolvePendingReactions()
+{
+    if (unresolvedReactions.empty()) {
+        return false;
+    }
+
+    QStringList names;
+    names.reserve(static_cast<int>(unresolvedReactions.size()));
+    for (const auto& reaction : unresolvedReactions) {
+        names.push_back(reaction.first);
+    }
+
+    bool changed = false;
+    for (const QString& name : names) {
+        changed = resolveReactionEmoji(name) || changed;
+    }
+    return changed;
 }
 
 /**
@@ -273,6 +359,21 @@ bool BackendPost::updatePostEdits (BackendPost& editedPost)
 		}
 		return true;
 	};
+    const auto sameNamedReactions =
+        [](const std::map<QString, BackendPostReaction>& lhs,
+           const std::map<QString, BackendPostReaction>& rhs) {
+        if (lhs.size() != rhs.size()) {
+            return false;
+        }
+        auto left = lhs.cbegin();
+        auto right = rhs.cbegin();
+        for (; left != lhs.cend(); ++left, ++right) {
+            if (left->first != right->first || left->second != right->second) {
+                return false;
+            }
+        }
+        return true;
+    };
 
 	const bool nextDeleted = editedPost.delete_at != 0 || editedPost.isDeleted;
 	const bool nextHidden = editedPost.hidden || !root_id.isEmpty();
@@ -296,6 +397,8 @@ bool BackendPost::updatePostEdits (BackendPost& editedPost)
 		|| pending_post_id != editedPost.pending_post_id
 		|| !sameFiles(files, editedPost.files)
 		|| !sameReactions(reactions, editedPost.reactions)
+        || !sameNamedReactions(unresolvedReactions,
+                               editedPost.unresolvedReactions)
 		|| embeds != editedPost.embeds
 		|| reply_count != editedPost.reply_count
 		|| last_reply_at != editedPost.last_reply_at
@@ -332,6 +435,7 @@ bool BackendPost::updatePostEdits (BackendPost& editedPost)
 	pending_post_id = editedPost.pending_post_id;
 	files = std::move(editedPost.files);
 	reactions = std::move(editedPost.reactions);
+    unresolvedReactions = std::move(editedPost.unresolvedReactions);
 	embeds = std::move(editedPost.embeds);
 	reply_count = editedPost.reply_count;
 	last_reply_at = editedPost.last_reply_at;

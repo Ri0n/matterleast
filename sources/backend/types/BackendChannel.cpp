@@ -30,7 +30,6 @@
 #include "BackendChannel.h"
 #include "BackendPoll.h"
 #include "backend/Storage.h"
-#include "backend/emoji/EmojiInfo.h"
 #include "log.h"
 #include "reactions/ReactionUsageTracker.h"
 
@@ -355,20 +354,13 @@ void BackendChannel::addPostReaction(QString postId, QString userId, QString emo
 	}
 
 	const bool ownReaction = storage.loginUser && userId == storage.loginUser->id;
-	const EmojiID emojiId = ownReaction
-		? EmojiInfo::findByName(emojiName) : EmojiID {0, 0};
-    const auto hasOwnReaction = [&] {
-        if (!emojiId || !storage.loginUser) {
-            return false;
-        }
-        const auto reaction = existingPost->reactions.find(emojiId);
-        return reaction != existingPost->reactions.end()
-            && reaction->second.contains(storage.loginUser->id);
-    };
-	const bool alreadyPresent = ownReaction && hasOwnReaction();
+    const QString loginUserId = storage.loginUser ? storage.loginUser->id : QString();
+	const bool alreadyPresent = ownReaction
+        && existingPost->hasReaction(loginUserId, emojiName);
 
 	existingPost->addReaction(userId, emojiName);
-	if (ownReaction && !alreadyPresent && hasOwnReaction()) {
+	if (ownReaction && !alreadyPresent
+        && existingPost->hasReaction(loginUserId, emojiName)) {
 		ReactionUsageTracker::instance().recordUse(emojiName);
 	}
 	emit onPostReactionUpdated(*existingPost);

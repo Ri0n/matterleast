@@ -2,8 +2,10 @@
 
 #include <QApplication>
 #include <QFontMetrics>
+#include <QImage>
 #include <QLabel>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
 #include "backend/Backend.h"
@@ -102,6 +104,140 @@ private slots:
 
         post.removeReaction(userId, QStringLiteral("eyes"));
         QVERIFY(post.reactions.find(eyes) == post.reactions.end());
+    }
+
+    void customReactionSurvivesUntilEmojiRegistration()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+
+        const QString userId = QStringLiteral("dddddddddddddddddddddddddd");
+        BackendUser* loginUser = storage.addUser(
+            QJsonObject {
+                {QStringLiteral("id"), userId},
+                {QStringLiteral("username"), QStringLiteral("customtester")},
+                {QStringLiteral("first_name"), QStringLiteral("Custom")},
+            },
+            true);
+        QVERIFY(loginUser);
+        loginUser->isLoginUser = true;
+
+        const QString customName =
+            QStringLiteral("matterleast_pending_reaction_regression");
+        QVERIFY(!EmojiInfo::findByName(customName));
+
+        QJsonArray reactionArray {
+            QJsonObject {
+                {QStringLiteral("user_id"), userId},
+                {QStringLiteral("emoji_name"), QStringLiteral("eyes")},
+            },
+            QJsonObject {
+                {QStringLiteral("user_id"), userId},
+                {QStringLiteral("emoji_name"), customName},
+            },
+        };
+        BackendPost post(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("eeeeeeeeeeeeeeeeeeeeeeeeee")},
+                {QStringLiteral("channel_id"), QStringLiteral("ffffffffffffffffffffffffff")},
+                {QStringLiteral("user_id"), userId},
+                {QStringLiteral("create_at"), 1},
+                {QStringLiteral("message"), QStringLiteral("hello")},
+                {QStringLiteral("metadata"),
+                 QJsonObject {{QStringLiteral("reactions"), reactionArray}}},
+            },
+            storage);
+
+        const EmojiID eyes = EmojiInfo::findByName(QStringLiteral("eyes"));
+        QVERIFY(eyes);
+        QCOMPARE(static_cast<int>(post.reactions.size()), 1);
+        auto unresolved = post.unresolvedReactions.find(customName);
+        QVERIFY(unresolved != post.unresolvedReactions.end());
+        QCOMPARE(unresolved->second, BackendPostReaction {userId});
+        QVERIFY(post.hasReaction(userId, customName));
+
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        PostWidget secondWidget(backend, post, nullptr, nullptr, nullptr);
+        auto* list = widget.findChild<PostReactionList*>();
+        auto* secondList = secondWidget.findChild<PostReactionList*>();
+        QVERIFY2(list,
+                 "An unresolved custom reaction must still have a visible placeholder chip");
+        QVERIFY(secondList);
+        QCOMPARE(list->findChildren<PostReaction*>().size(), 2);
+        QCOMPARE(secondList->findChildren<PostReaction*>().size(), 2);
+
+        const auto customChipText = [&customName](PostReactionList* reactionList) {
+            const auto chips = reactionList->findChildren<PostReaction*>();
+            for (PostReaction* chip : chips) {
+                auto* emoji = chip->findChild<QLabel*>(QStringLiteral("emoji"));
+                if (emoji && emoji->text().contains(customName)) {
+                    return emoji->text();
+                }
+            }
+            return QString();
+        };
+        const QString unresolvedText =
+            QStringLiteral(":") + customName + QLatin1Char(':');
+        QCOMPARE(customChipText(list), unresolvedText);
+        QCOMPARE(customChipText(secondList), unresolvedText);
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString imagePath = dir.filePath(QStringLiteral("custom.png"));
+        QImage image(16, 16, QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::transparent);
+        QVERIFY(image.save(imagePath));
+
+        // Registration can happen later through either the eager /emoji load or
+        // CustomEmojiService. The existing post/widget must adopt it in place.
+        EmojiInfo::addCustomEmoji(customName, imagePath);
+
+        QVERIFY(post.unresolvedReactions.find(customName)
+                == post.unresolvedReactions.end());
+        const EmojiID customId = EmojiInfo::findByName(customName);
+        QVERIFY(customId);
+        auto resolved = post.reactions.find(customId);
+        QVERIFY(resolved != post.reactions.end());
+        QCOMPARE(resolved->second, BackendPostReaction {userId});
+        QVERIFY(post.hasReaction(userId, customName));
+
+        QApplication::processEvents();
+        list = widget.findChild<PostReactionList*>();
+        secondList = secondWidget.findChild<PostReactionList*>();
+        QVERIFY(list);
+        QVERIFY(secondList);
+        QCOMPARE(list->findChildren<PostReaction*>().size(), 2);
+        QCOMPARE(secondList->findChildren<PostReaction*>().size(), 2);
+        QVERIFY(customChipText(list).contains(QStringLiteral("<img")));
+        QVERIFY(customChipText(secondList).contains(QStringLiteral("<img")));
+    }
+
+    void unresolvedCustomReactionCanBeRemovedBeforeRegistration()
+    {
+        Storage storage;
+        const QString userId = QStringLiteral("gggggggggggggggggggggggggg");
+        const QString customName =
+            QStringLiteral("matterleast_pending_reaction_remove_test");
+        QVERIFY(!EmojiInfo::findByName(customName));
+
+        BackendPost post(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("hhhhhhhhhhhhhhhhhhhhhhhhhh")},
+                {QStringLiteral("channel_id"), QStringLiteral("iiiiiiiiiiiiiiiiiiiiiiiiii")},
+                {QStringLiteral("user_id"), userId},
+                {QStringLiteral("create_at"), 1},
+            },
+            storage);
+
+        post.addReaction(userId, customName);
+        QVERIFY(post.hasReaction(userId, customName));
+        QVERIFY(post.unresolvedReactions.find(customName)
+                != post.unresolvedReactions.end());
+
+        post.removeReaction(userId, customName);
+        QVERIFY(!post.hasReaction(userId, customName));
+        QVERIFY(post.unresolvedReactions.find(customName)
+                == post.unresolvedReactions.end());
     }
 
     void liveReactionUpdateCommitsPostGeometry()

@@ -57,6 +57,7 @@
 #include "backend/PostRepository.h"
 #include "backend/UserProfileService.h"
 #include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistryNotifier.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
@@ -123,6 +124,16 @@ PostWidget::PostWidget(Backend& backend,
     , presentationMode_(presentationMode)
 {
 	ui->setupUi(this);
+
+    connect(&EmojiRegistryNotifier::instance(),
+            &EmojiRegistryNotifier::customEmojiAdded,
+            this, [this](const QString& name) {
+        const bool renderedPending = unresolvedReactionNames_.contains(name);
+        const bool modelChanged = this->post.resolveReactionEmoji(name);
+        if (renderedPending || modelChanged) {
+            updateReactions();
+        }
+    });
 
     wholeMessageCheck_ = new QCheckBox(this);
     wholeMessageCheck_->setToolTip(tr("Select message"));
@@ -285,19 +296,7 @@ PostWidget::PostWidget(Backend& backend,
 		}
 	}
 
-	if (!post.isDeleted && !post.reactions.empty()) {
-		reactions = std::make_unique<PostReactionList>(backend_, this);
-        if (!chatFont_.family().isEmpty()) {
-            reactions->setFont(chatFont_);
-        }
-		for (auto& it : post.reactions) {
-			const EmojiID emojiID = it.first;
-			const Emoji emoji = EmojiInfo::getEmoji(emojiID);
-			reactions->addReaction(emoji.name, emoji.unicodeString, it.second);
-		}
-		connectReactionActions();
-		ui->verticalLayout->addWidget(reactions.get(), 0, Qt::AlignLeft);
-	}
+	createReactionList();
 
 	if (!post.isDeleted && post.poll) {
 		clearMessageText();
@@ -904,6 +903,39 @@ void PostWidget::openGroupMention(const QString& groupId)
         });
 }
 
+void PostWidget::createReactionList()
+{
+    unresolvedReactionNames_.clear();
+    post.resolvePendingReactions();
+    if (post.isDeleted
+        || (post.reactions.empty() && post.unresolvedReactions.empty())) {
+        return;
+    }
+
+    reactions = std::make_unique<PostReactionList>(backend_, this);
+    if (!chatFont_.family().isEmpty()) {
+        reactions->setFont(chatFont_);
+    }
+
+    for (const auto& it : post.reactions) {
+        const Emoji emoji = EmojiInfo::getEmoji(it.first);
+        reactions->addReaction(emoji.name, emoji.unicodeString, it.second);
+    }
+
+    // Preserve an authoritative server reaction while a custom image is still
+    // resolving. customEmojiAdded rebuilds this placeholder as the normal image.
+    for (const auto& it : post.unresolvedReactions) {
+        unresolvedReactionNames_.insert(it.first);
+        reactions->addReaction(
+            it.first,
+            QStringLiteral(":") + it.first + QLatin1Char(':'),
+            it.second);
+    }
+
+    connectReactionActions();
+    ui->verticalLayout->addWidget(reactions.get(), 0, Qt::AlignLeft);
+}
+
 void PostWidget::updateReactions()
 {
 	if (reactions) {
@@ -911,19 +943,7 @@ void PostWidget::updateReactions()
 		reactions.reset();
 	}
 
-	if (!post.isDeleted && !post.reactions.empty()) {
-		reactions = std::make_unique<PostReactionList>(backend_, this);
-        if (!chatFont_.family().isEmpty()) {
-            reactions->setFont(chatFont_);
-        }
-		for (auto& it : post.reactions) {
-			const EmojiID emojiID = it.first;
-			const Emoji emoji = EmojiInfo::getEmoji(emojiID);
-			reactions->addReaction(emoji.name, emoji.unicodeString, it.second);
-		}
-		connectReactionActions();
-		ui->verticalLayout->addWidget(reactions.get(), 0, Qt::AlignLeft);
-	}
+	createReactionList();
 
     // PostReactionList computes its own metrics while chips are added, before it
     // is connected to this widget and before it joins the parent layout. Commit
@@ -968,15 +988,8 @@ void PostWidget::connectReactionActions()
 
 	connect(reactions.get(), &PostReactionList::reactionClicked,
 	        this, [this](const QString& emojiName) {
-            const EmojiID emojiId = EmojiInfo::findByName(emojiName);
-            const auto reaction = emojiId
-                ? post.reactions.find(emojiId) : post.reactions.end();
             const QString loginUserId = backend_.getLoginUser().id;
-            const bool alreadyReacted =
-                reaction != post.reactions.end()
-                && reaction->second.contains(loginUserId);
-
-            if (alreadyReacted) {
+            if (post.hasReaction(loginUserId, emojiName)) {
                 backend_.removePostReaction(post.id, emojiName);
             } else {
                 backend_.addPostReaction(post.id, emojiName);

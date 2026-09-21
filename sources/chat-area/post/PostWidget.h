@@ -21,6 +21,7 @@
 
 #include <QFont>
 #include <QPushButton>
+#include <QSet>
 #include <memory>
 #include <vector>
 
@@ -131,6 +132,7 @@ private:
     void positionReactionAffordance();
     void setAuthor(Backend& backendInstance, const BackendUser* user);
     void updateAuthorAvatar();
+    void createReactionList();
     void connectReactionActions();
     void connectMessageLinks();
     void refreshMentionLinks();
@@ -149,6 +151,7 @@ private:
     std::unique_ptr<PostAttachmentList>	attachments;
     std::unique_ptr<PostPoll>			poll;
     std::unique_ptr<PostReactionList>	reactions;
+    QSet<QString>                       unresolvedReactionNames_;
     std::unique_ptr<KTalkMeetingWidget> ktalkMeeting_;
     MessageContentWidget*				messageContent;
     ChatArea*				parentChatArea;

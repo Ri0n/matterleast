@@ -51,6 +51,12 @@ bool isSavedDestination(const QModelIndex& index)
         == SidebarItem::SavedDestination;
 }
 
+bool isDraftsDestination(const QModelIndex& index)
+{
+    return index.data(SidebarItem::DestinationRole).toInt()
+        == SidebarItem::DraftsDestination;
+}
+
 int transientGap(const QModelIndex& index, int role)
 {
     return qMax(0, index.data(role).toInt());
@@ -71,18 +77,18 @@ QStyleOptionViewItem contentOption(const QStyleOptionViewItem& option,
     return result;
 }
 
-QIcon savedDestinationIcon(const QColor& color)
+QIcon symbolicDestinationIcon(const QString& path, const QColor& color)
 {
-    static QHash<QRgb, QIcon> cache;
+    static QHash<QString, QHash<QRgb, QIcon>> cache;
+    auto& colorCache = cache[path];
     const QRgb key = color.rgba();
-    auto it = cache.constFind(key);
-    if (it != cache.cend()) {
+    auto it = colorCache.constFind(key);
+    if (it != colorCache.cend()) {
         return *it;
     }
 
-    QIcon icon = IconUtils::tintedSymbolicIcon(
-        QStringLiteral(":/icons/bookmark"), color);
-    cache.insert(key, icon);
+    QIcon icon = IconUtils::tintedSymbolicIcon(path, color);
+    colorCache.insert(key, icon);
     return icon;
 }
 
@@ -156,11 +162,14 @@ void ChannelItemDelegate::paint(QPainter* painter,
     const int type = channelType(index);
     const bool selected = content.state.testFlag(QStyle::State_Selected);
 
-    if (isSavedDestination(index)) {
+    if (isSavedDestination(index) || isDraftsDestination(index)) {
         const QColor iconColor = selected
             ? content.palette.color(QPalette::HighlightedText)
             : content.palette.color(QPalette::Text);
-        icon = savedDestinationIcon(iconColor);
+        const QString iconPath = isSavedDestination(index)
+            ? QStringLiteral(":/icons/bookmark")
+            : QStringLiteral(":/icons/edit");
+        icon = symbolicDestinationIcon(iconPath, iconColor);
     }
 
     if (type == BackendChannel::groupChannel) {
