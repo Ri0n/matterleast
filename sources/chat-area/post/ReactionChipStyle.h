@@ -74,10 +74,10 @@ inline QString styleSheet(const QString& objectName)
         "QWidget#%1 {"
         " border: 1px solid rgba(128, 128, 128, 130);"
         " border-radius: 4px;"
-        " background-color: rgba(128, 128, 128, 52);"
+        " background-color: rgba(128, 128, 128, 26);"
         " }"
         "QWidget#%1:hover {"
-        " background-color: rgba(128, 128, 128, 72);"
+        " background-color: rgba(128, 128, 128, 36);"
         " }").arg(objectName);
 }
 

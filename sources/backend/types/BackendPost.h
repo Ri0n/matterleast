@@ -30,6 +30,7 @@
 #include <QStringList>
 #include <QVariant>
 #include <list>
+#include <map>
 #include <memory>
 #include "BackendUser.h"
 #include "BackendFile.h"
@@ -72,6 +73,11 @@ public:
 	bool refreshFromJson (const QJsonObject& jsonObject, const Storage& storage);
 	void addReaction(QString userId, QString emojiName);
 	void removeReaction(QString userId, QString emojiName);
+    bool hasReaction(const QString& userId, const QString& emojiName) const;
+    /** Move one now-known custom reaction from its name bucket to EmojiID storage. */
+    bool resolveReactionEmoji(const QString& emojiName);
+    /** Resolve every pending custom reaction whose emoji is already registered. */
+    bool resolvePendingReactions();
 private:
 	QString getAuthorName () const;
 public:
@@ -96,6 +102,9 @@ public:
 	QString						pending_post_id;
 	std::list<BackendFile>		files;
 	std::map<EmojiID, BackendPostReaction> reactions;
+    // Mattermost identifies reactions by emoji_name. Keep unknown/custom names
+    // until EmojiInfo learns their image instead of dropping them during parse.
+    std::map<QString, BackendPostReaction> unresolvedReactions;
 	// Server-generated embed metadata (permalinks, OpenGraph, etc.). Keep this
 	// opaque in the backend so UI consumers can understand only the embed types
 	// they support without duplicating Mattermost's metadata model here.

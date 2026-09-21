@@ -59,6 +59,16 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
     connect(&EmojiRegistryNotifier::instance(),
             &EmojiRegistryNotifier::customEmojiRequested,
             this, &CustomEmojiService::ensureEmoji);
+    connect(&EmojiRegistryNotifier::instance(),
+            &EmojiRegistryNotifier::customEmojiAdded,
+            this, [this](const QString& name) {
+        // The legacy eager /emoji loader and the lazy per-name resolver can
+        // race. Once either path registers the image, suppress stale queued
+        // work and clear any previous negative result for that name.
+        _pendingNames.remove(name);
+        _inFlightNames.remove(name);
+        _missingNames.remove(name);
+    });
 
     // Requests owned by this best-effort background resolver are deliberately
     // not forwarded to Backend::onNetworkError. A perfectly ordinary literal

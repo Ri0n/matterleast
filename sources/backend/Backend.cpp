@@ -47,6 +47,7 @@
 #include <QList>
 
 #include "NetworkRequest.h"
+#include "CustomEmojiService.h"
 #include "UploadTrace.h"
 #include "AvatarImage.h"
 #include "PublicChannelPaging.h"
@@ -134,6 +135,10 @@ Backend::Backend(QObject *parent)
 
 	attachmentsCache.setCacheDirectory (QDir (QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("attachments"));
 	attachmentsCache.setMaximumCacheSize (300 * 1024 * 1024);
+    // EmojiInfo can discover an unknown custom name while parsing any post,
+    // including a reaction. Keep the backend-scoped lazy resolver connected
+    // before login/post loading so that request can never be lost.
+    (void)CustomEmojiService::instance(*this);
 	(void)RealtimeFallbackService::instance(*this);
 }
 
