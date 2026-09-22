@@ -91,6 +91,21 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
 
     connect(&channel, &BackendChannel::onNewPost, this,
             [this](BackendPost& post) { appendLivePost(post); });
+
+    // Cold channels deliberately receive WebSocket posts as transient objects
+    // so inactive timelines do not defeat the resident-body memory policy.
+    // This source, however, can outlive its ChatArea activation and still owns
+    // the semantic timeline. Remember a transient root identity at the newest
+    // edge so reactivation cannot mistake an old cache tail for current state.
+    // The row remains unavailable until PostRepository rehydrates its body.
+    connect(&backend, &Backend::onNewPost, this,
+            [this](BackendChannel& eventChannel, const BackendPost& post) {
+        if (&eventChannel != &channel
+            || channel.postIdToPost.contains(post.id)) {
+            return;
+        }
+        appendTransientPost(post);
+    });
     connect(&channel, &BackendChannel::onPostEdited, this,
             [this](BackendPost& post) {
         const int index = indexOfPost(post.id);
@@ -1729,8 +1744,16 @@ void ChannelPostSource::hydrateCachedTail()
     repository.loadCachedChannelTail(
         channel, ServerPageSize,
         [guard](const PostTimelineService::Page& result) {
-            if (!guard || !result.success || result.postIds.isEmpty()
+            if (!guard) {
+                return;
+            }
+            if (!result.success || result.postIds.isEmpty()
                 || guard->provisionalWindow.isValid()) {
+                // A cache miss/stale navigation state is not evidence that the
+                // resident source is current. Always validate the real server
+                // tail; coalescing keeps this cheap when a viewport request is
+                // already fetching page zero.
+                guard->validateCachedTail();
                 return;
             }
 
@@ -1743,6 +1766,7 @@ void ChannelPostSource::hydrateCachedTail()
                     << " reason=newest-mismatch cached="
                     << (newest ? newest->create_at : 0)
                     << " channel=" << guard->channel.last_root_post_at;
+                guard->validateCachedTail();
                 return;
             }
 
@@ -1769,6 +1793,7 @@ void ChannelPostSource::hydrateCachedTail()
                         << "CACHE_TAIL_SKIP channel=" << guard->channel.id
                         << " reason=identity-collision target=" << target
                         << " id=" << id;
+                    guard->validateCachedTail();
                     return;
                 }
             }
@@ -1938,6 +1963,34 @@ void ChannelPostSource::prependDiscovered(const QStringList& chronologicalIds)
     const int inserted = static_cast<int>(chronologicalIds.size());
     insertEmptyLogicalSlots(0, inserted);
     publishExactWindow(assignExactWindow(0, chronologicalIds));
+}
+
+void ChannelPostSource::appendTransientPost(const BackendPost& post)
+{
+    if (post.id.isEmpty() || post.hidden || !post.root_id.isEmpty()
+        || indexOfPost(post.id) >= 0) {
+        return;
+    }
+
+    // The WebSocket event proves semantic newest ordering, but not an absolute
+    // rank derived from potentially stale total_msg_count_root. Keep the ID so
+    // the source knows its cache is incomplete, and mark it provisional until a
+    // real /posts page confirms the body/rank.
+    const int index = static_cast<int>(postIds.size());
+    postIds.push_back(post.id);
+    provisionalPostIds.insert(post.id);
+    rebuildIndex();
+
+    qCDebug(lcTimelineChannel).nospace()
+        << "TRANSIENT_LIVE_TAIL channel=" << channel.id
+        << " post=" << post.id
+        << " index=" << index
+        << " count=" << postIds.size();
+
+    // Publish count only after the semantic identity is installed. Consumers
+    // can immediately see that the new row exists but is unavailable, which
+    // causes normal range loading to rehydrate it from the server.
+    emit itemCountChanged(static_cast<int>(postIds.size()));
 }
 
 void ChannelPostSource::appendLivePost(BackendPost& post)

@@ -430,6 +430,14 @@ if(TARGET matterleast-core)
 endif()
 
 
+if(TARGET matterleast-core)
+    add_executable(channel-post-source-live-sync-test ChannelPostSourceLiveSyncTest.cpp)
+    target_link_libraries(channel-post-source-live-sync-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME channel-post-source-live-sync-test COMMAND channel-post-source-live-sync-test)
+    set_tests_properties(channel-post-source-live-sync-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+
 add_executable(public-channel-paging-test PublicChannelPagingTest.cpp)
 target_include_directories(public-channel-paging-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(public-channel-paging-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
