@@ -52,6 +52,15 @@ contain a tail page, an older context window, or several disjoint windows. Unles
 known, the source must not pack arbitrary cached replies into a synthetic prefix or suffix merely to
 fill logical slots.
 
+Mattermost `reply_count` and the thread endpoint both exclude deleted replies. A tombstone therefore
+extends the visible logical sequence only if this particular `ThreadPostSource` already mapped that
+reply before it was deleted. A deleted reply body that merely survives in `BackendChannel` cache has
+no current ordinal provenance and must **not** reserve an empty logical slot: the server can never
+return that identity to fill the slot. Mapped tombstones keep a residency lease for the lifetime of
+the source so ordinary body eviction cannot turn a visible deleted row into a permanent hole.
+Closing and reopening a thread may therefore drop old tombstones that are no longer present in the
+server thread response; this is preferable to manufacturing false adjacency or an unfillable tail.
+
 ## Cursor demand convergence
 
 `ThreadPostSource` owns one demand across as many transport pages as necessary. It selects the

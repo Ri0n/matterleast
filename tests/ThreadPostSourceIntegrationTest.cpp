@@ -4,6 +4,7 @@
 #include <QLabel>
 #include <QLoggingCategory>
 #include <QScrollBar>
+#include <QSet>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -52,6 +53,7 @@ public:
     bool failNext = false;
     bool emptyNext = false;
     int replyCount = 731;
+    QSet<int> deletedReplies;
     bool omitHasNext = false;
     bool omitLastReplyAt = false;
     bool emptyAtBoundary = false;
@@ -75,7 +77,14 @@ public:
                     largestRequestedPage = std::max(largestRequestedPage, query.queryItemValue("perPage").toInt());
                     const int limit = std::min(pageLimit, query.queryItemValue("perPage").toInt());
                     QList<int> selected;
+                    int liveReplyCount = 0;
+                    int latestLiveReply = 0;
                     for (int i = 1; i <= replyCount; ++i) {
+                        if (deletedReplies.contains(i)) {
+                            continue;
+                        }
+                        ++liveReplyCount;
+                        latestLiveReply = i;
                         const bool after = timestamp(i) > time || (timestamp(i) == time && id(i) > anchor);
                         const bool before = timestamp(i) < time || (timestamp(i) == time && id(i) < anchor);
                         if (!time || (backward ? before : after)) selected.push_back(i);
@@ -85,8 +94,9 @@ public:
                     selected = selected.mid(0, limit);
                     if (emptyNext || emptyAtBoundary) { selected.clear(); emptyNext = false; }
                     QJsonObject root = post(0);
-                    root.insert("reply_count", replyCount);
-                    root.insert("last_reply_at", timestamp(replyCount));
+                    root.insert("reply_count", liveReplyCount);
+                    root.insert("last_reply_at",
+                                latestLiveReply > 0 ? timestamp(latestLiveReply) : 0);
                     if (omitLastReplyAt) root.remove("last_reply_at");
                     QJsonObject posts {{id(0), root}};
                     QJsonArray order {id(0)};
@@ -429,6 +439,106 @@ private slots:
         QVERIFY(source.isPostPositionAuthoritative(id(target)));
         QVERIFY(source.isAvailable(target));
     }
+    void unplacedCachedTombstoneDoesNotReservePhantomSlot()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 5;
+        server.deletedReplies.insert(3);
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(),
+            QJsonObject {{"id", "channel"}, {"type", "O"}});
+
+        QJsonObject root = post(0);
+        root.insert(QStringLiteral("reply_count"), 4);
+        root.insert(QStringLiteral("last_reply_at"), timestamp(5));
+        channel.addPost(root);
+
+        // A deleted body can survive in the channel/cache without this fresh
+        // ThreadPostSource ever having proved its ordinal. Mattermost's thread
+        // endpoint will not return that post, so it must not reserve a row.
+        QJsonObject deleted = post(3);
+        deleted.insert(QStringLiteral("delete_at"), timestamp(3) + 1);
+        channel.mergePostContext(
+            QJsonArray {id(3)},
+            QJsonObject {{id(3), deleted}});
+
+        ThreadPostSource source(backend, channel, id(0));
+        QCOMPARE(source.itemCount(), 5); // root + four live replies
+
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failures(&source, &ThreadPostSource::rangeRequestFailed);
+        source.requestRange(
+            1, 4, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(source.postIdAt(1), id(1));
+        QCOMPARE(source.postIdAt(2), id(2));
+        QCOMPARE(source.postIdAt(3), id(4));
+        QCOMPARE(source.postIdAt(4), id(5));
+
+        BackendPost* live = channel.addPost(post(6));
+        QVERIFY(live);
+        emit channel.onNewPost(*live);
+
+        QCOMPARE(source.itemCount(), 6);
+        QCOMPARE(source.indexOfPost(id(6)), 5);
+        for (int index = 0; index < source.itemCount(); ++index) {
+            QVERIFY2(!source.postIdAt(index).isEmpty(),
+                     "Live append must not leave a phantom tombstone slot");
+        }
+    }
+
+    void mappedDeletedReplyKeepsItsVisibleSlot()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 3;
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(),
+            QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert(QStringLiteral("reply_count"), 3);
+        root.insert(QStringLiteral("last_reply_at"), timestamp(3));
+        channel.addPost(root);
+
+        ThreadPostSource source(backend, channel, id(0));
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failures(&source, &ThreadPostSource::rangeRequestFailed);
+        source.requestRange(
+            1, 3, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(source.indexOfPost(id(2)), 2);
+        QCOMPARE(source.indexOfPost(id(3)), 3);
+
+        channel.deletePost(id(2));
+
+        BackendPost* tombstone = source.postAt(2);
+        QVERIFY(tombstone);
+        QVERIFY(tombstone->isDeleted || tombstone->delete_at != 0);
+        QCOMPARE(source.itemCount(), 4);
+        QCOMPARE(source.indexOfPost(id(3)), 3);
+
+        BackendPost* live = channel.addPost(post(4));
+        QVERIFY(live);
+        emit channel.onNewPost(*live);
+
+        QCOMPARE(source.itemCount(), 5);
+        QCOMPARE(source.indexOfPost(id(4)), 4);
+        QCOMPARE(source.postIdAt(2), id(2));
+        QCOMPARE(source.postIdAt(3), id(3));
+        QCOMPARE(source.postIdAt(4), id(4));
+    }
+
     void serverSummaryCorrectsObsoleteCount()
     {
         ThreadServer server;

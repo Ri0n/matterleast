@@ -208,8 +208,18 @@ private slots:
         QVERIFY(secondList);
         QCOMPARE(list->findChildren<PostReaction*>().size(), 2);
         QCOMPARE(secondList->findChildren<PostReaction*>().size(), 2);
-        QVERIFY(customChipText(list).contains(QStringLiteral("<img")));
-        QVERIFY(customChipText(secondList).contains(QStringLiteral("<img")));
+        const auto hasImageChip = [](PostReactionList* reactionList) {
+            const auto chips = reactionList->findChildren<PostReaction*>();
+            for (PostReaction* chip : chips) {
+                auto* emoji = chip->findChild<QLabel*>(QStringLiteral("emoji"));
+                if (emoji && emoji->text().contains(QStringLiteral("<img"))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        QVERIFY(hasImageChip(list));
+        QVERIFY(hasImageChip(secondList));
     }
 
     void unresolvedCustomReactionCanBeRemovedBeforeRegistration()

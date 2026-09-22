@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include <QNetworkRequest>
 #include <QPixmap>
+#include <QPointer>
 #include <QTimer>
 
 #include "backend/Backend.h"
@@ -52,12 +53,17 @@ QStringList uniqueNonEmptyIds(const QStringList& userIds)
 
 UserProfileService& UserProfileService::instance(Backend& backend)
 {
-    static QMap<Backend*, UserProfileService*> instances;
-    auto it = instances.find(&backend);
-    if (it == instances.end()) {
-        it = instances.insert(&backend, new UserProfileService(backend));
+    // Services are QObject children of Backend. A raw pointer kept here outlives
+    // the Backend key and becomes dangling after Backend destruction; a later
+    // Backend can reuse the same address and accidentally receive the dead
+    // service. QPointer is cleared by QObject destruction, so address reuse
+    // correctly creates a fresh backend-scoped service.
+    static QMap<Backend*, QPointer<UserProfileService>> instances;
+    QPointer<UserProfileService>& service = instances[&backend];
+    if (!service) {
+        service = new UserProfileService(backend);
     }
-    return **it;
+    return *service;
 }
 
 UserProfileService::UserProfileService(Backend& backend)
