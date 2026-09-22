@@ -84,7 +84,8 @@ QVector<BackendPost*> cachedThreadReplies(const BackendChannel& channel, const Q
         // BackendChannel marks replies hidden so the main channel renders only
         // root posts. That flag is expected on thread replies and must not hide
         // them from the thread's own logical sequence.
-        if (post.root_id == rootId) {
+        if (post.root_id == rootId
+            && !(post.isDeleted || post.delete_at != 0)) {
             BackendPost* cached = channel.postIdToPost.value(post.id, nullptr);
             if (cached) {
                 result.push_back(cached);
@@ -183,6 +184,7 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
             [this](const QString& postId) {
         const int index = indexOfPost(postId);
         if (index >= 0) {
+            retainMappedTombstone(postId);
             emit itemsChanged(index, index);
         }
     });
@@ -849,20 +851,30 @@ int ThreadPostSource::currentLogicalCount() const
         return 0;
     }
 
-    int deletedReplyTombstones = 0;
-    for (const BackendPost& post : channel.posts) {
-        if (post.root_id == rootId && (post.isDeleted || post.delete_at != 0)) {
-            ++deletedReplyTombstones;
+    // Mattermost reply_count excludes deleted replies, and /thread never
+    // returns them. Count a tombstone only if this source already mapped that
+    // semantic identity before deletion; a deleted body merely surviving in
+    // BackendChannel cache has no ordinal provenance in a fresh source and must
+    // not reserve an unfillable logical slot.
+    int mappedDeletedReplyTombstones = 0;
+    for (int index = 1; index < static_cast<int>(postIds.size()); ++index) {
+        const QString& postId = postIds.at(index);
+        if (postId.isEmpty()) {
+            continue;
+        }
+        BackendPost* post = channel.postIdToPost.value(postId, nullptr);
+        if (post && post->root_id == rootId
+            && (post->isDeleted || post->delete_at != 0)) {
+            ++mappedDeletedReplyTombstones;
         }
     }
 
-    int count = threadLogicalItemCount(root->reply_count, deletedReplyTombstones);
+    int count = threadLogicalItemCount(
+        root->reply_count, mappedDeletedReplyTombstones);
 
     // reply_count is metadata, not authority to destroy an identity that this
-    // source has already mapped. This matters in particular for deleted replies:
-    // Mattermost decrements reply_count while the client keeps the deleted reply
-    // as a tombstone. Preserve the furthest mapped row even if its body is later
-    // evicted from the residency cache.
+    // source has already mapped. Preserve the furthest confirmed row even if a
+    // normal live body is later evicted from the residency cache.
     for (int index = static_cast<int>(postIds.size()) - 1; index >= count; --index) {
         if (!postIds.at(index).isEmpty() && !provisionalPostIds.contains(postIds.at(index))) {
             count = index + 1;
@@ -870,6 +882,29 @@ int ThreadPostSource::currentLogicalCount() const
         }
     }
     return count;
+}
+
+void ThreadPostSource::retainMappedTombstone(const QString& postId)
+{
+    if (postId.isEmpty() || leasedTombstoneIds.contains(postId)
+        || indexOfPost(postId) < 1) {
+        return;
+    }
+
+    BackendPost* post = channel.postIdToPost.value(postId, nullptr);
+    if (!post || post->root_id != rootId
+        || !(post->isDeleted || post->delete_at != 0)) {
+        return;
+    }
+
+    PostResidencyLease lease =
+        PostTimelineService::instance(backend).leasePost(*post);
+    if (!lease) {
+        return;
+    }
+
+    leasedTombstoneIds.insert(postId);
+    tombstoneResidencyLeases.push_back(std::move(lease));
 }
 
 int ThreadPostSource::nearestEmptyIndex(int preferred) const

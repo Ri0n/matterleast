@@ -66,6 +66,7 @@ private:
     void rememberCursorCreateAt(const QHash<QString, uint64_t>& createAtById);
     void rememberCursorCreateAt(const QStringList& ids);
     void pruneProvisionalPostIds();
+    void retainMappedTombstone(const QString& postId);
     struct Demand;
     void continueDemand(const std::shared_ptr<Demand>& demand);
     void finishDemand(const std::shared_ptr<Demand>& demand, const QString& error = {});
@@ -97,6 +98,8 @@ private:
     Backend& backend;
     QString rootId;
     PostResidencyLease rootResidencyLease;
+    std::vector<PostResidencyLease> tombstoneResidencyLeases;
+    QSet<QString> leasedTombstoneIds;
     QHash<QString, uint64_t> cursorCreateAtById;
     QSet<QString> provisionalPostIds;
     ThreadNavigationPlacement navigationPlacement;
