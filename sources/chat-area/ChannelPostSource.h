@@ -108,6 +108,7 @@ private:
     void insertLogicalPrefix(int count);
     void prependDiscovered(const QStringList& chronologicalIds);
     void appendLivePost(BackendPost& post);
+    void appendTransientPost(const BackendPost& post);
 
     Backend& backend;
 
