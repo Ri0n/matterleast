@@ -1,6 +1,9 @@
 #include <QtTest>
 
+#include <QApplication>
 #include <QCoreApplication>
+#include <QKeyEvent>
+#include <QListView>
 
 #include "Settings.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
@@ -124,7 +127,12 @@ private slots:
 
     void completesAtMentionWithoutReplacingSurroundingMessage()
     {
-        MessageTextEditWidget editor;
+        QWidget host;
+        host.resize(760, 480);
+
+        MessageTextEditWidget editor(&host);
+        editor.setGeometry(120, 400, 360, 40);
+
         InteractiveTextEdit::CompletionRule rule;
         rule.prefix = QStringLiteral("@");
         rule.provider = [] {
@@ -136,18 +144,126 @@ private slots:
             return QVector<InteractiveTextEdit::CompletionCandidate> {alice};
         };
         editor.setCompletionRules({std::move(rule)});
-        editor.resize(360, 40);
+
+        host.show();
         editor.show();
         editor.setFocus();
         QCoreApplication::processEvents();
 
         QTest::keyClicks(&editor, QStringLiteral("hello @exa"));
         QCoreApplication::processEvents();
+        QVERIFY(!editor.completionPopupVisible());
+
+        QTest::qWait(350);
+        QCoreApplication::processEvents();
         QVERIFY(editor.completionPopupVisible());
+
+        auto* overlay =
+            host.findChild<QListView*>(QStringLiteral("completionOverlay"));
+        QVERIFY(overlay);
+        QVERIFY(overlay->isVisible());
+        QVERIFY(!overlay->isWindow());
+        QCOMPARE(overlay->window(), static_cast<QWidget*>(&host));
+        QCOMPARE(QApplication::focusWidget(), static_cast<QWidget*>(&editor));
+
+        const QRect caret = editor.cursorRect();
+        const QPoint caretTop =
+            editor.viewport()->mapTo(&host, caret.topLeft());
+        const QPoint caretBottom =
+            editor.viewport()->mapTo(&host, caret.bottomLeft());
+        const QRect overlayRect = overlay->geometry();
+        QVERIFY2(overlayRect.bottom() <= caretTop.y()
+                     || overlayRect.top() >= caretBottom.y(),
+                 "Completion overlay must stay adjacent to the caret, not cover it");
 
         QTest::keyClick(&editor, Qt::Key_Return);
         QCoreApplication::processEvents();
         QCOMPARE(editor.toPlainText(), QStringLiteral("hello @alice "));
+    }
+
+    void completionStaysHiddenWhileBackspaceRepeats()
+    {
+        QWidget host;
+        host.resize(760, 480);
+
+        MessageTextEditWidget editor(&host);
+        editor.setGeometry(120, 400, 360, 40);
+
+        InteractiveTextEdit::CompletionRule rule;
+        rule.prefix = QStringLiteral("@");
+        rule.provider = [] {
+            QVector<InteractiveTextEdit::CompletionCandidate> result;
+            for (const QString& name : {
+                     QStringLiteral("alice"),
+                     QStringLiteral("alex"),
+                     QStringLiteral("alfred")}) {
+                InteractiveTextEdit::CompletionCandidate candidate;
+                candidate.displayText = name;
+                candidate.insertText = name;
+                candidate.detailText = QStringLiteral("@") + name;
+                result.push_back(std::move(candidate));
+            }
+            return result;
+        };
+        editor.setCompletionRules({std::move(rule)});
+
+        host.show();
+        editor.show();
+        editor.setFocus();
+        QCoreApplication::processEvents();
+
+        QTest::keyClicks(&editor, QStringLiteral("@alice"));
+        QTest::qWait(350);
+        QCoreApplication::processEvents();
+        QVERIFY(editor.completionPopupVisible());
+
+        auto* overlay =
+            host.findChild<QListView*>(QStringLiteral("completionOverlay"));
+        QVERIFY(overlay);
+        QVERIFY(!overlay->isWindow());
+        QVERIFY(QApplication::activePopupWidget() == nullptr);
+        QCOMPARE(QApplication::focusWidget(), static_cast<QWidget*>(&editor));
+
+        auto sendKey = [](QWidget* target,
+                          QEvent::Type type,
+                          bool autoRepeat) {
+            QKeyEvent event(
+                type, Qt::Key_Backspace, Qt::NoModifier,
+                QString(), autoRepeat, 1);
+            QCoreApplication::sendEvent(target, &event);
+        };
+
+        // One physical key hold: initial press, repeated auto-repeat presses,
+        // then a single final release. Every event is routed to whichever
+        // widget actually has focus at that moment.
+        QWidget* target = QApplication::focusWidget();
+        QVERIFY(target);
+        sendKey(target, QEvent::KeyPress, false);
+        QCoreApplication::processEvents();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("@alic"));
+        QVERIFY(!editor.completionPopupVisible());
+
+        for (int i = 0; i < 3; ++i) {
+            QTest::qWait(75);
+            target = QApplication::focusWidget();
+            QCOMPARE(target, static_cast<QWidget*>(&editor));
+            sendKey(target, QEvent::KeyPress, true);
+            QCoreApplication::processEvents();
+            QVERIFY(!editor.completionPopupVisible());
+        }
+
+        QCOMPARE(editor.toPlainText(), QStringLiteral("@a"));
+
+        target = QApplication::focusWidget();
+        QCOMPARE(target, static_cast<QWidget*>(&editor));
+        sendKey(target, QEvent::KeyRelease, false);
+
+        QTest::qWait(350);
+        QCoreApplication::processEvents();
+        QVERIFY(editor.completionPopupVisible());
+        QVERIFY(!overlay->isWindow());
+        QVERIFY(QApplication::activePopupWidget() == nullptr);
+        QCOMPARE(QApplication::focusWidget(), static_cast<QWidget*>(&editor));
     }
 
     void completionQueryChangesAreDeduplicatedAndCancelled()

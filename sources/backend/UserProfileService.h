@@ -32,6 +32,28 @@ struct UserSearchOptions {
     bool allowInactive = false;
 };
 
+struct UserAutocompleteProfile {
+    QString id;
+    QString username;
+    QString firstName;
+    QString lastName;
+    QString nickname;
+
+    QString displayName() const
+    {
+        if (!firstName.isEmpty()) {
+            return lastName.isEmpty()
+                ? firstName : firstName + QLatin1Char(' ') + lastName;
+        }
+        return username;
+    }
+};
+
+struct UserAutocompleteResult {
+    QVector<UserAutocompleteProfile> inChannel;
+    QVector<UserAutocompleteProfile> outOfChannel;
+};
+
 class UserProfileService : public QObject {
     Q_OBJECT
 public:
@@ -48,6 +70,11 @@ public:
                         std::function<void()> callback = {});
     void searchUsers(const UserSearchOptions& options,
                      std::function<void(QVector<const BackendUser*>)> callback);
+    void autocompleteUsers(const QString& name,
+                           const QString& teamId,
+                           const QString& channelId,
+                           int limit,
+                           std::function<void(UserAutocompleteResult)> callback);
 
     /** Query the authoritative channel member count without loading member rows. */
     void queryChannelMemberCount(BackendChannel& channel,
