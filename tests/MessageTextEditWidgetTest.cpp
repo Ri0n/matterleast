@@ -176,8 +176,22 @@ private slots:
                      || overlayRect.top() >= caretBottom.y(),
                  "Completion overlay must stay adjacent to the caret, not cover it");
 
+        // Accepting a completion edits the document synchronously. That emits
+        // textChanged before acceptCompletion() returns, so listeners are free
+        // to invalidate completion state/rules during the insertion. The
+        // acceptance path must use a snapshot rather than reading live state
+        // after insertText().
+        bool invalidatedRules = false;
+        connect(&editor, &QTextEdit::textChanged, &editor, [&] {
+            if (!invalidatedRules) {
+                invalidatedRules = true;
+                editor.clearCompletionRules();
+            }
+        });
+
         QTest::keyClick(&editor, Qt::Key_Return);
         QCoreApplication::processEvents();
+        QVERIFY(invalidatedRules);
         QCOMPARE(editor.toPlainText(), QStringLiteral("hello @alice "));
     }
 

@@ -308,15 +308,28 @@ void InteractiveTextEdit::acceptCompletion(const QModelIndex& index)
         return;
     }
 
+    // QTextCursor::insertText() emits QTextEdit::textChanged synchronously.
+    // Our textChanged handler hides completion, which resets activeRuleIndex and
+    // the active query range. Snapshot every piece of completion state before
+    // touching the document so accepting a candidate cannot re-enter here with
+    // invalidated state (or index completionRules[-1]).
+    const int queryStart = activeQueryStart;
+    const int queryEnd = activeQueryEnd;
+    const bool appendSpace = completionRules.at(activeRuleIndex).appendSpace;
+
+    completionDelayTimer.stop();
+    completionMayOpen = false;
+    endCompletionQuery();
+    hideCompletion();
+
     QTextCursor cursor = textCursor();
-    cursor.setPosition(activeQueryStart);
-    cursor.setPosition(activeQueryEnd, QTextCursor::KeepAnchor);
+    cursor.setPosition(queryStart);
+    cursor.setPosition(queryEnd, QTextCursor::KeepAnchor);
     cursor.insertText(insertText);
-    if (completionRules.at(activeRuleIndex).appendSpace) {
+    if (appendSpace) {
         cursor.insertText(QStringLiteral(" "));
     }
     setTextCursor(cursor);
-    hideCompletion();
 }
 
 void InteractiveTextEdit::hideCompletion()
