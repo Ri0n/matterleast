@@ -16,6 +16,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QTimer>
+#include <QUrl>
 
 #include "backend/Backend.h"
 #include "backend/AvatarImage.h"
@@ -341,6 +342,70 @@ void UserProfileService::searchUsers(
             callback(std::move(users));
         }
     }));
+}
+
+void UserProfileService::autocompleteUsers(
+    const QString& name,
+    const QString& teamId,
+    const QString& channelId,
+    int limit,
+    std::function<void(UserAutocompleteResult)> callback)
+{
+    const auto encoded = [](const QString& value) {
+        return QString::fromLatin1(QUrl::toPercentEncoding(value));
+    };
+
+    QString url = QStringLiteral("users/autocomplete?name=")
+        + encoded(name)
+        + QStringLiteral("&limit=")
+        + QString::number(std::max(1, limit));
+
+    if (!teamId.isEmpty()) {
+        url += QStringLiteral("&in_team=") + encoded(teamId);
+        if (!channelId.isEmpty()) {
+            // Mattermost requires in_team whenever in_channel is present.
+            url += QStringLiteral("&in_channel=") + encoded(channelId);
+        }
+    }
+
+    NetworkRequest request(url);
+    httpConnector.get(request, HttpResponseCallback(
+        [this, callback = std::move(callback)](const QJsonDocument& doc) mutable {
+            UserAutocompleteResult result;
+            const QJsonObject object = doc.object();
+
+            const auto appendUsers =
+                [](const QJsonArray& array,
+                   QVector<UserAutocompleteProfile>& destination) {
+                destination.reserve(array.size());
+                for (const QJsonValue& value : array) {
+                    const QJsonObject user = value.toObject();
+                    UserAutocompleteProfile profile;
+                    profile.id = user.value(QStringLiteral("id")).toString();
+                    profile.username =
+                        user.value(QStringLiteral("username")).toString();
+                    profile.firstName =
+                        user.value(QStringLiteral("first_name")).toString();
+                    profile.lastName =
+                        user.value(QStringLiteral("last_name")).toString();
+                    profile.nickname =
+                        user.value(QStringLiteral("nickname")).toString();
+
+                    if (!profile.id.isEmpty() && !profile.username.isEmpty()) {
+                        destination.push_back(std::move(profile));
+                    }
+                }
+            };
+
+            appendUsers(object.value(QStringLiteral("users")).toArray(),
+                        result.inChannel);
+            appendUsers(object.value(QStringLiteral("out_of_channel")).toArray(),
+                        result.outOfChannel);
+
+            if (callback) {
+                callback(std::move(result));
+            }
+        }));
 }
 
 void UserProfileService::ensureTeamMembers(BackendTeam& team,

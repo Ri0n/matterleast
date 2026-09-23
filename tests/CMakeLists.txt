@@ -582,6 +582,19 @@ if(TARGET matterleast-core)
 endif()
 
 
+if(TARGET matterleast-core)
+    add_executable(mention-autocomplete-test MentionAutocompleteTest.cpp)
+    target_link_libraries(mention-autocomplete-test
+        PRIVATE
+            matterleast-core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME mention-autocomplete-test COMMAND mention-autocomplete-test)
+    set_tests_properties(mention-autocomplete-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+
 add_executable(post-filter-policy-test PostFilterPolicyTest.cpp)
 target_include_directories(post-filter-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(post-filter-policy-test

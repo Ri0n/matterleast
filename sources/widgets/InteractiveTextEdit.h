@@ -3,11 +3,14 @@
 #include <functional>
 #include <utility>
 
+#include <QPointer>
 #include <QStringList>
 #include <QTextEdit>
+#include <QTimer>
 #include <QVector>
 
-class QCompleter;
+class QListView;
+class QFocusEvent;
 class QKeyEvent;
 class QModelIndex;
 class QStandardItemModel;
@@ -58,8 +61,12 @@ public:
     void addCompletionRule(CompletionRule rule);
     void clearCompletionRules();
 
-    /** Re-query the active completion provider after its data changes asynchronously. */
-    void refreshCompletions() { refreshCompletion(); }
+    /**
+     * Re-query the active completion provider after its data changes
+     * asynchronously. Hidden completion stays hidden until the user's
+     * key-release quiet period has elapsed.
+     */
+    void refreshCompletions();
 
     void setSubmitOnEnter(bool enabled) { submitOnEnter = enabled; }
     void setSubmitOnCtrlEnter(bool enabled) { submitOnCtrlEnter = enabled; }
@@ -72,6 +79,8 @@ public:
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
+    void focusOutEvent(QFocusEvent* event) override;
 
 private:
     struct ActiveCompletion {
@@ -88,14 +97,19 @@ private:
 
     ActiveCompletion activeCompletion() const;
     void refreshCompletion();
-    void rebuildCompletionModel(const CompletionRule& rule);
+    void updateCompletionQueryFromCursor();
+    void scheduleCompletionPopup();
+    void ensureCompletionViewHost();
+    void showCompletionView();
+    void moveCompletionSelection(int delta);
+    void rebuildCompletionModel(const CompletionRule& rule, const QString& query);
     void acceptCompletion(const QModelIndex& index);
     void hideCompletion();
     void updateCompletionQuery(int ruleIndex, const QString& query);
     void endCompletionQuery();
 
     QVector<CompletionRule> completionRules;
-    QCompleter* completer = nullptr;
+    QPointer<QListView> completionView;
     QStandardItemModel* completionModel = nullptr;
     int activeRuleIndex = -1;
     int activeQueryStart = -1;
@@ -105,6 +119,8 @@ private:
     bool submitOnEnter = false;
     bool submitOnCtrlEnter = false;
     std::function<void()> submitHandler;
+    QTimer completionDelayTimer;
+    bool completionMayOpen = false;
 };
 
 } // namespace Mattermost
