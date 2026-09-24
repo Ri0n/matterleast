@@ -142,23 +142,31 @@ intent or explicit teardown releases it.
 
 ## Wheel and scrollbar scrolling
 
-Wheel scrolling is ordinary pixel movement. Recognition of wheel, scrollbar action and thumb-drag
-user intent belongs entirely to `LongListWidget`; domain subclasses do not override wheel handling or
-inspect scrollbar signals.
+Wheel scrolling is ordinary pixel movement, but that fact is private to `LongListWidget`.
+Recognition of wheel, scrollbar action and thumb-drag intent belongs entirely to the list; domain
+subclasses do not inspect scrollbar values.
 
-After the scrollbar value changes, `LongListWidget` computes the visible logical range plus a
-configurable buffer. For ordinary scrolling it reports each contiguous missing run as logical demand;
-it does not split that run into arbitrary transport-sized ten-item blocks.
+Each pixel movement performs only the work that belongs to pixel geometry first:
 
 ```text
-user scroll gesture
-  -> release persistent viewport lock
-  -> change scrollbar value
-  -> compute logical visible + buffer range
-  -> materialize available items
-  -> request contiguous unavailable demand
-  -> emit userViewportChanged(atEnd)
+scrollbar value changes
+  -> reposition already-materialized widgets
+  -> translate geometry into logical item state
+  -> emit visibleRangeChanged only if the logical visible range changed
+  -> emit itemVisibilityChanged only if Body/Top/Bottom changed
+  -> synchronize/materialize only if the desired logical demand range changed
 ```
+
+This makes ordinary scrolling **boundary-driven rather than pixel-driven**. A 1 px move inside the
+same logical demand window does not re-run materialization and does not re-request an unresolved
+neighbouring range. A 200 px move inside one oversized item may likewise require no item-level sync.
+Conversely, a small move that crosses an item/prefetch boundary does.
+
+Visibility changes carry `UserScroll`, `ProgrammaticScroll` or `LayoutChange`. Direct user input
+also emits `userScrollStarted()` as viewport-ownership intent even when no visibility mask changes.
+
+When the desired logical range actually changes, `LongListWidget` reports each contiguous missing
+run as logical demand; it does not split that run into arbitrary transport-sized ten-item blocks.
 
 This distinction is important: a desired tail such as `131..161` should reach the source as one range.
 The source may then satisfy it with one exact newest-edge request rather than treating `130..139`,
