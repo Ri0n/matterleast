@@ -80,6 +80,7 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
         _pendingNames.clear();
         _inFlightNames.clear();
         _missingNames.clear();
+        _searchesInFlight.clear();
         _flushScheduled = false;
         _batchLookupSupported = true;
     });
@@ -112,6 +113,48 @@ void CustomEmojiService::ensureEmoji(const QString& name)
     QTimer::singleShot(0, this, [this] {
         flushPendingNames();
     });
+}
+
+void CustomEmojiService::searchEmojis(const QString& term)
+{
+    const QString search = term.trimmed();
+    if (search.isEmpty() || _searchesInFlight.contains(search)) {
+        return;
+    }
+
+    _searchesInFlight.insert(search);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("term"), search);
+
+    NetworkRequest request(QStringLiteral("emoji/search"));
+    _httpConnector.post(request, QByteArrayCreator(body),
+                        HttpResponseCallback(
+        [this, search](const QJsonDocument& doc, const QNetworkReply& reply) {
+            _searchesInFlight.remove(search);
+            if (reply.error() != QNetworkReply::NoError) {
+                return;
+            }
+
+            for (const QJsonValue& value : doc.array()) {
+                const QJsonObject object = value.toObject();
+                const QString id = object.value(QStringLiteral("id")).toString();
+                const QString name = object.value(QStringLiteral("name")).toString();
+                if (id.isEmpty() || name.isEmpty()
+                    || !isValidCustomEmojiName(name)) {
+                    continue;
+                }
+
+                _missingNames.remove(name);
+                _pendingNames.remove(name);
+                if (_inFlightNames.contains(name)) {
+                    continue;
+                }
+
+                _inFlightNames.insert(name);
+                ensureImage(id, name);
+            }
+        }));
 }
 
 void CustomEmojiService::flushPendingNames()

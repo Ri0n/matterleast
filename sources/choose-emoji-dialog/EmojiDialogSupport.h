@@ -22,6 +22,18 @@ inline QString normalizeSearchTerm(QString term)
     return term;
 }
 
+inline QString customEmojiServerSearchTerm(QString term)
+{
+    term = term.trimmed().toLower();
+    while (term.startsWith(QLatin1Char(':'))) {
+        term.remove(0, 1);
+    }
+    while (term.endsWith(QLatin1Char(':'))) {
+        term.chop(1);
+    }
+    return term;
+}
+
 inline bool matchesSearch(const QString& emojiName, const QString& term)
 {
     const QString needle = normalizeSearchTerm(term);
