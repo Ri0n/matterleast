@@ -205,6 +205,24 @@ In particular, when a server row arrives while pending rows are visible, the ser
 
 This is the same reason join/part filtering was implemented as a source projection instead of as tiny hidden post widgets.
 
+## Optimistic tail reveal
+
+Local optimistic insertion has one deliberate viewport-presentation policy above
+the source layer. When a newly enqueued pending row is appended at the presented
+tail, `ChatLogWidget` asks `LongListWidget` to insert it with
+`PreserveVisibleContent` rather than inheriting sticky-bottom immediately.
+The pending widget can therefore construct and settle below the current
+viewport. `followOwnPost()` then requests `scrollToEndAnimated()`.
+
+This does **not** put animation or pixel knowledge into `OutboxPostSource`.
+The outbox still emits only logical `itemsInserted`/availability. The chat view
+recognizes that the inserted row is its local pending tail and chooses the
+presentation policy; `LongListWidget` owns all pixel distance, animation and
+item-visibility translation.
+
+If the user sent while far back in history, `LongListWidget` uses an immediate
+tail jump instead of animating across many items.
+
 ## Delivery ownership
 
 Presentation and delivery are related but distinct responsibilities.
@@ -552,7 +570,8 @@ Changes to this subsystem should cover the relevant items below.
 
 - incoming authoritative insertion before a materialized pending tail preserves semantic anchor;
 - confirmation does not jump the viewport;
-- sticky-bottom remains sticky when appropriate;
+- normal sticky-bottom remains sticky; optimistic own-tail insertion may deliberately preserve the
+  old visible content until its explicit animated follow;
 - pending state relayout changes only its own row;
 - paging/materialization around an outbox tail does not invent server slots.
 

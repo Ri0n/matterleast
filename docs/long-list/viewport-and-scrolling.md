@@ -85,7 +85,10 @@ Consequences:
 - height changes entirely above the viewport preserve the visible content at exactly the same screen
   coordinates;
 - height changes while sticky-bottom is active preserve the real end;
-- appending a logical item while sticky-bottom is active keeps the viewport on the new end;
+- normal appended logical items preserve sticky-bottom intent;
+- an explicit `InsertViewportPolicy::PreserveVisibleContent` append converts a current Bottom anchor
+  to the old concrete item anchor, allowing the new tail to settle just below the viewport until a
+  separate semantic follow operation reveals it;
 - prepending real logical items shifts logical indices without moving the already visible content;
 - a window resize cannot leave an unreachable last few pixels;
 - pruning/materialization cannot reinterpret a pixel offset as a different logical item.
@@ -174,6 +177,41 @@ The source may then satisfy it with one exact newest-edge request rather than tr
 needs**; the source decides **how to fetch it**.
 
 Loading adjacent data never recenters the viewport.
+
+## Programmatic tail reveal
+
+`scrollToEndAnimated()` is a semantic convenience implemented entirely inside
+`LongListWidget`. Callers request "reveal the end"; they do not supply pixel
+coordinates.
+
+The intended optimistic-send sequence is:
+
+```text
+append local tail with PreserveVisibleContent
+    -> old concrete viewport stays fixed
+    -> new row may materialize and settle below the viewport
+    -> scrollToEndAnimated()
+    -> item visibility/range boundaries update during the motion
+    -> final EnsureVisible synchronization at the real current end
+```
+
+The animation is short and only used when the end is within one viewport of the
+current position. A farther destination falls back to the ordinary immediate
+`scrollToEnd()`; animating through unrelated history would be disorienting.
+
+The animation interpolates an internal scrollbar value, but every frame still
+passes through the same item-semantic boundary:
+
+- existing widgets move physically;
+- `ItemVisibility` changes use `ProgrammaticScroll`;
+- buffered logical synchronization occurs only when the desired item range
+  actually changes;
+- any direct user wheel/scrollbar gesture stops the animation immediately and
+  transfers viewport ownership to the user.
+
+If content height changes while the animation is running, the animation targets
+the current scrollbar maximum rather than a stale pixel endpoint. Once the end
+is reached, normal Bottom-anchor semantics own later geometry changes.
 
 ## Random thumb seek
 
