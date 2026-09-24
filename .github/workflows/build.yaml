@@ -44,6 +44,35 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
+  qt64:
+    name: Qt 6.4 / Ubuntu
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.4.3'
+          modules: 'qtwebsockets'
+          cache: true
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DQT_6=ON
+          -DBUILD_TESTING=ON
+          -DWARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
   qt5-ubuntu:
     name: Qt 5 / Ubuntu 22.04
     runs-on: ubuntu-22.04
