@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   qt6:
-    name: Qt 6.10 / Ubuntu
+    name: Qt 6.10.3 / Ubuntu 24.04
     runs-on: ubuntu-24.04
 
     steps:
@@ -45,7 +45,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   qt64:
-    name: Qt 6.4 / Ubuntu
+    name: Qt 6.4.3 / Ubuntu 24.04
     runs-on: ubuntu-24.04
 
     steps:
@@ -74,7 +74,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   qt5-ubuntu:
-    name: Qt 5 / Ubuntu 22.04
+    name: Qt 5.15.3 / Ubuntu 22.04
     runs-on: ubuntu-22.04
 
     steps:
@@ -101,7 +101,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   qt5-fedora:
-    name: Qt 5 / Fedora
+    name: Qt 5.15.x / Fedora latest
     runs-on: ubuntu-latest
 
     steps:
@@ -135,7 +135,7 @@ jobs:
           podman build --tag matterleast-fedora -f Containerfile
 
   qt6-windows:
-    name: Qt 6.10 / Windows
+    name: Qt 6.10.3 / Windows 2025
     runs-on: windows-2025
 
     steps:
@@ -226,7 +226,7 @@ jobs:
           if-no-files-found: error
 
   ubuntu-2604-package:
-    name: Ubuntu 26.04 package
+    name: Qt 6.10.2 / Ubuntu 26.04 package
     runs-on: ubuntu-26.04
 
     steps:
