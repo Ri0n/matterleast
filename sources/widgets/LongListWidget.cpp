@@ -206,6 +206,9 @@ LongListWidget::LongListWidget(QWidget* parent)
     connect(bar, &QScrollBar::valueChanged, this, [this] { onScrollValueChanged(); });
     connect(bar, &QScrollBar::sliderMoved, this, &LongListWidget::onSliderMoved);
     connect(bar, &QScrollBar::actionTriggered, this, [this, bar](int action) {
+        userScrollActionPending = true;
+        noteUserScrollStarted();
+        QTimer::singleShot(0, this, [this] { userScrollActionPending = false; });
         // An absolute groove click updates sliderPosition and, with tracking
         // enabled, emits SliderMove before QScrollBar marks its handle down. It
         // therefore has no sliderMoved() signal even though it is the same kind
@@ -218,16 +221,12 @@ LongListWidget::LongListWidget(QWidget* parent)
             activateSeekTarget();
         }
 
-        // actionTriggered is a user scrollbar action. setValue() used by our
-        // geometry transactions does not emit it. Defer until Qt has applied
-        // the action's new value so observers see the final at-end state.
-        QTimer::singleShot(0, this, [this] { noteUserViewportChange(); });
     });
     connect(bar, &QScrollBar::sliderReleased, this, [this, bar] {
+        noteUserScrollStarted();
         onSliderMoved(bar->value());
         seekTimer.stop();
         activateSeekTarget();
-        noteUserViewportChange();
     });
 }
 
@@ -257,6 +256,7 @@ void LongListWidget::setItemCount(int count)
 
     const int oldCount = logicalCount;
     logicalCount = count;
+    lastSynchronizedViewportRange = {};
     heights.resize(count, defaultHeight);
     measured.resize(count);
     available.resize(count);
@@ -311,6 +311,7 @@ void LongListWidget::insertItems(int first, int count)
     const qint64 oldOffset = contentOffset();
 
     logicalCount += count;
+    lastSynchronizedViewportRange = {};
     heights.insert(first, count, defaultHeight);
     measured = insertedBits(measured, first, count);
     available = insertedBits(available, first, count);
@@ -436,6 +437,7 @@ void LongListWidget::removeItems(int first, int count)
     dirtyGeometry = std::move(shiftedDirty);
 
     logicalCount = newCount;
+    lastSynchronizedViewportRange = {};
     heights.remove(first, count);
     measured = removedBits(measured, first, count);
     available = removedBits(available, first, count);
@@ -696,6 +698,7 @@ void LongListWidget::setDefaultItemHeight(int height)
         return;
     }
     defaultHeight = height;
+    lastSynchronizedViewportRange = {};
 
     for (int index = 0; index < logicalCount; ++index) {
         if (!measured.testBit(index)) {
@@ -709,6 +712,7 @@ void LongListWidget::setDefaultItemHeight(int height)
 void LongListWidget::setMaterializationLimit(int count)
 {
     maxMaterializedItems = std::max(1, count);
+    lastSynchronizedViewportRange = {};
     scheduleSync(RequestReason::Scroll);
 }
 
@@ -720,6 +724,7 @@ void LongListWidget::setRequestBlockSize(int count)
 void LongListWidget::setPrefetchScreens(int screens)
 {
     bufferScreens = std::max(0, screens);
+    lastSynchronizedViewportRange = {};
     scheduleSync(RequestReason::Scroll);
 }
 
@@ -946,6 +951,37 @@ qint64 LongListWidget::contentHeight() const
     return heights.totalHeight();
 }
 
+int LongListWidget::viewportCenterIndex() const
+{
+    return viewport()->height() > 0
+        ? indexAtViewportPosition(viewport()->height() / 2)
+        : -1;
+}
+
+LongListWidget::ItemVisibilities LongListWidget::itemVisibility(int index) const
+{
+    QWidget* widget = materialized.value(index, nullptr);
+    if (!widget || viewport()->height() <= 0) {
+        return {};
+    }
+
+    const int top = widget->y();
+    const int bottom = top + widget->height();
+    const int viewportHeight = viewport()->height();
+
+    ItemVisibilities visibility;
+    if (bottom > 0 && top < viewportHeight) {
+        visibility |= ItemVisibility::Body;
+    }
+    if (top >= 0 && top < viewportHeight) {
+        visibility |= ItemVisibility::Top;
+    }
+    if (bottom > 0 && bottom <= viewportHeight) {
+        visibility |= ItemVisibility::Bottom;
+    }
+    return visibility;
+}
+
 int LongListWidget::indexAtViewportPosition(int viewportY) const
 {
     if (logicalCount <= 0) {
@@ -1143,6 +1179,7 @@ void LongListWidget::paintEvent(QPaintEvent* event)
 void LongListWidget::resizeEvent(QResizeEvent* event)
 {
     const ViewAnchor anchor = captureAnchor();
+    lastSynchronizedViewportRange = {};
     QAbstractScrollArea::resizeEvent(event);
 
     for (auto it = materialized.cbegin(); it != materialized.cend(); ++it) {
@@ -1173,6 +1210,7 @@ void LongListWidget::resizeEvent(QResizeEvent* event)
     viewport()->setUpdatesEnabled(true);
     viewport()->update();
 
+    emitRangeChanges(VisibilityChangeReason::LayoutChange);
     scheduleSync(RequestReason::Scroll);
 }
 
@@ -1187,12 +1225,11 @@ void LongListWidget::wheelEvent(QWheelEvent* event)
     }
 
     if (delta != 0) {
+        noteUserScrollStarted();
         wheelInProgress = true;
         verticalScrollBar()->setValue(verticalScrollBar()->value() - delta);
         wheelInProgress = false;
         event->accept();
-        scheduleSync(RequestReason::Scroll);
-        noteUserViewportChange();
         return;
     }
     QAbstractScrollArea::wheelEvent(event);
@@ -1212,9 +1249,28 @@ void LongListWidget::scheduleSync(RequestReason reason)
     }
 }
 
+void LongListWidget::scheduleViewportSyncIfNeeded(RequestReason reason, int scrollValue)
+{
+    if (seekActive) {
+        scheduleSync(RequestReason::Seek);
+        return;
+    }
+
+    Range desired = desiredRangeForViewport(scrollValue);
+    const int preferredCenter =
+        desired.isValid() ? (desired.first + desired.last) / 2 : -1;
+    desired = clampToBudget(desired, preferredCenter);
+    if (!sameRange(desired, lastSynchronizedViewportRange)) {
+        scheduleSync(reason);
+    }
+}
+
 void LongListWidget::synchronize()
 {
     if (synchronizing || logicalCount <= 0) {
+        if (logicalCount <= 0) {
+            lastSynchronizedViewportRange = {};
+        }
         emitRangeChanges();
         return;
     }
@@ -1227,6 +1283,9 @@ void LongListWidget::synchronize()
         ? seekTarget
         : (desired.isValid() ? (desired.first + desired.last) / 2 : -1);
     desired = clampToBudget(desired, preferredCenter);
+    if (!seekActive) {
+        lastSynchronizedViewportRange = desired;
+    }
     synchronizeRange(desired, reason, seekActive ? seekGeneration : 0, seekActive);
     synchronizing = false;
 
@@ -1273,7 +1332,9 @@ void LongListWidget::synchronizeRange(const Range& desired,
     layoutMaterialized();
 
     requestMissing(desired, reason, generation);
-    emitRangeChanges();
+    emitRangeChanges(centerSeekTarget || reason == RequestReason::EnsureVisible
+                         ? VisibilityChangeReason::ProgrammaticScroll
+                         : VisibilityChangeReason::LayoutChange);
 }
 
 LongListWidget::Range LongListWidget::desiredRangeForViewport(int scrollValue) const
@@ -1530,7 +1591,6 @@ void LongListWidget::commitGeometry(bool heightIndexChanged)
     const ViewAnchor anchor = captureAnchor();
     const qint64 oldOffset = contentOffset();
     QSignalBlocker blocker(verticalScrollBar());
-    viewport()->setUpdatesEnabled(false);
     committingGeometry = true;
 
     bool geometryChanged = heightIndexChanged;
@@ -1554,7 +1614,6 @@ void LongListWidget::commitGeometry(bool heightIndexChanged)
     }
 
     committingGeometry = false;
-    viewport()->setUpdatesEnabled(true);
 
     // Structural HeightIndex changes (item-count/default-estimate changes)
     // are real geometry changes even when no concrete row is dirty. They must
@@ -1742,12 +1801,12 @@ void LongListWidget::releaseViewportLock(bool notify)
     }
 }
 
-void LongListWidget::noteUserViewportChange()
+void LongListWidget::noteUserScrollStarted()
 {
     releaseViewportLock(true);
     // A new viewport consumes only progress observed after this gesture.
     observedAvailabilityRevision = availabilityRevision;
-    emit userViewportChanged(isAtEnd());
+    emit userScrollStarted();
 }
 
 qint64 LongListWidget::maximumContentOffset() const
@@ -1816,13 +1875,23 @@ void LongListWidget::updateScrollBarRange(qint64 preservedOffset)
 void LongListWidget::onScrollValueChanged()
 {
     layoutMaterialized();
+
+    const bool userScroll =
+        wheelInProgress || verticalScrollBar()->isSliderDown() || userScrollActionPending;
+    const VisibilityChangeReason visibilityReason = userScroll
+        ? VisibilityChangeReason::UserScroll
+        : (internalScrollChange
+               ? VisibilityChangeReason::ProgrammaticScroll
+               : VisibilityChangeReason::LayoutChange);
+    emitRangeChanges(visibilityReason);
+
     if (internalScrollChange || committingGeometry || synchronizing) {
         return;
     }
     if (verticalScrollBar()->isSliderDown()) {
         return;
     }
-    scheduleSync(RequestReason::Scroll);
+    scheduleViewportSyncIfNeeded(RequestReason::Scroll);
 }
 
 void LongListWidget::onSliderMoved(int value)
@@ -1853,7 +1922,7 @@ void LongListWidget::onSliderMoved(int value)
     }
     if (materialized.contains(target) || viewportBodiesReady) {
         clearSeek();
-        scheduleSync(RequestReason::Scroll);
+        scheduleViewportSyncIfNeeded(RequestReason::Scroll, value);
         return;
     }
 
@@ -1902,7 +1971,7 @@ void LongListWidget::clearSeek()
     seekTimer.stop();
 }
 
-void LongListWidget::emitRangeChanges()
+void LongListWidget::emitRangeChanges(VisibilityChangeReason reason)
 {
     const Range visible = visibleRange();
     if (!sameRange(visible, lastVisibleRange)) {
@@ -1915,6 +1984,39 @@ void LongListWidget::emitRangeChanges()
         lastMaterializedRange = concrete;
         emit materializedRangeChanged(concrete.first, concrete.last);
     }
+
+    updateItemVisibilities(reason);
+}
+
+void LongListWidget::updateItemVisibilities(VisibilityChangeReason reason)
+{
+    QSet<int> indices;
+    for (auto it = lastItemVisibilities.cbegin(); it != lastItemVisibilities.cend(); ++it) {
+        indices.insert(it.key());
+    }
+    for (auto it = materialized.cbegin(); it != materialized.cend(); ++it) {
+        indices.insert(it.key());
+    }
+
+    QVector<int> ordered;
+    ordered.reserve(indices.size());
+    for (int index : std::as_const(indices)) {
+        ordered.push_back(index);
+    }
+    std::sort(ordered.begin(), ordered.end());
+
+    QHash<int, ItemVisibilities> current;
+    for (int index : std::as_const(ordered)) {
+        const ItemVisibilities visibility = itemVisibility(index);
+        const ItemVisibilities previous = lastItemVisibilities.value(index);
+        if (visibility != previous) {
+            emit itemVisibilityChanged(index, visibility, reason);
+        }
+        if (visibility != ItemVisibilities()) {
+            current.insert(index, visibility);
+        }
+    }
+    lastItemVisibilities = std::move(current);
 }
 
 } // namespace Mattermost

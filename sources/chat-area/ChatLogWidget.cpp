@@ -112,7 +112,6 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
             << " range=[" << first << ',' << last << ']'
             << " itemCount=" << itemCount();
 
-        scheduleReadCursorUpdate();
         if (!postSource || first < 0 || first > 1 || !postSource->canRequestBeforeFirst()) {
             return;
         }
@@ -131,6 +130,10 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
             _initialScrollBarPulsePending = false;
         }
         scheduleNavigationFinalize();
+    });
+
+    connect(this, &LongListWidget::itemVisibilityChanged, this,
+            [this](int, ItemVisibilities, VisibilityChangeReason) {
         scheduleReadCursorUpdate();
     });
 
@@ -138,8 +141,7 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
     // the target widget to materialize. Once the real viewport lock exists,
     // LongListWidget releases it and the viewportLockReleased handler below
     // clears the same semantic state.
-    connect(this, &LongListWidget::userViewportChanged, this, [this](bool) {
-        scheduleReadCursorUpdate();
+    connect(this, &LongListWidget::userScrollStarted, this, [this] {
         if (!navigationLockPending) {
             return;
         }
@@ -231,14 +233,13 @@ PostWidget* ChatLogWidget::findPost(const QString& postId) const
 bool ChatLogWidget::captureViewportBookmark(QString& postId) const
 {
     postId.clear();
-    if (!postSource || itemCount() <= 0 || viewport()->height() <= 0) {
+    if (!postSource || itemCount() <= 0) {
         return false;
     }
 
-    // Preserve a semantic identity rather than a logical index. Choosing the
-    // message under the viewport centre gives a stable visual neighborhood when
-    // the view is rebuilt later, even if posts were inserted while inactive.
-    const int centerIndex = indexAtViewportPosition(viewport()->height() / 2);
+    // Preserve a semantic identity rather than a logical index. LongListWidget
+    // owns the pixel conversion and exposes only the logical centre item.
+    const int centerIndex = viewportCenterIndex();
     if (centerIndex >= 0 && !isLocalPresentationIndex(centerIndex)) {
         if (BackendPost* post = postSource->postAt(centerIndex)) {
             if (!post->id.isEmpty()) {
@@ -502,34 +503,28 @@ void ChatLogWidget::scheduleReadCursorUpdate()
     readCursorUpdatePending_ = true;
     QTimer::singleShot(0, this, [this] {
         readCursorUpdatePending_ = false;
-        updateReadCursorFromViewport();
+        updateReadCursorFromVisibility();
     });
 }
 
-void ChatLogWidget::updateReadCursorFromViewport()
+void ChatLogWidget::updateReadCursorFromVisibility()
 {
     if (!backend || !chatArea || !postSource || !chatArea->isVisible()
-        || !chatArea->isActiveWindow() || viewport()->height() <= 0) {
+        || !chatArea->isActiveWindow()) {
         return;
     }
 
-    // Reading is a viewport fact, not a navigation fact. Among concrete posts
-    // whose lower edge has entered the viewport, advance through the newest
-    // semantic (create_at, id) boundary. Wheel scrolling, dragging/clicking the
-    // scrollbar and programmatic navigation all converge on this same test.
+    // Reading is a viewport fact, not a navigation fact. LongListWidget owns
+    // pixels and translates concrete geometry into ItemVisibility. Among posts
+    // whose Bottom edge is visible, advance through the newest semantic
+    // (create_at, id) boundary.
     int readIndex = -1;
     BackendPost* readPost = nullptr;
-    const int viewportHeight = viewport()->height();
     for (int index : materializedIndices()) {
         if (isLocalPresentationIndex(index)) {
             continue;
         }
-        QWidget* widget = itemWidget(index);
-        if (!widget) {
-            continue;
-        }
-        const int bottom = widget->y() + widget->height();
-        if (bottom <= 0 || bottom > viewportHeight) {
+        if (!itemVisibility(index).testFlag(ItemVisibility::Bottom)) {
             continue;
         }
         BackendPost* post = postSource->postAt(index);
@@ -697,16 +692,12 @@ void ChatLogWidget::updateReadCursorFromViewport()
 
 bool ChatLogWidget::isPostLowerEdgeVisible(const QString& postId) const
 {
-    if (!postSource || postId.isEmpty() || viewport()->height() <= 0) {
+    if (!postSource || postId.isEmpty()) {
         return false;
     }
     const int index = postSource->indexOfPost(postId);
-    QWidget* widget = index >= 0 ? itemWidget(index) : nullptr;
-    if (!widget) {
-        return false;
-    }
-    const int bottom = widget->y() + widget->height();
-    return bottom > 0 && bottom <= viewport()->height();
+    return index >= 0
+        && itemVisibility(index).testFlag(ItemVisibility::Bottom);
 }
 
 void ChatLogWidget::markPostUnread(const QString& postId)

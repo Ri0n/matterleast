@@ -72,6 +72,23 @@ public:
     };
     Q_ENUM(Alignment)
 
+    enum class ItemVisibility {
+        None   = 0,
+        Body   = 1 << 0,
+        Top    = 1 << 1,
+        Bottom = 1 << 2,
+    };
+    Q_ENUM(ItemVisibility)
+    Q_DECLARE_FLAGS(ItemVisibilities, ItemVisibility)
+    Q_FLAG(ItemVisibilities)
+
+    enum class VisibilityChangeReason {
+        UserScroll,
+        ProgrammaticScroll,
+        LayoutChange,
+    };
+    Q_ENUM(VisibilityChangeReason)
+
     struct Range {
         int first = -1;
         int last = -1;
@@ -161,6 +178,8 @@ public:
 
     qint64 contentHeight() const;
     int indexAtViewportPosition(int viewportY) const;
+    int viewportCenterIndex() const;
+    ItemVisibilities itemVisibility(int index) const;
     bool isAtEnd() const
     {
         return maximumContentOffset() == contentOffset();
@@ -208,8 +227,13 @@ signals:
     /** Emitted when the same top-level item hover used by the row highlight changes. */
     void hoveredItemChanged(int previousIndex, int currentIndex);
 
-    /** Emitted only for direct user scrollbar/wheel movement. */
-    void userViewportChanged(bool atEnd);
+    void itemVisibilityChanged(
+        int index,
+        Mattermost::LongListWidget::ItemVisibilities visibility,
+        Mattermost::LongListWidget::VisibilityChangeReason reason);
+
+    /** Direct user scrolling took ownership of the viewport. */
+    void userScrollStarted();
 
     /** Emitted when a viewport lock is released by timeout, user input or caller. */
     void viewportLockReleased();
@@ -295,6 +319,7 @@ private:
     };
 
     void scheduleSync(RequestReason reason);
+    void scheduleViewportSyncIfNeeded(RequestReason reason, int scrollValue = -1);
     void synchronize();
     void synchronizeRange(const Range& desired,
                           RequestReason reason,
@@ -340,7 +365,7 @@ private:
     void restoreViewportLock();
     void touchViewportLock();
     void releaseViewportLock(bool notify);
-    void noteUserViewportChange();
+    void noteUserScrollStarted();
 
     qint64 maximumContentOffset() const;
     qint64 contentOffset() const;
@@ -354,7 +379,8 @@ private:
     int logicalTargetForScrollValue(int value) const;
     void clearSeek();
 
-    void emitRangeChanges();
+    void emitRangeChanges(VisibilityChangeReason reason = VisibilityChangeReason::LayoutChange);
+    void updateItemVisibilities(VisibilityChangeReason reason);
 
     int logicalCount = 0;
     int defaultHeight = 96;
@@ -383,6 +409,7 @@ private:
     bool committingGeometry = false;
     bool internalScrollChange = false;
     bool wheelInProgress = false;
+    bool userScrollActionPending = false;
     bool hoverHighlightEnabled = true;
 
     quint64 seekGeneration = 0;
@@ -395,6 +422,10 @@ private:
 
     Range lastVisibleRange;
     Range lastMaterializedRange;
+    Range lastSynchronizedViewportRange;
+    QHash<int, ItemVisibilities> lastItemVisibilities;
 };
 
 } // namespace Mattermost
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(Mattermost::LongListWidget::ItemVisibilities)

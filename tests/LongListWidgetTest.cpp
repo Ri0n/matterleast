@@ -276,6 +276,75 @@ private slots:
         QVERIFY(list.isAtEnd());
     }
 
+    void itemVisibilityUsesSemanticEdges()
+    {
+        TestLongListWidget list;
+        list.resize(480, 150);
+        list.setDefaultItemHeight(100);
+        list.setItemCount(3);
+        list.setRangeAvailable(0, 2);
+        list.show();
+        settleEvents(12);
+
+        using Visibility = Mattermost::LongListWidget::ItemVisibility;
+        QCOMPARE(list.itemVisibility(0),
+                 Visibility::Body | Visibility::Top | Visibility::Bottom);
+        QCOMPARE(list.itemVisibility(1),
+                 Visibility::Body | Visibility::Top);
+        QCOMPARE(list.itemVisibility(2),
+                 Mattermost::LongListWidget::ItemVisibilities());
+
+        QVector<Mattermost::LongListWidget::VisibilityChangeReason> reasons;
+        connect(&list, &Mattermost::LongListWidget::itemVisibilityChanged,
+                &list,
+                [&reasons](int,
+                           Mattermost::LongListWidget::ItemVisibilities,
+                           Mattermost::LongListWidget::VisibilityChangeReason reason) {
+            reasons.push_back(reason);
+        });
+
+        list.scrollToIndex(1, Mattermost::LongListWidget::Alignment::Top);
+        settleEvents(8);
+
+        QCOMPARE(list.itemVisibility(0),
+                 Mattermost::LongListWidget::ItemVisibilities());
+        QCOMPARE(list.itemVisibility(1),
+                 Visibility::Body | Visibility::Top | Visibility::Bottom);
+        QCOMPARE(list.itemVisibility(2),
+                 Visibility::Body | Visibility::Top);
+        QVERIFY(std::find(reasons.cbegin(), reasons.cend(),
+                          Mattermost::LongListWidget::VisibilityChangeReason::ProgrammaticScroll)
+                != reasons.cend());
+    }
+
+    void pixelScrollInsideSameDemandDoesNotRetryMissingRange()
+    {
+        TestLongListWidget list;
+        list.resize(480, 180);
+        list.setDefaultItemHeight(200);
+        list.setPrefetchScreens(0);
+        list.setItemCount(20);
+        list.setRangeAvailable(19, 19);
+        list.show();
+
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        list.scrollToEnd();
+        settleEvents(12);
+        QVERIFY(!requests.isEmpty());
+
+        const QList<QVariant> request = requests.takeFirst();
+        list.finishRangeRequest(request.at(0).toInt(), request.at(1).toInt());
+        settleEvents(8);
+        requests.clear();
+
+        QScrollBar* bar = list.verticalScrollBar();
+        QVERIFY(bar->value() > 0);
+        bar->setValue(bar->value() - 1);
+        settleEvents(8);
+
+        QCOMPARE(requests.count(), 0);
+    }
+
     void noOpLayoutRequestDoesNotRetryMissingRange()
     {
         TestLongListWidget list;

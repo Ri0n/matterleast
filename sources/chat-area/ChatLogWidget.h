@@ -97,7 +97,7 @@ private:
     bool finalizeNavigationLock();
     void scheduleNavigationFinalize();
     void scheduleReadCursorUpdate();
-    void updateReadCursorFromViewport();
+    void updateReadCursorFromVisibility();
     void markPostUnread(const QString& postId);
     bool isPostLowerEdgeVisible(const QString& postId) const;
     void setMessageSelectionRange(const QString& currentPostId);
