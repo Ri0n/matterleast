@@ -320,7 +320,9 @@ void AttentionList::refresh()
     displayEntries.reserve(model_->entries().size() + 1);
 
     for (const FollowingModel::Entry& entry : model_->entries()) {
-        if (!entry.requiresAttention() || entry.muted) {
+        const bool explicitlyFollowedThread = entry.isThread() && !entry.synthetic;
+        if (!entry.requiresAttention()
+            || !attentionMuteAllowsEntry(entry.muted, explicitlyFollowedThread)) {
             continue;
         }
         displayEntries.push_back(DisplayEntry { entry, true });
@@ -345,7 +347,9 @@ void AttentionList::refresh()
         if (!alreadyPresent) {
             const FollowingModel::Entry* current = model_->findEntry(
                 retainedEntry_->channelId, retainedEntry_->threadId);
-            if (current && !current->muted) {
+            if (current
+                && attentionMuteAllowsEntry(
+                    current->muted, current->isThread() && !current->synthetic)) {
                 displayEntries.push_back(DisplayEntry { *current, false });
             } else if (!retainedEntry_->isThread()) {
                 BackendChannel* channel = backend_->getStorage().getChannelById(

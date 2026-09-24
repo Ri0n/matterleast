@@ -43,6 +43,14 @@ private slots:
         QVERIFY(!tooltip.contains(QLatin1Char('\n')));
     }
 
+    void mutedAttentionKeepsExplicitlyFollowedThreads()
+    {
+        QVERIFY(attentionMuteAllowsEntry(false, false));
+        QVERIFY(attentionMuteAllowsEntry(false, true));
+        QVERIFY(!attentionMuteAllowsEntry(true, false));
+        QVERIFY(attentionMuteAllowsEntry(true, true));
+    }
+
     void repeatedOpenConversationActivationPreservesViewport()
     {
         QVERIFY(shouldPreserveRepeatedConversationActivation(

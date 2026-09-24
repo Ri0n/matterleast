@@ -13,7 +13,10 @@ Both views use the same `FollowingModel::Entry` objects and therefore the same
 
 Following is the broader queue. It contains followed threads and unread direct /
 group conversations represented by the model. Attention filters that same model
-to entries for which `requiresAttention()` is true.
+to entries for which `requiresAttention()` is true. A muted parent conversation
+does not suppress a real followed thread from Attention; explicit follow state is
+stronger than channel mute for that thread's unread projection. Synthetic
+thread-shaped entries remain suppressible by mute.
 
 The activation path may choose a destination from the cursor:
 
@@ -141,6 +144,13 @@ root posts only for unread/resume purposes. A hidden reply belongs to its thread
 entry and must not keep the parent DM/GM unread. The main root source therefore
 uses `last_root_post_at` as its acknowledgement watermark; reading a thread
 advances/acknowledges only that thread.
+
+The authoritative unread-thread snapshot must therefore include DM/GM threads.
+When Mattermost's team-scoped thread API is queried across multiple teams, fetch
+DM/GM threads with exactly one team request and exclude them from the remaining
+team requests. Otherwise a direct-thread reply can fall out of Attention entirely
+(parent DM uses root-only unread counts while the thread snapshot omits direct
+threads), or the same DM/GM thread is redundantly fetched for every team.
 
 When CRT is disabled, or root counters are unavailable, replies still belong to
 the parent channel unread domain. In that compatibility mode DM/GM keeps the
