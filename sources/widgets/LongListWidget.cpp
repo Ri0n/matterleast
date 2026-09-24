@@ -940,7 +940,11 @@ void LongListWidget::commitItemGeometryNow(int index)
     committingGeometry = false;
 
     if (geometryChanged) {
-        scheduleSync(seekActive ? RequestReason::Seek : RequestReason::Scroll);
+        if (seekActive) {
+            scheduleSync(RequestReason::Seek);
+        } else {
+            scheduleViewportSyncIfNeeded(RequestReason::Scroll);
+        }
         emitRangeChanges();
     }
 }
@@ -1700,7 +1704,11 @@ void LongListWidget::commitGeometry(bool heightIndexChanged)
     }
 
     viewport()->update();
-    scheduleSync(seekActive ? RequestReason::Seek : RequestReason::Scroll);
+    if (seekActive) {
+        scheduleSync(RequestReason::Seek);
+    } else {
+        scheduleViewportSyncIfNeeded(RequestReason::Scroll);
+    }
     emitRangeChanges();
 }
 
