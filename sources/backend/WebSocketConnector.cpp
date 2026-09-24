@@ -160,6 +160,21 @@ const QMap<QString, void(*)(WebSocketConnector&, const QJsonObject&, const QJson
     {"preference_changed",  handler<PreferenceChangedEvent>},
     {"preferences_changed", handler<PreferencesChangedEvent>},
     {"preferences_deleted", handler<PreferencesDeletedEvent>},
+    {"draft_created", [] (WebSocketConnector& conn,
+                           const QJsonObject& data,
+                           const QJsonObject&) {
+        conn.eventHandler.handleDraftEvent(data, false);
+    }},
+    {"draft_updated", [] (WebSocketConnector& conn,
+                           const QJsonObject& data,
+                           const QJsonObject&) {
+        conn.eventHandler.handleDraftEvent(data, false);
+    }},
+    {"draft_deleted", [] (WebSocketConnector& conn,
+                           const QJsonObject& data,
+                           const QJsonObject&) {
+        conn.eventHandler.handleDraftEvent(data, true);
+    }},
 };
 
 bool printEvent (const QString& name)
@@ -179,7 +194,10 @@ bool printEvent (const QString& name)
 			name == "ephemeral_message" ||
             name == "preference_changed" ||
             name == "preferences_changed" ||
-            name == "preferences_deleted"
+            name == "preferences_deleted" ||
+            name == "draft_created" ||
+            name == "draft_updated" ||
+            name == "draft_deleted"
 	) {
 		return false;
 	}

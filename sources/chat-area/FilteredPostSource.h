@@ -55,7 +55,11 @@ public:
      */
     void invalidatePost(const QString& postId);
 
-    AbstractPostSource* wrappedSource() const { return source.data(); }
+    AbstractPostSource* wrappedSource() const override { return source.data(); }
+    bool isPostPositionAuthoritative(const QString& postId) const override
+    {
+        return source && source->isPostPositionAuthoritative(postId);
+    }
 
 private:
     struct PendingRequest {

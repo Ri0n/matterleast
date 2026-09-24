@@ -217,7 +217,11 @@ protected:
     void resizeEvent(QResizeEvent* event) override
     {
         QTextBrowser::resizeEvent(event);
-        scheduleHeightUpdate();
+        // Width changes are the authoritative input for wrapped document
+        // height. Resolve them synchronously so the parent PostWidget cannot be
+        // measured once with QTextBrowser's transient default height and again
+        // on the next event-loop turn.
+        updateDocumentHeight();
     }
 
 private:
@@ -235,22 +239,27 @@ private:
 
     void updateDocumentHeight()
     {
-        if (viewport()->width() <= 0) {
+        if (updatingHeight || viewport()->width() <= 0) {
             return;
         }
 
+        updatingHeight = true;
         document()->setTextWidth(viewport()->width());
-        const int documentHeight = static_cast<int>(std::ceil(document()->size().height()));
-        const int wantedHeight = std::max(fontMetrics().height(), documentHeight + 2 * frameWidth());
+        const int documentHeight =
+            static_cast<int>(std::ceil(document()->size().height()));
+        const int wantedHeight = std::max(
+            fontMetrics().height(), documentHeight + 2 * frameWidth());
         if (height() != wantedHeight) {
             setFixedHeight(wantedHeight);
             if (heightChanged) {
                 heightChanged();
             }
         }
+        updatingHeight = false;
     }
 
     std::function<void()> heightChanged;
+    bool updatingHeight = false;
 };
 
 class QuoteBar final : public QWidget

@@ -33,12 +33,6 @@ ThemeIconButton::ThemeIconButton(QWidget* parent)
     : QPushButton(parent)
 {
     setCursor(Qt::PointingHandCursor);
-
-    _busyAnimationTimer.setInterval(BusyIndicator::AnimationIntervalMs);
-    connect(&_busyAnimationTimer, &QTimer::timeout, this, [this] {
-        _busyPhase = (_busyPhase + 1) % BusyIndicator::AnimationSteps;
-        update();
-    });
 }
 
 QString ThemeIconButton::symbolicResource() const
@@ -68,13 +62,17 @@ bool ThemeIconButton::isBusy() const
 
 void ThemeIconButton::syncBusyAnimation()
 {
-    if (isBusy()) {
-        if (!_busyAnimationTimer.isActive()) {
-            _busyAnimationTimer.start();
-        }
+    const bool busy = isBusy();
+    if (busy == _busyAnimationAcquired) {
+        update();
+        return;
+    }
+
+    _busyAnimationAcquired = busy;
+    if (busy) {
+        BusyIndicator::Animation::instance().acquire(*this);
     } else {
-        _busyAnimationTimer.stop();
-        _busyPhase = 0;
+        BusyIndicator::Animation::instance().release(*this);
     }
     update();
 }
@@ -121,12 +119,13 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
     if (isBusy()) {
         QColor busyColor = currentPalette.color(QPalette::WindowText);
         busyColor.setAlpha(190);
-        const qreal indicatorExtent = BusyIndicatorExtent;
-        const QRectF ring((width() - indicatorExtent) / 2.0 + 2.5,
-                          (height() - indicatorExtent) / 2.0 + 2.5,
-                          indicatorExtent - 5.0,
-                          indicatorExtent - 5.0);
-        BusyIndicator::draw(painter, ring, _busyPhase, busyColor, 2.0);
+        const int indicatorExtent = BusyIndicatorExtent - 5;
+        const QPixmap frame = BusyIndicator::Animation::instance().frame(
+            indicatorExtent, busyColor, 2.0, devicePixelRatioF());
+        painter.drawPixmap(
+            QPointF((width() - indicatorExtent) / 2.0 + 2.5,
+                    (height() - indicatorExtent) / 2.0 + 2.5),
+            frame);
         return;
     }
 

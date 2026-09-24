@@ -22,7 +22,11 @@ namespace Mattermost {
 
 QString DraftEntry::key() const
 {
-    return channelId + QChar(0x1f) + rootId;
+    QString result = channelId + QChar(0x1f) + rootId;
+    if (!recoveryId.isEmpty()) {
+        result += QChar(0x1f) + recoveryId;
+    }
+    return result;
 }
 
 QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
@@ -67,10 +71,26 @@ QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
         entry.message = object.value(QStringLiteral("message")).toString();
         entry.replyToPostId =
             object.value(QStringLiteral("reply_to_post_id")).toString();
+        entry.recoveryId =
+            object.value(QStringLiteral("recovery_id")).toString();
         entry.updateAt =
             object.value(QStringLiteral("update_at")).toVariant().toLongLong();
         entry.dirty = object.value(QStringLiteral("dirty")).toBool(false);
         entry.deleted = object.value(QStringLiteral("deleted")).toBool(false);
+        if (object.contains(QStringLiteral("remote_present"))) {
+            entry.remotePresent =
+                object.value(QStringLiteral("remote_present")).toBool(false);
+        } else {
+            entry.remotePresent = entry.recoveryId.isEmpty()
+                && (!entry.dirty || entry.deleted);
+        }
+        if (object.contains(QStringLiteral("sync_requested"))) {
+            entry.syncRequested =
+                object.value(QStringLiteral("sync_requested")).toBool(false);
+        } else {
+            entry.syncRequested =
+                entry.recoveryId.isEmpty() && entry.dirty;
+        }
 
         if (entry.channelId.isEmpty() || entry.updateAt <= 0) {
             continue;
@@ -102,10 +122,13 @@ bool DraftStore::save(const QString& path, const QVector<DraftEntry>& drafts)
             {QStringLiteral("root_id"), entry.rootId},
             {QStringLiteral("message"), entry.message},
             {QStringLiteral("reply_to_post_id"), entry.replyToPostId},
+            {QStringLiteral("recovery_id"), entry.recoveryId},
             {QStringLiteral("update_at"),
              QJsonValue::fromVariant(QVariant::fromValue(entry.updateAt))},
             {QStringLiteral("dirty"), entry.dirty},
             {QStringLiteral("deleted"), entry.deleted},
+            {QStringLiteral("remote_present"), entry.remotePresent},
+            {QStringLiteral("sync_requested"), entry.syncRequested},
         };
         array.push_back(object);
     }

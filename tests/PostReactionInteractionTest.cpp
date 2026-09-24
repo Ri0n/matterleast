@@ -289,6 +289,12 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(dimensions.count() > 0, 1000);
         QTRY_VERIFY_WITH_TIMEOUT(widget.sizeHint().height() > before, 1000);
 
+        // PostWidget publishes size hints; its LongList owner owns the physical
+        // top-level row rect. Apply the owner's geometry commit before checking
+        // that the reaction child is contained.
+        widget.resize(widget.width(), widget.sizeHint().height());
+        QApplication::processEvents();
+
         auto* list = widget.findChild<PostReactionList*>();
         QVERIFY(list);
         QVERIFY(list->height() >= list->minimumSizeHint().height());

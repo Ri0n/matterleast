@@ -96,6 +96,9 @@ public:
     /** Remove logical items and shift later identities left without losing the viewport anchor. */
     void removeItems(int first, int count);
 
+    /** Replace one logical identity in-place in one frozen geometry transaction. */
+    void replaceItem(int index);
+
     int defaultItemHeight() const { return defaultHeight; }
     void setDefaultItemHeight(int height);
 
@@ -132,6 +135,13 @@ public:
 
     /** Re-measure already materialized items after their presentation changed in-place. */
     void itemsChanged(int first, int last);
+
+    /**
+     * Commit an explicit child geometry change synchronously. Use this only for
+     * a semantic widget signal that guarantees its size hints are already final;
+     * generic Qt LayoutRequest/Resize hints remain coalesced through itemsChanged().
+     */
+    void commitItemGeometryNow(int index);
 
     /**
      * Reconcile an identity-to-index mapping change without rebuilding surviving
@@ -299,9 +309,21 @@ private:
     void materializeAvailable(const Range& range);
     void evictOutside(const Range& keepRange, int preferredCenter);
     void layoutMaterialized();
-    void measureWidget(int index, QWidget* widget);
+    /** Measure one widget at viewport width without mutating the logical HeightIndex. */
+    int naturalWidgetHeight(QWidget* widget);
+    /** Measure one materialized row; returns true only if its logical height changed. */
+    bool measureWidget(int index, QWidget* widget);
+    void commitReplacement(QWidget* previous,
+                           QWidget* replacement,
+                           const QString& replacementIdentity,
+                           int fallbackIndex);
+    void stageReplacement(QWidget* previous,
+                          QWidget* replacement,
+                          const QString& replacementIdentity,
+                          int fallbackIndex,
+                          int observedHeight);
     void scheduleGeometryCommit(int index = -1);
-    void commitGeometry();
+    void commitGeometry(bool heightIndexChanged = false);
 
     void requestMissing(const Range& desired,
                         RequestReason reason,

@@ -33,6 +33,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkDiskCache>
 #include <QNetworkReply>
+#include <QPointer>
 #include <QStandardPaths>
 
 #include "LocalPostDeleteTracker.h"
@@ -413,61 +414,84 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 		std::function<void (QVariant, QByteArray, const QNetworkReply&)> responseHandler,
 		quint64 requestGeneration)
 {
+    QPointer<HTTPConnector> connectorGuard(this);
+    QPointer<QNetworkReply> replyGuard(reply);
+
 	connect(reply, &QNetworkReply::finished, this,
-		[this, reply, responseHandler = std::move(responseHandler), requestGeneration]() mutable {
+		[connectorGuard, replyGuard,
+         responseHandler = std::move(responseHandler),
+         requestGeneration]() mutable {
+            HTTPConnector* connector = connectorGuard.data();
+            QNetworkReply* currentReply = replyGuard.data();
+            if (!connector || !currentReply) {
+                return;
+            }
+
 			// reset() replaces the QNetworkAccessManager and releases the limiter
 			// slots for its old replies. Those aborted replies may still emit
 			// finished; never deliver them into callbacks belonging to the new
 			// application/storage generation.
-			if (requestGeneration != generation) {
-                activeMultipartRequests.remove(reply);
-				reply->deleteLater();
+			if (requestGeneration != connector->generation) {
+                connector->activeMultipartRequests.remove(currentReply);
 				return;
 			}
 
-			const bool replayed = replayedReplies.remove(reply);
-			activeReplies.remove(reply);
-			activeGetRequests.remove(reply);
-            activeMultipartRequests.remove(reply);
+			const bool replayed =
+                connector->replayedReplies.remove(currentReply);
+			connector->activeReplies.remove(currentReply);
+			connector->activeGetRequests.remove(currentReply);
+            connector->activeMultipartRequests.remove(currentReply);
 			if (replayed) {
-				reply->deleteLater();
-				if (activeRequests > 0) {
-					--activeRequests;
+				if (connector->activeRequests > 0) {
+					--connector->activeRequests;
 				}
 				if (globalActiveRequests > 0) {
 					--globalActiveRequests;
 				}
-				if (!restartingTransport) {
+				if (!connector->restartingTransport) {
 					processQueues();
 				}
 				return;
 			}
 
-			const int statusCode = reply->error();
-			auto data = reply->readAll();
+			const int statusCode = currentReply->error();
+			auto data = currentReply->readAll();
 
-            if (reply->operation() == QNetworkAccessManager::DeleteOperation
-                && reply->error() != QNetworkReply::NoError) {
-                LocalPostDeleteTracker::clearFailedRequest(reply->request().url());
+            if (currentReply->operation()
+                    == QNetworkAccessManager::DeleteOperation
+                && currentReply->error() != QNetworkReply::NoError) {
+                LocalPostDeleteTracker::clearFailedRequest(
+                    currentReply->request().url());
             }
 
-			responseHandler(statusCode, qMove(data), *reply);
-			reply->deleteLater();
+            // This callback is allowed to synchronously reset or even destroy
+            // its UI owner together with this connector/QNetworkAccessManager.
+            // The manager owns replies (setAutoDeleteReplies(true)), so after
+            // invoking user code neither raw pointer is safe to touch until the
+            // connector guard has been revalidated. In particular, do not call
+            // deleteLater() on the reply here: reset/destruction may already
+            // have deleted it.
+			responseHandler(statusCode, qMove(data), *currentReply);
 
-			// A response handler is allowed to reset the connector itself (for
-			// example after an authentication failure). In that case reset() has
-			// already released all active slots, so do not decrement them twice.
-			if (requestGeneration != generation) {
+            connector = connectorGuard.data();
+            if (!connector) {
+                return;
+            }
+
+			// A response handler may also reset a still-live connector (for
+			// example after an authentication failure). reset() has already
+			// released all active slots, so do not decrement them twice.
+			if (requestGeneration != connector->generation) {
 				return;
 			}
 
-			if (activeRequests > 0) {
-				--activeRequests;
+			if (connector->activeRequests > 0) {
+				--connector->activeRequests;
 			}
 			if (globalActiveRequests > 0) {
 				--globalActiveRequests;
 			}
-			if (!restartingTransport) {
+			if (!connector->restartingTransport) {
 				processQueues();
 			}
 		});
@@ -477,12 +501,18 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 #else
 	connect(reply, qOverload<QNetworkReply::NetworkError>(&QNetworkReply::errorOccurred),
 #endif
-			this, [this, reply, requestGeneration](QNetworkReply::NetworkError error) {
-		if (requestGeneration != generation || replayedReplies.contains(reply)) {
-			return;
-		}
-		emit onNetworkError (error, reply->errorString());
-	});
+			this, [connectorGuard, replyGuard, requestGeneration](
+                      QNetworkReply::NetworkError error) {
+                HTTPConnector* connector = connectorGuard.data();
+                QNetworkReply* currentReply = replyGuard.data();
+                if (!connector || !currentReply
+                    || requestGeneration != connector->generation
+                    || connector->replayedReplies.contains(currentReply)) {
+                    return;
+                }
+				emit connector->onNetworkError(
+                    error, currentReply->errorString());
+			});
 }
 
 } /* namespace Mattermost */

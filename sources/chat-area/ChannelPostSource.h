@@ -25,6 +25,10 @@ public:
                                QObject* parent = nullptr);
 
     int ensurePostIndex(const QString& postId) override;
+    bool isPostPositionAuthoritative(const QString& postId) const override
+    {
+        return isAuthoritativePost(postId);
+    }
 
     /**
      * Atomically adopt a server-provided chronological context around a semantic

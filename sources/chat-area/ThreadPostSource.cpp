@@ -162,7 +162,6 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
                 << "THREAD_POST_EDIT source=" << static_cast<const void*>(this)
                 << " post=" << shortId(post.id)
                 << " index=" << index;
-            emit itemsChanged(index, index);
         }
         syncLogicalCount(post);
     });
@@ -173,19 +172,11 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
         // publishing itemsChanged(0), which would rematerialize the thread root.
         syncLogicalCount(rootPost);
     });
-    connect(&channel, &BackendChannel::onPostReactionUpdated, this,
-            [this](BackendPost& post) {
-        const int index = indexOfPost(post.id);
-        if (index >= 0) {
-            emit itemsChanged(index, index);
-        }
-    });
     connect(&channel, &BackendChannel::onPostDeleted, this,
             [this](const QString& postId) {
         const int index = indexOfPost(postId);
         if (index >= 0) {
             retainMappedTombstone(postId);
-            emit itemsChanged(index, index);
         }
     });
 
@@ -432,7 +423,7 @@ bool ThreadPostSource::placeIsland(Island next, int exactFirst, int reservedFirs
         }
     }
     pruneProvisionalPostIds();
-    emit layoutChanged(0, itemCount() - 1);
+    mappingChanged(0, itemCount() - 1);
     if (exactFirst >= 0 || next.ready) emit rangeAvailable(first, first + count - 1);
     return true;
 }
@@ -1337,7 +1328,6 @@ void ThreadPostSource::appendLiveReply(BackendPost& post)
             << "THREAD_LIVE_EXISTING source=" << static_cast<const void*>(this)
             << " post=" << shortId(post.id)
             << " index=" << existing;
-        emit itemsChanged(existing, existing);
         return;
     }
 

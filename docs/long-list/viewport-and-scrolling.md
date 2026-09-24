@@ -33,6 +33,44 @@ Child widgets are installed on the viewport and watched for `LayoutRequest` / `R
 changes in one event-loop turn are coalesced. The next geometry transaction measures all dirty
 widgets together before the viewport is allowed to move or repaint.
 
+Those events are only **hints**. If remeasurement proves that every dirty row kept the same logical
+height, the transaction is a no-op: it must not restore anchors, relayout the list, emit range
+changes, or wake `rangeRequested`. This is important for hover/reaction affordances and other
+child-widget activity: moving the mouse over posts must never turn an unresolved neighbouring gap
+into transport polling.
+
+Structural HeightIndex changes are different. Changing logical item count or the default estimate
+changes content extent even when there is no dirty materialized QWidget. Such operations must force
+scrollbar-range/anchor reconciliation; they must never depend on a dirty-row measurement to make the
+new logical extent visible to `scrollToEnd()`, sparse seek, or viewport demand.
+
+A semantic child signal that explicitly guarantees finalized size hints (for example
+`PostWidget::dimensionsChanged`) uses `commitItemGeometryNow()` instead of the deferred hint path.
+That transaction updates the HeightIndex and physical QWidget atomically before another scroll/sync
+can reapply an obsolete estimated height. Generic Qt `LayoutRequest` / `Resize` events must not use
+this synchronous path because they may be presentation-only noise.
+
+Likewise, ordinary `insertItems()`/viewport synchronization must not globally disable and re-enable
+viewport updates merely to protect a synchronous geometry sequence. Those operations do not re-enter
+the event loop, so no intermediate paint can occur; re-enabling QWidget updates would instead
+invalidate the entire viewport and repaint every materialized post. Child show/move/hide operations
+are sufficient to invalidate only the affected regions.
+
+A same-index semantic replacement (for example optimistic pending -> authoritative server post) uses
+`replaceItem(index)`. The replacement is created and measured while the old row is still visible.
+A replacement whose first measurement differs from the resident row is first kept hidden for one
+event-loop turn and remeasured after queued child-layout work settles. The resident row remains
+visible during that preparation. This prevents transient construction sizes (for example wrapped
+rich text before its width-dependent height settles) from becoming user-visible geometry. If the
+settled height is unchanged (the normal optimistic-promotion case), the two child widgets are then
+swapped in the same rect and only that rect is invalidated; the viewport is **not** globally
+disabled/re-enabled, because re-enabling QWidget updates itself schedules a full repaint.
+Only a real height/availability change enters the scrollbar/anchor transaction that may move other
+rows. Even that transaction must not globally disable/re-enable viewport updates: it is synchronous
+and does not re-enter the event loop, while re-enabling QWidget updates invalidates every materialized
+child and can make expensive PostWidgets visibly flash. Unrelated widgets are retained. Do not model
+replacement as `layoutChanged`, nor as a visible `itemsInserted` followed by `itemsRemoved`.
+
 A delayed image, Markdown reflow, reaction row or thread button therefore cannot independently move
 the chat viewport.
 

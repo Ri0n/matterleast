@@ -75,14 +75,44 @@ public:
         }
     }
 
+    void setFactoryHeight(int index, int height)
+    {
+        syntheticHeights[index] = height;
+    }
+
+    void setDeferredFactoryHeight(int index, int initialHeight, int settledHeight)
+    {
+        syntheticHeights[index] = initialHeight;
+        deferredHeights[index] = settledHeight;
+    }
+
+    bool updatesEnabledWhenDestroyed = true;
+    int destroyedHeight = -1;
+
 protected:
     QWidget* createItemWidget(int index) override
     {
-        return new VariableRow(syntheticHeights.value(index, defaultItemHeight()));
+        auto* row =
+            new VariableRow(syntheticHeights.value(index, defaultItemHeight()));
+        if (deferredHeights.contains(index)) {
+            const int settledHeight = deferredHeights.take(index);
+            QTimer::singleShot(0, row, [row, settledHeight] {
+                row->setHintHeight(settledHeight);
+            });
+        }
+        return row;
+    }
+
+    void destroyItemWidget(int index, QWidget* widget) override
+    {
+        updatesEnabledWhenDestroyed = viewport()->updatesEnabled();
+        destroyedHeight = widget ? widget->height() : -1;
+        LongListWidget::destroyItemWidget(index, widget);
     }
 
 private:
     QHash<int, int> syntheticHeights;
+    QHash<int, int> deferredHeights;
 };
 
 } // namespace
@@ -108,6 +138,177 @@ private slots:
         const int center = list.indexAtViewportPosition(list.viewport()->height() / 2);
         QVERIFY2(qAbs(center - 5000) <= 3,
                  "A uniform 10k list must map the middle of the scrollbar near logical item 5000");
+    }
+
+    void singleRowReplacementKeepsOtherWidgetsAndStickyBottom()
+    {
+        TestLongListWidget list;
+        list.resize(480, 120);
+        list.setDefaultItemHeight(60);
+        list.setItemCount(4);
+        list.setRangeAvailable(0, 3);
+        list.show();
+        settleEvents();
+        list.scrollToEnd();
+        settleEvents();
+
+        // Synthetic replacement geometry: the invariant is same-height
+        // identity promotion, not any particular PostWidget pixel height.
+        list.setSyntheticHeight(3, 68);
+        settleEvents();
+
+        QWidget* first = list.itemWidget(0);
+        QWidget* second = list.itemWidget(1);
+        QWidget* third = list.itemWidget(2);
+        QWidget* replaced = list.itemWidget(3);
+        QVERIFY(first);
+        QVERIFY(second);
+        QVERIFY(third);
+        QVERIFY(replaced);
+        QVERIFY(list.isAtEnd());
+
+        list.replaceItem(3);
+        settleEvents();
+
+        QCOMPARE(list.itemWidget(0), first);
+        QCOMPARE(list.itemWidget(1), second);
+        QCOMPARE(list.itemWidget(2), third);
+        QVERIFY(list.itemWidget(3));
+        QVERIFY(list.itemWidget(3) != replaced);
+        QVERIFY(list.isAtEnd());
+        QVERIFY(list.updatesEnabledWhenDestroyed);
+        QCOMPARE(list.destroyedHeight, 68);
+        QCOMPARE(list.itemWidget(3)->height(), 68);
+    }
+
+    void transientReplacementHeightSettlesBeforeVisibleSwap()
+    {
+        TestLongListWidget list;
+        list.resize(480, 180);
+        list.setDefaultItemHeight(60);
+        list.setItemCount(3);
+        list.setRangeAvailable(0, 2);
+        list.show();
+        list.scrollToEnd();
+        settleEvents(12);
+
+        QWidget* previous = list.itemWidget(2);
+        QVERIFY(previous);
+        QCOMPARE(previous->height(), 60);
+
+        list.setDeferredFactoryHeight(2, 68, 60);
+        list.replaceItem(2);
+
+        // The transient 68px replacement is hidden; the old row remains the
+        // materialized/visible identity until queued child layout settles.
+        QCOMPARE(list.itemWidget(2), previous);
+        QCOMPARE(previous->height(), 60);
+
+        settleEvents(12);
+
+        QVERIFY(list.itemWidget(2) != previous);
+        QCOMPARE(list.itemWidget(2)->height(), 60);
+        QCOMPARE(list.destroyedHeight, 60);
+        QVERIFY(list.updatesEnabledWhenDestroyed);
+        QVERIFY(list.isAtEnd());
+    }
+
+    void heightChangingReplacementDoesNotDisableViewportUpdates()
+    {
+        TestLongListWidget list;
+        list.resize(480, 180);
+        list.setDefaultItemHeight(60);
+        list.setItemCount(3);
+        list.setRangeAvailable(0, 2);
+        list.show();
+        list.scrollToEnd();
+        settleEvents(12);
+
+        list.setSyntheticHeight(2, 68);
+        settleEvents();
+        QWidget* previous = list.itemWidget(2);
+        QVERIFY(previous);
+
+        // Return the old row to 60 while teaching the factory that the semantic
+        // replacement is taller. This forces replaceItem() through its
+        // height-changing path rather than the same-height fast path.
+        list.setSyntheticHeight(2, 60);
+        settleEvents();
+        list.setFactoryHeight(2, 68);
+
+        list.updatesEnabledWhenDestroyed = false;
+        list.replaceItem(2);
+
+        // A differing first measurement is staged off-screen. Once the same
+        // 68px answer survives the settle turn it is committed as a real
+        // geometry change, still without globally disabling viewport updates.
+        QCOMPARE(list.itemWidget(2), previous);
+        settleEvents(12);
+
+        QVERIFY(list.itemWidget(2) != previous);
+        QVERIFY(list.updatesEnabledWhenDestroyed);
+        QCOMPARE(list.itemWidget(2)->height(), 68);
+        QVERIFY(list.isAtEnd());
+    }
+
+    void explicitGeometryCommitIsImmediate()
+    {
+        TestLongListWidget list;
+        list.resize(480, 180);
+        list.setDefaultItemHeight(60);
+        list.setItemCount(3);
+        list.setRangeAvailable(0, 2);
+        list.show();
+        list.scrollToEnd();
+        settleEvents(12);
+
+        QWidget* row = list.itemWidget(2);
+        QVERIFY(row);
+        QCOMPARE(row->height(), 60);
+
+        list.setSyntheticHeight(2, 68);
+        // setSyntheticHeight() queued the generic coalesced path. The explicit
+        // semantic path must make the HeightIndex/physical row authoritative
+        // immediately, before that timer gets an event-loop turn.
+        list.commitItemGeometryNow(2);
+
+        QCOMPARE(list.itemWidget(2)->height(), 68);
+        QVERIFY(list.isAtEnd());
+    }
+
+    void noOpLayoutRequestDoesNotRetryMissingRange()
+    {
+        TestLongListWidget list;
+        list.resize(480, 180);
+        list.setDefaultItemHeight(60);
+        list.setPrefetchScreens(0);
+        list.setItemCount(20);
+        list.setRangeAvailable(16, 19);
+        list.show();
+        list.scrollToEnd();
+        settleEvents(12);
+
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+
+        // The visible tail is resident, while the normal half-screen margin
+        // reaches one or more missing rows immediately before it.
+        list.scrollToEnd();
+        settleEvents(8);
+        QVERIFY(!requests.isEmpty());
+        const QList<QVariant> request = requests.takeFirst();
+        list.finishRangeRequest(request.at(0).toInt(), request.at(1).toInt());
+        settleEvents(8);
+        requests.clear();
+
+        QWidget* row = list.itemWidget(19);
+        QVERIFY(row);
+        QEvent layoutRequest(QEvent::LayoutRequest);
+        for (int i = 0; i < 12; ++i) {
+            QCoreApplication::sendEvent(row, &layoutRequest);
+            settleEvents(2);
+        }
+
+        QCOMPARE(requests.count(), 0);
     }
 
     void hoverStateFollowsLatestTopLevelItem()
@@ -154,6 +355,32 @@ private slots:
         QCOMPARE(hoverChanges.count(), 3);
         QCOMPARE(hoverChanges.at(2).at(0).toInt(), 1);
         QCOMPARE(hoverChanges.at(2).at(1).toInt(), -1);
+    }
+
+    void immediateTailPositionWinsQueuedInitialSync()
+    {
+        TestLongListWidget list;
+        list.resize(480, 360);
+        list.setDefaultItemHeight(60);
+        list.setPrefetchScreens(0);
+        list.show();
+
+        QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
+        list.setItemCount(1000);
+        list.setRangeAvailable(999, 999);
+
+        // Mirror ChatArea activation: source attachment queues initial sync,
+        // then the owning surface establishes newest before returning to the
+        // event loop.
+        list.scrollToEnd();
+        settleEvents(12);
+
+        QVERIFY(!requests.isEmpty());
+        for (const auto& request : requests) {
+            QVERIFY2(request.at(0).toInt() > 900,
+                     "Priming newest in the attachment turn must prevent an oldest-history request");
+        }
+        QVERIFY(list.visibleRange().contains(999));
     }
 
     void missingItemsRequestContiguousViewportDemand()

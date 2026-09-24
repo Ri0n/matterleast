@@ -47,6 +47,7 @@
 #include "backend/Backend.h"
 #include "backend/DraftService.h"
 #include "backend/PostCreateService.h"
+#include "backend/PendingPostService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
 #include "backend/UploadTrace.h"
@@ -643,19 +644,48 @@ void OutgoingPostCreator::sendPost()
 				           << outgoingPostData->replyToPostId;
 			}
 		}
-		service.createPost(*channel, wireMessage, outgoingPostData->attachmentIds,
-		                   outgoingPostData->rootId, props,
-                       outgoingPostData->pendingPostId,
-		                   [guard](BackendPost* post) {
-			if (!guard) {
-				return;
-			}
-			if (post) {
-				guard->finishSend(post->id);
-			} else {
-				guard->failSend();
-			}
-		});
+        if (!outgoingPostData->attachmentIds.isEmpty()) {
+            // Pre-uploaded attachment IDs do not yet have a complete editable
+            // recovery representation in Drafts. Keep attachment posts on the
+            // established acknowledged-send path rather than risk losing their
+            // attachment intent across a process restart.
+            service.createPost(
+                *channel,
+                wireMessage,
+                outgoingPostData->attachmentIds,
+                outgoingPostData->rootId,
+                props,
+                outgoingPostData->pendingPostId,
+                [guard](BackendPost* post) {
+                    if (!guard) {
+                        return;
+                    }
+                    if (post) {
+                        guard->finishSend(post->id);
+                    } else {
+                        guard->failSend();
+                    }
+                });
+            return;
+        }
+
+        const QString pendingPostId =
+            PendingPostService::instance(*backend).enqueue(
+                *channel,
+                wireMessage,
+                {},
+                outgoingPostData->rootId,
+                props,
+                outgoingPostData->pendingPostId);
+        if (pendingPostId.isEmpty()) {
+            failSend();
+            return;
+        }
+
+        // The local outbox row is now the user's immediate acknowledgement.
+        // Release the composer before any network round trip; the outbox owns
+        // delivery/retry/correlation from this point on.
+        finishSend(pendingPostId);
 	}
 }
 
@@ -730,7 +760,7 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
 	sendFailed = false;
 
     if (!wasEdit && backend && channel) {
-        DraftService::instance(*backend).removeDraft(channel->id, root_id);
+        discardPersistentDraft();
     }
 
     suppressDraftPersistence = true;
@@ -1023,20 +1053,33 @@ void OutgoingPostCreator::savePersistentDraftNow()
         return;
     }
 
-    DraftService::instance(*backend).updateDraft(
-        channel->id,
-        root_id,
-        toPlainText(),
-        property(PostProps::ReplyToPostId).toString());
+    auto& drafts = DraftService::instance(*backend);
+    const QString message = toPlainText();
+    const QString replyToPostId =
+        property(PostProps::ReplyToPostId).toString();
+    if (!activeRecoveredDraftKey.isEmpty()) {
+        drafts.updateRecoveredDraft(
+            activeRecoveredDraftKey, message, replyToPostId);
+    } else {
+        drafts.updateDraft(
+            channel->id, root_id, message, replyToPostId);
+    }
 }
 
 void OutgoingPostCreator::flushPersistentDraft()
 {
-    if (!draftSaveTimer || !draftSaveTimer->isActive()) {
+    if (!backend || !channel || isEditingPost()) {
         return;
     }
-    draftSaveTimer->stop();
-    savePersistentDraftNow();
+
+    if (draftSaveTimer && draftSaveTimer->isActive()) {
+        draftSaveTimer->stop();
+        savePersistentDraftNow();
+    }
+
+    if (activeRecoveredDraftKey.isEmpty()) {
+        DraftService::instance(*backend).flushDraft(channel->id, root_id);
+    }
 }
 
 void OutgoingPostCreator::discardPersistentDraft()
@@ -1045,25 +1088,38 @@ void OutgoingPostCreator::discardPersistentDraft()
         draftSaveTimer->stop();
     }
     if (backend && channel) {
-        DraftService::instance(*backend).removeDraft(channel->id, root_id);
+        auto& drafts = DraftService::instance(*backend);
+        if (!activeRecoveredDraftKey.isEmpty()) {
+            drafts.removeDraftByKey(activeRecoveredDraftKey);
+            activeRecoveredDraftKey.clear();
+        } else {
+            drafts.removeDraft(channel->id, root_id);
+        }
     }
 }
 
-void OutgoingPostCreator::restorePersistentDraft()
+void OutgoingPostCreator::restorePersistentDraft(const QString& draftKey)
 {
     if (!backend || !channel || isEditingPost() || outgoingPostData) {
         return;
     }
 
-    if (draftSaveTimer) {
-        draftSaveTimer->stop();
-    }
+    // Switching between the ordinary conversation draft and a recovered
+    // outbox draft must not discard edits still waiting in the debounce timer.
+    // flushPersistentDraft() writes through the identity that is active before
+    // we replace activeRecoveredDraftKey below.
+    flushPersistentDraft();
 
     DraftEntry draft;
-    const bool found = DraftService::instance(*backend).findDraft(
-        channel->id, root_id, draft);
+    auto& drafts = DraftService::instance(*backend);
+    const bool requestedRecovered = !draftKey.isEmpty();
+    const bool found = requestedRecovered
+        ? drafts.findDraftByKey(draftKey, draft)
+        : drafts.findDraft(channel->id, root_id, draft);
 
     suppressDraftPersistence = true;
+    activeRecoveredDraftKey =
+        found && draft.isRecovered() ? draft.key() : QString();
     if (found) {
         setPlainText(draft.message);
         setProperty(PostProps::ReplyToPostId, draft.replyToPostId);

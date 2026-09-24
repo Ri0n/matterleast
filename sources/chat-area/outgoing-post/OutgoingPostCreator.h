@@ -72,7 +72,7 @@ public:
 	          QPushButton& sendButton);
 	void setRootId(QString id);
 	const QString& rootId() const { return root_id; }
-    void restorePersistentDraft();
+    void restorePersistentDraft(const QString& draftKey = QString());
     void flushPersistentDraft();
 	QString pollCommandTeamId() const;
 	void armPollRealtimeAcknowledgement(const BackendNewPollData& pollData);
@@ -137,6 +137,9 @@ private:
 	bool								sendFailed = false;
 	QBoxLayout* 						attachmentParent = nullptr;
 	QString						root_id;
+    // Non-empty only while editing a local recovered-unsent draft. Ordinary
+    // Mattermost drafts remain keyed by (channel, root) as before.
+    QString                             activeRecoveredDraftKey;
     QTimer*                             draftSaveTimer = nullptr;
     bool                                suppressDraftPersistence = false;
 };

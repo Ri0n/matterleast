@@ -43,6 +43,7 @@
 #include "./ui_mainwindow.h"
 #include "SettingsWindow.h"
 #include "backend/Backend.h"
+#include "backend/PendingPostService.h"
 #include "backend/SidebarService.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -122,6 +123,10 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 		qCritical() << "Current User's ID is empty string";
 		return;
 	}
+
+	// Recover previous-process unresolved sends before Drafts can be opened.
+	// Construction never retransmits them; it converts them to local drafts.
+	PendingPostService::instance(backend);
 
 	auto& sidebar = SidebarService::instance(backend);
 	auto& userProfiles = UserProfileService::instance(backend);

@@ -38,7 +38,7 @@ public:
     const QString& rootPostId() const { return rootId; }
 
     /** Whether this post already has a server-confirmed logical thread index. */
-    bool isPostPositionAuthoritative(const QString& postId) const
+    bool isPostPositionAuthoritative(const QString& postId) const override
     {
         const int index = indexOfPost(postId);
         return index >= 0 && !provisionalPostIds.contains(postId);

@@ -19,6 +19,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <QFont>
 #include <QPushButton>
 #include <QSet>
@@ -32,6 +34,7 @@ class QCheckBox;
 class QContextMenuEvent;
 class QEvent;
 class QGraphicsOpacityEffect;
+class QLabel;
 class QMouseEvent;
 class QPaintEvent;
 class QPropertyAnimation;
@@ -45,6 +48,7 @@ namespace Mattermost {
 
 class Backend;
 class BackendUser;
+class BusyIndicatorWidget;
 class PostQuoteFrame;
 class QuotedPostPreview;
 class PostAttachmentList;
@@ -65,11 +69,14 @@ public:
     enum class PresentationMode {
         Interactive,
         ReadOnlySnapshot,
+        Pending,
     };
 
-    explicit PostWidget(Backend& backend, BackendPost& post, QWidget* parent,
-                        ChatArea* chatArea, BackendPost* lastRootPost,
-                        PresentationMode presentationMode = PresentationMode::Interactive);
+    explicit PostWidget(
+        Backend& backend, BackendPost& post, QWidget* parent,
+        ChatArea* chatArea, BackendPost* lastRootPost,
+        PresentationMode presentationMode = PresentationMode::Interactive,
+        std::shared_ptr<BackendPost> postLease = {});
     ~PostWidget();
 public:
 
@@ -99,6 +106,11 @@ public:
 
     void addThreadButton();
     Backend& getBackend() const { return backend_; }
+
+    void setPendingDeliveryPresentation(const QString& statusText,
+                                        bool failed,
+                                        std::function<void()> retry,
+                                        std::function<void()> cancel);
 
     BackendPost&						post;
     QString								hoveredLink;
@@ -139,10 +151,12 @@ private:
     void refreshPermalinkPreviews();
     void openUserProfile(const QString& username);
     void openGroupMention(const QString& groupId);
-    void applyChatFont(const QString& serializedFont);
+    void applyChatFont(const QString& serializedFont,
+                       bool notifyGeometry = true);
     QString mentionTeamId() const;
 
     Backend&                            backend_;
+    std::shared_ptr<BackendPost>       postLease_;
     PostResidencyLease                 residencyLease;
     Ui::PostWidget*						ui;
     std::unique_ptr<PostQuoteFrame>		quoteFrame;
@@ -158,6 +172,13 @@ private:
     PresentationMode                    presentationMode_ = PresentationMode::Interactive;
     ThreadSummaryWidget*                threadSummary = nullptr;
     QCheckBox*                         wholeMessageCheck_ = nullptr;
+    BusyIndicatorWidget*               pendingDeliveryIndicator_ = nullptr;
+    QWidget*                           pendingDeliveryRow_ = nullptr;
+    QLabel*                            pendingDeliveryLabel_ = nullptr;
+    QPushButton*                       pendingRetryButton_ = nullptr;
+    QPushButton*                       pendingCancelButton_ = nullptr;
+    std::function<void()>              pendingRetry_;
+    std::function<void()>              pendingCancel_;
     QPushButton*                       reactionAffordance_ = nullptr;
     QGraphicsOpacityEffect*            reactionOpacity_ = nullptr;
     QPropertyAnimation*                reactionAnimation_ = nullptr;

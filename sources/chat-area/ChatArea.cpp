@@ -36,9 +36,11 @@
 #include "ChannelPostSource.h"
 #include "ChatLogWidget.h"
 #include "FilteredPostSource.h"
+#include "OutboxPostSource.h"
 #include "PostFilterPolicy.h"
 #include "ThreadPostSource.h"
 #include "backend/Backend.h"
+#include "backend/PendingPostService.h"
 #include "backend/NetworkRequest.h"
 #include "backend/ThreadFollowService.h"
 #include "backend/UserProfileService.h"
@@ -437,25 +439,61 @@ void ChatArea::updateUsersButton()
 void ChatArea::setupPostSource()
 {
     if (!postSource) {
+        AbstractPostSource* presentedServerSource = nullptr;
+        PendingPostService::VisibilityPredicate visibilityPredicate =
+            [](const BackendPost&) { return true; };
+
         if (isThread) {
-            postSource = new ThreadPostSource(backend, channel, root_id, this);
+            presentedServerSource =
+                new ThreadPostSource(backend, channel, root_id, this);
         } else {
             // ChannelPostSource keeps the unfiltered server coordinate system;
             // only its view-facing model projection applies presentation policy.
+            Backend* backendPtr = &backend;
+            visibilityPredicate = [backendPtr](const BackendPost& post) {
+                const BackendUser* loginUser =
+                    backendPtr->getStorage().loginUser;
+                return shouldShowMainTimelinePost(
+                    post.type,
+                    post.props.toObject(),
+                    loginUser ? loginUser->username : QString());
+            };
             auto* channelSource = new ChannelPostSource(backend, channel, this);
-            postSource = new FilteredPostSource(
-                *channelSource,
-                [this](const BackendPost& post) {
-                    const BackendUser* loginUser = backend.getStorage().loginUser;
-                    return shouldShowMainTimelinePost(
-                        post.type,
-                        post.props.toObject(),
-                        loginUser ? loginUser->username : QString());
-                },
-                this);
+            presentedServerSource = new FilteredPostSource(
+                *channelSource, visibilityPredicate, this);
         }
+
+        auto& outbox = PendingPostService::instance(backend);
+        const QString timelineRoot = isThread ? root_id : QString();
+        // The projection owns "visible conversation" semantics. Delivery uses
+        // the same policy only for its bounded auto-retry cutoff.
+        outbox.setVisibilityPredicate(
+            channel.id, timelineRoot, visibilityPredicate);
+
+        // Optimistic/failed local messages are an additive presentation tail.
+        // They never enter authoritative channel/thread topology, so paging,
+        // reply counts, navigation and read state stay server-backed.
+        postSource = new OutboxPostSource(
+            *presentedServerSource,
+            outbox,
+            channel.id,
+            timelineRoot,
+            this);
     }
     ui->listWidget->setSource(postSource);
+
+    // setSource()/setItemCount() queues LongList's first synchronize() for the
+    // next event-loop turn. Establish this chat's semantic starting viewport
+    // immediately, otherwise that queued sync observes the default scrollbar
+    // value 0 and can start loading the oldest history before the later
+    // newest/bookmark timer gets a chance to run.
+    if (!isThread && !storedViewportPostId.isEmpty()) {
+        if (!ui->listWidget->restoreViewportBookmark(storedViewportPostId)) {
+            ui->listWidget->scrollToEnd();
+        }
+    } else {
+        ui->listWidget->scrollToEnd();
+    }
 }
 
 void ChatArea::scheduleNewestPosition()
@@ -729,11 +767,11 @@ void ChatArea::onDeactivate()
     }
 }
 
-void ChatArea::restoreDraftAndFocus()
+void ChatArea::restoreDraftAndFocus(const QString& draftKey)
 {
     goToNewest();
     if (ui && ui->outgoingPostCreator) {
-        ui->outgoingPostCreator->restorePersistentDraft();
+        ui->outgoingPostCreator->restorePersistentDraft(draftKey);
     }
     focusComposer();
 }

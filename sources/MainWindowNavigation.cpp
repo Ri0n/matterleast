@@ -29,7 +29,9 @@ void MainWindow::beginSemanticNavigation()
     }
 }
 
-void MainWindow::openDraft(const QString& channelId, const QString& rootId)
+void MainWindow::openDraft(const QString& channelId,
+                           const QString& rootId,
+                           const QString& draftKey)
 {
     if (channelId.isEmpty()
         || !backend.getStorage().getChannelById(channelId)) {
@@ -43,8 +45,9 @@ void MainWindow::openDraft(const QString& channelId, const QString& rootId)
         QPointer<MainWindow> guard(this);
         *completion = connect(
             ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
-            [guard, completion, channelId](const QString& completedChannelId,
-                                           bool opened) {
+            [guard, completion, channelId, draftKey](
+                const QString& completedChannelId,
+                bool opened) {
                 if (completedChannelId != channelId) {
                     return;
                 }
@@ -52,13 +55,14 @@ void MainWindow::openDraft(const QString& channelId, const QString& rootId)
                 if (!guard || !opened) {
                     return;
                 }
-                QTimer::singleShot(0, guard.data(), [guard, channelId] {
+                QTimer::singleShot(0, guard.data(),
+                                   [guard, channelId, draftKey] {
                     if (!guard) {
                         return;
                     }
                     ChatArea* area = guard->ui->channelList->getCurrentPage();
                     if (area && area->getChannel().id == channelId) {
-                        area->restoreDraftAndFocus();
+                        area->restoreDraftAndFocus(draftKey);
                     }
                 });
             });
@@ -67,7 +71,7 @@ void MainWindow::openDraft(const QString& channelId, const QString& rootId)
         ChatArea* area = ui->channelList->getCurrentPage();
         if (area && area->getChannel().id == channelId) {
             QObject::disconnect(*completion);
-            area->restoreDraftAndFocus();
+            area->restoreDraftAndFocus(draftKey);
         }
         return;
     }
@@ -76,8 +80,9 @@ void MainWindow::openDraft(const QString& channelId, const QString& rootId)
     QPointer<MainWindow> guard(this);
     *completion = connect(
         ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
-        [guard, completion, channelId, rootId](const QString& completedChannelId,
-                                               bool opened) {
+        [guard, completion, channelId, rootId, draftKey](
+            const QString& completedChannelId,
+            bool opened) {
             if (completedChannelId != channelId) {
                 return;
             }
@@ -85,23 +90,25 @@ void MainWindow::openDraft(const QString& channelId, const QString& rootId)
             if (!guard || !opened) {
                 return;
             }
-            QTimer::singleShot(0, guard.data(), [guard, channelId, rootId] {
+            QTimer::singleShot(0, guard.data(),
+                               [guard, channelId, rootId, draftKey] {
                 if (!guard) {
                     return;
                 }
                 if (ChatArea* thread = NavigationUiController::instance(*guard)
                                            .findThread(channelId, rootId)) {
-                    thread->restoreDraftAndFocus();
+                    thread->restoreDraftAndFocus(draftKey);
                 }
             });
         });
 
     openChannelPost(channelId, QString(), rootId);
-    QTimer::singleShot(0, this, [this, completion, channelId, rootId] {
+    QTimer::singleShot(
+        0, this, [this, completion, channelId, rootId, draftKey] {
         if (ChatArea* thread = NavigationUiController::instance(*this)
                                    .findThread(channelId, rootId)) {
             QObject::disconnect(*completion);
-            thread->restoreDraftAndFocus();
+            thread->restoreDraftAndFocus(draftKey);
         }
     });
 }

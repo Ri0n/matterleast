@@ -3,6 +3,7 @@
 #include <functional>
 
 #include <QJsonObject>
+#include <QNetworkReply>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -26,7 +27,28 @@ struct BackendNewPollData;
 class PostCreateService final : public QObject
 {
 public:
+    struct CreatePostResult {
+        BackendPost* post = nullptr;
+        QNetworkReply::NetworkError networkError = QNetworkReply::NoError;
+        int httpStatus = 0;
+        QString errorText;
+
+        bool success() const { return post != nullptr; }
+        bool retryable() const
+        {
+            if (success()) {
+                return false;
+            }
+            if (httpStatus == 408 || httpStatus == 425 || httpStatus == 429
+                || httpStatus >= 500) {
+                return true;
+            }
+            return httpStatus == 0 && networkError != QNetworkReply::NoError;
+        }
+    };
+
     using PostCallback = std::function<void(BackendPost*)>;
+    using CreatePostCallback = std::function<void(CreatePostResult)>;
     using ResultCallback = std::function<void(bool)>;
 
     static PostCreateService& instance(Backend& backend);
@@ -38,6 +60,14 @@ public:
                     const QJsonObject& props = QJsonObject(),
                     const QString& pendingPostId = QString(),
                     PostCallback callback = {});
+
+    void createPostDetailed(BackendChannel& channel,
+                            const QString& message,
+                            const QList<QString>& attachments,
+                            const QString& rootId,
+                            const QJsonObject& props,
+                            const QString& pendingPostId,
+                            CreatePostCallback callback);
 
     void editPost(const QString& postId,
                   const QString& message,

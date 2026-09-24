@@ -30,6 +30,7 @@
 #include <QTimer>
 #include "Backend.h"
 #include "PostRepository.h"
+#include "DraftService.h"
 #include "SidebarService.h"
 #include "FollowingModel.h"
 #include "Storage.h"
@@ -94,6 +95,13 @@ void WebSocketEventHandler::handleEvent(const MultipleChannelsViewedEvent& event
         emit channel->onViewed();
         emit backend.onChannelViewed(*channel);
     }
+}
+
+void WebSocketEventHandler::handleDraftEvent(
+    const QJsonObject& data,
+    bool deleted)
+{
+    DraftService::instance(backend).applyRemoteDraftEvent(data, deleted);
 }
 
 void WebSocketEventHandler::handleEvent(const ThreadUpdatedEvent& event)

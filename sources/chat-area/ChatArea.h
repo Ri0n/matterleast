@@ -74,7 +74,7 @@ public:
 	void handleUserTyping (const BackendUser& user);
 	void editPost(BackendPost& post);
     /** Navigate to the live edge, reload the persisted draft and focus the composer. */
-    void restoreDraftAndFocus();
+    void restoreDraftAndFocus(const QString& draftKey = QString());
     /**
      * Suppress only selected outer horizontal gutters when a ChatArea touches
      * another chat surface through a splitter. Vertical/inner layout stays intact.

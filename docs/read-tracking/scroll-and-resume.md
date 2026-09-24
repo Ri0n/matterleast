@@ -141,7 +141,9 @@ flowchart TD
     H --> I[Clear firstUnreadPostId]
 ```
 
-`FirstUnread` is what Following and Attention should navigate to on the next
-activation. `Unknown` means the local cache has no next identity but the source
-has not proved that the read post is the real tail; guessing “read” here is not
-allowed. `AtEnd` means the real tail has been consumed.
+`FirstUnread` is the resume target when Following/Attention enters or re-enters
+that semantic destination. It is **not** a "next unread" command for repeated
+clicks on an already-open conversation row; that presentation-only case preserves
+the current viewport. `Unknown` means the local cache has no next identity but
+the source has not proved that the read post is the real tail; guessing “read”
+here is not allowed. `AtEnd` means the real tail has been consumed.

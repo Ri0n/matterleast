@@ -90,7 +90,8 @@ private:
     void openMessageSearch();
     void openSavedMessages(const QString& teamId = QString());
     void openDrafts(const QString& teamId = QString());
-    void openDraft(const QString& channelId, const QString& rootId);
+    void openDraft(const QString& channelId, const QString& rootId,
+                   const QString& draftKey = QString());
     void showCollectionPage(PostCollectionView* page);
 	void refreshMenuButtonIcon ();
     void refreshSearchButtonIcon();

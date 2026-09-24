@@ -1,5 +1,6 @@
 #include "ChatLogWidget.h"
 
+#include <functional>
 #include <algorithm>
 
 #include <QLoggingCategory>
@@ -13,9 +14,10 @@
 #include <QTimer>
 
 #include "ChatArea.h"
-#include "ThreadPostSource.h"
+#include "OutboxPostSource.h"
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
+#include "backend/PendingPostService.h"
 #include "backend/SidebarService.h"
 #include "backend/ThreadFollowService.h"
 #include "backend/types/BackendChannel.h"
@@ -237,7 +239,7 @@ bool ChatLogWidget::captureViewportBookmark(QString& postId) const
     // message under the viewport centre gives a stable visual neighborhood when
     // the view is rebuilt later, even if posts were inserted while inactive.
     const int centerIndex = indexAtViewportPosition(viewport()->height() / 2);
-    if (centerIndex >= 0) {
+    if (centerIndex >= 0 && !isLocalPresentationIndex(centerIndex)) {
         if (BackendPost* post = postSource->postAt(centerIndex)) {
             if (!post->id.isEmpty()) {
                 postId = post->id;
@@ -257,6 +259,9 @@ bool ChatLogWidget::captureViewportBookmark(QString& postId) const
         const int candidates[] = {center - distance, center + distance};
         for (int index : candidates) {
             if (index < visible.first || index > visible.last) {
+                continue;
+            }
+            if (isLocalPresentationIndex(index)) {
                 continue;
             }
             BackendPost* post = postSource->postAt(index);
@@ -286,7 +291,7 @@ bool ChatLogWidget::ensurePostVisible(const QString& postId, Alignment alignment
         return false;
     }
     const int index = postSource->ensurePostIndex(postId);
-    if (index < 0) {
+    if (index < 0 || !postSource->isAuthoritativeRow(index)) {
         return false;
     }
 
@@ -309,7 +314,12 @@ bool ChatLogWidget::ensurePostVisible(const QString& postId, Alignment alignment
 
 void ChatLogWidget::highlightPost(const QString& postId)
 {
-    if (postId.isEmpty()) {
+    if (!postSource || postId.isEmpty()) {
+        return;
+    }
+
+    const int index = postSource->indexOfPost(postId);
+    if (index >= 0 && !postSource->isAuthoritativeRow(index)) {
         return;
     }
 
@@ -339,6 +349,9 @@ void ChatLogWidget::refreshPost(const QString& postId)
     }
 
     const int index = postSource->indexOfPost(postId);
+    if (isLocalPresentationIndex(index)) {
+        return;
+    }
     PostWidget* widget = findPost(postId);
     BackendPost* post = index >= 0 ? postSource->postAt(index) : nullptr;
     if (!widget || !post) {
@@ -377,7 +390,11 @@ void ChatLogWidget::followOwnPost(const QString& postId)
             << " source=" << sourceName(postSource)
             << " postId=" << postId;
         clearNavigationLock();
-        scrollToEnd();
+        // Tail insertion already preserves sticky-bottom. Avoid a second
+        // scrollToEnd()/EnsureVisible transaction in the common case.
+        if (!isAtEnd()) {
+            scrollToEnd();
+        }
         scheduleReadCursorUpdate();
     });
 }
@@ -397,7 +414,7 @@ bool ChatLogWidget::lockNavigationToPost(const QString& postId,
     }
 
     const int index = postSource->ensurePostIndex(postId);
-    if (index < 0) {
+    if (index < 0 || !postSource->isAuthoritativeRow(index)) {
         clearNavigationLock();
         return false;
     }
@@ -504,6 +521,9 @@ void ChatLogWidget::updateReadCursorFromViewport()
     BackendPost* readPost = nullptr;
     const int viewportHeight = viewport()->height();
     for (int index : materializedIndices()) {
+        if (isLocalPresentationIndex(index)) {
+            continue;
+        }
         QWidget* widget = itemWidget(index);
         if (!widget) {
             continue;
@@ -597,7 +617,8 @@ void ChatLogWidget::updateReadCursorFromViewport()
     BackendChannel& channel = chatArea->getChannel();
     auto& followingModel = FollowingModel::instance(*backend);
     auto& sidebar = SidebarService::instance(*backend);
-    const bool sourceTailRead = readIndex == postSource->itemCount() - 1;
+    const int authoritativeCount = postSource->authoritativeItemCount();
+    const bool sourceTailRead = readIndex == authoritativeCount - 1;
     const bool rootUnreadConversation = sidebar.usesRootUnreadCounts(channel);
 
     qCDebug(lcTimelineTrace).nospace()
@@ -611,11 +632,8 @@ void ChatLogWidget::updateReadCursorFromViewport()
         << " sourceTailRead=" << sourceTailRead;
 
     if (chatArea->isThread) {
-        bool threadAtEnd = sourceTailRead;
-        if (auto* threadSource = qobject_cast<ThreadPostSource*>(postSource.data())) {
-            threadAtEnd = threadAtEnd
-                && threadSource->isPostPositionAuthoritative(readPost->id);
-        }
+        const bool threadAtEnd = sourceTailRead
+            && postSource->isPostPositionAuthoritative(readPost->id);
 
         const FollowingModel::Entry* threadEntry =
             followingModel.findEntry(channel.id, chatArea->root_id);
@@ -779,6 +797,9 @@ bool ChatLogWidget::editLastOwnPost()
     QVector<int> indices = materializedIndices();
     std::sort(indices.begin(), indices.end(), std::greater<int>());
     for (int index : indices) {
+        if (isLocalPresentationIndex(index)) {
+            continue;
+        }
         BackendPost* post = postSource->postAt(index);
         if (!post || !post->isOwnPost()) {
             continue;
@@ -803,7 +824,19 @@ QWidget* ChatLogWidget::createItemWidget(int index)
         return nullptr;
     }
 
-    BackendPost* post = postSource->postAt(index);
+    std::shared_ptr<BackendPost> pendingSnapshotLease;
+    const PendingPost* pending = nullptr;
+    if (auto* outboxSource =
+            qobject_cast<OutboxPostSource*>(postSource.data())) {
+        pending = outboxSource->pendingPostAt(index);
+        if (pending) {
+            pendingSnapshotLease =
+                outboxSource->pendingSnapshotAt(index);
+        }
+    }
+
+    BackendPost* post = pendingSnapshotLease
+        ? pendingSnapshotLease.get() : postSource->postAt(index);
     if (!post) {
         return nullptr;
     }
@@ -811,19 +844,33 @@ QWidget* ChatLogWidget::createItemWidget(int index)
     BackendPost* lastRootPost = nullptr;
     if (index > 0) {
         if (BackendPost* previous = postSource->postAt(index - 1)) {
+            // Pending thread replies still participate in the same visual
+            // root-grouping rule as authoritative replies. They are a
+            // presentation tail, not a reason to repeat the root quote frame.
             lastRootPost = previous->rootPost;
         }
     }
 
     const QString postId = post->id;
-    auto* widget = new InteractivePostWidget(
-        *backend, *post, viewport(), chatArea, lastRootPost);
+    PostWidget* widget = nullptr;
+    if (pending) {
+        widget = new PostWidget(
+            *backend, *post, viewport(), chatArea, lastRootPost,
+            PostWidget::PresentationMode::Pending,
+            std::move(pendingSnapshotLease));
+        applyPendingPresentation(*widget, *pending);
+    } else {
+        widget = new InteractivePostWidget(
+            *backend, *post, viewport(), chatArea, lastRootPost);
+    }
+
     qCDebug(lcTimelineTrace).nospace()
         << "CREATE_WIDGET list=" << static_cast<const void*>(this)
         << " source=" << sourceName(postSource)
         << " index=" << index
         << " postId=" << postId
         << " rootId=" << post->root_id
+        << " pending=" << (pending != nullptr)
         << " widget=" << static_cast<const void*>(widget)
         << " sizeHint=" << widget->sizeHint().height()
         << " minHint=" << widget->minimumSizeHint().height();
@@ -844,27 +891,44 @@ QWidget* ChatLogWidget::createItemWidget(int index)
             << " sizeHint=" << widget->sizeHint().height()
             << " minHint=" << widget->minimumSizeHint().height();
         if (currentIndex >= 0) {
-            itemsChanged(currentIndex, currentIndex);
-            scheduleReadCursorUpdate();
+            // Same-index replacement may already exist as a hidden staged
+            // widget while the old row is still resident at this index. Only
+            // the currently materialized widget may mutate LongList geometry;
+            // the staged replacement settles privately and is measured by
+            // replaceItem() immediately before the atomic swap.
+            if (itemWidget(currentIndex) != widget) {
+                return;
+            }
+
+            // PostWidget::dimensionsChanged is stronger than a generic Qt
+            // LayoutRequest: its size hints are already final. Commit the
+            // measured height immediately so a queued scroll/sync cannot lay
+            // this row out again using the stale default estimate.
+            commitItemGeometryNow(currentIndex);
+            if (!isLocalPresentationIndex(currentIndex)) {
+                scheduleReadCursorUpdate();
+            }
             if (postId == navigationPostId && hasViewportLock()) {
-                // Geometry commit is queued by itemsChanged() first. Re-center
-                // one event-loop turn later using the new measured target height.
                 navigationRecenterPending = true;
                 scheduleNavigationFinalize();
             }
         }
     });
-    widget->setWholeMessageSelectionMode(messageSelectionMode_);
-    widget->setWholeMessageSelected(selectedPostIds_.contains(postId));
-    connect(widget, &PostWidget::wholeMessageSelectionToggled,
-            this, [this](const QString& id, bool selected) {
-        setMessagePostSelected(id, selected);
-    });
-    connect(widget, &PostWidget::markUnreadRequested,
-            this, &ChatLogWidget::markPostUnread);
-    if (selectedPostIds_.contains(postId)) {
-        cacheSelectedPost(postId);
+
+    if (!pending) {
+        widget->setWholeMessageSelectionMode(messageSelectionMode_);
+        widget->setWholeMessageSelected(selectedPostIds_.contains(postId));
+        connect(widget, &PostWidget::wholeMessageSelectionToggled,
+                this, [this](const QString& id, bool selected) {
+            setMessagePostSelected(id, selected);
+        });
+        connect(widget, &PostWidget::markUnreadRequested,
+                this, &ChatLogWidget::markPostUnread);
+        if (selectedPostIds_.contains(postId)) {
+            cacheSelectedPost(postId);
+        }
     }
+
     return widget;
 }
 
@@ -918,10 +982,87 @@ AbstractPostSource::RequestReason ChatLogWidget::toSourceReason(RequestReason re
     }
 }
 
+bool ChatLogWidget::isLocalPresentationIndex(int index) const
+{
+    return postSource && index >= 0 && index < postSource->itemCount()
+        && !postSource->isAuthoritativeRow(index);
+}
+
+bool ChatLogWidget::isLocalPresentationId(const QString& postId) const
+{
+    if (!postSource || postId.isEmpty()) {
+        return false;
+    }
+    return isLocalPresentationIndex(postSource->indexOfPost(postId));
+}
+
+void ChatLogWidget::applyPendingPresentation(
+    PostWidget& widget,
+    const PendingPost& pending)
+{
+    if (!backend) {
+        return;
+    }
+
+    const QString pendingId = pending.pendingPostId;
+    widget.setPendingDeliveryPresentation(
+        PendingPostService::stateText(
+            pending.state,
+            pending.attemptCount,
+            pending.interveningPostCount,
+            pending.failureText),
+        pending.state == PendingPostState::Failed,
+        [backend = this->backend, pendingId] {
+            if (backend) {
+                PendingPostService::instance(*backend).retry(pendingId);
+            }
+        },
+        pending.state == PendingPostState::Sending
+            ? std::function<void()> {}
+            : std::function<void()> {[backend = this->backend, pendingId] {
+                if (backend) {
+                    PendingPostService::instance(*backend).cancel(pendingId);
+                }
+            }});
+}
+
 void ChatLogWidget::reconnectSource()
 {
     if (!postSource) {
         return;
+    }
+
+    if (auto* outboxSource =
+            qobject_cast<OutboxPostSource*>(postSource.data())) {
+        sourceConnections.push_back(connect(
+            outboxSource, &OutboxPostSource::pendingPromoted,
+            this, [this](int index,
+                         const QString& pendingPostId,
+                         const QString& serverPostId) {
+                qCDebug(lcTimelineTrace).nospace()
+                    << "SOURCE_REPLACED list="
+                    << static_cast<const void*>(this)
+                    << " source=" << sourceName(postSource)
+                    << " index=" << index
+                    << " oldPostId=" << pendingPostId
+                    << " newPostId=" << serverPostId;
+                replaceItem(index);
+                scheduleReadCursorUpdate();
+            }));
+        sourceConnections.push_back(connect(
+            outboxSource, &OutboxPostSource::pendingPresentationChanged,
+            this, [this, outboxSource](const QString& pendingPostId) {
+            const int index = outboxSource->indexOfPost(pendingPostId);
+            if (index < 0) {
+                return;
+            }
+            auto* widget = qobject_cast<PostWidget*>(itemWidget(index));
+            const PendingPost* pending =
+                outboxSource->pendingPost(pendingPostId);
+            if (widget && pending) {
+                applyPendingPresentation(*widget, *pending);
+            }
+        }));
     }
 
     sourceConnections.push_back(connect(postSource, &AbstractPostSource::itemCountChanged,
@@ -1142,7 +1283,9 @@ void ChatLogWidget::resizeEvent(QResizeEvent* event)
 void ChatLogWidget::beginMessageSelectionDrag(const QString& anchorPostId,
                                               const QString& currentPostId)
 {
-    if (!postSource || anchorPostId.isEmpty() || currentPostId.isEmpty()) {
+    if (!postSource || anchorPostId.isEmpty() || currentPostId.isEmpty()
+        || isLocalPresentationId(anchorPostId)
+        || isLocalPresentationId(currentPostId)) {
         return;
     }
     messageSelectionMode_ = true;
@@ -1180,6 +1323,9 @@ void ChatLogWidget::setMessageSelectionRange(const QString& currentPostId)
     selectedOwnPostIds_.clear();
     selectedFormattedPosts_.clear();
     for (int index = range.first; index <= range.last; ++index) {
+        if (isLocalPresentationIndex(index)) {
+            continue;
+        }
         BackendPost* selected = postSource->postAt(index);
         if (!selected || selected->id.isEmpty()) {
             continue;
@@ -1194,7 +1340,8 @@ void ChatLogWidget::setMessageSelectionRange(const QString& currentPostId)
 
 void ChatLogWidget::setMessagePostSelected(const QString& postId, bool selected)
 {
-    if (!messageSelectionMode_ || postId.isEmpty()) {
+    if (!messageSelectionMode_ || postId.isEmpty()
+        || isLocalPresentationId(postId)) {
         return;
     }
     if (selected) {
@@ -1222,6 +1369,9 @@ void ChatLogWidget::setMessagePostSelected(const QString& postId, bool selected)
 
 void ChatLogWidget::cacheSelectedPost(const QString& postId)
 {
+    if (isLocalPresentationId(postId)) {
+        return;
+    }
     PostWidget* widget = findPost(postId);
     if (!widget) {
         return;
@@ -1240,6 +1390,11 @@ void ChatLogWidget::applyMessageSelectionVisuals()
         for (int index = range.first; index <= range.last; ++index) {
             auto* widget = qobject_cast<PostWidget*>(itemWidget(index));
             if (!widget) {
+                continue;
+            }
+            if (isLocalPresentationIndex(index)) {
+                widget->setWholeMessageSelectionMode(false);
+                widget->setWholeMessageSelected(false);
                 continue;
             }
             widget->setWholeMessageSelectionMode(messageSelectionMode_);
@@ -1340,6 +1495,9 @@ void ChatLogWidget::copySelectedPosts()
     }
     QStringList blocks;
     for (int index = 0; index < postSource->itemCount(); ++index) {
+        if (isLocalPresentationIndex(index)) {
+            continue;
+        }
         BackendPost* post = postSource->postAt(index);
         if (!post || !selectedPostIds_.contains(post->id)) {
             continue;

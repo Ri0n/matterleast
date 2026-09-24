@@ -4,6 +4,10 @@
 
 ## Following and Attention are projections, not read engines
 
+The complete Following queue/activation contract lives in
+[Following behavior](../following.md). This document owns only the read-state and
+server-acknowledgement aspects shared with Attention.
+
 Both views use the same `FollowingModel::Entry` objects and therefore the same
 `ResumeState`, `firstUnreadPostId`, and read-through boundary.
 
@@ -18,6 +22,14 @@ FirstUnread -> navigate to firstUnreadPostId
 AtEnd       -> present the conversation/thread
 Unknown     -> ask the server/current model for a useful resume target
 ```
+
+That cursor lookup applies when entering/re-entering a semantic destination.
+Repeated activation of the same Following/Attention **conversation** row while
+that channel is already the active channel is presentation-only: it must keep the
+current viewport rather than reinterpret the same row as a "next unread" button.
+If the user leaves the channel and activates the row again, the current resume
+cursor is resolved normally. Followed-thread navigation keeps its existing resume
+semantics because a thread is an ordered unread-reply domain of its own.
 
 The activation path must not clear unread counters or synthetic mention entries.
 A selected row may be retained temporarily so the item does not disappear under
@@ -199,7 +211,9 @@ Do not add a second read state machine around navigation. In particular:
 - when sticky-bottom was active before a live tail append, preserve bottom through
   logical growth and real-height measurement, then re-evaluate the new concrete
   tail; if its lower edge is in the viewport, it is read without another gesture;
-- do not add per-Following or per-Attention read state;
+- do not add per-Following or per-Attention **read** state; presentation-only
+  selection/last-activated identity is allowed only to distinguish a repeated
+  click from entering/re-entering a semantic destination;
 - do not add `explicitReadPending`, `threadReadPending`, or equivalent navigation
   intent flags to decide whether viewport content counts as read;
 - do not let back-scrolling regress the semantic high-water mark;

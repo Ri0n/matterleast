@@ -53,12 +53,32 @@ postAt(index);
 postIdAt(index);
 indexOfPost(postId);
 ensurePostIndex(postId);
+isAuthoritativeRow(index);
+authoritativeItemCount();
+isPostPositionAuthoritative(postId);
+wrappedSource();
+authoritativeSource();
 requestRange(first, last, reason, generation);
 ```
 
 `postIdAt(index)` is intentionally independent of body residency. A source can therefore retain
 semantic identity while the corresponding `BackendPost` body is evicted, and decorators can preserve
 policy decisions without confusing "not resident" with "unknown identity".
+
+The authority metadata is also view-facing rather than transport-specific. Ordinary server sources and
+predicate projections report every row as authoritative. An additive local decorator such as the outbox
+marks its local tail non-authoritative and reports only the wrapped prefix in
+`authoritativeItemCount()`. `isPostPositionAuthoritative(postId)` is a separate question: for
+example a thread target can be a real server post whose logical position is still provisional.
+Decorators delegate that question to the wrapped source.
+
+Presentation decorators also expose their wrapped source through the common
+`wrappedSource()` contract. `authoritativeSource()` traverses that chain to the
+innermost topology-owning source. Semantic operations that belong to server
+topology—permalink context adoption, thread navigation readiness, future
+transport-specific operations—must use this contract rather than hard-coding
+knowledge of `FilteredPostSource`, `OutboxPostSource`, or decorator ordering.
+Adding another presentation layer must not make navigation conditionally fail.
 
 The structural/data signals consumed by `ChatLogWidget` are:
 
@@ -75,6 +95,37 @@ rangeRequestFinished(first, last)
 
 It contains no Mattermost paging policy and no storage container. This keeps alternate future post
 sources possible without inheriting channel/thread assumptions.
+
+### Structural-signal discipline
+
+`layoutChanged` is deliberately dangerous and must be treated as a last resort, not as a generic
+"something changed" notification.
+
+The default choices are narrow and exact:
+
+- content/presentation state changed in place -> update the concrete widget/model data directly;
+- item height may have changed -> child `dimensionsChanged` / `LongListWidget::itemsChanged`;
+- known insertion/removal -> `itemsInserted` / `itemsRemoved`;
+- body became resident/non-resident -> `rangeAvailable` / `bodyAvailabilityChanged`;
+- one logical row changes identity without changing list cardinality -> use a dedicated replacement
+  transaction/signal owned by that feature;
+- only a genuine already-existing identity-to-index remap that cannot be represented by the above may
+  emit `layoutChanged`.
+
+Do **not** emit `layoutChanged` for delivery-state transitions, ordinary appends, optimistic
+confirmation, reaction/body updates, or as a convenient way to force remeasurement.
+
+This rule exists because broad remap/reconciliation used as a refresh mechanism has previously caused
+content-height collapse/regrowth, extra anchor corrections, permalink/viewport lock loss, flicker and
+wheel-scroll jitter. The desired invariant is: **same semantic item => same QWidget**, except for an
+explicit narrow identity replacement, and one logical mutation => one geometry transaction.
+
+Any new `layoutChanged` producer requires a focused regression test proving that surviving semantic
+widgets are retained and that ordinary anchors, sticky bottom, viewport locks and wheel scrolling do
+not jump. Source implementations call the deliberately named `mappingChanged()` helper for this;
+there is no generic `itemsChanged()` compatibility shim. Body edits, reactions, tombstones and
+duplicate live delivery must update the existing model/widget in place and must not have a path to
+`layoutChanged`.
 
 `rangeRequested(first,last,...)` is **logical demand**, not an instruction to perform one HTTP request
 per fixed-size block. For ordinary viewport/prefetch work `LongListWidget` may request one contiguous

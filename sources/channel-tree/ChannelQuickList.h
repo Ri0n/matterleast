@@ -62,6 +62,7 @@ private:
     QSet<QString> connectedUsers_;
 
     QString retainedKey_;
+    QString lastActivatedKey_;
     std::optional<FollowingModel::Entry> retainedEntry_;
     uint64_t retainedSortTime_ = 0;
     bool retainedUnreadPosition_ = false;

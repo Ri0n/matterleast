@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 
+#include <QHash>
 #include <QJsonObject>
 #include <QSet>
 #include <QString>
@@ -61,7 +62,9 @@ public:
 
 signals:
     void postActivated(const QString& postId);
-    void draftActivated(const QString& channelId, const QString& rootId);
+    void draftActivated(const QString& channelId,
+                        const QString& rootId,
+                        const QString& draftKey);
 
 private:
     class CollectionList;
@@ -102,6 +105,8 @@ private:
     std::vector<std::unique_ptr<BackendPost>> ownedPosts;
     std::vector<BackendPost*> posts;
     QSet<QString> postIds;
+    QHash<QString, QString> draftKeyByPostId;
+    QSet<QString> recoveredDraftPostIds;
 
     // A database-backed Mattermost search can ignore page/per_page and return
     // a large bounded snapshot. Keep that snapshot off-screen and reveal only

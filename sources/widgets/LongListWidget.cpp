@@ -190,7 +190,8 @@ LongListWidget::LongListWidget(QWidget* parent)
     connect(&syncTimer, &QTimer::timeout, this, &LongListWidget::synchronize);
 
     geometryTimer.setSingleShot(true);
-    connect(&geometryTimer, &QTimer::timeout, this, &LongListWidget::commitGeometry);
+    connect(&geometryTimer, &QTimer::timeout, this,
+            [this] { commitGeometry(false); });
 
     seekTimer.setSingleShot(true);
     seekTimer.setInterval(seekDebounceInterval);
@@ -284,7 +285,7 @@ void LongListWidget::setItemCount(int count)
         releaseViewportLock(true);
     }
 
-    commitGeometry();
+    commitGeometry(true);
     if (preserveBottom && logicalCount > 0) {
         scrollToEnd();
     } else {
@@ -347,7 +348,6 @@ void LongListWidget::insertItems(int first, int count)
     }
 
     QSignalBlocker blocker(verticalScrollBar());
-    viewport()->setUpdatesEnabled(false);
     committingGeometry = true;
     updateScrollBarRange(oldOffset);
     if (hasViewportLock()) {
@@ -357,8 +357,6 @@ void LongListWidget::insertItems(int first, int count)
     }
     layoutMaterialized();
     committingGeometry = false;
-    viewport()->setUpdatesEnabled(true);
-    viewport()->update();
 
     lastVisibleRange = {};
     lastMaterializedRange = {};
@@ -467,6 +465,230 @@ void LongListWidget::removeItems(int first, int count)
     emitRangeChanges();
 }
 
+void LongListWidget::replaceItem(int index)
+{
+    if (index < 0 || index >= logicalCount) {
+        return;
+    }
+
+    QWidget* previous = materialized.value(index, nullptr);
+    const bool wasMaterialized = previous != nullptr;
+    const int previousHeight = heights.value(index);
+    const bool nowAvailable = isModelItemAvailable(index);
+
+    dirtyGeometry.remove(index);
+    available.setBit(index, nowAvailable);
+    pendingRequest.clearBit(index);
+
+    if (!wasMaterialized || !nowAvailable) {
+        const ViewAnchor anchor = captureAnchor();
+        const qint64 oldOffset = contentOffset();
+
+        QSignalBlocker blocker(verticalScrollBar());
+        committingGeometry = true;
+
+        previous = materialized.take(index);
+        if (previous) {
+            if (hoveredWidget == previous) {
+                hoveredWidget.clear();
+            }
+            widgetIndexes.remove(previous);
+            previous->removeEventFilter(this);
+            destroyItemWidget(index, previous);
+        }
+
+        measured.clearBit(index);
+        heights.setValue(index, estimatedItemHeight(index));
+
+        updateScrollBarRange(oldOffset);
+        if (hasViewportLock()) {
+            restoreViewportLock();
+        } else {
+            restoreAnchor(anchor);
+        }
+        layoutMaterialized();
+        committingGeometry = false;
+        scheduleSync(seekActive ? RequestReason::Seek : RequestReason::Scroll);
+        return;
+    }
+
+    QWidget* replacement = createItemWidget(index);
+    if (!replacement) {
+        return;
+    }
+    replacement->setParent(viewport());
+
+    const QString replacementIdentity = itemIdentity(replacement);
+    const int firstHeight = naturalWidgetHeight(replacement);
+
+    if (firstHeight != previousHeight) {
+        // A freshly constructed complex row can report a transient sizeHint
+        // until its queued child-layout work has run (rich text is a common
+        // example). Keep the old identity visible and settle the replacement
+        // off-screen for one event-loop turn before deciding that geometry
+        // truly changed.
+        stageReplacement(previous, replacement, replacementIdentity, index, firstHeight);
+        return;
+    }
+
+    commitReplacement(previous, replacement, replacementIdentity, index);
+}
+
+void LongListWidget::stageReplacement(QWidget* previous,
+                                      QWidget* replacement,
+                                      const QString& replacementIdentity,
+                                      int fallbackIndex,
+                                      int observedHeight)
+{
+    QPointer<QWidget> previousGuard(previous);
+    QPointer<QWidget> replacementGuard(replacement);
+
+    QTimer::singleShot(0, this,
+                       [this, previousGuard, replacementGuard,
+                        replacementIdentity, fallbackIndex, observedHeight] {
+        if (!replacementGuard) {
+            return;
+        }
+
+        int index = replacementIdentity.isEmpty()
+            ? fallbackIndex
+            : indexOfItemIdentity(replacementIdentity);
+        if (index < 0 || index >= logicalCount || !previousGuard
+            || materialized.value(index, nullptr) != previousGuard.data()
+            || !isModelItemAvailable(index)) {
+            replacementGuard->deleteLater();
+            return;
+        }
+
+        const int settledHeight = naturalWidgetHeight(replacementGuard.data());
+        if (settledHeight != observedHeight) {
+            // The first queued layout pass changed the answer. Give any
+            // immediately-following child notification one more turn while the
+            // old row remains visible; this is still hidden preparation only.
+            QPointer<QWidget> previousAgain(previousGuard);
+            QPointer<QWidget> replacementAgain(replacementGuard);
+            QTimer::singleShot(0, this,
+                               [this, previousAgain, replacementAgain,
+                                replacementIdentity, fallbackIndex] {
+                if (!replacementAgain) {
+                    return;
+                }
+                int currentIndex = replacementIdentity.isEmpty()
+                    ? fallbackIndex
+                    : indexOfItemIdentity(replacementIdentity);
+                if (currentIndex < 0 || currentIndex >= logicalCount
+                    || !previousAgain
+                    || materialized.value(currentIndex, nullptr)
+                        != previousAgain.data()
+                    || !isModelItemAvailable(currentIndex)) {
+                    replacementAgain->deleteLater();
+                    return;
+                }
+                naturalWidgetHeight(replacementAgain.data());
+                commitReplacement(previousAgain.data(),
+                                  replacementAgain.data(),
+                                  replacementIdentity,
+                                  currentIndex);
+            });
+            return;
+        }
+
+        commitReplacement(previousGuard.data(),
+                          replacementGuard.data(),
+                          replacementIdentity,
+                          index);
+    });
+}
+
+void LongListWidget::commitReplacement(QWidget* previous,
+                                       QWidget* replacement,
+                                       const QString& replacementIdentity,
+                                       int fallbackIndex)
+{
+    if (!previous || !replacement) {
+        if (replacement) {
+            replacement->deleteLater();
+        }
+        return;
+    }
+
+    int index = replacementIdentity.isEmpty()
+        ? fallbackIndex
+        : indexOfItemIdentity(replacementIdentity);
+    if (index < 0 || index >= logicalCount
+        || materialized.value(index, nullptr) != previous
+        || !isModelItemAvailable(index)) {
+        replacement->deleteLater();
+        return;
+    }
+
+    const ViewAnchor anchor = captureAnchor();
+    const qint64 oldOffset = contentOffset();
+    const int previousHeight = heights.value(index);
+    const int replacementHeight = naturalWidgetHeight(replacement);
+
+    measured.setBit(index, true);
+    heights.setValue(index, replacementHeight);
+
+    const int width = std::max(1, viewport()->width());
+    if (replacement->height() != replacementHeight
+        || replacement->width() != width) {
+        replacement->resize(width, replacementHeight);
+    }
+
+    if (replacementHeight == previousHeight) {
+        const QRect oldRect = previous->geometry();
+        const qint64 y64 = heights.prefixHeight(index) - contentOffset();
+        const int y = static_cast<int>(std::max<qint64>(
+            INT_MIN, std::min<qint64>(INT_MAX, y64)));
+        const QRect finalRect(0, y, width, replacementHeight);
+        const QRect affected = oldRect.united(finalRect);
+
+        if (hoveredWidget == previous) {
+            hoveredWidget.clear();
+        }
+        widgetIndexes.remove(previous);
+        previous->removeEventFilter(this);
+
+        replacement->setGeometry(finalRect);
+        replacement->installEventFilter(this);
+        widgetIndexes.insert(replacement, index);
+        materialized[index] = replacement;
+
+        replacement->show();
+        destroyItemWidget(index, previous);
+        viewport()->update(affected);
+        return;
+    }
+
+    QSignalBlocker blocker(verticalScrollBar());
+    committingGeometry = true;
+
+    materialized.remove(index);
+    if (hoveredWidget == previous) {
+        hoveredWidget.clear();
+    }
+    widgetIndexes.remove(previous);
+    previous->removeEventFilter(this);
+
+    replacement->installEventFilter(this);
+    widgetIndexes.insert(replacement, index);
+    materialized.insert(index, replacement);
+    replacement->show();
+    destroyItemWidget(index, previous);
+
+    updateScrollBarRange(oldOffset);
+    if (hasViewportLock()) {
+        restoreViewportLock();
+    } else {
+        restoreAnchor(anchor);
+    }
+    layoutMaterialized();
+    committingGeometry = false;
+
+    scheduleSync(seekActive ? RequestReason::Seek : RequestReason::Scroll);
+}
+
 void LongListWidget::setDefaultItemHeight(int height)
 {
     height = boundedHeight(height);
@@ -480,7 +702,7 @@ void LongListWidget::setDefaultItemHeight(int height)
             heights.setValue(index, estimatedItemHeight(index));
         }
     }
-    commitGeometry();
+    commitGeometry(true);
     scheduleSync(RequestReason::Scroll);
 }
 
@@ -634,6 +856,47 @@ void LongListWidget::itemsChanged(int first, int last)
         }
     }
     scheduleGeometryCommit();
+}
+
+void LongListWidget::commitItemGeometryNow(int index)
+{
+    QWidget* widget = materialized.value(index, nullptr);
+    if (!widget || index < 0 || index >= logicalCount) {
+        return;
+    }
+
+    if (committingGeometry || synchronizing) {
+        scheduleGeometryCommit(index);
+        return;
+    }
+
+    const ViewAnchor anchor = captureAnchor();
+    const qint64 oldOffset = contentOffset();
+
+    QSignalBlocker blocker(verticalScrollBar());
+    committingGeometry = true;
+
+    dirtyGeometry.remove(index);
+    const bool geometryChanged = measureWidget(index, widget);
+
+    if (geometryChanged) {
+        updateScrollBarRange(oldOffset);
+        if (seekActive && seekTarget >= 0 && materialized.contains(seekTarget)) {
+            restoreSeekTarget();
+        } else if (hasViewportLock()) {
+            restoreViewportLock();
+        } else {
+            restoreAnchor(anchor);
+        }
+        layoutMaterialized();
+    }
+
+    committingGeometry = false;
+
+    if (geometryChanged) {
+        scheduleSync(seekActive ? RequestReason::Seek : RequestReason::Scroll);
+        emitRangeChanges();
+    }
 }
 
 QWidget* LongListWidget::itemWidget(int index) const
@@ -991,8 +1254,12 @@ void LongListWidget::synchronizeRange(const Range& desired,
     const ViewAnchor anchor = captureAnchor();
     const qint64 oldOffset = contentOffset();
     QSignalBlocker blocker(verticalScrollBar());
-    viewport()->setUpdatesEnabled(false);
 
+    // synchronizeRange() is one synchronous event-loop transaction. Painting
+    // cannot occur between materialization, anchor restoration and final child
+    // geometry unless we explicitly re-enter the event loop, which we do not.
+    // Disabling/re-enabling viewport updates here only invalidates the entire
+    // viewport and makes every post repaint on ordinary tail materialization.
     materializeAvailable(desired);
     evictOutside(desired, centerSeekTarget ? seekTarget : (desired.first + desired.last) / 2);
     updateScrollBarRange(oldOffset);
@@ -1004,9 +1271,6 @@ void LongListWidget::synchronizeRange(const Range& desired,
         restoreAnchor(anchor);
     }
     layoutMaterialized();
-
-    viewport()->setUpdatesEnabled(true);
-    viewport()->update();
 
     requestMissing(desired, reason, generation);
     emitRangeChanges();
@@ -1201,10 +1465,10 @@ void LongListWidget::layoutMaterialized()
     }
 }
 
-void LongListWidget::measureWidget(int index, QWidget* widget)
+int LongListWidget::naturalWidgetHeight(QWidget* widget)
 {
-    if (!widget || index < 0 || index >= logicalCount) {
-        return;
+    if (!widget) {
+        return 0;
     }
 
     const int width = std::max(1, viewport()->width());
@@ -1217,14 +1481,31 @@ void LongListWidget::measureWidget(int index, QWidget* widget)
     widget->updateGeometry();
 
     const int heightForWidth = widget->heightForWidth(width);
-    const int height = std::max({
+    return std::max({
         1,
         heightForWidth,
         widget->sizeHint().height(),
         widget->minimumSizeHint().height(),
     });
+}
+
+bool LongListWidget::measureWidget(int index, QWidget* widget)
+{
+    if (!widget || index < 0 || index >= logicalCount) {
+        return false;
+    }
+
+    const int width = std::max(1, viewport()->width());
+    const int height = naturalWidgetHeight(widget);
+    const bool changed = !measured.testBit(index)
+        || heights.value(index) != height;
     heights.setValue(index, height);
     measured.setBit(index, true);
+
+    if (widget->height() != height) {
+        widget->resize(width, height);
+    }
+    return changed;
 }
 
 void LongListWidget::scheduleGeometryCommit(int index)
@@ -1237,7 +1518,7 @@ void LongListWidget::scheduleGeometryCommit(int index)
     }
 }
 
-void LongListWidget::commitGeometry()
+void LongListWidget::commitGeometry(bool heightIndexChanged)
 {
     if (committingGeometry || synchronizing) {
         if (!geometryTimer.isActive()) {
@@ -1252,27 +1533,42 @@ void LongListWidget::commitGeometry()
     viewport()->setUpdatesEnabled(false);
     committingGeometry = true;
 
+    bool geometryChanged = heightIndexChanged;
     for (int index : std::as_const(dirtyGeometry)) {
         if (QWidget* widget = materialized.value(index, nullptr)) {
-            measureWidget(index, widget);
+            geometryChanged = measureWidget(index, widget) || geometryChanged;
         }
     }
     dirtyGeometry.clear();
 
-    updateScrollBarRange(oldOffset);
-    if (seekActive && seekTarget >= 0 && materialized.contains(seekTarget)) {
-        restoreSeekTarget();
-    } else if (hasViewportLock()) {
-        restoreViewportLock();
-    } else {
-        restoreAnchor(anchor);
+    if (geometryChanged) {
+        updateScrollBarRange(oldOffset);
+        if (seekActive && seekTarget >= 0 && materialized.contains(seekTarget)) {
+            restoreSeekTarget();
+        } else if (hasViewportLock()) {
+            restoreViewportLock();
+        } else {
+            restoreAnchor(anchor);
+        }
+        layoutMaterialized();
     }
-    layoutMaterialized();
 
     committingGeometry = false;
     viewport()->setUpdatesEnabled(true);
-    viewport()->update();
 
+    // Structural HeightIndex changes (item-count/default-estimate changes)
+    // are real geometry changes even when no concrete row is dirty. They must
+    // update the scrollbar range. LayoutRequest/Resize, by contrast, is only a
+    // hint that geometry *might* have changed.
+    // Hover affordances and other child-widget activity can emit that hint while
+    // the row's measured height remains identical. A no-op remeasure must not
+    // wake sparse-range demand, otherwise ordinary mouse movement can turn an
+    // unresolved off-screen gap into repeated transport requests.
+    if (!geometryChanged) {
+        return;
+    }
+
+    viewport()->update();
     scheduleSync(seekActive ? RequestReason::Seek : RequestReason::Scroll);
     emitRangeChanges();
 }

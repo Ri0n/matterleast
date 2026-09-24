@@ -114,7 +114,7 @@ void IndexedPostSource::publishExactWindow(const ExactWindowMutation& mutation)
     }
 
     for (int index : mutation.concreteChanged) {
-        emit itemsChanged(index, index);
+        mappingChanged(index, index);
     }
     emit rangeAvailable(mutation.first, mutation.last);
 }
