@@ -17,6 +17,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |
 | reaction quick bar/ranking | [Reaction quick bar](reaction-quick-bar.md) | changing ranking, cooling, persistence or custom emoji behavior |
 | debugging from logs | [Debug logging](debug-logging.md) | selecting categories or interpreting upload/read/navigation traces |
+| CI, packaging or release workflow | [Maintainer workflow](maintainer-workflow.md) | changing build matrices, package targets or release artifacts |
 
 ## Documentation structure
 

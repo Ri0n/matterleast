@@ -22,23 +22,26 @@ env:
 
 jobs:
   debian:
-    name: DEB / Ubuntu ${{ matrix.ubuntu-version }}
+    name: DEB / Ubuntu ${{ matrix.ubuntu-version }} / Qt ${{ matrix.qt-version }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - ubuntu-version: "22.04"
             runner: ubuntu-22.04
+            qt-version: "5.15.3"
             qt6: "OFF"
             build-runtime-packages: "libqt5sql5-sqlite libqt5svg5"
             debian-extra-depends: "libqt5svg5"
           - ubuntu-version: "24.04"
             runner: ubuntu-24.04
+            qt-version: "6.4.2"
             qt6: "ON"
             build-runtime-packages: "libqt6sql6-sqlite libqt6svg6"
             debian-extra-depends: "libqt6svg6"
           - ubuntu-version: "26.04"
             runner: ubuntu-26.04
+            qt-version: "6.10.2"
             qt6: "ON"
             build-runtime-packages: "libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins"
             debian-extra-depends: "libqt6svg6, qt6-svg-plugins"
@@ -133,8 +136,101 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  fedora:
+    name: RPM / Fedora 44 / Qt 6.11.x
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: fedora:44
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf -y update
+          dnf -y install \
+            cmake \
+            gcc-c++ \
+            git \
+            make \
+            rpm-build \
+            qt6-qtbase-devel \
+            qt6-qtsvg \
+            qt6-qtwebsockets-devel
+          dnf clean all
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Report Qt version
+        run: qmake6 -query QT_VERSION
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT_6=ON \
+            -DBUILD_TESTING=ON \
+            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_VERSION="${{ inputs.version }}"
+
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          test -n "$version"
+          requested="${{ inputs.version }}"
+          requested=${requested#v}
+          if [[ -n "$requested" && "$version" != "$requested" ]]; then
+            echo "::error::CMake resolved version '$version', expected '$requested'"
+            exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Build and verify RPM
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpack --config build/CPackConfig.cmake -G RPM -B package
+          rpm_file=$(find package -maxdepth 1 -type f -name '*.rpm' -print -quit)
+          test -n "$rpm_file"
+
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          package_version=$(rpm -qp --qf '%{VERSION}' "$rpm_file")
+          if [[ "$package_version" != "$version" ]]; then
+            echo "::error::RPM version '$package_version' does not match MatterLeast version '$version'"
+            exit 1
+          fi
+
+          requires=$(rpm -qpR "$rpm_file")
+          if ! grep -Fxq 'qt6-qtsvg' <<< "$requires"; then
+            echo "::error::RPM dependency 'qt6-qtsvg' is missing"
+            printf '%s\n' "$requires"
+            exit 1
+          fi
+
+          dnf -y install "$rpm_file"
+          rpm -q matterleast
+
+          output="package/matterleast-${version}-fedora-44-x86_64.rpm"
+          mv "$rpm_file" "$output"
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+
+      - name: Upload RPM
+        uses: actions/upload-artifact@v7
+        with:
+          name: matterleast-rpm-fedora-44-x86_64
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          compression-level: 0
+
+
   windows:
-    name: Windows x64 installer
+    name: NSIS / Windows 2025 / Qt 6.10.3
     runs-on: windows-2025
     timeout-minutes: 90
     defaults:

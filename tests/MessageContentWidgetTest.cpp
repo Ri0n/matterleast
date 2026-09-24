@@ -26,7 +26,7 @@
 #include "chat-area/post/MessageContentWidget.h"
 #include "options/MLOptions.h"
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 #include "qsourcehighliter.h"
 #endif
 
@@ -92,7 +92,7 @@ qreal emojiPointSize(const QTextBrowser& browser, const QString& emoji)
     return size;
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 qreal firstRenderedLineHeight(const QTextBlock& block)
 {
     const QTextLayout* layout = block.layout();
@@ -291,7 +291,7 @@ private slots:
         fontOption->setValue(previousFont);
     }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     void markdownHeadingAndCodeScaleWithChatText()
     {
         auto* fontOption = MLOptions::instance()->optionObject<QString>(
@@ -490,7 +490,7 @@ private slots:
         QCOMPARE(qRound(imageFormat.height()), 12);
     }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     void longInlineCodeWrapsAnywhere()
     {
         MessageContentWidget widget;

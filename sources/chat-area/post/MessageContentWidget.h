@@ -36,7 +36,7 @@ private:
     void addQuote(const QString& html);
     void scheduleDimensionsChanged();
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     void addMarkdownContent(const QString& message);
     void addCodeBlock(const QString& code, const QString& language);
 #endif
