@@ -62,9 +62,9 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
     connect(&EmojiRegistryNotifier::instance(),
             &EmojiRegistryNotifier::customEmojiAdded,
             this, [this](const QString& name) {
-        // The legacy eager /emoji loader and the lazy per-name resolver can
-        // race. Once either path registers the image, suppress stale queued
-        // work and clear any previous negative result for that name.
+        // Search, on-demand browsing and lazy per-name resolution can race.
+        // Once any path registers the image, suppress stale queued work and
+        // clear any previous negative result for that name.
         _pendingNames.remove(name);
         _inFlightNames.remove(name);
         _missingNames.remove(name);
@@ -83,6 +83,7 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
         _searchesInFlight.clear();
         _flushScheduled = false;
         _batchLookupSupported = true;
+        _browsePageRequested = false;
     });
 }
 
@@ -133,6 +134,42 @@ void CustomEmojiService::searchEmojis(const QString& term)
         [this, search](const QJsonDocument& doc, const QNetworkReply& reply) {
             _searchesInFlight.remove(search);
             if (reply.error() != QNetworkReply::NoError) {
+                return;
+            }
+
+            for (const QJsonValue& value : doc.array()) {
+                const QJsonObject object = value.toObject();
+                const QString id = object.value(QStringLiteral("id")).toString();
+                const QString name = object.value(QStringLiteral("name")).toString();
+                if (id.isEmpty() || name.isEmpty()
+                    || !isValidCustomEmojiName(name)) {
+                    continue;
+                }
+
+                _missingNames.remove(name);
+                _pendingNames.remove(name);
+                if (_inFlightNames.contains(name)) {
+                    continue;
+                }
+
+                _inFlightNames.insert(name);
+                ensureImage(id, name);
+            }
+        }));
+}
+
+void CustomEmojiService::ensureBrowsePageLoaded()
+{
+    if (_browsePageRequested) {
+        return;
+    }
+    _browsePageRequested = true;
+
+    NetworkRequest request(QStringLiteral("emoji?page=0&per_page=60"));
+    _httpConnector.get(request, HttpResponseCallback(
+        [this](const QJsonDocument& doc, const QNetworkReply& reply) {
+            if (reply.error() != QNetworkReply::NoError) {
+                _browsePageRequested = false;
                 return;
             }
 

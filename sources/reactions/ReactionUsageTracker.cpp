@@ -20,6 +20,14 @@ ReactionUsageTracker::ReactionUsageTracker()
     model_.restore(deserializeReactionUsage(
         MLOptions::instance()->value<QByteArray>(
             QString::fromLatin1(reactionUsageSettingsKey))));
+
+    if (model_.size() == 0) {
+        // Start with a small generic prior so a new profile has useful quick
+        // reactions immediately. Real user choices reheat to 1.0 and quickly
+        // dominate/evict these low-heat seed entries.
+        model_.seedIfEmpty(defaultReactionSeedNames());
+        save();
+    }
 }
 
 void ReactionUsageTracker::recordUse(const QString& emojiName)

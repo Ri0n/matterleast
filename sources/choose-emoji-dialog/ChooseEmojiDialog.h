@@ -21,7 +21,6 @@
 #pragma once
 
 #include <QDialog>
-#include <QMap>
 #include "backend/emoji/EmojiDefs.h"
 
 class QGridLayout;
@@ -53,9 +52,6 @@ private:
     void removeSearchTab ();
     Emoji getSelectedEmoji ();
     void addSkinToneComboBox (QWidget *tab, QGridLayout *gridLayout, uint32_t categoryIdx);
-    void restoreEmojiFavorites ();
-    void saveEmojiFavorites ();
-    void updateFavoritesTab ();
 private:
     friend class ChooseEmojiDialogWrapper;
     Backend&                 backend;
@@ -69,7 +65,6 @@ private:
     int                     searchReturnTabIndex = -1;
     int                     renderedCustomEmojiCount = -1;
     Emoji					selectedEmoji;
-    QMap<EmojiID, Emoji>	favorites;
 };
 
 } /* namespace Mattermost */

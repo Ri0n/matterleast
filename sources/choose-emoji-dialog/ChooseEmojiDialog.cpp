@@ -20,7 +20,6 @@
 #include "ChooseEmojiDialog.h"
 
 #include <algorithm>
-#include <iterator>
 
 #include <QComboBox>
 #include <QDebug>
@@ -29,18 +28,17 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMenu>
 #include <QPixmap>
 #include <QPushButton>
 #include <QSpacerItem>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QTimer>
 
 #include "EmojiDialogSupport.h"
 #include "backend/CustomEmojiService.h"
-#include "backend/emoji/EmojiRegistryNotifier.h"
-#include "options/MLOptions.h"
 #include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistryNotifier.h"
 #include "ui_ChooseEmojiDialog.h"
 
 namespace Mattermost {
@@ -50,7 +48,7 @@ static constexpr int maxSearchResults = 180;
 
 static int tabIndexForCategory(uint32_t categoryIdx)
 {
-    int tabIndex = 1; // Favorites is always first.
+    int tabIndex = 0;
     for (uint32_t index = 0; index < categoryIdx; ++index) {
         if (index != EmojiCategory::component) {
             ++tabIndex;
@@ -106,6 +104,13 @@ ChooseEmojiDialog::ChooseEmojiDialog(Backend& backend, QWidget *parent)
 		searchTimer->start();
 	});
 
+    connect(ui->tabWidget, &QTabWidget::currentChanged, this,
+            [this](int index) {
+        if (index == tabIndexForCategory(EmojiCategory::custom)) {
+            CustomEmojiService::instance(this->backend).ensureBrowsePageLoaded();
+        }
+    });
+
     customEmojiRefreshTimer = new QTimer(this);
     customEmojiRefreshTimer->setSingleShot(true);
     customEmojiRefreshTimer->setInterval(50);
@@ -137,6 +142,10 @@ void ChooseEmojiDialog::show ()
 {
 	createEmojiTabs ();
     refreshCustomEmojiCatalog();
+    if (ui->tabWidget->currentIndex()
+        == tabIndexForCategory(EmojiCategory::custom)) {
+        CustomEmojiService::instance(this->backend).ensureBrowsePageLoaded();
+    }
 	ui->searchEdit->clear ();
 	QDialog::show ();
 	ui->searchEdit->setFocus (Qt::ShortcutFocusReason);
@@ -164,71 +173,6 @@ QGridLayout* ChooseEmojiDialog::createTab (uint32_t categoryIdx, int tabIndex)
 }
 
 
-void ChooseEmojiDialog::restoreEmojiFavorites ()
-{
-	QByteArray favoritesArray = MLOptions::instance()
-		->value<QByteArray>(QStringLiteral("emoji_favorites"));
-
-#if QT_VERSION >= QT_VERSION_CHECK(5,14,0)
-	QVector<EmojiID> favoriteEmojisVec ((EmojiID*)favoritesArray.begin(), (EmojiID*)favoritesArray.end());
-#else
-	QVector<EmojiID> favoriteEmojisVec;
-	size_t size = favoritesArray.size() / sizeof (EmojiID);
-	favoriteEmojisVec.reserve (size);
-	std::copy((EmojiID*)favoritesArray.begin(), (EmojiID*)favoritesArray.end(), std::back_inserter(favoriteEmojisVec));
-#endif
-
-	if (favoriteEmojisVec.isEmpty()) {
-
-		QString favoriteEmojiNames[] = {
-				"+1",
-				"pray",
-				"brain",
-				"smiley",
-				"rolling_on_the_floor_laughing",
-				"sunglasses",
-				"mask",
-				"face_vomiting",
-				"yawning_face",
-
-				"cherries",
-				"pizza",
-
-				"warning",
-				"radioactive_sign",
-				"white_check_mark",
-				"heavy_check_mark",
-		};
-
-		for (auto& it: favoriteEmojiNames) {
-			EmojiID id = EmojiInfo::findByName (it);
-			favorites.insert (id, EmojiInfo::getEmoji(id));
-		}
-
-		saveEmojiFavorites ();
-		return;
-	}
-
-	for (auto& it: favoriteEmojisVec) {
-		favorites.insert (it, EmojiInfo::getEmoji(it));
-	}
-}
-
-void ChooseEmojiDialog::saveEmojiFavorites ()
-{
-	QVector<EmojiID> vec = favorites.keys().toVector();
-	QByteArray favoritesArray ((const char*)vec.data(), vec.size() * sizeof (vec[0]));
-	MLOptions::instance()->setValue(
-		QStringLiteral("emoji_favorites"), favoritesArray);
-	qDebug() << "Save Emoji Favorites";
-}
-
-
-void ChooseEmojiDialog::updateFavoritesTab ()
-{
-	createTabForCategory (EmojiCategory::COUNT, 0, "Favorites", favorites.values().toVector());
-}
-
 void ChooseEmojiDialog::createEmojiTabs ()
 {
 	//tabs already created
@@ -236,12 +180,7 @@ void ChooseEmojiDialog::createEmojiTabs ()
 		return;
 	}
 
-	restoreEmojiFavorites ();
 	uint32_t tabIndex = 0;
-
-	createTabForCategory (EmojiCategory::favorites, tabIndex, "Favorites", favorites.values().toVector());
-
-	++tabIndex;
 
 	for (uint32_t categoryIdx = 0; categoryIdx < EmojiCategory::COUNT; ++categoryIdx) {
 
@@ -325,38 +264,6 @@ void ChooseEmojiDialog::createTabForCategory (uint32_t categoryIndex, uint32_t t
 		pushButton->setFont(font);
 		pushButton->setFlat(true);
 
-		pushButton->setContextMenuPolicy(Qt::CustomContextMenu);
-
-		connect (pushButton, &QWidget::customContextMenuRequested, [this, pushButton, emoji] {
-			qDebug() << "customContextMenuRequested " << pushButton->pos() << " " << emoji.name;
-
-			QMenu menu (this);
-
-			if (favorites.contains(EmojiInfo::findByName(emoji.name))) {
-				qDebug() << emoji.name << " is in favorites map";
-				menu.addAction("Remove from favorites", [this, emoji] {
-					EmojiID emojiID = EmojiInfo::findByName (emoji.name);
-					auto it = favorites.find (emojiID);
-					if (it != favorites.end()){
-						favorites.erase (it);
-						saveEmojiFavorites ();
-						updateFavoritesTab ();
-					}
-				});
-			} else {
-				menu.addAction("Add to favorites", [this, emoji] {
-					EmojiID emojiID = EmojiInfo::findByName (emoji.name);
-					qDebug() << "Add to favorites: " << emoji.name << " " << emojiID.seq;
-					favorites.insert (emojiID, emoji);
-						saveEmojiFavorites ();
-						updateFavoritesTab ();
-					});
-			}
-
-			menu.exec (pushButton->parentWidget()->mapToGlobal(pushButton->pos()) + QPoint (32, 0));
-		});
-
-
 		/**
 		 * Replace the unicode string with icon for custom emojis
 		 * This is how they work, when on a button in the dialog.
@@ -408,7 +315,7 @@ void ChooseEmojiDialog::createTabForCategory (uint32_t categoryIndex, uint32_t t
 	 */
 	QString iconString;
 
-	if (! (categoryIndex == EmojiCategory::custom || categoryIndex == EmojiCategory::favorites)) {
+	if (categoryIndex != EmojiCategory::custom) {
 		iconString = emojis[indexForCategoryTab[categoryIndex]].unicodeString;
 	}
 	ui->tabWidget->setTabText (tabIndex, iconString + tabName);

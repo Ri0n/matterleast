@@ -147,7 +147,7 @@ private slots:
         QCOMPARE(model.ranking().first().count, threshold - 1);
 
         // Reaching the threshold ages every familiarity count instead of
-        // allowing one historical favorite to accumulate unbounded inertia.
+        // allowing one historical reaction to accumulate unbounded inertia.
         model.recordUse(QStringLiteral("fire"));
         QCOMPARE(model.ranking().first().count, threshold / 2);
 
@@ -214,31 +214,28 @@ private slots:
         }
     }
 
-    void quickReactionStripCompensatesFavoriteOverlapWithPopularity()
+    void seedsOnlyAnEmptyReactionRanking()
     {
-        const QStringList popular = {
-            QStringLiteral("eyes"),
-            QStringLiteral("fire"),
-            QStringLiteral("rolling_on_the_floor_laughing"),
-            QStringLiteral("+1"),
-            QStringLiteral("clap"),
-            QStringLiteral("rocket"),
-        };
+        Mattermost::ReactionUsageModel model;
+        model.seedIfEmpty(Mattermost::defaultReactionSeedNames());
 
-        QCOMPARE(Mattermost::defaultReactionFavorites(),
+        QCOMPARE(model.topNames(),
                  QStringList({QStringLiteral("+1"),
-                              QStringLiteral("eyes"),
                               QStringLiteral("fire"),
-                              QStringLiteral("rolling_on_the_floor_laughing")}));
+                              QStringLiteral("heart")}));
 
-        QCOMPARE(Mattermost::selectQuickReactionNames(
-                     popular, Mattermost::defaultReactionFavorites()),
-                 QStringList({QStringLiteral("eyes"),
-                              QStringLiteral("fire"),
-                              QStringLiteral("rolling_on_the_floor_laughing"),
-                              QStringLiteral("+1"),
-                              QStringLiteral("clap"),
-                              QStringLiteral("rocket")}));
+        const auto seeded = model.ranking();
+        QCOMPARE(seeded.size(), 3);
+        for (const auto& entry : seeded) {
+            QCOMPARE(entry.count, quint64(1));
+            QVERIFY(qAbs(entry.heat - 0.5) < 1e-12);
+        }
+
+        model.recordUse(QStringLiteral("rocket"));
+        QCOMPARE(model.topNames().first(), QStringLiteral("rocket"));
+
+        model.seedIfEmpty({QStringLiteral("eyes")});
+        QVERIFY(!model.topNames().contains(QStringLiteral("eyes")));
     }
 };
 

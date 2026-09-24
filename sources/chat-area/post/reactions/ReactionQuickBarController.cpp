@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <cstring>
 
 #include <QCoreApplication>
 #include <QEvent>
@@ -11,7 +10,6 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSet>
 #include <QStyle>
 #include <QTimer>
 
@@ -21,7 +19,6 @@
 #include "chat-area/post/PostWidget.h"
 #include "reactions/ReactionUsage.h"
 #include "reactions/ReactionUsageTracker.h"
-#include "options/MLOptions.h"
 #include "ui/EmojiPresentation.h"
 
 namespace Mattermost {
@@ -102,89 +99,6 @@ bool configureReactionButton(QPushButton& button, const QString& name)
     return true;
 }
 
-QSet<QString> stringSet(const QStringList& values)
-{
-    QSet<QString> result;
-    for (const QString& value : values) {
-        result.insert(value);
-    }
-    return result;
-}
-
-QStringList storedFavoriteNames(const QByteArray& data)
-{
-    QStringList names;
-    using ByteSize = decltype(data.size());
-    const ByteSize stride = static_cast<ByteSize>(sizeof(EmojiID));
-    if (data.isEmpty() || data.size() % stride != 0) {
-        return names;
-    }
-
-    for (ByteSize offset = 0; offset < data.size(); offset += stride) {
-        EmojiID id {0, 0};
-        std::memcpy(&id, data.constData() + offset, sizeof(id));
-        const Emoji emoji = EmojiInfo::getEmoji(id);
-        if (!emoji.name.isEmpty()) {
-            names.push_back(emoji.name);
-        }
-    }
-    return names;
-}
-
-void saveFavoriteNames(const QStringList& names)
-{
-    QVector<EmojiID> ids;
-    ids.reserve(names.size());
-    for (const QString& name : names) {
-        const EmojiID id = EmojiInfo::findByName(name);
-        if (id) {
-            ids.push_back(id);
-        }
-    }
-
-    const QByteArray data(reinterpret_cast<const char*>(ids.constData()),
-                          ids.size() * static_cast<int>(sizeof(EmojiID)));
-    MLOptions::instance()->setValue(QStringLiteral("emoji_favorites"), data);
-}
-
-void ensureFourDefaultFavorites()
-{
-    auto* options = MLOptions::instance();
-    const QString key = QStringLiteral("emoji_favorites");
-    const QStringList desired = defaultReactionFavorites();
-
-    if (!options->contains(key)) {
-        saveFavoriteNames(desired);
-        return;
-    }
-
-    const QStringList legacyDefaults = {
-        QStringLiteral("+1"),
-        QStringLiteral("pray"),
-        QStringLiteral("brain"),
-        QStringLiteral("smiley"),
-        QStringLiteral("rolling_on_the_floor_laughing"),
-        QStringLiteral("sunglasses"),
-        QStringLiteral("mask"),
-        QStringLiteral("face_vomiting"),
-        QStringLiteral("yawning_face"),
-        QStringLiteral("cherries"),
-        QStringLiteral("pizza"),
-        QStringLiteral("warning"),
-        QStringLiteral("radioactive_sign"),
-        QStringLiteral("white_check_mark"),
-        QStringLiteral("heavy_check_mark"),
-    };
-
-    const QStringList stored = storedFavoriteNames(
-        options->value<QByteArray>(key));
-    if (stored.size() == legacyDefaults.size()
-        && stringSet(stored) == stringSet(legacyDefaults)) {
-        // Migrate the old untouched default list, but preserve a user's custom
-        // favorites even if they were created by an older version.
-        saveFavoriteNames(desired);
-    }
-}
 
 } // namespace
 
@@ -311,10 +225,8 @@ private:
             return;
         }
 
-        const QStringList popular = renderableNames(
-            ReactionUsageTracker::instance().topNames(10));
-        const QStringList favorites = renderableNames(defaultReactionFavorites());
-        const QStringList quickNames = selectQuickReactionNames(popular, favorites);
+        const QStringList quickNames = renderableNames(
+            ReactionUsageTracker::instance().topNames(10)).mid(0, 8);
         if (quickNames.isEmpty()) {
             hidePopup();
             return;
@@ -412,12 +324,6 @@ void installReactionQuickBarController()
     }
 
     application->installEventFilter(&ReactionQuickBarController::instance());
-
-    // Do not initialize persistent application state in unit-test executables.
-    if (QCoreApplication::organizationName() == QStringLiteral("matterleast")
-        && QCoreApplication::applicationName() == QStringLiteral("MatterLeast")) {
-        ensureFourDefaultFavorites();
-    }
 }
 
 } // namespace

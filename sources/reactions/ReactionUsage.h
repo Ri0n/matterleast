@@ -107,6 +107,25 @@ public:
         trim();
     }
 
+    void seedIfEmpty(const QStringList& names, double initialHeat = 0.5)
+    {
+        if (!entries_.isEmpty()) {
+            return;
+        }
+
+        initialHeat = std::max(0.0, std::min(1.0, initialHeat));
+        QSet<QString> seen;
+        for (QString name : names) {
+            name = name.trimmed();
+            if (name.isEmpty() || seen.contains(name)) {
+                continue;
+            }
+            seen.insert(name);
+            entries_.push_back(ReactionUsageEntry {name, 1, initialHeat});
+        }
+        trim();
+    }
+
     QVector<ReactionUsageEntry> ranking() const
     {
         QVector<ReactionUsageEntry> ranked = entries_;
@@ -223,70 +242,13 @@ inline QVector<ReactionUsageEntry> deserializeReactionUsage(const QByteArray& da
     return entries;
 }
 
-inline QStringList defaultReactionFavorites()
+inline QStringList defaultReactionSeedNames()
 {
     return {
         QStringLiteral("+1"),
-        QStringLiteral("eyes"),
         QStringLiteral("fire"),
-        QStringLiteral("rolling_on_the_floor_laughing"),
+        QStringLiteral("heart"),
     };
-}
-
-/**
- * Build the six-slot hover strip. Start with three popular reactions and then
- * add up to three non-overlapping favorites. Favorite collisions are replaced
- * by further entries from the popularity ranking until maxActions is reached.
- */
-inline QStringList selectQuickReactionNames(const QStringList& popular,
-                                            const QStringList& favorites,
-                                            int maxActions = 6,
-                                            int preferredPopular = 3,
-                                            int preferredFavorites = 3)
-{
-    QStringList selected;
-    QSet<QString> seen;
-
-    maxActions = std::max(0, maxActions);
-    preferredPopular = std::max(0, preferredPopular);
-    preferredFavorites = std::max(0, preferredFavorites);
-
-    const auto appendUnique = [&selected, &seen, maxActions](const QString& name) {
-        if (static_cast<int>(selected.size()) >= maxActions
-            || name.isEmpty() || seen.contains(name)) {
-            return false;
-        }
-        seen.insert(name);
-        selected.push_back(name);
-        return true;
-    };
-
-    const int popularSize = static_cast<int>(popular.size());
-    for (int i = 0; i < popularSize && i < preferredPopular; ++i) {
-        appendUnique(popular.at(i));
-    }
-
-    int favoriteCount = 0;
-    for (const QString& favorite : favorites) {
-        if (favoriteCount >= preferredFavorites
-            || static_cast<int>(selected.size()) >= maxActions) {
-            break;
-        }
-        if (appendUnique(favorite)) {
-            ++favoriteCount;
-        }
-    }
-
-    if (static_cast<int>(selected.size()) < maxActions) {
-        for (const QString& name : popular) {
-            if (static_cast<int>(selected.size()) >= maxActions) {
-                break;
-            }
-            appendUnique(name);
-        }
-    }
-
-    return selected;
 }
 
 } // namespace Mattermost

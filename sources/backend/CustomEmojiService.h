@@ -32,6 +32,12 @@ public:
     /** Search the server-side custom-emoji catalog and cache matching images. */
     void searchEmojis(const QString& term);
 
+    /**
+     * Load the first browse page only when the user opens the Custom picker
+     * category. This preserves browsing without eager startup downloads.
+     */
+    void ensureBrowsePageLoaded();
+
 private:
     explicit CustomEmojiService(Backend& backend);
 
@@ -48,6 +54,7 @@ private:
     QSet<QString> _searchesInFlight;
     bool _flushScheduled = false;
     bool _batchLookupSupported = true;
+    bool _browsePageRequested = false;
 };
 
 } // namespace Mattermost
