@@ -24,7 +24,6 @@
 #include <QIcon>
 #include <QMenu>
 #include <QMargins>
-#include <QPalette>
 #include <QPointer>
 #include <QResizeEvent>
 #include <QStackedWidget>
@@ -384,14 +383,12 @@ void ChatArea::refreshHeaderActionIcons()
     }
 
     if (ui->usersButton) {
-        ui->usersButton->setIcon(IconUtils::tintedSymbolicIcon(
-            QStringLiteral(":/icons/members"),
-            ui->usersButton->palette().color(QPalette::ButtonText)));
+        ui->usersButton->setIcon(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/members")));
     }
     if (ui->pinnedPostsButton) {
-        ui->pinnedPostsButton->setIcon(IconUtils::tintedSymbolicIcon(
-            QStringLiteral(":/icons/pin"),
-            ui->pinnedPostsButton->palette().color(QPalette::ButtonText)));
+        ui->pinnedPostsButton->setIcon(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/pin")));
     }
     if (threadFollowButton) {
         const bool following = threadFollowButton->property("following").toBool();
