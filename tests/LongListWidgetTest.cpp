@@ -355,16 +355,16 @@ private slots:
         list.setPrefetchScreens(0);
         list.setItemCount(20);
         list.setRangeAvailable(16, 19);
-        list.show();
-        list.scrollToEnd();
-        settleEvents(12);
 
         QSignalSpy requests(&list, &Mattermost::LongListWidget::rangeRequested);
 
         // The visible tail is resident, while the normal half-screen margin
-        // reaches one or more missing rows immediately before it.
+        // reaches one or more missing rows immediately before it. Capture that
+        // initial demand: a second no-op scrollToEnd() must not be relied on to
+        // retry the same desired range.
+        list.show();
         list.scrollToEnd();
-        settleEvents(8);
+        settleEvents(12);
         QVERIFY(!requests.isEmpty());
         const QList<QVariant> request = requests.takeFirst();
         list.finishRangeRequest(request.at(0).toInt(), request.at(1).toInt());
