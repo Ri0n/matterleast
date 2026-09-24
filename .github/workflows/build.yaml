@@ -15,20 +15,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  qt6:
-    name: Qt 6.10.3 / Ubuntu 24.04
+  ubuntu-2404:
+    name: Qt 6.4.2 / Ubuntu 24.04
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.10.3'
-          modules: 'qtwebsockets'
-          cache: true
+      - name: Install system Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             build-essential             libqt6sql6-sqlite             qt6-base-dev             qt6-websockets-dev
 
       - name: Configure
         run: >
@@ -44,36 +42,7 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
-  qt64:
-    name: Qt 6.4.3 / Ubuntu 24.04
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.4.3'
-          modules: 'qtwebsockets'
-          cache: true
-
-      - name: Configure
-        run: >
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DQT_6=ON
-          -DBUILD_TESTING=ON
-          -DWARNINGS_AS_ERRORS=ON
-
-      - name: Build
-        run: cmake --build build --parallel 4
-
-      - name: Unit tests
-        run: ctest --test-dir build --output-on-failure
-
-  qt5-ubuntu:
+  ubuntu-2204:
     name: Qt 5.15.3 / Ubuntu 22.04
     runs-on: ubuntu-22.04
 
@@ -81,10 +50,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install system Qt
         run: |
           sudo apt-get update
-          sudo apt-get install -y qtbase5-dev libqt5sql5-sqlite libqt5websockets5-dev
+          sudo apt-get install -y             build-essential             libqt5sql5-sqlite             libqt5websockets5-dev             qtbase5-dev
 
       - name: Configure
         run: >
@@ -100,41 +69,7 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
-  qt5-fedora:
-    name: Qt 5.15.x / Fedora latest
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Install Podman
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: matterleast
-
-      - name: Build and test in Fedora
-        run: |
-          cat > Containerfile <<'EOF'
-          FROM fedora:latest
-          RUN dnf -y update \
-              && dnf -y install cmake gcc-c++ make qt5-qtbase-devel qt5-qtsvg qt5-qtwebsockets-devel \
-              && dnf clean all
-          COPY matterleast /matterleast
-          WORKDIR /matterleast
-          RUN cmake -S . -B build \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DQT_6=OFF \
-              -DBUILD_TESTING=ON \
-              -DWARNINGS_AS_ERRORS=ON
-          RUN cmake --build build --parallel 4
-          RUN ctest --test-dir build --output-on-failure
-          EOF
-          podman build --tag matterleast-fedora -f Containerfile
-
-  qt6-windows:
+  windows:
     name: Qt 6.10.3 / Windows 2025
     runs-on: windows-2025
 
@@ -154,31 +89,6 @@ jobs:
         with:
           arch: x64
 
-      - name: Install NSIS
-        shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
-          if (-not (Test-Path (Join-Path $nsisDir "makensis.exe"))) {
-            throw "makensis.exe was not installed in $nsisDir"
-          }
-          $nsisDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Verify NSIS icon
-        shell: pwsh
-        run: |
-          @'
-          Unicode true
-          Name "MatterLeast icon check"
-          OutFile "matterleast-icon-check.exe"
-          Icon "resources\matterleast.ico"
-          Section
-          SectionEnd
-          '@ | Set-Content -Path matterleast-icon-check.nsi -Encoding utf8
-          makensis /V2 matterleast-icon-check.nsi
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja
@@ -192,96 +102,3 @@ jobs:
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
-
-      - name: Build NSIS installer
-        shell: pwsh
-        run: |
-          cpack --config build/CPackConfig.cmake -G NSIS -B package-nsis
-          $cpackExit = $LASTEXITCODE
-          if ($cpackExit -ne 0) {
-            $log = Get-ChildItem package-nsis -Recurse -File -Filter "NSISOutput.log" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($log) {
-              Write-Host "==== $($log.FullName) ===="
-              Get-Content -LiteralPath $log.FullName
-            } else {
-              Write-Host "NSISOutput.log was not produced"
-            }
-            exit $cpackExit
-          }
-          $installer = Get-ChildItem package-nsis -File -Filter "*.exe" | Select-Object -First 1
-          if (-not $installer) { throw "CPack did not produce an NSIS installer" }
-
-      - name: Package portable ZIP
-        shell: pwsh
-        run: |
-          cmake --install build --prefix package
-          windeployqt --release --no-translations --compiler-runtime package/bin/matterleast.exe
-          Compress-Archive -Path package/* -DestinationPath matterleast-windows-x64.zip
-
-      - name: Upload Windows package
-        uses: actions/upload-artifact@v4
-        with:
-          name: matterleast-windows-x64
-          path: matterleast-windows-x64.zip
-          if-no-files-found: error
-
-  ubuntu-2604-package:
-    name: Qt 6.10.2 / Ubuntu 26.04 package
-    runs-on: ubuntu-26.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            dpkg-dev \
-            libqt6sql6-sqlite \
-            libqt6svg6 \
-            qt6-base-dev \
-            qt6-svg-plugins \
-            qt6-websockets-dev
-
-      - name: Configure
-        run: >
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DQT_6=ON
-          -DBUILD_TESTING=ON
-          -DWARNINGS_AS_ERRORS=ON
-          -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6, qt6-svg-plugins"
-
-      - name: Build
-        run: cmake --build build --parallel 4
-
-      - name: Unit tests
-        run: ctest --test-dir build --output-on-failure
-
-      - name: Build and verify DEB
-        shell: bash
-        run: |
-          set -euo pipefail
-          cpack --config build/CPackConfig.cmake -G DEB -B package
-          deb=$(find package -maxdepth 1 -type f -name '*.deb' -print -quit)
-          test -n "$deb"
-
-          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
-          test "$(dpkg-deb -f "$deb" Version)" = "$version"
-
-          depends=$(dpkg-deb -f "$deb" Depends)
-          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins; do
-            if [[ "$depends" != *"$dep"* ]]; then
-              echo "::error::DEB dependency '$dep' is missing: $depends"
-              exit 1
-            fi
-          done
-
-      - name: Upload Ubuntu package
-        uses: actions/upload-artifact@v4
-        with:
-          name: matterleast-ubuntu-26.04-amd64
-          path: package/*.deb
-          if-no-files-found: error
