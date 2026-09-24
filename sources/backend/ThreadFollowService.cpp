@@ -101,10 +101,26 @@ void logFollowingState(Backend& backend,
             ++emptyChannelId;
             continue;
         }
-        if (!storage.getChannelById(thread.channelId)) {
+
+        const BackendChannel* channel = storage.getChannelById(thread.channelId);
+        if (!channel) {
             ++missingChannel;
             continue;
         }
+
+        if (channel->type == BackendChannel::directChannel
+            || channel->type == BackendChannel::groupChannel) {
+            qCDebug(lcFollowing).nospace()
+                << "direct-thread mode=" << (unreadOnly ? "unread" : "all")
+                << " channel=" << thread.channelId
+                << " thread=" << thread.id
+                << " unreadReplies=" << thread.unreadReplies
+                << " unreadMentions=" << thread.unreadMentions
+                << " lastViewedAt=" << thread.lastViewedAt
+                << " lastReplyAt=" << thread.lastReplyAt
+                << " muted=" << sidebar.isChannelMuted(*channel);
+        }
+
         if (thread.unreadReplies > 0 || thread.unreadMentions > 0) {
             ++unreadThreads;
         } else {
@@ -315,9 +331,17 @@ void ThreadFollowService::queryTeamPage(
 
     const QString teamId = teamIds->at(teamIndex);
     const int perPage = unreadOnly ? UnreadThreadsPerPage : FollowingThreadsPerPage;
+
+    // Mattermost stores DM/GM threads with an empty ThreadTeamId. A team-scoped
+    // query includes them unless excludeDirect=true. Fetch them together with
+    // the first team only so CRT replies in direct conversations participate in
+    // Following/Attention without repeating the same DM/GM page for every team.
+    const bool excludeDirect = teamIndex != 0;
     QString path = QStringLiteral("users/") + _backend.getLoginUser().id
         + QStringLiteral("/teams/") + teamId
-        + QStringLiteral("/threads?threadsOnly=true&extended=true&excludeDirect=true&per_page=")
+        + QStringLiteral("/threads?threadsOnly=true&extended=true&excludeDirect=")
+        + (excludeDirect ? QStringLiteral("true") : QStringLiteral("false"))
+        + QStringLiteral("&per_page=")
         + QString::number(perPage);
     if (unreadOnly) {
         path += QStringLiteral("&unread=true");
@@ -331,6 +355,7 @@ void ThreadFollowService::queryTeamPage(
         << "request mode=" << (unreadOnly ? "unread" : "all")
         << " team=" << (teamIndex + 1) << '/' << teamIds->size()
         << " page=" << (continuationPage ? "next" : "first")
+        << " excludeDirect=" << excludeDirect
         << " perPage=" << perPage;
 
     NetworkRequest request(path);

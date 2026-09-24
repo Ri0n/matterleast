@@ -6,6 +6,12 @@ namespace Mattermost {
 
 constexpr int FollowingThreadSnippetLength = 120;
 
+inline bool attentionMuteAllowsEntry(bool muted, bool explicitlyFollowedThread)
+{
+    return !muted || explicitlyFollowedThread;
+}
+
+
 inline QString compactFollowingMessage(QString message)
 {
     message = message.simplified();

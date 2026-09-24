@@ -17,7 +17,9 @@ It is broader than Attention:
 - **Following** shows the shared queue, including followed threads that are
   already read and conversation rows that currently belong in the queue.
 - **Attention** is a filtered projection of the same `FollowingModel` entries
-  whose `requiresAttention()` is true and which are not muted.
+  whose `requiresAttention()` is true. Channel mute suppresses conversation and
+  synthetic-attention rows, but it does **not** suppress an explicitly followed
+  unread thread.
 
 A Following click is **navigation**. It is never proof that a message was read.
 
@@ -71,13 +73,22 @@ It can be projected there when an explicit local/server-backed **Mark as unread*
 creates manual attention for that channel.
 
 Muted conversation rows are not shown unless manual attention explicitly owns
-the local projection according to `FollowingModel`.
+the local projection according to `FollowingModel`. This mute rule does not
+apply to a real followed thread: following is an explicit user opt-in, so an
+unread followed thread remains in Attention even when its parent channel/DM is
+muted. Synthetic thread-shaped mentions are not explicit follows and remain
+subject to mute suppression.
 
 ### Thread rows
 
 Thread rows primarily come from the Mattermost CRT followed-thread snapshot.
 They remain in Following when read because "followed" is membership, not just
 unread state.
+
+DM/GM threads are part of the same CRT domain. The shared snapshot must include
+them as well: with collapsed reply threads enabled, a parent DM/GM conversation
+uses root-only unread counts, so an unread reply inside a DM/GM thread is
+represented by the thread entry rather than by the parent conversation row.
 
 A root mention can temporarily create a synthetic thread-shaped entry before a
 real CRT snapshot contains that thread. The synthetic entry is replaced/reconciled
