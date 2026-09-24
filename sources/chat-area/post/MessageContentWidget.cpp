@@ -37,7 +37,7 @@
 #include "options/MLOptions.h"
 #include "ui/EmojiPresentation.h"
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 #include "qsourcehighliter.h"
 #endif
 
@@ -447,7 +447,7 @@ QVector<MessageSegment> splitMessageSegments(const QString& message)
     return result;
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 
 using SourceLanguage = QSourceHighlite::QSourceHighliter::Language;
 
@@ -676,7 +676,7 @@ QString fragmentHtml(QTextDocument& document, int start, int end)
 
 QString formatRichTextForFont(const QString& message, const QFont& font)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     QTextDocument document;
     document.setDefaultFont(font);
     MessageFormatter::buildMarkdownDocument(document, message);
@@ -768,7 +768,7 @@ void MessageContentWidget::setMessage(const QString& message)
         if (segment.text.isEmpty()) {
             continue;
         }
-#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         addMarkdownContent(segment.text);
 #else
         addRichText(MessageFormatter::formatMessageText(segment.text));
@@ -919,7 +919,7 @@ void MessageContentWidget::addRichText(const QString& html)
     contentLayout->addWidget(richText);
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 void MessageContentWidget::addMarkdownContent(const QString& message)
 {
     QTextDocument document;
