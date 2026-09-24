@@ -16,6 +16,20 @@ inline QString compactFollowingMessage(QString message)
     return message;
 }
 
+inline QString followingMessageToolTip(QString message)
+{
+    const qsizetype newline = message.indexOf(QLatin1Char('\n'));
+    if (newline >= 0) {
+        message.truncate(newline);
+    }
+    message = message.trimmed();
+    if (message.size() > FollowingThreadSnippetLength) {
+        message.truncate(FollowingThreadSnippetLength - 1);
+        message += QChar(0x2026);
+    }
+    return message;
+}
+
 inline QString followingThreadLabel(const QString& channelName,
                                     const QString& message)
 {

@@ -30,6 +30,19 @@ private slots:
                  QStringLiteral("Town Square"));
     }
 
+    void tooltipUsesOnlyFirstMessageLine()
+    {
+        QCOMPARE(followingMessageToolTip(
+                     QStringLiteral("first line\nsecond line\nthird line")),
+                 QStringLiteral("first line"));
+
+        const QString longLine(FollowingThreadSnippetLength + 20, QLatin1Char('x'));
+        const QString tooltip = followingMessageToolTip(longLine + QStringLiteral("\nignored"));
+        QCOMPARE(tooltip.size(), FollowingThreadSnippetLength);
+        QVERIFY(tooltip.endsWith(QChar(0x2026)));
+        QVERIFY(!tooltip.contains(QLatin1Char('\n')));
+    }
+
     void repeatedOpenConversationActivationPreservesViewport()
     {
         QVERIFY(shouldPreserveRepeatedConversationActivation(

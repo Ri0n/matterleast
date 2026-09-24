@@ -444,7 +444,7 @@ void AttentionList::refresh()
             item->setData(0, SidebarItem::IdRole, entry.threadId);
             item->setData(0, SidebarItem::ChannelTypeRole,
                           channel ? channel->type : BackendChannel::publicChannel);
-            item->setToolTip(0, entry.message);
+            item->setToolTip(0, followingMessageToolTip(entry.message));
             if (channel && channel->type == BackendChannel::privateChannel) {
                 item->setIcon(0, ChannelIcons::privateChannel());
             } else {

@@ -85,6 +85,13 @@ by the shared model; Following must not build a parallel synthetic store.
 
 Unfollowing a thread removes its normal followed-thread membership.
 
+## Presentation text
+
+Thread rows may show a compact message snippet in the row label. Their tooltip must never expose the
+entire message body: it contains only the first source line, trimmed and capped to the same compact
+snippet length. Following and Attention share this presentation helper so a multiline or very large
+post cannot create a screen-sized tooltip.
+
 ## Ordering
 
 Following sorts unread/attention rows before non-attention rows.
