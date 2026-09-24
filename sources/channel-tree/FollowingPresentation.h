@@ -18,7 +18,7 @@ inline QString compactFollowingMessage(QString message)
 
 inline QString followingMessageToolTip(QString message)
 {
-    const qsizetype newline = message.indexOf(QLatin1Char('\n'));
+    const auto newline = message.indexOf(QLatin1Char('\n'));
     if (newline >= 0) {
         message.truncate(newline);
     }
