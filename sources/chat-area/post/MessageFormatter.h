@@ -10,7 +10,7 @@ namespace MessageFormatter {
 
 QString formatMessageText(const QString& text);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
 void buildMarkdownDocument(QTextDocument& document, const QString& text);
 #endif
 
