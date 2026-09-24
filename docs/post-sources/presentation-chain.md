@@ -48,6 +48,14 @@ Putting the outbox below the filter would make local delivery/retry policy obser
 
 Future presentation layers should preserve this composability instead of folding unrelated concerns into one large source class.
 
+Every presentation decorator must expose its wrapped source through
+`AbstractPostSource::wrappedSource()`. Code that needs the authoritative
+channel/thread topology must traverse `authoritativeSource()`; it must never
+peel known decorators with concrete `qobject_cast` loops. This is especially
+important for permalink/header navigation: fetched context belongs to
+`ChannelPostSource`/`ThreadPostSource`, even when the view currently sees
+`OutboxPostSource -> FilteredPostSource -> ...`.
+
 ## Projection versus augmentation
 
 A **projection** presents a subset/view of wrapped authoritative rows while preserving their semantic identity. `FilteredPostSource` is the current example.
@@ -114,7 +122,9 @@ The authoritative server post ID is a different identity.
 
 Presentation semantics on confirmation are a **replacement/promotion**, not two independent messages. The user should not observe a duplicated outgoing message merely because authoritative confirmation arrived through HTTP or WebSocket.
 
-The ideal presentation transaction keeps count/anchor behavior equivalent to replacing the pending row with the authoritative row. With the current `AbstractPostSource` interface this may be implemented as authoritative insertion immediately before the local tail followed by removal of the correlated pending row. That structural implementation must still preserve the same visible semantics: no duplicate stable row, no viewport jump, and no corruption of semantic navigation.
+Confirmation is published as one narrow same-index replacement transaction. The wrapped authoritative tail growth and removal of the correlated FIFO pending head are coalesced before the view sees either intermediate cardinality. `LongListWidget::replaceItem()` freezes viewport updates, recreates only the replaced physical row, remeasures it, restores the existing semantic anchor/sticky-bottom intent against final geometry, and paints once. It does **not** use `layoutChanged`.
+
+The transaction must preserve: no duplicate stable row, no intermediate count growth/shrink, no rebuild of unrelated widgets, no viewport jump, and no corruption of semantic navigation.
 
 ## Current BackendPost adapter is not authoritative state
 
@@ -195,6 +205,24 @@ In particular, when a server row arrives while pending rows are visible, the ser
 
 This is the same reason join/part filtering was implemented as a source projection instead of as tiny hidden post widgets.
 
+## Optimistic tail reveal
+
+Local optimistic insertion has one deliberate viewport-presentation policy above
+the source layer. When a newly enqueued pending row is appended at the presented
+tail, `ChatLogWidget` asks `LongListWidget` to insert it with
+`PreserveVisibleContent` rather than inheriting sticky-bottom immediately.
+The pending widget can therefore construct and settle below the current
+viewport. `followOwnPost()` then requests `scrollToEndAnimated()`.
+
+This does **not** put animation or pixel knowledge into `OutboxPostSource`.
+The outbox still emits only logical `itemsInserted`/availability. The chat view
+recognizes that the inserted row is its local pending tail and chooses the
+presentation policy; `LongListWidget` owns all pixel distance, animation and
+item-visibility translation.
+
+If the user sent while far back in history, `LongListWidget` uses an immediate
+tail jump instead of animating across many items.
+
 ## Delivery ownership
 
 Presentation and delivery are related but distinct responsibilities.
@@ -235,6 +263,8 @@ PR #112 currently uses the following bounded automatic policy for ordinary text 
 
 The important architectural rule is bounded retry, not those exact numeric values. If policy changes, keep it finite and visible to the user.
 
+Retry counters, timers and delivery states are session-only. The durable outbox persists unresolved **message intent**, not transport state, because a process boundary deliberately never resumes automatic delivery. This avoids synchronous disk rewrites on every retry/state transition while keeping the only critical handoff — composer to durable outbox — atomic.
+
 Current presentation states are:
 
 - `Queued`;
@@ -243,7 +273,11 @@ Current presentation states are:
 - `Blocked` behind an earlier FIFO item;
 - `Failed`.
 
-A failed row exposes explicit Retry and Cancel actions.
+Non-failed pending states do **not** add a textual status row below the message. They use the compact reconnect/busy indicator in the right-side header utility slot immediately before the timestamp — the same slot used by the thread-opening summary on authoritative root posts. A pending post cannot expose the thread action itself because it has no server post ID yet. The indicator reserves the same vertical chip footprint as the eventual thread summary while keeping the spinner itself compact, so ordinary pending -> authoritative confirmation does not change header height. This keeps delivery state away from the author-name geometry and keeps retry/state transitions from perturbing PostWidget height or LongList anchors.
+
+The busy indicator has one process-wide animation/frame provider. Widgets acquire it only while they need animation; the provider runs one timer, caches each rasterized phase/size/palette frame for all consumers, and stops/clears its frame cache when the last consumer releases it. Sidebar reconnect, pending-post indicators and other busy theme buttons use this same clock/cache. Do not introduce per-widget animation timers.
+
+A failed row stops the spinner and exposes the textual failure plus explicit Retry and Cancel actions, because that state requires user attention and interaction. While a row is queued/retrying/blocked, Cancel remains available from the pending post context menu without adding layout height; it is deliberately unavailable while an HTTP create is already in flight.
 
 ## Conversation-advanced cutoff
 
@@ -255,7 +289,7 @@ Current policy: after **3 newer visible authoritative messages** in the same log
 
 For the main channel timeline, hidden join/part events do not consume this budget because `FilteredPostSource` would not present them.
 
-For another timeline/projection, the equivalent visibility policy must be supplied by that timeline rather than hard-coding channel event types into a generic outbox abstraction.
+For another timeline/projection, the equivalent visibility policy is supplied by that timeline to the delivery service. The delivery layer does not hard-code channel event types.
 
 A confirmation of one of our own pending rows is expected FIFO progress and must not count as an intervening message against later queued rows.
 
@@ -352,9 +386,13 @@ This guarantees that:
 
 Recovered drafts are local-only and must not be synchronized into Mattermost's one-draft-per-conversation server API.
 
+Ordinary composer drafts use a separate persistence contract: the 600 ms typing debounce writes only the local DraftStore for crash safety. Mattermost remote draft create/update is requested when leaving or closing that composer (or explicitly switching away from its draft identity). Sending removes a never-published local draft without a remote create/delete round trip; a previously published remote draft is deleted normally.
+
 For quoted replies, recovery preserves the reply target and strips the generated fallback quote from the editable message body rather than forcing the user to edit wire-format fallback text.
 
-The durable outbox file is removed only after valid records have been handed to the draft service's own durable persistence, so recovery remains idempotent across an interrupted startup conversion.
+Recovered records leave the outbox only after their individual DraftStore handoff is durable. If conversion stops on a persistence failure, only the failed/unprocessed suffix remains as a recovery backlog and is merged into later live outbox snapshots. Already-durable recovered drafts are not retained in that backlog, so sending or deleting one in the current process cannot make it reappear on a later restart.
+
+There is one deliberate deduplication exception to preserving an ordinary draft in the same conversation: a crash may occur after the outbox handoff commits but before the sent composer's ordinary draft is removed. After the recovered entry is durable, an ordinary draft is discarded only when its message and quoted-reply target exactly match the recovered record. A differing ordinary draft is preserved.
 
 ## Account isolation
 
@@ -436,7 +474,11 @@ The current implementation still has Mattermost-specific seams that should not b
 
 ### visibility cutoff observation
 
-`PendingPostService` currently knows enough about the main channel filter to exclude hidden membership churn. The generic direction is to observe "authoritative rows visible in this presentation" through a narrow policy/callback or source-layer event, not to accumulate more hard-coded post types inside the delivery service.
+The presentation layer supplies a per-timeline visibility predicate to `PendingPostService`. This keeps hidden-event policy above the backend delivery machinery while still allowing cutoff tracking when the chat view is not materialized.
+
+### generic source authority metadata
+
+`AbstractPostSource` exposes whether a view-facing row is authoritative, how many authoritative rows are present, and whether a semantic post has a server-confirmed logical position. Decorators delegate the position-authority question to their wrapped source. Read state, bookmarks and selection can therefore exclude local augmentation without depending on `OutboxPostSource` specifically.
 
 ### synthetic `BackendPost`
 
@@ -528,7 +570,8 @@ Changes to this subsystem should cover the relevant items below.
 
 - incoming authoritative insertion before a materialized pending tail preserves semantic anchor;
 - confirmation does not jump the viewport;
-- sticky-bottom remains sticky when appropriate;
+- normal sticky-bottom remains sticky; optimistic own-tail insertion may deliberately preserve the
+  old visible content until its explicit animated follow;
 - pending state relayout changes only its own row;
 - paging/materialization around an outbox tail does not invent server slots.
 

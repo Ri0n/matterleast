@@ -4,6 +4,7 @@
 #include <QPainter>
 #include <QSignalSpy>
 
+#include "ui/BusyIndicator.h"
 #include "ui/PresenceAvatarLabel.h"
 
 using namespace Mattermost;
@@ -26,6 +27,31 @@ class PresenceAvatarLabelTest : public QObject
     Q_OBJECT
 
 private slots:
+    void sharedBusyAnimationRunsOnlyWhileRequested()
+    {
+        auto& animation = BusyIndicator::Animation::instance();
+        QVERIFY(!animation.isRunning());
+
+        BusyIndicatorWidget first;
+        BusyIndicatorWidget second;
+
+        first.setAnimating(true);
+        QVERIFY(animation.isRunning());
+
+        second.setAnimating(true);
+        QVERIFY(animation.isRunning());
+
+        // QPixmap::cacheKey() is not a portable identity test for
+        // implicit-sharing copies (notably on Qt 5). The externally relevant
+        // contract is one shared animation clock whose lifetime follows demand;
+        // frame-cache reuse is an implementation detail of Animation::frame().
+        first.setAnimating(false);
+        QVERIFY(animation.isRunning());
+
+        second.setAnimating(false);
+        QVERIFY(!animation.isRunning());
+    }
+
     void connectionIndicatorIsVisibleBeforeAvatarLoads()
     {
         PresenceAvatarLabel label;

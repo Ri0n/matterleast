@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 namespace Mattermost {
@@ -45,6 +46,40 @@ public:
     virtual int indexOfPost(const QString& postId) const = 0;
 
     /**
+     * Presentation decorators override this to expose the source they wrap.
+     * Authoritative server sources leave it null.
+     *
+     * Semantic operations that must reach transport/topology ownership (for
+     * example permalink context adoption) must traverse this chain instead of
+     * guessing concrete decorator types.
+     */
+    virtual AbstractPostSource* wrappedSource() const { return nullptr; }
+
+    /**
+     * Return the innermost source in the decorator chain. The method is cycle
+     * safe so a malformed decorator cannot hang navigation.
+     */
+    AbstractPostSource* authoritativeSource()
+    {
+        AbstractPostSource* current = this;
+        QSet<AbstractPostSource*> visited;
+        while (current && !visited.contains(current)) {
+            visited.insert(current);
+            AbstractPostSource* wrapped = current->wrappedSource();
+            if (!wrapped || visited.contains(wrapped)) {
+                break;
+            }
+            current = wrapped;
+        }
+        return current;
+    }
+
+    const AbstractPostSource* authoritativeSource() const
+    {
+        return const_cast<AbstractPostSource*>(this)->authoritativeSource();
+    }
+
+    /**
      * Return a logical index for an already cached semantic target. Sources may
      * temporarily place a target into an estimated empty slot when the server
      * has not yet supplied an authoritative page boundary. Later page loads are
@@ -55,6 +90,27 @@ public:
     virtual int ensurePostIndex(const QString& postId)
     {
         return indexOfPost(postId);
+    }
+
+    /**
+     * Whether this view-facing row belongs to authoritative server history.
+     * Presentation augmentations override this for local-only rows.
+     */
+    virtual bool isAuthoritativeRow(int index) const
+    {
+        return index >= 0 && index < itemCount();
+    }
+
+    /** Number of authoritative rows in the view-facing sequence. */
+    virtual int authoritativeItemCount() const { return itemCount(); }
+
+    /**
+     * Whether the semantic post already has a server-confirmed logical
+     * position. Decorators delegate this to the wrapped source.
+     */
+    virtual bool isPostPositionAuthoritative(const QString& postId) const
+    {
+        return indexOfPost(postId) >= 0;
     }
 
     virtual void requestRange(int first,
@@ -75,13 +131,10 @@ public:
 
 protected:
     /**
-     * Compatibility shim for source implementations that used to emit the
-     * coarse itemsChanged signal. A source-side mapping mutation is structural:
-     * views must preserve widgets by semantic identity and only remap indices.
-     * Post body/reaction/deletion updates are delivered by BackendChannel and
-     * updated in-place by the concrete view.
+     * Explicitly publish a genuine semantic identity-to-index remap.
+     * Do not use this for body/reaction/deletion/presentation updates.
      */
-    void itemsChanged(int first, int last) { emit layoutChanged(first, last); }
+    void mappingChanged(int first, int last) { emit layoutChanged(first, last); }
 
 signals:
     void itemCountChanged(int count);

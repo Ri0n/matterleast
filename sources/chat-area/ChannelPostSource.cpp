@@ -106,20 +106,6 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
         }
         appendTransientPost(post);
     });
-    connect(&channel, &BackendChannel::onPostEdited, this,
-            [this](BackendPost& post) {
-        const int index = indexOfPost(post.id);
-        if (index >= 0) {
-            emit itemsChanged(index, index);
-        }
-    });
-    connect(&channel, &BackendChannel::onPostReactionUpdated, this,
-            [this](BackendPost& post) {
-        const int index = indexOfPost(post.id);
-        if (index >= 0) {
-            emit itemsChanged(index, index);
-        }
-    });
     connect(&channel, &BackendChannel::onPostDeleted, this,
             [this](const QString& postId) {
         const int index = indexOfPost(postId);
@@ -140,10 +126,9 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
             removeLogicalRange(index, 1);
         } else {
             // Mattermost keeps a deleted placeholder when another user's post
-            // disappears, while deletion of the current user's own post is a
-            // structural removal. BackendPost::isDeleted already contains the
-            // tombstone state set by BackendChannel::deletePost().
-            emit itemsChanged(index, index);
+            // disappears. Its identity/index mapping is unchanged; the active
+            // ChatLogWidget updates the resident PostWidget in-place from the
+            // BackendChannel deletion signal.
         }
     });
     connect(&channel, &BackendChannel::onNewPosts, this,
@@ -371,8 +356,8 @@ void ChannelPostSource::requestRange(int first,
             }
             source->provisionalWindow.first = newFirst;
             source->rebuildIndex();
-            source->itemsChanged(window.first, window.last());
-            source->itemsChanged(newFirst, newFirst + windowCount - 1);
+            source->mappingChanged(window.first, window.last());
+            source->mappingChanged(newFirst, newFirst + windowCount - 1);
             emit source->rangeAvailable(newFirst, newFirst + windowCount - 1);
             qCDebug(lcTimelineChannel).nospace()
                 << "RANGE_CURSOR_SHIFT_PROVISIONAL direction=after"
@@ -424,8 +409,8 @@ void ChannelPostSource::requestRange(int first,
             }
             source->provisionalWindow.first = newFirst;
             source->rebuildIndex();
-            source->itemsChanged(window.first, window.last());
-            source->itemsChanged(newFirst, newFirst + windowCount - 1);
+            source->mappingChanged(window.first, window.last());
+            source->mappingChanged(newFirst, newFirst + windowCount - 1);
             emit source->rangeAvailable(newFirst, newFirst + windowCount - 1);
             qCDebug(lcTimelineChannel).nospace()
                 << "RANGE_CURSOR_SHIFT_PROVISIONAL direction=before"
@@ -1666,9 +1651,9 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
     const int newLast = first + contextCount - 1;
     if (oldWindow.isValid()
         && (oldWindow.first != first || oldWindow.last() != newLast)) {
-        emit itemsChanged(oldWindow.first, oldWindow.last());
+        mappingChanged(oldWindow.first, oldWindow.last());
     }
-    emit itemsChanged(first, newLast);
+    mappingChanged(first, newLast);
     emit rangeAvailable(first, newLast);
 
     qCDebug(lcTimelineChannel).nospace()
@@ -2001,7 +1986,7 @@ void ChannelPostSource::appendLivePost(BackendPost& post)
 
     const int existing = indexOfPost(post.id);
     if (existing >= 0) {
-        emit itemsChanged(existing, existing);
+        // Duplicate HTTP/WebSocket delivery changes data, not logical identity.
         return;
     }
 

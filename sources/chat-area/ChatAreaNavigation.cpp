@@ -7,7 +7,6 @@
 
 #include "ChannelPostSource.h"
 #include "ChatLogWidget.h"
-#include "FilteredPostSource.h"
 #include "ThreadPostSource.h"
 #include "ui_ChatArea.h"
 
@@ -31,10 +30,9 @@ bool ChatArea::ensurePinnedPostVisible(const QString& postId,
     }
 
     AbstractPostSource* listSource = ui->listWidget->source();
-    while (auto* filtered = qobject_cast<FilteredPostSource*>(listSource)) {
-        listSource = filtered->wrappedSource();
-    }
-    auto* source = qobject_cast<ChannelPostSource*>(listSource);
+    auto* source = listSource
+        ? qobject_cast<ChannelPostSource*>(listSource->authoritativeSource())
+        : nullptr;
     if (!source) {
         return ensurePostVisible(postId);
     }
@@ -69,7 +67,10 @@ void ChatArea::highlightPostWhenReady(const QString& postId,
         return;
     }
 
-    auto* source = qobject_cast<ThreadPostSource*>(ui->listWidget->source());
+    AbstractPostSource* listSource = ui->listWidget->source();
+    auto* source = listSource
+        ? qobject_cast<ThreadPostSource*>(listSource->authoritativeSource())
+        : nullptr;
     if (!source || source->isPostReadyForNavigation(postId)) {
         ui->listWidget->highlightPost(postId);
         if (onPresented) {

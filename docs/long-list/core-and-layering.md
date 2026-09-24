@@ -6,6 +6,11 @@
 
 **Exactly one object owns scroll geometry and the viewport: `LongListWidget`.**
 
+Pixels are private implementation detail below that boundary. `LongListWidget` translates
+scrollbar, viewport and child-widget geometry into logical item semantics before notifying the rest
+of the application. Consumers reason about logical ranges and semantic item visibility; they must
+not derive read/navigation state from child-widget Y coordinates, heights or scrollbar values.
+
 No channel/thread controller, data source, child item widget, cache or navigation service may set a
 scrollbar value, calculate pixel positions in the list, create placeholder rows, preserve a viewport
 anchor, freeze painting or decide which concrete widgets should exist.
@@ -22,6 +27,9 @@ QAbstractScrollArea
         |
         v
    ChatLogWidget                   Mattermost post UI + semantic post identity
+        |
+        v
+  OutboxPostSource                 optional additive presentation tail
         |
         v
  FilteredPostSource                optional predicate projection
@@ -43,9 +51,10 @@ QAbstractScrollArea
           memory / HTTP / SQLite
 ```
 
-`FilteredPostSource` is optional: thread timelines currently connect `ChatLogWidget` directly to
-`ThreadPostSource`, while the main channel timeline wraps `ChannelPostSource` in a predicate
-projection.
+Presentation decorators are optional and composable. The current channel path is
+`ChannelPostSource -> FilteredPostSource -> OutboxPostSource -> ChatLogWidget`; the current thread
+path is `ThreadPostSource -> OutboxPostSource -> ChatLogWidget`. They do not own pixels or viewport
+intent.
 
 `LongListWidget` owns geometry, scrolling, viewport anchoring and persistent logical-item viewport
 locks. `ChatLogWidget` owns post-specific presentation, actions and semantic post-ID identity.
@@ -99,12 +108,40 @@ signals:
     rangeRequested(first, last, reason, generation);
     visibleRangeChanged(first, last);
     materializedRangeChanged(first, last);
-    userViewportChanged(atEnd);
+    itemVisibilityChanged(index, visibility, reason);
+    userScrollStarted();
     viewportLockReleased();
 ```
 
 A subclass supplies a concrete widget for an available logical item through
 `createItemWidget(index)`.
+
+### Item visibility boundary
+
+`ItemVisibility` is the semantic geometry vocabulary exported by the list:
+
+```text
+Body    item intersects the viewport
+Top     item's top edge is inside the viewport
+Bottom  item's bottom edge is inside the viewport
+```
+
+A fully visible item is `Body|Top|Bottom`. A tall item spanning both viewport edges is `Body`.
+An off-screen item is `None`.
+
+`itemVisibilityChanged(index, visibility, reason)` is emitted only when that mask actually changes.
+Its reason is intentionally semantic:
+
+- `UserScroll` — direct wheel/scrollbar/thumb interaction;
+- `ProgrammaticScroll` — semantic positioning such as `scrollToIndex()` / `scrollToEnd()`;
+- `LayoutChange` — materialization, item geometry or viewport geometry changed visibility.
+
+Wheel deltas, scrollbar values and child-widget coordinates never cross this boundary.
+
+`userScrollStarted()` is the one separate intent event. A user can scroll a few pixels inside one
+oversized item while its visibility remains exactly `Body`; navigation ownership must still yield
+to the user even though no visibility mask changed. This signal carries no pixel information and is
+not a read rule.
 
 ## No gap widgets
 

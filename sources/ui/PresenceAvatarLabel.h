@@ -23,7 +23,6 @@
 #include <QPixmap>
 #include <QRectF>
 #include <QString>
-#include <QTimer>
 
 #include "ClickableLabel.h"
 
@@ -76,10 +75,7 @@ private:
     QPixmap sourcePixmap;
     QString presenceStatus;
     QColor renderedBackground;
-    QTimer connectionAnimationTimer;
     ConnectionIndicatorState connectionState = ConnectionIndicatorState::None;
-    int connectionAnimationPhase = 0;
-    int connectionAnimationDirection = 1;
 };
 
 /**

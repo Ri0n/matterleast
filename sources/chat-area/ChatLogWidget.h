@@ -22,6 +22,7 @@ class Backend;
 class BackendPost;
 class ChatArea;
 class PostWidget;
+struct PendingPost;
 
 /** Mattermost timeline behavior layered on the shared post-list presentation. */
 class ChatLogWidget : public PostListWidget
@@ -96,7 +97,7 @@ private:
     bool finalizeNavigationLock();
     void scheduleNavigationFinalize();
     void scheduleReadCursorUpdate();
-    void updateReadCursorFromViewport();
+    void updateReadCursorFromVisibility();
     void markPostUnread(const QString& postId);
     bool isPostLowerEdgeVisible(const QString& postId) const;
     void setMessageSelectionRange(const QString& currentPostId);
@@ -108,6 +109,10 @@ private:
     void positionSelectionToolbar();
     void copySelectedPosts();
     void deleteSelectedOwnPosts();
+    bool isLocalPresentationIndex(int index) const;
+    bool isLocalPresentationId(const QString& postId) const;
+    void applyPendingPresentation(PostWidget& widget,
+                                  const PendingPost& pending);
 
     Backend* backend = nullptr;
     ChatArea* chatArea = nullptr;

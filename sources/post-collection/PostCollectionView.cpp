@@ -51,21 +51,23 @@ public:
         // Collection pagination is deliberately driven only by an actual user
         // viewport gesture. LongListWidget prefetch/materialization must never
         // turn a popular search into an automatic request chain.
-        connect(this, &LongListWidget::userViewportChanged, this,
-                [this](bool atEnd) {
-            if (!_owner.hasMoreResults() || _owner.loading) {
-                return;
-            }
-            const Range visible = visibleRange();
-            const int threshold = std::max(
-                0, static_cast<int>(_owner.posts.size()) - 2);
-            if (!atEnd && (!visible.isValid() || visible.last < threshold)) {
-                return;
-            }
+        connect(this, &LongListWidget::userScrollStarted, this,
+                [this] {
+            // userScrollStarted() is an intent event and may precede Qt applying
+            // an actionTriggered scrollbar value. Evaluate the logical viewport
+            // on the next turn, after the user gesture has taken effect.
             QTimer::singleShot(0, this, [this] {
-                if (_owner.hasMoreResults() && !_owner.loading) {
-                    _owner.loadNextPage();
+                if (!_owner.hasMoreResults() || _owner.loading) {
+                    return;
                 }
+                const Range visible = visibleRange();
+                const int threshold = std::max(
+                    0, static_cast<int>(_owner.posts.size()) - 2);
+                if (!isAtEnd()
+                    && (!visible.isValid() || visible.last < threshold)) {
+                    return;
+                }
+                _owner.loadNextPage();
             });
         });
     }
@@ -288,8 +290,12 @@ void PostCollectionView::refreshDrafts()
     const QString senderName = currentUser.getDisplayName();
 
     const auto syntheticId = [](const DraftEntry& draft) {
-        return QStringLiteral("_draft:") + draft.channelId
+        QString id = QStringLiteral("_draft:") + draft.channelId
             + QLatin1Char(':') + draft.rootId;
+        if (draft.isRecovered()) {
+            id += QStringLiteral(":recovered:") + draft.recoveryId;
+        }
+        return id;
     };
 
     const auto replyToPostId = [](const BackendPost& post) {
@@ -339,6 +345,8 @@ void PostCollectionView::refreshDrafts()
         if (list) {
             list->removeItems(index, 1);
         }
+        draftKeyByPostId.remove(posts[index]->id);
+        recoveredDraftPostIds.remove(posts[index]->id);
         postIds.remove(posts[index]->id);
         posts.erase(posts.begin() + index);
         ownedPosts.erase(ownedPosts.begin() + index);
@@ -352,6 +360,10 @@ void PostCollectionView::refreshDrafts()
         posts.insert(posts.begin() + index, post);
         ownedPosts.insert(ownedPosts.begin() + index, std::move(owned));
         postIds.insert(post->id);
+        draftKeyByPostId.insert(post->id, draft.key());
+        if (draft.isRecovered()) {
+            recoveredDraftPostIds.insert(post->id);
+        }
 
         if (list) {
             list->insertItems(index, 1);
@@ -810,6 +822,15 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
             }
         }
     }
+    if (mode == Mode::Drafts && recoveredDraftPostIds.contains(post.id)) {
+        auto* recovered = new QLabel(tr("Recovered unsent"), row);
+        QFont recoveredFont = recovered->font();
+        recoveredFont.setItalic(true);
+        recovered->setFont(recoveredFont);
+        recovered->setToolTip(
+            tr("Recovered after MatterLeast closed before the send was confirmed"));
+        metadata->addWidget(recovered);
+    }
     metadata->addStretch();
 
     auto configureActionButton = [](ThemeIconButton* button, const QString& resource) {
@@ -836,11 +857,12 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
             connect(remove, &QPushButton::clicked, this,
                     [this, postId, remove] { unpinPost(postId, remove); });
         } else if (mode == Mode::Drafts) {
-            const QString channelId = post.channel_id;
-            const QString rootId = post.root_id;
+            const QString draftKey = draftKeyByPostId.value(post.id);
             connect(remove, &QPushButton::clicked, this,
-                    [this, channelId, rootId] {
-                DraftService::instance(backend).removeDraft(channelId, rootId);
+                    [this, draftKey] {
+                if (!draftKey.isEmpty()) {
+                    DraftService::instance(backend).removeDraftByKey(draftKey);
+                }
             });
         } else {
             connect(remove, &QPushButton::clicked, this,
@@ -856,9 +878,10 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
         jump->setAccessibleName(tr("Open draft"));
         const QString channelId = post.channel_id;
         const QString rootId = post.root_id;
+        const QString draftKey = draftKeyByPostId.value(post.id);
         connect(jump, &QPushButton::clicked, this,
-                [this, channelId, rootId] {
-            emit draftActivated(channelId, rootId);
+                [this, channelId, rootId, draftKey] {
+            emit draftActivated(channelId, rootId, draftKey);
         });
     } else {
         jump->setToolTip(tr("Show this message in its conversation"));

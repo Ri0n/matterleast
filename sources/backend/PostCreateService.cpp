@@ -81,6 +81,24 @@ void PostCreateService::createPost(BackendChannel& channel,
                                    const QString& pendingPostId,
                                    PostCallback callback)
 {
+    createPostDetailed(
+        channel, message, attachments, rootId, props, pendingPostId,
+        [callback = std::move(callback)](CreatePostResult result) mutable {
+            if (callback) {
+                callback(result.post);
+            }
+        });
+}
+
+void PostCreateService::createPostDetailed(
+    BackendChannel& channel,
+    const QString& message,
+    const QList<QString>& attachments,
+    const QString& rootId,
+    const QJsonObject& props,
+    const QString& pendingPostId,
+    CreatePostCallback callback)
+{
     QJsonArray files;
     for (const QString& id : attachments) {
         if (!id.isEmpty()) {
@@ -101,25 +119,41 @@ void PostCreateService::createPost(BackendChannel& channel,
         json.insert(QStringLiteral("root_id"), rootId);
     }
     if (!pendingPostId.isEmpty()) {
-        // Mattermost uses pending_post_id as the idempotency key for duplicate
-        // create requests. The same value must survive an ambiguous/manual retry.
         json.insert(QStringLiteral("pending_post_id"), pendingPostId);
     }
 
     QPointer<PostCreateService> guard(this);
     NetworkRequest request(QStringLiteral("posts"));
     const QByteArrayCreator payload(json);
-    httpConnector.post(request, payload, HttpResponseCallback(
-        [guard, callback = std::move(callback)](QVariant status,
-                                                const QJsonDocument& doc) mutable {
-            BackendPost* post = nullptr;
-            if (guard && status.toInt() == QNetworkReply::NoError && doc.isObject()) {
-                post = guard->ingestCreatedPost(doc.object());
-            }
-            if (callback) {
-                callback(post);
-            }
-        }));
+    httpConnector.post(
+        request, payload,
+        HttpResponseCallback(
+            [guard, callback = std::move(callback)](
+                QVariant status,
+                QByteArray response,
+                const QNetworkReply& reply) mutable {
+        CreatePostResult result;
+        result.networkError = static_cast<QNetworkReply::NetworkError>(
+            status.toInt());
+        result.httpStatus = reply.attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        result.errorText = reply.errorString();
+
+        QJsonParseError parseError;
+        const QJsonDocument document =
+            QJsonDocument::fromJson(response, &parseError);
+        if (guard
+            && result.networkError == QNetworkReply::NoError
+            && result.httpStatus >= 200 && result.httpStatus < 300
+            && parseError.error == QJsonParseError::NoError
+            && document.isObject()) {
+            result.post = guard->ingestCreatedPost(document.object());
+        }
+
+        if (callback) {
+            callback(std::move(result));
+        }
+    }));
 }
 
 void PostCreateService::editPost(const QString& postId,

@@ -33,6 +33,44 @@ Child widgets are installed on the viewport and watched for `LayoutRequest` / `R
 changes in one event-loop turn are coalesced. The next geometry transaction measures all dirty
 widgets together before the viewport is allowed to move or repaint.
 
+Those events are only **hints**. If remeasurement proves that every dirty row kept the same logical
+height, the transaction is a no-op: it must not restore anchors, relayout the list, emit range
+changes, or wake `rangeRequested`. This is important for hover/reaction affordances and other
+child-widget activity: moving the mouse over posts must never turn an unresolved neighbouring gap
+into transport polling.
+
+Structural HeightIndex changes are different. Changing logical item count or the default estimate
+changes content extent even when there is no dirty materialized QWidget. Such operations must force
+scrollbar-range/anchor reconciliation; they must never depend on a dirty-row measurement to make the
+new logical extent visible to `scrollToEnd()`, sparse seek, or viewport demand.
+
+A semantic child signal that explicitly guarantees finalized size hints (for example
+`PostWidget::dimensionsChanged`) uses `commitItemGeometryNow()` instead of the deferred hint path.
+That transaction updates the HeightIndex and physical QWidget atomically before another scroll/sync
+can reapply an obsolete estimated height. Generic Qt `LayoutRequest` / `Resize` events must not use
+this synchronous path because they may be presentation-only noise.
+
+Likewise, ordinary `insertItems()`/viewport synchronization must not globally disable and re-enable
+viewport updates merely to protect a synchronous geometry sequence. Those operations do not re-enter
+the event loop, so no intermediate paint can occur; re-enabling QWidget updates would instead
+invalidate the entire viewport and repaint every materialized post. Child show/move/hide operations
+are sufficient to invalidate only the affected regions.
+
+A same-index semantic replacement (for example optimistic pending -> authoritative server post) uses
+`replaceItem(index)`. The replacement is created and measured while the old row is still visible.
+A replacement whose first measurement differs from the resident row is first kept hidden for one
+event-loop turn and remeasured after queued child-layout work settles. The resident row remains
+visible during that preparation. This prevents transient construction sizes (for example wrapped
+rich text before its width-dependent height settles) from becoming user-visible geometry. If the
+settled height is unchanged (the normal optimistic-promotion case), the two child widgets are then
+swapped in the same rect and only that rect is invalidated; the viewport is **not** globally
+disabled/re-enabled, because re-enabling QWidget updates itself schedules a full repaint.
+Only a real height/availability change enters the scrollbar/anchor transaction that may move other
+rows. Even that transaction must not globally disable/re-enable viewport updates: it is synchronous
+and does not re-enter the event loop, while re-enabling QWidget updates invalidates every materialized
+child and can make expensive PostWidgets visibly flash. Unrelated widgets are retained. Do not model
+replacement as `layoutChanged`, nor as a visible `itemsInserted` followed by `itemsRemoved`.
+
 A delayed image, Markdown reflow, reaction row or thread button therefore cannot independently move
 the chat viewport.
 
@@ -47,7 +85,10 @@ Consequences:
 - height changes entirely above the viewport preserve the visible content at exactly the same screen
   coordinates;
 - height changes while sticky-bottom is active preserve the real end;
-- appending a logical item while sticky-bottom is active keeps the viewport on the new end;
+- normal appended logical items preserve sticky-bottom intent;
+- an explicit `InsertViewportPolicy::PreserveVisibleContent` append converts a current Bottom anchor
+  to the old concrete item anchor, allowing the new tail to settle just below the viewport until a
+  separate semantic follow operation reveals it;
 - prepending real logical items shifts logical indices without moving the already visible content;
 - a window resize cannot leave an unreachable last few pixels;
 - pruning/materialization cannot reinterpret a pixel offset as a different logical item.
@@ -104,23 +145,31 @@ intent or explicit teardown releases it.
 
 ## Wheel and scrollbar scrolling
 
-Wheel scrolling is ordinary pixel movement. Recognition of wheel, scrollbar action and thumb-drag
-user intent belongs entirely to `LongListWidget`; domain subclasses do not override wheel handling or
-inspect scrollbar signals.
+Wheel scrolling is ordinary pixel movement, but that fact is private to `LongListWidget`.
+Recognition of wheel, scrollbar action and thumb-drag intent belongs entirely to the list; domain
+subclasses do not inspect scrollbar values.
 
-After the scrollbar value changes, `LongListWidget` computes the visible logical range plus a
-configurable buffer. For ordinary scrolling it reports each contiguous missing run as logical demand;
-it does not split that run into arbitrary transport-sized ten-item blocks.
+Each pixel movement performs only the work that belongs to pixel geometry first:
 
 ```text
-user scroll gesture
-  -> release persistent viewport lock
-  -> change scrollbar value
-  -> compute logical visible + buffer range
-  -> materialize available items
-  -> request contiguous unavailable demand
-  -> emit userViewportChanged(atEnd)
+scrollbar value changes
+  -> reposition already-materialized widgets
+  -> translate geometry into logical item state
+  -> emit visibleRangeChanged only if the logical visible range changed
+  -> emit itemVisibilityChanged only if Body/Top/Bottom changed
+  -> synchronize/materialize only if the desired logical demand range changed
 ```
+
+This makes ordinary scrolling **boundary-driven rather than pixel-driven**. A 1 px move inside the
+same logical demand window does not re-run materialization and does not re-request an unresolved
+neighbouring range. A 200 px move inside one oversized item may likewise require no item-level sync.
+Conversely, a small move that crosses an item/prefetch boundary does.
+
+Visibility changes carry `UserScroll`, `ProgrammaticScroll` or `LayoutChange`. Direct user input
+also emits `userScrollStarted()` as viewport-ownership intent even when no visibility mask changes.
+
+When the desired logical range actually changes, `LongListWidget` reports each contiguous missing
+run as logical demand; it does not split that run into arbitrary transport-sized ten-item blocks.
 
 This distinction is important: a desired tail such as `131..161` should reach the source as one range.
 The source may then satisfy it with one exact newest-edge request rather than treating `130..139`,
@@ -128,6 +177,41 @@ The source may then satisfy it with one exact newest-edge request rather than tr
 needs**; the source decides **how to fetch it**.
 
 Loading adjacent data never recenters the viewport.
+
+## Programmatic tail reveal
+
+`scrollToEndAnimated()` is a semantic convenience implemented entirely inside
+`LongListWidget`. Callers request "reveal the end"; they do not supply pixel
+coordinates.
+
+The intended optimistic-send sequence is:
+
+```text
+append local tail with PreserveVisibleContent
+    -> old concrete viewport stays fixed
+    -> new row may materialize and settle below the viewport
+    -> scrollToEndAnimated()
+    -> item visibility/range boundaries update during the motion
+    -> final EnsureVisible synchronization at the real current end
+```
+
+The animation is short and only used when the end is within one viewport of the
+current position. A farther destination falls back to the ordinary immediate
+`scrollToEnd()`; animating through unrelated history would be disorienting.
+
+The animation interpolates an internal scrollbar value, but every frame still
+passes through the same item-semantic boundary:
+
+- existing widgets move physically;
+- `ItemVisibility` changes use `ProgrammaticScroll`;
+- buffered logical synchronization occurs only when the desired item range
+  actually changes;
+- any direct user wheel/scrollbar gesture stops the animation immediately and
+  transfers viewport ownership to the user.
+
+If content height changes while the animation is running, the animation targets
+the current scrollbar maximum rather than a stale pixel endpoint. Once the end
+is reached, normal Bottom-anchor semantics own later geometry changes.
 
 ## Random thumb seek
 

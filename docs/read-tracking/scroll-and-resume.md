@@ -43,21 +43,20 @@ materialization, source, and navigation changes. Consequently wheel scrolling,
 scrollbar dragging/clicking, keyboard scrolling, and programmatic positioning all
 converge on the same geometry check.
 
-For every materialized post widget, the lower edge is:
+`LongListWidget` is the sole owner of the pixel test. It translates concrete
+row geometry into `ItemVisibility` flags. A post qualifies as read only when
+its visibility contains:
 
 ```text
-bottom = widget.y + widget.height
+ItemVisibility::Bottom
 ```
 
-The post qualifies as read only when:
-
-```text
-0 < bottom <= viewport.height
-```
-
+This is exactly the geometric rule `0 < bottom <= viewport.height`, but
+`ChatLogWidget` no longer inspects widget Y/height or viewport pixels itself.
 A tall message whose upper part is visible but whose lower edge is still below
-the viewport is therefore **not** read. This is intentional and must not be
-weakened to “the item is visible” or “the item is materialized”.
+the viewport therefore has `Body` or `Body|Top` but not `Bottom`, and is
+**not** read. This must not be weakened to “the item is visible” or “the item is
+materialized”.
 
 Among all posts satisfying the lower-edge condition, `ChatLogWidget` chooses the
 latest semantic post by `(create_at, id)`. The logical list index is useful for
@@ -141,7 +140,9 @@ flowchart TD
     H --> I[Clear firstUnreadPostId]
 ```
 
-`FirstUnread` is what Following and Attention should navigate to on the next
-activation. `Unknown` means the local cache has no next identity but the source
-has not proved that the read post is the real tail; guessing “read” here is not
-allowed. `AtEnd` means the real tail has been consumed.
+`FirstUnread` is the resume target when Following/Attention enters or re-enters
+that semantic destination. It is **not** a "next unread" command for repeated
+clicks on an already-open conversation row; that presentation-only case preserves
+the current viewport. `Unknown` means the local cache has no next identity but
+the source has not proved that the read post is the real tail; guessing “read”
+here is not allowed. `AtEnd` means the real tail has been consumed.

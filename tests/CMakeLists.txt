@@ -53,6 +53,21 @@ target_link_libraries(post-source-request-gate-test
 
 add_test(NAME post-source-request-gate-test COMMAND post-source-request-gate-test)
 
+add_executable(post-source-decorator-chain-test
+    PostSourceDecoratorChainTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/chat-area/AbstractPostSource.h"
+)
+target_include_directories(post-source-decorator-chain-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+target_link_libraries(post-source-decorator-chain-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME post-source-decorator-chain-test COMMAND post-source-decorator-chain-test)
+
 add_executable(message-formatter-test
     MessageFormatterTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/post/MessageFormatter.cpp"
@@ -452,6 +467,7 @@ set_tests_properties(avatar-image-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=o
 add_executable(theme-icon-widgets-test
     ThemeIconWidgetsTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/ui/ThemeIconWidgets.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/ui/BusyIndicator.cpp"
     "${CMAKE_SOURCE_DIR}/sources/ui/IconUtils.cpp"
     "${CMAKE_SOURCE_DIR}/resource.qrc"
 )
@@ -463,6 +479,7 @@ set_tests_properties(theme-icon-widgets-test PROPERTIES ENVIRONMENT "QT_QPA_PLAT
 add_executable(presence-avatar-label-test
     PresenceAvatarLabelTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/ui/PresenceAvatarLabel.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/ui/BusyIndicator.cpp"
     "${CMAKE_SOURCE_DIR}/sources/ui/ClickableLabel.cpp"
 )
 target_include_directories(presence-avatar-label-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
@@ -628,3 +645,16 @@ target_link_libraries(draft-store-test
         Qt${QT_VERSION_MAJOR}::Core
 )
 add_test(NAME draft-store-test COMMAND draft-store-test)
+
+
+if(TARGET matterleast-core)
+    add_executable(outbox-post-source-test OutboxPostSourceTest.cpp)
+    target_link_libraries(outbox-post-source-test
+        PRIVATE
+            matterleast-core
+            Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(NAME outbox-post-source-test COMMAND outbox-post-source-test)
+    set_tests_properties(outbox-post-source-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

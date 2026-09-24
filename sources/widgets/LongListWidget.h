@@ -32,6 +32,7 @@
 #include <QSet>
 #include <QString>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVector>
 
 class QPaintEvent;
@@ -72,6 +73,29 @@ public:
     };
     Q_ENUM(Alignment)
 
+    enum class InsertViewportPolicy {
+        PreserveIntent,
+        PreserveVisibleContent,
+    };
+    Q_ENUM(InsertViewportPolicy)
+
+    enum class ItemVisibility {
+        None   = 0,
+        Body   = 1 << 0,
+        Top    = 1 << 1,
+        Bottom = 1 << 2,
+    };
+    Q_ENUM(ItemVisibility)
+    Q_DECLARE_FLAGS(ItemVisibilities, ItemVisibility)
+    Q_FLAG(ItemVisibilities)
+
+    enum class VisibilityChangeReason {
+        UserScroll,
+        ProgrammaticScroll,
+        LayoutChange,
+    };
+    Q_ENUM(VisibilityChangeReason)
+
     struct Range {
         int first = -1;
         int last = -1;
@@ -90,11 +114,23 @@ public:
     int itemCount() const { return logicalCount; }
     void setItemCount(int count);
 
-    /** Insert real logical items and preserve the current semantic viewport anchor. */
-    void insertItems(int first, int count);
+    /**
+     * Insert real logical items.
+     *
+     * PreserveIntent retains sticky-bottom when it is current viewport intent.
+     * PreserveVisibleContent converts sticky-bottom into the concrete old item
+     * anchor so an appended row may settle below the viewport before an
+     * explicit follow operation.
+     */
+    void insertItems(int first,
+                     int count,
+                     InsertViewportPolicy viewportPolicy = InsertViewportPolicy::PreserveIntent);
 
     /** Remove logical items and shift later identities left without losing the viewport anchor. */
     void removeItems(int first, int count);
+
+    /** Replace one logical identity in-place in one frozen geometry transaction. */
+    void replaceItem(int index);
 
     int defaultItemHeight() const { return defaultHeight; }
     void setDefaultItemHeight(int height);
@@ -134,6 +170,13 @@ public:
     void itemsChanged(int first, int last);
 
     /**
+     * Commit an explicit child geometry change synchronously. Use this only for
+     * a semantic widget signal that guarantees its size hints are already final;
+     * generic Qt LayoutRequest/Resize hints remain coalesced through itemsChanged().
+     */
+    void commitItemGeometryNow(int index);
+
+    /**
      * Reconcile an identity-to-index mapping change without rebuilding surviving
      * widgets. Subclasses that support arbitrary remaps provide stable semantic
      * identity through itemIdentity()/indexOfItemIdentity(). A widget is kept
@@ -151,6 +194,8 @@ public:
 
     qint64 contentHeight() const;
     int indexAtViewportPosition(int viewportY) const;
+    int viewportCenterIndex() const;
+    ItemVisibilities itemVisibility(int index) const;
     bool isAtEnd() const
     {
         return maximumContentOffset() == contentOffset();
@@ -158,6 +203,7 @@ public:
 
     void scrollToIndex(int index, Alignment alignment = Alignment::EnsureVisible);
     void scrollToEnd();
+    void scrollToEndAnimated(int durationMs = 180);
 
     /**
      * Keep a logical item at the requested semantic alignment while its own
@@ -198,8 +244,13 @@ signals:
     /** Emitted when the same top-level item hover used by the row highlight changes. */
     void hoveredItemChanged(int previousIndex, int currentIndex);
 
-    /** Emitted only for direct user scrollbar/wheel movement. */
-    void userViewportChanged(bool atEnd);
+    void itemVisibilityChanged(
+        int index,
+        Mattermost::LongListWidget::ItemVisibilities visibility,
+        Mattermost::LongListWidget::VisibilityChangeReason reason);
+
+    /** Direct user scrolling took ownership of the viewport. */
+    void userScrollStarted();
 
     /** Emitted when a viewport lock is released by timeout, user input or caller. */
     void viewportLockReleased();
@@ -285,6 +336,7 @@ private:
     };
 
     void scheduleSync(RequestReason reason);
+    void scheduleViewportSyncIfNeeded(RequestReason reason, int scrollValue = -1);
     void synchronize();
     void synchronizeRange(const Range& desired,
                           RequestReason reason,
@@ -299,9 +351,21 @@ private:
     void materializeAvailable(const Range& range);
     void evictOutside(const Range& keepRange, int preferredCenter);
     void layoutMaterialized();
-    void measureWidget(int index, QWidget* widget);
+    /** Measure one widget at viewport width without mutating the logical HeightIndex. */
+    int naturalWidgetHeight(QWidget* widget);
+    /** Measure one materialized row; returns true only if its logical height changed. */
+    bool measureWidget(int index, QWidget* widget);
+    void commitReplacement(QWidget* previous,
+                           QWidget* replacement,
+                           const QString& replacementIdentity,
+                           int fallbackIndex);
+    void stageReplacement(QWidget* previous,
+                          QWidget* replacement,
+                          const QString& replacementIdentity,
+                          int fallbackIndex,
+                          int observedHeight);
     void scheduleGeometryCommit(int index = -1);
-    void commitGeometry();
+    void commitGeometry(bool heightIndexChanged = false);
 
     void requestMissing(const Range& desired,
                         RequestReason reason,
@@ -318,7 +382,8 @@ private:
     void restoreViewportLock();
     void touchViewportLock();
     void releaseViewportLock(bool notify);
-    void noteUserViewportChange();
+    void noteUserScrollStarted();
+    void stopScrollAnimation();
 
     qint64 maximumContentOffset() const;
     qint64 contentOffset() const;
@@ -332,7 +397,8 @@ private:
     int logicalTargetForScrollValue(int value) const;
     void clearSeek();
 
-    void emitRangeChanges();
+    void emitRangeChanges(VisibilityChangeReason reason = VisibilityChangeReason::LayoutChange);
+    void updateItemVisibilities(VisibilityChangeReason reason);
 
     int logicalCount = 0;
     int defaultHeight = 96;
@@ -355,17 +421,22 @@ private:
     QTimer geometryTimer;
     QTimer seekTimer;
     QTimer viewportLockTimer;
+    QVariantAnimation scrollAnimation;
     RequestReason pendingSyncReason = RequestReason::Initial;
 
     bool synchronizing = false;
     bool committingGeometry = false;
     bool internalScrollChange = false;
     bool wheelInProgress = false;
+    bool userScrollActionPending = false;
+    bool scrollAnimationApplying = false;
     bool hoverHighlightEnabled = true;
 
     quint64 seekGeneration = 0;
     int seekTarget = -1;
     bool seekActive = false;
+    int scrollAnimationStartValue = 0;
+
     quint64 availabilityRevision = 0;
     quint64 observedAvailabilityRevision = 0;
 
@@ -373,6 +444,10 @@ private:
 
     Range lastVisibleRange;
     Range lastMaterializedRange;
+    Range lastSynchronizedViewportRange;
+    QHash<int, ItemVisibilities> lastItemVisibilities;
 };
 
 } // namespace Mattermost
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(Mattermost::LongListWidget::ItemVisibilities)

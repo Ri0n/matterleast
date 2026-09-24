@@ -11,7 +11,8 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | durable post cache design | [Post cache architecture](post-cache.md) | changing admission, persistence, authority, memory policy or reconnect behavior |
 | runtime cache loading/paging/causality | [Post cache runtime contract](post-cache-runtime.md) | debugging snapshot ordering, cache-first load, paging or invalidation |
 | thread paging and sparse loading | [Thread timeline loading](thread-timeline-loading.md) | working on thread gaps, cursors, permalink islands or live replies |
-| unread/read state, Following or Attention | [Following, Attention and read tracking](following-attention-read-tracking.md) | changing scroll-derived reads, resume cursors or server acknowledgement |
+| Following queue membership, sorting and click/navigation behavior | [Following behavior](following.md) | changing which rows appear, ordering, repeated activation, channel/thread navigation or manual-unread behavior |
+| unread/read state or Attention | [Following, Attention and read tracking](following-attention-read-tracking.md) | changing scroll-derived reads, resume cursors or server acknowledgement |
 | virtual sidebar views and collections | [Virtual sidebar destinations](sidebar-virtual-destinations.md) | changing Personal, Saved or search paging |
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |
 | reaction quick bar/ranking | [Reaction quick bar](reaction-quick-bar.md) | changing ranking, cooling, persistence or custom emoji behavior |

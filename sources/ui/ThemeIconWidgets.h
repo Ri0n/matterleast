@@ -9,7 +9,6 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QString>
-#include <QTimer>
 
 class QEvent;
 class QPaintEvent;
@@ -51,8 +50,7 @@ private:
     QString _renderedResource;
     QSize _renderedSize;
     QPixmap _renderedPixmap;
-    QTimer _busyAnimationTimer;
-    int _busyPhase = 0;
+    bool _busyAnimationAcquired = false;
 };
 
 } // namespace Mattermost

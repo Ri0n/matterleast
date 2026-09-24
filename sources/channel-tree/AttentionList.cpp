@@ -28,6 +28,7 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelIcons.h"
+#include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingNavigation.h"
 #include "channel-tree/FollowingPresentation.h"
 #include "navigation/AppNavigationService.h"
@@ -127,6 +128,7 @@ void AttentionList::retainSelection(QTreeWidgetItem* item)
 void AttentionList::releaseSelectionRetention()
 {
     retainedEntry_.reset();
+    lastActivatedKey_.clear();
     {
         const QSignalBlocker blocker(this);
         setCurrentItem(nullptr);
@@ -158,6 +160,9 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
     }
 
     const FollowingModel::Entry* entry = model_->findEntry(channelId, threadId);
+    const QString key = entry ? entryKey(*entry) : QString();
+    const bool repeatedActivation =
+        !key.isEmpty() && lastActivatedKey_ == key;
     if (!entry) {
         // The row can outlive its attention entry, but its old cursor cannot.
         if (!retainedEntry_
@@ -179,8 +184,20 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
         return;
     }
 
+    lastActivatedKey_ = key;
+
     if (entry->isThread()) {
         openThread(*entry);
+        return;
+    }
+
+    const BackendChannel* currentChannel = backend_->getCurrentChannel();
+    if (shouldPreserveRepeatedConversationActivation(
+            entry->isThread(),
+            entry->channelId,
+            currentChannel ? currentChannel->id : QString(),
+            repeatedActivation)) {
+        AppNavigationService::instance(*backend_).openChannel(channelId);
         return;
     }
 
@@ -427,7 +444,7 @@ void AttentionList::refresh()
             item->setData(0, SidebarItem::IdRole, entry.threadId);
             item->setData(0, SidebarItem::ChannelTypeRole,
                           channel ? channel->type : BackendChannel::publicChannel);
-            item->setToolTip(0, entry.message);
+            item->setToolTip(0, followingMessageToolTip(entry.message));
             if (channel && channel->type == BackendChannel::privateChannel) {
                 item->setIcon(0, ChannelIcons::privateChannel());
             } else {

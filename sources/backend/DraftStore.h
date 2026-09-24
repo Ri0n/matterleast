@@ -16,11 +16,18 @@ struct DraftEntry {
     QString rootId;
     QString message;
     QString replyToPostId;
+    // Local-only identity for recovered unsent messages. Ordinary Mattermost
+    // drafts keep this empty and retain the server-compatible (channel, root)
+    // uniqueness rule.
+    QString recoveryId;
     qint64 updateAt = 0;
     bool dirty = false;
     bool deleted = false;
+    bool remotePresent = false;
+    bool syncRequested = false;
 
     QString key() const;
+    bool isRecovered() const { return !recoveryId.isEmpty(); }
 };
 
 class DraftStore final

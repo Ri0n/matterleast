@@ -27,7 +27,9 @@
 #include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelIcons.h"
 #include "channel-tree/ChannelItemDelegate.h"
+#include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingNavigation.h"
+#include "channel-tree/FollowingPresentation.h"
 #include "channel-tree/SidebarItem.h"
 #include "navigation/AppNavigationService.h"
 
@@ -171,6 +173,8 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
     }
 
     const QString key = current->data(0, FollowingKeyRole).toString();
+    const bool repeatedActivation =
+        !key.isEmpty() && lastActivatedKey_ == key;
     retainedKey_ = key;
     retainedSortTime_ = current->data(0, FollowingSortTimeRole).toULongLong();
     retainedUnreadPosition_ = current->data(0, SidebarItem::UnreadRole).toBool();
@@ -192,6 +196,8 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
         return;
     }
 
+    lastActivatedKey_ = key;
+
     if (entry->isThread()) {
         openThread(*entry);
         return;
@@ -200,6 +206,16 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
     BackendChannel* channel = backend_->getStorage().getChannelById(channelId);
     if (!channel) {
         emit channelSelected(channelId);
+        return;
+    }
+
+    const BackendChannel* currentChannel = backend_->getCurrentChannel();
+    if (shouldPreserveRepeatedConversationActivation(
+            entry->isThread(),
+            entry->channelId,
+            currentChannel ? currentChannel->id : QString(),
+            repeatedActivation)) {
+        AppNavigationService::instance(*backend_).openChannel(channelId);
         return;
     }
 
@@ -257,6 +273,7 @@ void ChannelQuickList::releaseSelectionRetention()
     }
 
     retainedKey_.clear();
+    lastActivatedKey_.clear();
     retainedEntry_.reset();
     retainedSortTime_ = 0;
     retainedUnreadPosition_ = false;
@@ -457,7 +474,7 @@ void ChannelQuickList::refresh()
             item->setData(0, SidebarItem::IdRole, entry.threadId);
             item->setData(0, SidebarItem::ChannelTypeRole,
                           channel ? channel->type : BackendChannel::publicChannel);
-            item->setToolTip(0, entry.message);
+            item->setToolTip(0, followingMessageToolTip(entry.message));
             if (channel && channel->type == BackendChannel::privateChannel) {
                 item->setIcon(0, ChannelIcons::privateChannel());
             } else {

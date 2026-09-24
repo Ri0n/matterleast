@@ -6,6 +6,7 @@
 #include <QAbstractTextDocumentLayout>
 #include <QFontMetrics>
 #include <QImage>
+#include <QLayout>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -122,6 +123,27 @@ private slots:
                  QTextOption::WrapAtWordBoundaryOrAnywhere);
         QVERIFY2(renderedLineCount(*richText, 120) > 1,
                  "A long unbroken normal-text token must wrap inside the message");
+    }
+
+    void oneLineHeightIsStableAfterOwnerLayoutSettles()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("short message"));
+        showAndSettle(widget, QSize(320, 120));
+
+        auto* richText =
+            widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(richText != nullptr);
+
+        // The parent layout owns the child's final width. Once that width has
+        // settled, deferred document/layout work must not keep changing the
+        // row height on subsequent event-loop turns.
+        const int settledHeight = richText->height();
+        QVERIFY(settledHeight > 0);
+        for (int i = 0; i < 4; ++i) {
+            QCoreApplication::processEvents();
+        }
+        QCOMPARE(richText->height(), settledHeight);
     }
 
     void wrappedTextReportsSettledHeight()

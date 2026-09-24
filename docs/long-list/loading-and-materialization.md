@@ -4,6 +4,15 @@
 
 ## Request demand policy
 
+Pixel motion is not source demand. `LongListWidget` caches the last synchronized logical viewport
+window and ordinary scrollbar movement schedules synchronization only when the newly computed desired
+window differs.
+
+This cache does **not** suppress semantic triggers. Source availability/progress, structural mutation,
+height changes, viewport resize and explicit navigation may resynchronize the same logical range
+because what can be materialized or how it fits may have changed even when its indices did not.
+
+
 Ordinary viewport/prefetch demand is not rounded to a fixed block size by `LongListWidget`. The list
 emits a contiguous missing logical range and lets the source choose an efficient physical request.
 Sources may impose a minimum transport page size; for example a two-item cursor gap can still fetch ten

@@ -26,6 +26,8 @@
 #include <QPropertyAnimation>
 #include <QPainter>
 #include <QGraphicsOpacityEffect>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QCheckBox>
 #include <QCursor>
 #include <QDateTime>
@@ -47,6 +49,7 @@
 #include "MessageFormatter.h"
 #include "PostPermalinkUtils.h"
 #include "PostQuoteFrame.h"
+#include "ReactionChipStyle.h"
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
 #include "attachments/PostAttachmentList.h"
@@ -72,6 +75,7 @@
 #include "options/MLOptions.h"
 #include "reactions/PostReactionList.h"
 #include "ui/AvatarUtils.h"
+#include "ui/BusyIndicator.h"
 #include "ui/IconUtils.h"
 #include "ui/EmojiFont.h"
 #include "ui_PostWidget.h"
@@ -112,11 +116,13 @@ PostWidget::PostWidget(Backend& backend,
                        QWidget* parent,
                        ChatArea* chatArea,
                        BackendPost* lastRootPost,
-                       PresentationMode presentationMode)
+                       PresentationMode presentationMode,
+                       std::shared_ptr<BackendPost> postLease)
     : QWidget(parent)
     , post(post)
     , threadButton(nullptr)
     , backend_(backend)
+    , postLease_(std::move(postLease))
     , residencyLease(PostRepository::instance(backend).leasePost(post))
     , ui(new Ui::PostWidget)
     , messageContent(nullptr)
@@ -124,6 +130,15 @@ PostWidget::PostWidget(Backend& backend,
     , presentationMode_(presentationMode)
 {
 	ui->setupUi(this);
+
+    // Font-sensitive utility widgets (pending delivery, reactions, thread
+    // summary) must be constructed against the final chat font. Constructing
+    // them first with QApplication/default metrics and applying CHAT_FONT only
+    // at the end gives the row a transient larger sizeHint, which LongList can
+    // legitimately measure before the subsequent FontChange/layout settles.
+    auto* chatFontOption = MLOptions::instance()->optionObject<QString>(
+        CHAT_FONT, font().toString());
+    applyChatFont(chatFontOption->value().toString(), false);
 
     connect(&EmojiRegistryNotifier::instance(),
             &EmojiRegistryNotifier::customEmojiAdded,
@@ -178,6 +193,26 @@ PostWidget::PostWidget(Backend& backend,
 	ui->authorAvatar->setFrameShape(QFrame::NoFrame);
 	ui->authorName->setText(post.getDisplayAuthorName());
 
+    if (presentationMode_ == PresentationMode::Pending) {
+        pendingDeliveryIndicator_ = new BusyIndicatorWidget(this);
+        pendingDeliveryIndicator_->setFixedSize(
+            12, ReactionChipStyle::chipHeight(chatFont_));
+        pendingDeliveryIndicator_->setToolTip(tr("Sending"));
+        pendingDeliveryIndicator_->setAccessibleName(tr("Message is sending"));
+
+        // Use the same right-side utility slot that authoritative root posts
+        // use for ThreadSummaryWidget. A pending post has no server post ID yet,
+        // so it cannot expose the thread action itself, but delivery state
+        // belongs in that utility area rather than expanding the author name.
+        ui->time->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+        ui->horizontalLayout->insertStretch(1, 1);
+        ui->horizontalLayout->insertWidget(
+            2, pendingDeliveryIndicator_, 0, Qt::AlignVCenter);
+        const int indicatorTimeGap =
+            ui->time->fontMetrics().averageCharWidth();
+        ui->horizontalLayout->insertSpacing(3, indicatorTimeGap);
+    }
+
 	if (post.isOwnPost()) {
 		ui->authorName->setStyleSheet("QLabel { color : blue; }");
 	}
@@ -196,7 +231,8 @@ PostWidget::PostWidget(Backend& backend,
 	refreshPermalinkPreviews();
 	ui->time->setText(getMessageTimeString(post.create_at));
 
-    if (!post.isDeleted && KTalkMeetingWidget::supports(post)) {
+    if (presentationMode_ != PresentationMode::Pending
+        && !post.isDeleted && KTalkMeetingWidget::supports(post)) {
         auto meeting = std::make_unique<KTalkMeetingWidget>(backend_, post, this);
         if (meeting->isValid()) {
             ktalkMeeting_ = std::move(meeting);
@@ -296,21 +332,22 @@ PostWidget::PostWidget(Backend& backend,
 		}
 	}
 
-	createReactionList();
+    if (presentationMode_ != PresentationMode::Pending) {
+        createReactionList();
+    }
 
-	if (!post.isDeleted && post.poll) {
+	if (presentationMode_ != PresentationMode::Pending
+        && !post.isDeleted && post.poll) {
 		clearMessageText();
 		poll = std::make_unique<PostPoll>(backend, post, *post.poll, this);
 		ui->verticalLayout->addWidget(poll.get());
 	}
 
-	if (parentChatArea && !parentChatArea->isThread) {
+	if (presentationMode_ != PresentationMode::Pending
+        && parentChatArea && !parentChatArea->isThread) {
 		addThreadButton();
 	}
 
-    auto* chatFontOption = MLOptions::instance()->optionObject<QString>(
-        CHAT_FONT, font().toString());
-    applyChatFont(chatFontOption->value().toString());
     connect(chatFontOption, &MLOptionObject::changed, this,
             [this](const QVariant& value) {
         applyChatFont(value.toString());
@@ -445,7 +482,7 @@ void PostWidget::setWholeMessageSelected(bool selected)
 
 void PostWidget::setHovered(bool hovered)
 {
-    if (presentationMode_ == PresentationMode::ReadOnlySnapshot) {
+    if (presentationMode_ != PresentationMode::Interactive) {
         hovered_ = false;
         animateReactionAffordance(false);
         return;
@@ -515,7 +552,7 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
 
-    if (presentationMode_ == PresentationMode::ReadOnlySnapshot) {
+    if (presentationMode_ != PresentationMode::Interactive) {
         if (!hoveredLink.isEmpty()) {
             QAction* copyLinkAction = menu.addAction(
                 icon(QStringLiteral(":/icons/link")), tr("Copy link to clipboard"));
@@ -539,6 +576,18 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
             QApplication::clipboard()->setText(
                 formatForClipboardSelection(messageOnly));
         });
+
+        if (presentationMode_ == PresentationMode::Pending && pendingCancel_) {
+            menu.addSeparator();
+            QAction* cancelAction = menu.addAction(
+                icon(QStringLiteral(":/icons/trash")),
+                tr("Cancel unsent message"));
+            connect(cancelAction, &QAction::triggered, this, [this] {
+                if (pendingCancel_) {
+                    pendingCancel_();
+                }
+            });
+        }
 
         if (post.author) {
             menu.addSeparator();
@@ -650,6 +699,111 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     menu.exec(globalPos);
     setProperty("_mmqt_contextMenuActive", false);
     update();
+}
+
+void PostWidget::setPendingDeliveryPresentation(
+    const QString& statusText,
+    bool failed,
+    std::function<void()> retry,
+    std::function<void()> cancel)
+{
+    if (presentationMode_ != PresentationMode::Pending) {
+        return;
+    }
+
+    pendingRetry_ = std::move(retry);
+    pendingCancel_ = std::move(cancel);
+
+    if (pendingDeliveryIndicator_) {
+        pendingDeliveryIndicator_->setToolTip(statusText);
+        pendingDeliveryIndicator_->setAccessibleName(statusText);
+        pendingDeliveryIndicator_->setAnimating(!failed);
+    }
+
+    // Normal pending states are represented entirely inside the existing
+    // author header row, so Sending/Queued/RetryWait/Blocked cannot change the
+    // PostWidget height. A textual row appears only when user action is needed.
+    if (!failed) {
+        if (!pendingDeliveryRow_ || !pendingDeliveryRow_->isVisible()) {
+            return;
+        }
+        pendingDeliveryRow_->hide();
+        ui->verticalLayout->invalidate();
+        updateGeometry();
+        QTimer::singleShot(0, this, [this] {
+            ui->verticalLayout->invalidate();
+            ui->verticalLayout->activate();
+            updateGeometry();
+            emit dimensionsChanged();
+        });
+        return;
+    }
+
+    const bool geometryChanged =
+        !pendingDeliveryRow_ || !pendingDeliveryRow_->isVisible();
+
+    if (!pendingDeliveryRow_) {
+        pendingDeliveryRow_ = new QWidget(this);
+        auto* layout = new QHBoxLayout(pendingDeliveryRow_);
+        layout->setContentsMargins(0, 4, 0, 0);
+        layout->setSpacing(6);
+
+        pendingDeliveryLabel_ = new QLabel(pendingDeliveryRow_);
+        QPalette statusPalette = pendingDeliveryLabel_->palette();
+        statusPalette.setColor(
+            QPalette::WindowText,
+            statusPalette.color(QPalette::Disabled, QPalette::Text));
+        pendingDeliveryLabel_->setPalette(statusPalette);
+        pendingDeliveryLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(pendingDeliveryLabel_);
+        layout->addStretch();
+
+        pendingRetryButton_ = new QPushButton(tr("Retry"), pendingDeliveryRow_);
+        pendingRetryButton_->setFlat(true);
+        pendingRetryButton_->setCursor(Qt::PointingHandCursor);
+        pendingRetryButton_->setToolTip(tr("Retry sending this message"));
+        connect(pendingRetryButton_, &QPushButton::clicked, this, [this] {
+            if (pendingRetry_) {
+                pendingRetry_();
+            }
+        });
+        layout->addWidget(pendingRetryButton_);
+
+        pendingCancelButton_ = new QPushButton(tr("Cancel"), pendingDeliveryRow_);
+        pendingCancelButton_->setFlat(true);
+        pendingCancelButton_->setCursor(Qt::PointingHandCursor);
+        pendingCancelButton_->setToolTip(tr("Cancel this unsent message"));
+        connect(pendingCancelButton_, &QPushButton::clicked, this, [this] {
+            if (pendingCancel_) {
+                pendingCancel_();
+            }
+        });
+        layout->addWidget(pendingCancelButton_);
+
+        ui->verticalLayout->addWidget(pendingDeliveryRow_);
+    }
+
+    pendingDeliveryLabel_->setText(statusText);
+    pendingRetryButton_->setVisible(true);
+    pendingCancelButton_->setVisible(static_cast<bool>(pendingCancel_));
+    pendingDeliveryRow_->show();
+
+    if (!geometryChanged) {
+        return;
+    }
+
+    pendingDeliveryRow_->updateGeometry();
+    ui->verticalLayout->invalidate();
+    updateGeometry();
+    QTimer::singleShot(0, this, [this] {
+        if (!pendingDeliveryRow_) {
+            return;
+        }
+        ui->verticalLayout->invalidate();
+        ui->verticalLayout->activate();
+        updateGeometry();
+        emit dimensionsChanged();
+    });
 }
 
 void PostWidget::setAuthor(Backend& backendInstance, const BackendUser* user)
@@ -825,7 +979,8 @@ void PostWidget::openUserProfile(const QString& username)
         });
 }
 
-void PostWidget::applyChatFont(const QString& serializedFont)
+void PostWidget::applyChatFont(const QString& serializedFont,
+                               bool notifyGeometry)
 {
     QFont nextFont;
     if (serializedFont.isEmpty() || !nextFont.fromString(serializedFont)) {
@@ -839,6 +994,10 @@ void PostWidget::applyChatFont(const QString& serializedFont)
     if (threadSummary) {
         threadSummary->setFont(chatFont_);
     }
+    if (pendingDeliveryIndicator_) {
+        pendingDeliveryIndicator_->setFixedHeight(
+            ReactionChipStyle::chipHeight(chatFont_));
+    }
     if (reactions) {
         reactions->setFont(chatFont_);
     }
@@ -846,10 +1005,12 @@ void PostWidget::applyChatFont(const QString& serializedFont)
         attachments->setFont(chatFont_);
     }
 
-    QTimer::singleShot(0, this, [this] {
-        updateGeometry();
-        emit dimensionsChanged();
-    });
+    if (notifyGeometry) {
+        QTimer::singleShot(0, this, [this] {
+            updateGeometry();
+            emit dimensionsChanged();
+        });
+    }
 }
 
 void PostWidget::openGroupMention(const QString& groupId)
@@ -963,19 +1124,9 @@ void PostWidget::updateReactions()
         guard->ui->verticalLayout->activate();
         guard->updateGeometry();
 
-        // A layout request updates sizeHint(), but a standalone/materialized
-        // PostWidget keeps its old rect until its owner performs another layout
-        // pass. Grow or shrink immediately so reaction contents cannot be
-        // clipped during that gap; LongListWidget will then commit the same
-        // measured height to its virtual geometry.
-        const int settledHeight = std::max(
-            1,
-            std::max(guard->sizeHint().height(),
-                     guard->minimumSizeHint().height()));
-        if (guard->height() != settledHeight) {
-            guard->resize(std::max(1, guard->width()), settledHeight);
-        }
-
+        // PostWidget owns presentation/size hints, not its top-level rect.
+        // LongListWidget is the single owner of physical row geometry and will
+        // commit the settled sizeHint atomically when this signal is delivered.
         emit guard->dimensionsChanged();
     });
 }

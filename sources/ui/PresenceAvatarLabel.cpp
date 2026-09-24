@@ -39,15 +39,6 @@ PresenceAvatarLabel::PresenceAvatarLabel(QWidget* parent)
 {
     setFrameShape(QFrame::NoFrame);
     setAlignment(Qt::AlignCenter);
-
-    connectionAnimationTimer.setInterval(BusyIndicator::AnimationIntervalMs);
-    connect(&connectionAnimationTimer, &QTimer::timeout, this, [this] {
-        connectionAnimationPhase =
-            (connectionAnimationPhase + connectionAnimationDirection
-             + BusyIndicator::AnimationSteps)
-            % BusyIndicator::AnimationSteps;
-        update();
-    });
 }
 
 void PresenceAvatarLabel::setPixmap(const QPixmap& pixmap)
@@ -71,16 +62,23 @@ void PresenceAvatarLabel::setConnectionIndicatorState(ConnectionIndicatorState s
         return;
     }
 
+    const bool wasAnimating =
+        connectionState != ConnectionIndicatorState::None;
     connectionState = state;
-    if (connectionState == ConnectionIndicatorState::None) {
-        connectionAnimationTimer.stop();
-        connectionAnimationPhase = 0;
-        connectionAnimationDirection = 1;
+    const bool isAnimating =
+        connectionState != ConnectionIndicatorState::None;
+
+    if (wasAnimating != isAnimating) {
+        if (isAnimating) {
+            BusyIndicator::Animation::instance().acquire(*this);
+        } else {
+            BusyIndicator::Animation::instance().release(*this);
+        }
+    }
+
+    if (!isAnimating) {
         setToolTip(QString());
     } else {
-        if (!connectionAnimationTimer.isActive()) {
-            connectionAnimationTimer.start();
-        }
         setToolTip(connectionState == ConnectionIndicatorState::WaitingForReconnect
                        ? tr("Waiting to reconnect to Mattermost… Click the indicator to retry now.")
                        : tr("Connecting to Mattermost… Click the indicator to retry now."));
@@ -116,11 +114,6 @@ void PresenceAvatarLabel::mouseReleaseEvent(QMouseEvent* event)
                                           BadgeHitMargin, BadgeHitMargin)
                .contains(event->pos())) {
         QLabel::mouseReleaseEvent(event);
-        connectionAnimationDirection = -connectionAnimationDirection;
-        connectionAnimationPhase =
-            (connectionAnimationPhase + connectionAnimationDirection
-             + BusyIndicator::AnimationSteps)
-            % BusyIndicator::AnimationSteps;
         update();
         emit reconnectRequested();
         return;
@@ -155,8 +148,13 @@ void PresenceAvatarLabel::paintEvent(QPaintEvent* event)
     spinnerColor.setAlpha(190);
     const qreal inset = std::max<qreal>(1.5, badge.width() / 6.0);
     const qreal penWidth = std::max<qreal>(1.2, badge.width() / 7.0);
-    BusyIndicator::draw(painter, badge.adjusted(inset, inset, -inset, -inset),
-                        connectionAnimationPhase, spinnerColor, penWidth);
+    const int spinnerExtent = std::max(
+        1, qRound(badge.width() - 2.0 * inset));
+    const QPixmap frame = BusyIndicator::Animation::instance().frame(
+        spinnerExtent, spinnerColor, penWidth, devicePixelRatioF());
+    painter.drawPixmap(
+        QPointF(badge.left() + inset, badge.top() + inset),
+        frame);
 }
 
 void PresenceAvatarLabel::resizeEvent(QResizeEvent* event)
