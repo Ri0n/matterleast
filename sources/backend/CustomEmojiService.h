@@ -29,6 +29,8 @@ public:
     static CustomEmojiService& instance(Backend& backend);
 
     void ensureEmoji(const QString& name);
+    /** Search the server-side custom-emoji catalog and cache matching images. */
+    void searchEmojis(const QString& term);
 
 private:
     explicit CustomEmojiService(Backend& backend);
@@ -43,6 +45,7 @@ private:
     QSet<QString> _pendingNames;
     QSet<QString> _inFlightNames;
     QSet<QString> _missingNames;
+    QSet<QString> _searchesInFlight;
     bool _flushScheduled = false;
     bool _batchLookupSupported = true;
 };

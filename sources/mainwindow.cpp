@@ -89,7 +89,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     , ui(std::make_unique<Ui::MainWindow>())
     , trayIcon(trayIcon)
     , notificationManager(std::make_unique<NotificationManager>(trayIcon))
-    , chooseEmojiDialog(this)
+    , chooseEmojiDialog(this, _backend)
     , backend(_backend)
     , currentTeamRestoredFromSettings(false)
     , doDeinit(false)

@@ -35,14 +35,18 @@ class ChooseEmojiDialog;
 
 namespace Mattermost {
 
+class Backend;
+
 class ChooseEmojiDialog: public QDialog {
 private:
-    explicit ChooseEmojiDialog (QWidget *parent = nullptr);
+    explicit ChooseEmojiDialog (Backend& backend, QWidget *parent = nullptr);
     ~ChooseEmojiDialog();
 public:
     void show ();
 private:
     void createEmojiTabs ();
+    void rebuildSearchableEmojis ();
+    void refreshCustomEmojiCatalog ();
     void createTabForCategory (uint32_t categoryIndex, uint32_t tabIndex, const QString& tabName, const QVector<Emoji>& emojis);
     QGridLayout* createTab (uint32_t categoryIdx, int tabIndex);
     void updateSearchResults (const QString& text);
@@ -54,13 +58,16 @@ private:
     void updateFavoritesTab ();
 private:
     friend class ChooseEmojiDialogWrapper;
+    Backend&                 backend;
     Ui::ChooseEmojiDialog*	ui;
     QComboBox*				skinToneComboBox;
     QVector<QPushButton*>	peopleEmojiButtons;
     QVector<Emoji>          searchableEmojis;
     QWidget*                searchTab = nullptr;
     QTimer*                 searchTimer = nullptr;
+    QTimer*                 customEmojiRefreshTimer = nullptr;
     int                     searchReturnTabIndex = -1;
+    int                     renderedCustomEmojiCount = -1;
     Emoji					selectedEmoji;
     QMap<EmojiID, Emoji>	favorites;
 };

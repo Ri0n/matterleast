@@ -30,8 +30,8 @@ namespace Mattermost {
 static ChooseEmojiDialog* gChooseEmojiDialog;
 static std::function<void (Emoji)> chooseEmojiCallback;
 
-ChooseEmojiDialogWrapper::ChooseEmojiDialogWrapper (QWidget* parent)
-:dialog (parent)
+ChooseEmojiDialogWrapper::ChooseEmojiDialogWrapper (QWidget* parent, Backend& backend)
+:dialog (backend, parent)
 {
 	gChooseEmojiDialog = &dialog;
 

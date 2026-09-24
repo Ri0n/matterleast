@@ -21,6 +21,16 @@ private slots:
                  QStringLiteral("pizza"));
     }
 
+    void preservesCustomEmojiPunctuationForServerSearch()
+    {
+        using Mattermost::EmojiDialogSupport::customEmojiServerSearchTerm;
+
+        QCOMPARE(customEmojiServerSearchTerm(QStringLiteral(" :Approved-By_QA: ")),
+                 QStringLiteral("approved-by_qa"));
+        QCOMPARE(customEmojiServerSearchTerm(QStringLiteral("approved")),
+                 QStringLiteral("approved"));
+    }
+
     void matchesCanonicalEmojiNames()
     {
         using Mattermost::EmojiDialogSupport::matchesSearch;

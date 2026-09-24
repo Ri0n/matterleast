@@ -37,6 +37,8 @@
 #include <QTimer>
 
 #include "EmojiDialogSupport.h"
+#include "backend/CustomEmojiService.h"
+#include "backend/emoji/EmojiRegistryNotifier.h"
 #include "options/MLOptions.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "ui_ChooseEmojiDialog.h"
@@ -45,6 +47,17 @@ namespace Mattermost {
 
 static constexpr int itemsPerRow = 30;
 static constexpr int maxSearchResults = 180;
+
+static int tabIndexForCategory(uint32_t categoryIdx)
+{
+    int tabIndex = 1; // Favorites is always first.
+    for (uint32_t index = 0; index < categoryIdx; ++index) {
+        if (index != EmojiCategory::component) {
+            ++tabIndex;
+        }
+    }
+    return tabIndex;
+}
 
 /**
  * Index of the emoji to be shown before the tab name for the current category.
@@ -64,8 +77,9 @@ static const uint32_t indexForCategoryTab[EmojiCategory::COUNT] = {
 	0,	//custom
 };
 
-ChooseEmojiDialog::ChooseEmojiDialog(QWidget *parent)
+ChooseEmojiDialog::ChooseEmojiDialog(Backend& backend, QWidget *parent)
 :QDialog(parent)
+,backend(backend)
 ,ui(new Ui::ChooseEmojiDialog)
 {
 	ui->setupUi(this);
@@ -75,7 +89,13 @@ ChooseEmojiDialog::ChooseEmojiDialog(QWidget *parent)
 	searchTimer->setSingleShot(true);
 	searchTimer->setInterval(100);
 	connect(searchTimer, &QTimer::timeout, this, [this] {
-		updateSearchResults(ui->searchEdit->text());
+        const QString text = ui->searchEdit->text();
+		updateSearchResults(text);
+        const QString search =
+            EmojiDialogSupport::customEmojiServerSearchTerm(text);
+        if (!search.isEmpty()) {
+            CustomEmojiService::instance(this->backend).searchEmojis(search);
+        }
 	});
 	connect(ui->searchEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
 		if (EmojiDialogSupport::normalizeSearchTerm(text).isEmpty()) {
@@ -85,6 +105,21 @@ ChooseEmojiDialog::ChooseEmojiDialog(QWidget *parent)
 		}
 		searchTimer->start();
 	});
+
+    customEmojiRefreshTimer = new QTimer(this);
+    customEmojiRefreshTimer->setSingleShot(true);
+    customEmojiRefreshTimer->setInterval(50);
+    connect(customEmojiRefreshTimer, &QTimer::timeout, this, [this] {
+        refreshCustomEmojiCatalog();
+        if (!EmojiDialogSupport::normalizeSearchTerm(ui->searchEdit->text()).isEmpty()) {
+            updateSearchResults(ui->searchEdit->text());
+        }
+    });
+    connect(&EmojiRegistryNotifier::instance(),
+            &EmojiRegistryNotifier::customEmojiAdded,
+            this, [this](const QString&) {
+        customEmojiRefreshTimer->start();
+    });
 
 }
 
@@ -101,6 +136,7 @@ Emoji ChooseEmojiDialog::getSelectedEmoji ()
 void ChooseEmojiDialog::show ()
 {
 	createEmojiTabs ();
+    refreshCustomEmojiCatalog();
 	ui->searchEdit->clear ();
 	QDialog::show ();
 	ui->searchEdit->setFocus (Qt::ShortcutFocusReason);
@@ -117,7 +153,11 @@ QGridLayout* ChooseEmojiDialog::createTab (uint32_t categoryIdx, int tabIndex)
 	if (tabIndex >= ui->tabWidget->count()) {
 		ui->tabWidget->addTab(tab, QString());
 	} else {
+        QWidget* previousTab = ui->tabWidget->widget(tabIndex);
 		ui->tabWidget->removeTab (tabIndex);
+        if (previousTab && previousTab != searchTab) {
+            previousTab->deleteLater();
+        }
 		ui->tabWidget->insertTab (tabIndex, tab, QString());
 	}
 	return gridLayout;
@@ -197,7 +237,6 @@ void ChooseEmojiDialog::createEmojiTabs ()
 	}
 
 	restoreEmojiFavorites ();
-	searchableEmojis.clear ();
 	uint32_t tabIndex = 0;
 
 	createTabForCategory (EmojiCategory::favorites, tabIndex, "Favorites", favorites.values().toVector());
@@ -214,10 +253,43 @@ void ChooseEmojiDialog::createEmojiTabs ()
 		}
 
 		QVector<Emoji> emojis = EmojiInfo::getAllEmojis (categoryIdx, 0);
-		searchableEmojis += emojis;
 		createTabForCategory (categoryIdx, tabIndex, categoryDisplayNames[categoryIdx], emojis);
 		++tabIndex;
 	}
+
+    rebuildSearchableEmojis();
+    renderedCustomEmojiCount =
+        EmojiInfo::getAllEmojis(EmojiCategory::custom, 0).size();
+}
+
+void ChooseEmojiDialog::rebuildSearchableEmojis()
+{
+    searchableEmojis.clear();
+    for (uint32_t categoryIdx = 0; categoryIdx < EmojiCategory::COUNT; ++categoryIdx) {
+        if (categoryIdx == EmojiCategory::component) {
+            continue;
+        }
+        searchableEmojis += EmojiInfo::getAllEmojis(categoryIdx, 0);
+    }
+}
+
+void ChooseEmojiDialog::refreshCustomEmojiCatalog()
+{
+    rebuildSearchableEmojis();
+
+    const QVector<Emoji> customEmojis =
+        EmojiInfo::getAllEmojis(EmojiCategory::custom, 0);
+    if (ui->tabWidget->count() < 1
+        || customEmojis.size() == renderedCustomEmojiCount) {
+        return;
+    }
+
+    createTabForCategory(
+        EmojiCategory::custom,
+        tabIndexForCategory(EmojiCategory::custom),
+        categoryDisplayNames[EmojiCategory::custom],
+        customEmojis);
+    renderedCustomEmojiCount = customEmojis.size();
 }
 
 void ChooseEmojiDialog::createTabForCategory (uint32_t categoryIndex, uint32_t tabIndex, const QString& tabName, const QVector<Emoji>& emojis)
