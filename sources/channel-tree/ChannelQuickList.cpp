@@ -29,6 +29,7 @@
 #include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingNavigation.h"
+#include "channel-tree/FollowingPresentation.h"
 #include "channel-tree/SidebarItem.h"
 #include "navigation/AppNavigationService.h"
 
