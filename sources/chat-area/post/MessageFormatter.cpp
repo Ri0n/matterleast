@@ -9,7 +9,7 @@
 
 #include "backend/emoji/EmojiInfo.h"
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
 #include <QRegularExpression>
 #include <QTextFragment>
 #endif
@@ -17,7 +17,7 @@
 namespace Mattermost {
 namespace MessageFormatter {
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION < QT_VERSION_CHECK(6, 4, 0)
 static void replaceEmojis(QString& text)
 {
     int emojiStart = 0;
@@ -56,7 +56,7 @@ static void replaceEmojis(QString& text)
 }
 #endif
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
 namespace {
 
 struct EmojiReplacement {
@@ -593,7 +593,7 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text)
 
 QString formatMessageText(const QString& text)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     QTextDocument document;
     buildMarkdownDocument(document, text);
     return document.toHtml();
