@@ -79,7 +79,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   windows:
-    name: Qt 6.10.3 / Windows 2025
+    name: Qt 6.11.2 / Windows 2025
     runs-on: windows-2025
 
     steps:
@@ -89,8 +89,9 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.10.3'
+          version: '6.11.2'
           modules: 'qtwebsockets'
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
           cache: true
 
       - name: Set up MSVC environment
