@@ -947,6 +947,15 @@ void MessageContentWidget::addMarkdownContent(const QString& message)
             block = block.next();
         } while (block.isValid() && isCodeBlock(block));
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+        // Qt 5's Markdown parser marks one synthetic empty QTextBlock as part
+        // of every fenced code block. Remove only that parser-added tail so
+        // intentional blank lines inside the fence remain intact.
+        if (!codeLines.isEmpty() && codeLines.constLast().isEmpty()) {
+            codeLines.removeLast();
+        }
+#endif
+
         addCodeBlock(codeLines.join(QLatin1Char('\n')), language);
         richStart = block.isValid() ? block.position() : document.characterCount() - 1;
     }
