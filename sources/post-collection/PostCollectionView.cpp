@@ -51,21 +51,23 @@ public:
         // Collection pagination is deliberately driven only by an actual user
         // viewport gesture. LongListWidget prefetch/materialization must never
         // turn a popular search into an automatic request chain.
-        connect(this, &LongListWidget::userViewportChanged, this,
-                [this](bool atEnd) {
-            if (!_owner.hasMoreResults() || _owner.loading) {
-                return;
-            }
-            const Range visible = visibleRange();
-            const int threshold = std::max(
-                0, static_cast<int>(_owner.posts.size()) - 2);
-            if (!atEnd && (!visible.isValid() || visible.last < threshold)) {
-                return;
-            }
+        connect(this, &LongListWidget::userScrollStarted, this,
+                [this] {
+            // userScrollStarted() is an intent event and may precede Qt applying
+            // an actionTriggered scrollbar value. Evaluate the logical viewport
+            // on the next turn, after the user gesture has taken effect.
             QTimer::singleShot(0, this, [this] {
-                if (_owner.hasMoreResults() && !_owner.loading) {
-                    _owner.loadNextPage();
+                if (!_owner.hasMoreResults() || _owner.loading) {
+                    return;
                 }
+                const Range visible = visibleRange();
+                const int threshold = std::max(
+                    0, static_cast<int>(_owner.posts.size()) - 2);
+                if (!isAtEnd()
+                    && (!visible.isValid() || visible.last < threshold)) {
+                    return;
+                }
+                _owner.loadNextPage();
             });
         });
     }
