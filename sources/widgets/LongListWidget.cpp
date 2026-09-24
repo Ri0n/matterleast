@@ -202,6 +202,35 @@ LongListWidget::LongListWidget(QWidget* parent)
         releaseViewportLock(true);
     });
 
+    scrollAnimation.setStartValue(0.0);
+    scrollAnimation.setEndValue(1.0);
+    scrollAnimation.setEasingCurve(QEasingCurve::OutCubic);
+    connect(&scrollAnimation, &QVariantAnimation::valueChanged,
+            this, [this](const QVariant& value) {
+        QScrollBar* bar = verticalScrollBar();
+        const qreal progress = value.toReal();
+        const int target = scrollAnimationStartValue
+            + qRound((bar->maximum() - scrollAnimationStartValue) * progress);
+
+        scrollAnimationApplying = true;
+        internalScrollChange = true;
+        bar->setValue(target);
+        internalScrollChange = false;
+        scrollAnimationApplying = false;
+
+        layoutMaterialized();
+        scheduleViewportSyncIfNeeded(RequestReason::Scroll);
+    });
+    connect(&scrollAnimation, &QVariantAnimation::finished, this, [this] {
+        QScrollBar* bar = verticalScrollBar();
+        internalScrollChange = true;
+        bar->setValue(bar->maximum());
+        internalScrollChange = false;
+        layoutMaterialized();
+        scheduleSync(RequestReason::EnsureVisible);
+        emitRangeChanges(VisibilityChangeReason::ProgrammaticScroll);
+    });
+
     QScrollBar* bar = verticalScrollBar();
     connect(bar, &QScrollBar::valueChanged, this, [this] { onScrollValueChanged(); });
     connect(bar, &QScrollBar::sliderMoved, this, &LongListWidget::onSliderMoved);
@@ -293,7 +322,9 @@ void LongListWidget::setItemCount(int count)
     }
 }
 
-void LongListWidget::insertItems(int first, int count)
+void LongListWidget::insertItems(int first,
+                                 int count,
+                                 InsertViewportPolicy viewportPolicy)
 {
     first = std::max(0, std::min(first, logicalCount));
     count = std::max(0, count);
@@ -302,13 +333,23 @@ void LongListWidget::insertItems(int first, int count)
     }
 
     ViewAnchor anchor = captureAnchor();
+    const qint64 oldOffset = contentOffset();
+    if (viewportPolicy == InsertViewportPolicy::PreserveVisibleContent
+        && anchor.kind == ViewAnchor::Bottom && logicalCount > 0) {
+        const int oldTopIndex = heights.indexAtPixel(oldOffset);
+        if (oldTopIndex >= 0) {
+            anchor.kind = ViewAnchor::Item;
+            anchor.index = oldTopIndex;
+            anchor.offsetInsideItem =
+                oldOffset - heights.prefixHeight(oldTopIndex);
+        }
+    }
     if (anchor.kind == ViewAnchor::Item && anchor.index >= first) {
         anchor.index += count;
     }
     if (viewportLock.index >= first) {
         viewportLock.index += count;
     }
-    const qint64 oldOffset = contentOffset();
 
     logicalCount += count;
     lastSynchronizedViewportRange = {};
@@ -1035,6 +1076,8 @@ void LongListWidget::scrollToIndex(int index, Alignment alignment)
         return;
     }
 
+    stopScrollAnimation();
+
     if (hasViewportLock() && viewportLock.index != index) {
         releaseViewportLock(true);
     }
@@ -1054,6 +1097,7 @@ void LongListWidget::scrollToIndex(int index, Alignment alignment)
 
 void LongListWidget::scrollToEnd()
 {
+    stopScrollAnimation();
     if (hasViewportLock()) {
         releaseViewportLock(true);
     }
@@ -1063,6 +1107,34 @@ void LongListWidget::scrollToEnd()
     internalScrollChange = false;
     layoutMaterialized();
     scheduleSync(RequestReason::EnsureVisible);
+}
+
+void LongListWidget::scrollToEndAnimated(int durationMs)
+{
+    if (hasViewportLock()) {
+        releaseViewportLock(true);
+    }
+    clearSeek();
+
+    QScrollBar* bar = verticalScrollBar();
+    const qint64 distance = maximumContentOffset() - contentOffset();
+    if (durationMs <= 0 || distance <= 0) {
+        scrollToEnd();
+        return;
+    }
+
+    // Long-distance animation is disorienting and keeps unrelated history in
+    // motion. The animated path is intended for a nearby appended tail (for
+    // example one optimistic outgoing row just below the viewport).
+    if (distance > std::max(1, viewport()->height())) {
+        scrollToEnd();
+        return;
+    }
+
+    stopScrollAnimation();
+    scrollAnimationStartValue = bar->value();
+    scrollAnimation.setDuration(std::max(1, durationMs));
+    scrollAnimation.start();
 }
 
 bool LongListWidget::lockViewportToItem(int index,
@@ -1803,10 +1875,18 @@ void LongListWidget::releaseViewportLock(bool notify)
 
 void LongListWidget::noteUserScrollStarted()
 {
+    stopScrollAnimation();
     releaseViewportLock(true);
     // A new viewport consumes only progress observed after this gesture.
     observedAvailabilityRevision = availabilityRevision;
     emit userScrollStarted();
+}
+
+void LongListWidget::stopScrollAnimation()
+{
+    if (scrollAnimation.state() != QAbstractAnimation::Stopped) {
+        scrollAnimation.stop();
+    }
 }
 
 qint64 LongListWidget::maximumContentOffset() const
@@ -1880,7 +1960,7 @@ void LongListWidget::onScrollValueChanged()
         wheelInProgress || verticalScrollBar()->isSliderDown() || userScrollActionPending;
     const VisibilityChangeReason visibilityReason = userScroll
         ? VisibilityChangeReason::UserScroll
-        : (internalScrollChange
+        : ((internalScrollChange || scrollAnimationApplying)
                ? VisibilityChangeReason::ProgrammaticScroll
                : VisibilityChangeReason::LayoutChange);
     emitRangeChanges(visibilityReason);

@@ -391,10 +391,12 @@ void ChatLogWidget::followOwnPost(const QString& postId)
             << " source=" << sourceName(postSource)
             << " postId=" << postId;
         clearNavigationLock();
-        // Tail insertion already preserves sticky-bottom. Avoid a second
-        // scrollToEnd()/EnsureVisible transaction in the common case.
+        // Optimistic tail insertion deliberately preserves the old concrete
+        // viewport so the pending row can settle just below it. Reveal that
+        // nearby tail with a short programmatic animation; LongListWidget falls
+        // back to an immediate jump if the user sent from far back in history.
         if (!isAtEnd()) {
-            scrollToEnd();
+            scrollToEndAnimated();
         }
         scheduleReadCursorUpdate();
     });
@@ -1073,7 +1075,13 @@ void ChatLogWidget::reconnectSource()
             << " source=" << sourceName(postSource)
             << " first=" << first
             << " count=" << count;
-        insertItems(first, count);
+        InsertViewportPolicy viewportPolicy = InsertViewportPolicy::PreserveIntent;
+        if (auto* outboxSource = qobject_cast<OutboxPostSource*>(postSource.data());
+            outboxSource && count == 1 && first == itemCount()
+            && outboxSource->isPendingIndex(first)) {
+            viewportPolicy = InsertViewportPolicy::PreserveVisibleContent;
+        }
+        insertItems(first, count, viewportPolicy);
         restoreNavigationTarget();
         scheduleReadCursorUpdate();
     }));

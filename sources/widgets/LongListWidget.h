@@ -32,6 +32,7 @@
 #include <QSet>
 #include <QString>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVector>
 
 class QPaintEvent;
@@ -72,6 +73,12 @@ public:
     };
     Q_ENUM(Alignment)
 
+    enum class InsertViewportPolicy {
+        PreserveIntent,
+        PreserveVisibleContent,
+    };
+    Q_ENUM(InsertViewportPolicy)
+
     enum class ItemVisibility {
         None   = 0,
         Body   = 1 << 0,
@@ -107,8 +114,17 @@ public:
     int itemCount() const { return logicalCount; }
     void setItemCount(int count);
 
-    /** Insert real logical items and preserve the current semantic viewport anchor. */
-    void insertItems(int first, int count);
+    /**
+     * Insert real logical items.
+     *
+     * PreserveIntent retains sticky-bottom when it is current viewport intent.
+     * PreserveVisibleContent converts sticky-bottom into the concrete old item
+     * anchor so an appended row may settle below the viewport before an
+     * explicit follow operation.
+     */
+    void insertItems(int first,
+                     int count,
+                     InsertViewportPolicy viewportPolicy = InsertViewportPolicy::PreserveIntent);
 
     /** Remove logical items and shift later identities left without losing the viewport anchor. */
     void removeItems(int first, int count);
@@ -187,6 +203,7 @@ public:
 
     void scrollToIndex(int index, Alignment alignment = Alignment::EnsureVisible);
     void scrollToEnd();
+    void scrollToEndAnimated(int durationMs = 180);
 
     /**
      * Keep a logical item at the requested semantic alignment while its own
@@ -366,6 +383,7 @@ private:
     void touchViewportLock();
     void releaseViewportLock(bool notify);
     void noteUserScrollStarted();
+    void stopScrollAnimation();
 
     qint64 maximumContentOffset() const;
     qint64 contentOffset() const;
@@ -403,6 +421,7 @@ private:
     QTimer geometryTimer;
     QTimer seekTimer;
     QTimer viewportLockTimer;
+    QVariantAnimation scrollAnimation;
     RequestReason pendingSyncReason = RequestReason::Initial;
 
     bool synchronizing = false;
@@ -410,11 +429,14 @@ private:
     bool internalScrollChange = false;
     bool wheelInProgress = false;
     bool userScrollActionPending = false;
+    bool scrollAnimationApplying = false;
     bool hoverHighlightEnabled = true;
 
     quint64 seekGeneration = 0;
     int seekTarget = -1;
     bool seekActive = false;
+    int scrollAnimationStartValue = 0;
+
     quint64 availabilityRevision = 0;
     quint64 observedAvailabilityRevision = 0;
 

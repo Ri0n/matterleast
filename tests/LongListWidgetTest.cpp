@@ -935,6 +935,35 @@ private slots:
                  "An oversized appended tail must keep its lower edge inside a sticky-bottom viewport");
     }
 
+    void appendedTailCanPreserveVisibleContentBeforeExplicitFollow()
+    {
+        TestLongListWidget list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(60);
+        list.setItemCount(20);
+        list.setRangeAvailable(0, 19);
+        list.show();
+        settleEvents();
+        list.scrollToEnd();
+        settleEvents();
+
+        const auto before = list.visibleRange();
+        QVERIFY(before.contains(19));
+
+        list.insertItems(
+            20, 1,
+            Mattermost::LongListWidget::InsertViewportPolicy::PreserveVisibleContent);
+        list.setRangeAvailable(20, 20);
+        settleEvents(8);
+
+        QVERIFY(!list.isAtEnd());
+        QVERIFY(!list.visibleRange().contains(20));
+
+        list.scrollToEndAnimated(20);
+        QTRY_VERIFY_WITH_TIMEOUT(list.isAtEnd(), 1000);
+        QTRY_VERIFY_WITH_TIMEOUT(list.visibleRange().contains(20), 1000);
+    }
+
     void prependShiftsLogicalAnchorWithoutMovingContent()
     {
         TestLongListWidget list;
