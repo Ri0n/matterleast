@@ -42,7 +42,6 @@ namespace EmojiCategory {
 		flags,
 		custom,
 		COUNT,
-		favorites = COUNT,
 	};
 }
 

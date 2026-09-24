@@ -55,6 +55,7 @@
 #include "types/BackendPoll.h"
 #include "types/BackendNewPollData.h"
 #include "emoji/EmojiInfo.h"
+#include "reactions/ReactionUsageTracker.h"
 #include "log.h"
 
 namespace Mattermost {
@@ -269,7 +270,15 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
 	webSocketConnector.open (NetworkRequest::host() + "api/v4/", NetworkRequest::getToken());
 	isLoggedIn = true;
 	retrieveUserPreferences ();
-	retrieveCustomEmojis ();
+
+    // Prewarm only the small reaction working set. Built-in names resolve
+    // locally; unknown names trigger CustomEmojiService's lazy lookup and disk
+    // cache. Do not enumerate/download the server's custom-emoji catalog.
+    for (const QString& emojiName :
+         ReactionUsageTracker::instance().topNames(10)) {
+        (void)EmojiInfo::findByName(emojiName);
+    }
+
 	//retrieveAllPublicTeams ();
 	callback (NetworkRequest::getToken());
 }
@@ -1455,50 +1464,6 @@ void Backend::sendSubmitDialog (const QJsonDocument& json)
 		qDebug() << "SendSubmitDialog reply: " << jsonString.toStdString().c_str();
 #endif
 	}));
-}
-
-void Backend::retrieveCustomEmojis ()
-{
-	NetworkRequest request ("emoji");
-	httpConnector.get (request, HttpResponseCallback ([this] (QVariant, QJsonDocument data) {
-
-#if 0
-		QString jsonString = data.toJson(QJsonDocument::Indented);
-		qDebug() << "retrieveCustomEmojis reply: " << jsonString.toStdString().c_str();
-#endif
-
-		for (const auto& it: data.array()) {
-			QString emojiID = it.toObject().value("id").toString();
-			QString emojiName = it.toObject().value("name").toString();
-			retrieveCustomEmojiImage (emojiID, [emojiID, emojiName] (QByteArray data) {
-
-				QDir cacheDir (QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
-				QDir emojiDir (cacheDir.filePath ("custom-emoji"));
-
-				if (!emojiDir.exists()) {
-					emojiDir.mkpath(".");
-				}
-
-				QString filePath (emojiDir.filePath (emojiID + ".gif"));
-				QFile file (filePath);
-
-				if (!file.open (QIODevice::WriteOnly)) {
-					qDebug() << "retrieveCustomEmojiImage: Cannot open " << filePath << ":" << file.errorString();
-					return;
-				}
-
-				file.write (data);
-				file.close ();
-				EmojiInfo::addCustomEmoji (emojiName, filePath);
-			});
-		}
-	}));
-}
-
-void Mattermost::Backend::retrieveCustomEmojiImage (const QString& emojiID, std::function <void (QByteArray)> callback)
-{
-	NetworkRequest request ("emoji/" + emojiID + "/image");
-	httpConnector.get (request, HttpResponseCallback (callback));
 }
 
 const BackendUser& Backend::getLoginUser () const

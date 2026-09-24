@@ -1,22 +1,27 @@
 # Reaction quick bar and popularity ranking
 
-Mattermost-Qt keeps a small application-wide reaction history to make frequently and recently used reactions available directly from the message hover UI.
+MatterLeast keeps one small application-wide reaction ranking. The quick bar is derived entirely from that ranking; there is no separate favorites/default-favorites model.
 
-The ranking is deliberately independent of a Mattermost `Backend`. A reaction is persisted by its canonical emoji name, such as `fire` or `rolling_on_the_floor_laughing`; the active emoji registry is responsible for resolving that name to Unicode or a custom-emoji image when the UI is built.
+The ranking stores canonical Mattermost emoji names only, for example `fire`, `heart` or a custom name. Resolution to Unicode or a custom image belongs to `EmojiInfo` / `CustomEmojiService`.
 
-## Goals
+## Startup seed
 
-The quick-reaction design has several competing requirements:
+A completely empty profile would otherwise have no quick reactions. When persisted ranking state is empty, `ReactionUsageTracker` seeds the model with a deliberately weak generic prior:
 
-- a reaction just used by the user should become immediately available;
-- reactions used repeatedly should remain useful longer than one-off reactions;
-- old habits must not dominate forever;
-- counters must remain bounded even after years of use;
-- a newly introduced standard or custom emoji must be able to enter the ranking;
-- ranking state must be global to the application rather than duplicated per server session;
-- unavailable custom emoji must not prevent the rest of the quick bar from rendering.
+```text
+:+1:
+:fire:
+:heart:
+```
 
-The implementation separates **recency** (`heat`) from **familiarity** (`count`) rather than sorting by a lifetime usage counter.
+Each seed starts with:
+
+```text
+count = 1
+heat  = 0.5
+```
+
+The seeded model is persisted immediately. Seeds are not special after initialization: a real successful reaction reheats to `1.0`, and normal cooling/trimming can eventually evict every seed. Existing non-empty user history is never supplemented or overwritten by the seed list.
 
 ## Architecture
 
@@ -29,7 +34,7 @@ flowchart LR
     T[ReactionUsageTracker\napplication-global singleton]
     M[ReactionUsageModel\nbackend-independent ranking]
     S[MLOptions persistent store]
-    R[EmojiInfo / custom emoji resolver]
+    R[EmojiInfo / CustomEmojiService]
 
     UI -->|choose emoji| B
     B --> E
@@ -45,42 +50,36 @@ flowchart LR
 
 `ReactionUsageModel` contains no `Backend`, network, channel or server identity. It only knows reaction names and ranking values.
 
-`ReactionUsageTracker` is an application-global singleton. It owns the ten-entry model and persists it through `MLOptions`.
+`ReactionUsageTracker` owns the sixteen-entry model and persists it through `MLOptions`.
 
-`BackendChannel` is only an integration point: when a reaction-added update actually changes a post from "our reaction is absent" to "our reaction is present", it records that canonical emoji name in the global tracker. The ranking algorithm itself does not live in the backend.
-
-The quick-bar controller reads ranked names and resolves them through the current emoji registry. Standard emoji resolve locally. A missing custom name can trigger the existing asynchronous custom-emoji lookup; until it is renderable it is simply omitted from that quick bar instance.
+`BackendChannel` records usage only after the post model confirms that the logged-in user's reaction was actually added. The ranking therefore describes successful behavior rather than button clicks.
 
 ## What counts as a use
 
-A click is not sufficient to increase popularity.
-
-Mattermost toggles reactions, and the same reaction event may also be observed more than once during synchronization. Therefore usage is recorded only when the post model observes a successful transition for the logged-in user:
+A reaction is recorded only for this transition:
 
 ```text
 our reaction absent -> reaction-added update -> our reaction present
 ```
 
-The following do **not** increase the usage score:
+These do not increase popularity:
 
 - clicking a reaction that removes an already-present reaction;
 - another user's reaction;
-- a duplicate reaction-added update that leaves our reaction already present;
-- a failed request that never results in the reaction appearing in the post model.
-
-This keeps the popularity model tied to successful user actions rather than UI attempts.
+- duplicate/replayed reaction-added updates;
+- a failed request that never appears in the post model.
 
 ## Ranking state
 
-Each retained reaction has:
+Each retained entry has:
 
 ```text
 name   canonical Mattermost emoji name
-count  bounded effective familiarity score
-heat   current recency score in (0, 1]
+count  bounded familiarity score
+heat   recency score in (0, 1]
 ```
 
-Only the ten hottest entries are retained. `count` is **not** a lifetime telemetry counter. It is deliberately an aging score used only to determine how slowly `heat` should decay.
+Only the sixteen hottest entries are retained.
 
 Ranking order is:
 
@@ -88,109 +87,58 @@ Ranking order is:
 2. higher `count` when heat is equal;
 3. emoji name as a deterministic final tie-break.
 
-## Cooling formula
+### Cooling
 
-On every successful reaction use, all existing entries cool first.
-
-For an entry with effective count `c` and current heat `h`:
+On every successful reaction use, existing entries cool first:
 
 ```text
 h' = h * exp(-0.5 / sqrt(c))
 ```
 
-The selected reaction is then updated:
+where `h` is current heat and `c` is effective count.
+
+The selected reaction then becomes:
 
 ```text
 count = count + 1
 heat  = 1.0
 ```
 
-A newly seen reaction starts as:
+A newly seen real reaction starts at `count=1, heat=1.0`.
+
+The approximate half-life of an untouched entry is:
 
 ```text
-count = 1
-heat  = 1.0
+T_half ~= 1.386 * sqrt(c)
 ```
 
-Because the selected reaction is reheated to `1.0`, the most recently used reaction always reaches the top immediately. Familiarity affects how long it remains competitive afterwards, not whether it can reach the top.
+so repeated habits cool more slowly than one-off reactions without becoming permanent.
 
-### Heat half-life
+### Count aging
 
-The number of subsequent reaction events required to halve an untouched entry's heat is approximately:
-
-```text
-T_half = ln(2) / 0.5 * sqrt(c)
-       ~= 1.386 * sqrt(c)
-```
-
-Examples before count aging:
-
-| Effective count | Approximate heat half-life |
-| ---: | ---: |
-| 1 | 1.4 reaction events |
-| 9 | 4.2 reaction events |
-| 64 | 11.1 reaction events |
-| 127 | 15.6 reaction events |
-
-A one-off reaction therefore disappears from prominence quickly, while a familiar reaction survives a moderate amount of unrelated activity.
-
-## Aging the familiarity count
-
-A monotonically increasing lifetime counter would eventually make old favorites almost immune to cooling. It would also grow forever and make later emoji disproportionately hard to establish.
-
-To avoid this, `count` is periodically renormalized.
-
-The current threshold is:
+`count` is not lifetime telemetry. When any retained count reaches:
 
 ```text
 CountAgingThreshold = 128
 ```
 
-Whenever any retained entry reaches or exceeds the threshold, **all** retained counts are aged together:
+all retained counts are aged together:
 
 ```text
 count = ceil(count / 2)
 ```
 
-If persisted legacy/corrupt data contains a value still above the threshold after one pass, aging repeats until every count is below 128.
-
-`heat` is intentionally left unchanged during this operation.
-
-Example:
-
-```text
-before aging:
-    fire   count=128  heat=1.00
-    eyes   count= 51  heat=0.74
-    clap   count=  3  heat=0.32
-
-after aging:
-    fire   count= 64  heat=1.00
-    eyes   count= 26  heat=0.74
-    clap   count=  2  heat=0.32
-```
-
-This has three useful properties:
-
-1. the current ranking does not jump merely because normalization occurred;
-2. historical familiarity is preserved approximately relative to other entries;
-3. no reaction can acquire an arbitrarily long cooling half-life.
-
-With the threshold at 128, the largest normal stored count is 127, which bounds the heat half-life at roughly 15.6 subsequent reaction events. Repeated long-term use can keep a reaction familiar, but old history cannot make it permanently dominant.
-
-This also gives newly introduced emoji a practical route into the ranking: their first successful use still produces `heat=1`, and old entries have a bounded decay rate. Repeated use of the new emoji then builds its own effective familiarity normally.
+Heat is unchanged. Aging repeats for malformed/legacy persisted data until every count is below the threshold.
 
 ## Persistence
 
-The tracker stores the ranking under:
+The ranking is stored under:
 
 ```text
 reaction_usage/popularity_v1
 ```
 
-through `MLOptions`.
-
-The payload is a compact JSON array containing only:
+as compact JSON:
 
 ```json
 [
@@ -199,104 +147,68 @@ The payload is a compact JSON array containing only:
 ]
 ```
 
-`count` is serialized as a decimal string to avoid JSON-number precision loss for old or malformed large values.
-
-On restore the model:
-
-- discards empty names, zero counts and invalid/non-positive heat;
-- clamps heat to at most `1.0`;
-- merges duplicate names conservatively using the higher count and heat;
-- runs count aging until every restored count is below the threshold;
-- keeps only the ten hottest entries.
-
-Thus an older settings file containing an enormous count cannot reintroduce permanent ranking inertia.
+On restore the model discards invalid entries, merges duplicate names conservatively, applies count aging and keeps only the sixteen hottest entries.
 
 ## Quick-bar composition
 
-Hovering the reaction affordance opens a compact strip with at most six reaction actions.
+Hovering the reaction affordance shows at most the eight hottest **renderable** names from the ranking.
 
-Candidate construction is:
+There is no second favorites source and no overlap/deduplication policy to maintain.
 
-```text
-1. take up to 3 hottest renderable reactions from the popularity ranking
-2. add up to 3 non-overlapping favorite/default reactions
-3. if overlaps left empty slots, continue taking lower-ranked popular reactions
-4. never display the same emoji twice
-5. omit names that the active emoji registry cannot currently render
-```
+If a ranked custom emoji is not yet available locally, that name is omitted from the current popup while the shared custom-emoji resolver is allowed to fetch it. Other ranked reactions still render normally.
 
-The default favorite set is:
+Clicking the heart affordance itself continues to open the complete emoji chooser.
+
+## Custom emoji prewarm
+
+After successful login, MatterLeast prewarms only the hottest ten names from the current ranking:
 
 ```text
-:+1:
-:eyes:
-:fire:
-:rolling_on_the_floor_laughing:
+ReactionUsageTracker::topNames(10)
+    -> EmojiInfo::findByName(name)
 ```
 
-The old untouched default favorites list is migrated to this smaller set. Existing user-customized favorites are preserved by the migration code.
+Built-in names resolve synchronously and cause no network request. Unknown custom names trigger the existing lazy `CustomEmojiService` lookup and disk cache.
 
-Clicking the heart itself remains the path to the complete emoji chooser; the hover strip is only a shortcut for common reactions.
+MatterLeast deliberately does **not** enumerate the server custom-emoji catalog or download the first page at startup. A custom image is fetched because it is actually needed by one of these paths:
 
-Example with popularity:
+- a ranked reaction is prewarmed after login;
+- a message/reaction references an unknown custom name;
+- the emoji picker server search returns that custom emoji.
 
-```text
-eyes, fire, rolling_on_the_floor_laughing, +1, clap, rocket
-```
-
-and the default favorites above produces:
-
-```text
-eyes | fire | rolling_on_the_floor_laughing | +1 | clap | rocket
-```
-
-The favorite overlap does not waste slots; `clap` and `rocket` are pulled from the remaining popularity ranking.
-
-## Custom emoji and multiple backends
-
-Popularity intentionally stores only the canonical emoji **name**. It does not persist a server URL, backend pointer, downloaded image path or custom-emoji ID.
-
-Consequences:
-
-- the same standard emoji history is naturally shared across all logged-in servers;
-- a custom emoji can participate in global ranking without coupling the tracker to one backend;
-- if that custom name is unavailable on the active server, the UI filters it out;
-- resolving/downloading custom emoji remains the responsibility of the existing emoji service and registry.
-
-The ranking layer must stay backend-independent even if custom-emoji resolution changes in the future.
+The ranking stores names only; it never owns images, paths or backend pointers.
 
 ## Implementation files
 
-The main pieces are:
-
 ```text
 sources/reactions/ReactionUsage.h
-    pure ranking, cooling, count aging, serialization helpers,
-    quick-strip selection policy
+    pure ranking, seed policy, cooling, count aging and serialization
 
 sources/reactions/ReactionUsageTracker.{h,cpp}
-    process-wide singleton and MLOptions persistence
+    process-wide singleton, persistence and empty-ranking seeding
 
 sources/backend/types/BackendChannel.cpp
     confirmed-own-reaction integration point
 
+sources/backend/Backend.cpp
+    post-login ranked-name prewarm
+
 sources/chat-area/post/reactions/ReactionQuickBarController.cpp
-    hover popup, renderability filtering and emoji presentation
+    top-eight popup, renderability filtering and emoji presentation
 
 tests/EmojiDialogSupportTest.cpp
-    ranking, aging, persistence and quick-strip policy tests
+    ranking, seeding, aging and persistence tests
 ```
 
-## Invariants for future changes
+## Invariants
 
-Changes to reaction ranking should preserve these invariants:
+Future changes should preserve these rules:
 
-- the ranking model must not own or require a `Backend`;
-- only a successful newly-added reaction from the logged-in user counts as usage;
-- the most recently used reaction must be able to reach the top immediately;
-- familiarity may slow cooling but must remain bounded/aging;
-- count aging must not directly change heat;
-- restored persisted state must obey the same bounds as newly generated state;
-- the retained popularity set must stay bounded;
-- unresolvable custom emoji must not break or block standard quick reactions;
-- quick-bar composition must deduplicate favorite/popular overlap.
+- there is one popularity model; do not reintroduce a parallel favorites model;
+- the ranking model stays backend-independent;
+- only a confirmed newly-added own reaction counts as usage;
+- a real use must outrank the weak startup seed immediately;
+- familiarity may slow cooling but remains bounded;
+- only a bounded sixteen-entry set of names is persisted;
+- startup network work is proportional to the small ranked working set, not the size of the server custom-emoji catalog;
+- unresolvable custom emoji must not block standard quick reactions.

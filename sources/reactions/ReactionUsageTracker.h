@@ -14,13 +14,13 @@ public:
 
     void recordUse(const QString& emojiName);
     QVector<ReactionUsageEntry> ranking() const;
-    QStringList topNames(int limit = 10) const;
+    QStringList topNames(int limit = -1) const;
 
 private:
     ReactionUsageTracker();
     void save() const;
 
-    ReactionUsageModel model_ {10};
+    ReactionUsageModel model_ {16};
 };
 
 } // namespace Mattermost
