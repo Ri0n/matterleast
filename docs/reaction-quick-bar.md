@@ -159,6 +159,32 @@ If a ranked custom emoji is not yet available locally, that name is omitted from
 
 Clicking the heart affordance itself continues to open the complete emoji chooser.
 
+### Composer hover palette
+
+Hovering the composer's emoji-picker button uses the same sixteen-entry ranking,
+but it does not open or enumerate the full picker. Only the currently ranked
+names are resolved.
+
+The hover palette shows up to sixteen **renderable** ranked emoji in ranking
+order, laid out row-major as two rows of up to eight buttons. It is positioned
+above the picker affordance and centered over that button when the available
+window geometry permits.
+
+The palette surface uses the application's `QPalette::Base` role, matching the
+chat background without copying palette state from a specific chat widget. Its
+rounded one-pixel outline uses `QPalette::Mid`, which keeps the popup distinct
+from both the chat surface and the adjacent composer surface in light and dark
+themes. The existing compact inner padding is intentional.
+
+Selecting one of these buttons inserts its `:name:` shortcode into the
+composer. Clicking the picker affordance itself remains unchanged and opens the
+complete emoji chooser.
+
+An unresolved ranked custom emoji is omitted from the current palette while the
+shared lazy resolver fetches it. If it becomes available while the palette is
+still open, the small ranked palette is rebuilt; the full custom catalog is
+never enumerated for this hover path.
+
 ## Custom emoji prewarm
 
 After successful login, MatterLeast prewarms only the hottest ten names from the current ranking:
@@ -194,7 +220,13 @@ sources/backend/Backend.cpp
     post-login ranked-name prewarm
 
 sources/chat-area/post/reactions/ReactionQuickBarController.cpp
-    top-eight popup, renderability filtering and emoji presentation
+    top-eight reaction popup
+
+sources/chat-area/outgoing-post/OutgoingPostCreator.cpp
+    two-row top-sixteen composer hover palette
+
+sources/ui/RankedEmojiPresentation.{h,cpp}
+    shared built-in/custom ranked-emoji rendering without catalog enumeration
 
 tests/EmojiDialogSupportTest.cpp
     ranking, seeding, aging and persistence tests
@@ -210,5 +242,6 @@ Future changes should preserve these rules:
 - a real use must outrank the weak startup seed immediately;
 - familiarity may slow cooling but remains bounded;
 - only a bounded sixteen-entry set of names is persisted;
-- startup network work is proportional to the small ranked working set, not the size of the server custom-emoji catalog;
+- startup and hover network work is proportional to the small ranked working set, not the size of the server custom-emoji catalog;
+- composer hover must read only the bounded ranking and must not enumerate picker categories or the custom-emoji catalog;
 - unresolvable custom emoji must not block standard quick reactions.

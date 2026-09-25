@@ -26,6 +26,7 @@
 
 #include <memory>
 #include <QBoxLayout>
+#include <QPointer>
 #include <QTemporaryDir>
 
 #include "MessageTextEditWidget.h"
@@ -37,6 +38,7 @@ class QDragMoveEvent;
 class QDropEvent;
 class QLabel;
 class QEvent;
+class QFrame;
 class QMimeData;
 class QPushButton;
 class QTimer;
@@ -88,6 +90,7 @@ signals:
 
 protected:
     bool event(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 	void insertFromMimeData(const QMimeData* source) override;
 
 private:
@@ -105,6 +108,10 @@ private:
     void discardPersistentDraft();
     void failAttachmentUpload(const QString& statusText);
     void releaseComposerAttachmentUploads();
+    void showRankedEmojiPopup();
+    void positionRankedEmojiPopup();
+    void scheduleRankedEmojiPopupHide();
+    void hideRankedEmojiPopup();
 	bool isEditingPost() const;
 	bool isCreatingPost ();
 	bool isWaitingForPostServerResponse ();
@@ -133,6 +140,8 @@ private:
     // Mattermost drafts remain keyed by (channel, root) as before.
     QString                             activeRecoveredDraftKey;
     QTimer*                             draftSaveTimer = nullptr;
+    QTimer*                             rankedEmojiHideTimer = nullptr;
+    QPointer<QFrame>                    rankedEmojiPopup;
     bool                                suppressDraftPersistence = false;
 };
 

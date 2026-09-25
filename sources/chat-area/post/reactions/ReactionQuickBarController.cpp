@@ -4,100 +4,21 @@
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QLabel>
-#include <QPixmap>
 #include <QPointer>
 #include <QPushButton>
-#include <QRegularExpression>
 #include <QStyle>
 #include <QTimer>
 
 #include "backend/Backend.h"
-#include "backend/emoji/EmojiInfo.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/post/PostWidget.h"
-#include "reactions/ReactionUsage.h"
 #include "reactions/ReactionUsageTracker.h"
-#include "ui/EmojiPresentation.h"
+#include "ui/RankedEmojiPresentation.h"
 
 namespace Mattermost {
 namespace {
 
-QString customEmojiSource(const QString& presentation)
-{
-    static const QRegularExpression sourceExpression(
-        QStringLiteral(R"(\bsrc\s*=\s*["']([^"']+)["'])"),
-        QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch match = sourceExpression.match(presentation);
-    return match.hasMatch() ? match.captured(1) : QString();
-}
-
-QString pixmapPath(QString source)
-{
-    if (source.startsWith(QStringLiteral("qrc://"))) {
-        source = QStringLiteral(":/") + source.mid(6);
-    }
-    return EmojiPresentation::imagePath(source);
-}
-
-bool reactionIsRenderable(const QString& name)
-{
-    const EmojiID id = EmojiInfo::findByName(name);
-    if (!id) {
-        return false;
-    }
-
-    const Emoji emoji = EmojiInfo::getEmoji(id);
-    const QString source = customEmojiSource(emoji.unicodeString);
-    if (source.isEmpty()) {
-        return !emoji.unicodeString.trimmed().isEmpty();
-    }
-    return !QPixmap(pixmapPath(source)).isNull();
-}
-
-QStringList renderableNames(const QStringList& names)
-{
-    QStringList result;
-    result.reserve(names.size());
-    for (const QString& name : names) {
-        if (reactionIsRenderable(name)) {
-            result.push_back(name);
-        }
-    }
-    return result;
-}
-
-bool configureReactionButton(QPushButton& button, const QString& name)
-{
-    const EmojiID id = EmojiInfo::findByName(name);
-    if (!id) {
-        return false;
-    }
-
-    const Emoji emoji = EmojiInfo::getEmoji(id);
-    const QString source = customEmojiSource(emoji.unicodeString);
-    if (!source.isEmpty()) {
-        const QPixmap pixmap(pixmapPath(source));
-        if (pixmap.isNull()) {
-            return false;
-        }
-        button.setIcon(QIcon(pixmap));
-        button.setIconSize(QSize(20, 20));
-    } else {
-        const QString text = emoji.unicodeString.trimmed();
-        if (text.isEmpty()) {
-            return false;
-        }
-        button.setText(text);
-        button.setFont(EmojiPresentation::fontForMode(
-            button.font(), EmojiPresentation::Mode::Reaction));
-    }
-
-    button.setToolTip(QStringLiteral(":%1:").arg(name));
-    button.setAccessibleName(QObject::tr("React with :%1:").arg(name));
-    return true;
-}
 
 
 } // namespace
@@ -225,8 +146,9 @@ private:
             return;
         }
 
-        const QStringList quickNames = renderableNames(
-            ReactionUsageTracker::instance().topNames(10)).mid(0, 8);
+        const QStringList quickNames =
+            RankedEmojiPresentation::renderableNames(
+                ReactionUsageTracker::instance().topNames(10)).mid(0, 8);
         if (quickNames.isEmpty()) {
             hidePopup();
             return;
@@ -262,10 +184,12 @@ private:
             reaction->setFlat(true);
             reaction->setFixedSize(28, 28);
             reaction->setCursor(Qt::PointingHandCursor);
-            if (!configureReactionButton(*reaction, name)) {
+            if (!RankedEmojiPresentation::configureButton(*reaction, name)) {
                 delete reaction;
                 continue;
             }
+            reaction->setAccessibleName(
+                tr("React with :%1:").arg(name));
             layout->addWidget(reaction);
             connect(reaction, &QPushButton::clicked, popup,
                     [this, postGuard, name] {
