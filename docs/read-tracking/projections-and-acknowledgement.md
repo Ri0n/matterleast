@@ -137,6 +137,14 @@ the logical tail of the root-post source, the channel is locally marked viewed
 through `SidebarService` and acknowledged to the server through
 `Backend::markChannelAsViewed()`.
 
+The sidebar is a projection of that shared activity model, not a second read
+state. Per-channel `channelActivityChanged` updates one row immediately.
+A bulk `channelActivityReset` (for example after CRT mode/counter
+reconciliation) must refresh unread **and mention** roles for every currently
+materialized channel row. Otherwise the model can already be read while a stale
+bold row remains visible; a later tail read may legitimately skip a redundant
+server acknowledgement and therefore never repair that stale presentation.
+
 Direct and group conversations follow the same unread domain selected by
 `ChannelActivityTracker`. With Collapsed Reply Threads enabled *and* both
 membership/channel root counters available, the parent conversation contains
