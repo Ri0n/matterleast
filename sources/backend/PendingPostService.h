@@ -21,11 +21,19 @@ class Backend;
 class BackendChannel;
 
 enum class PendingPostState {
+    Uploading,
     Queued,
     Sending,
     RetryWait,
     Failed,
     Blocked,
+};
+
+struct PendingAttachment
+{
+    QString uploadId;
+    QString path;
+    QString fileId;
 };
 
 struct PendingPost
@@ -35,7 +43,7 @@ struct PendingPost
     QString rootId;
     QString wireMessage;
     QJsonObject props;
-    QList<QString> attachmentIds;
+    QList<PendingAttachment> attachments;
 
     qint64 createdAt = 0;
     qint64 retryWindowStartedAt = 0;
@@ -57,9 +65,11 @@ struct PendingPost
  * PostRepository. They are client-side presentation data until Mattermost
  * confirms them with a real post carrying the same pending_post_id.
  *
- * This service currently accepts text-only posts. Attachment-bearing sends stay
- * on the acknowledged composer path until uploaded file IDs have a complete
- * restart-recovery representation.
+ * Attachment-bearing operations are accepted before their uploads finish.
+ * Backend-scoped upload ownership lets the composer release immediately while
+ * this service waits for file IDs, preserves FIFO ordering, and then creates
+ * the post. Restart recovery stores the local attachment paths in the recovered
+ * draft rather than resuming network delivery automatically.
  *
  * Automatic delivery is FIFO per logical conversation (channel + root_id).
  * A head item retries for at most ten minutes, at most six attempts, and stops
@@ -80,7 +90,7 @@ public:
 
     QString enqueue(BackendChannel& channel,
                     const QString& wireMessage,
-                    const QList<QString>& attachmentIds,
+                    const QList<PendingAttachment>& attachments,
                     const QString& rootId,
                     const QJsonObject& props,
                     const QString& pendingPostId);
@@ -137,6 +147,9 @@ private:
     void remove(const QString& pendingPostId, bool startNext);
     void handleAuthoritativePost(BackendChannel& channel,
                                  const BackendPost& post);
+    void handleAttachmentUploadChanged(const QString& uploadId);
+    bool attachmentsReady(const PendingPost& post) const;
+    QList<QString> attachmentFileIds(const PendingPost& post) const;
 
     void ensureStorePath();
     void loadStore();

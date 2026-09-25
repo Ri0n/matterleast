@@ -45,6 +45,7 @@
 #include "NewPollDialog.h"
 #include "OutgoingAttachmentList.h"
 #include "backend/Backend.h"
+#include "backend/AttachmentUploadService.h"
 #include "backend/DraftService.h"
 #include "backend/PostCreateService.h"
 #include "backend/PendingPostService.h"
@@ -72,6 +73,7 @@ struct OutgoingPostData {
 	QString pendingPostId;
     QString rootId;
 	QList<QString> attachmentPaths;
+    QList<QString> attachmentUploadIds;
 	QList<QString> attachmentIds;
     qsizetype pendingUploadCount = 0;
     QString uploadFailureText;
@@ -107,6 +109,23 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 	backend = &backendInstance;
 	channel = &channelInstance;
 	chatLogWidget = &chatLogWidgetInstance;
+
+    auto& attachmentUploads =
+        AttachmentUploadService::instance(backendInstance);
+    connect(&attachmentUploads,
+            &AttachmentUploadService::changed,
+            this,
+            [this](const QString& uploadId) {
+        if (!attachmentList) {
+            return;
+        }
+        for (const OutgoingAttachmentItem& item : attachmentList->attachments()) {
+            if (item.id == uploadId) {
+                updateSendButtonState();
+                return;
+            }
+        }
+    });
 	attachmentParent = attachmentParentLayout;
 	statusLabel = &statusLabelInstance;
 	attachButton = &attachButtonInstance;
@@ -167,6 +186,7 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 
 OutgoingPostCreator::~OutgoingPostCreator()
 {
+    releaseComposerAttachmentUploads();
     flushPersistentDraft();
 }
 
@@ -322,9 +342,9 @@ void OutgoingPostCreator::sendPostButtonAction()
 		return;
 	}
 
-    if (hasAttachmentUploadsInProgress()) {
+    if (isEditingPost() && hasAttachmentUploadsInProgress()) {
         qCInfo(lcUploadTrace)
-            << "COMPOSER_SEND_IGNORED reason=attachment-upload-in-progress";
+            << "COMPOSER_SEND_IGNORED reason=edit-attachment-upload-in-progress";
         updateSendButtonState();
         return;
     }
@@ -397,14 +417,15 @@ void OutgoingPostCreator::sendPostButtonAction()
 
 	if (attachmentList) {
         const QList<OutgoingAttachmentItem> items = attachmentList->attachments();
+        auto& uploads = AttachmentUploadService::instance(*backend);
         for (const OutgoingAttachmentItem& item : items) {
             outgoingPostData->attachmentPaths.push_back(item.path);
+            outgoingPostData->attachmentUploadIds.push_back(item.id);
 
-            const auto upload = attachmentUploads.constFind(item.id);
+            const AttachmentUpload* upload = uploads.upload(item.id);
             const QString readyFileId =
-                upload != attachmentUploads.cend()
-                && upload->path == item.path
-                && !upload->uploading
+                upload && upload->path == item.path
+                && upload->state == AttachmentUploadState::Ready
                     ? upload->fileId
                     : QString();
             outgoingPostData->attachmentIds.push_back(readyFileId);
@@ -412,9 +433,9 @@ void OutgoingPostCreator::sendPostButtonAction()
             qCInfo(lcUploadTrace).nospace()
                 << "COMPOSER_SNAPSHOT itemId=" << item.id
                 << " file=" << item.path
-                << " uploadKnown=" << (upload != attachmentUploads.cend())
+                << " uploadKnown=" << (upload != nullptr)
                 << " uploading="
-                << (upload != attachmentUploads.cend() && upload->uploading)
+                << (upload && upload->state == AttachmentUploadState::Uploading)
                 << " fileId=" << readyFileId;
         }
 		attachmentList->setDisableInput(true);
@@ -432,6 +453,16 @@ void OutgoingPostCreator::sendPostButtonAction()
 void OutgoingPostCreator::startSendPostSequence()
 {
 	sendFailed = false;
+
+    // Ordinary messages become outbox operations immediately. PendingPostService
+    // owns any still-running attachment uploads and the eventual post create,
+    // so the editor can be cleared without waiting for upload completion.
+    if (outgoingPostData && !outgoingPostData->postToEdit
+        && !outgoingPostData->pollData) {
+        sendPost();
+        return;
+    }
+
 	setReadOnly(true);
 	updateSendButtonState();
 	setSendActivityText();
@@ -644,36 +675,29 @@ void OutgoingPostCreator::sendPost()
 				           << outgoingPostData->replyToPostId;
 			}
 		}
-        if (!outgoingPostData->attachmentIds.isEmpty()) {
-            // Pre-uploaded attachment IDs do not yet have a complete editable
-            // recovery representation in Drafts. Keep attachment posts on the
-            // established acknowledged-send path rather than risk losing their
-            // attachment intent across a process restart.
-            service.createPost(
-                *channel,
-                wireMessage,
-                outgoingPostData->attachmentIds,
-                outgoingPostData->rootId,
-                props,
-                outgoingPostData->pendingPostId,
-                [guard](BackendPost* post) {
-                    if (!guard) {
-                        return;
-                    }
-                    if (post) {
-                        guard->finishSend(post->id);
-                    } else {
-                        guard->failSend();
-                    }
-                });
-            return;
+        QList<PendingAttachment> pendingAttachments;
+        const qsizetype attachmentCount =
+            outgoingPostData->attachmentPaths.size();
+        pendingAttachments.reserve(attachmentCount);
+        for (qsizetype i = 0; i < attachmentCount; ++i) {
+            PendingAttachment attachment;
+            attachment.path = outgoingPostData->attachmentPaths.at(i);
+            if (i < outgoingPostData->attachmentUploadIds.size()) {
+                attachment.uploadId =
+                    outgoingPostData->attachmentUploadIds.at(i);
+            }
+            if (i < outgoingPostData->attachmentIds.size()) {
+                attachment.fileId =
+                    outgoingPostData->attachmentIds.at(i);
+            }
+            pendingAttachments.push_back(std::move(attachment));
         }
 
         const QString pendingPostId =
             PendingPostService::instance(*backend).enqueue(
                 *channel,
                 wireMessage,
-                {},
+                pendingAttachments,
                 outgoingPostData->rootId,
                 props,
                 outgoingPostData->pendingPostId);
@@ -755,7 +779,6 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
         << "COMPOSER_SEND_FINISH postId=" << confirmedPostId;
 
 	outgoingPostData.reset();
-    attachmentUploads.clear();
 	editResidencyLease.reset();
 	sendFailed = false;
 
@@ -849,6 +872,7 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
                         << "COMPOSER_ATTACHMENT_ADDED itemId=" << itemId
                         << " file=" << path;
                     startAttachmentUpload(itemId, path);
+                    schedulePersistentDraftSave();
                 });
         connect(attachmentList,
                 &OutgoingAttachmentList::fileRemoved,
@@ -857,14 +881,16 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
                     qCInfo(lcUploadTrace).nospace()
                         << "COMPOSER_ATTACHMENT_REMOVED itemId=" << itemId
                         << " file=" << path;
-                    attachmentUploads.remove(itemId);
+                    if (backend) {
+                        AttachmentUploadService::instance(*backend).release(itemId);
+                    }
+                    schedulePersistentDraftSave();
                     updateSendButtonState();
                 });
 		connect(attachmentList, &OutgoingAttachmentList::deleted, this, [this] {
 			attachmentParent->removeWidget(attachmentList);
 			delete attachmentList;
 			attachmentList = nullptr;
-            attachmentUploads.clear();
 			updateSendButtonState();
 		});
 	}
@@ -882,65 +908,26 @@ void OutgoingPostCreator::startAttachmentUpload(const QString& itemId,
         return;
     }
 
-    AttachmentUploadState& state = attachmentUploads[itemId];
-    state.path = path;
-    state.fileId.clear();
-    state.error.clear();
-    state.uploading = true;
-    const quint64 generation = ++state.generation;
-
     qCInfo(lcUploadTrace).nospace()
-        << "COMPOSER_UPLOAD_START itemId=" << itemId
-        << " generation=" << generation
+        << "COMPOSER_UPLOAD_STAGE itemId=" << itemId
         << " channel=" << channel->id
         << " file=" << path;
 
+    AttachmentUploadService::instance(*backend).stage(
+        *channel, path, itemId);
     updateSendButtonState();
-
-    QPointer<OutgoingPostCreator> guard(this);
-    backend->uploadFile(
-        *channel,
-        path,
-        [guard, itemId, generation](QString fileId, QString errorText) {
-            if (!guard) {
-                return;
-            }
-
-            auto upload = guard->attachmentUploads.find(itemId);
-            if (upload == guard->attachmentUploads.end()
-                || upload->generation != generation) {
-                qCInfo(lcUploadTrace).nospace()
-                    << "COMPOSER_UPLOAD_STALE itemId=" << itemId
-                    << " generation=" << generation;
-                return;
-            }
-
-            upload->uploading = false;
-            upload->fileId = fileId;
-            upload->error = errorText.trimmed();
-
-            if (fileId.isEmpty()) {
-                qCWarning(lcUploadTrace).nospace()
-                    << "COMPOSER_UPLOAD_FAILED itemId=" << itemId
-                    << " generation=" << generation
-                    << " file=" << upload->path
-                    << " error=" << upload->error;
-            } else {
-                qCInfo(lcUploadTrace).nospace()
-                    << "COMPOSER_UPLOAD_READY itemId=" << itemId
-                    << " generation=" << generation
-                    << " file=" << upload->path
-                    << " fileId=" << fileId;
-            }
-
-            guard->updateSendButtonState();
-        });
 }
 
 bool OutgoingPostCreator::hasAttachmentUploadsInProgress() const
 {
-    for (auto it = attachmentUploads.cbegin(); it != attachmentUploads.cend(); ++it) {
-        if (it->uploading) {
+    if (!backend || !attachmentList) {
+        return false;
+    }
+
+    const auto& uploads = AttachmentUploadService::instance(*backend);
+    for (const OutgoingAttachmentItem& item : attachmentList->attachments()) {
+        const AttachmentUpload* upload = uploads.upload(item.id);
+        if (upload && upload->state == AttachmentUploadState::Uploading) {
             return true;
         }
     }
@@ -949,12 +936,30 @@ bool OutgoingPostCreator::hasAttachmentUploadsInProgress() const
 
 bool OutgoingPostCreator::hasAttachmentUploadFailures() const
 {
-    for (auto it = attachmentUploads.cbegin(); it != attachmentUploads.cend(); ++it) {
-        if (!it->uploading && it->fileId.isEmpty() && !it->error.isEmpty()) {
+    if (!backend || !attachmentList) {
+        return false;
+    }
+
+    const auto& uploads = AttachmentUploadService::instance(*backend);
+    for (const OutgoingAttachmentItem& item : attachmentList->attachments()) {
+        const AttachmentUpload* upload = uploads.upload(item.id);
+        if (upload && upload->state == AttachmentUploadState::Failed) {
             return true;
         }
     }
     return false;
+}
+
+void OutgoingPostCreator::releaseComposerAttachmentUploads()
+{
+    if (!backend || !attachmentList) {
+        return;
+    }
+
+    auto& uploads = AttachmentUploadService::instance(*backend);
+    for (const OutgoingAttachmentItem& item : attachmentList->attachments()) {
+        uploads.release(item.id);
+    }
 }
 
 void OutgoingPostCreator::updateSendButtonState()
@@ -983,14 +988,16 @@ void OutgoingPostCreator::updateSendButtonState()
 			sendButtonEnabled = false;
 			tooltipText = editing ? tr("Saving edited message") : tr("Waiting for server response");
 		}
-    } else if (hasAttachmentUploadsInProgress()) {
+    } else if (isEditingPost() && hasAttachmentUploadsInProgress()) {
         sendButtonEnabled = false;
         tooltipText = tr("Uploading attachments…");
 	} else if (!isCreatingPost()) {
 		sendButtonEnabled = false;
 		tooltipText = tr("Cannot send empty message");
+    } else if (hasAttachmentUploadsInProgress()) {
+        tooltipText = tr("Send · attachment upload will continue in outbox");
     } else if (hasAttachmentUploadFailures()) {
-        tooltipText = tr("Send · failed attachment uploads will be retried");
+        tooltipText = tr("Send · failed attachment upload can be retried from outbox");
 	} else if (editing) {
 		tooltipText = tr("Save edited message · Esc to cancel");
 	} else {
@@ -1058,8 +1065,15 @@ void OutgoingPostCreator::savePersistentDraftNow()
     const QString replyToPostId =
         property(PostProps::ReplyToPostId).toString();
     if (!activeRecoveredDraftKey.isEmpty()) {
+        QStringList attachmentPaths;
+        if (attachmentList) {
+            for (const OutgoingAttachmentItem& item : attachmentList->attachments()) {
+                attachmentPaths.push_back(item.path);
+            }
+        }
         drafts.updateRecoveredDraft(
-            activeRecoveredDraftKey, message, replyToPostId);
+            activeRecoveredDraftKey, message, replyToPostId,
+            attachmentPaths);
     } else {
         drafts.updateDraft(
             channel->id, root_id, message, replyToPostId);
@@ -1118,12 +1132,23 @@ void OutgoingPostCreator::restorePersistentDraft(const QString& draftKey)
         : drafts.findDraft(channel->id, root_id, draft);
 
     suppressDraftPersistence = true;
+    releaseComposerAttachmentUploads();
+    if (attachmentList) {
+        attachmentParent->removeWidget(attachmentList);
+        delete attachmentList;
+        attachmentList = nullptr;
+    }
+
     activeRecoveredDraftKey =
         found && draft.isRecovered() ? draft.key() : QString();
     if (found) {
         setPlainText(draft.message);
         setProperty(PostProps::ReplyToPostId, draft.replyToPostId);
         moveCursor(QTextCursor::End);
+        if (draft.isRecovered() && !draft.attachmentPaths.isEmpty()) {
+            QStringList paths = draft.attachmentPaths;
+            createAttachmentList(paths);
+        }
     } else {
         clear();
         setProperty(PostProps::ReplyToPostId, QString());

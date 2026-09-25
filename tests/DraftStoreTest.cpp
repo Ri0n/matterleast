@@ -61,6 +61,10 @@ private slots:
         first.channelId = QStringLiteral("channel");
         first.rootId = QStringLiteral("root");
         first.message = QStringLiteral("first unsent");
+        first.attachmentPaths = {
+            QStringLiteral("/tmp/first.png"),
+            QStringLiteral("/tmp/second.pdf"),
+        };
         first.recoveryId = QStringLiteral("pending-1");
         first.updateAt = 100;
 
@@ -79,7 +83,9 @@ private slots:
         QVERIFY(ok);
         QCOMPARE(loaded.size(), 2);
         QCOMPARE(loaded.at(0).recoveryId, first.recoveryId);
+        QCOMPARE(loaded.at(0).attachmentPaths, first.attachmentPaths);
         QCOMPARE(loaded.at(1).recoveryId, second.recoveryId);
+        QCOMPARE(loaded.at(1).attachmentPaths, second.attachmentPaths);
         QVERIFY(loaded.at(0).key() != loaded.at(1).key());
     }
 

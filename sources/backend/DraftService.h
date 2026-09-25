@@ -46,10 +46,12 @@ public:
                               const QString& rootId,
                               const QString& message,
                               const QString& replyToPostId,
+                              const QStringList& attachmentPaths,
                               const QString& recoveryId);
     void updateRecoveredDraft(const QString& key,
                               const QString& message,
-                              const QString& replyToPostId);
+                              const QString& replyToPostId,
+                              const QStringList& attachmentPaths);
     void removeDraftByKey(const QString& key);
 
     void syncAllTeams();

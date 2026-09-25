@@ -335,7 +335,7 @@ private slots:
         QVERIFY(service.cancel(second));
     }
 
-    void rejectsAttachmentBearingOptimisticEntries()
+    void acceptsPreuploadedAttachmentOptimisticEntries()
     {
         Backend backend;
         backend.getStorage().addUser(
@@ -346,17 +346,29 @@ private slots:
             true);
         BackendChannel channel(backend.getStorage(), channelJson());
 
+        PendingAttachment attachment;
+        attachment.path = QStringLiteral("/tmp/example.png");
+        attachment.fileId = QStringLiteral("file-id");
+
         PendingPostService& service = PendingPostService::instance(backend);
         const QString pendingId = service.enqueue(
             channel,
             QStringLiteral("text with upload"),
-            {QStringLiteral("file-id")},
+            {attachment},
             {},
             {},
             QStringLiteral("pending-attachment"));
 
-        QVERIFY(pendingId.isEmpty());
-        QVERIFY(!service.pendingPost(QStringLiteral("pending-attachment")));
+        QCOMPARE(pendingId, QStringLiteral("pending-attachment"));
+        const PendingPost* pending = service.pendingPost(pendingId);
+        QVERIFY(pending);
+        QCOMPARE(pending->attachments.size(), 1);
+        QCOMPARE(pending->attachments.first().path,
+                 QStringLiteral("/tmp/example.png"));
+        QCOMPARE(pending->attachments.first().fileId,
+                 QStringLiteral("file-id"));
+
+        QVERIFY(service.cancel(pendingId));
     }
 
     void multiplePendingRowsKeepFifoPresentationOrder()

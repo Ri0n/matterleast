@@ -26,7 +26,6 @@
 
 #include <memory>
 #include <QBoxLayout>
-#include <QHash>
 #include <QTemporaryDir>
 
 #include "MessageTextEditWidget.h"
@@ -47,13 +46,6 @@ namespace Mattermost {
 struct BackendNewPollData;
 struct OutgoingPostData;
 
-struct AttachmentUploadState {
-    QString path;
-    QString fileId;
-    QString error;
-    bool uploading = false;
-    quint64 generation = 0;
-};
 class ChatLogWidget;
 
 class OutgoingPostCreator: public MessageTextEditWidget {
@@ -112,6 +104,7 @@ private:
     void savePersistentDraftNow();
     void discardPersistentDraft();
     void failAttachmentUpload(const QString& statusText);
+    void releaseComposerAttachmentUploads();
 	bool isEditingPost() const;
 	bool isCreatingPost ();
 	bool isWaitingForPostServerResponse ();
@@ -131,7 +124,6 @@ private:
 	const BackendPost*					postToEdit;
 	PostResidencyLease					editResidencyLease;
 	OutgoingAttachmentList*				attachmentList;
-    QHash<QString, AttachmentUploadState> attachmentUploads;
 	std::unique_ptr<OutgoingPostData> 	outgoingPostData;
 	std::unique_ptr<QTemporaryDir>		clipboardAttachmentDir;
 	bool								sendFailed = false;
