@@ -220,6 +220,25 @@ void ThreadFollowService::queryFollowing(const QString& teamId,
     });
 }
 
+void ThreadFollowService::refreshFollowing(const QString& teamId,
+                                           const QString& threadId)
+{
+    queryFollowing(teamId, threadId,
+                   [this, teamId, threadId](bool following) {
+        applyServerFollowingState(teamId, threadId, following);
+    });
+}
+
+void ThreadFollowService::applyServerFollowingState(const QString& teamId,
+                                                    const QString& threadId,
+                                                    bool following)
+{
+    if (teamId.isEmpty() || threadId.isEmpty()) {
+        return;
+    }
+    emit followingChanged(teamId, threadId, following);
+}
+
 void ThreadFollowService::queryFollowingThreads(ThreadListCallback callback)
 {
     // Mattermost keeps the normal Followed list and its Unreads filter as
@@ -468,7 +487,7 @@ void ThreadFollowService::setFollowing(const QString& teamId,
         // HTTPConnector's DELETE API is intentionally fire-and-forget. Update
         // the UI optimistically; the next thread query reconciles it.
         _httpConnector.del(request);
-        emit followingChanged(teamId, threadId, false);
+        applyServerFollowingState(teamId, threadId, false);
         if (callback) {
             callback(true);
         }
@@ -480,7 +499,7 @@ void ThreadFollowService::setFollowing(const QString& teamId,
                                                 QVariant status, const QJsonDocument&) mutable {
         const bool success = status.toInt() == QNetworkReply::NoError;
         if (success) {
-            emit followingChanged(teamId, threadId, true);
+            applyServerFollowingState(teamId, threadId, true);
         }
         if (callback) {
             callback(success);

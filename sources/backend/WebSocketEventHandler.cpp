@@ -33,8 +33,10 @@
 #include "DraftService.h"
 #include "SidebarService.h"
 #include "FollowingModel.h"
+#include "ThreadFollowService.h"
 #include "Storage.h"
 #include "UserProfileService.h"
+#include "types/BackendTeam.h"
 #include "log.h"
 
 namespace Mattermost {
@@ -120,9 +122,47 @@ void WebSocketEventHandler::handleEvent(const ThreadUpdatedEvent& event)
     FollowingModel::instance(backend).noteThreadUpdated();
 }
 
+void WebSocketEventHandler::handleEvent(const ThreadFollowChangedEvent& event)
+{
+    if (!event.valid) {
+        return;
+    }
+    if (!event.userId.isEmpty()
+        && (!storage.loginUser || event.userId != storage.loginUser->id)) {
+        return;
+    }
+
+    ThreadFollowService::instance(backend).applyServerFollowingState(
+        event.teamId, event.threadId, event.following);
+}
+
 void WebSocketEventHandler::handleEvent (const PostEvent& event)
 {
 	auto& repository = PostRepository::instance(backend);
+
+    const QString rootId =
+        event.postObject.value(QStringLiteral("root_id")).toString();
+    const QString authorId =
+        event.postObject.value(QStringLiteral("user_id")).toString();
+    if (!rootId.isEmpty() && storage.loginUser
+        && authorId == storage.loginUser->id) {
+        BackendChannel* postedChannel = storage.getChannelById(event.channelId);
+        QString teamId = event.teamId;
+        if (teamId.isEmpty() && postedChannel && postedChannel->team) {
+            teamId = postedChannel->team->id;
+        }
+        if (teamId.isEmpty() && !storage.teams.empty()) {
+            teamId = storage.teams.begin()->first;
+        }
+        if (!teamId.isEmpty()) {
+            // Mattermost applies ThreadAutoFollow before publishing the posted
+            // event. Re-read membership now rather than assuming the server
+            // setting is enabled. This also fixes a stale open-thread bell when
+            // the reply was sent from another client.
+            ThreadFollowService::instance(backend).refreshFollowing(
+                teamId, rootId);
+        }
+    }
 
 	// Always record the resident observation so an older in-flight HTTP
 	// response cannot overwrite this event. PostRepository applies disk admission
