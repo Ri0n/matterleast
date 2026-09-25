@@ -998,12 +998,15 @@ void ChatLogWidget::applyPendingPresentation(
     }
 
     const QString pendingId = pending.pendingPostId;
+    PendingPostService& pendingService =
+        PendingPostService::instance(*backend);
     widget.setPendingDeliveryPresentation(
         PendingPostService::stateText(
             pending.state,
             pending.attemptCount,
             pending.interveningPostCount,
-            pending.failureText),
+            pending.failureText,
+            pendingService.attachmentUploadProgress(pending)),
         pending.state == PendingPostState::Failed,
         [backend = this->backend, pendingId] {
             if (backend) {

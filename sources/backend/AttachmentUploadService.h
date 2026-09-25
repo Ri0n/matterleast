@@ -22,6 +22,9 @@ struct AttachmentUpload
     QString path;
     QString fileId;
     QString error;
+    qint64 bytesSent = 0;
+    qint64 bytesTotal = 0;
+    int progressPercent = -1;
     AttachmentUploadState state = AttachmentUploadState::Uploading;
     quint64 generation = 0;
 };
@@ -49,6 +52,7 @@ public:
 
 signals:
     void changed(const QString& uploadId);
+    void progressChanged(const QString& uploadId);
 
 private:
     explicit AttachmentUploadService(Backend& backend);

@@ -420,6 +420,9 @@ Consequences:
   composer;
 - the pending row remains in `Uploading` until every attachment has a server
   `file_id`, then normal FIFO post creation begins;
+- upload byte progress is ephemeral presentation state: while totals are known,
+  the pending indicator tooltip shows the aggregate percentage across the
+  attachment uploads; progress is never persisted into the outbox;
 - a failed upload fails that outbox item and exposes Retry/Cancel;
 - later messages in the same logical timeline cannot overtake an uploading or
   failed head;

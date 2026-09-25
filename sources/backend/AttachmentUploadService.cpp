@@ -101,6 +101,9 @@ void AttachmentUploadService::start(const QString& uploadId)
     it->state = AttachmentUploadState::Uploading;
     it->fileId.clear();
     it->error.clear();
+    it->bytesSent = 0;
+    it->bytesTotal = 0;
+    it->progressPercent = -1;
     const quint64 generation = ++it->generation;
     const QString path = it->path;
     qCInfo(lcUploadTrace).nospace()
@@ -129,6 +132,11 @@ void AttachmentUploadService::start(const QString& uploadId)
             current->state = fileId.isEmpty()
                 ? AttachmentUploadState::Failed
                 : AttachmentUploadState::Ready;
+            if (current->state == AttachmentUploadState::Ready
+                && current->bytesTotal > 0) {
+                current->bytesSent = current->bytesTotal;
+                current->progressPercent = 100;
+            }
             if (current->state == AttachmentUploadState::Ready) {
                 qCInfo(lcUploadTrace).nospace()
                     << "ATTACHMENT_UPLOAD_READY id=" << uploadId
@@ -143,6 +151,34 @@ void AttachmentUploadService::start(const QString& uploadId)
                     << " error=" << current->error;
             }
             emit service->changed(uploadId);
+        },
+        [guard, uploadId, generation](qint64 sent, qint64 total) {
+            AttachmentUploadService* service = guard.data();
+            if (!service) {
+                return;
+            }
+            auto current = service->uploads.find(uploadId);
+            if (current == service->uploads.end()
+                || current->generation != generation
+                || current->state != AttachmentUploadState::Uploading) {
+                return;
+            }
+
+            const qint64 normalizedTotal = qMax<qint64>(0, total);
+            const qint64 normalizedSent = normalizedTotal > 0
+                ? qBound<qint64>(0, sent, normalizedTotal)
+                : qMax<qint64>(0, sent);
+            const int percent = normalizedTotal > 0
+                ? static_cast<int>((normalizedSent * 100) / normalizedTotal)
+                : -1;
+
+            current->bytesSent = normalizedSent;
+            current->bytesTotal = normalizedTotal;
+            if (current->progressPercent == percent) {
+                return;
+            }
+            current->progressPercent = percent;
+            emit service->progressChanged(uploadId);
         });
 }
 

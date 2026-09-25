@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include <QHash>
@@ -54,8 +55,11 @@ public:
 
 	void get (QNetworkRequest &request, HttpResponseCallback responseHandler);
 	void post (QNetworkRequest &request, const QByteArrayCreator &data, HttpResponseCallback responseHandler);
+	using UploadProgressHandler = std::function<void(qint64, qint64)>;
+
 	void post(QNetworkRequest& request, QSharedPointer<QHttpMultiPart> data,
-	          HttpResponseCallback responseHandler);
+	          HttpResponseCallback responseHandler,
+	          UploadProgressHandler uploadProgressHandler = {});
 	void put (QNetworkRequest &request, const QByteArrayCreator &data, HttpResponseCallback responseHandler);
 	void del (QNetworkRequest &request);
 
@@ -78,6 +82,7 @@ private:
 		bool jsonData = false;
 		HttpResponseCallback responseHandler;
 		QSharedPointer<QHttpMultiPart> multipartData;
+		UploadProgressHandler uploadProgressHandler;
 	};
 
 	void enqueue (PendingRequest request);

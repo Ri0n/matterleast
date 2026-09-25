@@ -1238,9 +1238,11 @@ void Backend::sendPostAction (const BackendPost& post, const QString& action)
 	}));
 }
 
-void Backend::uploadFile(BackendChannel& channel,
-                         const QString& filePath,
-                         std::function<void(QString, QString)> responseHandler)
+void Backend::uploadFile(
+    BackendChannel& channel,
+    const QString& filePath,
+    std::function<void(QString, QString)> responseHandler,
+    HTTPConnector::UploadProgressHandler progressHandler)
 {
     const QFileInfo fileInfo(filePath);
     auto multipart =
@@ -1421,7 +1423,8 @@ void Backend::uploadFile(BackendChannel& channel,
                 if (responseHandler) {
                     responseHandler(fileId, QString());
                 }
-            }));
+            }),
+        std::move(progressHandler));
 }
 
 void Backend::createDirectChannel(const BackendUser& user,
