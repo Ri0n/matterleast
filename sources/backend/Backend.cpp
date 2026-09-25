@@ -31,6 +31,9 @@
 #include <QNetworkCookie>
 #include <QNetworkReply>
 #include <QPointer>
+#include <QSslCipher>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -152,6 +155,48 @@ void debugRequest (const QNetworkRequest& request, QByteArray data = QByteArray(
   }
   qDebug() << data;
 }
+
+namespace {
+
+bool isSensitiveHttpHeader(const QByteArray& name)
+{
+    return name.compare("Cookie", Qt::CaseInsensitive) == 0
+        || name.compare("Set-Cookie", Qt::CaseInsensitive) == 0
+        || name.compare("Authorization", Qt::CaseInsensitive) == 0
+        || name.compare("X-CSRF-Token", Qt::CaseInsensitive) == 0;
+}
+
+QString requestHeadersForUploadTrace(const QNetworkRequest& request)
+{
+    QStringList fields;
+    const QList<QByteArray> names = request.rawHeaderList();
+    fields.reserve(names.size());
+    for (const QByteArray& name : names) {
+        const QString value = isSensitiveHttpHeader(name)
+            ? QStringLiteral("<redacted>")
+            : QString::fromUtf8(request.rawHeader(name));
+        fields.push_back(QString::fromLatin1(name) + QLatin1Char('=')
+                         + value);
+    }
+    return fields.join(QStringLiteral("; "));
+}
+
+QString replyHeadersForUploadTrace(const QNetworkReply& reply)
+{
+    QStringList fields;
+    const QList<QByteArray> names = reply.rawHeaderList();
+    fields.reserve(names.size());
+    for (const QByteArray& name : names) {
+        const QString value = isSensitiveHttpHeader(name)
+            ? QStringLiteral("<redacted>")
+            : QString::fromUtf8(reply.rawHeader(name));
+        fields.push_back(QString::fromLatin1(name) + QLatin1Char('=')
+                         + value);
+    }
+    return fields.join(QStringLiteral("; "));
+}
+
+} // namespace
 
 void Backend::login (const BackendLoginData& credentials, std::function<void(const QString&)> callback)
 {
@@ -1278,6 +1323,7 @@ void Backend::uploadFile(BackendChannel& channel,
                 QVariant status, QByteArray data, const QNetworkReply& reply) mutable {
                 const int httpStatus =
                     reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                const QSslConfiguration ssl = reply.sslConfiguration();
                 qCInfo(lcUploadTrace).nospace()
                     << "UPLOAD_REPLY clientId=" << clientId
                     << " file=" << fileName
@@ -1288,7 +1334,27 @@ void Backend::uploadFile(BackendChannel& channel,
                             ? QStringLiteral("none")
                             : reply.errorString())
                     << " contentType=" << reply.header(QNetworkRequest::ContentTypeHeader).toString()
-                    << " responseBytes=" << data.size();
+                    << " responseBytes=" << data.size()
+                    << " qt=" << qVersion()
+                    << " sslBuild=" << QSslSocket::sslLibraryBuildVersionString()
+                    << " sslRuntime=" << QSslSocket::sslLibraryVersionString()
+                    << " tlsProtocol=" << static_cast<int>(ssl.sessionProtocol())
+                    << " cipher=" << ssl.sessionCipher().name()
+                    << " http2="
+                    << reply.attribute(QNetworkRequest::Http2WasUsedAttribute)
+                           .toBool();
+
+                qCInfo(lcUploadTrace).nospace()
+                    << "UPLOAD_REQUEST_HEADERS clientId=" << clientId
+                    << " headers={"
+                    << requestHeadersForUploadTrace(reply.request())
+                    << "}";
+
+                qCInfo(lcUploadTrace).nospace()
+                    << "UPLOAD_RESPONSE_HEADERS clientId=" << clientId
+                    << " headers={"
+                    << replyHeadersForUploadTrace(reply)
+                    << "}";
 
                 const QJsonDocument document = QJsonDocument::fromJson(data);
                 if (status.toInt() != QNetworkReply::NoError) {
