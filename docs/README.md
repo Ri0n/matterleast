@@ -16,7 +16,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | virtual sidebar views and collections | [Virtual sidebar destinations](sidebar-virtual-destinations.md) | changing Personal, Saved or search paging |
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |
 | reaction quick bar/ranking | [Reaction quick bar](reaction-quick-bar.md) | changing ranking, cooling, persistence or custom emoji behavior |
-| emoji picker, custom emoji lookup/search | [Emoji resolution and picker search](emoji-resolution.md) | changing custom emoji discovery, caching or registry synchronization |
+| emoji picker, custom emoji lookup/search, live theme propagation | [Emoji resolution and picker search](emoji-resolution.md) | changing custom emoji discovery, caching, registry synchronization or picker palette behavior |
 | debugging from logs | [Debug logging](debug-logging.md) | selecting categories or interpreting upload/read/navigation traces |
 | CI, packaging or release workflow | [Maintainer workflow](maintainer-workflow.md) | changing build matrices, package targets or release artifacts |
 
