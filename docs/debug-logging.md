@@ -85,7 +85,12 @@ Useful failure boundaries:
   bug is in composer state/handoff rather than the upload API.
 
 The trace prints whether authentication headers are present, but never prints the
-Mattermost auth token itself.
+Mattermost auth token itself. Each upload reply also records the Qt version,
+SSL library build/runtime versions, negotiated TLS protocol/cipher, whether
+Qt actually used HTTP/2, and sanitized request/response headers. Cookie,
+authorization and CSRF values are redacted. These fields are intended for
+comparing Qt 5/Qt 6 behavior with Chromium/Electron when a reverse proxy or WAF
+rejects an upload before Mattermost returns its normal JSON response.
 
 ## Following / Attention
 
