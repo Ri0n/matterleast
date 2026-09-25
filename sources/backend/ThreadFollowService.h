@@ -67,6 +67,12 @@ public:
                      ThreadStateCallback callback);
     void queryFollowing(const QString& teamId, const QString& threadId,
                         std::function<void(bool)> callback);
+    /** Re-query server follow membership and publish the authoritative state. */
+    void refreshFollowing(const QString& teamId, const QString& threadId);
+    /** Apply a server-originated follow state to local listeners. */
+    void applyServerFollowingState(const QString& teamId,
+                                   const QString& threadId,
+                                   bool following);
     void queryFollowingThreads(ThreadListCallback callback);
     void queryUnreadThreads(ThreadListCallback callback);
     void setFollowing(const QString& teamId, const QString& threadId, bool following,

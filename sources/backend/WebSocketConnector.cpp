@@ -137,6 +137,7 @@ const QMap<QString, void(*)(WebSocketConnector&, const QJsonObject&, const QJson
 	{"channel_viewed",		handler<ChannelViewedEvent>},
     {"multiple_channels_viewed", handler<MultipleChannelsViewedEvent>},
     {"thread_updated", handler<ThreadUpdatedEvent>},
+    {"thread_follow_changed", handler<ThreadFollowChangedEvent>},
 	{"posted", 				handler<PostEvent>},
 	{"post_edited", 		handler<PostEditedEvent>},
 	{"post_deleted",		handler<PostDeletedEvent>},
@@ -182,6 +183,7 @@ bool printEvent (const QString& name)
 	if (	name == "channel_viewed" 	||
             name == "multiple_channels_viewed" ||
             name == "thread_updated" ||
+            name == "thread_follow_changed" ||
 			name == "channel_updated" 	||
 			name == "reaction_added" 	||
 			name == "status_change" 	||

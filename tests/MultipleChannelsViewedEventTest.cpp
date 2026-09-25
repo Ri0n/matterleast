@@ -3,6 +3,7 @@
 
 #include "backend/events/MultipleChannelsViewedEvent.h"
 #include "backend/events/ThreadUpdatedEvent.h"
+#include "backend/events/ThreadFollowChangedEvent.h"
 
 using namespace Mattermost;
 
@@ -38,6 +39,30 @@ private slots:
             broadcast);
         QVERIFY(!invalid.valid);
         QVERIFY(invalid.threadId.isEmpty());
+    }
+
+    void parsesThreadFollowChangedPayload()
+    {
+        const QJsonObject data {
+            {QStringLiteral("thread_id"), QStringLiteral("thread-id")},
+            {QStringLiteral("state"), true},
+            {QStringLiteral("reply_count"), 7},
+        };
+        const QJsonObject broadcast {
+            {QStringLiteral("user_id"), QStringLiteral("user-id")},
+            {QStringLiteral("team_id"), QStringLiteral("team-id")},
+        };
+
+        const ThreadFollowChangedEvent event(data, broadcast);
+        QVERIFY(event.valid);
+        QCOMPARE(event.userId, QStringLiteral("user-id"));
+        QCOMPARE(event.teamId, QStringLiteral("team-id"));
+        QCOMPARE(event.threadId, QStringLiteral("thread-id"));
+        QVERIFY(event.following);
+        QCOMPARE(event.replyCount, 7);
+
+        const ThreadFollowChangedEvent invalid(QJsonObject {}, broadcast);
+        QVERIFY(!invalid.valid);
     }
 
     void parsesAuthoritativeChannelTimes()

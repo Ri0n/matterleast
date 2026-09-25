@@ -254,6 +254,22 @@ is issued by the read-tracking subsystem. See:
 - [Scrolling and resume cursor](read-tracking/scroll-and-resume.md)
 - [Projections and server acknowledgement](read-tracking/projections-and-acknowledgement.md)
 
+## Follow-state synchronization
+
+Thread follow membership is server-owned. MatterLeast must not assume that posting
+a reply always enables following because the server can disable
+`ThreadAutoFollow`.
+
+After a confirmed websocket `posted` event for the logged-in user's thread
+reply, `ThreadFollowService` re-queries the thread membership and publishes the
+authoritative result through `followingChanged`. This point is intentionally
+later than the local outbox acknowledgement: pending/outbox rows can exist before
+the server has created the post and applied auto-follow.
+
+MatterLeast also consumes Mattermost's `thread_follow_changed` websocket event.
+That keeps an already-open thread bell and `FollowingModel` synchronized when
+follow/unfollow is changed from another client or another server path.
+
 ## Required invariants
 
 Future changes to Following must preserve all of these:
@@ -276,6 +292,8 @@ Future changes to Following must preserve all of these:
     followed threads may remain in Following.
 12. Manual unread must not be consumed merely because the command was invoked on
     a post whose lower edge was already visible.
+13. Local outbox acknowledgement must not be treated as proof of server
+    auto-follow; reconcile follow membership only after confirmed server state.
 
 ## Implementation map
 
