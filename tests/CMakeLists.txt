@@ -660,3 +660,22 @@ if(TARGET matterleast-core)
     set_tests_properties(outbox-post-source-test
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+
+add_executable(network-request-test
+    NetworkRequestTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/NetworkRequest.cpp"
+)
+
+target_include_directories(network-request-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+
+target_link_libraries(network-request-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Network
+)
+
+add_test(NAME network-request-test COMMAND network-request-test)

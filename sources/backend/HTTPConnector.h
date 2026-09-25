@@ -88,9 +88,7 @@ private:
 		std::function<void(QVariant,QByteArray,const QNetworkReply&)> responseHandler,
 		quint64 requestGeneration);
 
-	static constexpr int MaxConcurrentRequests = 6;
 	static QSet<HTTPConnector*> connectors;
-	static int globalActiveRequests;
 
 	std::unique_ptr<QNetworkAccessManager> qnetworkManager;
 	QQueue<PendingRequest> highPriorityRequests;
