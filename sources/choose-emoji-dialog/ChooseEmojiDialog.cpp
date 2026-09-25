@@ -81,6 +81,7 @@ ChooseEmojiDialog::ChooseEmojiDialog(Backend& backend, QWidget *parent)
 ,ui(new Ui::ChooseEmojiDialog)
 {
 	ui->setupUi(this);
+    EmojiDialogSupport::configureTabWidget(*ui->tabWidget);
 	ui->tabWidget->tabBar()->setFont(
 		EmojiDialogSupport::emojiButtonFont(ui->tabWidget->font(), 10));
 	searchTimer = new QTimer(this);

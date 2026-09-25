@@ -39,6 +39,25 @@ The picker uses it to refresh:
 
 Post widgets use the same signal to re-render unresolved custom emoji and to promote unresolved named reactions into normal reaction chips.
 
+
+## Picker theme propagation
+
+The emoji picker must follow live application palette changes without rebuilding
+all category pages.
+
+Do not use a stylesheet on the picker `QTabWidget` or its tab bar just to control
+geometry. A stylesheet wraps the tab widget subtree in `QStyleSheetStyle` and
+can materialize palette state for already-created tab pages, leaving them in the
+old light/dark colors after `QApplication` changes palette.
+
+Use native widget properties for geometry instead. The current tab height is
+implemented through `QTabBar::setMinimumHeight()`; category pages, buttons and
+labels otherwise inherit the application palette normally.
+
+This is the same general rule used elsewhere in MatterLeast for live theme
+propagation: avoid per-widget stylesheets when a palette/geometry API can express
+the same behavior.
+
 ## Server search semantics
 
 The picker mirrors the official Mattermost behavior by querying:

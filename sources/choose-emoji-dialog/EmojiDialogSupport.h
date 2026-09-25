@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QFont>
+#include <QTabBar>
+#include <QTabWidget>
 #include <QString>
 #include <QStringList>
 
@@ -61,6 +63,15 @@ inline QFont emojiButtonFont(QFont font, int pointSize = 16)
 {
     font.setPointSize(pointSize);
     return EmojiFont::applySystemEmojiFamily(font);
+}
+
+inline void configureTabWidget(QTabWidget& tabWidget)
+{
+    // Avoid a stylesheet for the tab height. QStyleSheetStyle can materialize
+    // palette state for the entire tab widget subtree, which prevents the
+    // already-created pages from following a live application theme change.
+    tabWidget.setStyleSheet(QString());
+    tabWidget.tabBar()->setMinimumHeight(42);
 }
 
 } // namespace Mattermost::EmojiDialogSupport
