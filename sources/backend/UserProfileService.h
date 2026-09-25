@@ -63,6 +63,9 @@ public:
 
     void ensureUser(const QString& userId,
                     std::function<void(const BackendUser*)> callback = {});
+    /** Resolve an exact Mattermost username, using cache first and then the server. */
+    void ensureUserByUsername(const QString& username,
+                              std::function<void(const BackendUser*)> callback = {});
     void ensureUsers(const QStringList& userIds,
                      std::function<void()> callback = {});
     void ensureAvatar(const BackendUser& user);

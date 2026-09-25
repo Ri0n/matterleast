@@ -146,6 +146,56 @@ void UserProfileService::ensureUser(const QString& userId,
     }
 }
 
+void UserProfileService::ensureUserByUsername(
+    const QString& username,
+    std::function<void(const BackendUser*)> callback)
+{
+    if (username.isEmpty()) {
+        if (callback) {
+            callback(nullptr);
+        }
+        return;
+    }
+
+    for (const auto& entry : backend.getStorage().getAllUsers()) {
+        const BackendUser& user = entry.second;
+        if (user.username.compare(username, Qt::CaseInsensitive) == 0) {
+            if (callback) {
+                callback(&user);
+            }
+            return;
+        }
+    }
+
+    const QString encodedUsername =
+        QString::fromLatin1(QUrl::toPercentEncoding(username));
+    NetworkRequest request(
+        QStringLiteral("users/username/") + encodedUsername);
+    httpConnector.get(request, HttpResponseCallback(
+        [this, username, callback = std::move(callback)](
+            const QJsonDocument& doc) mutable {
+            const QJsonObject object = doc.object();
+            const QString resolvedUsername =
+                object.value(QStringLiteral("username")).toString();
+            if (resolvedUsername.isEmpty()
+                || resolvedUsername.compare(
+                       username, Qt::CaseInsensitive) != 0) {
+                if (callback) {
+                    callback(nullptr);
+                }
+                return;
+            }
+
+            BackendUser* user = backend.getStorage().addUser(object);
+            if (user) {
+                resolveReferences(*user);
+            }
+            if (callback) {
+                callback(user);
+            }
+        }));
+}
+
 void UserProfileService::ensureUsers(const QStringList& userIds,
                                      std::function<void()> callback)
 {

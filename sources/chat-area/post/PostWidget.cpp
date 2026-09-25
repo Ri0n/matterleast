@@ -943,39 +943,13 @@ void PostWidget::connectMessageLinks()
 
 void PostWidget::openUserProfile(const QString& username)
 {
-    const auto showProfile = [this](const BackendUser* user) {
-        if (!user) {
-            return;
-        }
-        auto* dialog = new UserProfileDialog(backend_, *user, this);
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        dialog->show();
-    };
-
-    for (const auto& entry : backend_.getStorage().getAllUsers()) {
-        const BackendUser& user = entry.second;
-        if (user.username.compare(username, Qt::CaseInsensitive) == 0) {
-            showProfile(&user);
-            return;
-        }
-    }
-
-    UserSearchOptions options;
-    options.term = username;
-    options.limit = 20;
-
     QPointer<PostWidget> guard(this);
-    UserProfileService::instance(backend_).searchUsers(
-        options, [guard, username](QVector<const BackendUser*> users) {
-            if (!guard) {
+    UserProfileService::instance(backend_).ensureUserByUsername(
+        username, [guard](const BackendUser* user) {
+            if (!guard || !user) {
                 return;
             }
-            for (const BackendUser* user : users) {
-                if (user && user->username.compare(username, Qt::CaseInsensitive) == 0) {
-                    guard->openUserProfile(user->username);
-                    return;
-                }
-            }
+            UserProfileDialog::showTransient(guard->backend_, *user, guard);
         });
 }
 
