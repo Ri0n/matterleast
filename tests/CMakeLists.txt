@@ -540,6 +540,7 @@ add_executable(multiple-channels-viewed-event-test
     "${CMAKE_SOURCE_DIR}/sources/backend/events/MultipleChannelsViewedEvent.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/events/ThreadUpdatedEvent.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/events/ThreadFollowChangedEvent.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/events/ThreadReadChangedEvent.cpp"
 )
 target_include_directories(multiple-channels-viewed-event-test
     PRIVATE

@@ -270,6 +270,14 @@ MatterLeast also consumes Mattermost's `thread_follow_changed` websocket event.
 That keeps an already-open thread bell and `FollowingModel` synchronized when
 follow/unfollow is changed from another client or another server path.
 
+MatterLeast also consumes the user-scoped `thread_read_changed` event. Mattermost
+emits three forms: one concrete thread, all threads in one channel (notably
+DM/GM bulk reads), or all threads in one team. All three invalidate the shared
+CRT snapshot and are coalesced through `FollowingModel`; the websocket layer
+must not create a second unread-counter state machine. This lets reads from
+another client update Following/Attention while preserving the local
+manual-unread visibility gate.
+
 ## Required invariants
 
 Future changes to Following must preserve all of these:
