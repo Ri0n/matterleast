@@ -23,6 +23,7 @@ public:
 
 signals:
     void linkHovered(const QString& link);
+    void linkDragRequested(const QString& link);
     void dimensionsChanged();
     void paletteRefreshCompleted();
 

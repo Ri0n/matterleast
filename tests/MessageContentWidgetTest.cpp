@@ -7,6 +7,7 @@
 #include <QFontMetrics>
 #include <QImage>
 #include <QLayout>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -159,6 +160,84 @@ private slots:
                  "Wrapped text must expand the real message widget height");
         QVERIFY2(geometrySpy.count() > 0,
                  "A settled text reflow must notify the containing post about its new geometry");
+    }
+
+    void draggingExternalLinkRequestsUriDrag()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(
+            QStringLiteral("[Example](https://example.com/path?q=1)"));
+        showAndSettle(widget, QSize(320, 120));
+
+        auto* richText =
+            widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(richText != nullptr);
+
+        QTextCursor linkCursor =
+            richText->document()->find(QStringLiteral("Example"));
+        QVERIFY(!linkCursor.isNull());
+        linkCursor.setPosition(linkCursor.selectionStart() + 1);
+        const QPoint pressPosition =
+            richText->cursorRect(linkCursor).center();
+
+        QSignalSpy dragSpy(
+            &widget, &MessageContentWidget::linkDragRequested);
+        QTest::mousePress(
+            richText->viewport(), Qt::LeftButton, Qt::NoModifier,
+            pressPosition);
+
+        const QPoint dragPosition =
+            pressPosition + QPoint(QApplication::startDragDistance() + 8, 0);
+        QMouseEvent moveEvent(
+            QEvent::MouseMove,
+            dragPosition,
+            richText->viewport()->mapToGlobal(dragPosition),
+            Qt::NoButton,
+            Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(richText->viewport(), &moveEvent);
+
+        QCOMPARE(dragSpy.count(), 1);
+        QCOMPARE(
+            dragSpy.takeFirst().at(0).toString(),
+            QStringLiteral("https://example.com/path?q=1"));
+    }
+
+    void internalMentionLinkIsNotDraggable()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("[user](mattermost-user://alice)"));
+        showAndSettle(widget, QSize(320, 120));
+
+        auto* richText =
+            widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(richText != nullptr);
+
+        QTextCursor linkCursor =
+            richText->document()->find(QStringLiteral("user"));
+        QVERIFY(!linkCursor.isNull());
+        linkCursor.setPosition(linkCursor.selectionStart() + 1);
+        const QPoint pressPosition =
+            richText->cursorRect(linkCursor).center();
+
+        QSignalSpy dragSpy(
+            &widget, &MessageContentWidget::linkDragRequested);
+        QTest::mousePress(
+            richText->viewport(), Qt::LeftButton, Qt::NoModifier,
+            pressPosition);
+
+        const QPoint dragPosition =
+            pressPosition + QPoint(QApplication::startDragDistance() + 8, 0);
+        QMouseEvent moveEvent(
+            QEvent::MouseMove,
+            dragPosition,
+            richText->viewport()->mapToGlobal(dragPosition),
+            Qt::NoButton,
+            Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(richText->viewport(), &moveEvent);
+
+        QCOMPARE(dragSpy.count(), 0);
     }
 
     void richTextBackgroundLetsPostHoverShowThrough()
