@@ -71,6 +71,15 @@ QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
         entry.message = object.value(QStringLiteral("message")).toString();
         entry.replyToPostId =
             object.value(QStringLiteral("reply_to_post_id")).toString();
+        const QJsonArray attachmentValues =
+            object.value(QStringLiteral("attachment_paths")).toArray();
+        entry.attachmentPaths.reserve(attachmentValues.size());
+        for (const QJsonValue& attachmentValue : attachmentValues) {
+            const QString attachmentPath = attachmentValue.toString();
+            if (!attachmentPath.isEmpty()) {
+                entry.attachmentPaths.push_back(attachmentPath);
+            }
+        }
         entry.recoveryId =
             object.value(QStringLiteral("recovery_id")).toString();
         entry.updateAt =
@@ -96,7 +105,8 @@ QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
             continue;
         }
         if (!entry.deleted && entry.message.isEmpty()
-            && entry.replyToPostId.isEmpty()) {
+            && entry.replyToPostId.isEmpty()
+            && entry.attachmentPaths.isEmpty()) {
             continue;
         }
         result.push_back(std::move(entry));
@@ -117,11 +127,16 @@ bool DraftStore::save(const QString& path, const QVector<DraftEntry>& drafts)
 
     QJsonArray array;
     for (const DraftEntry& entry : drafts) {
+        QJsonArray attachmentPaths;
+        for (const QString& attachmentPath : entry.attachmentPaths) {
+            attachmentPaths.push_back(attachmentPath);
+        }
         QJsonObject object {
             {QStringLiteral("channel_id"), entry.channelId},
             {QStringLiteral("root_id"), entry.rootId},
             {QStringLiteral("message"), entry.message},
             {QStringLiteral("reply_to_post_id"), entry.replyToPostId},
+            {QStringLiteral("attachment_paths"), attachmentPaths},
             {QStringLiteral("recovery_id"), entry.recoveryId},
             {QStringLiteral("update_at"),
              QJsonValue::fromVariant(QVariant::fromValue(entry.updateAt))},

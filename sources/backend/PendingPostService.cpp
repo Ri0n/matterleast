@@ -18,6 +18,7 @@
 #include <QVariant>
 
 #include "Backend.h"
+#include "AttachmentUploadService.h"
 #include "DraftService.h"
 #include "NetworkRequest.h"
 #include "PostCreateService.h"
@@ -79,6 +80,10 @@ PendingPostService::PendingPostService(Backend& backendInstance)
             [this](BackendChannel& channel, const BackendPost& post) {
         handleAuthoritativePost(channel, post);
     });
+    connect(&AttachmentUploadService::instance(backend),
+            &AttachmentUploadService::changed,
+            this,
+            &PendingPostService::handleAttachmentUploadChanged);
 }
 
 PendingPostService::~PendingPostService()
@@ -109,16 +114,13 @@ void PendingPostService::setVisibilityPredicate(
 
 QString PendingPostService::enqueue(BackendChannel& channel,
                                     const QString& wireMessage,
-                                    const QList<QString>& attachmentIds,
+                                    const QList<PendingAttachment>& attachments,
                                     const QString& rootId,
                                     const QJsonObject& props,
                                     const QString& pendingPostId)
 {
-    // Durable optimistic recovery is intentionally text-only for now.
-    // Attachment-bearing sends stay on the acknowledged path until uploaded
-    // file IDs can be restored into an editable Draft after restart.
     if (channel.id.isEmpty() || pendingPostId.isEmpty()
-        || wireMessage.isEmpty() || !attachmentIds.isEmpty()) {
+        || (wireMessage.isEmpty() && attachments.isEmpty())) {
         return {};
     }
     if (pendingPost(pendingPostId)) {
@@ -133,12 +135,58 @@ QString PendingPostService::enqueue(BackendChannel& channel,
     post->rootId = rootId;
     post->wireMessage = wireMessage;
     post->props = props;
-    post->attachmentIds = attachmentIds;
+    post->attachments = attachments;
+
+    auto& uploads = AttachmentUploadService::instance(backend);
+    QString uploadFailure;
+    bool waitingForUpload = false;
+    for (PendingAttachment& attachment : post->attachments) {
+        if (!attachment.fileId.isEmpty()) {
+            continue;
+        }
+        if (attachment.path.isEmpty()) {
+            return {};
+        }
+
+        if (attachment.uploadId.isEmpty()) {
+            attachment.uploadId = uploads.stage(channel, attachment.path);
+        } else {
+            const AttachmentUpload* existing =
+                uploads.upload(attachment.uploadId);
+            if (!existing
+                || existing->channelId != channel.id
+                || existing->path != attachment.path) {
+                uploads.stage(channel, attachment.path, attachment.uploadId);
+            }
+        }
+
+        const AttachmentUpload* upload =
+            uploads.upload(attachment.uploadId);
+        if (!upload) {
+            uploadFailure = tr("Attachment upload could not be started");
+            break;
+        }
+        if (upload->state == AttachmentUploadState::Ready) {
+            attachment.fileId = upload->fileId;
+        } else if (upload->state == AttachmentUploadState::Failed) {
+            uploadFailure = upload->error.isEmpty()
+                ? tr("Attachment upload failed") : upload->error;
+        } else {
+            waitingForUpload = true;
+        }
+    }
     post->createdAt = QDateTime::currentMSecsSinceEpoch();
     post->retryWindowStartedAt = post->createdAt;
     post->authoritativeTailAtEnqueue =
         conversationTailAtEnqueue(channel, rootId);
-    post->state = PendingPostState::Queued;
+    if (!uploadFailure.isEmpty()) {
+        post->state = PendingPostState::Failed;
+        post->failureText = uploadFailure;
+    } else if (waitingForUpload) {
+        post->state = PendingPostState::Uploading;
+    } else {
+        post->state = PendingPostState::Queued;
+    }
     rebuildSnapshot(*post);
 
     const QString id = post->pendingPostId;
@@ -147,6 +195,12 @@ QString PendingPostService::enqueue(BackendChannel& channel,
     postsById.insert(id, posts.back().get());
     order.push_back(id);
     if (!persist()) {
+        PendingPost* failed = postsById.value(id, nullptr);
+        if (failed) {
+            for (const PendingAttachment& attachment : failed->attachments) {
+                uploads.release(attachment.uploadId);
+            }
+        }
         order.removeAll(id);
         postsById.remove(id);
         posts.erase(
@@ -311,6 +365,7 @@ void PendingPostService::tryStartConversation(const QString& channelId,
     }
 
     if (head->state == PendingPostState::Failed
+        || head->state == PendingPostState::Uploading
         || head->state == PendingPostState::Sending
         || head->state == PendingPostState::RetryWait) {
         return;
@@ -369,6 +424,14 @@ void PendingPostService::attempt(const QString& pendingPostId)
         return;
     }
 
+    if (!attachmentsReady(*post)) {
+        post->state = PendingPostState::Uploading;
+        post->failureText.clear();
+        ++post->generation;
+        emit postChanged(post->channelId, post->rootId, post->pendingPostId);
+        return;
+    }
+
     ++post->attemptCount;
     post->state = PendingPostState::Sending;
     post->failureText.clear();
@@ -380,7 +443,7 @@ void PendingPostService::attempt(const QString& pendingPostId)
     PostCreateService::instance(backend).createPostDetailed(
         *channel,
         post->wireMessage,
-        post->attachmentIds,
+        attachmentFileIds(*post),
         post->rootId,
         post->props,
         post->pendingPostId,
@@ -530,16 +593,54 @@ bool PendingPostService::retry(const QString& pendingPostId)
     post->interveningPostCount = 0;
     post->interveningPostIds.clear();
     post->retryWindowStartedAt = QDateTime::currentMSecsSinceEpoch();
-    if (BackendChannel* channel =
-            backend.getStorage().getChannelById(post->channelId)) {
+    BackendChannel* channel =
+        backend.getStorage().getChannelById(post->channelId);
+    if (channel) {
         post->authoritativeTailAtEnqueue =
             conversationTailAtEnqueue(*channel, post->rootId);
         observeChannel(*channel);
     }
-    post->state = PendingPostState::Queued;
+
+    auto& uploads = AttachmentUploadService::instance(backend);
+    bool waitingForUpload = false;
+    post->state = PendingPostState::Uploading;
     post->failureText.clear();
     ++post->generation;
     emit postChanged(post->channelId, post->rootId, post->pendingPostId);
+
+    for (PendingAttachment& attachment : post->attachments) {
+        if (!attachment.fileId.isEmpty()) {
+            continue;
+        }
+        AttachmentUpload const* upload =
+            uploads.upload(attachment.uploadId);
+        if (!upload && channel && !attachment.path.isEmpty()) {
+            if (attachment.uploadId.isEmpty()) {
+                attachment.uploadId =
+                    uploads.stage(*channel, attachment.path);
+            } else {
+                uploads.stage(
+                    *channel, attachment.path, attachment.uploadId);
+            }
+            upload = uploads.upload(attachment.uploadId);
+        }
+
+        if (upload && upload->state == AttachmentUploadState::Ready) {
+            attachment.fileId = upload->fileId;
+            continue;
+        }
+        waitingForUpload = true;
+        if (upload && upload->state == AttachmentUploadState::Failed) {
+            uploads.retry(attachment.uploadId);
+        }
+    }
+
+    if (!waitingForUpload) {
+        post->state = PendingPostState::Queued;
+        ++post->generation;
+        emit postChanged(post->channelId, post->rootId, post->pendingPostId);
+    }
+
     scheduleRetryDeadline(post->pendingPostId, post->retryWindowStartedAt);
 
     const QString channelId = post->channelId;
@@ -596,6 +697,11 @@ void PendingPostService::remove(const QString& pendingPostId, bool startNext)
     }
     const QString channelId = current->channelId;
     const QString rootId = current->rootId;
+
+    auto& uploads = AttachmentUploadService::instance(backend);
+    for (const PendingAttachment& attachment : current->attachments) {
+        uploads.release(attachment.uploadId);
+    }
 
     // Presentation consumers hold a reference to the synthetic BackendPost.
     // Publish the structural removal while that snapshot is still alive so
@@ -721,12 +827,111 @@ void PendingPostService::persistBestEffort()
     });
 }
 
+bool PendingPostService::attachmentsReady(const PendingPost& post) const
+{
+    for (const PendingAttachment& attachment : post.attachments) {
+        if (attachment.fileId.isEmpty()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+QList<QString> PendingPostService::attachmentFileIds(
+    const PendingPost& post) const
+{
+    QList<QString> result;
+    result.reserve(post.attachments.size());
+    for (const PendingAttachment& attachment : post.attachments) {
+        if (!attachment.fileId.isEmpty()) {
+            result.push_back(attachment.fileId);
+        }
+    }
+    return result;
+}
+
+void PendingPostService::handleAttachmentUploadChanged(
+    const QString& uploadId)
+{
+    if (uploadId.isEmpty()) {
+        return;
+    }
+
+    const AttachmentUpload* upload =
+        AttachmentUploadService::instance(backend).upload(uploadId);
+    if (!upload) {
+        return;
+    }
+
+    QSet<QString> conversations;
+    for (const auto& owned : posts) {
+        PendingPost* post = owned.get();
+        if (!post) {
+            continue;
+        }
+
+        bool matched = false;
+        for (PendingAttachment& attachment : post->attachments) {
+            if (attachment.uploadId != uploadId
+                || !attachment.fileId.isEmpty()) {
+                continue;
+            }
+            matched = true;
+            if (upload->state == AttachmentUploadState::Ready) {
+                attachment.fileId = upload->fileId;
+            }
+        }
+        if (!matched) {
+            continue;
+        }
+
+        conversations.insert(conversationKey(post->channelId, post->rootId));
+        rebuildSnapshot(*post);
+
+        if (upload->state == AttachmentUploadState::Failed) {
+            if (post->state != PendingPostState::Failed) {
+                fail(*post, upload->error.isEmpty()
+                    ? tr("Attachment upload failed") : upload->error);
+            }
+            continue;
+        }
+
+        if (post->state == PendingPostState::Uploading
+            && attachmentsReady(*post)) {
+            post->state = PendingPostState::Queued;
+            post->failureText.clear();
+            ++post->generation;
+            emit postChanged(
+                post->channelId, post->rootId, post->pendingPostId);
+        } else {
+            emit postChanged(
+                post->channelId, post->rootId, post->pendingPostId);
+        }
+    }
+
+    if (!conversations.isEmpty()) {
+        persistBestEffort();
+    }
+
+    const QSet<QString> affectedConversations = conversations;
+    for (const QString& key : affectedConversations) {
+        const int separator = key.indexOf(QChar(0x1f));
+        if (separator < 0) {
+            continue;
+        }
+        tryStartConversation(
+            key.left(separator), key.mid(separator + 1));
+    }
+}
+
 QString PendingPostService::stateText(PendingPostState state,
                                       int attemptCount,
                                       int interveningPostCount,
                                       const QString& failureText)
 {
     switch (state) {
+    case PendingPostState::Uploading:
+        return QObject::tr("Uploading attachment…");
     case PendingPostState::Queued:
         return QObject::tr("Queued");
     case PendingPostState::Sending:
@@ -785,7 +990,8 @@ void PendingPostService::loadStore()
         return;
     }
     const QJsonObject root = document.object();
-    if (root.value(QStringLiteral("version")).toInt() != 1) {
+    const int version = root.value(QStringLiteral("version")).toInt();
+    if (version != 1 && version != 2) {
         return;
     }
 
@@ -810,24 +1016,35 @@ void PendingPostService::loadStore()
             object.value(QStringLiteral("message")).toString();
         const QJsonObject props =
             object.value(QStringLiteral("props")).toObject();
+        QStringList attachmentPaths;
+        const QJsonArray pathValues =
+            object.value(QStringLiteral("attachment_paths")).toArray();
+        attachmentPaths.reserve(pathValues.size());
+        for (const QJsonValue& pathValue : pathValues) {
+            const QString path = pathValue.toString();
+            if (!path.isEmpty()) {
+                attachmentPaths.push_back(path);
+            }
+        }
         const QString replyToPostId =
             props.value(QString::fromLatin1(PostProps::ReplyToPostId))
                 .toString();
 
         if (pendingPostId.isEmpty() || channelId.isEmpty()
-            || wireMessage.isEmpty()) {
+            || (wireMessage.isEmpty() && attachmentPaths.isEmpty())) {
             continue;
         }
 
         const QString message = replyToPostId.isEmpty()
             ? wireMessage
             : QuotedReplyFormat::stripFallback(wireMessage);
-        if (message.isEmpty()) {
+        if (message.isEmpty() && attachmentPaths.isEmpty()) {
             continue;
         }
 
         if (drafts.addRecoveredDraft(
-                channelId, rootId, message, replyToPostId, pendingPostId)
+                channelId, rootId, message, replyToPostId,
+                attachmentPaths, pendingPostId)
             .isEmpty()) {
             failedRecoveryIndex = index;
             break;
@@ -888,8 +1105,10 @@ bool PendingPostService::persist() const
             continue;
         }
         QJsonArray fileIds;
-        for (const QString& fileId : post->attachmentIds) {
-            fileIds.push_back(fileId);
+        QJsonArray attachmentPaths;
+        for (const PendingAttachment& attachment : post->attachments) {
+            fileIds.push_back(attachment.fileId);
+            attachmentPaths.push_back(attachment.path);
         }
         array.push_back(QJsonObject {
             {QStringLiteral("pending_post_id"), post->pendingPostId},
@@ -898,6 +1117,7 @@ bool PendingPostService::persist() const
             {QStringLiteral("message"), post->wireMessage},
             {QStringLiteral("props"), post->props},
             {QStringLiteral("file_ids"), fileIds},
+            {QStringLiteral("attachment_paths"), attachmentPaths},
             {QStringLiteral("created_at"),
              QJsonValue::fromVariant(post->createdAt)},
         });
@@ -908,7 +1128,7 @@ bool PendingPostService::persist() const
         return false;
     }
     const QJsonDocument document(QJsonObject {
-        {QStringLiteral("version"), 1},
+        {QStringLiteral("version"), 2},
         {QStringLiteral("posts"), array},
     });
     if (file.write(document.toJson(QJsonDocument::Compact)) < 0) {

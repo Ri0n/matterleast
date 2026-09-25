@@ -390,10 +390,12 @@ QString DraftService::addRecoveredDraft(
     const QString& rootId,
     const QString& message,
     const QString& replyToPostId,
+    const QStringList& attachmentPaths,
     const QString& recoveryId)
 {
     ensureIdentity();
-    if (channelId.isEmpty() || recoveryId.isEmpty() || message.isEmpty()) {
+    if (channelId.isEmpty() || recoveryId.isEmpty()
+        || (message.isEmpty() && attachmentPaths.isEmpty())) {
         return {};
     }
 
@@ -402,13 +404,15 @@ QString DraftService::addRecoveredDraft(
     entry.rootId = rootId;
     entry.message = message;
     entry.replyToPostId = replyToPostId;
+    entry.attachmentPaths = attachmentPaths;
     entry.recoveryId = recoveryId;
 
     const QString key = entry.key();
     const auto existing = entries.constFind(key);
     if (existing != entries.cend() && !existing->deleted
         && existing->message == message
-        && existing->replyToPostId == replyToPostId) {
+        && existing->replyToPostId == replyToPostId
+        && existing->attachmentPaths == attachmentPaths) {
         return key;
     }
 
@@ -446,7 +450,8 @@ QString DraftService::addRecoveredDraft(
 
 void DraftService::updateRecoveredDraft(const QString& key,
                                         const QString& message,
-                                        const QString& replyToPostId)
+                                        const QString& replyToPostId,
+                                        const QStringList& attachmentPaths)
 {
     ensureIdentity();
     auto existing = entries.find(key);
@@ -455,17 +460,19 @@ void DraftService::updateRecoveredDraft(const QString& key,
         return;
     }
 
-    if (message.isEmpty()) {
+    if (message.isEmpty() && attachmentPaths.isEmpty()) {
         removeDraftByKey(key);
         return;
     }
     if (existing->message == message
-        && existing->replyToPostId == replyToPostId) {
+        && existing->replyToPostId == replyToPostId
+        && existing->attachmentPaths == attachmentPaths) {
         return;
     }
 
     existing->message = message;
     existing->replyToPostId = replyToPostId;
+    existing->attachmentPaths = attachmentPaths;
     existing->updateAt = nextUpdateTime(&existing.value());
     existing->dirty = false;
     existing->remotePresent = false;

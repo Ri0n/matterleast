@@ -267,6 +267,7 @@ Retry counters, timers and delivery states are session-only. The durable outbox 
 
 Current presentation states are:
 
+- `Uploading`;
 - `Queued`;
 - `Sending`;
 - `RetryWait`;
@@ -402,19 +403,38 @@ The current implementation namespaces persisted outbox state using the backend h
 
 Never correlate or recover pending rows solely by channel/root IDs across accounts.
 
-## Attachments are intentionally excluded for now
+## Attachment upload ownership
 
-PR #112 keeps attachment-bearing sends on the existing acknowledged-send path.
+Attachment-bearing sends use the same outbox ownership boundary as text messages.
 
-The reason is recovery, not rendering.
+Selecting a file may start a backend-scoped pre-upload immediately so normal
+composition latency can overlap with network transfer. The composer does not own
+that transfer. `AttachmentUploadService` owns the upload by a stable local
+attachment ID, and `PendingPostService` takes over that same ID when Send is
+pressed.
 
-An uploaded attachment has server-side `file_id` state, but the current editable Draft model cannot faithfully reconstruct the attachment intent from those IDs after restart. Restoring only the text would silently lose part of the message.
+Consequences:
 
-Therefore the optimistic durable outbox is currently text-only.
+- Send remains available while a pre-upload is running;
+- pressing Send immediately creates the optimistic outbox row and releases the
+  composer;
+- the pending row remains in `Uploading` until every attachment has a server
+  `file_id`, then normal FIFO post creation begins;
+- a failed upload fails that outbox item and exposes Retry/Cancel;
+- later messages in the same logical timeline cannot overtake an uploading or
+  failed head;
+- removing an attachment before Send releases only the staged upload identity,
+  not authoritative post state.
 
-Do not extend optimistic enqueueing to attachments until the recovery representation can restore everything required to edit/resend the message safely.
+The process restart boundary is unchanged: no old network operation is resumed
+automatically. Durable outbox records persist local attachment paths, and startup
+recovery places those paths in the recovered local draft. Restoring that draft
+stages the files again; if a local file no longer exists, the recovered operation
+remains editable rather than silently sending a text-only message.
 
-Persisting `file_ids` in an outbox record by itself is not sufficient if the recovered composer cannot represent them.
+Recovered Draft attachment paths are local-only. They are never synchronized to
+Mattermost's one-draft-per-conversation API, which has no representation for
+local upload intent.
 
 ## Source lifetime
 
@@ -460,7 +480,7 @@ The current implementation is a first concrete adapter of this design:
 | client correlation ID | Mattermost `pending_post_id` |
 | rendering adapter | synthetic presentation-only `BackendPost` snapshot |
 | restart recovery | local `DraftService` recovered entry with `recoveryId` |
-| attachment behavior | existing acknowledged-send path |
+| attachment behavior | backend-scoped pre-upload handed to `PendingPostService` on Send |
 
 These names are implementation facts, not requirements future chat types must reproduce.
 
@@ -577,7 +597,12 @@ Changes to this subsystem should cover the relevant items below.
 
 ### Attachments
 
-- attachment-bearing messages stay on acknowledged-send behavior until lossless recovery exists.
+- Send stays enabled for a new message while attachment pre-upload is active;
+- Send immediately transfers upload ownership to the outbox and clears the composer;
+- an uploading FIFO head blocks later local messages in that logical timeline;
+- upload completion supplies `file_id` values before post creation starts;
+- upload failure produces an explicit failed outbox row with Retry/Cancel;
+- restart recovery restores local attachment paths into the recovered draft and never auto-sends.
 
 ## Documentation rule
 
