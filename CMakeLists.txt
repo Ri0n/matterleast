@@ -92,7 +92,7 @@ endif()
 
 set(APPID "matterleast")
 set(PRODUCT_NAME "MatterLeast")
-set(DESKTOP_ID "matterleast")
+set(DESKTOP_ID "io.github.Ri0n.MatterLeast")
 
 option(QT_6 "Prefer Qt6" ON)
 

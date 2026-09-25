@@ -19,6 +19,11 @@ permissions:
 
 env:
   QT_WINDOWS_VERSION: "6.11.2"
+  QT_APPIMAGE_VERSION: "6.11.2"
+  LINUXDEPLOY_ASSET_ID: "538917371"
+  LINUXDEPLOY_SHA256: "36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62"
+  LINUXDEPLOY_QT_ASSET_ID: "525032210"
+  LINUXDEPLOY_QT_SHA256: "cfc1055b2b9dbc08412b579f20990b7b41a17b61beaa5847dc9477c96c9e9617"
 
 jobs:
   debian:
@@ -132,6 +137,197 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: matterleast-deb-ubuntu-${{ matrix.ubuntu-version }}-amd64
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          compression-level: 0
+
+  appimage:
+    name: Ubuntu 24.04 — AppImage — Qt 6.11.2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install AppImage build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libgl1-mesa-dev \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xkb1 \
+            libxkbcommon-x11-0 \
+            ninja-build \
+            xauth \
+            xvfb
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_APPIMAGE_VERSION }}
+          # qtsvg and qtwayland are Qt archives in the desktop package, not
+          # addon modules accepted by aqt's --modules switch. The default
+          # archive set already installs them; only WebSockets is an addon here.
+          modules: qtwebsockets
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
+          cache: true
+
+      - name: Verify AppImage Qt baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          qt_version=$(qmake -query QT_VERSION)
+          if [[ "$qt_version" != "${{ env.QT_APPIMAGE_VERSION }}" ]]; then
+            echo "::error::Expected Qt ${{ env.QT_APPIMAGE_VERSION }}, got $qt_version"
+            exit 1
+          fi
+          echo "Qt $qt_version"
+          ldd --version | head -n 1
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DQT_6=ON \
+            -DBUILD_TESTING=ON \
+            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_VERSION="${{ inputs.version }}"
+
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          test -n "$version"
+          requested="${{ inputs.version }}"
+          requested=${requested#v}
+          if [[ -n "$requested" && "$version" != "$requested" ]]; then
+            echo "::error::CMake resolved version '$version', expected '$requested'"
+            exit 1
+          fi
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Stage AppDir
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf AppDir
+          DESTDIR="$PWD/AppDir" cmake --install build
+          test -x AppDir/usr/bin/matterleast
+          test -f AppDir/usr/share/applications/io.github.Ri0n.MatterLeast.desktop
+          test -f AppDir/usr/share/icons/hicolor/scalable/apps/io.github.Ri0n.MatterLeast.svg
+
+      - name: Fetch pinned linuxdeploy tools
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p appimage-tools
+          api_headers=(
+            -H "Accept: application/octet-stream"
+            -H "Authorization: Bearer $GH_TOKEN"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
+          curl --fail --location --retry 3 "${api_headers[@]}" \
+            "https://api.github.com/repos/linuxdeploy/linuxdeploy/releases/assets/${LINUXDEPLOY_ASSET_ID}" \
+            -o appimage-tools/linuxdeploy-x86_64.AppImage
+          curl --fail --location --retry 3 "${api_headers[@]}" \
+            "https://api.github.com/repos/linuxdeploy/linuxdeploy-plugin-qt/releases/assets/${LINUXDEPLOY_QT_ASSET_ID}" \
+            -o appimage-tools/linuxdeploy-plugin-qt-x86_64.AppImage
+
+          echo "${LINUXDEPLOY_SHA256}  appimage-tools/linuxdeploy-x86_64.AppImage" | sha256sum -c -
+          echo "${LINUXDEPLOY_QT_SHA256}  appimage-tools/linuxdeploy-plugin-qt-x86_64.AppImage" | sha256sum -c -
+          chmod +x appimage-tools/*.AppImage
+
+      - name: Build and smoke-test AppImage
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export QMAKE="$(command -v qmake)"
+          export EXTRA_QT_MODULES="svg"
+          # Qt 6.11 consolidated the Wayland QPA plugin into libqwayland.so.
+          # Older linuxdeploy-plugin-qt documentation still names the pre-6.11
+          # libqwayland-{egl,generic}.so plugins.
+          export EXTRA_PLATFORM_PLUGINS="libqwayland.so"
+
+          # MatterLeast only requires the SQLite Qt SQL driver (the native
+          # packages declare the same runtime dependency). Official Qt builds
+          # also ship drivers for proprietary/external databases; linuxdeploy
+          # otherwise tries to resolve all of them and fails on libraries such
+          # as libmimerapi.so that are intentionally absent from the runner.
+          qt_plugins="$(qmake -query QT_INSTALL_PLUGINS)"
+          test -f "$qt_plugins/sqldrivers/libqsqlite.so"
+          find "$qt_plugins/sqldrivers" -maxdepth 1 -type f \
+            -name 'libqsql*.so' ! -name 'libqsqlite.so' -print -delete
+
+          ./appimage-tools/linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --output appimage
+
+          test -n "$(find AppDir -name 'libQt6Core.so.6' -print -quit)"
+          test -n "$(find AppDir -name 'libqxcb.so' -print -quit)"
+          test -n "$(find AppDir -name 'libqwayland.so' -print -quit)"
+          test -n "$(find AppDir -name 'libqsqlite.so' -print -quit)"
+          test -n "$(find AppDir -name 'libqsvg.so' -print -quit)"
+
+          image=$(find . -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+          test -n "$image"
+          chmod +x "$image"
+
+          # linuxdeploy itself is an AppImage and is run in extract mode so
+          # packaging does not depend on the CI host's FUSE setup. Test the
+          # produced MatterLeast AppImage normally, without that escape hatch.
+          unset APPIMAGE_EXTRACT_AND_RUN
+
+          mkdir -p "$RUNNER_TEMP/matterleast-appimage-home"
+          set +e
+          timeout 8s xvfb-run -a env \
+            -u LD_LIBRARY_PATH \
+            -u QT_PLUGIN_PATH \
+            -u QML2_IMPORT_PATH \
+            HOME="$RUNNER_TEMP/matterleast-appimage-home" \
+            QT_QPA_PLATFORM=xcb \
+            "$image" >appimage-smoke.log 2>&1
+          smoke_status=$?
+          set -e
+          cat appimage-smoke.log
+          if [[ "$smoke_status" -ne 124 ]]; then
+            echo "::error::AppImage did not stay running on Ubuntu 24.04/XCB (status $smoke_status)"
+            exit "$smoke_status"
+          fi
+
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          mkdir -p package
+          output="package/matterleast-${version}-linux-x86_64.AppImage"
+          mv "$image" "$output"
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: matterleast-appimage-linux-x86_64
           path: ${{ steps.package.outputs.path }}
           if-no-files-found: error
           compression-level: 0
