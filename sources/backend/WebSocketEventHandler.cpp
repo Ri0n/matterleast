@@ -117,7 +117,7 @@ void WebSocketEventHandler::handleEvent(const ThreadUpdatedEvent& event)
     }
 
     // FollowingModel owns the canonical CRT snapshot/reconciliation logic.
-    // Coalesce bursts of thread_updated packets rather than duplicating that
+    // Coalesce server thread-state invalidations rather than duplicating that
     // state machine in the websocket layer.
     FollowingModel::instance(backend).noteThreadUpdated();
 }
@@ -134,6 +134,23 @@ void WebSocketEventHandler::handleEvent(const ThreadFollowChangedEvent& event)
 
     ThreadFollowService::instance(backend).applyServerFollowingState(
         event.teamId, event.threadId, event.following);
+}
+
+void WebSocketEventHandler::handleEvent(const ThreadReadChangedEvent& event)
+{
+    if (!event.valid) {
+        return;
+    }
+    if (!event.userId.isEmpty()
+        && (!storage.loginUser || event.userId != storage.loginUser->id)) {
+        return;
+    }
+
+    // Mattermost emits this event for one thread, all threads in a channel,
+    // or all threads in a team. FollowingModel owns the canonical CRT snapshot
+    // and local manual-unread gating, so treat every form as one coalesced
+    // server-state invalidation instead of duplicating counter mutations here.
+    FollowingModel::instance(backend).noteThreadUpdated();
 }
 
 void WebSocketEventHandler::handleEvent (const PostEvent& event)

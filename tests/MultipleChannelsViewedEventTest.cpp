@@ -4,6 +4,7 @@
 #include "backend/events/MultipleChannelsViewedEvent.h"
 #include "backend/events/ThreadUpdatedEvent.h"
 #include "backend/events/ThreadFollowChangedEvent.h"
+#include "backend/events/ThreadReadChangedEvent.h"
 
 using namespace Mattermost;
 
@@ -64,6 +65,60 @@ private slots:
         const ThreadFollowChangedEvent invalid(QJsonObject {}, broadcast);
         QVERIFY(!invalid.valid);
     }
+
+    void parsesThreadReadChangedPayloads()
+    {
+        const QJsonObject data {
+            {QStringLiteral("channel_id"), QStringLiteral("channel-id")},
+            {QStringLiteral("thread_id"), QStringLiteral("thread-id")},
+            {QStringLiteral("timestamp"), 1790329132659.0},
+            {QStringLiteral("previous_unread_mentions"), 0},
+            {QStringLiteral("previous_unread_replies"), 1},
+            {QStringLiteral("unread_mentions"), 0},
+            {QStringLiteral("unread_replies"), 0},
+        };
+        const QJsonObject broadcast {
+            {QStringLiteral("user_id"), QStringLiteral("user-id")},
+            {QStringLiteral("team_id"), QStringLiteral("team-id")},
+        };
+
+        const ThreadReadChangedEvent event(data, broadcast);
+        QVERIFY(event.valid);
+        QCOMPARE(event.userId, QStringLiteral("user-id"));
+        QCOMPARE(event.teamId, QStringLiteral("team-id"));
+        QCOMPARE(event.channelId, QStringLiteral("channel-id"));
+        QCOMPARE(event.threadId, QStringLiteral("thread-id"));
+        QCOMPARE(event.timestamp, uint64_t(1790329132659ULL));
+        QCOMPARE(event.previousUnreadReplies, 1);
+        QCOMPARE(event.unreadReplies, 0);
+
+        const ThreadReadChangedEvent channelWide(
+            QJsonObject {{QStringLiteral("timestamp"), 1790329133000.0}},
+            QJsonObject {
+                {QStringLiteral("user_id"), QStringLiteral("user-id")},
+                {QStringLiteral("channel_id"), QStringLiteral("dm-channel-id")},
+            });
+        QVERIFY(channelWide.valid);
+        QVERIFY(channelWide.threadId.isEmpty());
+        QCOMPARE(channelWide.channelId, QStringLiteral("dm-channel-id"));
+
+        const ThreadReadChangedEvent teamWide(
+            QJsonObject {},
+            QJsonObject {
+                {QStringLiteral("user_id"), QStringLiteral("user-id")},
+                {QStringLiteral("team_id"), QStringLiteral("team-id")},
+            });
+        QVERIFY(teamWide.valid);
+        QVERIFY(teamWide.threadId.isEmpty());
+        QVERIFY(teamWide.channelId.isEmpty());
+        QCOMPARE(teamWide.teamId, QStringLiteral("team-id"));
+
+        const ThreadReadChangedEvent invalid(
+            QJsonObject {},
+            QJsonObject {{QStringLiteral("user_id"), QStringLiteral("user-id")}});
+        QVERIFY(!invalid.valid);
+    }
+
 
     void parsesAuthoritativeChannelTimes()
     {

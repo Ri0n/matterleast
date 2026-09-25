@@ -42,6 +42,7 @@
 #include "events/StatusChangeEvent.h"
 #include "events/ThreadUpdatedEvent.h"
 #include "events/ThreadFollowChangedEvent.h"
+#include "events/ThreadReadChangedEvent.h"
 #include "events/NewDirectChannelEvent.h"
 #include "events/NewUserEvent.h"
 #include "events/UserUpdatedEvent.h"
@@ -73,6 +74,7 @@ public:
 	void handleEvent (const StatusChangeEvent& event);
     void handleEvent(const ThreadUpdatedEvent& event);
     void handleEvent(const ThreadFollowChangedEvent& event);
+    void handleEvent(const ThreadReadChangedEvent& event);
 	void handleEvent (const NewDirectChannelEvent& event);
 	void handleEvent (const NewUserEvent& event);
 	void handleEvent (const UserUpdatedEvent& event);
