@@ -33,10 +33,12 @@
 #include <QNetworkAccessManager>
 #include <QNetworkDiskCache>
 #include <QNetworkReply>
+#include <QNetworkCookie>
 #include <QPointer>
 #include <QStandardPaths>
 
 #include "LocalPostDeleteTracker.h"
+#include "NetworkRequest.h"
 #include "QByteArrayCreator.h"
 #include "Settings.h"
 #include "UploadTrace.h"
@@ -46,7 +48,6 @@
 namespace Mattermost {
 
 QSet<HTTPConnector*> HTTPConnector::connectors;
-int HTTPConnector::globalActiveRequests = 0;
 
 static QNetworkDiskCache* createDiskCache ()
 {
@@ -96,7 +97,6 @@ HTTPConnector::HTTPConnector ()
 HTTPConnector::~HTTPConnector ()
 {
 	connectors.remove(this);
-	globalActiveRequests = qMax(0, globalActiveRequests - activeRequests);
 	activeRequests = 0;
 
     // QNetworkReply may still reference a multipart request body. Tear down the
@@ -117,7 +117,6 @@ void HTTPConnector::reset ()
 	activeReplies.clear();
 	activeGetRequests.clear();
 	replayedReplies.clear();
-	globalActiveRequests = qMax(0, globalActiveRequests - activeRequests);
 	activeRequests = 0;
 	restartingTransport = false;
     LocalPostDeleteTracker::clear();
@@ -211,7 +210,6 @@ void HTTPConnector::post (QNetworkRequest& request, const QByteArrayCreator& dat
 	if (request.priority() != QNetworkRequest::LowPriority) {
 		request.setPriority(QNetworkRequest::HighPriority);
 	}
-	request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
 	enqueue(PendingRequest {
 		Method::Post,
@@ -241,8 +239,8 @@ void HTTPConnector::post(QNetworkRequest& request,
                 ? QByteArrayLiteral("none")
                 : request.rawHeader("Connection-Id"));
 
-    // Match the official client's upload path: multipart uploads keep the
-    // transport defaults, including HTTP/2 when negotiated.
+    // Multipart framing remains endpoint-specific; common HTTP/TLS client
+    // identity is applied centrally in enqueue() for every request method.
     enqueue(PendingRequest {
         Method::Post,
         request,
@@ -258,7 +256,6 @@ void HTTPConnector::put (QNetworkRequest& request, const QByteArrayCreator& data
 	if (request.priority() != QNetworkRequest::LowPriority) {
 		request.setPriority(QNetworkRequest::HighPriority);
 	}
-	request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
 	enqueue(PendingRequest {
 		Method::Put,
@@ -275,7 +272,6 @@ void HTTPConnector::del (QNetworkRequest& request)
 	if (request.priority() != QNetworkRequest::LowPriority) {
 		request.setPriority(QNetworkRequest::HighPriority);
 	}
-	request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     // Preserve the distinction the official client makes between a deletion
     // initiated here and the same post_deleted event received from another
@@ -295,6 +291,12 @@ void HTTPConnector::del (QNetworkRequest& request)
 
 void HTTPConnector::enqueue(PendingRequest request)
 {
+    if (request.method == Method::Get) {
+        NetworkRequest::applyDesktopProfile(request.request);
+    } else {
+        NetworkRequest::applyDesktopMutationProfile(request.request);
+    }
+
 	if (request.request.priority() == QNetworkRequest::LowPriority) {
 		lowPriorityRequests.enqueue(std::move(request));
 	} else {
@@ -321,7 +323,11 @@ HTTPConnector* HTTPConnector::connectorWithPendingRequest(bool lowPriority)
 
 void HTTPConnector::processQueues()
 {
-	while (globalActiveRequests < MaxConcurrentRequests) {
+    // QNetworkAccessManager already owns protocol-specific flow control:
+    // HTTP/1.1 queues per host/port and HTTP/2 multiplexes according to the
+    // negotiated connection and peer stream limits. A second process-global
+    // gate only serializes unrelated work and hides available HTTP/2 capacity.
+	while (true) {
 		HTTPConnector* connector = connectorWithPendingRequest(false);
 		bool lowPriority = false;
 		if (!connector) {
@@ -399,7 +405,6 @@ void HTTPConnector::startRequest(PendingRequest request)
 	}
 
 	++activeRequests;
-	++globalActiveRequests;
 	activeReplies.insert(reply);
     if (request.multipartData) {
         activeMultipartRequests.insert(reply, request.multipartData);
@@ -445,9 +450,6 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 				if (connector->activeRequests > 0) {
 					--connector->activeRequests;
 				}
-				if (globalActiveRequests > 0) {
-					--globalActiveRequests;
-				}
 				if (!connector->restartingTransport) {
 					processQueues();
 				}
@@ -456,6 +458,21 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 
 			const int statusCode = currentReply->error();
 			auto data = currentReply->readAll();
+
+            QList<QNetworkCookie> responseCookies;
+            const auto rawHeaders = currentReply->rawHeaderPairs();
+            for (const auto& header : rawHeaders) {
+                if (header.first.compare(
+                        QByteArrayLiteral("Set-Cookie"),
+                        Qt::CaseInsensitive) != 0) {
+                    continue;
+                }
+                responseCookies.append(
+                    QNetworkCookie::parseCookies(header.second));
+            }
+            if (!responseCookies.isEmpty()) {
+                NetworkRequest::updateSessionCookies(responseCookies);
+            }
 
             if (currentReply->operation()
                     == QNetworkAccessManager::DeleteOperation
@@ -487,9 +504,6 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 
 			if (connector->activeRequests > 0) {
 				--connector->activeRequests;
-			}
-			if (globalActiveRequests > 0) {
-				--globalActiveRequests;
 			}
 			if (!connector->restartingTransport) {
 				processQueues();
