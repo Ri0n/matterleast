@@ -80,10 +80,16 @@ PendingPostService::PendingPostService(Backend& backendInstance)
             [this](BackendChannel& channel, const BackendPost& post) {
         handleAuthoritativePost(channel, post);
     });
-    connect(&AttachmentUploadService::instance(backend),
+    AttachmentUploadService& uploadService =
+        AttachmentUploadService::instance(backend);
+    connect(&uploadService,
             &AttachmentUploadService::changed,
             this,
             &PendingPostService::handleAttachmentUploadChanged);
+    connect(&uploadService,
+            &AttachmentUploadService::progressChanged,
+            this,
+            &PendingPostService::handleAttachmentUploadProgress);
 }
 
 PendingPostService::~PendingPostService()
@@ -924,14 +930,82 @@ void PendingPostService::handleAttachmentUploadChanged(
     }
 }
 
+int PendingPostService::attachmentUploadProgress(
+    const PendingPost& post) const
+{
+    qint64 sent = 0;
+    qint64 total = 0;
+    bool hasMeasuredUpload = false;
+    const AttachmentUploadService& uploads =
+        AttachmentUploadService::instance(backend);
+
+    for (const PendingAttachment& attachment : post.attachments) {
+        if (attachment.uploadId.isEmpty()) {
+            continue;
+        }
+
+        const AttachmentUpload* upload = uploads.upload(attachment.uploadId);
+        if (!upload) {
+            continue;
+        }
+        if (upload->state == AttachmentUploadState::Uploading
+            && upload->bytesTotal <= 0) {
+            return -1;
+        }
+        if (upload->bytesTotal <= 0) {
+            continue;
+        }
+
+        hasMeasuredUpload = true;
+        total += upload->bytesTotal;
+        sent += upload->state == AttachmentUploadState::Ready
+            ? upload->bytesTotal
+            : qBound<qint64>(0, upload->bytesSent, upload->bytesTotal);
+    }
+
+    if (!hasMeasuredUpload || total <= 0) {
+        return -1;
+    }
+    return qBound(0, static_cast<int>((sent * 100) / total), 100);
+}
+
+void PendingPostService::handleAttachmentUploadProgress(
+    const QString& uploadId)
+{
+    if (uploadId.isEmpty()) {
+        return;
+    }
+
+    for (const auto& owned : posts) {
+        PendingPost* post = owned.get();
+        if (!post || post->state != PendingPostState::Uploading) {
+            continue;
+        }
+
+        const bool matched = std::any_of(
+            post->attachments.cbegin(),
+            post->attachments.cend(),
+            [&uploadId](const PendingAttachment& attachment) {
+                return attachment.uploadId == uploadId;
+            });
+        if (matched) {
+            emit postChanged(
+                post->channelId, post->rootId, post->pendingPostId);
+        }
+    }
+}
+
 QString PendingPostService::stateText(PendingPostState state,
                                       int attemptCount,
                                       int interveningPostCount,
-                                      const QString& failureText)
+                                      const QString& failureText,
+                                      int uploadPercent)
 {
     switch (state) {
     case PendingPostState::Uploading:
-        return QObject::tr("Uploading attachment…");
+        return uploadPercent >= 0
+            ? QObject::tr("Uploading attachment… %1%").arg(uploadPercent)
+            : QObject::tr("Uploading attachment…");
     case PendingPostState::Queued:
         return QObject::tr("Queued");
     case PendingPostState::Sending:

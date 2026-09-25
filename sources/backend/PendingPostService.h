@@ -105,9 +105,12 @@ public:
     bool retry(const QString& pendingPostId);
     bool cancel(const QString& pendingPostId);
 
+    int attachmentUploadProgress(const PendingPost& post) const;
+
     static QString stateText(PendingPostState state, int attemptCount,
                              int interveningPostCount,
-                             const QString& failureText);
+                             const QString& failureText,
+                             int uploadPercent = -1);
 
     static constexpr int MaxAttempts = 6;
     static constexpr int MaxInterveningPosts = 3;
@@ -148,6 +151,7 @@ private:
     void handleAuthoritativePost(BackendChannel& channel,
                                  const BackendPost& post);
     void handleAttachmentUploadChanged(const QString& uploadId);
+    void handleAttachmentUploadProgress(const QString& uploadId);
     bool attachmentsReady(const PendingPost& post) const;
     QList<QString> attachmentFileIds(const PendingPost& post) const;
 

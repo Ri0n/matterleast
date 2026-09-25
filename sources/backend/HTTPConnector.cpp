@@ -202,6 +202,7 @@ void HTTPConnector::get (QNetworkRequest& request, HttpResponseCallback response
 		false,
 		std::move(responseHandler),
         {},
+        {},
 	});
 }
 
@@ -218,12 +219,14 @@ void HTTPConnector::post (QNetworkRequest& request, const QByteArrayCreator& dat
 		data.isJson(),
 		std::move(responseHandler),
         {},
+        {},
 	});
 }
 
 void HTTPConnector::post(QNetworkRequest& request,
                          QSharedPointer<QHttpMultiPart> data,
-                         HttpResponseCallback responseHandler)
+                         HttpResponseCallback responseHandler,
+                         UploadProgressHandler uploadProgressHandler)
 {
     if (request.priority() != QNetworkRequest::LowPriority) {
         request.setPriority(QNetworkRequest::HighPriority);
@@ -248,6 +251,7 @@ void HTTPConnector::post(QNetworkRequest& request,
         false,
         std::move(responseHandler),
         std::move(data),
+        std::move(uploadProgressHandler),
     });
 }
 
@@ -263,6 +267,7 @@ void HTTPConnector::put (QNetworkRequest& request, const QByteArrayCreator& data
 		data,
 		data.isJson(),
 		std::move(responseHandler),
+        {},
         {},
 	});
 }
@@ -285,6 +290,7 @@ void HTTPConnector::del (QNetworkRequest& request)
 		QByteArray(),
 		false,
 		HttpResponseCallback([](QVariant, QByteArray, const QNetworkReply&) {}),
+        {},
         {},
 	});
 }
@@ -373,7 +379,14 @@ void HTTPConnector::startRequest(PendingRequest request)
             connect(reply,
                     &QNetworkReply::uploadProgress,
                     this,
-                    [reply, lastPercent = -10](qint64 sent, qint64 total) mutable {
+                    [reply,
+                     progressHandler = std::move(request.uploadProgressHandler),
+                     lastLoggedPercent = -10](
+                        qint64 sent, qint64 total) mutable {
+                        if (progressHandler) {
+                            progressHandler(sent, total);
+                        }
+
                         if (total <= 0) {
                             return;
                         }
@@ -381,10 +394,10 @@ void HTTPConnector::startRequest(PendingRequest request)
                         const int percent =
                             static_cast<int>((sent * 100) / total);
                         if (percent < 100
-                            && percent - lastPercent < 10) {
+                            && percent - lastLoggedPercent < 10) {
                             return;
                         }
-                        lastPercent = percent;
+                        lastLoggedPercent = percent;
                         qCInfo(lcUploadTrace).nospace()
                             << "HTTP_UPLOAD_PROGRESS reply="
                             << static_cast<const void*>(reply)

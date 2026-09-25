@@ -122,6 +122,18 @@ private slots:
              + QStringLiteral("/outbox")).removeRecursively();
     }
 
+    void uploadStateTextIncludesMeasuredProgress()
+    {
+        QCOMPARE(
+            PendingPostService::stateText(
+                PendingPostState::Uploading, 0, 0, QString(), 42),
+            QStringLiteral("Uploading attachment… 42%"));
+        QCOMPARE(
+            PendingPostService::stateText(
+                PendingPostState::Uploading, 0, 0, QString()),
+            QStringLiteral("Uploading attachment…"));
+    }
+
     void authoritativeRowsInsertBeforePendingTail()
     {
         Backend backend;
