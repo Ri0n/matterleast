@@ -32,8 +32,10 @@
 #include <QCursor>
 #include <QDateTime>
 #include <QDebug>
+#include <QDrag>
 #include <QEvent>
 #include <QMenu>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QPlainTextEdit>
@@ -246,6 +248,24 @@ PostWidget::PostWidget(Backend& backend,
 		qDebug() << "Link hovered:" << link;
 		hoveredLink = link;
 	});
+    connect(messageContent, &MessageContentWidget::linkDragRequested,
+            this, [this](const QString& link) {
+        const QUrl url(link);
+        if (!url.isValid() || url.isEmpty()) {
+            return;
+        }
+
+        // text/uri-list is the interoperable payload browsers expect when a
+        // hyperlink is dragged from a page; text/plain keeps address-bar and
+        // text drop targets useful as well.
+        auto* mimeData = new QMimeData;
+        mimeData->setUrls({url});
+        mimeData->setText(url.toString());
+
+        QDrag drag(messageContent);
+        drag.setMimeData(mimeData);
+        drag.exec(Qt::CopyAction);
+    });
 
     const QString teamId = mentionTeamId();
     if (!teamId.isEmpty()) {

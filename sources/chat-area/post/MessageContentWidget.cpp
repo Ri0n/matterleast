@@ -12,6 +12,7 @@
 #include <QFontDatabase>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QPlainTextEdit>
@@ -27,6 +28,7 @@
 #include <QTextDocumentFragment>
 #include <QTextOption>
 #include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QVector>
 
@@ -165,6 +167,19 @@ void applyEmojiPresentation(QTextDocument& document, bool jumbo)
     EmojiPresentation::apply(document, mode);
 }
 
+bool isDraggableMessageLink(const QString& link)
+{
+    if (link.isEmpty()) {
+        return false;
+    }
+
+    const QUrl url(link);
+    const QString scheme = url.scheme().toLower();
+    return url.isValid() && !scheme.isEmpty()
+        && scheme != QStringLiteral("mattermost-user")
+        && scheme != QStringLiteral("mattermost-group");
+}
+
 class WrappedRichText final : public QTextBrowser
 {
 public:
@@ -192,6 +207,11 @@ public:
         applyWrapMode();
     }
 
+    void setLinkDragHandler(std::function<void(const QString&)> handler)
+    {
+        linkDragHandler = std::move(handler);
+    }
+
     void setContentHtml(const QString& html, bool jumboEmoji = false)
     {
         document()->setDefaultFont(font());
@@ -214,6 +234,49 @@ public:
     }
 
 protected:
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        dragLink.clear();
+        dragConsumed = false;
+        if (event && event->button() == Qt::LeftButton) {
+            const QString candidate = anchorAt(event->pos());
+            if (isDraggableMessageLink(candidate)) {
+                dragLink = candidate;
+                dragStartPosition = event->pos();
+            }
+        }
+        QTextBrowser::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        if (!dragLink.isEmpty() && event
+            && (event->buttons() & Qt::LeftButton)
+            && (event->pos() - dragStartPosition).manhattanLength()
+                >= QApplication::startDragDistance()) {
+            const QString link = std::exchange(dragLink, QString());
+            dragConsumed = true;
+            if (linkDragHandler) {
+                linkDragHandler(link);
+            }
+            event->accept();
+            return;
+        }
+        QTextBrowser::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        dragLink.clear();
+        if (dragConsumed && event && event->button() == Qt::LeftButton) {
+            dragConsumed = false;
+            event->accept();
+            return;
+        }
+        dragConsumed = false;
+        QTextBrowser::mouseReleaseEvent(event);
+    }
+
     void resizeEvent(QResizeEvent* event) override
     {
         QTextBrowser::resizeEvent(event);
@@ -259,6 +322,10 @@ private:
     }
 
     std::function<void()> heightChanged;
+    std::function<void(const QString&)> linkDragHandler;
+    QString dragLink;
+    QPoint dragStartPosition;
+    bool dragConsumed = false;
     bool updatingHeight = false;
 };
 
@@ -892,6 +959,9 @@ void MessageContentWidget::addQuote(const QString& html)
 
     auto* quote = new QuoteBlock(
         html, [this] { scheduleDimensionsChanged(); }, this);
+    quote->browser()->setLinkDragHandler([this](const QString& link) {
+        emit linkDragRequested(link);
+    });
     connect(quote->browser(),
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
             this,
@@ -909,6 +979,9 @@ void MessageContentWidget::addRichText(const QString& html)
 
     auto* richText = new WrappedRichText(
         [this] { scheduleDimensionsChanged(); }, this);
+    richText->setLinkDragHandler([this](const QString& link) {
+        emit linkDragRequested(link);
+    });
     richText->setContentHtml(html, _jumboEmojiMessage);
     connect(richText,
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
