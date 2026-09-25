@@ -75,9 +75,9 @@ QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
             object.value(QStringLiteral("attachment_paths")).toArray();
         entry.attachmentPaths.reserve(attachmentValues.size());
         for (const QJsonValue& attachmentValue : attachmentValues) {
-            const QString path = attachmentValue.toString();
-            if (!path.isEmpty()) {
-                entry.attachmentPaths.push_back(path);
+            const QString attachmentPath = attachmentValue.toString();
+            if (!attachmentPath.isEmpty()) {
+                entry.attachmentPaths.push_back(attachmentPath);
             }
         }
         entry.recoveryId =
@@ -128,8 +128,8 @@ bool DraftStore::save(const QString& path, const QVector<DraftEntry>& drafts)
     QJsonArray array;
     for (const DraftEntry& entry : drafts) {
         QJsonArray attachmentPaths;
-        for (const QString& path : entry.attachmentPaths) {
-            attachmentPaths.push_back(path);
+        for (const QString& attachmentPath : entry.attachmentPaths) {
+            attachmentPaths.push_back(attachmentPath);
         }
         QJsonObject object {
             {QStringLiteral("channel_id"), entry.channelId},

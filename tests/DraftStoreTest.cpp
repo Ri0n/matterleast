@@ -61,7 +61,7 @@ private slots:
         first.channelId = QStringLiteral("channel");
         first.rootId = QStringLiteral("root");
         first.message = QStringLiteral("first unsent");
-        first.attachmentPaths = {
+        first.attachmentPaths = QStringList {
             QStringLiteral("/tmp/first.png"),
             QStringLiteral("/tmp/second.pdf"),
         };
