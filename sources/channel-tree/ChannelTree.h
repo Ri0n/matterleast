@@ -184,6 +184,7 @@ private:
 	void setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed);
 	void setChannelMutedVisual(const QString& channelId, bool muted);
     void refreshChannelUnreadVisual(const QString& channelId);
+    void refreshAllChannelActivityVisuals();
 	void setChannelUnreadVisual(const QString& channelId, bool unread);
 	void setChannelMentionedVisual(const QString& channelId, bool mentioned);
 	bool resolveChannelDropTarget(QTreeWidgetItem* source, const QPoint& pos,

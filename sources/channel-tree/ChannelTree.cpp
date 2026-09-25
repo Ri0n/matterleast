@@ -231,6 +231,9 @@ void ChannelTree::populateSidebars(Backend& backend)
             this, &ChannelTree::setChannelMutedVisual, Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::channelActivityChanged,
             this, &ChannelTree::refreshChannelUnreadVisual, Qt::UniqueConnection);
+    connect(&sidebar, &SidebarService::channelActivityReset,
+            this, &ChannelTree::refreshAllChannelActivityVisuals,
+            Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::channelMentionedChanged,
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
 
@@ -867,6 +870,28 @@ void ChannelTree::refreshChannelUnreadVisual(const QString& channelId)
 
     setChannelUnreadVisual(
         channelId, SidebarService::instance(*backendForSidebar).isChannelUnread(*channel));
+}
+
+void ChannelTree::refreshAllChannelActivityVisuals()
+{
+    if (!backendForSidebar) {
+        return;
+    }
+
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    const QStringList channelIds = channelToItemMap.keys();
+    for (const QString& channelId : channelIds) {
+        BackendChannel* channel =
+            backendForSidebar->getStorage().getChannelById(channelId);
+        if (!channel) {
+            continue;
+        }
+
+        setChannelUnreadVisual(
+            channelId, sidebar.isChannelUnread(*channel));
+        setChannelMentionedVisual(
+            channelId, sidebar.hasUnreadMention(channelId));
+    }
 }
 
 void ChannelTree::setChannelUnreadVisual(const QString& channelId, bool unread)
