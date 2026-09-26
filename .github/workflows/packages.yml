@@ -554,10 +554,22 @@ jobs:
 
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
           $installerInfo = $installer.VersionInfo
-          if (-not $installerInfo.ProductName -or -not $installerInfo.FileVersion) {
-            throw "NSIS installer is missing Windows version metadata"
+          # Dump everything before asserting so packaging regressions are
+          # diagnosable from CI without downloading the failed staging tree.
+          $installerInfo | Format-List *
+          $expected = [ordered]@{
+            ProductName = "MatterLeast"
+            FileDescription = "MatterLeast Installer"
+            CompanyName = "MatterLeast contributors"
+            FileVersion = $version
+            ProductVersion = $version
           }
-          $installerInfo | Format-List ProductName,FileDescription,CompanyName,FileVersion,ProductVersion
+          foreach ($entry in $expected.GetEnumerator()) {
+            $actual = $installerInfo.($entry.Key)
+            if ($actual -ne $entry.Value) {
+              throw "NSIS installer $($entry.Key)='$actual', expected '$($entry.Value)'"
+            }
+          }
 
           $output = Join-Path $installer.DirectoryName "matterleast-$version-windows-x64-installer.exe"
           Move-Item -LiteralPath $installer.FullName -Destination $output
