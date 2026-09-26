@@ -10,8 +10,11 @@ if(MATTERLEAST_VERSION)
 else()
 	find_package(Git QUIET)
 	if(Git_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+		# A live Git checkout is authoritative. Use the newest reachable release
+		# tag so development builds after a release keep that release version
+		# instead of depending on a stale source-archive fallback file.
 		execute_process(
-			COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match --match "v[0-9]*"
+			COMMAND "${GIT_EXECUTABLE}" describe --tags --abbrev=0 --match "v[0-9]*"
 			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 			RESULT_VARIABLE git_version_result
 			OUTPUT_VARIABLE git_version_tag
@@ -22,12 +25,17 @@ else()
 			AND git_version_tag MATCHES "^v[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
 			string(REGEX REPLACE "^v" "" version "${git_version_tag}")
 		endif()
+	elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.version")
+		# Source archives/shallow distributions may not carry usable Git
+		# metadata. Their generated .version file is the fallback.
+		file(READ "${CMAKE_CURRENT_SOURCE_DIR}/.version" version)
+		string(STRIP "${version}" version)
 	endif()
 endif()
 
 if(NOT version)
-	file(READ "${CMAKE_CURRENT_SOURCE_DIR}/.version" version)
-	string(STRIP "${version}" version)
+	message(FATAL_ERROR
+		"Cannot determine MatterLeast version: no MATTERLEAST_VERSION, reachable v* Git tag, or generated .version file")
 endif()
 
 if(NOT version MATCHES "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
