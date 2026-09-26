@@ -314,6 +314,21 @@ if(WIN32)
 	set(CPACK_NSIS_CONTACT "${CPACK_PACKAGE_CONTACT}")
 	set(CPACK_NSIS_BRANDING_TEXT "${PRODUCT_NAME} ${PROJECT_VERSION}")
 	set(CPACK_NSIS_MANIFEST_DPI_AWARE ON)
+
+	# CPack's stock NSIS template does not add a VERSIONINFO resource to the
+	# installer executable. Keep the installer identifiable in Explorer and
+	# security/reputation tooling using the same canonical metadata as the app.
+	# NSIS requires four numeric fields for the fixed version while the string
+	# version remains the user-facing MatterLeast version (for example 1.0).
+	string(APPEND CPACK_NSIS_DEFINES
+		"\nVIProductVersion ${MATTERLEAST_MSIX_VERSION}"
+		"\nVIFileVersion ${MATTERLEAST_MSIX_VERSION}"
+		"\nVIAddVersionKey /LANG=1033 \\\"ProductName\\\" \\\"${PRODUCT_NAME}\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"ProductVersion\\\" \\\"${PROJECT_VERSION}\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"CompanyName\\\" \\\"${PRODUCT_VENDOR}\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"FileDescription\\\" \\\"${PRODUCT_NAME} Installer\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"FileVersion\\\" \\\"${PROJECT_VERSION}\\\""
+	)
 endif()
 
 include(CPack)
