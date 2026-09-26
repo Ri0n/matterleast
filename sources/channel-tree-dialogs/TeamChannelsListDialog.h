@@ -31,6 +31,8 @@ public:
                            QWidget* parent);
     ~TeamChannelsListDialog() override;
 
+    static void showForTeam(Backend& backend, BackendTeam& team, QWidget* parent);
+
     void addContextMenuActions(QMenu& menu, const QVariant& selectedItemData) override;
     void setItemCountLabel(uint32_t count) override;
 
@@ -42,10 +44,14 @@ private:
     };
 
     void setupVirtualList(const FilterListDialogConfig& cfg);
-    QWidget* createHeaderRow();
     QWidget* createChannelRow(int index);
     BackendChannel* channelAt(int index) const;
+    bool isJoinedChannel(const BackendChannel& channel) const;
+    void activateChannel(BackendChannel* channel);
+    void openCreateChannelDialog();
     void showChannelContextMenu(BackendChannel* channel, const QPoint& globalPos);
+    void requestMemberCounts(const QVector<BackendChannel*>& channels);
+    void applyMemberCounts(const QJsonObject& counts);
 
     void requestChannelRange(int first, int last);
     void loadPage(int page);

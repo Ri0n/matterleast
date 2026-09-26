@@ -50,8 +50,11 @@
 #include "backend/types/BackendUser.h"
 #include "build-config.h"
 #include "channel-tree/AttentionList.h"
+#include "channel-tree/ChannelIcons.h"
+#include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/ChannelQuickList.h"
 #include "channel-tree-dialogs/FilterListDialog.h"
+#include "channel-tree-dialogs/TeamChannelsListDialog.h"
 #include "channel-tree-dialogs/UserSearchDialog.h"
 #include "chat-area/ChatArea.h"
 #include "log.h"
@@ -112,6 +115,27 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
             openDrafts(teamId);
         }
     });
+    if (auto* delegate = qobject_cast<ChannelItemDelegate*>(
+            ui->channelList->itemDelegate())) {
+        connect(delegate, &ChannelItemDelegate::categoryActionRequested,
+                this, [this](const QString& teamId, const QString& categoryId) {
+            const SidebarTeamState* state =
+                SidebarService::instance(backend).teamState(teamId);
+            const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
+            if (!category) {
+                return;
+            }
+            if (category->type == QStringLiteral("direct_messages")) {
+                openDirectMessageSearch();
+            } else if (category->type == QStringLiteral("channels")) {
+                if (BackendTeam* team = backend.getStorage().getTeamById(teamId)) {
+                    TeamChannelsListDialog::showForTeam(
+                        backend, *team, ui->channelList);
+                }
+            }
+        });
+    }
+
 	ui->channelList->setChatAreaStackedWidget(ui->chatAreaStackedWidget);
 	ui->channelList->setFocus();
 
@@ -324,23 +348,6 @@ void MainWindow::setupChannelTabs()
 		refreshChannelUnreadFilter();
 	});
 
-	connect(ui->channelList, &QTreeWidget::itemClicked, this,
-	        [this](QTreeWidgetItem* item, int column) {
-		if (!item || column != 1
-			|| item->data(0, ChannelTree::ItemKindRole).toInt()
-				!= ChannelTree::CategoryItemKind) {
-			return;
-		}
-
-		const QString teamId = item->data(0, ChannelTree::ItemTeamIdRole).toString();
-		const QString categoryId = item->data(0, ChannelTree::ItemIdRole).toString();
-		const SidebarTeamState* state = SidebarService::instance(backend).teamState(teamId);
-		const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
-		if (category && category->type == QStringLiteral("direct_messages")) {
-			openDirectMessageSearch();
-		}
-	});
-
 	connect(recentChannels, &ChannelQuickList::channelSelected,
 	        ui->channelList, &ChannelTree::openChannel);
 	connect(recentChannels, &ChannelQuickList::channelContextMenuRequested,
@@ -472,10 +479,17 @@ void MainWindow::refreshChannelUnreadFilter()
 			const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
 			const bool directMessages = category
 				&& category->type == QStringLiteral("direct_messages");
+			const bool channelsCategory = category
+				&& category->type == QStringLiteral("channels");
+			const bool hasCategoryAction = directMessages || channelsCategory;
 
-			categoryItem->setText(1, directMessages ? QStringLiteral("+") : QString());
-			categoryItem->setTextAlignment(1, Qt::AlignCenter);
-			categoryItem->setToolTip(1, directMessages ? tr("Start direct message") : QString());
+			categoryItem->setData(0, SidebarItem::CategoryActionRole,
+			                      hasCategoryAction);
+			categoryItem->setToolTip(
+				0, directMessages ? tr("Start conversation")
+				                  : (channelsCategory ? tr("Browse public channels")
+				                                      : QString()));
+
 
 			// Mattermost's category channel_ids order is not guaranteed to track
 			// live DM activity. Keep the server category membership but display
@@ -624,25 +638,7 @@ void MainWindow::openMessageSearch()
 
 void MainWindow::openDirectMessageSearch()
 {
-	FilterListDialogConfig config;
-	config.title = tr("Start Direct Message");
-	config.description = tr("Search the Mattermost user directory and select a person to message.");
-	config.filterLabelText = tr("Search users");
-	config.buttons = QDialogButtonBox::Ok | QDialogButtonBox::Cancel;
-	config.disabledItemTooltip = tr("This user cannot be selected");
-
-	UserSearchOptions options;
-	options.limit = 100;
-
-	auto* dialog = new UserSearchDialog(backend, config, options, {}, this);
-	dialog->setAttribute(Qt::WA_DeleteOnClose);
-	connect(dialog, &QDialog::accepted, this, [this, dialog] {
-		const BackendUser* user = dialog->getSelectedUser();
-		if (user) {
-			backend.createDirectChannel(*user);
-		}
-	});
-	dialog->show();
+	UserSearchDialog::showConversationPicker(backend, this);
 }
 
 void MainWindow::createMenu()

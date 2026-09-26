@@ -742,6 +742,34 @@ void Backend::searchTeamPublicChannels(
         }));
 }
 
+void Backend::retrieveChannelsMemberCounts(
+    const QStringList& channelIds,
+    std::function<void(QJsonObject)> callback)
+{
+    QJsonArray payload;
+    for (const QString& channelId : channelIds) {
+        if (!channelId.isEmpty()) {
+            payload.append(channelId);
+        }
+    }
+
+    if (payload.isEmpty()) {
+        if (callback) {
+            callback({});
+        }
+        return;
+    }
+
+    NetworkRequest request(QStringLiteral("channels/stats/member_count"));
+    httpConnector.post(request, QByteArrayCreator(payload),
+                       HttpResponseCallback(
+        [callback = std::move(callback)](const QJsonDocument& doc) mutable {
+            if (callback) {
+                callback(doc.object());
+            }
+        }));
+}
+
 void Backend::retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback)
 {
     NetworkRequest request ("users/me/teams/" + team.id + "/channels");
@@ -844,24 +872,36 @@ void Backend::retrieveTeamMember (BackendTeam& team, const BackendUser& user)
 	}));
 }
 
-void Backend::retrieveChannel (BackendTeam& team, QString channelID)
+void Backend::retrieveChannel (BackendTeam& team,
+                               QString channelID,
+                               std::function<void(BackendChannel&)> callback)
 {
 	NetworkRequest request ("channels/" + channelID);
 
 	LOG_DEBUG ("retrieveChannel '" << channelID << "' of team '" << team.name << "'");
 
-	httpConnector.get (request, HttpResponseCallback ([this, &team] (const QJsonDocument& doc) {
-		LOG_DEBUG ("retrieveChannel reply");
+    QPointer<BackendTeam> teamGuard(&team);
+	httpConnector.get(request, HttpResponseCallback(
+        [this, teamGuard, callback = std::move(callback)](const QJsonDocument& doc) mutable {
+        LOG_DEBUG ("retrieveChannel reply");
+        if (!teamGuard || !doc.isObject()) {
+            return;
+        }
 
-#if 0
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		std::cout << "retrieveChannel reply: " <<  jsonString.toStdString() << std::endl;
-#endif
+        BackendChannel* channel = storage.addTeamChannel(*teamGuard, doc.object());
+        if (!channel) {
+            channel = storage.getChannelById(
+                doc.object().value(QStringLiteral("id")).toString());
+        }
+        if (!channel) {
+            return;
+        }
 
-		BackendChannel* channel =  storage.addTeamChannel (team, doc.object());
-		LOG_DEBUG ("\tNew Channel added: " << channel->id << " " << channel->display_name);
-
-		emit team.onNewChannel (*channel);
+        LOG_DEBUG ("\tChannel available: " << channel->id << " " << channel->display_name);
+        emit teamGuard->onNewChannel(*channel);
+        if (callback) {
+            callback(*channel);
+        }
     }));
 }
 
@@ -1427,6 +1467,44 @@ void Backend::uploadFile(
         std::move(progressHandler));
 }
 
+void Backend::createChannel(BackendTeam& team,
+                            const QString& name,
+                            const QString& displayName,
+                            const QString& purpose,
+                            bool privateChannel,
+                            std::function<void(BackendChannel&)> callback)
+{
+    QJsonObject payload {
+        {QStringLiteral("team_id"), team.id},
+        {QStringLiteral("name"), name},
+        {QStringLiteral("display_name"), displayName},
+        {QStringLiteral("purpose"), purpose},
+        {QStringLiteral("type"), privateChannel ? QStringLiteral("P")
+                                                : QStringLiteral("O")},
+    };
+
+    QPointer<BackendTeam> teamGuard(&team);
+    NetworkRequest request(QStringLiteral("channels"));
+    httpConnector.post(request, QByteArrayCreator(payload), HttpResponseCallback(
+        [this, teamGuard, callback = std::move(callback)](
+            QVariant status, const QJsonDocument& doc) mutable {
+            if (status.toInt() != QNetworkReply::NoError || !teamGuard
+                || !doc.isObject()) {
+                return;
+            }
+
+            BackendChannel* channel = storage.addTeamChannel(*teamGuard, doc.object());
+            if (!channel) {
+                return;
+            }
+
+            emit teamGuard->onNewChannel(*channel);
+            if (callback) {
+                callback(*channel);
+            }
+        }));
+}
+
 void Backend::createDirectChannel(const BackendUser& user,
                                   std::function<void(BackendChannel&)> callback)
 {
@@ -1454,7 +1532,57 @@ void Backend::createDirectChannel(const BackendUser& user,
         }));
 }
 
-void Backend::addUserToChannel (const BackendChannel& channel, const QString& userID)
+void Backend::createGroupChannel(
+    const QStringList& requestedUserIds,
+    std::function<void(BackendChannel&)> callback)
+{
+    QStringList userIds = requestedUserIds;
+    userIds.removeAll(QString());
+    userIds.removeDuplicates();
+    userIds.removeAll(getLoginUser().id);
+
+    QJsonArray payload;
+    for (const QString& userId : std::as_const(userIds)) {
+        payload.append(userId);
+    }
+    if (payload.isEmpty()) {
+        return;
+    }
+
+    NetworkRequest request(QStringLiteral("channels/group"));
+    httpConnector.post(request, QByteArrayCreator(payload), HttpResponseCallback(
+        [this, callback = std::move(callback)](
+            QVariant status, const QJsonDocument& doc) mutable {
+            if (status.toInt() != QNetworkReply::NoError || !doc.isObject()) {
+                return;
+            }
+
+            const QString channelId =
+                doc.object().value(QStringLiteral("id")).toString();
+            const bool alreadyKnown = !channelId.isEmpty()
+                && storage.getChannelById(channelId);
+
+            BackendChannel* channel = storage.addGroupChannel(doc.object());
+            if (!channel) {
+                return;
+            }
+
+            updateUserPreferences(BackendUserPreferences {
+                QStringLiteral("group_channel_show"), channel->id,
+                QStringLiteral("true")});
+
+            if (!alreadyKnown) {
+                emit storage.groupChannels.onNewChannel(*channel);
+            }
+            if (callback) {
+                callback(*channel);
+            }
+        }));
+}
+
+void Backend::addUserToChannel (const BackendChannel& channel,
+                                const QString& userID,
+                                std::function<void()> callback)
 {
 	QJsonObject json {
 		{"user_id", userID}
@@ -1462,15 +1590,12 @@ void Backend::addUserToChannel (const BackendChannel& channel, const QString& us
 
 	NetworkRequest request ("channels/" + channel.id + "/members");
 
-	httpConnector.post (request, json, HttpResponseCallback ([this](QVariant, QByteArray) {
-#if 0
-		QJsonDocument doc = QJsonDocument::fromJson(data);
-
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		std::cout << jsonString.toStdString() << std::endl;
-#endif
-
-	}));
+	httpConnector.post(request, json, HttpResponseCallback(
+        [callback = std::move(callback)](QVariant status, QByteArray) mutable {
+            if (status.toInt() == QNetworkReply::NoError && callback) {
+                callback();
+            }
+        }));
 }
 
 void Backend::removeUserFromChannel (const BackendChannel& channel, const QString& userID)
@@ -1481,9 +1606,10 @@ void Backend::removeUserFromChannel (const BackendChannel& channel, const QStrin
 	//there is no need of response callback, because a webSocket event 'user_removed' will come
 }
 
-void Backend::joinChannel (const BackendChannel& channel)
+void Backend::joinChannel (const BackendChannel& channel,
+                           std::function<void()> callback)
 {
-	return addUserToChannel (channel, getLoginUser().id);
+	return addUserToChannel(channel, getLoginUser().id, std::move(callback));
 }
 
 void Backend::leaveChannel (const BackendChannel& channel)

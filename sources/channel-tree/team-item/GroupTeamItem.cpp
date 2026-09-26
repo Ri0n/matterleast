@@ -55,43 +55,9 @@ void GroupTeamItem::showContextMenu (const QPoint& pos)
 		dialog->show ();
 	});
 
-	myMenu.addAction ("Start direct message", [this] {
-		QSet<QString> existingDirectUsers;
-		for (auto it = backend.getStorage().channels.cbegin();
-		     it != backend.getStorage().channels.cend(); ++it) {
-			const BackendChannel* channel = it.value();
-			if (channel && channel->type == BackendChannel::directChannel && !channel->name.isEmpty()) {
-				existingDirectUsers.insert(channel->name);
-			}
-		}
+	myMenu.addAction ("Start conversation", [this] {
+		UserSearchDialog::showConversationPicker(backend, treeWidget());
 
-		FilterListDialogConfig dialogCfg {
-			"Start direct message - Mattermost",
-			"Search for a user to message:",
-			"Search users by name:",
-			QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-			" already has a direct conversation"
-		};
-
-		auto* dialog = new UserSearchDialog(
-			backend, dialogCfg, UserSearchOptions {}, existingDirectUsers, treeWidget());
-		dialog->show();
-
-		QObject::connect(dialog, &UserSearchDialog::accepted, [this, dialog] {
-			const BackendUser* user = dialog->getSelectedUser();
-			if (!user) {
-				return;
-			}
-
-			if (const BackendChannel* existing = backend.getStorage().getDirectChannelByUserId(user->id)) {
-				if (auto* tree = static_cast<ChannelTree*>(treeWidget())) {
-					tree->openChannel(existing->id);
-				}
-				return;
-			}
-
-			backend.createDirectChannel(*user);
-		});
 	});
 
 	myMenu.addAction ("Add user to the team", [this] {
@@ -124,20 +90,9 @@ void GroupTeamItem::showContextMenu (const QPoint& pos)
 
 	myMenu.addAction ("View Public Channels", [this] {
 		BackendTeam* team = backend.getStorage().getTeamById(teamId);
-		if (!team) {
-			return;
+		if (team) {
+			TeamChannelsListDialog::showForTeam(backend, *team, treeWidget());
 		}
-
-		FilterListDialogConfig dialogCfg {
-			"Public Channels - Mattermost",
-			"Public Channels in team '" + team->display_name + "':",
-			"Filter channels by name:",
-			QDialogButtonBox::Close,
-			""
-		};
-
-		auto* dialog = new TeamChannelsListDialog(backend, dialogCfg, *team, treeWidget());
-		dialog->show();
 	});
 
 	myMenu.exec (pos);

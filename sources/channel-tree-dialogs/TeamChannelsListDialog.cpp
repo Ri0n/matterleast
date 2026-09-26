@@ -8,56 +8,177 @@
 #include <algorithm>
 #include <utility>
 
-#include <QFont>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMouseEvent>
+#include <QPainter>
 #include <QPointer>
+#include <QPushButton>
+#include <QResizeEvent>
 #include <QSizePolicy>
 #include <QTimer>
+#include <QVBoxLayout>
 
 #include "backend/Backend.h"
 #include "backend/PublicChannelPaging.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendTeam.h"
+#include "channel-tree/ChannelIcons.h"
+#include "channel-tree/ChannelTree.h"
+#include "channel-tree-dialogs/CreateChannelDialog.h"
 #include "info-dialogs/ChannelInfoDialog.h"
+#include "navigation/AppNavigationService.h"
+#include "ui/AvatarUtils.h"
 #include "ui_FilterListDialog.h"
 #include "widgets/LongListWidget.h"
 
 namespace Mattermost {
 namespace {
 
-constexpr int ChannelRowHeight = 44;
+constexpr int ChannelRowHeight = 54;
+constexpr int ChannelIconExtent = 18;
+constexpr int MetaIconExtent = 14;
 constexpr int SearchDelayMs = 200;
+
+class ElidedLabel final : public QLabel
+{
+public:
+    explicit ElidedLabel(const QString& text, QWidget* parent = nullptr)
+        : QLabel(parent)
+        , fullText_(text)
+    {
+        setMinimumWidth(0);
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        setTextInteractionFlags(Qt::NoTextInteraction);
+        setToolTip(text);
+        updateElision();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QLabel::resizeEvent(event);
+        updateElision();
+    }
+
+private:
+    void updateElision()
+    {
+        const int availableWidth = std::max(1, width());
+        QLabel::setText(fontMetrics().elidedText(
+            fullText_, Qt::ElideRight, availableWidth));
+    }
+
+    QString fullText_;
+};
 
 class PublicChannelRow final : public QWidget
 {
 public:
     PublicChannelRow(BackendChannel& channel,
+                     bool joined,
                      std::function<void(const QPoint&)> contextMenu,
+                     std::function<void()> activated,
                      QWidget* parent = nullptr)
         : QWidget(parent)
         , contextMenu_(std::move(contextMenu))
+        , activated_(std::move(activated))
     {
+        // This is only LongListWidget's first estimate. The widget keeps its
+        // natural dynamic size; LongListWidget measures the real sizeHint and
+        // updates its height index exactly as it does for chat rows.
         setMinimumHeight(ChannelRowHeight);
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         setContextMenuPolicy(Qt::CustomContextMenu);
+        setCursor(Qt::PointingHandCursor);
 
-        auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(8, 3, 8, 3);
-        layout->setSpacing(12);
+        auto* layout = new QVBoxLayout(this);
+        layout->setContentsMargins(12, 6, 12, 6);
+        layout->setSpacing(3);
 
-        auto* name = new QLabel(channel.display_name, this);
-        name->setTextInteractionFlags(Qt::NoTextInteraction);
-        name->setToolTip(channel.display_name);
-        layout->addWidget(name, 2);
+        auto* titleRow = new QHBoxLayout;
+        titleRow->setContentsMargins(0, 0, 0, 0);
+        titleRow->setSpacing(8);
 
-        auto* header = new QLabel(channel.header, this);
-        header->setTextInteractionFlags(Qt::NoTextInteraction);
-        header->setWordWrap(false);
-        header->setToolTip(channel.header);
-        layout->addWidget(header, 5);
+        auto* icon = new QLabel(this);
+        icon->setFixedSize(ChannelIconExtent, ChannelIconExtent);
+        icon->setAlignment(Qt::AlignCenter);
+        icon->setPixmap(ChannelIcons::channel().pixmap(
+            ChannelIconExtent, ChannelIconExtent));
+        icon->setAttribute(Qt::WA_TransparentForMouseEvents);
+        titleRow->addWidget(icon, 0, Qt::AlignVCenter);
+
+        auto* name = new ElidedLabel(channel.display_name, this);
+        name->setAttribute(Qt::WA_TransparentForMouseEvents);
+        titleRow->addWidget(name, 1);
+        layout->addLayout(titleRow);
+
+        // Match Mattermost's Browse Channels information hierarchy: the second
+        // line is membership/member-count/purpose metadata. Channel *header* is
+        // intentionally not rendered here; it is often long rich content and
+        // was what made the old directory look like a wall of text.
+        auto* metaRow = new QHBoxLayout;
+        metaRow->setContentsMargins(0, 0, 0, 0);
+        metaRow->setSpacing(4);
+
+        QFont metaFont = font();
+        if (metaFont.pointSizeF() > 0.0) {
+            metaFont.setPointSizeF(std::max(7.0, metaFont.pointSizeF() - 1.0));
+        }
+
+        auto makeMetaLabel = [this, &metaFont](const QString& text) {
+            auto* label = new QLabel(text, this);
+            label->setFont(metaFont);
+            label->setAttribute(Qt::WA_TransparentForMouseEvents);
+            return label;
+        };
+
+        if (joined) {
+            auto* membership = makeMetaLabel(tr("✓ Joined"));
+            QPalette membershipPalette = membership->palette();
+            membershipPalette.setColor(
+                QPalette::WindowText, AvatarUtils::statusColor(QStringLiteral("online")));
+            membership->setPalette(membershipPalette);
+            metaRow->addWidget(membership);
+
+            auto* dot = makeMetaLabel(QStringLiteral("·"));
+            dot->setEnabled(false);
+            metaRow->addWidget(dot);
+        }
+
+        auto* membersIcon = new QLabel(this);
+        membersIcon->setFixedSize(MetaIconExtent, MetaIconExtent);
+        membersIcon->setPixmap(ChannelIcons::member().pixmap(
+            QSize(MetaIconExtent, MetaIconExtent), QIcon::Disabled));
+        membersIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
+        metaRow->addWidget(membersIcon, 0, Qt::AlignVCenter);
+
+        auto* memberCount = makeMetaLabel(
+            channel.member_count >= 0
+                ? QString::number(channel.member_count)
+                : QStringLiteral("…"));
+        memberCount->setEnabled(false);
+        metaRow->addWidget(memberCount);
+
+        const QString purpose = channel.purpose.trimmed();
+        if (!purpose.isEmpty()) {
+            auto* dot = makeMetaLabel(QStringLiteral("·"));
+            dot->setEnabled(false);
+            metaRow->addWidget(dot);
+
+            auto* purposeLabel = new ElidedLabel(purpose, this);
+            purposeLabel->setFont(metaFont);
+            purposeLabel->setEnabled(false);
+            purposeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+            metaRow->addWidget(purposeLabel, 1);
+        } else {
+            metaRow->addStretch(1);
+        }
+
+        layout->addLayout(metaRow);
 
         connect(this, &QWidget::customContextMenuRequested, this,
                 [this](const QPoint& pos) {
@@ -67,8 +188,29 @@ public:
         });
     }
 
+protected:
+    void mouseDoubleClickEvent(QMouseEvent* event) override
+    {
+        if (event && event->button() == Qt::LeftButton && activated_) {
+            activated_();
+            event->accept();
+            return;
+        }
+        QWidget::mouseDoubleClickEvent(event);
+    }
+
+    void paintEvent(QPaintEvent* event) override
+    {
+        QWidget::paintEvent(event);
+        QPainter painter(this);
+        QColor separator = palette().color(QPalette::Mid);
+        separator.setAlpha(70);
+        painter.fillRect(0, height() - 1, width(), 1, separator);
+    }
+
 private:
     std::function<void(const QPoint&)> contextMenu_;
+    std::function<void()> activated_;
 };
 
 class PublicChannelLongList final : public LongListWidget
@@ -115,13 +257,34 @@ TeamChannelsListDialog::~TeamChannelsListDialog()
     finishAllRequests();
 }
 
+void TeamChannelsListDialog::showForTeam(Backend& backend,
+                                            BackendTeam& team,
+                                            QWidget* parent)
+{
+    FilterListDialogConfig dialogCfg {
+        tr("Public Channels - Mattermost"),
+        tr("Public Channels in team '%1':").arg(team.display_name),
+        tr("Filter channels by name:"),
+        QDialogButtonBox::Close,
+        QString()
+    };
+
+    auto* dialog = new TeamChannelsListDialog(backend, dialogCfg, team, parent);
+    dialog->show();
+}
+
 void TeamChannelsListDialog::setupVirtualList(const FilterListDialogConfig& cfg)
 {
     FilterListDialog::create(cfg);
 
+    auto* createButton = ui->buttonBox->addButton(
+        tr("Create channel…"), QDialogButtonBox::ActionRole);
+    createButton->setToolTip(tr("Create a public or private channel"));
+    connect(createButton, &QPushButton::clicked,
+            this, &TeamChannelsListDialog::openCreateChannelDialog);
+
     ui->tableWidget->hide();
     const int tableIndex = ui->verticalLayout->indexOf(ui->tableWidget);
-    ui->verticalLayout->insertWidget(std::max(0, tableIndex), createHeaderRow());
 
     channelList = new PublicChannelLongList(
         [this](int index) { return createChannelRow(index); }, this);
@@ -129,7 +292,7 @@ void TeamChannelsListDialog::setupVirtualList(const FilterListDialogConfig& cfg)
     channelList->setMaterializationLimit(120);
     channelList->setRequestBlockSize(32);
     channelList->setPrefetchScreens(1);
-    ui->verticalLayout->insertWidget(std::max(0, tableIndex) + 1, channelList, 1);
+    ui->verticalLayout->insertWidget(std::max(0, tableIndex), channelList, 1);
 
     connect(channelList, &LongListWidget::rangeRequested, this,
             [this](int first, int last, LongListWidget::RequestReason, quint64) {
@@ -147,25 +310,6 @@ void TeamChannelsListDialog::setupVirtualList(const FilterListDialogConfig& cfg)
             [this](const QString& text) { filterEdited(text); });
 }
 
-QWidget* TeamChannelsListDialog::createHeaderRow()
-{
-    auto* header = new QWidget(this);
-    auto* layout = new QHBoxLayout(header);
-    layout->setContentsMargins(8, 0, 8, 0);
-    layout->setSpacing(12);
-
-    auto addHeader = [layout, header](const QString& text, int stretch) {
-        auto* label = new QLabel(text, header);
-        QFont font = label->font();
-        font.setBold(true);
-        label->setFont(font);
-        layout->addWidget(label, stretch);
-    };
-    addHeader(tr("Channel Name"), 2);
-    addHeader(tr("Channel Header"), 5);
-    return header;
-}
-
 QWidget* TeamChannelsListDialog::createChannelRow(int index)
 {
     BackendChannel* channel = channelAt(index);
@@ -174,15 +318,132 @@ QWidget* TeamChannelsListDialog::createChannelRow(int index)
     }
     return new PublicChannelRow(
         *channel,
+        isJoinedChannel(*channel),
         [this, channel](const QPoint& globalPos) {
             showChannelContextMenu(channel, globalPos);
-        }, channelList);
+        },
+        [this, channel] {
+            activateChannel(channel);
+        },
+        channelList);
 }
 
 BackendChannel* TeamChannelsListDialog::channelAt(int index) const
 {
     const QVector<BackendChannel*>& channels = searchMode ? searchChannels : pageChannels;
     return index >= 0 && index < channels.size() ? channels.at(index) : nullptr;
+}
+
+bool TeamChannelsListDialog::isJoinedChannel(const BackendChannel& channel) const
+{
+    return backend.getStorage().getChannelById(channel.id) != nullptr;
+}
+
+void TeamChannelsListDialog::activateChannel(BackendChannel* channel)
+{
+    if (!channel) {
+        return;
+    }
+
+    if (isJoinedChannel(*channel)) {
+        AppNavigationService::instance(backend).openChannel(channel->id);
+        accept();
+        return;
+    }
+
+    const QString channelId = channel->id;
+    QPointer<TeamChannelsListDialog> guard(this);
+    backend.joinChannel(*channel, [guard, channelId] {
+        if (!guard) {
+            return;
+        }
+        guard->backend.retrieveChannel(
+            guard->team, channelId, [guard, channelId](BackendChannel&) {
+                if (!guard) {
+                    return;
+                }
+                AppNavigationService::instance(guard->backend).openChannel(channelId);
+                guard->accept();
+            });
+    });
+}
+
+void TeamChannelsListDialog::openCreateChannelDialog()
+{
+    auto* dialog = new CreateChannelDialog(team, this);
+    connect(dialog, &QDialog::accepted, this, [this, dialog] {
+        const QString name = dialog->channelName();
+        const QString displayName = dialog->displayName();
+        const QString purpose = dialog->purpose();
+        const bool privateChannel = dialog->isPrivateChannel();
+
+        QPointer<TeamChannelsListDialog> guard(this);
+        backend.createChannel(
+            team, name, displayName, purpose, privateChannel,
+            [guard](BackendChannel& channel) {
+                if (!guard) {
+                    return;
+                }
+                AppNavigationService::instance(guard->backend).openChannel(channel.id);
+                guard->accept();
+            });
+    });
+    dialog->show();
+}
+
+void TeamChannelsListDialog::requestMemberCounts(
+    const QVector<BackendChannel*>& channels)
+{
+    QStringList ids;
+    ids.reserve(channels.size());
+    for (BackendChannel* channel : channels) {
+        if (channel && !channel->id.isEmpty()) {
+            ids.push_back(channel->id);
+        }
+    }
+    ids.removeDuplicates();
+    if (ids.isEmpty()) {
+        return;
+    }
+
+    QPointer<TeamChannelsListDialog> guard(this);
+    backend.retrieveChannelsMemberCounts(
+        ids, [guard](QJsonObject counts) {
+            if (guard) {
+                guard->applyMemberCounts(counts);
+            }
+        });
+}
+
+void TeamChannelsListDialog::applyMemberCounts(const QJsonObject& counts)
+{
+    if (counts.isEmpty()) {
+        return;
+    }
+
+    auto update = [&counts](QVector<BackendChannel*>& channels) {
+        for (BackendChannel* channel : channels) {
+            if (!channel) {
+                continue;
+            }
+            const auto it = counts.constFind(channel->id);
+            if (it != counts.constEnd()) {
+                channel->member_count = it->toInt(-1);
+            }
+        }
+    };
+    update(pageChannels);
+    update(searchChannels);
+
+    if (!channelList) {
+        return;
+    }
+    for (int index : channelList->materializedIndices()) {
+        BackendChannel* channel = channelAt(index);
+        if (channel && counts.contains(channel->id)) {
+            channelList->replaceItem(index);
+        }
+    }
 }
 
 void TeamChannelsListDialog::showChannelContextMenu(BackendChannel* channel,
@@ -192,9 +453,9 @@ void TeamChannelsListDialog::showChannelContextMenu(BackendChannel* channel,
         return;
     }
     QMenu menu(this);
-    menu.addAction(tr("Join this channel"), this, [this, channel] {
-        backend.joinChannel(*channel);
-    });
+    menu.addAction(isJoinedChannel(*channel) ? tr("Open channel")
+                                             : tr("Join this channel"),
+                   this, [this, channel] { activateChannel(channel); });
     menu.addAction(tr("View channel details"), this, [this, channel] {
         auto* dialog = new ChannelInfoDialog(*channel, this);
         dialog->show();
@@ -209,9 +470,9 @@ void TeamChannelsListDialog::addContextMenuActions(QMenu& menu,
     if (!channel) {
         return;
     }
-    menu.addAction(tr("Join this channel"), this, [this, channel] {
-        backend.joinChannel(*channel);
-    });
+    menu.addAction(isJoinedChannel(*channel) ? tr("Open channel")
+                                             : tr("Join this channel"),
+                   this, [this, channel] { activateChannel(channel); });
     menu.addAction(tr("View channel details"), this, [this, channel] {
         auto* dialog = new ChannelInfoDialog(*channel, this);
         dialog->show();
@@ -281,13 +542,17 @@ void TeamChannelsListDialog::loadPage(int page)
             }
 
             int offset = 0;
+            QVector<BackendChannel*> countTargets;
+            countTargets.reserve(values.size());
             for (const auto& value : values) {
                 const QJsonObject object = value.toObject();
                 if (BackendChannel::getChannelType(object) != BackendChannel::publicChannel) {
                     continue;
                 }
                 guard->pageStorage.emplace_back(guard->backend.getStorage(), object);
-                guard->pageChannels[pageStart + offset] = &guard->pageStorage.back();
+                BackendChannel* channel = &guard->pageStorage.back();
+                guard->pageChannels[pageStart + offset] = channel;
+                countTargets.push_back(channel);
                 ++offset;
             }
 
@@ -309,6 +574,7 @@ void TeamChannelsListDialog::loadPage(int page)
                 }
                 guard->updatePagedCountLabel(!guard->pagedEndKnown);
             }
+            guard->requestMemberCounts(countTargets);
             guard->completePage(page);
         });
 }
@@ -412,6 +678,8 @@ void TeamChannelsListDialog::enterSearchResults(QJsonArray results, int generati
         searchStorage.emplace_back(backend.getStorage(), object);
         searchChannels.push_back(&searchStorage.back());
     }
+
+    requestMemberCounts(searchChannels);
 
     channelList->setItemCount(searchChannels.size());
     if (!searchChannels.isEmpty()) {

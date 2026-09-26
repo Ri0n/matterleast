@@ -4,6 +4,7 @@
 #include <QFontMetrics>
 #include <QHash>
 #include <QMetaObject>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyle>
@@ -26,6 +27,9 @@ constexpr int StatusSize = 12;
 constexpr int MuteIconSize = 16;
 constexpr int HorizontalMargin = 4;
 constexpr int ItemSpacing = 4;
+constexpr int SidebarEdgeInset = 4;
+constexpr int CategoryActionExtent = 20;
+constexpr int CategoryActionHitWidth = 30;
 
 bool isTeamRow(const QModelIndex& index)
 {
@@ -73,7 +77,7 @@ QStyleOptionViewItem contentOption(const QStyleOptionViewItem& option,
     QStyleOptionViewItem result(option);
     const int before = transientGap(index, SidebarItem::DropGapBeforeRole);
     const int after = transientGap(index, SidebarItem::DropGapAfterRole);
-    result.rect.adjust(0, before, 0, -after);
+    result.rect.adjust(SidebarEdgeInset, before, -SidebarEdgeInset, -after);
     return result;
 }
 
@@ -151,6 +155,22 @@ void ChannelItemDelegate::paint(QPainter* painter,
 
     if (!isConversationRow(index)) {
         QStyledItemDelegate::paint(painter, content, index);
+        if (index.data(SidebarItem::CategoryActionRole).toBool()) {
+            const QRect hitRect(content.rect.right() - CategoryActionHitWidth + 1,
+                                content.rect.top(), CategoryActionHitWidth,
+                                content.rect.height());
+            const QRect iconRect(hitRect.center().x() - CategoryActionExtent / 2,
+                                 hitRect.center().y() - CategoryActionExtent / 2,
+                                 CategoryActionExtent, CategoryActionExtent);
+            const bool actionHovered =
+                index.data(SidebarItem::CategoryActionHoveredRole).toBool();
+            painter->save();
+            painter->setOpacity(painter->opacity() * (actionHovered ? 1.0 : 0.48));
+            symbolicDestinationIcon(QStringLiteral(":/icons/add"),
+                                    content.palette.color(QPalette::Text))
+                .paint(painter, iconRect);
+            painter->restore();
+        }
         painter->restore();
         return;
     }
@@ -263,6 +283,26 @@ void ChannelItemDelegate::paint(QPainter* painter,
     const QString elided = QFontMetrics(font).elidedText(text, Qt::ElideRight, textRect.width());
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, elided);
     painter->restore();
+}
+
+bool ChannelItemDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
+                                      const QStyleOptionViewItem& option,
+                                      const QModelIndex& index)
+{
+    if (index.data(SidebarItem::CategoryActionRole).toBool()
+        && event && event->type() == QEvent::MouseButtonRelease) {
+        const auto* mouse = static_cast<QMouseEvent*>(event);
+        const QRect hitRect(option.rect.right() - CategoryActionHitWidth + 1,
+                            option.rect.top(), CategoryActionHitWidth,
+                            option.rect.height());
+        if (mouse->button() == Qt::LeftButton && hitRect.contains(mouse->pos())) {
+            emit categoryActionRequested(
+                index.data(SidebarItem::TeamIdRole).toString(),
+                index.data(SidebarItem::IdRole).toString());
+            return true;
+        }
+    }
+    return QStyledItemDelegate::editorEvent(event, model, option, index);
 }
 
 } // namespace Mattermost

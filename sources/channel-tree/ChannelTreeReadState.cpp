@@ -106,4 +106,43 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
     }
 }
 
+
+void ChannelTree::mouseMoveEvent(QMouseEvent* event)
+{
+    const QModelIndex index = indexAt(event->pos());
+    const bool actionable = index.isValid()
+        && index.data(SidebarItem::CategoryActionRole).toBool();
+    const QRect rowRect = actionable ? visualRect(index) : QRect();
+    const QRect actionRect = actionable
+        ? QRect(rowRect.right() - 30 + 1, rowRect.top(), 30, rowRect.height())
+        : QRect();
+    const bool hovered = actionable && actionRect.contains(event->pos());
+
+    if (index != categoryActionHoverIndex || hovered != categoryActionHovered) {
+        const QPersistentModelIndex previous = categoryActionHoverIndex;
+        if (previous.isValid()) {
+            model()->setData(previous, false, SidebarItem::CategoryActionHoveredRole);
+        }
+        categoryActionHoverIndex = index;
+        categoryActionHovered = hovered;
+        if (index.isValid()) {
+            model()->setData(index, hovered, SidebarItem::CategoryActionHoveredRole);
+        }
+    }
+
+    QTreeWidget::mouseMoveEvent(event);
+}
+
+
+void ChannelTree::leaveEvent(QEvent* event)
+{
+    if (categoryActionHoverIndex.isValid()) {
+        model()->setData(categoryActionHoverIndex, false,
+                         SidebarItem::CategoryActionHoveredRole);
+    }
+    categoryActionHoverIndex = QPersistentModelIndex();
+    categoryActionHovered = false;
+    QTreeWidget::leaveEvent(event);
+}
+
 } // namespace Mattermost

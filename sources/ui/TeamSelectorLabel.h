@@ -3,6 +3,7 @@
 #include <QToolButton>
 #include <QString>
 
+class QPaintEvent;
 class QShowEvent;
 
 namespace Mattermost {
@@ -15,7 +16,9 @@ class ChannelTree;
  * ChannelTree keeps one logical root item per Mattermost team. The selector
  * installs the active TeamItem as QTreeView's root index, so that logical root
  * remains available to the existing category/DnD code but is never rendered;
- * its categories are the visual top level of the sidebar.
+ * its categories are the visual top level of the sidebar. Team-scoped actions
+ * that used to live on the now-unrendered TeamItem context menu therefore also
+ * need a discoverable entry point in this selector menu.
  */
 class TeamSelectorLabel final : public QToolButton
 {
@@ -31,6 +34,7 @@ public:
 
 protected:
     void showEvent(QShowEvent* event) override;
+    void paintEvent(QPaintEvent* event) override;
 
 private:
     void attachTree();
@@ -38,6 +42,7 @@ private:
     bool setActiveTeam(const QString& teamId, bool persist);
     bool hasTeamRoot(const QString& teamId) const;
     void showTeamMenu();
+    void showPublicChannels();
     void addAnotherTeam();
 
     ChannelTree* tree_ = nullptr;

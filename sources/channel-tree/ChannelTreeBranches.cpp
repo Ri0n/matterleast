@@ -31,9 +31,9 @@ void ChannelTree::drawBranches(QPainter* painter, const QRect& rect,
     option.rect = QRect(0, 0, extent, extent);
     option.rect.moveCenter(contentRect.center());
     if (layoutDirection() == Qt::LeftToRight) {
-        option.rect.moveLeft(contentRect.right() - extent + 1);
+        option.rect.moveLeft(contentRect.right() - extent + 1 + 4);
     } else {
-        option.rect.moveRight(contentRect.left() + extent - 1);
+        option.rect.moveRight(contentRect.left() + extent - 1 - 4);
     }
 
     const qreal collapse = qBound<qreal>(
