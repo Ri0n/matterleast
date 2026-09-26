@@ -30,8 +30,8 @@ runs:
           version="${version#v}"
         fi
 
-        if [[ -z "$version" ]]; then
-          tag=$(git tag --points-at HEAD --list 'v[0-9]*' | sort -V | tail -n1)
+        if [[ -z "$version" ]] && git status --porcelain >/dev/null 2>&1; then
+          tag=$(git tag --points-at HEAD --list 'v[0-9]*' 2>/dev/null | sort -V | tail -n1)
           if [[ -n "$tag" ]]; then
             version="${tag#v}"
           fi
