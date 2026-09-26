@@ -97,6 +97,9 @@ set(APPID "matterleast")
 set(PRODUCT_NAME "MatterLeast")
 set(PRODUCT_VENDOR "MatterLeast contributors")
 set(DESKTOP_ID "io.github.Ri0n.MatterLeast")
+set(MATTERLEAST_MSIX_IDENTITY_NAME "SergeiIlinykh.Matterleast" CACHE STRING "Microsoft Store package identity")
+set(MATTERLEAST_MSIX_PUBLISHER "CN=A752CCD7-6C4F-48CE-87D8-B22E3AD2713D" CACHE STRING "Microsoft Store publisher identity")
+set(MATTERLEAST_MSIX_PUBLISHER_DISPLAY_NAME "Sergei Ilinykh" CACHE STRING "Microsoft Store publisher display name")
 
 option(QT_6 "Prefer Qt6" ON)
 
@@ -197,7 +200,7 @@ else()
       resources/matterleast.rc
       "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc"
       @ONLY)
-    target_sources(${APPID} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc")
+    # Store packages use four numeric components; the fourth is reserved by\n    # Microsoft Store and must remain zero.\n    set(MATTERLEAST_MSIX_VERSION\n      "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${MATTERLEAST_VERSION_PATCH}.0")\n    configure_file(\n      resources/msix/AppxManifest.xml.in\n      "${CMAKE_CURRENT_BINARY_DIR}/AppxManifest.xml"\n      @ONLY)\n    target_sources(${APPID} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc")
     set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
   endif()
 

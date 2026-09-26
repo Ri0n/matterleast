@@ -65,7 +65,7 @@ jobs:
             "matterleast-${VERSION}-ubuntu-26.04-amd64.deb"
             "matterleast-${VERSION}-fedora-44-x86_64.rpm"
             "matterleast-${VERSION}-linux-x86_64.AppImage"
-            "matterleast-${VERSION}-windows-x64-installer.exe"
+            "matterleast-${VERSION}-windows-x64-installer.exe"\n            "matterleast-${VERSION}-windows-x64.msix"
           )
           for asset in "${expected[@]}"; do
             test -f "release-assets/$asset" || {
