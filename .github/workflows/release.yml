@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Validate release tag
-        id: version
+        id: tag
         shell: bash
         run: |
           set -euo pipefail
@@ -32,7 +32,15 @@ jobs:
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release source
+        uses: actions/checkout@v7
+
+      - name: Prepare version
+        id: version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ${{ steps.tag.outputs.tag }}
 
   packages:
     name: Build release packages
@@ -49,13 +57,17 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ${{ needs.version.outputs.version }}
+
       - name: Create source archive
         shell: bash
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          printf '%s\n' "$VERSION" > .version
           archive="matterleast-$VERSION-source.tar.gz"
           tar \
             --exclude=.git \

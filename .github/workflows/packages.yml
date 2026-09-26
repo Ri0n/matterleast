@@ -57,6 +57,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
+
       - name: Install build dependencies
         shell: bash
         run: |
@@ -81,7 +86,6 @@ jobs:
             -DQT_6=${{ matrix.qt6 }} \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
-            -DMATTERLEAST_VERSION="${{ inputs.version }}" \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
@@ -150,6 +154,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
+
       - name: Install AppImage build dependencies
         shell: bash
         run: |
@@ -206,7 +215,6 @@ jobs:
             -DQT_6=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
-            -DMATTERLEAST_VERSION="${{ inputs.version }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
@@ -357,6 +365,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
+
       - name: Report Qt version
         run: qmake6 -query QT_VERSION
 
@@ -369,7 +382,6 @@ jobs:
             -DQT_6=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
-            -DMATTERLEAST_VERSION="${{ inputs.version }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
@@ -437,6 +449,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -467,7 +484,6 @@ jobs:
             -DQT_6=ON `
             -DBUILD_TESTING=ON `
             -DWARNINGS_AS_ERRORS=ON `
-            -DMATTERLEAST_VERSION="${{ inputs.version }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
