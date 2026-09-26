@@ -46,6 +46,25 @@ jobs:
     needs: [version, packages]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+
+      - name: Create source archive
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$VERSION" > .version
+          archive="matterleast-$VERSION-source.tar.gz"
+          tar \
+            --exclude=.git \
+            --exclude="$archive" \
+            --transform "s,^,matterleast-$VERSION/," \
+            -czf "$archive" .
+          mkdir -p release-assets
+          mv "$archive" release-assets/
+
       - name: Download release artifacts
         uses: actions/download-artifact@v7
         with:
@@ -67,6 +86,7 @@ jobs:
             "matterleast-${VERSION}-linux-x86_64.AppImage"
             "matterleast-${VERSION}-windows-x64-installer.exe"
             "matterleast-${VERSION}-windows-x64.msix"
+            "matterleast-${VERSION}-source.tar.gz"
           )
           for asset in "${expected[@]}"; do
             test -f "release-assets/$asset" || {
