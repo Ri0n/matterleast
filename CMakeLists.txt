@@ -187,6 +187,12 @@ else()
     if(MATTERLEAST_VERSION_PATCH STREQUAL "")
       set(MATTERLEAST_VERSION_PATCH 0)
     endif()
+    # The configured .rc lives in the build tree, so make the icon path
+    # independent of the resource file's output location. Forward slashes are
+    # accepted by the Windows resource compiler and avoid RC string escaping.
+    file(TO_CMAKE_PATH
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico"
+      MATTERLEAST_WINDOWS_ICON)
     configure_file(
       resources/matterleast.rc
       "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc"
