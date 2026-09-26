@@ -69,13 +69,13 @@ jobs:
         run: |
           set -euo pipefail
           archive="matterleast-$VERSION-source.tar.gz"
+          archive_path="$RUNNER_TEMP/$archive"
           tar \
             --exclude=.git \
-            --exclude="$archive" \
             --transform "s,^,matterleast-$VERSION/," \
-            -czf "$archive" .
+            -czf "$archive_path" .
           mkdir -p release-assets
-          mv "$archive" release-assets/
+          mv "$archive_path" release-assets/
 
       - name: Download release artifacts
         uses: actions/download-artifact@v7
