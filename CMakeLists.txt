@@ -200,7 +200,15 @@ else()
       resources/matterleast.rc
       "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc"
       @ONLY)
-    # Store packages use four numeric components; the fourth is reserved by\n    # Microsoft Store and must remain zero.\n    set(MATTERLEAST_MSIX_VERSION\n      "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${MATTERLEAST_VERSION_PATCH}.0")\n    configure_file(\n      resources/msix/AppxManifest.xml.in\n      "${CMAKE_CURRENT_BINARY_DIR}/AppxManifest.xml"\n      @ONLY)\n    target_sources(${APPID} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc")
+    # Store packages use four numeric components; the fourth is reserved by
+    # Microsoft Store and must remain zero.
+    set(MATTERLEAST_MSIX_VERSION
+      "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${MATTERLEAST_VERSION_PATCH}.0")
+    configure_file(
+      resources/msix/AppxManifest.xml.in
+      "${CMAKE_CURRENT_BINARY_DIR}/AppxManifest.xml"
+      @ONLY)
+    target_sources(${APPID} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc")
     set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
   endif()
 

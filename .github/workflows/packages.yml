@@ -490,9 +490,13 @@ jobs:
       - name: Verify Windows executable metadata
         run: |
           $exe = Get-Item build/matterleast.exe
-          $info = $exe.VersionInfo
+          $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe.FullName)
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
-          $expected = @{
+          # Print the complete view before asserting so a failed package run
+          # tells us whether fixed numeric VERSIONINFO and/or localized strings
+          # were embedded, instead of stopping on a random hashtable entry.
+          $info | Format-List *
+          $expected = [ordered]@{
             ProductName = "MatterLeast"
             FileDescription = "Native Qt client for Mattermost"
             CompanyName = "MatterLeast contributors"
