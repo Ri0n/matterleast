@@ -57,6 +57,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
+
       - name: Install build dependencies
         shell: bash
         run: |
@@ -81,7 +86,6 @@ jobs:
             -DQT_6=${{ matrix.qt6 }} \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
-            -DMATTERLEAST_VERSION="${{ inputs.version }}" \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
@@ -150,6 +154,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
+
       - name: Install AppImage build dependencies
         shell: bash
         run: |
@@ -206,7 +215,6 @@ jobs:
             -DQT_6=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
-            -DMATTERLEAST_VERSION="${{ inputs.version }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
@@ -357,6 +365,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
+
       - name: Report Qt version
         run: qmake6 -query QT_VERSION
 
@@ -369,7 +382,6 @@ jobs:
             -DQT_6=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
-            -DMATTERLEAST_VERSION="${{ inputs.version }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
@@ -426,7 +438,7 @@ jobs:
 
 
   windows:
-    name: Windows 2025 — NSIS — Qt 6.11.2
+    name: Windows 2025 — NSIS + MSIX — Qt 6.11.2
     runs-on: windows-2025
     timeout-minutes: 90
     defaults:
@@ -436,6 +448,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: "${{ inputs.version }}"
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -466,8 +483,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DQT_6=ON `
             -DBUILD_TESTING=ON `
-            -DWARNINGS_AS_ERRORS=ON `
-            -DMATTERLEAST_VERSION="${{ inputs.version }}"
+            -DWARNINGS_AS_ERRORS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
@@ -486,6 +502,31 @@ jobs:
         run: |
           ctest --test-dir build --output-on-failure
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Windows executable metadata
+        run: |
+          $exe = Get-Item build/matterleast.exe
+          $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe.FullName)
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          # Print the complete view before asserting so a failed package run
+          # tells us whether fixed numeric VERSIONINFO and/or localized strings
+          # were embedded, instead of stopping on a random hashtable entry.
+          $info | Format-List *
+          $expected = [ordered]@{
+            ProductName = "MatterLeast"
+            FileDescription = "Native Qt client for Mattermost"
+            CompanyName = "MatterLeast contributors"
+            OriginalFilename = "matterleast.exe"
+            FileVersion = $version
+            ProductVersion = $version
+          }
+          foreach ($entry in $expected.GetEnumerator()) {
+            $actual = $info.($entry.Key)
+            if ($actual -ne $entry.Value) {
+              throw "matterleast.exe $($entry.Key)='$actual', expected '$($entry.Value)'"
+            }
+          }
+          $info | Format-List ProductName,FileDescription,CompanyName,FileVersion,ProductVersion,OriginalFilename
 
       - name: Verify deployed runtime
         run: |
@@ -528,6 +569,24 @@ jobs:
           }
 
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          $installerInfo = $installer.VersionInfo
+          # Dump everything before asserting so packaging regressions are
+          # diagnosable from CI without downloading the failed staging tree.
+          $installerInfo | Format-List *
+          $expected = [ordered]@{
+            ProductName = "MatterLeast"
+            FileDescription = "MatterLeast Installer"
+            CompanyName = "MatterLeast contributors"
+            FileVersion = $version
+            ProductVersion = $version
+          }
+          foreach ($entry in $expected.GetEnumerator()) {
+            $actual = $installerInfo.($entry.Key)
+            if ($actual -ne $entry.Value) {
+              throw "NSIS installer $($entry.Key)='$actual', expected '$($entry.Value)'"
+            }
+          }
+
           $output = Join-Path $installer.DirectoryName "matterleast-$version-windows-x64-installer.exe"
           Move-Item -LiteralPath $installer.FullName -Destination $output
           "path=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -537,5 +596,58 @@ jobs:
         with:
           name: matterleast-windows-x64-installer
           path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          compression-level: 0
+
+
+      - name: Build Microsoft Store MSIX
+        id: msix
+        run: |
+          $stage = Join-Path $env:GITHUB_WORKSPACE "msix-stage"
+          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+          cmake --install build --prefix "$stage"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Copy-Item build/AppxManifest.xml (Join-Path $stage "AppxManifest.xml")
+          $assets = Join-Path $stage "Assets"
+          New-Item -ItemType Directory -Path $assets -Force | Out-Null
+          Copy-Item resources/msix/*.png $assets
+
+          $makeAppx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -File -Filter makeappx.exe |
+            Where-Object { $_.FullName -match '\\x64\\makeappx\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $makeAppx) { throw "Windows SDK makeappx.exe not found" }
+
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          New-Item -ItemType Directory -Path package -Force | Out-Null
+          $output = Join-Path $env:GITHUB_WORKSPACE "package\matterleast-$version-windows-x64.msix"
+          & $makeAppx.FullName pack /d $stage /p $output /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $verify = Join-Path $env:RUNNER_TEMP "matterleast-msix-verify"
+          if (Test-Path $verify) { Remove-Item $verify -Recurse -Force }
+          & $makeAppx.FullName unpack /p $output /d $verify /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [xml]$manifest = Get-Content (Join-Path $verify "AppxManifest.xml")
+          $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+          $ns.AddNamespace("f", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+          $identity = $manifest.SelectSingleNode("/f:Package/f:Identity", $ns)
+          if ($identity.Name -ne "SergeiIlinykh.Matterleast") {
+            throw "Unexpected MSIX identity '$($identity.Name)'"
+          }
+          if ($identity.Publisher -ne "CN=A752CCD7-6C4F-48CE-87D8-B22E3AD2713D") {
+            throw "Unexpected MSIX publisher '$($identity.Publisher)'"
+          }
+          Write-Host "MSIX identity: $($identity.Name)"
+          Write-Host "MSIX publisher: $($identity.Publisher)"
+          Write-Host "MSIX version: $($identity.Version)"
+          "path=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload Microsoft Store MSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: matterleast-windows-x64-msix
+          path: ${{ steps.msix.outputs.path }}
           if-no-files-found: error
           compression-level: 0

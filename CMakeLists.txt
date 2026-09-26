@@ -7,11 +7,16 @@ set(version "")
 if(MATTERLEAST_VERSION)
 	set(version "${MATTERLEAST_VERSION}")
 	string(REGEX REPLACE "^v" "" version "${version}")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.version")
+	# Generated source trees and shallow clones are self-contained: when a
+	# .version file is present, determining the version must not require Git.
+	file(READ "${CMAKE_CURRENT_SOURCE_DIR}/.version" version)
+	string(STRIP "${version}" version)
 else()
 	find_package(Git QUIET)
 	if(Git_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
 		execute_process(
-			COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match --match "v[0-9]*"
+			COMMAND "${GIT_EXECUTABLE}" describe --tags --abbrev=0 --match "v[0-9]*"
 			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 			RESULT_VARIABLE git_version_result
 			OUTPUT_VARIABLE git_version_tag
@@ -26,15 +31,18 @@ else()
 endif()
 
 if(NOT version)
-	file(READ "${CMAKE_CURRENT_SOURCE_DIR}/.version" version)
-	string(STRIP "${version}" version)
+	message(FATAL_ERROR
+		"Cannot determine MatterLeast version: set MATTERLEAST_VERSION, provide .version, or use a Git checkout with a reachable v* tag")
 endif()
 
 if(NOT version MATCHES "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
 	message(FATAL_ERROR "Invalid MatterLeast version '${version}'")
 endif()
 
-project(matterleast VERSION ${version} LANGUAGES CXX)
+project(matterleast VERSION ${version}
+    DESCRIPTION "Native Qt client for Mattermost"
+    HOMEPAGE_URL "https://github.com/Ri0n/matterleast"
+    LANGUAGES CXX)
 file(WRITE "${CMAKE_BINARY_DIR}/matterleast-version.txt" "${PROJECT_VERSION}\n")
 message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
@@ -92,7 +100,11 @@ endif()
 
 set(APPID "matterleast")
 set(PRODUCT_NAME "MatterLeast")
+set(PRODUCT_VENDOR "MatterLeast contributors")
 set(DESKTOP_ID "io.github.Ri0n.MatterLeast")
+set(MATTERLEAST_MSIX_IDENTITY_NAME "SergeiIlinykh.Matterleast" CACHE STRING "Microsoft Store package identity")
+set(MATTERLEAST_MSIX_PUBLISHER "CN=A752CCD7-6C4F-48CE-87D8-B22E3AD2713D" CACHE STRING "Microsoft Store publisher identity")
+set(MATTERLEAST_MSIX_PUBLISHER_DISPLAY_NAME "Sergei Ilinykh" CACHE STRING "Microsoft Store publisher display name")
 
 option(QT_6 "Prefer Qt6" ON)
 
@@ -176,9 +188,33 @@ else()
   add_executable(${APPID} sources/main.cpp resource.qrc)
   target_link_libraries(${APPID} PRIVATE matterleast-core)
 
-  if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
-	target_sources(${APPID} PRIVATE resources/matterleast.rc)
-	set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
+  if(WIN32)
+    # Keep Windows Explorer/AV/product metadata tied to the same version that
+    # CMake and CPack publish. A fourth numeric component is required by PE.
+    set(MATTERLEAST_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
+    if(MATTERLEAST_VERSION_PATCH STREQUAL "")
+      set(MATTERLEAST_VERSION_PATCH 0)
+    endif()
+    # The configured .rc lives in the build tree, so make the icon path
+    # independent of the resource file's output location. Forward slashes are
+    # accepted by the Windows resource compiler and avoid RC string escaping.
+    file(TO_CMAKE_PATH
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico"
+      MATTERLEAST_WINDOWS_ICON)
+    configure_file(
+      resources/matterleast.rc
+      "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc"
+      @ONLY)
+    # Store packages use four numeric components; the fourth is reserved by
+    # Microsoft Store and must remain zero.
+    set(MATTERLEAST_MSIX_VERSION
+      "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${MATTERLEAST_VERSION_PATCH}.0")
+    configure_file(
+      resources/msix/AppxManifest.xml.in
+      "${CMAKE_CURRENT_BINARY_DIR}/AppxManifest.xml"
+      @ONLY)
+    target_sources(${APPID} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc")
+    set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
   endif()
 
 endif()
@@ -240,10 +276,10 @@ if(BUILD_MULTIMEDIA)
 endif()
 
 set(CPACK_PACKAGE_NAME "${APPID}")
-set(CPACK_PACKAGE_VENDOR "${PRODUCT_NAME}")
+set(CPACK_PACKAGE_VENDOR "${PRODUCT_VENDOR}")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MatterLeast - native Qt client for Mattermost")
-set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/Ri0n/matterleast")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
+set(CPACK_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
 set(CPACK_PACKAGE_CONTACT "Sergei Ilinykh <rion4ik@gmail.com>")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/COPYING.LESSER")
 set(CPACK_PACKAGE_EXECUTABLES "${APPID}" "${PRODUCT_NAME}")
@@ -278,6 +314,26 @@ if(WIN32)
 	set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
 	set(CPACK_NSIS_INSTALLED_ICON_NAME "bin/matterleast.exe")
 	set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+	set(CPACK_NSIS_HELP_LINK "${PROJECT_HOMEPAGE_URL}/issues")
+	set(CPACK_NSIS_URL_INFO_ABOUT "${PROJECT_HOMEPAGE_URL}")
+	set(CPACK_NSIS_CONTACT "${CPACK_PACKAGE_CONTACT}")
+	set(CPACK_NSIS_BRANDING_TEXT "${PRODUCT_NAME} ${PROJECT_VERSION}")
+	set(CPACK_NSIS_MANIFEST_DPI_AWARE ON)
+
+	# CPack's stock NSIS template does not add a VERSIONINFO resource to the
+	# installer executable. Keep the installer identifiable in Explorer and
+	# security/reputation tooling using the same canonical metadata as the app.
+	# NSIS requires four numeric fields for the fixed version while the string
+	# version remains the user-facing MatterLeast version (for example 1.0).
+	string(APPEND CPACK_NSIS_DEFINES
+		"\nVIProductVersion ${MATTERLEAST_MSIX_VERSION}"
+		"\nVIFileVersion ${MATTERLEAST_MSIX_VERSION}"
+		"\nVIAddVersionKey /LANG=1033 \\\"ProductName\\\" \\\"${PRODUCT_NAME}\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"ProductVersion\\\" \\\"${PROJECT_VERSION}\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"CompanyName\\\" \\\"${PRODUCT_VENDOR}\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"FileDescription\\\" \\\"${PRODUCT_NAME} Installer\\\""
+		"\nVIAddVersionKey /LANG=1033 \\\"FileVersion\\\" \\\"${PROJECT_VERSION}\\\""
+	)
 endif()
 
 include(CPack)

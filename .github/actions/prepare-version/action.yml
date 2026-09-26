@@ -1,0 +1,54 @@
+name: Prepare MatterLeast version
+description: Resolve the build version and materialize the self-contained .version file
+
+inputs:
+  version:
+    description: Optional explicit version (MAJOR.MINOR[.PATCH] or v-prefixed)
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: Normalized MatterLeast version
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve version
+      id: resolve
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        version="${INPUT_VERSION#v}"
+        if [[ -z "$version" && -f .version ]]; then
+          version=$(tr -d '[:space:]' < .version)
+          version="${version#v}"
+        fi
+
+        if [[ -z "$version" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+          server_url="${GITHUB_SERVER_URL:-https://github.com}"
+          remote_url="${server_url%/}/$GITHUB_REPOSITORY.git"
+          tag=$(
+            git ls-remote --tags --refs "$remote_url" 'refs/tags/v*' 2>/dev/null \
+              | awk '{print $2}' \
+              | sed 's#refs/tags/##' \
+              | sort -V \
+              | tail -n1
+          )
+          if [[ "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            version="${tag#v}"
+          fi
+        fi
+
+        if [[ ! "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+          echo "::error::Cannot resolve a valid MatterLeast version"
+          exit 1
+        fi
+
+        printf '%s\n' "$version" > .version
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "MatterLeast version: $version"

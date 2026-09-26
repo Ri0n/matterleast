@@ -23,6 +23,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ""
+
       - name: Install system Qt
         run: |
           sudo apt-get update
@@ -55,6 +60,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ""
+
       - name: Install system Qt
         run: |
           sudo apt-get update
@@ -85,6 +95,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ""
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4

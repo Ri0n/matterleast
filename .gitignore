@@ -5,6 +5,9 @@ build/
 # Ignore all IDE project files
 .*
 
+# Generated version fallback for source/shallow distributions
+.version
+
 # This file holds per-user configuration for the project
 CMakeLists.txt.user
 

@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Validate release tag
-        id: version
+        id: tag
         shell: bash
         run: |
           set -euo pipefail
@@ -32,7 +32,15 @@ jobs:
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release source
+        uses: actions/checkout@v7
+
+      - name: Prepare version
+        id: version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ${{ steps.tag.outputs.tag }}
 
   packages:
     name: Build release packages
@@ -46,6 +54,29 @@ jobs:
     needs: [version, packages]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ${{ needs.version.outputs.version }}
+
+      - name: Create source archive
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive="matterleast-$VERSION-source.tar.gz"
+          tar \
+            --exclude=.git \
+            --exclude="$archive" \
+            --transform "s,^,matterleast-$VERSION/," \
+            -czf "$archive" .
+          mkdir -p release-assets
+          mv "$archive" release-assets/
+
       - name: Download release artifacts
         uses: actions/download-artifact@v7
         with:
@@ -66,6 +97,8 @@ jobs:
             "matterleast-${VERSION}-fedora-44-x86_64.rpm"
             "matterleast-${VERSION}-linux-x86_64.AppImage"
             "matterleast-${VERSION}-windows-x64-installer.exe"
+            "matterleast-${VERSION}-windows-x64.msix"
+            "matterleast-${VERSION}-source.tar.gz"
           )
           for asset in "${expected[@]}"; do
             test -f "release-assets/$asset" || {
