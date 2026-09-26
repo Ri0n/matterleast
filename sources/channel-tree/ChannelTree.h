@@ -146,6 +146,8 @@ signals:
 protected:
 	void currentChanged(const QModelIndex& current, const QModelIndex& previous) override;
 	void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
     void startDrag(Qt::DropActions supportedActions) override;
     void dragLeaveEvent(QDragLeaveEvent* event) override;
 	void dragMoveEvent(QDragMoveEvent* event) override;
@@ -237,6 +239,8 @@ private:
     // True for the complete nested QDrag::exec() lifetime. Structural sidebar
     // mutations from network/realtime callbacks are deferred while this is set.
     bool                                sidebarDragActive = false;
+    QPersistentModelIndex               categoryActionHoverIndex;
+    bool                                categoryActionHovered = false;
     QVariantAnimation*                  sourceCollapseAnimation = nullptr;
     QVariantAnimation*                  dropGapAnimation = nullptr;
     QVector<QPersistentModelIndex>      dragSourceIndexes;

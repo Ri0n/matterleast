@@ -8,6 +8,7 @@ namespace Mattermost {
 
 IndexedPostSource::IndexedPostSource(BackendChannel& channelInstance, QObject* parent)
     : AbstractPostSource(parent)
+    , channelGuard(&channelInstance)
     , channel(channelInstance)
 {
     connect(&channel, &BackendChannel::onPostBodyAvailabilityChanged,
@@ -26,9 +27,10 @@ IndexedPostSource::IndexedPostSource(BackendChannel& channelInstance, QObject* p
 
 bool IndexedPostSource::isAvailable(int index) const
 {
-    return index >= 0 && index < static_cast<int>(postIds.size())
+    return channelGuard
+        && index >= 0 && index < static_cast<int>(postIds.size())
         && !postIds.at(index).isEmpty()
-        && channel.postIdToPost.contains(postIds.at(index));
+        && channelGuard->postIdToPost.contains(postIds.at(index));
 }
 
 BackendPost* IndexedPostSource::postAt(int index) const
@@ -36,7 +38,9 @@ BackendPost* IndexedPostSource::postAt(int index) const
     if (!isAvailable(index)) {
         return nullptr;
     }
-    return channel.postIdToPost.value(postIds.at(index), nullptr);
+    return channelGuard
+        ? channelGuard->postIdToPost.value(postIds.at(index), nullptr)
+        : nullptr;
 }
 
 QString IndexedPostSource::postIdAt(int index) const

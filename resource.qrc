@@ -3,6 +3,7 @@
         <file alias="matterleast">img/MatterLeast.svg</file>
         <file alias="burger">img/burger_icon.svg</file>
         <file alias="search">img/search.svg</file>
+        <file alias="add">img/add.svg</file>
         <file alias="bookmark">img/bookmark.svg</file>
         <file alias="jump">img/jump.svg</file>
         <file alias="trash">img/trash.svg</file>

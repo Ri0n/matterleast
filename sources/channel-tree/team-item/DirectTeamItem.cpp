@@ -43,42 +43,9 @@ void DirectTeamItem::showContextMenu (const QPoint& pos)
 {
 	QMenu myMenu;
 
-	myMenu.addAction ("Add direct channel", [this] {
-		QSet<QString> existingDirectUsers;
-		for (auto it = backend.getStorage().channels.cbegin();
-		     it != backend.getStorage().channels.cend(); ++it) {
-			const BackendChannel* channel = it.value();
-			if (channel && channel->type == BackendChannel::directChannel && !channel->name.isEmpty()) {
-				existingDirectUsers.insert(channel->name);
-			}
-		}
+	myMenu.addAction ("Start conversation", [this] {
+		UserSearchDialog::showConversationPicker(backend, treeWidget());
 
-		FilterListDialogConfig dialogCfg {
-			"Add direct channel - Mattermost",
-			"Search for a user to start a direct channel with:",
-			"Search users by name:",
-			QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-			" is already added"
-		};
-
-		auto* dialog = new UserSearchDialog(
-			backend, dialogCfg, UserSearchOptions {}, existingDirectUsers, treeWidget());
-		dialog->show ();
-
-		connect (dialog, &UserSearchDialog::accepted, [this, dialog] {
-			const BackendUser* user = dialog->getSelectedUser();
-			if (!user) {
-				return;
-			}
-
-			const BackendChannel* existingChannel = backend.getStorage().getDirectChannelByUserId(user->id);
-			if (existingChannel) {
-				ChannelTree* tree = static_cast<ChannelTree*> (this->treeWidget());
-				tree->openChannel (existingChannel->id);
-			} else {
-				backend.createDirectChannel (*user);
-			}
-		});
 	});
 
 	myMenu.exec (pos);

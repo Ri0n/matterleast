@@ -14,6 +14,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | Following queue membership, sorting and click/navigation behavior | [Following behavior](following.md) | changing which rows appear, ordering, repeated activation, channel/thread navigation or manual-unread behavior |
 | unread/read state or Attention | [Following, Attention and read tracking](following-attention-read-tracking.md) | changing scroll-derived reads, resume cursors or server acknowledgement |
 | virtual sidebar views and collections | [Virtual sidebar destinations](sidebar-virtual-destinations.md) | changing Personal, Saved or search paging |
+| channel discovery, channel creation, DM/GM picker and sidebar category actions | [Channel and conversation discovery](channel-discovery.md) | changing public-channel browsing, participant matching, or sidebar + actions |
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |
 | reaction quick bar/ranking | [Reaction quick bar](reaction-quick-bar.md) | changing ranking, cooling, persistence or custom emoji behavior |
 | emoji picker, custom emoji lookup/search, live theme propagation | [Emoji resolution and picker search](emoji-resolution.md) | changing custom emoji discovery, caching, registry synchronization or picker palette behavior |

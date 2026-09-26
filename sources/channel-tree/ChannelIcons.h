@@ -42,6 +42,27 @@ inline QIcon channel()
     return QIcon(pixmap);
 }
 
+inline QIcon member()
+{
+    QPixmap pixmap(24, 24);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const QColor color = QApplication::palette().color(QPalette::Text);
+    QPen pen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+
+    painter.drawEllipse(QRectF(8.5, 4.5, 7.0, 7.0));
+    QPainterPath shoulders;
+    shoulders.moveTo(5.5, 20.0);
+    shoulders.cubicTo(6.0, 15.8, 8.4, 13.8, 12.0, 13.8);
+    shoulders.cubicTo(15.6, 13.8, 18.0, 15.8, 18.5, 20.0);
+    painter.drawPath(shoulders);
+    return QIcon(pixmap);
+}
+
 inline QIcon privateChannel()
 {
     QPixmap pixmap(24, 24);

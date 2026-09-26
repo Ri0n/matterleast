@@ -11,6 +11,9 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QStyleOptionToolButton>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QTimer>
@@ -19,8 +22,11 @@
 #include "backend/Backend.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendTeam.h"
+#include "channel-tree/ChannelIcons.h"
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree-dialogs/TeamChannelsListDialog.h"
 #include "options/MLOptions.h"
+#include "ui/IconUtils.h"
 
 namespace Mattermost {
 namespace {
@@ -92,6 +98,32 @@ void TeamSelectorLabel::showEvent(QShowEvent* event)
 {
     QToolButton::showEvent(event);
     attachTree();
+}
+
+void TeamSelectorLabel::paintEvent(QPaintEvent* event)
+{
+    QToolButton::paintEvent(event);
+
+    QStyleOptionToolButton option;
+    initStyleOption(&option);
+    const QRect textRect = style()->subControlRect(
+        QStyle::CC_ToolButton, &option, QStyle::SC_ToolButton, this);
+    const QRect actualTextRect = fontMetrics().boundingRect(
+        textRect, Qt::AlignCenter | Qt::TextShowMnemonic, text());
+    if (actualTextRect.isEmpty()) {
+        return;
+    }
+
+    const int x = actualTextRect.left();
+    const int y = actualTextRect.bottom() + 1;
+    QPen pen(palette().color(QPalette::ButtonText));
+    pen.setStyle(Qt::DotLine);
+    pen.setWidthF(1.0);
+
+    QPainter painter(this);
+    painter.setOpacity(underMouse() ? 0.8 : 0.45);
+    painter.setPen(pen);
+    painter.drawLine(x, y, actualTextRect.right(), y);
 }
 
 void TeamSelectorLabel::attachTree()
@@ -276,8 +308,11 @@ void TeamSelectorLabel::showTeamMenu()
     QMenu menu(this);
     for (BackendTeam* team : teams) {
         QAction* action = menu.addAction(teamLabel(*team));
-        action->setCheckable(true);
-        action->setChecked(team->id == activeTeamId_);
+        if (team->id == activeTeamId_) {
+            QFont activeFont = action->font();
+            activeFont.setBold(true);
+            action->setFont(activeFont);
+        }
         const QString teamId = team->id;
         connect(action, &QAction::triggered, this,
                 [this, teamId] { setActiveTeam(teamId, true); });
@@ -286,10 +321,35 @@ void TeamSelectorLabel::showTeamMenu()
     if (!teams.empty()) {
         menu.addSeparator();
     }
-    menu.addAction(tr("Add another team\u2026"), this,
-                   [this] { addAnotherTeam(); });
+
+    QAction* publicChannels = menu.addAction(
+        ChannelIcons::channel(), tr("Browse public channels\u2026"), this,
+        [this] { showPublicChannels(); });
+    publicChannels->setEnabled(!activeTeamId_.isEmpty());
+
+    menu.addAction(
+        IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/add"),
+            menu.palette().color(QPalette::Text)),
+        tr("Add another team\u2026"), this,
+        [this] { addAnotherTeam(); });
 
     menu.exec(mapToGlobal(QPoint(0, height())));
+}
+
+void TeamSelectorLabel::showPublicChannels()
+{
+    if (!tree_ || !tree_->backendInstance() || activeTeamId_.isEmpty()) {
+        return;
+    }
+
+    Backend& backend = *tree_->backendInstance();
+    BackendTeam* team = backend.getStorage().getTeamById(activeTeamId_);
+    if (!team) {
+        return;
+    }
+
+    TeamChannelsListDialog::showForTeam(backend, *team, tree_);
 }
 
 void TeamSelectorLabel::addAnotherTeam()

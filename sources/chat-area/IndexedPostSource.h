@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QPointer>
 #include <QSet>
 #include <QStringList>
 #include <QVector>
@@ -61,6 +62,13 @@ protected:
 
     void rebuildIndex();
 
+    /**
+     * BackendChannel is Storage-owned and can disappear on a realtime leave
+     * while a presentation source is still unwinding a viewport transition.
+     * Keep the legacy reference for derived sources, but gate view-facing
+     * lookups through this QObject-aware lifetime token.
+     */
+    QPointer<BackendChannel> channelGuard;
     BackendChannel& channel;
     QVector<QString> postIds;
     QHash<QString, int> postIndexes;

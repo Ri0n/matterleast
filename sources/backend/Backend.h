@@ -31,6 +31,7 @@
 #include <QNetworkDiskCache>
 #include <QAtomicInteger>
 #include <QTimer>
+#include <QStringList>
 
 #include "backend/types/BackendLoginData.h"
 #include "backend/HTTPConnector.h"
@@ -111,6 +112,11 @@ public:
 	void searchTeamPublicChannels(QString teamID, QString term,
 	                              std::function<void(QJsonArray)> callback);
 
+    // Get member counts for multiple channels in one request
+    // (/channels/stats/member_count), matching Mattermost's Browse Channels UI.
+    void retrieveChannelsMemberCounts(const QStringList& channelIds,
+                                      std::function<void(QJsonObject)> callback);
+
 	//get own channel memberships (/users/me/teams/teamID/channels)
 	void retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback);
 
@@ -121,7 +127,8 @@ public:
 	void retrieveTeamMember (BackendTeam& team, const BackendUser& user);
 
 	//get a channel (/channels/channelID)
-	void retrieveChannel (BackendTeam& team, QString channelID);
+	void retrieveChannel (BackendTeam& team, QString channelID,
+	                     std::function<void(BackendChannel&)> callback = {});
 	void retrieveDirectChannel (QString channelID);
 
 	//get posts in a channel (/channels/{channel_id}/posts)
@@ -179,18 +186,32 @@ public:
 	    std::function<void(QString, QString)> responseHandler,
 	    HTTPConnector::UploadProgressHandler progressHandler = {});
 
+	//create a team channel (/channels)
+	void createChannel(BackendTeam& team,
+	                   const QString& name,
+	                   const QString& displayName,
+	                   const QString& purpose,
+	                   bool privateChannel,
+	                   std::function<void(BackendChannel&)> callback = {});
+
 	//create a direct channel with given user (/channels/direct)
 	void createDirectChannel(const BackendUser& user,
 	                         std::function<void(BackendChannel&)> callback = {});
 
+	//create/open a group direct channel (/channels/group)
+	void createGroupChannel(const QStringList& userIds,
+	                        std::function<void(BackendChannel&)> callback = {});
+
 	//add a user to a channel (/channels/{channel_id}/members)
-	void addUserToChannel (const BackendChannel& channel, const QString& userID);
+	void addUserToChannel (const BackendChannel& channel, const QString& userID,
+	                       std::function<void()> callback = {});
 
 	//remove a user from a channel (/channels/{channel_id}/members/{user_id})
 	void removeUserFromChannel (const BackendChannel& channel, const QString& userID);
 
 	//join a channel (addUserToChannel for loginUser)
-	void joinChannel (const BackendChannel& channel);
+	void joinChannel (const BackendChannel& channel,
+	                  std::function<void()> callback = {});
 
 	//leave a channel (/channels/{channel_id}/members/{user_id})
 	void leaveChannel (const BackendChannel& channel);

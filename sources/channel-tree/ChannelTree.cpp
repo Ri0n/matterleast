@@ -194,7 +194,6 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 	addTopLevelItem (teamList);
     teamToItemMap.insert(team.id, teamList);
 	header()->setSectionResizeMode(0, QHeaderView::Stretch);
-	header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
 
 	connect (&team, &BackendTeam::onNewChannel, this, [this, &backend, &team] (BackendChannel&) {
         refreshTeamSidebar(backend, team);
