@@ -181,7 +181,7 @@ void UserGroupEditorDialog::buildUi()
 
 bool UserGroupEditorDialog::editable() const
 {
-    return !group || group->isCustom();
+    return !group || (group->isCustom() && !group->isArchived());
 }
 
 void UserGroupEditorDialog::loadMembers()
