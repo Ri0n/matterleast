@@ -276,7 +276,13 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
     rankedEmojiHideTimer->setSingleShot(true);
     rankedEmojiHideTimer->setInterval(180);
     connect(rankedEmojiHideTimer, &QTimer::timeout,
-            this, &OutgoingPostCreator::hideRankedEmojiPopup);
+            this, [this] {
+        if ((addEmojiButton && addEmojiButton->underMouse())
+            || (rankedEmojiPopup && rankedEmojiPopup->underMouse())) {
+            return;
+        }
+        hideRankedEmojiPopup();
+    });
 
     rankedEmojiPickerDestroyTimer = new QTimer(this);
     rankedEmojiPickerDestroyTimer->setSingleShot(true);
@@ -344,11 +350,21 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
     connect(&EmojiRegistryNotifier::instance(),
             &EmojiRegistryNotifier::customEmojiAdded,
             this,
-            [this](const QString&) {
-                if (rankedEmojiPopup && rankedEmojiPopup->isVisible()) {
+            [this](const QString& name) {
+                if (!rankedEmojiPopup || !rankedEmojiPopup->isVisible()
+                    || !ReactionUsageTracker::instance()
+                            .topNames(RankedEmojiCapacity)
+                            .contains(name)) {
+                    return;
+                }
+
+                QTimer::singleShot(0, this, [this] {
+                    if (!rankedEmojiPopup || !rankedEmojiPopup->isVisible()) {
+                        return;
+                    }
                     rebuildRankedEmojiButtons();
                     positionRankedEmojiPopup();
-                }
+                });
             });
 }
 
