@@ -99,11 +99,13 @@ public:
     void beginSlideAnimation(const QPixmap& contentSnapshot,
                              const QSize& compactPopupSize,
                              const QSize& expandedPopupSize,
+                             bool expandsUpward,
                              qreal progress)
     {
         animationSnapshot_ = contentSnapshot;
         compactPopupSize_ = compactPopupSize;
         expandedPopupSize_ = expandedPopupSize;
+        expandsUpward_ = expandsUpward;
         animationProgress_ = qBound<qreal>(0.0, progress, 1.0);
         update();
     }
@@ -162,7 +164,7 @@ protected:
 
         const QRectF visibleRect(
             (width() - visibleWidth) / 2.0,
-            height() - visibleHeight,
+            expandsUpward_ ? height() - visibleHeight : 0.0,
             visibleWidth,
             visibleHeight);
 
@@ -174,25 +176,15 @@ protected:
             RankedEmojiPopupRadius);
 
         painter.save();
-        const QRectF contentClip = visibleRect.adjusted(
-            RankedEmojiPopupMargin,
-            RankedEmojiPopupMargin,
-            -RankedEmojiPopupMargin,
-            -RankedEmojiPopupMargin);
-        painter.setClipRect(contentClip);
+        painter.setClipRect(visibleRect.adjusted(1.0, 1.0, -1.0, -1.0));
 
-        const qreal compactContentHeight =
-            compactPopupSize_.height() - 2 * RankedEmojiPopupMargin;
-        const qreal expandedContentHeight =
-            expandedPopupSize_.height() - 2 * RankedEmojiPopupMargin;
-        const qreal verticalShift =
-            (expandedContentHeight - compactContentHeight)
-            * (1.0 - progress);
-
-        const QPointF snapshotTopLeft(
-            RankedEmojiPopupMargin,
-            RankedEmojiPopupMargin + verticalShift);
-        painter.drawPixmap(snapshotTopLeft, animationSnapshot_);
+        const qreal verticalShift = expandsUpward_
+            ? (expandedPopupSize_.height() - compactPopupSize_.height())
+                * (1.0 - progress)
+            : 0.0;
+        painter.drawPixmap(
+            QPointF(0.0, verticalShift),
+            animationSnapshot_);
         painter.restore();
     }
 
@@ -201,6 +193,7 @@ private:
     QSize compactPopupSize_;
     QSize expandedPopupSize_;
     qreal animationProgress_ = -1.0;
+    bool expandsUpward_ = true;
 };
 
 class RankedEmojiFlowHost final : public QWidget
