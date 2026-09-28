@@ -632,6 +632,18 @@ if(TARGET matterleast-core)
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+add_executable(user-group-editor-policy-test UserGroupEditorPolicyTest.cpp)
+target_include_directories(user-group-editor-policy-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+target_link_libraries(user-group-editor-policy-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME user-group-editor-policy-test COMMAND user-group-editor-policy-test)
+
 
 add_executable(post-filter-policy-test PostFilterPolicyTest.cpp)
 target_include_directories(post-filter-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
