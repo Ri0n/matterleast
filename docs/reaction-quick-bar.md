@@ -177,13 +177,29 @@ from both the chat surface and the adjacent composer surface in light and dark
 themes. The existing compact inner padding is intentional.
 
 Selecting one of these buttons inserts its `:name:` shortcode into the
-composer. Clicking the picker affordance itself remains unchanged and opens the
-complete emoji chooser.
+composer.
+
+The hover palette itself stays deliberately cheap: it contains only the bounded
+ranked set and uses the shared `FlowLayout`. The full picker widget is **not
+constructed on hover**. Clicking the emoji affordance expands a lower section of
+the same popup and constructs the reusable `EmojiPickerWidget` only at that
+moment.
+
+The ranked section remains visible while the lower picker section is revealed.
+Only the lower section animates from zero height to its usable height; the
+existing ranked palette is never collapsed to zero. Because the popup remains
+anchored next to the composer affordance, growing the lower section makes the
+combined surface expand upward when it is placed above the composer.
+
+Collapsing or hiding the full picker starts a short idle-retention timer. The
+heavy `EmojiPickerWidget` is kept for 15 seconds so an immediate reopen does
+not pay construction cost again, then destroyed if it is still closed. The
+small ranked popup can remain cheap and reusable independently of that cache.
 
 An unresolved ranked custom emoji is omitted from the current palette while the
 shared lazy resolver fetches it. If it becomes available while the palette is
-still open, the small ranked palette is rebuilt; the full custom catalog is
-never enumerated for this hover path.
+still open, only the small ranked palette is rebuilt; the full custom catalog is
+never enumerated merely because of hover.
 
 ## Custom emoji prewarm
 
