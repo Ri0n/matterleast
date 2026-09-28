@@ -516,12 +516,17 @@ void OverlayScrollBarManager::layout(State& state)
         const int bottomCut = horizontalScrollable ? ScrollBarHitThickness : 0;
         const int extent = std::max(edgeButtonExtent(state.scrollToStartButton),
                                     edgeButtonExtent(state.scrollToEndButton));
-        const int x = viewportRect.right()
-            - ScrollBarHitThickness - EdgeButtonGap - extent + 1;
+        // Use the same outer inset horizontally and vertically. The edge
+        // buttons may overlap the scrollbar's otherwise generous hit padding:
+        // the corresponding button is hidden when the thumb is at that edge,
+        // so this keeps the chrome visually balanced without covering an
+        // active end-position thumb.
+        const int outerInset = ScrollBarEndInset + EdgeButtonGap;
+        const int x = viewportRect.right() - outerInset - extent + 1;
         if (state.scrollToStartButton) {
             state.scrollToStartButton->setGeometry(
                 x,
-                viewportRect.top() + ScrollBarEndInset + EdgeButtonGap,
+                viewportRect.top() + outerInset,
                 extent,
                 extent);
             state.scrollToStartButton->raise();
@@ -529,7 +534,7 @@ void OverlayScrollBarManager::layout(State& state)
         if (state.scrollToEndButton) {
             state.scrollToEndButton->setGeometry(
                 x,
-                viewportRect.bottom() - bottomCut - EdgeButtonGap - extent + 1,
+                viewportRect.bottom() - bottomCut - outerInset - extent + 1,
                 extent,
                 extent);
             state.scrollToEndButton->raise();
