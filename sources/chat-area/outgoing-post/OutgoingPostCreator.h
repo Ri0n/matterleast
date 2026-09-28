@@ -42,6 +42,8 @@ class QFrame;
 class QMimeData;
 class QPushButton;
 class QTimer;
+class QVariantAnimation;
+class QWidget;
 
 namespace Mattermost {
 
@@ -49,6 +51,7 @@ struct BackendNewPollData;
 struct OutgoingPostData;
 
 class ChatLogWidget;
+class EmojiPickerWidget;
 
 class OutgoingPostCreator: public MessageTextEditWidget {
 	Q_OBJECT
@@ -112,6 +115,12 @@ private:
     void positionRankedEmojiPopup();
     void scheduleRankedEmojiPopupHide();
     void hideRankedEmojiPopup();
+    void destroyRankedEmojiPopup();
+    void rebuildRankedEmojiButtons();
+    void toggleEmbeddedEmojiPicker();
+    void setEmbeddedEmojiPickerExpanded(bool expanded, bool animate = true);
+    void ensureEmbeddedEmojiPicker();
+    void destroyEmbeddedEmojiPicker();
 	bool isEditingPost() const;
 	bool isCreatingPost ();
 	bool isWaitingForPostServerResponse ();
@@ -141,7 +150,13 @@ private:
     QString                             activeRecoveredDraftKey;
     QTimer*                             draftSaveTimer = nullptr;
     QTimer*                             rankedEmojiHideTimer = nullptr;
+    QTimer*                             rankedEmojiPickerDestroyTimer = nullptr;
+    QVariantAnimation*                  rankedEmojiRevealAnimation = nullptr;
     QPointer<QFrame>                    rankedEmojiPopup;
+    QPointer<QWidget>                   rankedEmojiFlowHost;
+    QPointer<QWidget>                   rankedEmojiPickerReveal;
+    QPointer<EmojiPickerWidget>         embeddedEmojiPicker;
+    bool                                rankedEmojiPickerExpanded = false;
     bool                                suppressDraftPersistence = false;
 };
 
