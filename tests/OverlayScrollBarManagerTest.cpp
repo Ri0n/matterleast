@@ -67,6 +67,38 @@ private slots:
                  area.verticalScrollBar()->minimum());
     }
 
+    void edgeNavigationButtonsCanBeDisabledTogether()
+    {
+        QAbstractScrollArea area;
+        area.resize(320, 240);
+        area.verticalScrollBar()->setRange(0, 100);
+        area.verticalScrollBar()->setValue(50);
+        Mattermost::OverlayScrollBarManager::setEdgeNavigationButtonsEnabled(
+            area, false);
+        area.show();
+        settleEvents();
+
+        auto* toStart = area.findChild<QToolButton*>(
+            QStringLiteral("mattermostOverlayScrollToStartButton"));
+        auto* toEnd = area.findChild<QToolButton*>(
+            QStringLiteral("mattermostOverlayScrollToEndButton"));
+        QVERIFY(toStart);
+        QVERIFY(toEnd);
+        QVERIFY(!toStart->isVisible());
+        QVERIFY(!toEnd->isVisible());
+
+        auto* overlay = area.findChild<QScrollBar*>(
+            QStringLiteral("mattermostOverlayVerticalScrollBar"));
+        QVERIFY(overlay);
+        QVERIFY(overlay->isVisible());
+
+        Mattermost::OverlayScrollBarManager::setEdgeNavigationButtonsEnabled(
+            area, true);
+        settleEvents();
+        QVERIFY(toStart->isVisible());
+        QVERIFY(toEnd->isVisible());
+    }
+
     void startActionCanBeDisabledWithoutAffectingEndAction()
     {
         QAbstractScrollArea area;
