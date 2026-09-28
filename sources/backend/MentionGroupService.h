@@ -31,10 +31,12 @@ struct MentionGroup {
     QString displayName;
     QString description;
     QString source;
+    qint64 deleteAt = 0;
     int memberCount = 0;
     bool allowReference = true;
 
     bool isCustom() const { return source == QStringLiteral("custom"); }
+    bool isArchived() const { return deleteAt != 0; }
 };
 
 struct MentionGroupMutationResult {
