@@ -46,6 +46,14 @@ public:
      */
     static void setScrollToStartButtonEnabled(QAbstractScrollArea& area, bool enabled);
 
+    /**
+     * Enable or disable both edge-jump affordances while keeping the overlay
+     * scrollbar itself active. Compact transient views such as the emoji
+     * picker want wheel/thumb scrolling without top/bottom navigation buttons.
+     */
+    static void setEdgeNavigationButtonsEnabled(QAbstractScrollArea& area,
+                                                bool enabled);
+
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
