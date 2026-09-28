@@ -114,15 +114,27 @@ jobs:
         with:
           arch: x64
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: windows-msvc-qt6
+          max-size: 2G
+
       - name: Configure
+        env:
+          CCACHE_COMPILERCHECK: content
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DQT_6=ON
           -DBUILD_TESTING=ON
           -DWARNINGS_AS_ERRORS=ON
 
       - name: Build
+        env:
+          CCACHE_COMPILERCHECK: content
         run: cmake --build build --parallel 4
 
       - name: Unit tests
