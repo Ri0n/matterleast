@@ -157,6 +157,7 @@ private:
     QPointer<QWidget>                   rankedEmojiPickerReveal;
     QPointer<EmojiPickerWidget>         embeddedEmojiPicker;
     bool                                rankedEmojiPickerExpanded = false;
+    bool                                rankedEmojiPopupAbove = true;
     bool                                suppressDraftPersistence = false;
 };
 
