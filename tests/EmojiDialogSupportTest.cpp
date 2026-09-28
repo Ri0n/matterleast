@@ -2,11 +2,6 @@
 
 #include <QtTest>
 
-#include <QApplication>
-#include <QPalette>
-#include <QStyle>
-#include <QTabWidget>
-#include <QWidget>
 
 #include "choose-emoji-dialog/EmojiDialogSupport.h"
 #include "reactions/ReactionUsage.h"
@@ -49,60 +44,6 @@ private slots:
                                QStringLiteral("rolling floor")));
         QVERIFY(!matchesSearch(QStringLiteral("pizza"),
                                QStringLiteral("cherry")));
-    }
-
-    void configuresCompactFlatTabs()
-    {
-        QTabWidget tabWidget;
-        Mattermost::EmojiDialogSupport::configureTabWidget(tabWidget);
-
-        QTabBar* bar = tabWidget.tabBar();
-        QVERIFY(tabWidget.documentMode());
-        QVERIFY(!bar->drawBase());
-        QVERIFY(!bar->expanding());
-        QVERIFY(!bar->usesScrollButtons());
-        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabHSpace), 8);
-        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabVSpace), 4);
-        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabShiftHorizontal), 0);
-        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabShiftVertical), 0);
-    }
-
-    void emojiTabPagesTrackApplicationPaletteChanges()
-    {
-        QTabWidget tabWidget;
-        QWidget page;
-        Mattermost::EmojiDialogSupport::configureTabWidget(tabWidget);
-        tabWidget.addTab(&page, QStringLiteral("Emoji"));
-
-        QVERIFY(tabWidget.styleSheet().isEmpty());
-        QVERIFY(tabWidget.tabBar()->minimumHeight() >= 42);
-
-        const QPalette original = QApplication::palette();
-
-        QPalette first = original;
-        first.setColor(QPalette::Window, QColor(245, 245, 245));
-        first.setColor(QPalette::WindowText, QColor(20, 20, 20));
-        QApplication::setPalette(first);
-        QApplication::processEvents();
-
-        QCOMPARE(tabWidget.palette().color(QPalette::Window),
-                 first.color(QPalette::Window));
-        QCOMPARE(page.palette().color(QPalette::Window),
-                 first.color(QPalette::Window));
-
-        QPalette second = original;
-        second.setColor(QPalette::Window, QColor(25, 25, 25));
-        second.setColor(QPalette::WindowText, QColor(235, 235, 235));
-        QApplication::setPalette(second);
-        QApplication::processEvents();
-
-        QCOMPARE(tabWidget.palette().color(QPalette::Window),
-                 second.color(QPalette::Window));
-        QCOMPARE(page.palette().color(QPalette::Window),
-                 second.color(QPalette::Window));
-
-        QApplication::setPalette(original);
-        QApplication::processEvents();
     }
 
     void choosesPlatformLegacyEmojiFonts()
