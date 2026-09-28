@@ -50,9 +50,16 @@ geometry. A stylesheet wraps the tab widget subtree in `QStyleSheetStyle` and
 can materialize palette state for already-created tab pages, leaving them in the
 old light/dark colors after `QApplication` changes palette.
 
-Use native widget properties for geometry instead. The current tab height is
-implemented through `QTabBar::setMinimumHeight()`; category pages, buttons and
-labels otherwise inherit the application palette normally.
+Use native widget/style APIs for geometry instead. The picker installs a small
+`QProxyStyle` only on its tab bar to reduce native tab padding/overlap and
+selected-tab shifts; the bar itself is non-expanding, has no base line, and the
+tab widget uses document mode. No palette is baked into the style, so category
+pages, buttons and labels continue to inherit live application palette changes.
+
+The emoji grid is responsive as well: buttons stay at their fixed interaction
+size, but their column count is recomputed from the current tab viewport width.
+Resizing the dialog therefore reflows the grid instead of resizing only the
+outer window while leaving a clipped fixed-width page behind.
 
 This is the same general rule used elsewhere in MatterLeast for live theme
 propagation: avoid per-widget stylesheets when a palette/geometry API can express
