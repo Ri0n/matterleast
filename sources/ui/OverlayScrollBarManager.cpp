@@ -36,6 +36,7 @@
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QToolButton>
+#include <QVariant>
 #include <QWidget>
 
 namespace Mattermost {
