@@ -171,16 +171,19 @@ void ChatArea::setupComposerUi()
         }
 
         const quint64 generation = mentionSearchGuard->generation;
+        const QString channelTeamId = channel.team ? channel.team->id : QString();
         // DM/GM conversations still live inside the currently selected team
-        // context in the Mattermost UI. Group mention lookup must use that
-        // context even though the direct channel itself has no BackendTeam.
-        const QString teamId = channel.team
-            ? channel.team->id : backend.getCurrentTeamContextId();
-        const QString channelId = channel.id;
+        // context in the Mattermost UI. Group mentions use that context, while
+        // user autocomplete keeps its existing DM/GM behavior and does not send
+        // an invalid in_team/in_channel pair for a direct channel.
+        const QString groupTeamId = channelTeamId.isEmpty()
+            ? backend.getCurrentTeamContextId() : channelTeamId;
+        const QString userChannelId =
+            channelTeamId.isEmpty() ? QString() : channel.id;
         QPointer<ChatArea> areaGuard(this);
 
         UserProfileService::instance(backend).autocompleteUsers(
-            query, teamId, channelId, MentionSearchLimit,
+            query, channelTeamId, userChannelId, MentionSearchLimit,
             [areaGuard, mentionSearchGuard, mentionEditorGuard,
              query, generation](UserAutocompleteResult result) mutable {
                 if (!areaGuard || !mentionSearchGuard || !mentionEditorGuard
@@ -200,7 +203,7 @@ void ChatArea::setupComposerUi()
         // webapp performs a separate /groups search for every @ prefix, so do
         // the same here instead of relying only on the team-associated cache.
         MentionGroupService::instance(backend).searchReferenceGroups(
-            teamId, query, channelId, MentionGroupSearchLimit,
+            groupTeamId, query, channel.id, MentionGroupSearchLimit,
             [areaGuard, mentionSearchGuard, mentionEditorGuard,
              query, generation](QVector<MentionGroup> groups) mutable {
                 if (!areaGuard || !mentionSearchGuard || !mentionEditorGuard
