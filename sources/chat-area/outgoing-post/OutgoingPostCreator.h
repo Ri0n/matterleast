@@ -6,20 +6,20 @@
  *
  * Copyright 2021, 2022 Lyubomir Filipov
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  *
- * Mattermost-QT is free software: you can redistribute it and/or modify
+ * MatterLeast is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
- * Mattermost-QT is distributed in the hope that it will be useful,
+ * MatterLeast is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
+ * along with MatterLeast. if not, see https://www.gnu.org/licenses/.
  */
 
 #pragma once
@@ -42,6 +42,8 @@ class QFrame;
 class QMimeData;
 class QPushButton;
 class QTimer;
+class QVariantAnimation;
+class QWidget;
 
 namespace Mattermost {
 
@@ -49,6 +51,7 @@ struct BackendNewPollData;
 struct OutgoingPostData;
 
 class ChatLogWidget;
+class EmojiPickerWidget;
 
 class OutgoingPostCreator: public MessageTextEditWidget {
 	Q_OBJECT
@@ -112,6 +115,12 @@ private:
     void positionRankedEmojiPopup();
     void scheduleRankedEmojiPopupHide();
     void hideRankedEmojiPopup();
+    void destroyRankedEmojiPopup();
+    void rebuildRankedEmojiButtons();
+    void toggleEmbeddedEmojiPicker();
+    void setEmbeddedEmojiPickerExpanded(bool expanded, bool animate = true);
+    void ensureEmbeddedEmojiPicker();
+    void destroyEmbeddedEmojiPicker();
 	bool isEditingPost() const;
 	bool isCreatingPost ();
 	bool isWaitingForPostServerResponse ();
@@ -141,7 +150,15 @@ private:
     QString                             activeRecoveredDraftKey;
     QTimer*                             draftSaveTimer = nullptr;
     QTimer*                             rankedEmojiHideTimer = nullptr;
+    QTimer*                             rankedEmojiPickerDestroyTimer = nullptr;
+    QVariantAnimation*                  rankedEmojiRevealAnimation = nullptr;
     QPointer<QFrame>                    rankedEmojiPopup;
+    QPointer<QWidget>                   rankedEmojiContentRoot;
+    QPointer<QWidget>                   rankedEmojiFlowHost;
+    QPointer<QWidget>                   rankedEmojiPickerReveal;
+    QPointer<EmojiPickerWidget>         embeddedEmojiPicker;
+    bool                                rankedEmojiPickerExpanded = false;
+    bool                                rankedEmojiPopupAbove = true;
     bool                                suppressDraftPersistence = false;
 };
 
