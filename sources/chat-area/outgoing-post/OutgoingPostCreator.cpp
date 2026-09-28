@@ -270,7 +270,7 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
 
     rankedEmojiRevealAnimation = new QVariantAnimation(this);
     rankedEmojiRevealAnimation->setDuration(EmbeddedPickerAnimationMs);
-    rankedEmojiRevealAnimation->setEasingCurve(QEasingCurve::InOutCubic);
+    rankedEmojiRevealAnimation->setEasingCurve(QEasingCurve::OutCubic);
     connect(rankedEmojiRevealAnimation, &QVariantAnimation::valueChanged,
             this, [this](const QVariant& value) {
         auto* popup =
