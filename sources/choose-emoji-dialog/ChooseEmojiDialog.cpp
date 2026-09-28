@@ -292,6 +292,13 @@ ChooseEmojiDialog::ChooseEmojiDialog(Backend& backend, QWidget* parent)
 {
     ui->setupUi(this);
 
+    // Use the palette's content-surface role rather than QDialog's Window
+    // role. This keeps the picker body white in light themes and black (or
+    // the theme-defined Base equivalent) in dark themes, while still following
+    // live application palette changes.
+    setBackgroundRole(QPalette::Base);
+    setAutoFillBackground(true);
+
     categoryBarLayout = new QHBoxLayout(ui->categoryBar);
     categoryBarLayout->setContentsMargins(0, 0, 0, 0);
     categoryBarLayout->setSpacing(0);
