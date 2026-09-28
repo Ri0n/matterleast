@@ -1,7 +1,7 @@
 /**
  * Copyright 2021, 2022 Lyubomir Filipov
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  */
 
 #include "ChooseEmojiDialog.h"
