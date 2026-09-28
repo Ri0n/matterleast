@@ -270,72 +270,57 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
 
     rankedEmojiRevealAnimation = new QVariantAnimation(this);
     rankedEmojiRevealAnimation->setDuration(EmbeddedPickerAnimationMs);
-    rankedEmojiRevealAnimation->setStartValue(0.0);
-    rankedEmojiRevealAnimation->setEndValue(1.0);
-    rankedEmojiRevealAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    rankedEmojiRevealAnimation->setEasingCurve(QEasingCurve::InOutCubic);
     connect(rankedEmojiRevealAnimation, &QVariantAnimation::valueChanged,
             this, [this](const QVariant& value) {
-        if (!rankedEmojiPopup || !rankedEmojiPickerReveal) {
+        auto* popup =
+            static_cast<RankedEmojiPopupFrame*>(rankedEmojiPopup.data());
+        if (!popup || !popup->isSlideAnimating()) {
             return;
         }
-
-        const qreal progress = value.toReal();
-        const int fromHeight =
-            rankedEmojiRevealAnimation->property("fromHeight").toInt();
-        const int toHeight =
-            rankedEmojiRevealAnimation->property("toHeight").toInt();
-        const int fromWidth =
-            rankedEmojiRevealAnimation->property("fromWidth").toInt();
-        const int toWidth =
-            rankedEmojiRevealAnimation->property("toWidth").toInt();
-        const int compactHeight =
-            rankedEmojiPopup->property("rankedCompactHeight").toInt();
-        const int pickerFullHeight =
-            rankedEmojiPickerReveal->property("pickerFullHeight").toInt();
-
-        const int height = qRound(
-            fromHeight + (toHeight - fromHeight) * progress);
-        const int width = qRound(
-            fromWidth + (toWidth - fromWidth) * progress);
-
-        // The heavy picker keeps its final geometry throughout the animation.
-        // Only this lightweight clipping viewport and the popup frame change
-        // size. Avoiding a complete picker relayout on every animation tick is
-        // important here: the picker contains hundreds of emoji buttons.
-        rankedEmojiPickerReveal->setFixedHeight(std::max(0, height));
-        if (embeddedEmojiPicker && pickerFullHeight > 0) {
-            embeddedEmojiPicker->move(
-                0, std::min(0, height - pickerFullHeight));
-        }
-
-        const int revealGap = height > 0
-            ? RankedEmojiPopupMargin
-            : 0;
-        rankedEmojiPopup->setFixedSize(
-            std::max(1, width),
-            std::max(1, compactHeight + revealGap + height));
-        positionRankedEmojiPopup();
+        popup->setSlideProgress(value.toReal());
     });
     connect(rankedEmojiRevealAnimation, &QVariantAnimation::finished,
             this, [this] {
-        if (!rankedEmojiPickerExpanded && rankedEmojiPickerReveal) {
+        auto* popup =
+            static_cast<RankedEmojiPopupFrame*>(rankedEmojiPopup.data());
+        if (!popup) {
+            return;
+        }
+
+        popup->endSlideAnimation();
+        if (rankedEmojiContentRoot) {
+            rankedEmojiContentRoot->show();
+        }
+
+        if (rankedEmojiPickerExpanded) {
+            if (rankedEmojiPickerReveal) {
+                rankedEmojiPickerReveal->show();
+            }
+            if (embeddedEmojiPicker) {
+                embeddedEmojiPicker->show();
+                embeddedEmojiPicker->move(0, 0);
+                embeddedEmojiPicker->focusSearch();
+            }
+            return;
+        }
+
+        if (rankedEmojiPickerReveal) {
             rankedEmojiPickerReveal->setFixedHeight(0);
             rankedEmojiPickerReveal->hide();
-            if (rankedEmojiPopup) {
-                const int compactWidth =
-                    rankedEmojiPopup->property("rankedCompactWidth").toInt();
-                const int compactHeight =
-                    rankedEmojiPopup->property("rankedCompactHeight").toInt();
-                rankedEmojiPopup->setFixedSize(
-                    std::max(1, compactWidth),
-                    std::max(1, compactHeight));
-                positionRankedEmojiPopup();
-            }
-            if (rankedEmojiPickerDestroyTimer && embeddedEmojiPicker) {
-                rankedEmojiPickerDestroyTimer->start();
-            }
-        } else if (rankedEmojiPickerExpanded && embeddedEmojiPicker) {
-            embeddedEmojiPicker->focusSearch();
+        }
+
+        const int compactWidth =
+            popup->property("rankedCompactWidth").toInt();
+        const int compactHeight =
+            popup->property("rankedCompactHeight").toInt();
+        popup->setFixedSize(
+            std::max(1, compactWidth),
+            std::max(1, compactHeight));
+        positionRankedEmojiPopup();
+
+        if (rankedEmojiPickerDestroyTimer && embeddedEmojiPicker) {
+            rankedEmojiPickerDestroyTimer->start();
         }
     });
 
