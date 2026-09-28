@@ -1426,29 +1426,40 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
         static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
     FlowLayout* layout = flowHost->flowLayout();
 
-    while (QLayoutItem* item = layout->takeAt(0)) {
-        if (QWidget* widget = item->widget()) {
-            delete widget;
-        }
-        delete item;
-    }
-
     const QStringList rankedNames =
         ReactionUsageTracker::instance().topNames(RankedEmojiCapacity);
     const QStringList names =
-        RankedEmojiPresentation::renderableNames(rankedNames);
+        RankedEmojiPresentation::renderableNames(rankedNames)
+            .mid(0, RankedEmojiCapacity);
 
-    int rendered = 0;
+    // Custom emoji can become available asynchronously just after startup.
+    // Never destroy a working ranked strip until a complete replacement has
+    // actually been prepared: a transient resolver miss must not turn the
+    // visible popup into an empty frame.
+    const QStringList previousNames =
+        rankedEmojiFlowHost->property("rankedEmojiNames").toStringList();
+    if (names == previousNames && layout->count() == names.size()) {
+        return;
+    }
+    if (names.isEmpty() && layout->count() > 0) {
+        return;
+    }
+
+    struct PreparedButton {
+        QString name;
+        QPushButton* button = nullptr;
+    };
+    QVector<PreparedButton> prepared;
+    prepared.reserve(names.size());
+
     for (const QString& name : names) {
-        if (rendered >= RankedEmojiCapacity) {
-            break;
-        }
-
         auto* emojiButton = new QPushButton(flowHost);
+        emojiButton->hide();
         emojiButton->setFlat(true);
         emojiButton->setFixedSize(
             RankedEmojiButtonExtent, RankedEmojiButtonExtent);
         emojiButton->setCursor(Qt::PointingHandCursor);
+
         if (!RankedEmojiPresentation::configureButton(
                 *emojiButton, name)) {
             delete emojiButton;
@@ -1457,17 +1468,38 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
 
         emojiButton->setAccessibleName(
             tr("Insert :%1:").arg(name));
-        layout->addWidget(emojiButton);
-        ++rendered;
+        prepared.push_back({name, emojiButton});
+    }
 
-        connect(emojiButton, &QPushButton::clicked,
-                this, [this, name] {
+    if (prepared.isEmpty() && layout->count() > 0) {
+        return;
+    }
+
+    while (QLayoutItem* item = layout->takeAt(0)) {
+        if (QWidget* widget = item->widget()) {
+            delete widget;
+        }
+        delete item;
+    }
+
+    QStringList renderedNames;
+    renderedNames.reserve(prepared.size());
+
+    for (const PreparedButton& entry : prepared) {
+        renderedNames.push_back(entry.name);
+        layout->addWidget(entry.button);
+        entry.button->show();
+
+        connect(entry.button, &QPushButton::clicked,
+                this, [this, name = entry.name] {
             insertPlainText(QStringLiteral(" :%1: ").arg(name));
             setFocus();
             hideRankedEmojiPopup();
         });
     }
 
+    const int rendered = renderedNames.size();
+    rankedEmojiFlowHost->setProperty("rankedEmojiNames", renderedNames);
     rankedEmojiFlowHost->setProperty("rankedEmojiCount", rendered);
     if (rendered <= 0) {
         return;
@@ -1496,6 +1528,7 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
             flowHost->height() + 2 * RankedEmojiPopupMargin);
     }
 }
+
 
 void OutgoingPostCreator::toggleEmbeddedEmojiPicker()
 {
