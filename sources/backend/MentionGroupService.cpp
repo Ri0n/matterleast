@@ -51,6 +51,7 @@ bool parseMentionGroup(const QJsonObject& object,
     group.displayName = object.value(QStringLiteral("display_name")).toString();
     group.description = object.value(QStringLiteral("description")).toString();
     group.source = object.value(QStringLiteral("source")).toString();
+    group.deleteAt = object.value(QStringLiteral("delete_at")).toVariant().toLongLong();
     group.memberCount = object.value(QStringLiteral("member_count")).toInt();
     group.allowReference =
         object.value(QStringLiteral("allow_reference")).toBool(true);
