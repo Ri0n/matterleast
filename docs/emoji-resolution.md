@@ -45,21 +45,24 @@ Post widgets use the same signal to re-render unresolved custom emoji and to pro
 The emoji picker must follow live application palette changes without rebuilding
 all category pages.
 
-Do not use a stylesheet on the picker `QTabWidget` or its tab bar just to control
-geometry. A stylesheet wraps the tab widget subtree in `QStyleSheetStyle` and
-can materialize palette state for already-created tab pages, leaving them in the
-old light/dark colors after `QApplication` changes palette.
+Do not use a stylesheet on the picker navigation just to control geometry.
+A stylesheet can materialize palette state for already-created picker children,
+leaving them in the old light/dark colors after `QApplication` changes
+palette. The custom category buttons read their current palette while painting.
 
-Use native widget/style APIs for geometry instead. The picker installs a small
-`QProxyStyle` only on its tab bar to reduce native tab padding/overlap and
-selected-tab shifts; the bar itself is non-expanding, has no base line, and the
-tab widget uses document mode. No palette is baked into the style, so category
-pages, buttons and labels continue to inherit live application palette changes.
+The picker no longer uses native `QTabBar` chrome for category navigation.
+Native tab styles vary too much across platforms (selected-tab shifts, base
+lines, large implicit padding and icon/text alignment). Instead it uses a small
+row of fixed-size, palette-aware category buttons above a `QStackedWidget`.
+The buttons paint only a subtle selected/hover background and the centered emoji
+or custom-category icon, so active and inactive tabs have identical geometry and
+there is no separate tab-bar base line.
 
-The emoji grid is responsive as well: buttons stay at their fixed interaction
-size, but their column count is recomputed from the current tab viewport width.
-Resizing the dialog therefore reflows the grid instead of resizing only the
-outer window while leaving a clipped fixed-width page behind.
+The emoji body uses a real flow layout. Emoji buttons keep their fixed
+interaction size while the layout wraps according to the current page width.
+This gives the page a small minimum width and makes resizing naturally reflow
+the contents instead of keeping a hidden fixed-width grid or manually moving
+widgets from a resize handler.
 
 This is the same general rule used elsewhere in MatterLeast for live theme
 propagation: avoid per-widget stylesheets when a palette/geometry API can express
