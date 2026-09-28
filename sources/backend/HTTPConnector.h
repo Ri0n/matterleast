@@ -62,6 +62,9 @@ public:
 	          UploadProgressHandler uploadProgressHandler = {});
 	void put (QNetworkRequest &request, const QByteArrayCreator &data, HttpResponseCallback responseHandler);
 	void del (QNetworkRequest &request);
+    void del(QNetworkRequest& request,
+             const QByteArrayCreator& data,
+             HttpResponseCallback responseHandler);
 
 signals:
 	void onNetworkError (uint32_t errorNumber, const QString& errorText);

@@ -274,6 +274,14 @@ void HTTPConnector::put (QNetworkRequest& request, const QByteArrayCreator& data
 
 void HTTPConnector::del (QNetworkRequest& request)
 {
+    del(request, QByteArrayCreator(QByteArray()),
+        HttpResponseCallback([](QVariant, QByteArray, const QNetworkReply&) {}));
+}
+
+void HTTPConnector::del(QNetworkRequest& request,
+                        const QByteArrayCreator& data,
+                        HttpResponseCallback responseHandler)
+{
 	if (request.priority() != QNetworkRequest::LowPriority) {
 		request.setPriority(QNetworkRequest::HighPriority);
 	}
@@ -287,9 +295,9 @@ void HTTPConnector::del (QNetworkRequest& request)
 	enqueue(PendingRequest {
 		Method::Delete,
 		request,
-		QByteArray(),
-		false,
-		HttpResponseCallback([](QVariant, QByteArray, const QNetworkReply&) {}),
+		data,
+		data.isJson(),
+		std::move(responseHandler),
         {},
         {},
 	});
@@ -413,7 +421,12 @@ void HTTPConnector::startRequest(PendingRequest request)
 		reply = qnetworkManager->put(request.request, request.data);
 		break;
 	case Method::Delete:
-		reply = qnetworkManager->deleteResource(request.request);
+        if (request.data.isEmpty()) {
+            reply = qnetworkManager->deleteResource(request.request);
+        } else {
+            reply = qnetworkManager->sendCustomRequest(
+                request.request, QByteArrayLiteral("DELETE"), request.data);
+        }
 		break;
 	}
 

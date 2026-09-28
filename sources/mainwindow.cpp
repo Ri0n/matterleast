@@ -56,6 +56,7 @@
 #include "channel-tree-dialogs/FilterListDialog.h"
 #include "channel-tree-dialogs/TeamChannelsListDialog.h"
 #include "channel-tree-dialogs/UserSearchDialog.h"
+#include "channel-tree-dialogs/UserGroupsDialog.h"
 #include "chat-area/ChatArea.h"
 #include "log.h"
 #include "notifications/NotificationManager.h"
@@ -653,6 +654,11 @@ void MainWindow::createMenu()
 			LOG_DEBUG("Logout done");
 		});
 	});
+
+	mainMenu->addAction(tr("User groups…"), [this] {
+        auto* dialog = new UserGroupsDialog(backend, this);
+        dialog->show();
+    });
 
 	mainMenu->addAction("Settings", [this] {
 		auto* settingsWindow = new SettingsWindow(this);

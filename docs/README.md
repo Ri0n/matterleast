@@ -16,6 +16,8 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | virtual sidebar views and collections | [Virtual sidebar destinations](sidebar-virtual-destinations.md) | changing Personal, Saved or search paging |
 | channel discovery, channel creation, DM/GM picker and sidebar category actions | [Channel and conversation discovery](channel-discovery.md) | changing public-channel browsing, participant matching, or sidebar + actions |
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |
+| composer @mentions and user-group suggestions | [Mention autocomplete](mention-autocomplete.md) | changing user/group lookup, DM/GM mention scope, or completion merging |
+| user-group browser, creation, membership and editing | [User groups](user-groups.md) | changing custom-group CRUD, membership mutations, or sidebar entry points |
 | reaction quick bar/ranking | [Reaction quick bar](reaction-quick-bar.md) | changing ranking, cooling, persistence or custom emoji behavior |
 | emoji picker, custom emoji lookup/search, live theme propagation | [Emoji resolution and picker search](emoji-resolution.md) | changing custom emoji discovery, caching, registry synchronization or picker palette behavior |
 | HTTP request headers, cookies, CSRF, HTTP/2 or TLS behavior | [HTTP client profile and transport](network-transport.md) | changing the shared request identity or transport negotiation |
