@@ -21,11 +21,16 @@
 #pragma once
 
 #include <QDialog>
+#include <QIcon>
 #include "backend/emoji/EmojiDefs.h"
 
-class QGridLayout;
+class QAbstractButton;
+class QButtonGroup;
 class QComboBox;
+class QHBoxLayout;
+class QLayout;
 class QTimer;
+class QVBoxLayout;
 class QWidget;
 
 namespace Ui {
@@ -47,11 +52,18 @@ private:
     void rebuildSearchableEmojis ();
     void refreshCustomEmojiCatalog ();
     void createTabForCategory (uint32_t categoryIndex, uint32_t tabIndex, const QString& tabName, const QVector<Emoji>& emojis);
-    QGridLayout* createTab (uint32_t categoryIdx, int tabIndex);
+    QLayout* createTab (uint32_t categoryIdx, int tabIndex);
     void updateSearchResults (const QString& text);
     void removeSearchTab ();
     Emoji getSelectedEmoji ();
-    void addSkinToneComboBox (QWidget *tab, QGridLayout *gridLayout, uint32_t categoryIdx);
+    void addSkinToneComboBox (QWidget *tab, QVBoxLayout *layout, uint32_t categoryIdx);
+    void setTabPresentation(int index,
+                            const QString& glyph,
+                            const QString& toolTip,
+                            const QIcon& icon = QIcon());
+    void removeTabPresentation(int index);
+    void syncCurrentTabButton(int index);
+
 private:
     friend class ChooseEmojiDialogWrapper;
     Backend&                 backend;
@@ -62,6 +74,9 @@ private:
     QWidget*                searchTab = nullptr;
     QTimer*                 searchTimer = nullptr;
     QTimer*                 customEmojiRefreshTimer = nullptr;
+    QHBoxLayout*            categoryBarLayout = nullptr;
+    QButtonGroup*           categoryButtonGroup = nullptr;
+    QVector<QAbstractButton*> categoryButtons;
     int                     searchReturnTabIndex = -1;
     int                     renderedCustomEmojiCount = -1;
     Emoji					selectedEmoji;

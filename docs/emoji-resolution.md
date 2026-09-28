@@ -45,14 +45,37 @@ Post widgets use the same signal to re-render unresolved custom emoji and to pro
 The emoji picker must follow live application palette changes without rebuilding
 all category pages.
 
-Do not use a stylesheet on the picker `QTabWidget` or its tab bar just to control
-geometry. A stylesheet wraps the tab widget subtree in `QStyleSheetStyle` and
-can materialize palette state for already-created tab pages, leaving them in the
-old light/dark colors after `QApplication` changes palette.
+Do not use a stylesheet on the picker navigation just to control geometry.
+A stylesheet can materialize palette state for already-created picker children,
+leaving them in the old light/dark colors after `QApplication` changes
+palette. The custom category buttons read their current palette while painting.
 
-Use native widget properties for geometry instead. The current tab height is
-implemented through `QTabBar::setMinimumHeight()`; category pages, buttons and
-labels otherwise inherit the application palette normally.
+The picker root uses `QPalette::Base` as its background role rather than
+`QPalette::Window`. This intentionally tracks the theme's content surface
+(typically white in light themes and black/dark in dark themes) while still
+following live palette changes.
+
+The picker no longer uses native `QTabBar` chrome for category navigation.
+Native tab styles vary too much across platforms (selected-tab shifts, base
+lines, large implicit padding and icon/text alignment). Instead it uses a small
+row of fixed-size, palette-aware category buttons above a `QStackedWidget`.
+The buttons paint only a subtle selected/hover background and the centered emoji
+or custom-category icon, so active and inactive tabs have identical geometry and
+there is no separate tab-bar base line.
+
+The emoji body uses a real flow layout. Emoji buttons keep their fixed
+interaction size while the layout wraps according to the current page width.
+This gives the page a small minimum width and makes resizing naturally reflow
+the contents instead of keeping a hidden fixed-width grid or manually moving
+widgets from a resize handler.
+
+Each category page lives inside a `QScrollArea`, so reducing the dialog height
+keeps the category usable with the mouse wheel and thumb. The application-wide
+`OverlayScrollBarManager` supplies the thin overlay scrollbar, but the picker
+opts out of the top/bottom edge-jump buttons because those affordances are chat
+navigation rather than picker navigation. The flow host updates its minimum
+height from `heightForWidth()` so the scroll range follows wrapping as the
+dialog width changes.
 
 This is the same general rule used elsewhere in MatterLeast for live theme
 propagation: avoid per-widget stylesheets when a palette/geometry API can express
