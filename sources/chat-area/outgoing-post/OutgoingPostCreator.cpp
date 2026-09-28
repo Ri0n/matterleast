@@ -96,6 +96,14 @@ public:
         setAutoFillBackground(false);
     }
 
+    void setContentWidget(QWidget* content)
+    {
+        contentWidget_ = content;
+        if (contentWidget_) {
+            contentWidget_->setGeometry(rect());
+        }
+    }
+
     void beginSlideAnimation(const QPixmap& contentSnapshot,
                              const QSize& compactPopupSize,
                              const QSize& expandedPopupSize,
@@ -136,6 +144,14 @@ public:
     }
 
 protected:
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QFrame::resizeEvent(event);
+        if (contentWidget_) {
+            contentWidget_->setGeometry(rect());
+        }
+    }
+
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
@@ -189,6 +205,7 @@ protected:
     }
 
 private:
+    QPointer<QWidget> contentWidget_;
     QPixmap animationSnapshot_;
     QSize compactPopupSize_;
     QSize expandedPopupSize_;
@@ -1328,14 +1345,10 @@ void OutgoingPostCreator::showRankedEmojiPopup()
         rankedEmojiPopup = popup;
         popup->installEventFilter(this);
 
-        auto* popupLayout = new QVBoxLayout(popup);
-        popupLayout->setContentsMargins(0, 0, 0, 0);
-        popupLayout->setSpacing(0);
-
         auto* contentRoot = new QWidget(popup);
         rankedEmojiContentRoot = contentRoot;
         contentRoot->setAttribute(Qt::WA_TranslucentBackground, true);
-        popupLayout->addWidget(contentRoot);
+        popup->setContentWidget(contentRoot);
 
         auto* layout = new QVBoxLayout(contentRoot);
         layout->setContentsMargins(
@@ -1627,9 +1640,8 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
         positionRankedEmojiPopup();
 
         rankedEmojiContentRoot->show();
-        popup->layout()->activate();
+        rankedEmojiContentRoot->setGeometry(popup->rect());
         rankedEmojiContentRoot->layout()->activate();
-        rankedEmojiContentRoot->resize(expandedSize);
 
         const QPixmap snapshot = rankedEmojiContentRoot->grab();
         popup->beginSlideAnimation(
