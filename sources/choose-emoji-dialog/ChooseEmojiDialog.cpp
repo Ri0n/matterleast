@@ -389,7 +389,9 @@ QLayout* ChooseEmojiDialog::createTab(uint32_t categoryIdx, int tabIndex)
     }
 
     auto* flowHost = new QWidget(tab);
-    flowHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    QSizePolicy flowPolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    flowPolicy.setHeightForWidth(true);
+    flowHost->setSizePolicy(flowPolicy);
     auto* flowLayout = new EmojiFlowLayout(flowHost);
     pageLayout->addWidget(flowHost, 0);
     pageLayout->addStretch(1);
@@ -666,8 +668,9 @@ void ChooseEmojiDialog::updateSearchResults(const QString& text)
         pageLayout->addWidget(emptyLabel, 1);
     } else {
         auto* flowHost = new QWidget(searchTab);
-        flowHost->setSizePolicy(
-            QSizePolicy::Expanding, QSizePolicy::Preferred);
+        QSizePolicy flowPolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        flowPolicy.setHeightForWidth(true);
+        flowHost->setSizePolicy(flowPolicy);
         auto* flowLayout = new EmojiFlowLayout(flowHost);
 
         for (const Emoji& emoji : matches) {
