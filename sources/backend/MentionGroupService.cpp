@@ -19,6 +19,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
+#include <QUrl>
 
 #include "Backend.h"
 #include "HttpResponseCallback.h"
@@ -37,6 +38,23 @@ QString displayName(const QJsonObject& user)
         return lastName.isEmpty() ? firstName : firstName + QLatin1Char(' ') + lastName;
     }
     return user.value(QStringLiteral("username")).toString();
+}
+
+bool parseMentionGroup(const QJsonObject& object, MentionGroup& group)
+{
+    group.id = object.value(QStringLiteral("id")).toString();
+    group.name = object.value(QStringLiteral("name")).toString();
+    group.displayName = object.value(QStringLiteral("display_name")).toString();
+    group.memberCount = object.value(QStringLiteral("member_count")).toInt();
+
+    return !group.id.isEmpty()
+        && !group.name.isEmpty()
+        && object.value(QStringLiteral("allow_reference")).toBool(true);
+}
+
+QString encodedQueryValue(const QString& value)
+{
+    return QString::fromLatin1(QUrl::toPercentEncoding(value));
 }
 
 } // namespace
@@ -97,20 +115,67 @@ void MentionGroupService::ensureTeamGroups(const QString& teamId, GroupsCallback
             QHash<QString, MentionGroup> groups;
             const QJsonArray array = doc.object().value(QStringLiteral("groups")).toArray();
             for (const QJsonValue& value : array) {
-                const QJsonObject object = value.toObject();
                 MentionGroup group;
-                group.id = object.value(QStringLiteral("id")).toString();
-                group.name = object.value(QStringLiteral("name")).toString();
-                group.displayName = object.value(QStringLiteral("display_name")).toString();
-                group.memberCount = object.value(QStringLiteral("member_count")).toInt();
-                if (group.id.isEmpty() || group.name.isEmpty()
-                    || !object.value(QStringLiteral("allow_reference")).toBool(true)) {
+                if (!parseMentionGroup(value.toObject(), group)) {
                     continue;
                 }
                 groups.insert(group.id, std::move(group));
             }
             groupsByTeamAndId.insert(teamId, std::move(groups));
             finishTeamLoad(teamId);
+        }));
+}
+
+void MentionGroupService::searchReferenceGroups(const QString& teamId,
+                                                     const QString& query,
+                                                     const QString& channelId,
+                                                     int limit,
+                                                     GroupSearchCallback callback)
+{
+    if (query.isEmpty()) {
+        if (callback) {
+            callback({});
+        }
+        return;
+    }
+
+    QString url = QStringLiteral("groups?q=")
+        + encodedQueryValue(query)
+        + QStringLiteral("&filter_allow_reference=true&page=0&per_page=")
+        + QString::number(std::max(1, limit))
+        + QStringLiteral("&include_member_count=true");
+    if (!channelId.isEmpty()) {
+        url += QStringLiteral("&include_channel_member_count=")
+            + encodedQueryValue(channelId);
+    }
+
+    NetworkRequest request(url);
+    httpConnector.get(request, HttpResponseCallback(
+        [this, teamId, callback = std::move(callback)](const QJsonDocument& doc) mutable {
+            QVector<MentionGroup> result;
+            const QJsonArray array = doc.array();
+            result.reserve(array.size());
+
+            QHash<QString, MentionGroup>* cache = nullptr;
+            if (!teamId.isEmpty()) {
+                cache = &groupsByTeamAndId[teamId];
+            }
+
+            for (const QJsonValue& value : array) {
+                MentionGroup group;
+                if (!parseMentionGroup(value.toObject(), group)) {
+                    continue;
+                }
+
+                if (cache) {
+                    cache->insert(group.id, group);
+                }
+                result.push_back(std::move(group));
+            }
+
+            if (callback) {
+                callback(std::move(result));
+            }
         }));
 }
 
