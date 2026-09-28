@@ -27,6 +27,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QTimer>
@@ -38,6 +39,7 @@
 #include "backend/CustomEmojiService.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistryNotifier.h"
+#include "ui/OverlayScrollBarManager.h"
 #include "ui_ChooseEmojiDialog.h"
 
 namespace Mattermost {
@@ -266,6 +268,27 @@ const uint32_t indexForCategoryTab[EmojiCategory::COUNT] = {
     0,   // custom
 };
 
+QScrollArea* createEmojiScrollArea(QWidget* parent)
+{
+    auto* area = new QScrollArea(parent);
+    area->setFrameShape(QFrame::NoFrame);
+    area->setWidgetResizable(true);
+    area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    area->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    area->setBackgroundRole(QPalette::Base);
+    area->setAutoFillBackground(true);
+    area->viewport()->setBackgroundRole(QPalette::Base);
+    area->viewport()->setAutoFillBackground(true);
+    OverlayScrollBarManager::setEdgeNavigationButtonsEnabled(*area, false);
+    return area;
+}
+
+void useBaseBackground(QWidget& widget)
+{
+    widget.setBackgroundRole(QPalette::Base);
+    widget.setAutoFillBackground(true);
+}
+
 QString customEmojiImagePath(const QString& value)
 {
     int first = value.indexOf(QLatin1Char('"'));
@@ -382,26 +405,38 @@ void ChooseEmojiDialog::show()
 
 QLayout* ChooseEmojiDialog::createTab(uint32_t categoryIdx, int tabIndex)
 {
-    QWidget* tab = new QWidget;
+    auto* tab = new QWidget;
     tab->setObjectName(
         QStringLiteral("tab") + QString::number(categoryIdx));
     tab->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    useBaseBackground(*tab);
 
     auto* pageLayout = new QVBoxLayout(tab);
-    pageLayout->setSpacing(4);
-    pageLayout->setContentsMargins(0, 8, 0, 0);
+    pageLayout->setSpacing(0);
+    pageLayout->setContentsMargins(0, 0, 0, 0);
+
+    QScrollArea* scrollArea = createEmojiScrollArea(tab);
+    auto* content = new QWidget;
+    useBaseBackground(*content);
+
+    auto* contentLayout = new QVBoxLayout(content);
+    contentLayout->setSpacing(4);
+    contentLayout->setContentsMargins(0, 8, 0, 0);
 
     if (categoryIdx == EmojiCategory::people) {
-        addSkinToneComboBox(tab, pageLayout, categoryIdx);
+        addSkinToneComboBox(content, contentLayout, categoryIdx);
     }
 
-    auto* flowHost = new QWidget(tab);
+    auto* flowHost = new QWidget(content);
     QSizePolicy flowPolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     flowPolicy.setHeightForWidth(true);
     flowHost->setSizePolicy(flowPolicy);
     auto* flowLayout = new EmojiFlowLayout(flowHost);
-    pageLayout->addWidget(flowHost, 0);
-    pageLayout->addStretch(1);
+    contentLayout->addWidget(flowHost, 0);
+    contentLayout->addStretch(1);
+
+    scrollArea->setWidget(content);
+    pageLayout->addWidget(scrollArea);
 
     if (tabIndex >= ui->stackWidget->count()) {
         ui->stackWidget->addWidget(tab);
@@ -663,10 +698,11 @@ void ChooseEmojiDialog::updateSearchResults(const QString& text)
     searchTab = new QWidget;
     searchTab->setSizePolicy(
         QSizePolicy::Expanding, QSizePolicy::Expanding);
+    useBaseBackground(*searchTab);
 
     auto* pageLayout = new QVBoxLayout(searchTab);
-    pageLayout->setContentsMargins(0, 8, 0, 0);
-    pageLayout->setSpacing(4);
+    pageLayout->setContentsMargins(0, 0, 0, 0);
+    pageLayout->setSpacing(0);
 
     if (matches.isEmpty()) {
         auto* emptyLabel =
@@ -674,7 +710,15 @@ void ChooseEmojiDialog::updateSearchResults(const QString& text)
         emptyLabel->setAlignment(Qt::AlignCenter);
         pageLayout->addWidget(emptyLabel, 1);
     } else {
-        auto* flowHost = new QWidget(searchTab);
+        QScrollArea* scrollArea = createEmojiScrollArea(searchTab);
+        auto* content = new QWidget;
+        useBaseBackground(*content);
+
+        auto* contentLayout = new QVBoxLayout(content);
+        contentLayout->setContentsMargins(0, 8, 0, 0);
+        contentLayout->setSpacing(0);
+
+        auto* flowHost = new QWidget(content);
         QSizePolicy flowPolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         flowPolicy.setHeightForWidth(true);
         flowHost->setSizePolicy(flowPolicy);
@@ -709,8 +753,10 @@ void ChooseEmojiDialog::updateSearchResults(const QString& text)
             flowLayout->addWidget(pushButton);
         }
 
-        pageLayout->addWidget(flowHost, 0);
-        pageLayout->addStretch(1);
+        contentLayout->addWidget(flowHost, 0);
+        contentLayout->addStretch(1);
+        scrollArea->setWidget(content);
+        pageLayout->addWidget(scrollArea);
     }
 
     const int searchIndex =
