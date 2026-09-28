@@ -5,6 +5,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -27,18 +28,6 @@ namespace {
 constexpr int UserSearchDelayMs = 250;
 constexpr int MinimumUserSearchLength = 2;
 constexpr int UserSearchLimit = 50;
-
-QString memberLabel(const MentionGroupMember& member)
-{
-    if (member.username.isEmpty()) {
-        return member.displayName;
-    }
-    if (member.displayName.isEmpty()
-        || member.displayName.compare(member.username, Qt::CaseInsensitive) == 0) {
-        return QStringLiteral("@") + member.username;
-    }
-    return member.displayName + QStringLiteral("  @") + member.username;
-}
 
 } // namespace
 
@@ -421,8 +410,10 @@ void UserGroupEditorDialog::saveExisting(const QString& displayName,
 
     QStringList additions;
     QStringList removals;
-    const QSet<QString> currentIds =
-        QSet<QString>(members.keyBegin(), members.keyEnd());
+    QSet<QString> currentIds;
+    for (auto it = members.cbegin(); it != members.cend(); ++it) {
+        currentIds.insert(it.key());
+    }
 
     for (const QString& userId : currentIds) {
         if (!initialMemberIds.contains(userId)) {
