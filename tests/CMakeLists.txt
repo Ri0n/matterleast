@@ -36,6 +36,25 @@ target_link_libraries(long-list-widget-removal-test
 add_test(NAME long-list-widget-removal-test COMMAND long-list-widget-removal-test)
 set_tests_properties(long-list-widget-removal-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(overlay-scrollbar-manager-test
+    OverlayScrollBarManagerTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/ui/OverlayScrollBarManager.cpp"
+)
+
+target_include_directories(overlay-scrollbar-manager-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+
+target_link_libraries(overlay-scrollbar-manager-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Widgets
+)
+
+add_test(NAME overlay-scrollbar-manager-test COMMAND overlay-scrollbar-manager-test)
+set_tests_properties(overlay-scrollbar-manager-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(post-source-request-gate-test
     PostSourceRequestGateTest.cpp
 )
