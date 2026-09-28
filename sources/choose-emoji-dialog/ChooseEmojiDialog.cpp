@@ -227,16 +227,14 @@ protected:
         painter.drawText(rect(), Qt::AlignCenter, text());
     }
 
-    void enterEvent(QEvent* event) override
+    bool event(QEvent* event) override
     {
-        QAbstractButton::enterEvent(event);
-        update();
-    }
-
-    void leaveEvent(QEvent* event) override
-    {
-        QAbstractButton::leaveEvent(event);
-        update();
+        const bool handled = QAbstractButton::event(event);
+        if (event->type() == QEvent::Enter
+            || event->type() == QEvent::Leave) {
+            update();
+        }
+        return handled;
     }
 
 private:
@@ -561,7 +559,7 @@ void ChooseEmojiDialog::setTabPresentation(
     }
 
     auto* button =
-        qobject_cast<EmojiTabButton*>(categoryButtons.at(index));
+        static_cast<EmojiTabButton*>(categoryButtons.at(index));
     if (!button) {
         button = new EmojiTabButton(ui->categoryBar);
         categoryButtons[index] = button;
