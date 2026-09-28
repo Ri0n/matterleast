@@ -50,6 +50,11 @@ A stylesheet can materialize palette state for already-created picker children,
 leaving them in the old light/dark colors after `QApplication` changes
 palette. The custom category buttons read their current palette while painting.
 
+The picker root uses `QPalette::Base` as its background role rather than
+`QPalette::Window`. This intentionally tracks the theme's content surface
+(typically white in light themes and black/dark in dark themes) while still
+following live palette changes.
+
 The picker no longer uses native `QTabBar` chrome for category navigation.
 Native tab styles vary too much across platforms (selected-tab shifts, base
 lines, large implicit padding and icon/text alignment). Instead it uses a small
