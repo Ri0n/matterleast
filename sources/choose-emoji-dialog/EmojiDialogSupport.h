@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QFont>
+#include <QProxyStyle>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QString>
@@ -65,13 +66,46 @@ inline QFont emojiButtonFont(QFont font, int pointSize = 16)
     return EmojiFont::applySystemEmojiFamily(font);
 }
 
+class CompactEmojiTabStyle final : public QProxyStyle
+{
+public:
+    int pixelMetric(PixelMetric metric,
+                    const QStyleOption* option = nullptr,
+                    const QWidget* widget = nullptr) const override
+    {
+        switch (metric) {
+        case PM_TabBarTabHSpace:
+            return 8;
+        case PM_TabBarTabVSpace:
+            return 4;
+        case PM_TabBarTabOverlap:
+        case PM_TabBarBaseOverlap:
+        case PM_TabBarTabShiftHorizontal:
+        case PM_TabBarTabShiftVertical:
+            return 0;
+        default:
+            return QProxyStyle::pixelMetric(metric, option, widget);
+        }
+    }
+};
+
 inline void configureTabWidget(QTabWidget& tabWidget)
 {
-    // Avoid a stylesheet for the tab height. QStyleSheetStyle can materialize
-    // palette state for the entire tab widget subtree, which prevents the
-    // already-created pages from following a live application theme change.
+    // Keep the picker theme-native. A stylesheet on QTabWidget/QTabBar wraps
+    // the subtree in QStyleSheetStyle and can freeze palette state across a
+    // live theme change.
     tabWidget.setStyleSheet(QString());
-    tabWidget.tabBar()->setMinimumHeight(42);
+    tabWidget.setDocumentMode(true);
+
+    QTabBar* bar = tabWidget.tabBar();
+    bar->setDrawBase(false);
+    bar->setExpanding(false);
+    bar->setUsesScrollButtons(false);
+    bar->setMinimumHeight(34);
+
+    auto* compactStyle = new CompactEmojiTabStyle;
+    compactStyle->setParent(bar);
+    bar->setStyle(compactStyle);
 }
 
 } // namespace Mattermost::EmojiDialogSupport
