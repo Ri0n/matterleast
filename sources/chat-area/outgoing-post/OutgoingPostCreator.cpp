@@ -42,6 +42,7 @@
 #include <QPalette>
 #include <QPainter>
 #include <QPointer>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QTextCursor>
@@ -95,19 +96,111 @@ public:
         setAutoFillBackground(false);
     }
 
+    void beginSlideAnimation(const QPixmap& contentSnapshot,
+                             const QSize& compactPopupSize,
+                             const QSize& expandedPopupSize,
+                             qreal progress)
+    {
+        animationSnapshot_ = contentSnapshot;
+        compactPopupSize_ = compactPopupSize;
+        expandedPopupSize_ = expandedPopupSize;
+        animationProgress_ = qBound<qreal>(0.0, progress, 1.0);
+        update();
+    }
+
+    void setSlideProgress(qreal progress)
+    {
+        animationProgress_ = qBound<qreal>(0.0, progress, 1.0);
+        update();
+    }
+
+    qreal slideProgress() const
+    {
+        return animationProgress_;
+    }
+
+    bool isSlideAnimating() const
+    {
+        return animationProgress_ >= 0.0 && !animationSnapshot_.isNull();
+    }
+
+    void endSlideAnimation()
+    {
+        animationSnapshot_ = QPixmap();
+        compactPopupSize_ = QSize();
+        expandedPopupSize_ = QSize();
+        animationProgress_ = -1.0;
+        update();
+    }
+
 protected:
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
+
+        if (!isSlideAnimating()) {
+            painter.setPen(QPen(palette().color(QPalette::Mid), 1.0));
+            painter.setBrush(palette().brush(QPalette::Base));
+
+            const QRectF frameRect =
+                QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+            painter.drawRoundedRect(
+                frameRect, RankedEmojiPopupRadius, RankedEmojiPopupRadius);
+            return;
+        }
+
+        const qreal progress = animationProgress_;
+        const qreal visibleWidth =
+            compactPopupSize_.width()
+            + (expandedPopupSize_.width() - compactPopupSize_.width())
+                * progress;
+        const qreal visibleHeight =
+            compactPopupSize_.height()
+            + (expandedPopupSize_.height() - compactPopupSize_.height())
+                * progress;
+
+        const QRectF visibleRect(
+            (width() - visibleWidth) / 2.0,
+            height() - visibleHeight,
+            visibleWidth,
+            visibleHeight);
+
         painter.setPen(QPen(palette().color(QPalette::Mid), 1.0));
         painter.setBrush(palette().brush(QPalette::Base));
-
-        const QRectF frameRect =
-            QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
         painter.drawRoundedRect(
-            frameRect, RankedEmojiPopupRadius, RankedEmojiPopupRadius);
+            visibleRect.adjusted(0.5, 0.5, -0.5, -0.5),
+            RankedEmojiPopupRadius,
+            RankedEmojiPopupRadius);
+
+        painter.save();
+        const QRectF contentClip = visibleRect.adjusted(
+            RankedEmojiPopupMargin,
+            RankedEmojiPopupMargin,
+            -RankedEmojiPopupMargin,
+            -RankedEmojiPopupMargin);
+        painter.setClipRect(contentClip);
+
+        const qreal compactContentHeight =
+            compactPopupSize_.height() - 2 * RankedEmojiPopupMargin;
+        const qreal expandedContentHeight =
+            expandedPopupSize_.height() - 2 * RankedEmojiPopupMargin;
+        const qreal verticalShift =
+            (expandedContentHeight - compactContentHeight)
+            * (1.0 - progress);
+
+        const QPointF snapshotTopLeft(
+            RankedEmojiPopupMargin,
+            RankedEmojiPopupMargin + verticalShift);
+        painter.drawPixmap(snapshotTopLeft, animationSnapshot_);
+        painter.restore();
     }
+
+private:
+    QPixmap animationSnapshot_;
+    QSize compactPopupSize_;
+    QSize expandedPopupSize_;
+    qreal animationProgress_ = -1.0;
 };
 
 class RankedEmojiFlowHost final : public QWidget
