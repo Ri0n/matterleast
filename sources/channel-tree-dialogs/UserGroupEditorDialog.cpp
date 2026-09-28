@@ -65,6 +65,7 @@ UserGroupEditorDialog::UserGroupEditorDialog(
     mentionEdit->setReadOnly(!canEdit);
     userSearchEdit->setEnabled(canEdit);
     userSearchResults->setEnabled(canEdit);
+    addPersonButton->setEnabled(false);
     removeMemberButton->setEnabled(false);
     saveButton->setVisible(canEdit);
 
@@ -152,10 +153,13 @@ void UserGroupEditorDialog::buildUi()
     userSearchResults->hide();
     layout->addWidget(userSearchResults);
 
-    connect(userSearchEdit, &QLineEdit::textChanged,
-            this, &UserGroupEditorDialog::scheduleUserSearch);
-    connect(userSearchResults, &QListWidget::itemDoubleClicked,
-            this, [this](QListWidgetItem* item) {
+    addPersonButton = new QPushButton(tr("Add selected person"), this);
+    addPersonButton->setEnabled(false);
+    addPersonButton->hide();
+    layout->addWidget(addPersonButton, 0, Qt::AlignRight);
+
+    const auto addSelectedSearchUser = [this] {
+        QListWidgetItem* item = userSearchResults->currentItem();
         if (!item || !editable()) {
             return;
         }
@@ -163,7 +167,20 @@ void UserGroupEditorDialog::buildUi()
         if (BackendUser* user = backend.getStorage().getUserById(userId)) {
             addUser(*user);
         }
+    };
+
+    connect(userSearchEdit, &QLineEdit::textChanged,
+            this, &UserGroupEditorDialog::scheduleUserSearch);
+    connect(userSearchResults, &QListWidget::itemSelectionChanged, this, [this] {
+        addPersonButton->setEnabled(
+            editable() && userSearchResults->currentItem());
     });
+    connect(userSearchResults, &QListWidget::itemDoubleClicked,
+            this, [addSelectedSearchUser](QListWidgetItem*) {
+        addSelectedSearchUser();
+    });
+    connect(addPersonButton, &QPushButton::clicked,
+            this, addSelectedSearchUser);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
     saveButton = buttons->addButton(
@@ -259,6 +276,8 @@ void UserGroupEditorDialog::scheduleUserSearch(const QString& text)
 
     userSearchResults->clear();
     userSearchResults->hide();
+    addPersonButton->setEnabled(false);
+    addPersonButton->hide();
 
     if (!editable() || searchTerm.size() < MinimumUserSearchLength) {
         return;
@@ -311,7 +330,11 @@ void UserGroupEditorDialog::showUserSearchResults(
         item->setData(Qt::UserRole, user->id);
     }
 
-    userSearchResults->setVisible(userSearchResults->count() > 0);
+    const bool hasResults = userSearchResults->count() > 0;
+    userSearchResults->setVisible(hasResults);
+    addPersonButton->setVisible(hasResults);
+    addPersonButton->setEnabled(
+        hasResults && userSearchResults->currentItem());
 }
 
 void UserGroupEditorDialog::addUser(const BackendUser& user)
