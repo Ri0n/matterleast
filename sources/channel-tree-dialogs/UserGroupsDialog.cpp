@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include <QDialogButtonBox>
+#include <QFont>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
