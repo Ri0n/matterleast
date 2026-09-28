@@ -27,6 +27,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QStackedWidget>
@@ -170,6 +171,39 @@ private:
     }
 
     QVector<QLayoutItem*> items;
+};
+
+class EmojiFlowHost final : public QWidget
+{
+public:
+    explicit EmojiFlowHost(QWidget* parent = nullptr)
+        : QWidget(parent)
+        , flowLayout(new EmojiFlowLayout(this))
+    {
+        QSizePolicy policy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        policy.setHeightForWidth(true);
+        setSizePolicy(policy);
+    }
+
+    EmojiFlowLayout* emojiLayout() const
+    {
+        return flowLayout;
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QWidget::resizeEvent(event);
+        const int requiredHeight =
+            flowLayout->heightForWidth(std::max(1, width()));
+        if (minimumHeight() != requiredHeight) {
+            setMinimumHeight(requiredHeight);
+            updateGeometry();
+        }
+    }
+
+private:
+    EmojiFlowLayout* flowLayout = nullptr;
 };
 
 class EmojiTabButton final : public QAbstractButton
@@ -427,11 +461,8 @@ QLayout* ChooseEmojiDialog::createTab(uint32_t categoryIdx, int tabIndex)
         addSkinToneComboBox(content, contentLayout, categoryIdx);
     }
 
-    auto* flowHost = new QWidget(content);
-    QSizePolicy flowPolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    flowPolicy.setHeightForWidth(true);
-    flowHost->setSizePolicy(flowPolicy);
-    auto* flowLayout = new EmojiFlowLayout(flowHost);
+    auto* flowHost = new EmojiFlowHost(content);
+    auto* flowLayout = flowHost->emojiLayout();
     contentLayout->addWidget(flowHost, 0);
     contentLayout->addStretch(1);
 
@@ -718,11 +749,8 @@ void ChooseEmojiDialog::updateSearchResults(const QString& text)
         contentLayout->setContentsMargins(0, 8, 0, 0);
         contentLayout->setSpacing(0);
 
-        auto* flowHost = new QWidget(content);
-        QSizePolicy flowPolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        flowPolicy.setHeightForWidth(true);
-        flowHost->setSizePolicy(flowPolicy);
-        auto* flowLayout = new EmojiFlowLayout(flowHost);
+        auto* flowHost = new EmojiFlowHost(content);
+        auto* flowLayout = flowHost->emojiLayout();
 
         for (const Emoji& emoji : matches) {
             auto* pushButton = new QPushButton(flowHost);
