@@ -62,6 +62,7 @@ private:
     QListWidget* userSearchResults = nullptr;
     QTableWidget* memberTable = nullptr;
     QLabel* memberCountLabel = nullptr;
+    QPushButton* addPersonButton = nullptr;
     QPushButton* removeMemberButton = nullptr;
     QPushButton* saveButton = nullptr;
 
