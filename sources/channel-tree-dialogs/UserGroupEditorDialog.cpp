@@ -217,7 +217,11 @@ void UserGroupEditorDialog::rebuildMembers()
 {
     memberTable->setRowCount(0);
 
-    QVector<MentionGroupMember> ordered = members.values().toVector();
+    QVector<MentionGroupMember> ordered;
+    ordered.reserve(members.size());
+    for (auto it = members.cbegin(); it != members.cend(); ++it) {
+        ordered.push_back(it.value());
+    }
     std::sort(ordered.begin(), ordered.end(),
               [](const MentionGroupMember& lhs, const MentionGroupMember& rhs) {
         const QString left =
