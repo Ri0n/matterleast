@@ -20,7 +20,7 @@ private slots:
         QCOMPARE(suggestedGroupMention(QStringLiteral("Example Product Team")),
                  QStringLiteral("exampleproductteam"));
         QCOMPARE(suggestedGroupMention(QStringLiteral("QA / Release-Team")),
-                 QStringLiteral("qareleaseteam"));
+                 QStringLiteral("qarelease-team"));
     }
 
     void rejectsReservedAndInvalidMentions()
