@@ -111,6 +111,7 @@ private:
     QSet<QString> loadedTeams;
     QSet<QString> loadingTeams;
     QHash<QString, QVector<GroupsCallback>> teamWaiters;
+    quint64 cacheGeneration = 0;
 };
 
 } // namespace Mattermost
