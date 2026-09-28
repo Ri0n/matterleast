@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QMap>
 #include <QSet>
+#include <QStringList>
 #include <QTimer>
 #include <QVector>
 
