@@ -117,7 +117,7 @@ jobs:
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.24
         with:
-          key: windows-msvc-qt6
+          key: windows-msvc-qt6.11.2
           max-size: 2G
 
       - name: Configure
