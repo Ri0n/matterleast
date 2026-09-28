@@ -397,12 +397,13 @@ void ChatArea::setupComposerUi()
     if (!teamId.isEmpty()) {
         auto& groupService = MentionGroupService::instance(backend);
         auto* editor = ui->outgoingPostCreator;
+        auto* groupServicePtr = &groupService;
         connect(&groupService, &MentionGroupService::groupsChanged, editor,
-                [&groupService, editor, teamId](const QString& changedTeamId) {
+                [groupServicePtr, editor, teamId](const QString& changedTeamId) {
             if (changedTeamId != teamId) {
                 return;
             }
-            groupService.ensureTeamGroups(teamId, [editor] {
+            groupServicePtr->ensureTeamGroups(teamId, [editor] {
                 editor->refreshCompletions();
             });
         });
