@@ -30,7 +30,7 @@
 #include <QLineEdit>
 #include <QPixmap>
 #include <QPushButton>
-#include <QSpacerItem>
+#include <QResizeEvent>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
@@ -43,8 +43,14 @@
 
 namespace Mattermost {
 
-static constexpr int itemsPerRow = 30;
+static constexpr int maxItemsPerRow = 30;
+static constexpr int emojiButtonExtent = 32;
 static constexpr int maxSearchResults = 180;
+static constexpr char EmojiButtonProperty[] = "mattermostEmojiPickerButton";
+static constexpr char EmojiOrderProperty[] = "mattermostEmojiPickerOrder";
+static constexpr char EmojiFirstRowProperty[] = "mattermostEmojiPickerFirstRow";
+static constexpr char EmojiStretchColumnProperty[] = "mattermostEmojiPickerStretchColumn";
+static constexpr char EmojiStretchRowProperty[] = "mattermostEmojiPickerStretchRow";
 
 static int tabIndexForCategory(uint32_t categoryIdx)
 {
@@ -149,6 +155,7 @@ void ChooseEmojiDialog::show ()
     }
 	ui->searchEdit->clear ();
 	QDialog::show ();
+    reflowEmojiPages();
 	ui->searchEdit->setFocus (Qt::ShortcutFocusReason);
 }
 
@@ -156,6 +163,9 @@ QGridLayout* ChooseEmojiDialog::createTab (uint32_t categoryIdx, int tabIndex)
 {
 	QWidget *tab = new QWidget ();
 	tab->setObjectName(QString::fromUtf8("tab") + QString::number(categoryIdx));
+    tab->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    tab->setProperty(EmojiFirstRowProperty,
+                     categoryIdx == EmojiCategory::people ? 1 : 0);
 	QGridLayout *gridLayout = new QGridLayout(tab);
 	gridLayout->setSpacing(0);
 	gridLayout->setContentsMargins(0, 8, 0, 0);
@@ -234,9 +244,6 @@ void ChooseEmojiDialog::refreshCustomEmojiCatalog()
 
 void ChooseEmojiDialog::createTabForCategory (uint32_t categoryIndex, uint32_t tabIndex, const QString& tabName, const QVector<Emoji>& emojis)
 {
-	int row = 0;
-	int column = 0;
-
 	QSizePolicy sizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 	sizePolicy.setHorizontalStretch(0);
 	sizePolicy.setVerticalStretch(0);
@@ -244,18 +251,21 @@ void ChooseEmojiDialog::createTabForCategory (uint32_t categoryIndex, uint32_t t
 	QFont font = EmojiDialogSupport::emojiButtonFont (QFont());
 
 	QGridLayout *gridLayout = createTab (categoryIndex, tabIndex);
+    QWidget* page = ui->tabWidget->widget(tabIndex);
 
 	/**
 	 * For the 'people' category, add a combobox for settings skin tone
 	 */
 	if (categoryIndex == EmojiCategory::people) {
-		addSkinToneComboBox (ui->tabWidget->widget (tabIndex), gridLayout, categoryIndex);
+		addSkinToneComboBox (page, gridLayout, categoryIndex);
 		peopleEmojiButtons.reserve (emojis.size());
-		row = 1;
 	}
 
+    int emojiOrder = 0;
 	for (auto& emoji: emojis) {
-		QPushButton* pushButton = new QPushButton (this);
+		QPushButton* pushButton = new QPushButton (page);
+        pushButton->setProperty(EmojiButtonProperty, true);
+        pushButton->setProperty(EmojiOrderProperty, emojiOrder++);
 
 		pushButton->setSizePolicy(sizePolicy);
 		pushButton->setMinimumSize(QSize(32, 32));
@@ -297,17 +307,14 @@ void ChooseEmojiDialog::createTabForCategory (uint32_t categoryIndex, uint32_t t
 			accept ();
 		});
 
-		gridLayout->addWidget(pushButton, row, column, 1, 1);
+		gridLayout->addWidget(pushButton,
+                              page->property(EmojiFirstRowProperty).toInt(),
+                              emojiOrder - 1,
+                              1,
+                              1);
 
 		if (categoryIndex == EmojiCategory::people) {
 			peopleEmojiButtons.push_back(pushButton);
-		}
-
-		++column;
-
-		if (column == itemsPerRow) {
-			column = 0;
-			++row;
 		}
 	}
 
@@ -322,20 +329,7 @@ void ChooseEmojiDialog::createTabForCategory (uint32_t categoryIndex, uint32_t t
 	ui->tabWidget->setTabText (tabIndex, iconString);
 	ui->tabWidget->setTabToolTip (tabIndex, tabName);
 
-	/**
-	 * If there are less emojis than a complete row in the current tab, add a horizontal spacer
-	 * to the end of the row, so that emojis are aligned to the left
-	 */
-	if (row == 0 && column < itemsPerRow) {
-		QSpacerItem* horizontalSpacer = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
-		gridLayout->addItem(horizontalSpacer, 0, column, 1, itemsPerRow - column);
-	}
-
-	/**
-	 * Add vertical spacer, so that there is empty space, when the tab occupies less area than other tabs.
-	 */
-	QSpacerItem* verticalSpacer = new QSpacerItem(20, 40, QSizePolicy::Minimum, QSizePolicy::Expanding);
-	gridLayout->addItem(verticalSpacer, row+1, 0, 1, 1);
+    reflowEmojiPage(page);
 }
 
 void ChooseEmojiDialog::updateSearchResults (const QString& text)
@@ -379,15 +373,18 @@ void ChooseEmojiDialog::updateSearchResults (const QString& text)
 	}
 
 	searchTab = new QWidget ();
+    searchTab->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    searchTab->setProperty(EmojiFirstRowProperty, 0);
 	QGridLayout* gridLayout = new QGridLayout (searchTab);
 	gridLayout->setSpacing (0);
 	gridLayout->setContentsMargins (0, 8, 0, 0);
 	QFont font = EmojiDialogSupport::emojiButtonFont (QFont());
 
-	int row = 0;
-	int column = 0;
+	int emojiOrder = 0;
 	for (const Emoji& emoji: matches) {
 		QPushButton* pushButton = new QPushButton (searchTab);
+        pushButton->setProperty(EmojiButtonProperty, true);
+        pushButton->setProperty(EmojiOrderProperty, emojiOrder++);
 		pushButton->setSizePolicy (QSizePolicy::Fixed, QSizePolicy::Fixed);
 		pushButton->setMinimumSize (QSize(32, 32));
 		pushButton->setMaximumSize (QSize(32, 32));
@@ -414,27 +411,19 @@ void ChooseEmojiDialog::updateSearchResults (const QString& text)
 			selectedEmoji = emoji;
 			accept ();
 		});
-		gridLayout->addWidget (pushButton, row, column, 1, 1);
-
-		if (++column == itemsPerRow) {
-			column = 0;
-			++row;
-		}
+		gridLayout->addWidget (pushButton, 0, emojiOrder - 1, 1, 1);
 	}
 
 	if (matches.isEmpty()) {
 		QLabel* emptyLabel = new QLabel (tr("No emoji found"), searchTab);
-		gridLayout->addWidget (emptyLabel, 0, 0, 1, itemsPerRow, Qt::AlignCenter);
-		row = 1;
+		gridLayout->addWidget (emptyLabel, 0, 0, 1, 1, Qt::AlignCenter);
 	}
-
-	QSpacerItem* verticalSpacer = new QSpacerItem(20, 40, QSizePolicy::Minimum, QSizePolicy::Expanding);
-	gridLayout->addItem(verticalSpacer, row+1, 0, 1, 1);
 
 	int searchIndex = ui->tabWidget->addTab (searchTab,
 											QStringLiteral("\U0001F50D"));
 	ui->tabWidget->setTabToolTip (searchIndex, tr("Search"));
 	ui->tabWidget->setCurrentIndex (searchIndex);
+    reflowEmojiPage(searchTab);
 }
 
 void ChooseEmojiDialog::removeSearchTab ()
@@ -455,6 +444,90 @@ void ChooseEmojiDialog::removeSearchTab ()
 		ui->tabWidget->setCurrentIndex (qBound(0, searchReturnTabIndex, ui->tabWidget->count() - 1));
 	}
 	searchReturnTabIndex = -1;
+}
+
+void ChooseEmojiDialog::reflowEmojiPage(QWidget* page)
+{
+    if (!page) {
+        return;
+    }
+
+    auto* gridLayout = qobject_cast<QGridLayout*>(page->layout());
+    if (!gridLayout) {
+        return;
+    }
+
+    QVector<QPushButton*> buttons;
+    const auto children =
+        page->findChildren<QPushButton*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QPushButton* button : children) {
+        if (button->property(EmojiButtonProperty).toBool()) {
+            buttons.push_back(button);
+        }
+    }
+    std::sort(buttons.begin(), buttons.end(),
+              [](const QPushButton* lhs, const QPushButton* rhs) {
+        return lhs->property(EmojiOrderProperty).toInt()
+            < rhs->property(EmojiOrderProperty).toInt();
+    });
+
+    const QVariant previousStretchColumn =
+        page->property(EmojiStretchColumnProperty);
+    if (previousStretchColumn.isValid()) {
+        gridLayout->setColumnStretch(previousStretchColumn.toInt(), 0);
+    }
+    const QVariant previousStretchRow = page->property(EmojiStretchRowProperty);
+    if (previousStretchRow.isValid()) {
+        gridLayout->setRowStretch(previousStretchRow.toInt(), 0);
+    }
+
+    const QMargins margins = gridLayout->contentsMargins();
+    const int availableWidth = std::max(
+        emojiButtonExtent,
+        ui->tabWidget->contentsRect().width()
+            - margins.left() - margins.right());
+    const int columns = std::max(
+        1, std::min(maxItemsPerRow, availableWidth / emojiButtonExtent));
+    const int firstRow = page->property(EmojiFirstRowProperty).toInt();
+
+    for (QPushButton* button : buttons) {
+        gridLayout->removeWidget(button);
+    }
+    for (int index = 0; index < buttons.size(); ++index) {
+        gridLayout->addWidget(buttons.at(index),
+                              firstRow + index / columns,
+                              index % columns,
+                              1,
+                              1,
+                              Qt::AlignLeft | Qt::AlignTop);
+    }
+
+    const int stretchColumn = std::max(columns, firstRow > 0 ? 7 : 0);
+    gridLayout->setColumnStretch(stretchColumn, 1);
+    page->setProperty(EmojiStretchColumnProperty, stretchColumn);
+
+    const int rows = buttons.isEmpty()
+        ? 1 : (buttons.size() + columns - 1) / columns;
+    const int stretchRow = firstRow + rows;
+    gridLayout->setRowStretch(stretchRow, 1);
+    page->setProperty(EmojiStretchRowProperty, stretchRow);
+
+    if (buttons.isEmpty()) {
+        gridLayout->setColumnStretch(0, 1);
+    }
+}
+
+void ChooseEmojiDialog::reflowEmojiPages()
+{
+    for (int index = 0; index < ui->tabWidget->count(); ++index) {
+        reflowEmojiPage(ui->tabWidget->widget(index));
+    }
+}
+
+void ChooseEmojiDialog::resizeEvent(QResizeEvent* event)
+{
+    QDialog::resizeEvent(event);
+    reflowEmojiPages();
 }
 
 void ChooseEmojiDialog::addSkinToneComboBox (QWidget *tab, QGridLayout *gridLayout, uint32_t categoryIdx)
