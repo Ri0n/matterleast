@@ -40,8 +40,11 @@ UserGroupsDialog::UserGroupsDialog(Backend& sourceBackend, QWidget* parent)
     auto* title = new QLabel(tr("User groups"), this);
     QFont titleFont = title->font();
     titleFont.setBold(true);
-    titleFont.setPointSizeF(titleFont.pointSizeF() > 0.0
-        ? titleFont.pointSizeF() + 2.0 : titleFont.pointSizeF());
+    if (titleFont.pointSizeF() > 0.0) {
+        titleFont.setPointSizeF(titleFont.pointSizeF() + 2.0);
+    } else if (titleFont.pixelSize() > 0) {
+        titleFont.setPixelSize(titleFont.pixelSize() + 3);
+    }
     title->setFont(titleFont);
 
     auto* createButton = new QPushButton(tr("Create group"), this);
