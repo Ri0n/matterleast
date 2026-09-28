@@ -1284,6 +1284,7 @@ bool OutgoingPostCreator::eventFilter(QObject* watched, QEvent* event)
             scheduleRankedEmojiPopupHide();
         } else if (type == QEvent::Destroy) {
             rankedEmojiPopup.clear();
+            rankedEmojiContentRoot.clear();
             rankedEmojiFlowHost.clear();
             rankedEmojiPickerReveal.clear();
             embeddedEmojiPicker.clear();
@@ -1755,6 +1756,15 @@ void OutgoingPostCreator::hideRankedEmojiPopup()
         rankedEmojiRevealAnimation->stop();
     }
 
+    auto* popup =
+        static_cast<RankedEmojiPopupFrame*>(rankedEmojiPopup.data());
+    if (popup) {
+        popup->endSlideAnimation();
+    }
+    if (rankedEmojiContentRoot) {
+        rankedEmojiContentRoot->show();
+    }
+
     rankedEmojiPickerExpanded = false;
     if (rankedEmojiPickerReveal) {
         rankedEmojiPickerReveal->setFixedHeight(0);
@@ -1804,6 +1814,7 @@ void OutgoingPostCreator::destroyRankedEmojiPopup()
     }
 
     rankedEmojiPopup.clear();
+    rankedEmojiContentRoot.clear();
     rankedEmojiFlowHost.clear();
     rankedEmojiPickerReveal.clear();
     embeddedEmojiPicker.clear();
