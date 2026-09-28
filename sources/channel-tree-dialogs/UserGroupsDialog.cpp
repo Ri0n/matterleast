@@ -91,7 +91,15 @@ UserGroupsDialog::UserGroupsDialog(Backend& sourceBackend, QWidget* parent)
     connect(table, &QTableWidget::cellDoubleClicked,
             this, [this](int row, int) { openGroup(row); });
     connect(table, &QTableWidget::itemSelectionChanged, this, [this] {
-        openButton->setEnabled(table->currentRow() >= 0);
+        const int row = table->currentRow();
+        const bool valid = row >= 0 && row < visibleGroups.size();
+        openButton->setEnabled(valid);
+        if (valid) {
+            const MentionGroup& selected = visibleGroups.at(row);
+            openButton->setText(
+                selected.isCustom() && !selected.isArchived()
+                    ? tr("Edit") : tr("View"));
+        }
     });
 
     reload();
