@@ -69,6 +69,14 @@ This gives the page a small minimum width and makes resizing naturally reflow
 the contents instead of keeping a hidden fixed-width grid or manually moving
 widgets from a resize handler.
 
+Each category page lives inside a `QScrollArea`, so reducing the dialog height
+keeps the category usable with the mouse wheel and thumb. The application-wide
+`OverlayScrollBarManager` supplies the thin overlay scrollbar, but the picker
+opts out of the top/bottom edge-jump buttons because those affordances are chat
+navigation rather than picker navigation. The flow host updates its minimum
+height from `heightForWidth()` so the scroll range follows wrapping as the
+dialog width changes.
+
 This is the same general rule used elsewhere in MatterLeast for live theme
 propagation: avoid per-widget stylesheets when a palette/geometry API can express
 the same behavior.
