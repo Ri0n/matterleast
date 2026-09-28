@@ -40,6 +40,7 @@
 #include "backend/CustomEmojiService.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistryNotifier.h"
+#include "ui/FlowLayout.h"
 #include "ui/OverlayScrollBarManager.h"
 #include "ui_ChooseEmojiDialog.h"
 
@@ -53,139 +54,19 @@ constexpr int MaxSearchResults = 180;
 constexpr char EmojiNameProperty[] = "mattermostEmojiName";
 constexpr char EmojiValueProperty[] = "mattermostEmojiValue";
 
-class EmojiFlowLayout final : public QLayout
-{
-public:
-    explicit EmojiFlowLayout(QWidget* parent = nullptr)
-        : QLayout(parent)
-    {
-        setContentsMargins(0, 0, 0, 0);
-        setSpacing(0);
-    }
-
-    ~EmojiFlowLayout() override
-    {
-        while (QLayoutItem* item = takeAt(0)) {
-            delete item;
-        }
-    }
-
-    void addItem(QLayoutItem* item) override
-    {
-        items.push_back(item);
-    }
-
-    int count() const override
-    {
-        return items.size();
-    }
-
-    QLayoutItem* itemAt(int index) const override
-    {
-        return index >= 0 && index < items.size() ? items.at(index) : nullptr;
-    }
-
-    QLayoutItem* takeAt(int index) override
-    {
-        if (index < 0 || index >= items.size()) {
-            return nullptr;
-        }
-        return items.takeAt(index);
-    }
-
-    Qt::Orientations expandingDirections() const override
-    {
-        return {};
-    }
-
-    bool hasHeightForWidth() const override
-    {
-        return true;
-    }
-
-    int heightForWidth(int width) const override
-    {
-        return doLayout(QRect(0, 0, width, 0), true);
-    }
-
-    QSize sizeHint() const override
-    {
-        return minimumSize();
-    }
-
-    QSize minimumSize() const override
-    {
-        QSize result;
-        for (QLayoutItem* item : items) {
-            result = result.expandedTo(item->minimumSize());
-        }
-
-        int left = 0;
-        int top = 0;
-        int right = 0;
-        int bottom = 0;
-        getContentsMargins(&left, &top, &right, &bottom);
-        result += QSize(left + right, top + bottom);
-        return result;
-    }
-
-    void setGeometry(const QRect& rect) override
-    {
-        QLayout::setGeometry(rect);
-        doLayout(rect, false);
-    }
-
-private:
-    int doLayout(const QRect& rect, bool testOnly) const
-    {
-        int left = 0;
-        int top = 0;
-        int right = 0;
-        int bottom = 0;
-        getContentsMargins(&left, &top, &right, &bottom);
-        const QRect effective = rect.adjusted(left, top, -right, -bottom);
-
-        int x = effective.x();
-        int y = effective.y();
-        int lineHeight = 0;
-
-        for (QLayoutItem* item : items) {
-            const QSize hint = item->sizeHint();
-            const int nextX = x + hint.width();
-            if (x > effective.x()
-                && nextX > effective.right() + 1) {
-                x = effective.x();
-                y += lineHeight;
-                lineHeight = 0;
-            }
-
-            if (!testOnly) {
-                item->setGeometry(QRect(QPoint(x, y), hint));
-            }
-
-            x += hint.width();
-            lineHeight = std::max(lineHeight, hint.height());
-        }
-
-        return y + lineHeight - rect.y() + bottom;
-    }
-
-    QVector<QLayoutItem*> items;
-};
-
 class EmojiFlowHost final : public QWidget
 {
 public:
     explicit EmojiFlowHost(QWidget* parent = nullptr)
         : QWidget(parent)
-        , flowLayout(new EmojiFlowLayout(this))
+        , flowLayout(new FlowLayout(this))
     {
         QSizePolicy policy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         policy.setHeightForWidth(true);
         setSizePolicy(policy);
     }
 
-    EmojiFlowLayout* emojiLayout() const
+    FlowLayout* emojiLayout() const
     {
         return flowLayout;
     }
@@ -203,7 +84,7 @@ protected:
     }
 
 private:
-    EmojiFlowLayout* flowLayout = nullptr;
+    FlowLayout* flowLayout = nullptr;
 };
 
 class EmojiTabButton final : public QAbstractButton
