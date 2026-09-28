@@ -17,6 +17,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include "HTTPConnector.h"
