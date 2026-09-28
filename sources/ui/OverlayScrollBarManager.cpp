@@ -56,6 +56,8 @@ constexpr int FadeDurationMs = 240;
 constexpr int RevealDurationMs = 90;
 constexpr int EdgeButtonGap = 2;
 constexpr qreal EdgeGlyphScale = 1.5;
+constexpr qreal EdgeButtonIdleOpacity = 0.58;
+constexpr qreal EdgeButtonHoverOpacity = 1.0;
 constexpr char InstalledProperty[] = "mattermostOverlayScrollBarsInstalled";
 constexpr char ScrollToStartEnabledProperty[] = "mattermostOverlayScrollToStartEnabled";
 constexpr char VerticalObjectName[] = "mattermostOverlayVerticalScrollBar";
@@ -156,6 +158,16 @@ QToolButton* createEdgeButton(QAbstractScrollArea& area,
     button->setCursor(Qt::PointingHandCursor);
     button->setToolTip(label);
     button->setAccessibleName(label);
+    // Do not let the platform QToolButton style draw a rectangular hover frame.
+    // The affordance is intentionally only the glyph; hover feedback is opacity.
+    button->setStyleSheet(QStringLiteral(
+        "QToolButton { border: 0; background: transparent; padding: 0; }"
+        "QToolButton:hover, QToolButton:pressed {"
+        " border: 0; background: transparent;"
+        "}"));
+    auto* opacity = new QGraphicsOpacityEffect(button);
+    opacity->setOpacity(EdgeButtonIdleOpacity);
+    button->setGraphicsEffect(opacity);
     button->hide();
     return button;
 }
@@ -721,6 +733,13 @@ bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
 
         switch (event->type()) {
         case QEvent::Enter:
+            if (widget == state->scrollToStartButton
+                || widget == state->scrollToEndButton) {
+                if (auto* opacity =
+                        qobject_cast<QGraphicsOpacityEffect*>(widget->graphicsEffect())) {
+                    opacity->setOpacity(EdgeButtonHoverOpacity);
+                }
+            }
             if (overlayWidget) {
                 if (state->fadeTimer) {
                     state->fadeTimer->stop();
@@ -739,6 +758,13 @@ bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
             }
             break;
         case QEvent::Leave:
+            if (widget == state->scrollToStartButton
+                || widget == state->scrollToEndButton) {
+                if (auto* opacity =
+                        qobject_cast<QGraphicsOpacityEffect*>(widget->graphicsEffect())) {
+                    opacity->setOpacity(EdgeButtonIdleOpacity);
+                }
+            }
             if (overlayWidget && state->area) {
                 QTimer::singleShot(0, state->area, [this, state] {
                     if (cursorOverOverlay(*state)) {
