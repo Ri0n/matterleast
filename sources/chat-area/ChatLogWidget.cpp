@@ -180,6 +180,12 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
 {
     backend = &backendInstance;
     chatArea = &chatAreaInstance;
+
+    // A main conversation's oldest edge is not a useful permanent destination:
+    // channel history keeps extending backwards as it is loaded. Threads are
+    // bounded semantic conversations, so they keep the generic top-edge action.
+    OverlayScrollBarManager::setScrollToStartButtonEnabled(
+        *this, chatAreaInstance.isThread);
 }
 
 void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
