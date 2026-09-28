@@ -38,6 +38,14 @@ public:
      */
     static bool pulse(QAbstractScrollArea& area);
 
+    /**
+     * Controls the top-edge navigation affordance for one scroll area.
+     * The bottom-edge affordance remains available whenever the area is away
+     * from its maximum. Main conversation timelines disable the top action,
+     * while threads and ordinary lists keep it.
+     */
+    static void setScrollToStartButtonEnabled(QAbstractScrollArea& area, bool enabled);
+
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
