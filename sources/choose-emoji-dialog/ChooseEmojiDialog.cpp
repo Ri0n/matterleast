@@ -34,6 +34,7 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
+#include <QVariant>
 
 #include "EmojiDialogSupport.h"
 #include "backend/CustomEmojiService.h"
@@ -502,7 +503,8 @@ void ChooseEmojiDialog::reflowEmojiPage(QWidget* page)
                               Qt::AlignLeft | Qt::AlignTop);
     }
 
-    const int stretchColumn = std::max(columns, firstRow > 0 ? 7 : 0);
+    const int stretchColumn = buttons.isEmpty()
+        ? 0 : std::max(columns, firstRow > 0 ? 7 : 0);
     gridLayout->setColumnStretch(stretchColumn, 1);
     page->setProperty(EmojiStretchColumnProperty, stretchColumn);
 
@@ -512,9 +514,6 @@ void ChooseEmojiDialog::reflowEmojiPage(QWidget* page)
     gridLayout->setRowStretch(stretchRow, 1);
     page->setProperty(EmojiStretchRowProperty, stretchRow);
 
-    if (buttons.isEmpty()) {
-        gridLayout->setColumnStretch(0, 1);
-    }
 }
 
 void ChooseEmojiDialog::reflowEmojiPages()
