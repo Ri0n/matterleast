@@ -82,7 +82,7 @@ constexpr int RankedEmojiPopupMargin = 4;
 constexpr int EmbeddedPickerTargetWidth = 483;
 constexpr int EmbeddedPickerTargetHeight = 320;
 constexpr int EmbeddedPickerDestroyDelayMs = 15000;
-constexpr int EmbeddedPickerAnimationMs = 180;
+constexpr int EmbeddedPickerAnimationMs = 240;
 constexpr qreal RankedEmojiPopupRadius = 7.0;
 
 class RankedEmojiPopupFrame final : public QFrame
@@ -202,15 +202,29 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
             rankedEmojiRevealAnimation->property("fromWidth").toInt();
         const int toWidth =
             rankedEmojiRevealAnimation->property("toWidth").toInt();
+        const int popupBaseHeight =
+            rankedEmojiRevealAnimation->property("popupBaseHeight").toInt();
+        const int pickerFullHeight =
+            rankedEmojiPickerReveal->property("pickerFullHeight").toInt();
 
         const int height = qRound(
             fromHeight + (toHeight - fromHeight) * progress);
         const int width = qRound(
             fromWidth + (toWidth - fromWidth) * progress);
 
+        // The heavy picker keeps its final geometry throughout the animation.
+        // Only this lightweight clipping viewport and the popup frame change
+        // size. Avoiding a complete picker relayout on every animation tick is
+        // important here: the picker contains hundreds of emoji buttons.
         rankedEmojiPickerReveal->setFixedHeight(std::max(0, height));
-        rankedEmojiPopup->setFixedWidth(std::max(1, width));
-        rankedEmojiPopup->adjustSize();
+        if (embeddedEmojiPicker && pickerFullHeight > 0) {
+            embeddedEmojiPicker->move(
+                0, std::min(0, height - pickerFullHeight));
+        }
+
+        rankedEmojiPopup->setFixedSize(
+            std::max(1, width),
+            std::max(1, popupBaseHeight + height));
         positionRankedEmojiPopup();
     });
     connect(rankedEmojiRevealAnimation, &QVariantAnimation::finished,
@@ -1375,16 +1389,7 @@ void OutgoingPostCreator::ensureEmbeddedEmojiPicker()
     auto* picker =
         new EmojiPickerWidget(*backend, rankedEmojiPickerReveal);
     embeddedEmojiPicker = picker;
-    picker->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-    auto* revealLayout =
-        static_cast<QVBoxLayout*>(rankedEmojiPickerReveal->layout());
-    if (!revealLayout) {
-        revealLayout = new QVBoxLayout(rankedEmojiPickerReveal);
-        revealLayout->setContentsMargins(0, 0, 0, 0);
-        revealLayout->setSpacing(0);
-    }
-    revealLayout->addWidget(picker);
+    picker->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
     connect(picker, &EmojiPickerWidget::emojiChosen,
             this, [this](const Emoji& emoji) {
@@ -1481,11 +1486,30 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
 
     const int fromHeight = rankedEmojiPickerReveal->height();
     const int fromWidth = rankedEmojiPopup->width();
+    const int popupBaseHeight =
+        std::max(1, rankedEmojiPopup->height() - fromHeight);
+
+    if (expanded && embeddedEmojiPicker) {
+        const int pickerWidth = std::max(
+            1, targetWidth - 2 * RankedEmojiPopupMargin);
+        embeddedEmojiPicker->setFixedSize(pickerWidth, targetHeight);
+        rankedEmojiPickerReveal->setProperty(
+            "pickerFullHeight", targetHeight);
+        // Keep the full picker at its final size and reveal it through a
+        // growing clip. Globally its bottom edge stays stationary while the
+        // popup grows upward from the composer affordance.
+        embeddedEmojiPicker->move(0, -targetHeight + fromHeight);
+    }
+
     rankedEmojiPickerExpanded = expanded;
 
     if (!animate || !rankedEmojiRevealAnimation) {
         rankedEmojiPickerReveal->setFixedHeight(targetHeight);
-        rankedEmojiPopup->setFixedWidth(targetWidth);
+        if (embeddedEmojiPicker) {
+            embeddedEmojiPicker->move(0, 0);
+        }
+        rankedEmojiPopup->setFixedSize(
+            targetWidth, popupBaseHeight + targetHeight);
         if (!expanded) {
             rankedEmojiPickerReveal->hide();
             if (embeddedEmojiPicker) {
@@ -1494,7 +1518,6 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
         } else {
             embeddedEmojiPicker->focusSearch();
         }
-        rankedEmojiPopup->adjustSize();
         positionRankedEmojiPopup();
         return;
     }
@@ -1503,6 +1526,8 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
     rankedEmojiRevealAnimation->setProperty("toHeight", targetHeight);
     rankedEmojiRevealAnimation->setProperty("fromWidth", fromWidth);
     rankedEmojiRevealAnimation->setProperty("toWidth", targetWidth);
+    rankedEmojiRevealAnimation->setProperty(
+        "popupBaseHeight", popupBaseHeight);
     rankedEmojiRevealAnimation->start();
 }
 
