@@ -178,6 +178,26 @@ needs**; the source decides **how to fetch it**.
 
 Loading adjacent data never recenters the viewport.
 
+## Overlay edge navigation
+
+The application-wide `OverlayScrollBarManager` adds persistent top/bottom edge actions beside a
+scrollable vertical bar. They are presentation chrome only: the hidden native scrollbar remains the
+authoritative scroll model.
+
+The buttons trigger real `QAbstractSlider::SliderToMinimum` /
+`QAbstractSlider::SliderToMaximum` actions on that scrollbar rather than assigning a private pixel
+offset. This is important for `LongListWidget`: its existing scrollbar action path keeps user-scroll
+ownership, viewport-lock release, range synchronization, and collection pagination semantics intact.
+
+The top action is enabled by default for ordinary lists and thread timelines. Main channel
+conversation timelines (public/private channels and DM/GM) explicitly disable it through
+`OverlayScrollBarManager::setScrollToStartButtonEnabled()`; their historical start is not a useful
+permanent navigation destination. The bottom action remains available whenever the viewport is away
+from the current maximum, and disappears at sticky bottom.
+
+The arrow glyph uses the shared `EmojiFont` fallback policy so legacy Qt versions get the same
+explicit system-emoji font handling as reactions.
+
 ## Programmatic tail reveal
 
 `scrollToEndAnimated()` is a semantic convenience implemented entirely inside
