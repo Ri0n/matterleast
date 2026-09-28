@@ -43,11 +43,22 @@ class MentionGroupService final : public QObject
     Q_OBJECT
 public:
     using GroupsCallback = std::function<void()>;
+    using GroupSearchCallback = std::function<void(QVector<MentionGroup>)>;
     using MembersCallback = std::function<void(QVector<MentionGroupMember>)>;
 
     static MentionGroupService& instance(Backend& backend);
 
     void ensureTeamGroups(const QString& teamId, GroupsCallback callback = {});
+    /**
+     * Search the same global referenceable-group endpoint used by the webapp
+     * mention provider. Results are also folded into the team-scoped mention
+     * cache so a group selected from autocomplete can be linkified afterwards.
+     */
+    void searchReferenceGroups(const QString& teamId,
+                               const QString& query,
+                               const QString& channelId,
+                               int limit,
+                               GroupSearchCallback callback);
     QHash<QString, QString> mentionIds(const QString& teamId) const;
     const MentionGroup* groupById(const QString& teamId, const QString& groupId) const;
     void retrieveMembers(const QString& groupId, MembersCallback callback);
