@@ -45,6 +45,8 @@ private:
     void removeSelectedMember();
     void save();
     void saveExisting(const QString& displayName, const QString& mention);
+    void commitMembershipChanges(const QStringList& additions,
+                                 const QStringList& removals);
     void finishMutation(const MentionGroupMutationResult& result);
     QString validationMessage() const;
     bool editable() const;
