@@ -68,6 +68,14 @@ UserGroupEditorDialog::UserGroupEditorDialog(
     addPersonButton->setEnabled(false);
     removeMemberButton->setEnabled(false);
     saveButton->setVisible(canEdit);
+    if (!canEdit) {
+        if (auto* buttonBox = findChild<QDialogButtonBox*>()) {
+            if (QPushButton* closeButton =
+                    buttonBox->button(QDialogButtonBox::Cancel)) {
+                closeButton->setText(tr("Close"));
+            }
+        }
+    }
 
     if (!canEdit) {
         auto* note = new QLabel(
