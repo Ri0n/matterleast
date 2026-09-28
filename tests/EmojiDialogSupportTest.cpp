@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QPalette>
+#include <QStyle>
 #include <QTabWidget>
 #include <QWidget>
 
