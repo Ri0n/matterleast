@@ -16,21 +16,26 @@
 
 #include "OverlayScrollBarManager.h"
 
+#include "EmojiFont.h"
+
 #include <algorithm>
 #include <cmath>
 
 #include <QAbstractScrollArea>
+#include <QAbstractSlider>
 #include <QApplication>
 #include <QColor>
 #include <QCursor>
 #include <QEasingCurve>
 #include <QEvent>
+#include <QFontMetrics>
 #include <QGraphicsOpacityEffect>
 #include <QPalette>
 #include <QPropertyAnimation>
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QTimer>
+#include <QToolButton>
 #include <QWidget>
 
 namespace Mattermost {
@@ -48,9 +53,14 @@ constexpr int ScrollBarEndInset = 1;
 constexpr int FadeDelayMs = 900;
 constexpr int FadeDurationMs = 240;
 constexpr int RevealDurationMs = 90;
+constexpr int EdgeButtonGap = 2;
+constexpr qreal EdgeGlyphScale = 1.3;
 constexpr char InstalledProperty[] = "mattermostOverlayScrollBarsInstalled";
+constexpr char ScrollToStartEnabledProperty[] = "mattermostOverlayScrollToStartEnabled";
 constexpr char VerticalObjectName[] = "mattermostOverlayVerticalScrollBar";
 constexpr char HorizontalObjectName[] = "mattermostOverlayHorizontalScrollBar";
+constexpr char ScrollToStartObjectName[] = "mattermostOverlayScrollToStartButton";
+constexpr char ScrollToEndObjectName[] = "mattermostOverlayScrollToEndButton";
 
 QString cssRgba(const QColor& color)
 {
@@ -113,6 +123,47 @@ bool scrollable(const QScrollBar* bar)
     return bar && bar->maximum() > bar->minimum();
 }
 
+bool scrollToStartButtonEnabled(const QAbstractScrollArea& area)
+{
+    const QVariant value = area.property(ScrollToStartEnabledProperty);
+    return !value.isValid() || value.toBool();
+}
+
+QFont edgeButtonFont(const QAbstractScrollArea& area)
+{
+    QFont font = EmojiFont::applySystemEmojiFamily(area.font());
+    if (font.pointSizeF() > 0.0) {
+        font.setPointSizeF(font.pointSizeF() * EdgeGlyphScale);
+    } else if (font.pixelSize() > 0) {
+        font.setPixelSize(std::max(1,
+            static_cast<int>(std::lround(font.pixelSize() * EdgeGlyphScale))));
+    }
+    return font;
+}
+
+QToolButton* createEdgeButton(QAbstractScrollArea& area,
+                              const QString& text,
+                              const char* objectName,
+                              const QString& label)
+{
+    auto* button = new QToolButton(&area);
+    button->setObjectName(QString::fromLatin1(objectName));
+    button->setText(text);
+    button->setFont(edgeButtonFont(area));
+    button->setAutoRaise(true);
+    button->setFocusPolicy(Qt::NoFocus);
+    button->setCursor(Qt::PointingHandCursor);
+    button->setToolTip(label);
+    button->setAccessibleName(label);
+    button->hide();
+    return button;
+}
+
+int edgeButtonExtent(const QToolButton* button)
+{
+    return button ? std::max(18, QFontMetrics(button->font()).height() + 4) : 0;
+}
+
 void syncBar(QScrollBar* source, QScrollBar* overlay)
 {
     if (!source || !overlay) {
@@ -157,6 +208,8 @@ struct OverlayScrollBarManager::State {
     QScrollBar* sourceHorizontal = nullptr;
     QScrollBar* overlayVertical = nullptr;
     QScrollBar* overlayHorizontal = nullptr;
+    QToolButton* scrollToStartButton = nullptr;
+    QToolButton* scrollToEndButton = nullptr;
     QGraphicsOpacityEffect* verticalOpacity = nullptr;
     QGraphicsOpacityEffect* horizontalOpacity = nullptr;
     QPropertyAnimation* verticalAnimation = nullptr;
@@ -174,6 +227,12 @@ void OverlayScrollBarManager::install(QApplication& application)
     }
     application.setProperty(InstalledProperty, true);
     new OverlayScrollBarManager(application);
+}
+
+void OverlayScrollBarManager::setScrollToStartButtonEnabled(QAbstractScrollArea& area,
+                                                             bool enabled)
+{
+    area.setProperty(ScrollToStartEnabledProperty, enabled);
 }
 
 OverlayScrollBarManager::OverlayScrollBarManager(QApplication& application)
@@ -222,6 +281,28 @@ void OverlayScrollBarManager::registerArea(QAbstractScrollArea* area)
     if (state->verticalEnabled) {
         state->overlayVertical = createOverlay(*area, Qt::Vertical, VerticalObjectName);
         setupOverlay(state->overlayVertical, state->verticalOpacity, state->verticalAnimation);
+        state->scrollToStartButton = createEdgeButton(
+            *area,
+            QString::fromUtf8("\xE2\xAC\x86\xEF\xB8\x8F"),
+            ScrollToStartObjectName,
+            tr("Scroll to top"));
+        state->scrollToEndButton = createEdgeButton(
+            *area,
+            QString::fromUtf8("\xE2\xAC\x87\xEF\xB8\x8F"),
+            ScrollToEndObjectName,
+            tr("Scroll to bottom"));
+        connect(state->scrollToStartButton, &QToolButton::clicked, area,
+                [source = state->sourceVertical] {
+            if (source) {
+                source->triggerAction(QAbstractSlider::SliderToMinimum);
+            }
+        });
+        connect(state->scrollToEndButton, &QToolButton::clicked, area,
+                [source = state->sourceVertical] {
+            if (source) {
+                source->triggerAction(QAbstractSlider::SliderToMaximum);
+            }
+        });
         area->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     }
     if (state->horizontalEnabled) {
@@ -362,6 +443,22 @@ void OverlayScrollBarManager::sync(State& state)
             state.overlayHorizontal->hide();
         }
     }
+
+    const bool verticalScrollable =
+        state.verticalEnabled && scrollable(state.sourceVertical);
+    if (state.scrollToStartButton) {
+        const bool awayFromStart =
+            state.sourceVertical->value() > state.sourceVertical->minimum();
+        state.scrollToStartButton->setVisible(
+            verticalScrollable
+            && scrollToStartButtonEnabled(*state.area)
+            && awayFromStart);
+    }
+    if (state.scrollToEndButton) {
+        const bool awayFromEnd =
+            state.sourceVertical->value() < state.sourceVertical->maximum();
+        state.scrollToEndButton->setVisible(verticalScrollable && awayFromEnd);
+    }
 }
 
 void OverlayScrollBarManager::layout(State& state)
@@ -399,6 +496,30 @@ void OverlayScrollBarManager::layout(State& state)
         state.overlayHorizontal->raise();
         if (!horizontalScrollable) {
             state.overlayHorizontal->hide();
+        }
+    }
+
+    if (verticalScrollable) {
+        const int bottomCut = horizontalScrollable ? ScrollBarHitThickness : 0;
+        const int extent = std::max(edgeButtonExtent(state.scrollToStartButton),
+                                    edgeButtonExtent(state.scrollToEndButton));
+        const int x = viewportRect.right()
+            - ScrollBarHitThickness - EdgeButtonGap - extent + 1;
+        if (state.scrollToStartButton) {
+            state.scrollToStartButton->setGeometry(
+                x,
+                viewportRect.top() + ScrollBarEndInset + EdgeButtonGap,
+                extent,
+                extent);
+            state.scrollToStartButton->raise();
+        }
+        if (state.scrollToEndButton) {
+            state.scrollToEndButton->setGeometry(
+                x,
+                viewportRect.bottom() - bottomCut - EdgeButtonGap - extent + 1,
+                extent,
+                extent);
+            state.scrollToEndButton->raise();
         }
     }
 }
@@ -497,10 +618,16 @@ bool OverlayScrollBarManager::cursorOverOverlay(const State& state) const
     }
 
     const QPoint local = state.area->mapFromGlobal(QCursor::pos());
-    const auto contains = [local](const QScrollBar* bar) {
+    const auto containsBar = [local](const QScrollBar* bar) {
         return bar && scrollable(bar) && bar->geometry().contains(local);
     };
-    return contains(state.overlayVertical) || contains(state.overlayHorizontal);
+    const auto containsButton = [local](const QToolButton* button) {
+        return button && button->isVisible() && button->geometry().contains(local);
+    };
+    return containsBar(state.overlayVertical)
+        || containsBar(state.overlayHorizontal)
+        || containsButton(state.scrollToStartButton)
+        || containsButton(state.scrollToEndButton);
 }
 
 bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
@@ -544,6 +671,19 @@ bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
                 updatePalette(state);
                 layout(state);
                 break;
+            case QEvent::FontChange:
+                if (state.scrollToStartButton) {
+                    state.scrollToStartButton->setFont(edgeButtonFont(*state.area));
+                }
+                if (state.scrollToEndButton) {
+                    state.scrollToEndButton->setFont(edgeButtonFont(*state.area));
+                }
+                layout(state);
+                break;
+            case QEvent::DynamicPropertyChange:
+                sync(state);
+                layout(state);
+                break;
             case QEvent::Hide:
                 state.cursorInside = false;
                 if (state.fadeTimer) {
@@ -572,7 +712,9 @@ bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
     State* state = widget ? stateForWidget(widget) : nullptr;
     if (state) {
         const bool overlayWidget = widget == state->overlayVertical
-            || widget == state->overlayHorizontal;
+            || widget == state->overlayHorizontal
+            || widget == state->scrollToStartButton
+            || widget == state->scrollToEndButton;
         const bool areaBoundary = widget == state->area
             || (state->area && widget == state->area->viewport());
 
