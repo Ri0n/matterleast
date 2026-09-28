@@ -60,6 +60,7 @@ constexpr qreal EdgeButtonIdleOpacity = 0.58;
 constexpr qreal EdgeButtonHoverOpacity = 1.0;
 constexpr char InstalledProperty[] = "mattermostOverlayScrollBarsInstalled";
 constexpr char ScrollToStartEnabledProperty[] = "mattermostOverlayScrollToStartEnabled";
+constexpr char EdgeButtonsEnabledProperty[] = "mattermostOverlayEdgeButtonsEnabled";
 constexpr char VerticalObjectName[] = "mattermostOverlayVerticalScrollBar";
 constexpr char HorizontalObjectName[] = "mattermostOverlayHorizontalScrollBar";
 constexpr char ScrollToStartObjectName[] = "mattermostOverlayScrollToStartButton";
@@ -129,6 +130,12 @@ bool scrollable(const QScrollBar* bar)
 bool scrollToStartButtonEnabled(const QAbstractScrollArea& area)
 {
     const QVariant value = area.property(ScrollToStartEnabledProperty);
+    return !value.isValid() || value.toBool();
+}
+
+bool edgeButtonsEnabled(const QAbstractScrollArea& area)
+{
+    const QVariant value = area.property(EdgeButtonsEnabledProperty);
     return !value.isValid() || value.toBool();
 }
 
@@ -246,6 +253,13 @@ void OverlayScrollBarManager::setScrollToStartButtonEnabled(QAbstractScrollArea&
                                                              bool enabled)
 {
     area.setProperty(ScrollToStartEnabledProperty, enabled);
+}
+
+void OverlayScrollBarManager::setEdgeNavigationButtonsEnabled(
+    QAbstractScrollArea& area,
+    bool enabled)
+{
+    area.setProperty(EdgeButtonsEnabledProperty, enabled);
 }
 
 OverlayScrollBarManager::OverlayScrollBarManager(QApplication& application)
@@ -464,13 +478,17 @@ void OverlayScrollBarManager::sync(State& state)
             state.sourceVertical->value() > state.sourceVertical->minimum();
         state.scrollToStartButton->setVisible(
             verticalScrollable
+            && edgeButtonsEnabled(*state.area)
             && scrollToStartButtonEnabled(*state.area)
             && awayFromStart);
     }
     if (state.scrollToEndButton) {
         const bool awayFromEnd =
             state.sourceVertical->value() < state.sourceVertical->maximum();
-        state.scrollToEndButton->setVisible(verticalScrollable && awayFromEnd);
+        state.scrollToEndButton->setVisible(
+            verticalScrollable
+            && edgeButtonsEnabled(*state.area)
+            && awayFromEnd);
     }
 }
 
