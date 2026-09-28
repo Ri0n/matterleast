@@ -21,13 +21,13 @@
 #pragma once
 
 #include <QDialog>
+#include <QIcon>
 #include "backend/emoji/EmojiDefs.h"
 
 class QAbstractButton;
 class QButtonGroup;
 class QComboBox;
 class QHBoxLayout;
-class QIcon;
 class QLayout;
 class QTimer;
 class QVBoxLayout;
