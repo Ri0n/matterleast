@@ -1185,6 +1185,10 @@ bool OutgoingPostCreator::eventFilter(QObject* watched, QEvent* event)
             scheduleRankedEmojiPopupHide();
         } else if (type == QEvent::Destroy) {
             rankedEmojiPopup.clear();
+            rankedEmojiFlowHost.clear();
+            rankedEmojiPickerReveal.clear();
+            embeddedEmojiPicker.clear();
+            rankedEmojiPickerExpanded = false;
         }
         return MessageTextEditWidget::eventFilter(watched, event);
     }
@@ -1195,15 +1199,11 @@ bool OutgoingPostCreator::eventFilter(QObject* watched, QEvent* event)
             showRankedEmojiPopup();
         } else if (type == QEvent::Leave) {
             scheduleRankedEmojiPopupHide();
-        } else if (type == QEvent::MouseButtonPress) {
-            // Pressing the affordance still opens the complete chooser through
-            // its normal clicked connection.
-            hideRankedEmojiPopup();
         } else if (type == QEvent::Move || type == QEvent::Resize
                    || type == QEvent::Show) {
             positionRankedEmojiPopup();
         } else if (type == QEvent::Destroy) {
-            hideRankedEmojiPopup();
+            destroyRankedEmojiPopup();
             addEmojiButton = nullptr;
         }
     }
@@ -1218,30 +1218,88 @@ void OutgoingPostCreator::showRankedEmojiPopup()
         return;
     }
 
-    const QStringList rankedNames =
-        ReactionUsageTracker::instance().topNames(RankedEmojiCapacity);
-    const QStringList names =
-        RankedEmojiPresentation::renderableNames(rankedNames);
-    if (names.isEmpty()) {
-        hideRankedEmojiPopup();
-        return;
-    }
-
-    hideRankedEmojiPopup();
-
     QWidget* host = addEmojiButton->window();
     if (!host) {
         return;
     }
 
-    auto* popup = new RankedEmojiPopupFrame(host);
-    rankedEmojiPopup = popup;
-    popup->installEventFilter(this);
+    if (!rankedEmojiPopup) {
+        auto* popup = new RankedEmojiPopupFrame(host);
+        rankedEmojiPopup = popup;
+        popup->installEventFilter(this);
 
-    auto* layout = new QGridLayout(popup);
-    layout->setContentsMargins(4, 4, 4, 4);
-    layout->setHorizontalSpacing(2);
-    layout->setVerticalSpacing(2);
+        auto* layout = new QVBoxLayout(popup);
+        layout->setContentsMargins(
+            RankedEmojiPopupMargin,
+            RankedEmojiPopupMargin,
+            RankedEmojiPopupMargin,
+            RankedEmojiPopupMargin);
+        layout->setSpacing(RankedEmojiPopupMargin);
+
+        auto* flowHost = new RankedEmojiFlowHost(popup);
+        rankedEmojiFlowHost = flowHost;
+        layout->addWidget(flowHost, 0, Qt::AlignHCenter);
+
+        auto* reveal = new QWidget(popup);
+        rankedEmojiPickerReveal = reveal;
+        reveal->setBackgroundRole(QPalette::Base);
+        reveal->setAutoFillBackground(true);
+        reveal->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        reveal->setFixedHeight(0);
+        reveal->hide();
+
+        auto* revealLayout = new QVBoxLayout(reveal);
+        revealLayout->setContentsMargins(0, 0, 0, 0);
+        revealLayout->setSpacing(0);
+        layout->addWidget(reveal);
+    } else if (rankedEmojiPopup->parentWidget() != host) {
+        rankedEmojiPopup->setParent(host);
+    }
+
+    rebuildRankedEmojiButtons();
+    if (!rankedEmojiFlowHost
+        || rankedEmojiFlowHost->property("rankedEmojiCount").toInt() <= 0) {
+        hideRankedEmojiPopup();
+        return;
+    }
+
+    if (!rankedEmojiPickerExpanded
+        && (!rankedEmojiRevealAnimation
+            || rankedEmojiRevealAnimation->state()
+                != QAbstractAnimation::Running)) {
+        auto* flowHost =
+            static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
+        rankedEmojiPopup->setFixedWidth(
+            flowHost->width() + 2 * RankedEmojiPopupMargin);
+        rankedEmojiPopup->adjustSize();
+    }
+
+    positionRankedEmojiPopup();
+    rankedEmojiPopup->show();
+    rankedEmojiPopup->raise();
+}
+
+void OutgoingPostCreator::rebuildRankedEmojiButtons()
+{
+    if (!rankedEmojiFlowHost) {
+        return;
+    }
+
+    auto* flowHost =
+        static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
+    FlowLayout* layout = flowHost->flowLayout();
+
+    while (QLayoutItem* item = layout->takeAt(0)) {
+        if (QWidget* widget = item->widget()) {
+            delete widget;
+        }
+        delete item;
+    }
+
+    const QStringList rankedNames =
+        ReactionUsageTracker::instance().topNames(RankedEmojiCapacity);
+    const QStringList names =
+        RankedEmojiPresentation::renderableNames(rankedNames);
 
     int rendered = 0;
     for (const QString& name : names) {
@@ -1249,7 +1307,7 @@ void OutgoingPostCreator::showRankedEmojiPopup()
             break;
         }
 
-        auto* emojiButton = new QPushButton(popup);
+        auto* emojiButton = new QPushButton(flowHost);
         emojiButton->setFlat(true);
         emojiButton->setFixedSize(
             RankedEmojiButtonExtent, RankedEmojiButtonExtent);
@@ -1262,28 +1320,189 @@ void OutgoingPostCreator::showRankedEmojiPopup()
 
         emojiButton->setAccessibleName(
             tr("Insert :%1:").arg(name));
-        const int row = rendered / RankedEmojiColumns;
-        const int column = rendered % RankedEmojiColumns;
-        layout->addWidget(emojiButton, row, column);
+        layout->addWidget(emojiButton);
         ++rendered;
 
-        connect(emojiButton, &QPushButton::clicked, popup,
-                [this, name] {
+        connect(emojiButton, &QPushButton::clicked,
+                this, [this, name] {
             insertPlainText(QStringLiteral(" :%1: ").arg(name));
             setFocus();
             hideRankedEmojiPopup();
         });
     }
 
-    if (rendered == 0) {
-        hideRankedEmojiPopup();
+    rankedEmojiFlowHost->setProperty("rankedEmojiCount", rendered);
+    if (rendered <= 0) {
         return;
     }
 
-    popup->adjustSize();
-    positionRankedEmojiPopup();
-    popup->show();
-    popup->raise();
+    const int columns =
+        std::min(RankedEmojiPreferredColumns, rendered);
+    const int width =
+        columns * RankedEmojiButtonExtent
+        + std::max(0, columns - 1) * RankedEmojiButtonSpacing;
+    flowHost->setFlowWidth(width);
+}
+
+void OutgoingPostCreator::toggleEmbeddedEmojiPicker()
+{
+    if (!addEmojiButton || !backend) {
+        return;
+    }
+
+    rankedEmojiHideTimer->stop();
+    showRankedEmojiPopup();
+    if (!rankedEmojiPopup) {
+        return;
+    }
+
+    setEmbeddedEmojiPickerExpanded(!rankedEmojiPickerExpanded, true);
+}
+
+void OutgoingPostCreator::ensureEmbeddedEmojiPicker()
+{
+    if (embeddedEmojiPicker || !backend || !rankedEmojiPickerReveal) {
+        return;
+    }
+
+    auto* picker =
+        new EmojiPickerWidget(*backend, rankedEmojiPickerReveal);
+    embeddedEmojiPicker = picker;
+    picker->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    auto* revealLayout =
+        qobject_cast<QVBoxLayout*>(rankedEmojiPickerReveal->layout());
+    if (!revealLayout) {
+        revealLayout = new QVBoxLayout(rankedEmojiPickerReveal);
+        revealLayout->setContentsMargins(0, 0, 0, 0);
+        revealLayout->setSpacing(0);
+    }
+    revealLayout->addWidget(picker);
+
+    connect(picker, &EmojiPickerWidget::emojiChosen,
+            this, [this](const Emoji& emoji) {
+        insertPlainText(QStringLiteral(" :%1: ").arg(emoji.name));
+        setFocus();
+        hideRankedEmojiPopup();
+    });
+
+    // This is intentionally the first point at which the full picker is built.
+    // Hovering the ranked strip stays proportional to the small ranked set.
+    picker->prepare();
+}
+
+void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
+    bool expanded,
+    bool animate)
+{
+    if (!rankedEmojiPopup || !rankedEmojiPickerReveal || !addEmojiButton) {
+        return;
+    }
+    if (expanded == rankedEmojiPickerExpanded
+        && (!rankedEmojiRevealAnimation
+            || rankedEmojiRevealAnimation->state()
+                != QAbstractAnimation::Running)) {
+        return;
+    }
+
+    if (rankedEmojiRevealAnimation) {
+        rankedEmojiRevealAnimation->stop();
+    }
+
+    QWidget* host = rankedEmojiPopup->parentWidget();
+    if (!host) {
+        return;
+    }
+
+    auto* flowHost =
+        static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
+    const int compactWidth = flowHost
+        ? flowHost->width() + 2 * RankedEmojiPopupMargin
+        : rankedEmojiPopup->width();
+
+    int targetHeight = 0;
+    int targetWidth = compactWidth;
+
+    if (expanded) {
+        ensureEmbeddedEmojiPicker();
+        if (!embeddedEmojiPicker) {
+            return;
+        }
+
+        rankedEmojiPickerDestroyTimer->stop();
+        embeddedEmojiPicker->resetSearch();
+        rankedEmojiPickerReveal->show();
+
+        const QPoint buttonTopLeft =
+            addEmojiButton->mapTo(host, QPoint(0, 0));
+        const int availableAbove = std::max(
+            0,
+            buttonTopLeft.y()
+                - RankedEmojiPopupGap
+                - RankedEmojiPopupMargin);
+        const int availableBelow = std::max(
+            0,
+            host->height()
+                - buttonTopLeft.y()
+                - addEmojiButton->height()
+                - RankedEmojiPopupGap
+                - RankedEmojiPopupMargin);
+
+        const int chromeHeight =
+            2 * RankedEmojiPopupMargin
+            + (flowHost ? flowHost->height() : 0)
+            + RankedEmojiPopupMargin;
+
+        const int pickerAbove =
+            std::max(0, availableAbove - chromeHeight);
+        const int pickerBelow =
+            std::max(0, availableBelow - chromeHeight);
+
+        rankedEmojiPopupAbove = pickerAbove >= pickerBelow;
+        const int availablePickerHeight =
+            rankedEmojiPopupAbove ? pickerAbove : pickerBelow;
+
+        targetHeight = std::min(
+            EmbeddedPickerTargetHeight, availablePickerHeight);
+        if (targetHeight < EmbeddedPickerMinHeight
+            && std::max(pickerAbove, pickerBelow) >= EmbeddedPickerMinHeight) {
+            rankedEmojiPopupAbove = pickerAbove >= pickerBelow;
+            targetHeight = std::min(
+                EmbeddedPickerTargetHeight,
+                std::max(pickerAbove, pickerBelow));
+        }
+
+        targetWidth = std::min(
+            EmbeddedPickerTargetWidth,
+            std::max(compactWidth,
+                     host->width() - 2 * RankedEmojiPopupMargin));
+    }
+
+    const int fromHeight = rankedEmojiPickerReveal->height();
+    const int fromWidth = rankedEmojiPopup->width();
+    rankedEmojiPickerExpanded = expanded;
+
+    if (!animate || !rankedEmojiRevealAnimation) {
+        rankedEmojiPickerReveal->setFixedHeight(targetHeight);
+        rankedEmojiPopup->setFixedWidth(targetWidth);
+        if (!expanded) {
+            rankedEmojiPickerReveal->hide();
+            if (embeddedEmojiPicker) {
+                rankedEmojiPickerDestroyTimer->start();
+            }
+        } else {
+            embeddedEmojiPicker->focusSearch();
+        }
+        rankedEmojiPopup->adjustSize();
+        positionRankedEmojiPopup();
+        return;
+    }
+
+    rankedEmojiRevealAnimation->setProperty("fromHeight", fromHeight);
+    rankedEmojiRevealAnimation->setProperty("toHeight", targetHeight);
+    rankedEmojiRevealAnimation->setProperty("fromWidth", fromWidth);
+    rankedEmojiRevealAnimation->setProperty("toWidth", targetWidth);
+    rankedEmojiRevealAnimation->start();
 }
 
 void OutgoingPostCreator::positionRankedEmojiPopup()
@@ -1308,12 +1527,31 @@ void OutgoingPostCreator::positionRankedEmojiPopup()
             - RankedEmojiPopupMargin);
     x = qBound(RankedEmojiPopupMargin, x, maxX);
 
-    int y = buttonTopLeft.y()
-        - rankedEmojiPopup->height() - RankedEmojiPopupGap;
-    if (y < RankedEmojiPopupMargin) {
-        y = buttonTopLeft.y() + addEmojiButton->height()
+    const bool animationRunning =
+        rankedEmojiRevealAnimation
+        && rankedEmojiRevealAnimation->state() == QAbstractAnimation::Running;
+    if (!rankedEmojiPickerExpanded && !animationRunning) {
+        const int aboveY = buttonTopLeft.y()
+            - rankedEmojiPopup->height()
+            - RankedEmojiPopupGap;
+        const int belowY = buttonTopLeft.y()
+            + addEmojiButton->height()
             + RankedEmojiPopupGap;
+        const bool aboveFits = aboveY >= RankedEmojiPopupMargin;
+        const bool belowFits =
+            belowY + rankedEmojiPopup->height()
+            <= host->height() - RankedEmojiPopupMargin;
+        rankedEmojiPopupAbove = aboveFits || !belowFits;
     }
+
+    int y = rankedEmojiPopupAbove
+        ? buttonTopLeft.y()
+            - rankedEmojiPopup->height()
+            - RankedEmojiPopupGap
+        : buttonTopLeft.y()
+            + addEmojiButton->height()
+            + RankedEmojiPopupGap;
+
     const int maxY = qMax(
         RankedEmojiPopupMargin,
         host->height() - rankedEmojiPopup->height()
@@ -1336,12 +1574,67 @@ void OutgoingPostCreator::hideRankedEmojiPopup()
     if (rankedEmojiHideTimer) {
         rankedEmojiHideTimer->stop();
     }
+    if (!rankedEmojiPopup) {
+        return;
+    }
+
+    if (rankedEmojiRevealAnimation) {
+        rankedEmojiRevealAnimation->stop();
+    }
+
+    rankedEmojiPickerExpanded = false;
+    if (rankedEmojiPickerReveal) {
+        rankedEmojiPickerReveal->setFixedHeight(0);
+        rankedEmojiPickerReveal->hide();
+    }
+
+    if (embeddedEmojiPicker && rankedEmojiPickerDestroyTimer) {
+        rankedEmojiPickerDestroyTimer->start();
+    }
+
+    if (rankedEmojiFlowHost) {
+        auto* flowHost =
+            static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
+        rankedEmojiPopup->setFixedWidth(
+            flowHost->width() + 2 * RankedEmojiPopupMargin);
+        rankedEmojiPopup->adjustSize();
+    }
+
+    rankedEmojiPopup->hide();
+}
+
+void OutgoingPostCreator::destroyEmbeddedEmojiPicker()
+{
+    if (rankedEmojiPickerExpanded || !embeddedEmojiPicker) {
+        return;
+    }
+
+    delete embeddedEmojiPicker.data();
+    embeddedEmojiPicker.clear();
+}
+
+void OutgoingPostCreator::destroyRankedEmojiPopup()
+{
+    if (rankedEmojiHideTimer) {
+        rankedEmojiHideTimer->stop();
+    }
+    if (rankedEmojiPickerDestroyTimer) {
+        rankedEmojiPickerDestroyTimer->stop();
+    }
+    if (rankedEmojiRevealAnimation) {
+        rankedEmojiRevealAnimation->stop();
+    }
+
     if (rankedEmojiPopup) {
         rankedEmojiPopup->removeEventFilter(this);
-        rankedEmojiPopup->hide();
-        rankedEmojiPopup->deleteLater();
-        rankedEmojiPopup.clear();
+        delete rankedEmojiPopup.data();
     }
+
+    rankedEmojiPopup.clear();
+    rankedEmojiFlowHost.clear();
+    rankedEmojiPickerReveal.clear();
+    embeddedEmojiPicker.clear();
+    rankedEmojiPickerExpanded = false;
 }
 
 bool OutgoingPostCreator::event(QEvent* event)
