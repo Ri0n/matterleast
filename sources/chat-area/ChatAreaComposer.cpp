@@ -49,6 +49,7 @@ constexpr int LoadingIndicatorDelayMs = 150;
 constexpr int ActionButtonExtent = 30;
 constexpr int ActionIconExtent = 24;
 constexpr int MentionSearchLimit = 25;
+constexpr int MentionGroupSearchLimit = 60;
 
 class MentionSearchState : public QObject
 {
@@ -61,6 +62,7 @@ public:
     QString query;
     QVector<UserAutocompleteProfile> remoteInChannel;
     QVector<UserAutocompleteProfile> remoteOutOfChannel;
+    QVector<MentionGroup> remoteGroups;
     quint64 generation = 0;
 };
 
@@ -158,6 +160,7 @@ void ChatArea::setupComposerUi()
         mentionSearchGuard->query = query;
         mentionSearchGuard->remoteInChannel.clear();
         mentionSearchGuard->remoteOutOfChannel.clear();
+        mentionSearchGuard->remoteGroups.clear();
 
         // InteractiveTextEdit also sends an empty query when completion ends.
         // Keep bare '@' local-only; once a prefix exists, mirror the official
@@ -168,8 +171,12 @@ void ChatArea::setupComposerUi()
         }
 
         const quint64 generation = mentionSearchGuard->generation;
-        const QString teamId = channel.team ? channel.team->id : QString();
-        const QString channelId = teamId.isEmpty() ? QString() : channel.id;
+        // DM/GM conversations still live inside the currently selected team
+        // context in the Mattermost UI. Group mention lookup must use that
+        // context even though the direct channel itself has no BackendTeam.
+        const QString teamId = channel.team
+            ? channel.team->id : backend.getCurrentTeamContextId();
+        const QString channelId = channel.id;
         QPointer<ChatArea> areaGuard(this);
 
         UserProfileService::instance(backend).autocompleteUsers(
@@ -186,6 +193,23 @@ void ChatArea::setupComposerUi()
                     std::move(result.inChannel);
                 mentionSearchGuard->remoteOutOfChannel =
                     std::move(result.outOfChannel);
+                mentionEditorGuard->refreshCompletions();
+            });
+
+        // User autocomplete does not contain group mentions. Mattermost's
+        // webapp performs a separate /groups search for every @ prefix, so do
+        // the same here instead of relying only on the team-associated cache.
+        MentionGroupService::instance(backend).searchReferenceGroups(
+            teamId, query, channelId, MentionGroupSearchLimit,
+            [areaGuard, mentionSearchGuard, mentionEditorGuard,
+             query, generation](QVector<MentionGroup> groups) mutable {
+                if (!areaGuard || !mentionSearchGuard || !mentionEditorGuard
+                    || generation != mentionSearchGuard->generation
+                    || query != mentionSearchGuard->query) {
+                    return;
+                }
+
+                mentionSearchGuard->remoteGroups = std::move(groups);
                 mentionEditorGuard->refreshCompletions();
             });
     };
@@ -223,7 +247,8 @@ void ChatArea::setupComposerUi()
             appendSpecial(QStringLiteral("here"), tr("Notify online members in this channel"));
         }
 
-        const QString teamId = channel.team ? channel.team->id : QString();
+        const QString teamId = channel.team
+            ? channel.team->id : backend.getCurrentTeamContextId();
         if (!teamId.isEmpty()) {
             auto& groupService = MentionGroupService::instance(backend);
             QVector<const MentionGroup*> groups;
@@ -260,6 +285,25 @@ void ChatArea::setupComposerUi()
                         ? countText : candidate.detailText + QStringLiteral(" · ") + countText;
                 }
                 candidate.filterKeys.push_back(group->displayName);
+                appendCandidate(std::move(candidate));
+            }
+        }
+
+        if (mentionSearchGuard) {
+            for (const MentionGroup& group : mentionSearchGuard->remoteGroups) {
+                if (group.name.isEmpty()) {
+                    continue;
+                }
+                Candidate candidate;
+                candidate.displayText = QStringLiteral("@") + group.name;
+                candidate.insertText = group.name;
+                candidate.detailText = group.displayName;
+                if (group.memberCount > 0) {
+                    const QString countText = tr("%n member(s)", nullptr, group.memberCount);
+                    candidate.detailText = candidate.detailText.isEmpty()
+                        ? countText : candidate.detailText + QStringLiteral(" · ") + countText;
+                }
+                candidate.filterKeys.push_back(group.displayName);
                 appendCandidate(std::move(candidate));
             }
         }
@@ -345,7 +389,8 @@ void ChatArea::setupComposerUi()
     };
     ui->outgoingPostCreator->setCompletionRules({std::move(mentionRule)});
 
-    const QString teamId = channel.team ? channel.team->id : QString();
+    const QString teamId = channel.team
+        ? channel.team->id : backend.getCurrentTeamContextId();
     if (!teamId.isEmpty()) {
         auto& groupService = MentionGroupService::instance(backend);
         auto* editor = ui->outgoingPostCreator;
