@@ -24,6 +24,7 @@
 
 #include "OutgoingPostCreator.h"
 
+#include <QAbstractAnimation>
 #include <QColor>
 #include <QDateTime>
 #include <QDebug>
@@ -80,7 +81,6 @@ constexpr int RankedEmojiPopupGap = 5;
 constexpr int RankedEmojiPopupMargin = 4;
 constexpr int EmbeddedPickerTargetWidth = 483;
 constexpr int EmbeddedPickerTargetHeight = 320;
-constexpr int EmbeddedPickerMinHeight = 120;
 constexpr int EmbeddedPickerDestroyDelayMs = 15000;
 constexpr int EmbeddedPickerAnimationMs = 180;
 constexpr qreal RankedEmojiPopupRadius = 7.0;
@@ -1338,10 +1338,17 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
 
     const int columns =
         std::min(RankedEmojiPreferredColumns, rendered);
-    const int width =
+    const int naturalWidth =
         columns * RankedEmojiButtonExtent
         + std::max(0, columns - 1) * RankedEmojiButtonSpacing;
-    flowHost->setFlowWidth(width);
+    const int availableWidth = rankedEmojiPopup
+        && rankedEmojiPopup->parentWidget()
+        ? std::max(
+            RankedEmojiButtonExtent,
+            rankedEmojiPopup->parentWidget()->width()
+                - 4 * RankedEmojiPopupMargin)
+        : naturalWidth;
+    flowHost->setFlowWidth(std::min(naturalWidth, availableWidth));
 }
 
 void OutgoingPostCreator::toggleEmbeddedEmojiPicker()
@@ -1371,7 +1378,7 @@ void OutgoingPostCreator::ensureEmbeddedEmojiPicker()
     picker->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto* revealLayout =
-        qobject_cast<QVBoxLayout*>(rankedEmojiPickerReveal->layout());
+        static_cast<QVBoxLayout*>(rankedEmojiPickerReveal->layout());
     if (!revealLayout) {
         revealLayout = new QVBoxLayout(rankedEmojiPickerReveal);
         revealLayout->setContentsMargins(0, 0, 0, 0);
@@ -1464,18 +1471,12 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
 
         targetHeight = std::min(
             EmbeddedPickerTargetHeight, availablePickerHeight);
-        if (targetHeight < EmbeddedPickerMinHeight
-            && std::max(pickerAbove, pickerBelow) >= EmbeddedPickerMinHeight) {
-            rankedEmojiPopupAbove = pickerAbove >= pickerBelow;
-            targetHeight = std::min(
-                EmbeddedPickerTargetHeight,
-                std::max(pickerAbove, pickerBelow));
-        }
 
-        targetWidth = std::min(
-            EmbeddedPickerTargetWidth,
-            std::max(compactWidth,
-                     host->width() - 2 * RankedEmojiPopupMargin));
+        const int availableWidth = std::max(
+            1, host->width() - 2 * RankedEmojiPopupMargin);
+        targetWidth = std::max(
+            std::min(compactWidth, availableWidth),
+            std::min(EmbeddedPickerTargetWidth, availableWidth));
     }
 
     const int fromHeight = rankedEmojiPickerReveal->height();
