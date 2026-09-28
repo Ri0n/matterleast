@@ -110,6 +110,32 @@ protected:
     }
 };
 
+class RankedEmojiFlowHost final : public QWidget
+{
+public:
+    explicit RankedEmojiFlowHost(QWidget* parent = nullptr)
+        : QWidget(parent)
+        , flowLayout_(new FlowLayout(this, 0, RankedEmojiButtonSpacing))
+    {
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    }
+
+    FlowLayout* flowLayout() const
+    {
+        return flowLayout_;
+    }
+
+    void setFlowWidth(int width)
+    {
+        width = std::max(RankedEmojiButtonExtent, width);
+        setFixedWidth(width);
+        setFixedHeight(flowLayout_->heightForWidth(width));
+    }
+
+private:
+    FlowLayout* flowLayout_ = nullptr;
+};
+
 }
 
 struct OutgoingPostData {
