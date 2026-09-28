@@ -103,6 +103,7 @@ signals:
 private:
     explicit MentionGroupService(Backend& backend);
     void finishTeamLoad(const QString& teamId);
+    void invalidateCachesAfterMutation();
 
     Backend& backend;
     HTTPConnector httpConnector;
