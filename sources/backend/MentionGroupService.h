@@ -29,7 +29,19 @@ struct MentionGroup {
     QString id;
     QString name;
     QString displayName;
+    QString description;
+    QString source;
     int memberCount = 0;
+    bool allowReference = true;
+
+    bool isCustom() const { return source == QStringLiteral("custom"); }
+};
+
+struct MentionGroupMutationResult {
+    bool ok = false;
+    MentionGroup group;
+    QString errorId;
+    QString errorMessage;
 };
 
 struct MentionGroupMember {
@@ -45,6 +57,7 @@ public:
     using GroupsCallback = std::function<void()>;
     using GroupSearchCallback = std::function<void(QVector<MentionGroup>)>;
     using MembersCallback = std::function<void(QVector<MentionGroupMember>)>;
+    using MutationCallback = std::function<void(MentionGroupMutationResult)>;
 
     static MentionGroupService& instance(Backend& backend);
 
@@ -59,6 +72,23 @@ public:
                                const QString& channelId,
                                int limit,
                                GroupSearchCallback callback);
+    void searchGroups(const QString& query,
+                      int limit,
+                      GroupSearchCallback callback);
+    void createCustomGroup(const QString& displayName,
+                           const QString& mention,
+                           const QStringList& userIds,
+                           MutationCallback callback);
+    void updateCustomGroup(const QString& groupId,
+                           const QString& displayName,
+                           const QString& mention,
+                           MutationCallback callback);
+    void addMembers(const QString& groupId,
+                    const QStringList& userIds,
+                    MutationCallback callback);
+    void removeMembers(const QString& groupId,
+                       const QStringList& userIds,
+                       MutationCallback callback);
     QHash<QString, QString> mentionIds(const QString& teamId) const;
     const MentionGroup* groupById(const QString& teamId, const QString& groupId) const;
     void retrieveMembers(const QString& groupId, MembersCallback callback);
