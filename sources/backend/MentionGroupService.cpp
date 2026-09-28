@@ -267,8 +267,7 @@ void MentionGroupService::createCustomGroup(const QString& displayName,
                 QVariant, QByteArray data, const QNetworkReply& reply) mutable {
                 MentionGroupMutationResult result = mutationResult(data, reply);
                 if (result.ok) {
-                    loadedTeams.clear();
-                    emit groupsChanged(QString());
+                    invalidateCachesAfterMutation();
                 }
                 if (callback) {
                     callback(std::move(result));
@@ -295,8 +294,7 @@ void MentionGroupService::updateCustomGroup(const QString& groupId,
                 QVariant, QByteArray data, const QNetworkReply& reply) mutable {
                 MentionGroupMutationResult result = mutationResult(data, reply);
                 if (result.ok) {
-                    loadedTeams.clear();
-                    emit groupsChanged(QString());
+                    invalidateCachesAfterMutation();
                 }
                 if (callback) {
                     callback(std::move(result));
@@ -377,6 +375,28 @@ void MentionGroupService::removeMembers(const QString& groupId,
                     callback(std::move(result));
                 }
             }));
+}
+
+void MentionGroupService::invalidateCachesAfterMutation()
+{
+    QSet<QString> affectedTeams;
+    const auto cachedTeamIds = groupsByTeamAndId.keys();
+    for (const QString& teamId : cachedTeamIds) {
+        if (!teamId.isEmpty()) {
+            affectedTeams.insert(teamId);
+        }
+    }
+    const QString currentTeamId = backend.getCurrentTeamContextId();
+    if (!currentTeamId.isEmpty()) {
+        affectedTeams.insert(currentTeamId);
+    }
+
+    groupsByTeamAndId.clear();
+    loadedTeams.clear();
+
+    for (const QString& teamId : affectedTeams) {
+        emit groupsChanged(teamId);
+    }
 }
 
 void MentionGroupService::finishTeamLoad(const QString& teamId)
