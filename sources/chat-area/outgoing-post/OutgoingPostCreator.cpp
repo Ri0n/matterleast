@@ -202,8 +202,8 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
             rankedEmojiRevealAnimation->property("fromWidth").toInt();
         const int toWidth =
             rankedEmojiRevealAnimation->property("toWidth").toInt();
-        const int popupBaseHeight =
-            rankedEmojiRevealAnimation->property("popupBaseHeight").toInt();
+        const int compactHeight =
+            rankedEmojiPopup->property("rankedCompactHeight").toInt();
         const int pickerFullHeight =
             rankedEmojiPickerReveal->property("pickerFullHeight").toInt();
 
@@ -222,15 +222,29 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
                 0, std::min(0, height - pickerFullHeight));
         }
 
+        const int revealGap = height > 0
+            ? RankedEmojiPopupMargin
+            : 0;
         rankedEmojiPopup->setFixedSize(
             std::max(1, width),
-            std::max(1, popupBaseHeight + height));
+            std::max(1, compactHeight + revealGap + height));
         positionRankedEmojiPopup();
     });
     connect(rankedEmojiRevealAnimation, &QVariantAnimation::finished,
             this, [this] {
         if (!rankedEmojiPickerExpanded && rankedEmojiPickerReveal) {
+            rankedEmojiPickerReveal->setFixedHeight(0);
             rankedEmojiPickerReveal->hide();
+            if (rankedEmojiPopup) {
+                const int compactWidth =
+                    rankedEmojiPopup->property("rankedCompactWidth").toInt();
+                const int compactHeight =
+                    rankedEmojiPopup->property("rankedCompactHeight").toInt();
+                rankedEmojiPopup->setFixedSize(
+                    std::max(1, compactWidth),
+                    std::max(1, compactHeight));
+                positionRankedEmojiPopup();
+            }
             if (rankedEmojiPickerDestroyTimer && embeddedEmojiPicker) {
                 rankedEmojiPickerDestroyTimer->start();
             }
@@ -1281,11 +1295,13 @@ void OutgoingPostCreator::showRankedEmojiPopup()
         && (!rankedEmojiRevealAnimation
             || rankedEmojiRevealAnimation->state()
                 != QAbstractAnimation::Running)) {
-        auto* flowHost =
-            static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
-        rankedEmojiPopup->setFixedWidth(
-            flowHost->width() + 2 * RankedEmojiPopupMargin);
-        rankedEmojiPopup->adjustSize();
+        const int compactWidth =
+            rankedEmojiPopup->property("rankedCompactWidth").toInt();
+        const int compactHeight =
+            rankedEmojiPopup->property("rankedCompactHeight").toInt();
+        rankedEmojiPopup->setFixedSize(
+            std::max(1, compactWidth),
+            std::max(1, compactHeight));
     }
 
     positionRankedEmojiPopup();
@@ -1363,6 +1379,15 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
                 - 4 * RankedEmojiPopupMargin)
         : naturalWidth;
     flowHost->setFlowWidth(std::min(naturalWidth, availableWidth));
+
+    if (rankedEmojiPopup) {
+        rankedEmojiPopup->setProperty(
+            "rankedCompactWidth",
+            flowHost->width() + 2 * RankedEmojiPopupMargin);
+        rankedEmojiPopup->setProperty(
+            "rankedCompactHeight",
+            flowHost->height() + 2 * RankedEmojiPopupMargin);
+    }
 }
 
 void OutgoingPostCreator::toggleEmbeddedEmojiPicker()
@@ -1428,9 +1453,10 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
 
     auto* flowHost =
         static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
-    const int compactWidth = flowHost
-        ? flowHost->width() + 2 * RankedEmojiPopupMargin
-        : rankedEmojiPopup->width();
+    const int compactWidth = std::max(
+        1, rankedEmojiPopup->property("rankedCompactWidth").toInt());
+    const int compactHeight = std::max(
+        1, rankedEmojiPopup->property("rankedCompactHeight").toInt());
 
     int targetHeight = 0;
     int targetWidth = compactWidth;
@@ -1486,8 +1512,6 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
 
     const int fromHeight = rankedEmojiPickerReveal->height();
     const int fromWidth = rankedEmojiPopup->width();
-    const int popupBaseHeight =
-        std::max(1, rankedEmojiPopup->height() - fromHeight);
 
     if (expanded && embeddedEmojiPicker) {
         const int pickerWidth = std::max(
@@ -1508,8 +1532,12 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
         if (embeddedEmojiPicker) {
             embeddedEmojiPicker->move(0, 0);
         }
+        const int revealGap = targetHeight > 0
+            ? RankedEmojiPopupMargin
+            : 0;
         rankedEmojiPopup->setFixedSize(
-            targetWidth, popupBaseHeight + targetHeight);
+            targetWidth,
+            compactHeight + revealGap + targetHeight);
         if (!expanded) {
             rankedEmojiPickerReveal->hide();
             if (embeddedEmojiPicker) {
@@ -1526,8 +1554,6 @@ void OutgoingPostCreator::setEmbeddedEmojiPickerExpanded(
     rankedEmojiRevealAnimation->setProperty("toHeight", targetHeight);
     rankedEmojiRevealAnimation->setProperty("fromWidth", fromWidth);
     rankedEmojiRevealAnimation->setProperty("toWidth", targetWidth);
-    rankedEmojiRevealAnimation->setProperty(
-        "popupBaseHeight", popupBaseHeight);
     rankedEmojiRevealAnimation->start();
 }
 
@@ -1618,13 +1644,13 @@ void OutgoingPostCreator::hideRankedEmojiPopup()
         rankedEmojiPickerDestroyTimer->start();
     }
 
-    if (rankedEmojiFlowHost) {
-        auto* flowHost =
-            static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
-        rankedEmojiPopup->setFixedWidth(
-            flowHost->width() + 2 * RankedEmojiPopupMargin);
-        rankedEmojiPopup->adjustSize();
-    }
+    const int compactWidth =
+        rankedEmojiPopup->property("rankedCompactWidth").toInt();
+    const int compactHeight =
+        rankedEmojiPopup->property("rankedCompactHeight").toInt();
+    rankedEmojiPopup->setFixedSize(
+        std::max(1, compactWidth),
+        std::max(1, compactHeight));
 
     rankedEmojiPopup->hide();
 }
