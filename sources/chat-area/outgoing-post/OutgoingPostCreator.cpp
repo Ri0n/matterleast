@@ -1327,7 +1327,16 @@ void OutgoingPostCreator::showRankedEmojiPopup()
         rankedEmojiPopup = popup;
         popup->installEventFilter(this);
 
-        auto* layout = new QVBoxLayout(popup);
+        auto* popupLayout = new QVBoxLayout(popup);
+        popupLayout->setContentsMargins(0, 0, 0, 0);
+        popupLayout->setSpacing(0);
+
+        auto* contentRoot = new QWidget(popup);
+        rankedEmojiContentRoot = contentRoot;
+        contentRoot->setAttribute(Qt::WA_TranslucentBackground, true);
+        popupLayout->addWidget(contentRoot);
+
+        auto* layout = new QVBoxLayout(contentRoot);
         layout->setContentsMargins(
             RankedEmojiPopupMargin,
             RankedEmojiPopupMargin,
@@ -1335,11 +1344,11 @@ void OutgoingPostCreator::showRankedEmojiPopup()
             RankedEmojiPopupMargin);
         layout->setSpacing(RankedEmojiPopupMargin);
 
-        auto* flowHost = new RankedEmojiFlowHost(popup);
+        auto* flowHost = new RankedEmojiFlowHost(contentRoot);
         rankedEmojiFlowHost = flowHost;
         layout->addWidget(flowHost, 0, Qt::AlignHCenter);
 
-        auto* reveal = new QWidget(popup);
+        auto* reveal = new QWidget(contentRoot);
         rankedEmojiPickerReveal = reveal;
         reveal->setBackgroundRole(QPalette::Base);
         reveal->setAutoFillBackground(true);
@@ -1347,9 +1356,6 @@ void OutgoingPostCreator::showRankedEmojiPopup()
         reveal->setFixedHeight(0);
         reveal->hide();
 
-        auto* revealLayout = new QVBoxLayout(reveal);
-        revealLayout->setContentsMargins(0, 0, 0, 0);
-        revealLayout->setSpacing(0);
         layout->addWidget(reveal);
     } else if (rankedEmojiPopup->parentWidget() != host) {
         rankedEmojiPopup->setParent(host);
