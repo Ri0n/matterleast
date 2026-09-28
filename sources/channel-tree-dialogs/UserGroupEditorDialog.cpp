@@ -491,7 +491,7 @@ void UserGroupEditorDialog::commitMembershipChanges(
 
     QPointer<UserGroupEditorDialog> guard(this);
     const auto removeNext =
-        [guard, additions, removals](MentionGroupMutationResult result) mutable {
+        [guard, additions, removals](MentionGroupMutationResult result) {
         if (!guard) {
             return;
         }
@@ -513,7 +513,7 @@ void UserGroupEditorDialog::commitMembershipChanges(
 
         guard->groupService.removeMembers(
             guard->group->id, removals,
-            [guard, removals](MentionGroupMutationResult removeResult) mutable {
+            [guard, removals](MentionGroupMutationResult removeResult) {
                 if (!guard) {
                     return;
                 }
