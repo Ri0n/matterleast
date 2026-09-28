@@ -184,15 +184,17 @@ void MentionGroupService::searchReferenceGroups(const QString& teamId,
             + encodedQueryValue(channelId);
     }
 
+    const quint64 requestGeneration = cacheGeneration;
     NetworkRequest request(url);
     httpConnector.get(request, HttpResponseCallback(
-        [this, teamId, callback = std::move(callback)](const QJsonDocument& doc) mutable {
+        [this, teamId, requestGeneration,
+         callback = std::move(callback)](const QJsonDocument& doc) mutable {
             QVector<MentionGroup> result;
             const QJsonArray array = doc.array();
             result.reserve(array.size());
 
             QHash<QString, MentionGroup>* cache = nullptr;
-            if (!teamId.isEmpty()) {
+            if (requestGeneration == cacheGeneration && !teamId.isEmpty()) {
                 cache = &groupsByTeamAndId[teamId];
             }
 
