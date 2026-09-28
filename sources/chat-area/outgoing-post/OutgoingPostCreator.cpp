@@ -31,8 +31,9 @@
 #include <QDynamicPropertyChangeEvent>
 #include <QEvent>
 #include <QFileDialog>
+#include <QEasingCurve>
 #include <QFrame>
-#include <QGridLayout>
+#include <QHBoxLayout>
 #include <QJsonObject>
 #include <QLabel>
 #include <QMessageBox>
@@ -44,6 +45,8 @@
 #include <QSizePolicy>
 #include <QTextCursor>
 #include <QTimer>
+#include <QVariantAnimation>
+#include <QVBoxLayout>
 
 #include "NewPollDialog.h"
 #include "OutgoingAttachmentList.h"
@@ -59,8 +62,9 @@
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatLogWidget.h"
 #include "chat-area/QuotedReplyFormat.h"
-#include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
+#include "choose-emoji-dialog/EmojiPickerWidget.h"
 #include "reactions/ReactionUsageTracker.h"
+#include "ui/FlowLayout.h"
 #include "ui/RankedEmojiPresentation.h"
 #include "ui/ThemeIconWidgets.h"
 
@@ -69,10 +73,16 @@ namespace {
 
 constexpr char EditingPostProperty[] = "_mmqt_editing_post";
 constexpr int RankedEmojiCapacity = 16;
-constexpr int RankedEmojiColumns = 8;
+constexpr int RankedEmojiPreferredColumns = 8;
 constexpr int RankedEmojiButtonExtent = 30;
+constexpr int RankedEmojiButtonSpacing = 2;
 constexpr int RankedEmojiPopupGap = 5;
 constexpr int RankedEmojiPopupMargin = 4;
+constexpr int EmbeddedPickerTargetWidth = 483;
+constexpr int EmbeddedPickerTargetHeight = 320;
+constexpr int EmbeddedPickerMinHeight = 120;
+constexpr int EmbeddedPickerDestroyDelayMs = 15000;
+constexpr int EmbeddedPickerAnimationMs = 180;
 constexpr qreal RankedEmojiPopupRadius = 7.0;
 
 class RankedEmojiPopupFrame final : public QFrame
