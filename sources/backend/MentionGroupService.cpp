@@ -327,12 +327,13 @@ void MentionGroupService::addMembers(const QString& groupId,
         request,
         QByteArrayCreator(QJsonObject {{QStringLiteral("user_ids"), users}}),
         HttpResponseCallback(
-            [callback = std::move(callback)](
+            [this, callback = std::move(callback)](
                 QVariant, QByteArray data, const QNetworkReply& reply) mutable {
                 MentionGroupMutationResult result = mutationResult(data, reply);
                 // The members endpoint returns an array rather than a Group.
                 if (reply.error() == QNetworkReply::NoError) {
                     result.ok = true;
+                    invalidateCachesAfterMutation();
                 }
                 if (callback) {
                     callback(std::move(result));
@@ -365,11 +366,12 @@ void MentionGroupService::removeMembers(const QString& groupId,
         request,
         QByteArrayCreator(QJsonObject {{QStringLiteral("user_ids"), users}}),
         HttpResponseCallback(
-            [callback = std::move(callback)](
+            [this, callback = std::move(callback)](
                 QVariant, QByteArray data, const QNetworkReply& reply) mutable {
                 MentionGroupMutationResult result = mutationResult(data, reply);
                 if (reply.error() == QNetworkReply::NoError) {
                     result.ok = true;
+                    invalidateCachesAfterMutation();
                 }
                 if (callback) {
                     callback(std::move(result));
