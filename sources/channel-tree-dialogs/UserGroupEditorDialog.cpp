@@ -460,7 +460,7 @@ void UserGroupEditorDialog::commitMembershipChanges(
 
     QPointer<UserGroupEditorDialog> guard(this);
     const auto removeNext =
-        [guard, removals](MentionGroupMutationResult result) mutable {
+        [guard, additions, removals](MentionGroupMutationResult result) mutable {
         if (!guard) {
             return;
         }
@@ -468,6 +468,13 @@ void UserGroupEditorDialog::commitMembershipChanges(
             guard->finishMutation(result);
             return;
         }
+
+        // Record successful additions before the next request so retrying after
+        // a later partial failure does not submit them again.
+        for (const QString& userId : additions) {
+            guard->initialMemberIds.insert(userId);
+        }
+
         if (removals.isEmpty()) {
             guard->finishMutation(result);
             return;
@@ -475,10 +482,16 @@ void UserGroupEditorDialog::commitMembershipChanges(
 
         guard->groupService.removeMembers(
             guard->group->id, removals,
-            [guard](MentionGroupMutationResult removeResult) mutable {
-                if (guard) {
-                    guard->finishMutation(removeResult);
+            [guard, removals](MentionGroupMutationResult removeResult) mutable {
+                if (!guard) {
+                    return;
                 }
+                if (removeResult.ok) {
+                    for (const QString& userId : removals) {
+                        guard->initialMemberIds.remove(userId);
+                    }
+                }
+                guard->finishMutation(removeResult);
             });
     };
 
