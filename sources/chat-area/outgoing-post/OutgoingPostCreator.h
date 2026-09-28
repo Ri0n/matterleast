@@ -153,6 +153,7 @@ private:
     QTimer*                             rankedEmojiPickerDestroyTimer = nullptr;
     QVariantAnimation*                  rankedEmojiRevealAnimation = nullptr;
     QPointer<QFrame>                    rankedEmojiPopup;
+    QPointer<QWidget>                   rankedEmojiContentRoot;
     QPointer<QWidget>                   rankedEmojiFlowHost;
     QPointer<QWidget>                   rankedEmojiPickerReveal;
     QPointer<EmojiPickerWidget>         embeddedEmojiPicker;
