@@ -213,7 +213,7 @@ void MentionGroupService::searchGroups(const QString& query,
 {
     QString url = QStringLiteral("groups?q=")
         + encodedQueryValue(query)
-        + QStringLiteral("&filter_allow_reference=false&filter_archived=true")
+        + QStringLiteral("&filter_allow_reference=false&include_archived=true")
         + QStringLiteral("&page=0&per_page=")
         + QString::number(std::max(1, limit))
         + QStringLiteral("&include_member_count=true");
