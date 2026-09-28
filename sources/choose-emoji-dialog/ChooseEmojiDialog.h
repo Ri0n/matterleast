@@ -25,6 +25,7 @@
 
 class QGridLayout;
 class QComboBox;
+class QResizeEvent;
 class QTimer;
 class QWidget;
 
@@ -52,6 +53,12 @@ private:
     void removeSearchTab ();
     Emoji getSelectedEmoji ();
     void addSkinToneComboBox (QWidget *tab, QGridLayout *gridLayout, uint32_t categoryIdx);
+    void reflowEmojiPage(QWidget* page);
+    void reflowEmojiPages();
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
 private:
     friend class ChooseEmojiDialogWrapper;
     Backend&                 backend;
