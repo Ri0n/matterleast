@@ -19,11 +19,13 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
+#include <QNetworkReply>
 #include <QUrl>
 
 #include "Backend.h"
 #include "HttpResponseCallback.h"
 #include "NetworkRequest.h"
+#include "QByteArrayCreator.h"
 
 namespace Mattermost {
 namespace {
@@ -40,16 +42,42 @@ QString displayName(const QJsonObject& user)
     return user.value(QStringLiteral("username")).toString();
 }
 
-bool parseMentionGroup(const QJsonObject& object, MentionGroup& group)
+bool parseMentionGroup(const QJsonObject& object,
+                       MentionGroup& group,
+                       bool requireReference = true)
 {
     group.id = object.value(QStringLiteral("id")).toString();
     group.name = object.value(QStringLiteral("name")).toString();
     group.displayName = object.value(QStringLiteral("display_name")).toString();
+    group.description = object.value(QStringLiteral("description")).toString();
+    group.source = object.value(QStringLiteral("source")).toString();
     group.memberCount = object.value(QStringLiteral("member_count")).toInt();
+    group.allowReference =
+        object.value(QStringLiteral("allow_reference")).toBool(true);
 
     return !group.id.isEmpty()
         && !group.name.isEmpty()
-        && object.value(QStringLiteral("allow_reference")).toBool(true);
+        && (!requireReference || group.allowReference);
+}
+
+MentionGroupMutationResult mutationResult(const QByteArray& data,
+                                          const QNetworkReply& reply)
+{
+    MentionGroupMutationResult result;
+    result.ok = reply.error() == QNetworkReply::NoError;
+
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+    const QJsonObject object = doc.object();
+    if (result.ok) {
+        parseMentionGroup(object, result.group, false);
+    } else {
+        result.errorId = object.value(QStringLiteral("id")).toString();
+        result.errorMessage = object.value(QStringLiteral("message")).toString();
+        if (result.errorMessage.isEmpty()) {
+            result.errorMessage = reply.errorString();
+        }
+    }
+    return result;
 }
 
 QString encodedQueryValue(const QString& value)
@@ -177,6 +205,177 @@ void MentionGroupService::searchReferenceGroups(const QString& teamId,
                 callback(std::move(result));
             }
         }));
+}
+
+void MentionGroupService::searchGroups(const QString& query,
+                                           int limit,
+                                           GroupSearchCallback callback)
+{
+    QString url = QStringLiteral("groups?q=")
+        + encodedQueryValue(query)
+        + QStringLiteral("&filter_allow_reference=false&filter_archived=true")
+        + QStringLiteral("&page=0&per_page=")
+        + QString::number(std::max(1, limit))
+        + QStringLiteral("&include_member_count=true");
+
+    NetworkRequest request(url);
+    httpConnector.get(request, HttpResponseCallback(
+        [callback = std::move(callback)](const QJsonDocument& doc) mutable {
+            QVector<MentionGroup> result;
+            const QJsonArray array = doc.array();
+            result.reserve(array.size());
+
+            for (const QJsonValue& value : array) {
+                MentionGroup group;
+                if (parseMentionGroup(value.toObject(), group, false)) {
+                    result.push_back(std::move(group));
+                }
+            }
+
+            if (callback) {
+                callback(std::move(result));
+            }
+        }));
+}
+
+void MentionGroupService::createCustomGroup(const QString& displayName,
+                                            const QString& mention,
+                                            const QStringList& userIds,
+                                            MutationCallback callback)
+{
+    QJsonArray users;
+    for (const QString& userId : userIds) {
+        if (!userId.isEmpty()) {
+            users.push_back(userId);
+        }
+    }
+
+    QJsonObject payload {
+        {QStringLiteral("name"), mention},
+        {QStringLiteral("display_name"), displayName},
+        {QStringLiteral("allow_reference"), true},
+        {QStringLiteral("source"), QStringLiteral("custom")},
+        {QStringLiteral("user_ids"), users},
+    };
+
+    NetworkRequest request(QStringLiteral("groups"));
+    httpConnector.post(
+        request, QByteArrayCreator(payload),
+        HttpResponseCallback(
+            [this, callback = std::move(callback)](
+                QVariant, QByteArray data, const QNetworkReply& reply) mutable {
+                MentionGroupMutationResult result = mutationResult(data, reply);
+                if (result.ok) {
+                    loadedTeams.clear();
+                    emit groupsChanged(QString());
+                }
+                if (callback) {
+                    callback(std::move(result));
+                }
+            }));
+}
+
+void MentionGroupService::updateCustomGroup(const QString& groupId,
+                                            const QString& displayName,
+                                            const QString& mention,
+                                            MutationCallback callback)
+{
+    QJsonObject payload {
+        {QStringLiteral("name"), mention},
+        {QStringLiteral("display_name"), displayName},
+    };
+
+    NetworkRequest request(
+        QStringLiteral("groups/") + groupId + QStringLiteral("/patch"));
+    httpConnector.put(
+        request, QByteArrayCreator(payload),
+        HttpResponseCallback(
+            [this, callback = std::move(callback)](
+                QVariant, QByteArray data, const QNetworkReply& reply) mutable {
+                MentionGroupMutationResult result = mutationResult(data, reply);
+                if (result.ok) {
+                    loadedTeams.clear();
+                    emit groupsChanged(QString());
+                }
+                if (callback) {
+                    callback(std::move(result));
+                }
+            }));
+}
+
+void MentionGroupService::addMembers(const QString& groupId,
+                                     const QStringList& userIds,
+                                     MutationCallback callback)
+{
+    QJsonArray users;
+    for (const QString& userId : userIds) {
+        if (!userId.isEmpty()) {
+            users.push_back(userId);
+        }
+    }
+    if (users.isEmpty()) {
+        MentionGroupMutationResult result;
+        result.ok = true;
+        if (callback) {
+            callback(std::move(result));
+        }
+        return;
+    }
+
+    NetworkRequest request(
+        QStringLiteral("groups/") + groupId + QStringLiteral("/members"));
+    httpConnector.post(
+        request,
+        QByteArrayCreator(QJsonObject {{QStringLiteral("user_ids"), users}}),
+        HttpResponseCallback(
+            [callback = std::move(callback)](
+                QVariant, QByteArray data, const QNetworkReply& reply) mutable {
+                MentionGroupMutationResult result = mutationResult(data, reply);
+                // The members endpoint returns an array rather than a Group.
+                if (reply.error() == QNetworkReply::NoError) {
+                    result.ok = true;
+                }
+                if (callback) {
+                    callback(std::move(result));
+                }
+            }));
+}
+
+void MentionGroupService::removeMembers(const QString& groupId,
+                                        const QStringList& userIds,
+                                        MutationCallback callback)
+{
+    QJsonArray users;
+    for (const QString& userId : userIds) {
+        if (!userId.isEmpty()) {
+            users.push_back(userId);
+        }
+    }
+    if (users.isEmpty()) {
+        MentionGroupMutationResult result;
+        result.ok = true;
+        if (callback) {
+            callback(std::move(result));
+        }
+        return;
+    }
+
+    NetworkRequest request(
+        QStringLiteral("groups/") + groupId + QStringLiteral("/members"));
+    httpConnector.del(
+        request,
+        QByteArrayCreator(QJsonObject {{QStringLiteral("user_ids"), users}}),
+        HttpResponseCallback(
+            [callback = std::move(callback)](
+                QVariant, QByteArray data, const QNetworkReply& reply) mutable {
+                MentionGroupMutationResult result = mutationResult(data, reply);
+                if (reply.error() == QNetworkReply::NoError) {
+                    result.ok = true;
+                }
+                if (callback) {
+                    callback(std::move(result));
+                }
+            }));
 }
 
 void MentionGroupService::finishTeamLoad(const QString& teamId)
