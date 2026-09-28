@@ -50,6 +50,22 @@ private slots:
                                QStringLiteral("cherry")));
     }
 
+    void configuresCompactFlatTabs()
+    {
+        QTabWidget tabWidget;
+        Mattermost::EmojiDialogSupport::configureTabWidget(tabWidget);
+
+        QTabBar* bar = tabWidget.tabBar();
+        QVERIFY(tabWidget.documentMode());
+        QVERIFY(!bar->drawBase());
+        QVERIFY(!bar->expanding());
+        QVERIFY(!bar->usesScrollButtons());
+        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabHSpace), 8);
+        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabVSpace), 4);
+        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabShiftHorizontal), 0);
+        QCOMPARE(bar->style()->pixelMetric(QStyle::PM_TabBarTabShiftVertical), 0);
+    }
+
     void emojiTabPagesTrackApplicationPaletteChanges()
     {
         QTabWidget tabWidget;
