@@ -175,12 +175,63 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
     connect(rankedEmojiHideTimer, &QTimer::timeout,
             this, &OutgoingPostCreator::hideRankedEmojiPopup);
 
+    rankedEmojiPickerDestroyTimer = new QTimer(this);
+    rankedEmojiPickerDestroyTimer->setSingleShot(true);
+    rankedEmojiPickerDestroyTimer->setInterval(
+        EmbeddedPickerDestroyDelayMs);
+    connect(rankedEmojiPickerDestroyTimer, &QTimer::timeout,
+            this, &OutgoingPostCreator::destroyEmbeddedEmojiPicker);
+
+    rankedEmojiRevealAnimation = new QVariantAnimation(this);
+    rankedEmojiRevealAnimation->setDuration(EmbeddedPickerAnimationMs);
+    rankedEmojiRevealAnimation->setStartValue(0.0);
+    rankedEmojiRevealAnimation->setEndValue(1.0);
+    rankedEmojiRevealAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(rankedEmojiRevealAnimation, &QVariantAnimation::valueChanged,
+            this, [this](const QVariant& value) {
+        if (!rankedEmojiPopup || !rankedEmojiPickerReveal) {
+            return;
+        }
+
+        const qreal progress = value.toReal();
+        const int fromHeight =
+            rankedEmojiRevealAnimation->property("fromHeight").toInt();
+        const int toHeight =
+            rankedEmojiRevealAnimation->property("toHeight").toInt();
+        const int fromWidth =
+            rankedEmojiRevealAnimation->property("fromWidth").toInt();
+        const int toWidth =
+            rankedEmojiRevealAnimation->property("toWidth").toInt();
+
+        const int height = qRound(
+            fromHeight + (toHeight - fromHeight) * progress);
+        const int width = qRound(
+            fromWidth + (toWidth - fromWidth) * progress);
+
+        rankedEmojiPickerReveal->setFixedHeight(std::max(0, height));
+        rankedEmojiPopup->setFixedWidth(std::max(1, width));
+        rankedEmojiPopup->adjustSize();
+        positionRankedEmojiPopup();
+    });
+    connect(rankedEmojiRevealAnimation, &QVariantAnimation::finished,
+            this, [this] {
+        if (!rankedEmojiPickerExpanded && rankedEmojiPickerReveal) {
+            rankedEmojiPickerReveal->hide();
+            if (rankedEmojiPickerDestroyTimer && embeddedEmojiPicker) {
+                rankedEmojiPickerDestroyTimer->start();
+            }
+        } else if (rankedEmojiPickerExpanded && embeddedEmojiPicker) {
+            embeddedEmojiPicker->focusSearch();
+        }
+    });
+
     connect(&EmojiRegistryNotifier::instance(),
             &EmojiRegistryNotifier::customEmojiAdded,
             this,
             [this](const QString&) {
-                if (rankedEmojiPopup) {
-                    showRankedEmojiPopup();
+                if (rankedEmojiPopup && rankedEmojiPopup->isVisible()) {
+                    rebuildRankedEmojiButtons();
+                    positionRankedEmojiPopup();
                 }
             });
 }
@@ -265,13 +316,8 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 		        this, &OutgoingPostCreator::onAttachButtonClick);
 	}
 
-	connect(addEmojiButton, &QPushButton::clicked, this, [this] {
-        hideRankedEmojiPopup();
-		showEmojiDialog([this](Emoji emoji) {
-			insertPlainText(" :" + emoji.name + ": ");
-			setFocus();
-		});
-	});
+	connect(addEmojiButton, &QPushButton::clicked,
+            this, &OutgoingPostCreator::toggleEmbeddedEmojiPicker);
 
 	setEditingVisual(false);
 	updateSendButtonState();
@@ -279,7 +325,7 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 
 OutgoingPostCreator::~OutgoingPostCreator()
 {
-    hideRankedEmojiPopup();
+    destroyRankedEmojiPopup();
     releaseComposerAttachmentUploads();
     flushPersistentDraft();
 }
