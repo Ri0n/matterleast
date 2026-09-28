@@ -106,6 +106,7 @@ MentionGroupService::MentionGroupService(Backend& sourceBackend)
 
 void MentionGroupService::clear()
 {
+    ++cacheGeneration;
     groupsByTeamAndId.clear();
     loadedTeams.clear();
     loadingTeams.clear();
@@ -135,12 +136,17 @@ void MentionGroupService::ensureTeamGroups(const QString& teamId, GroupsCallback
         return;
     }
     loadingTeams.insert(teamId);
+    const quint64 requestGeneration = cacheGeneration;
 
     NetworkRequest request(
         QStringLiteral("teams/") + teamId
         + QStringLiteral("/groups?paginate=false&filter_allow_reference=true&include_member_count=true"));
     httpConnector.get(request, HttpResponseCallback(
-        [this, teamId](const QJsonDocument& doc) {
+        [this, teamId, requestGeneration](const QJsonDocument& doc) {
+            if (requestGeneration != cacheGeneration) {
+                return;
+            }
+
             QHash<QString, MentionGroup> groups;
             const QJsonArray array = doc.object().value(QStringLiteral("groups")).toArray();
             for (const QJsonValue& value : array) {
@@ -393,8 +399,10 @@ void MentionGroupService::invalidateCachesAfterMutation()
         affectedTeams.insert(currentTeamId);
     }
 
+    ++cacheGeneration;
     groupsByTeamAndId.clear();
     loadedTeams.clear();
+    loadingTeams.clear();
 
     for (const QString& teamId : affectedTeams) {
         emit groupsChanged(teamId);
