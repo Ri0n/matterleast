@@ -1184,9 +1184,36 @@ void Backend::deletePost (const QString postID)
 	httpConnector.del (request);
 }
 
-void Backend::pinPost (const QString postID)
+void Backend::pinPost(const QString& postID, const QString& channelID)
 {
-	Q_UNUSED (postID);
+	NetworkRequest request(
+	    QStringLiteral("posts/") + postID + QStringLiteral("/pin"));
+	httpConnector.post(
+	    request, QByteArray(),
+	    HttpResponseCallback([this, postID, channelID](const QJsonDocument&) {
+		    BackendChannel* channel = storage.getChannelById(channelID);
+		    if (!channel) {
+			    return;
+		    }
+		    channel->setPostPinned(postID, true);
+		    retrieveChannelPinnedPosts(*channel);
+	    }));
+}
+
+void Backend::unpinPost(const QString& postID, const QString& channelID)
+{
+	NetworkRequest request(
+	    QStringLiteral("posts/") + postID + QStringLiteral("/unpin"));
+	httpConnector.post(
+	    request, QByteArray(),
+	    HttpResponseCallback([this, postID, channelID](const QJsonDocument&) {
+		    BackendChannel* channel = storage.getChannelById(channelID);
+		    if (!channel) {
+			    return;
+		    }
+		    channel->setPostPinned(postID, false);
+		    retrieveChannelPinnedPosts(*channel);
+	    }));
 }
 
 void Backend::addPoll (BackendChannel& channel, const BackendNewPollData& pollData)

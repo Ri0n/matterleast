@@ -775,17 +775,50 @@ void LongListWidget::setSeekDebounceMs(int milliseconds)
     seekTimer.setInterval(seekDebounceInterval);
 }
 
+QColor LongListWidget::hoverHighlightSurfaceColor() const
+{
+    const QColor base =
+        viewport()->palette().color(viewport()->backgroundRole());
+    const QColor highlight = palette().color(QPalette::Highlight);
+    const qreal alpha = static_cast<qreal>(HoverHighlightAlpha) / 255.0;
+
+    // paintEvent() applies Highlight with HoverHighlightAlpha over the viewport.
+    // Return that final opaque color so an overlay widget does not apply the
+    // alpha a second time over an already-highlighted row.
+    return QColor::fromRgbF(
+        highlight.redF() * alpha + base.redF() * (1.0 - alpha),
+        highlight.greenF() * alpha + base.greenF() * (1.0 - alpha),
+        highlight.blueF() * alpha + base.blueF() * (1.0 - alpha),
+        1.0);
+}
+
 void LongListWidget::setHoverHighlightEnabled(bool enabled)
 {
     if (hoverHighlightEnabled == enabled) {
         return;
     }
     hoverHighlightEnabled = enabled;
-    if (!hoverHighlightEnabled && hoveredWidget) {
-        const int previousIndex = widgetIndexes.value(hoveredWidget.data(), -1);
-        hoveredWidget.clear();
-        emit hoveredItemChanged(previousIndex, -1);
+    if (!hoverHighlightEnabled) {
+        hoverHighlightOverride.clear();
+        if (hoveredWidget) {
+            const int previousIndex =
+                widgetIndexes.value(hoveredWidget.data(), -1);
+            hoveredWidget.clear();
+            emit hoveredItemChanged(previousIndex, -1);
+        }
     }
+    viewport()->update();
+}
+
+void LongListWidget::setHoverHighlightOverride(QWidget* widget)
+{
+    if (widget && !widgetIndexes.contains(widget)) {
+        widget = nullptr;
+    }
+    if (hoverHighlightOverride.data() == widget) {
+        return;
+    }
+    hoverHighlightOverride = widget;
     viewport()->update();
 }
 
@@ -1242,14 +1275,17 @@ void LongListWidget::paintEvent(QPaintEvent* event)
 {
     QAbstractScrollArea::paintEvent(event);
 
-    if (!hoverHighlightEnabled || !hoveredWidget || !hoveredWidget->isVisible()) {
+    QWidget* highlightWidget = hoverHighlightOverride
+        ? hoverHighlightOverride.data() : hoveredWidget.data();
+    if (!hoverHighlightEnabled || !highlightWidget
+        || !highlightWidget->isVisible()) {
         return;
     }
 
     QColor background = palette().color(QPalette::Highlight);
     background.setAlpha(HoverHighlightAlpha);
     QPainter painter(viewport());
-    painter.fillRect(hoveredWidget->geometry(), background);
+    painter.fillRect(highlightWidget->geometry(), background);
 }
 
 void LongListWidget::resizeEvent(QResizeEvent* event)

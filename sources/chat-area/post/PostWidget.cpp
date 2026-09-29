@@ -27,6 +27,7 @@
 #include <QPainter>
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QCheckBox>
 #include <QCursor>
@@ -34,9 +35,13 @@
 #include <QDebug>
 #include <QDrag>
 #include <QEvent>
+#include <QFrame>
+#include <QFontMetrics>
+#include <QLocale>
 #include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
+#include <QMoveEvent>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -45,12 +50,14 @@
 #include <QTextBrowser>
 #include <QTimer>
 #include <QUrl>
+#include <QVariant>
 
 #include "MessageContentWidget.h"
 #include "Settings.h"
 #include "MessageFormatter.h"
 #include "PostPermalinkUtils.h"
 #include "PostQuoteFrame.h"
+#include "PostTimestampPresentation.h"
 #include "ReactionChipStyle.h"
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
@@ -132,6 +139,14 @@ PostWidget::PostWidget(Backend& backend,
     , presentationMode_(presentationMode)
 {
 	ui->setupUi(this);
+    normalRowMargins_ = ui->horizontalLayout_2->contentsMargins();
+
+    // Match Mattermost header geometry: author and timestamp form one compact
+    // left-aligned cluster, with the remaining width trailing after them.
+    ui->authorName->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    ui->time->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    ui->time->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    ui->horizontalLayout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
     // Font-sensitive utility widgets (pending delivery, reactions, thread
     // summary) must be constructed against the final chat font. Constructing
@@ -165,33 +180,154 @@ PostWidget::PostWidget(Backend& backend,
     });
 
     if (presentationMode_ == PresentationMode::Interactive) {
-        reactionAffordance_ = new QPushButton(QString::fromUtf8("❤️"), this);
-        reactionAffordance_->setFlat(true);
-        reactionAffordance_->setFixedSize(28, 28);
-        reactionAffordance_->setCursor(Qt::PointingHandCursor);
-        reactionAffordance_->setToolTip(tr("Add reaction"));
-        reactionAffordance_->setAccessibleName(tr("Add reaction"));
-        QFont reactionFont =
-            EmojiFont::applySystemEmojiFamily(reactionAffordance_->font());
-        reactionFont.setPointSize(14);
-        reactionAffordance_->setFont(reactionFont);
-        reactionOpacity_ = new QGraphicsOpacityEffect(reactionAffordance_);
-        reactionOpacity_->setOpacity(0.0);
-        reactionAffordance_->setGraphicsEffect(reactionOpacity_);
-        reactionAnimation_ = new QPropertyAnimation(
-            reactionOpacity_, "opacity", this);
-        reactionAnimation_->setDuration(140);
-        reactionAffordance_->hide();
-        connect(reactionAnimation_, &QPropertyAnimation::finished, this, [this] {
-            if (reactionAffordance_ && !reactionAffordanceWanted_) {
-                reactionAffordance_->hide();
-            }
-        });
+        // Post actions are an overlay, not part of row geometry. Parent the
+        // surface to the LongList viewport so it may float slightly above this
+        // row without being clipped by PostWidget.
+        QWidget* overlayHost = parentWidget() ? parentWidget() : this;
+        hoverActions_ = new QFrame(overlayHost);
+        hoverActions_->setObjectName(QStringLiteral("postHoverActions"));
+        hoverActions_->setFrameShape(QFrame::NoFrame);
+        hoverActions_->setAutoFillBackground(false);
+        updateHoverActionsPalette();
+        hoverActions_->hide();
+        hoverActions_->installEventFilter(this);
+
+        // Keep the ranked-reaction area structurally separate from the normal
+        // action layout. Its permanent zero-width slot can grow leftward
+        // without ever changing spacing or local geometry of the ordinary
+        // buttons.
+        auto* toolbarLayout = new QHBoxLayout(hoverActions_);
+        toolbarLayout->setContentsMargins(3, 2, 3, 2);
+        toolbarLayout->setSpacing(0);
+
+        reactionQuickBarSlot_ = new QWidget(hoverActions_);
+        reactionQuickBarSlot_->setObjectName(
+            QStringLiteral("reactionQuickBarSlot"));
+        reactionQuickBarSlot_->setMinimumWidth(0);
+        reactionQuickBarSlot_->setMaximumWidth(0);
+        reactionQuickBarSlot_->setSizePolicy(
+            QSizePolicy::Preferred, QSizePolicy::Preferred);
+        auto* quickSlotLayout = new QHBoxLayout(reactionQuickBarSlot_);
+        quickSlotLayout->setContentsMargins(0, 0, 0, 0);
+        quickSlotLayout->setSpacing(0);
+        toolbarLayout->addWidget(reactionQuickBarSlot_);
+
+        auto* actionsContainer = new QWidget(hoverActions_);
+        auto* actionsLayout = new QHBoxLayout(actionsContainer);
+        actionsLayout->setContentsMargins(0, 0, 0, 0);
+        actionsLayout->setSpacing(1);
+        toolbarLayout->addWidget(actionsContainer);
+
+        const auto makeActionButton =
+            [this, actionsLayout, actionsContainer](const QIcon& icon,
+                                                    const QString& text,
+                                                    const QString& tooltip) {
+                auto* button = new QPushButton(actionsContainer);
+                button->setFlat(true);
+                button->setFixedSize(28, 28);
+                button->setCursor(Qt::PointingHandCursor);
+                if (!icon.isNull()) {
+                    button->setIcon(icon);
+                } else {
+                    button->setText(text);
+                }
+                button->setToolTip(tooltip);
+                button->setAccessibleName(tooltip);
+                button->installEventFilter(this);
+                actionsLayout->addWidget(button);
+                return button;
+            };
+
+        // Reaction is deliberately the leftmost action: the ranked
+        // quick-reaction surface opens below this button and should not render
+        // visually underneath another toolbar action.
+        reactionAffordance_ = makeActionButton(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/emoji")),
+            QString(), tr("Add reaction"));
+        reactionAffordance_->setProperty(
+            "matterleastPostOwner",
+            QVariant::fromValue(static_cast<QObject*>(this)));
         connect(reactionAffordance_, &QPushButton::clicked, this, [this] {
             showEmojiDialog([this](Emoji emoji) {
                 backend_.addPostReaction(this->post.id, emoji.name);
             });
         });
+
+        const bool canThread =
+            parentChatArea && !parentChatArea->isThread && post.root_id.isEmpty();
+        if (canThread) {
+            threadAffordance_ = makeActionButton(
+                IconUtils::symbolicIcon(QStringLiteral(":/icons/message-balloon")),
+                QString(), tr("Open thread"));
+            connect(threadAffordance_, &QPushButton::clicked,
+                    this, &PostWidget::openThreadWindow);
+        }
+
+        saveAffordance_ = makeActionButton(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/bookmark")),
+            QString(), tr("Save message"));
+        connect(saveAffordance_, &QPushButton::clicked, this, [this] {
+            backend_.updateUserPreferences(BackendUserPreferences {
+                QStringLiteral("flagged_post"), this->post.id, QStringLiteral("true")});
+        });
+
+        moreAffordance_ = makeActionButton(
+            QIcon(), QString::fromUtf8("⋯"), tr("More actions"));
+        connect(moreAffordance_, &QPushButton::clicked, this, [this] {
+            if (moreAffordance_) {
+                showPostContextMenu(moreAffordance_->mapToGlobal(
+                    QPoint(0, moreAffordance_->height())));
+            }
+        });
+
+        hoverActionsOpacity_ = new QGraphicsOpacityEffect(hoverActions_);
+        hoverActionsOpacity_->setOpacity(0.0);
+        hoverActions_->setGraphicsEffect(hoverActionsOpacity_);
+        hoverActionsAnimation_ = new QPropertyAnimation(
+            hoverActionsOpacity_, "opacity", this);
+        hoverActionsAnimation_->setDuration(120);
+        connect(hoverActionsAnimation_, &QPropertyAnimation::finished,
+                this, [this] {
+            if (hoverActions_ && !hoverActionsWanted_) {
+                hoverActions_->hide();
+            }
+        });
+
+        hoverActionsHideTimer_ = new QTimer(this);
+        hoverActionsHideTimer_->setSingleShot(true);
+        hoverActionsHideTimer_->setInterval(160);
+        connect(hoverActionsHideTimer_, &QTimer::timeout, this, [this] {
+            if (hovered_ || (hoverActions_ && hoverActions_->underMouse())) {
+                return;
+            }
+            hoverActionsWanted_ = false;
+            if (continuationTime_) {
+                continuationTime_->hide();
+            }
+            if (!hoverActions_ || !hoverActionsOpacity_
+                || !hoverActionsAnimation_) {
+                return;
+            }
+            hoverActionsAnimation_->stop();
+            hoverActionsAnimation_->setStartValue(
+                hoverActionsOpacity_->opacity());
+            hoverActionsAnimation_->setEndValue(0.0);
+            hoverActionsAnimation_->start();
+        });
+
+        continuationTime_ = new QLabel(this);
+        continuationTime_->setObjectName(QStringLiteral("continuationTime"));
+        continuationTime_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        continuationTime_->setAttribute(Qt::WA_TransparentForMouseEvents);
+        continuationTime_->setFixedWidth(48);
+        QFont compactTimeFont = ui->authorName->font();
+        compactTimeFont.setBold(false);
+        if (compactTimeFont.pointSizeF() > 0) {
+            compactTimeFont.setPointSizeF(
+                std::max(1.0, compactTimeFont.pointSizeF() * 0.70));
+        }
+        continuationTime_->setFont(compactTimeFont);
+        continuationTime_->hide();
     }
 	ui->authorAvatar->setFrameShape(QFrame::NoFrame);
 	ui->authorName->setText(post.getDisplayAuthorName());
@@ -232,7 +368,24 @@ PostWidget::PostWidget(Backend& backend,
 	messageContent->setMessage(displayMessage(post, post.message));
 	connectMessageLinks();
 	refreshPermalinkPreviews();
-	ui->time->setText(getMessageTimeString(post.create_at));
+    updateTimestampPresentation();
+    updateTimestampPalette();
+
+    if (usesRelativeTimestamp()) {
+        timestampRefreshTimer_ = new QTimer(this);
+        timestampRefreshTimer_->setSingleShot(true);
+        connect(timestampRefreshTimer_, &QTimer::timeout, this, [this] {
+            updateTimestampPresentation();
+            if (timestampRefreshTimer_) {
+                timestampRefreshTimer_->start(
+                    PostTimestampPresentation::threadRefreshIntervalMs(
+                        static_cast<qint64>(this->post.create_at)));
+            }
+        });
+        timestampRefreshTimer_->start(
+            PostTimestampPresentation::threadRefreshIntervalMs(
+                static_cast<qint64>(this->post.create_at)));
+    }
 
     if (presentationMode_ != PresentationMode::Pending
         && !post.isDeleted && KTalkMeetingWidget::supports(post)) {
@@ -353,16 +506,16 @@ PostWidget::PostWidget(Backend& backend,
 		}
 	}
 
-    if (presentationMode_ != PresentationMode::Pending) {
-        createReactionList();
-    }
-
 	if (presentationMode_ != PresentationMode::Pending
         && !post.isDeleted && post.poll) {
 		clearMessageText();
 		poll = std::make_unique<PostPoll>(backend, post, *post.poll, this);
 		ui->verticalLayout->addWidget(poll.get());
 	}
+
+    if (presentationMode_ != PresentationMode::Pending) {
+        createReactionList();
+    }
 
 	if (presentationMode_ != PresentationMode::Pending
         && parentChatArea && !parentChatArea->isThread) {
@@ -377,6 +530,13 @@ PostWidget::PostWidget(Backend& backend,
 
 PostWidget::~PostWidget()
 {
+    // hoverActions_ is parented to the LongList viewport so it can paint
+    // outside this row. It is still logically owned by this PostWidget.
+    if (hoverActionsAnimation_) {
+        hoverActionsAnimation_->stop();
+    }
+    delete hoverActions_;
+    hoverActions_ = nullptr;
 	delete ui;
 }
 
@@ -389,6 +549,8 @@ void PostWidget::changeEvent(QEvent* event)
     }
 
     updateAuthorAvatar();
+    updateHoverActionsPalette();
+    updateTimestampPalette();
     update();
     const auto childWidgets = findChildren<QWidget*>();
     for (QWidget* child : childWidgets) {
@@ -403,6 +565,22 @@ void PostWidget::changeEvent(QEvent* event)
 
 bool PostWidget::eventFilter(QObject* watched, QEvent* event)
 {
+    QWidget* watchedWidget = qobject_cast<QWidget*>(watched);
+    if (event && hoverActions_ && watchedWidget
+        && (watchedWidget == hoverActions_
+            || hoverActions_->isAncestorOf(watchedWidget))) {
+        if (event->type() == QEvent::Enter) {
+            if (hoverActionsHideTimer_) {
+                hoverActionsHideTimer_->stop();
+            }
+            animateHoverActions(true);
+        } else if (event->type() == QEvent::Leave && !hovered_) {
+            if (hoverActionsHideTimer_) {
+                hoverActionsHideTimer_->start();
+            }
+        }
+    }
+
     if (event && event->type() == QEvent::MouseButtonRelease) {
         auto* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::MiddleButton) {
@@ -502,10 +680,16 @@ void PostWidget::mouseReleaseEvent(QMouseEvent* event)
     QWidget::mouseReleaseEvent(event);
 }
 
+void PostWidget::moveEvent(QMoveEvent* event)
+{
+    QWidget::moveEvent(event);
+    positionHoverActions();
+}
+
 void PostWidget::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
-    positionReactionAffordance();
+    positionHoverActions();
 }
 
 void PostWidget::setWholeMessageSelectionMode(bool enabled)
@@ -520,7 +704,7 @@ void PostWidget::setWholeMessageSelectionMode(bool enabled)
     if (enabled) {
         clearTextSelection();
     }
-    animateReactionAffordance(hovered_);
+    animateHoverActions(hovered_);
     updateGeometry();
     update();
 }
@@ -535,18 +719,80 @@ void PostWidget::setWholeMessageSelected(bool selected)
     update();
 }
 
-void PostWidget::setHovered(bool hovered)
+void PostWidget::setHovered(bool hovered, bool immediate)
 {
     if (presentationMode_ != PresentationMode::Interactive) {
         hovered_ = false;
-        animateReactionAffordance(false);
+        animateHoverActions(false, immediate);
         return;
     }
-    if (hovered_ == hovered) {
+    if (hovered_ == hovered && !immediate) {
         return;
     }
+
     hovered_ = hovered;
-    animateReactionAffordance(hovered_);
+    if (hovered_) {
+        if (hoverActionsHideTimer_) {
+            hoverActionsHideTimer_->stop();
+        }
+        animateHoverActions(true, immediate);
+    } else if (immediate) {
+        if (hoverActionsHideTimer_) {
+            hoverActionsHideTimer_->stop();
+        }
+        animateHoverActions(false, true);
+    } else if (hoverActionsHideTimer_) {
+        // Let the pointer cross from the row into the floating action surface.
+        hoverActionsHideTimer_->start();
+    } else {
+        animateHoverActions(false);
+    }
+
+    if (continuationTime_) {
+        continuationTime_->setVisible(
+            hovered_ && authorRunContinuation_ && !wholeMessageSelectionMode_);
+        if (continuationTime_->isVisible()) {
+            continuationTime_->raise();
+        }
+    }
+}
+
+void PostWidget::setAuthorRunContinuation(bool continuation)
+{
+    if (authorRunContinuation_ == continuation) {
+        return;
+    }
+
+    authorRunContinuation_ = continuation;
+
+    // Keep the avatar gutter width stable so body text never jumps horizontally,
+    // but collapse all repeated author-header height for continuation rows.
+    ui->authorAvatar->setFixedHeight(continuation ? 0 : 48);
+    ui->authorName->setVisible(!continuation);
+    ui->time->setVisible(!continuation);
+
+    if (continuation) {
+        ui->authorAvatar->clear();
+        ui->horizontalLayout_2->setContentsMargins(
+            normalRowMargins_.left(), 0,
+            normalRowMargins_.right(), 2);
+    } else {
+        ui->horizontalLayout_2->setContentsMargins(
+            normalRowMargins_.left(), normalRowMargins_.top(),
+            normalRowMargins_.right(), normalRowMargins_.bottom());
+        updateAuthorAvatar();
+    }
+
+    if (continuationTime_) {
+        continuationTime_->setVisible(
+            continuation && hovered_ && !wholeMessageSelectionMode_);
+    }
+
+    positionHoverActions();
+    ui->horizontalLayout_2->invalidate();
+    ui->verticalLayout->invalidate();
+    updateGeometry();
+    emit dimensionsChanged();
 }
 
 void PostWidget::clearTextSelection()
@@ -559,40 +805,151 @@ void PostWidget::clearTextSelection()
     }
 }
 
-void PostWidget::animateReactionAffordance(bool visible)
+void PostWidget::animateHoverActions(bool visible, bool immediate)
 {
     visible = visible
         && presentationMode_ == PresentationMode::Interactive
         && !wholeMessageSelectionMode_ && !post.isDeleted;
-    reactionAffordanceWanted_ = visible;
-    if (!reactionAffordance_ || !reactionOpacity_ || !reactionAnimation_) {
+    hoverActionsWanted_ = visible;
+
+    if (continuationTime_) {
+        continuationTime_->setVisible(visible && authorRunContinuation_);
+        if (continuationTime_->isVisible()) {
+            continuationTime_->raise();
+        }
+    }
+
+    if (!hoverActions_ || !hoverActionsOpacity_ || !hoverActionsAnimation_) {
         return;
     }
-    reactionAnimation_->stop();
+
+    hoverActionsAnimation_->stop();
     if (visible) {
-        positionReactionAffordance();
-        reactionAffordance_->show();
-        reactionAffordance_->raise();
+        positionHoverActions();
+        hoverActions_->show();
+        hoverActions_->raise();
     }
-    reactionAnimation_->setStartValue(reactionOpacity_->opacity());
-    reactionAnimation_->setEndValue(visible ? 1.0 : 0.0);
-    reactionAnimation_->start();
+
+    if (immediate) {
+        hoverActionsOpacity_->setOpacity(visible ? 1.0 : 0.0);
+        if (!visible) {
+            hoverActions_->hide();
+        }
+        return;
+    }
+
+    hoverActionsAnimation_->setStartValue(hoverActionsOpacity_->opacity());
+    hoverActionsAnimation_->setEndValue(visible ? 1.0 : 0.0);
+    hoverActionsAnimation_->start();
 }
 
-void PostWidget::positionReactionAffordance()
+bool PostWidget::usesRelativeTimestamp() const
 {
-    if (!reactionAffordance_) {
+    return parentChatArea && parentChatArea->isThread;
+}
+
+void PostWidget::updateTimestampPresentation()
+{
+    const qint64 timestamp = static_cast<qint64>(post.create_at);
+    const QLocale locale = QLocale::system();
+    const QString visibleTime = usesRelativeTimestamp()
+        ? PostTimestampPresentation::threadRelativeTime(timestamp,
+            QDateTime::currentMSecsSinceEpoch(), locale)
+        : PostTimestampPresentation::absoluteTime(timestamp, locale);
+    const QString fullTimestamp =
+        PostTimestampPresentation::fullTimestamp(timestamp, locale);
+
+    ui->time->setText(visibleTime);
+    ui->time->setToolTip(fullTimestamp);
+    ui->time->adjustSize();
+
+    if (continuationTime_) {
+        // Narrow continuation timestamps live in the fixed avatar gutter. Keep
+        // them as a regional clock time even when the full thread header uses
+        // a longer relative label, otherwise "22 hours ago" would overlap body
+        // text instead of behaving like Mattermost's narrow timestamp.
+        continuationTime_->setText(
+            PostTimestampPresentation::absoluteTime(timestamp, locale));
+        continuationTime_->setToolTip(fullTimestamp);
+        continuationTime_->setFixedWidth(48);
+    }
+}
+
+void PostWidget::updateTimestampPalette()
+{
+    QColor muted = palette().color(QPalette::WindowText);
+    muted.setAlphaF(0.73f);
+
+    QPalette timePalette = ui->time->palette();
+    timePalette.setColor(QPalette::WindowText, muted);
+    timePalette.setColor(QPalette::Text, muted);
+    ui->time->setPalette(timePalette);
+
+    if (continuationTime_) {
+        QColor continuationMuted = palette().color(QPalette::WindowText);
+        continuationMuted.setAlphaF(0.50f);
+        QPalette continuationPalette = continuationTime_->palette();
+        continuationPalette.setColor(QPalette::WindowText, continuationMuted);
+        continuationPalette.setColor(QPalette::Text, continuationMuted);
+        continuationTime_->setPalette(continuationPalette);
+    }
+}
+
+void PostWidget::updateHoverActionsPalette()
+{
+    if (!hoverActions_) {
         return;
     }
-    int x = 4;
-    int y = std::max(4, height() - reactionAffordance_->height() - 6);
-    if (threadSummary && threadSummary->isVisible()) {
-        const QPoint threadTopLeft = threadSummary->mapTo(this, QPoint(0, 0));
-        x = std::max(4, threadTopLeft.x() - reactionAffordance_->width() - 4);
-        y = threadTopLeft.y()
-            + (threadSummary->height() - reactionAffordance_->height()) / 2;
+
+    QColor background = palette().color(QPalette::Base);
+    if (ChatLogWidget* log = chatLog()) {
+        background = log->hoverHighlightSurfaceColor();
     }
-    reactionAffordance_->move(x, std::max(2, y));
+    const QColor outline = palette().color(QPalette::Mid);
+
+    QPalette toolbarPalette = hoverActions_->palette();
+    toolbarPalette.setColor(QPalette::Window, background);
+    toolbarPalette.setColor(QPalette::Button, background);
+    hoverActions_->setPalette(toolbarPalette);
+
+    const auto cssColor = [](const QColor& color) {
+        return QStringLiteral("rgba(%1,%2,%3,%4)")
+            .arg(color.red())
+            .arg(color.green())
+            .arg(color.blue())
+            .arg(color.alpha());
+    };
+    hoverActions_->setStyleSheet(QStringLiteral(
+        "QFrame#postHoverActions {"
+        " background-color: %1;"
+        " border: 1px solid %2;"
+        " border-radius: 5px;"
+        "}")
+        .arg(cssColor(background), cssColor(outline)));
+}
+
+void PostWidget::positionHoverActions()
+{
+    if (continuationTime_) {
+        continuationTime_->move(normalRowMargins_.left(), 0);
+    }
+
+    if (!hoverActions_ || !hoverActions_->parentWidget()) {
+        return;
+    }
+
+    hoverActions_->adjustSize();
+    QWidget* host = hoverActions_->parentWidget();
+    const QPoint rowTopLeft = mapTo(host, QPoint(0, 0));
+    const int maxX = std::max(0, host->width() - hoverActions_->width() - 4);
+    const int maxY = std::max(0, host->height() - hoverActions_->height());
+
+    const int x = std::max(
+        0, std::min(rowTopLeft.x() + width() - hoverActions_->width() - 8,
+                    maxX));
+    const int y = std::max(
+        0, std::min(rowTopLeft.y() - hoverActions_->height() / 2, maxY));
+    hoverActions_->move(x, y);
 }
 
 void PostWidget::showPostContextMenu(const QPoint& globalPos)
@@ -734,6 +1091,18 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     connect(saveAction, &QAction::triggered, this, [this] {
         backend_.updateUserPreferences(BackendUserPreferences {
             QStringLiteral("flagged_post"), post.id, QStringLiteral("true")});
+    });
+
+    const bool pinned = post.is_pinned;
+    QAction* pinAction = menu.addAction(
+        icon(QStringLiteral(":/icons/pin")),
+        pinned ? tr("Unpin message") : tr("Pin message"));
+    connect(pinAction, &QAction::triggered, this, [this, pinned] {
+        if (pinned) {
+            backend_.unpinPost(post.id, post.channel_id);
+        } else {
+            backend_.pinPost(post.id, post.channel_id);
+        }
     });
 
     if (post.author) {
@@ -898,6 +1267,11 @@ void PostWidget::setAuthor(Backend& backendInstance, const BackendUser* user)
 
 void PostWidget::updateAuthorAvatar()
 {
+    if (authorRunContinuation_) {
+        ui->authorAvatar->clear();
+        return;
+    }
+
 	if (!post.author || post.author->avatar.isNull()) {
 		ui->authorAvatar->clear();
 		return;
@@ -1018,8 +1392,32 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     }
 
     chatFont_ = nextFont;
+
+    // Timestamp belongs to author chrome, not message-body typography.
+    // Mattermost renders the normal post time at ~0.9em and the narrow
+    // continuation time at ~0.7em relative to the author header.
+    QFont headerTimeFont = ui->authorName->font();
+    headerTimeFont.setBold(false);
+    if (headerTimeFont.pointSizeF() > 0) {
+        headerTimeFont.setPointSizeF(
+            std::max(1.0, headerTimeFont.pointSizeF() * 0.90));
+    }
     ui->time->setMaximumHeight(QWIDGETSIZE_MAX);
-    ui->time->setFont(chatFont_);
+    ui->time->setFont(headerTimeFont);
+    ui->horizontalLayout->setSpacing(
+        qMax(2, qRound(QFontMetrics(ui->authorName->font()).height() * 0.30)));
+
+    if (continuationTime_) {
+        QFont compactTimeFont = ui->authorName->font();
+        compactTimeFont.setBold(false);
+        if (compactTimeFont.pointSizeF() > 0) {
+            compactTimeFont.setPointSizeF(
+                std::max(1.0, compactTimeFont.pointSizeF() * 0.70));
+        }
+        continuationTime_->setFont(compactTimeFont);
+    }
+    updateTimestampPresentation();
+    updateTimestampPalette();
 
     if (threadSummary) {
         threadSummary->setFont(chatFont_);
@@ -1034,6 +1432,7 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     if (attachments) {
         attachments->setFont(chatFont_);
     }
+    updateEngagementRowMetrics();
 
     if (notifyGeometry) {
         QTimer::singleShot(0, this, [this] {
@@ -1094,6 +1493,54 @@ void PostWidget::openGroupMention(const QString& groupId)
         });
 }
 
+void PostWidget::ensureEngagementRow()
+{
+    if (engagementRow_) {
+        return;
+    }
+
+    engagementRow_ = new QWidget(this);
+    engagementRow_->setObjectName(QStringLiteral("postEngagementRow"));
+    engagementRow_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+
+    engagementLayout_ = new QHBoxLayout(engagementRow_);
+    engagementLayout_->setContentsMargins(0, 0, 0, 0);
+    engagementLayout_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    updateEngagementRowMetrics();
+
+    ui->verticalLayout->addWidget(engagementRow_, 0, Qt::AlignLeft);
+}
+
+void PostWidget::updateEngagementRowMetrics()
+{
+    if (!engagementLayout_) {
+        return;
+    }
+
+    // Keep the separation proportional to the chat typography instead of using
+    // a device-pixel constant. 1.5 em leaves the two affordance groups visually
+    // distinct without turning them back into separate rows.
+    const int gap = qMax(
+        1, qRound(QFontMetrics(chatFont_).height() * 1.5));
+    engagementLayout_->setSpacing(gap);
+}
+
+void PostWidget::updateEngagementRow()
+{
+    if (!engagementRow_) {
+        return;
+    }
+
+    const bool hasThread = threadSummary != nullptr;
+    const bool hasReactions = reactions != nullptr;
+    engagementRow_->setVisible(hasThread || hasReactions);
+
+    updateEngagementRowMetrics();
+    engagementLayout_->invalidate();
+    ui->verticalLayout->invalidate();
+    updateGeometry();
+}
+
 void PostWidget::createReactionList()
 {
     if (post.isDeleted || post.reactions.empty()) {
@@ -1124,17 +1571,24 @@ void PostWidget::createReactionList()
     }
 
     connectReactionActions();
-    ui->verticalLayout->addWidget(reactions.get(), 0, Qt::AlignLeft);
+    ensureEngagementRow();
+    // ThreadSummaryWidget, when present, is always the first item. A reaction
+    // rebuild only appends/replaces the second item.
+    engagementLayout_->addWidget(reactions.get(), 0, Qt::AlignVCenter);
+    updateEngagementRow();
 }
 
 void PostWidget::updateReactions()
 {
 	if (reactions) {
-        ui->verticalLayout->removeWidget(reactions.get());
+        if (engagementLayout_) {
+            engagementLayout_->removeWidget(reactions.get());
+        }
 		reactions.reset();
 	}
 
 	createReactionList();
+    updateEngagementRow();
 
     // PostReactionList computes its own metrics while chips are added, before it
     // is connected to this widget and before it joins the parent layout. Commit
@@ -1182,25 +1636,50 @@ void PostWidget::connectReactionActions()
 
 void PostWidget::addThreadButton()
 {
-	if (!threadSummary) {
-		threadSummary = new ThreadSummaryWidget(backend_,
-		                                        parentChatArea->getChannel(),
-		                                        post, this);
+    // The floating toolbar is the action entry point even before the first
+    // reply. The persistent summary represents existing thread state only.
+    if (!parentChatArea || parentChatArea->isThread
+        || post.isDeleted || post.reply_count <= 0) {
+        if (threadSummary) {
+            if (engagementLayout_) {
+                engagementLayout_->removeWidget(threadSummary);
+            }
+            threadSummary->deleteLater();
+            threadSummary = nullptr;
+            updateEngagementRow();
+            emit dimensionsChanged();
+        }
+        return;
+    }
+
+    if (!threadSummary) {
+        threadSummary = new ThreadSummaryWidget(
+            backend_, parentChatArea->getChannel(), post, this);
         if (!chatFont_.family().isEmpty()) {
             threadSummary->setFont(chatFont_);
         }
-		connect(threadSummary, &ThreadSummaryWidget::clicked,
-		        this, &PostWidget::openThreadWindow);
+        connect(threadSummary, &ThreadSummaryWidget::clicked,
+                this, &PostWidget::openThreadWindow);
 
-		ui->time->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-		ui->horizontalLayout->insertStretch(1, 1);
-		ui->horizontalLayout->insertWidget(2, threadSummary, 0, Qt::AlignVCenter);
-		const int threadTimeGap = ui->time->fontMetrics().averageCharWidth();
-		ui->horizontalLayout->insertSpacing(3, threadTimeGap);
-		return;
-	}
+        ensureEngagementRow();
 
-	threadSummary->refresh();
+        // Thread state is deliberately first; reactions follow after one
+        // font-scaled gap. Rebuild the two-item order explicitly because either
+        // side may have appeared first due to live updates.
+        if (reactions) {
+            engagementLayout_->removeWidget(reactions.get());
+        }
+        engagementLayout_->addWidget(threadSummary, 0, Qt::AlignVCenter);
+        if (reactions) {
+            engagementLayout_->addWidget(reactions.get(), 0, Qt::AlignVCenter);
+        }
+        updateEngagementRow();
+        emit dimensionsChanged();
+        return;
+    }
+
+    threadSummary->refresh();
+    updateEngagementRow();
 }
 
 void PostWidget::openThreadWindow()
@@ -1216,11 +1695,25 @@ void PostWidget::openThreadWindow()
 void PostWidget::markAsDeleted()
 {
 	post.isDeleted = true;
+    animateHoverActions(false);
+    setAuthorRunContinuation(false);
+    if (threadSummary) {
+        if (engagementLayout_) {
+            engagementLayout_->removeWidget(threadSummary);
+        }
+        threadSummary->deleteLater();
+        threadSummary = nullptr;
+    }
+    if (reactions && engagementLayout_) {
+        engagementLayout_->removeWidget(reactions.get());
+    }
+    updateEngagementRow();
 	quoteFrame.reset();
 	quotedReplyPreview.reset();
 	permalinkPreviews.clear();
 	attachments.reset();
 	reactions.reset();
+    updateEngagementRow();
     ktalkMeeting_.reset();
 	if (poll) {
 		ui->verticalLayout->removeWidget(poll.get());
@@ -1242,23 +1735,10 @@ QString PostWidget::formatMessageText(const QString& str)
 	return MessageFormatter::formatMessageText(str);
 }
 
-QString PostWidget::getMessageTimeString(uint64_t timestamp)
+QString PostWidget::getMessageTimeString(uint64_t timestamp) const
 {
-	const QDate currentDate = QDateTime::currentDateTime().date();
-	const QDateTime postTime = QDateTime::fromMSecsSinceEpoch(timestamp);
-	const QDate postDate = postTime.date();
-
-	QString format;
-	if (currentDate.year() != postDate.year()) {
-		format = "dd MMM yyyy, hh:mm:ss";
-	} else if (currentDate.day() != postDate.day()
-	           || currentDate.month() != postDate.month()) {
-		format = "dd MMM, hh:mm:ss";
-	} else {
-		format = "hh:mm:ss";
-	}
-
-	return postTime.toString(format);
+    return PostTimestampPresentation::fullTimestamp(
+        static_cast<qint64>(timestamp), QLocale::system());
 }
 
 QString PostWidget::formatForClipboardSelection(FormatType formatType) const
@@ -1268,7 +1748,8 @@ QString PostWidget::formatForClipboardSelection(FormatType formatType) const
 		return visibleMessage;
 	}
 
-	QString ret(post.getDisplayAuthorName() + "\t[" + ui->time->text() + "]\n");
+	QString ret(post.getDisplayAuthorName() + "\t[" +
+                getMessageTimeString(post.create_at) + "]\n");
 	ret += " " + visibleMessage + "\n\n";
 	return ret;
 }

@@ -185,6 +185,82 @@ Range requests are split conceptually:
 
 `canRequestBeforeFirst()` and `requestBeforeFirst()` remain properties of the wrapped authoritative history. Local augmentation does not create older server history.
 
+## Consecutive-author grouping
+
+Consecutive-author grouping is a presentation property of the current projected
+sequence, not post/backend state.
+
+`ChatLogWidget` derives whether each materialized post continues the previous
+author run from its **current immediate presented predecessor**. A `PostWidget`
+must therefore be able to switch both directions between run head and
+continuation without being recreated. Never cache this classification at
+construction time: paging older history, filtering, insertion/removal, pending
+post promotion, body availability and identity-layout reconciliation can all
+change adjacency around an already materialized row.
+
+The current policy groups compatible ordinary posts only when they have the same
+author identity, channel/thread topology and local calendar day, and are at most
+five minutes apart. The five-minute cutoff matches Mattermost's official web
+client `POST_COLLAPSE_TIMEOUT`; exactly five minutes still groups, any larger
+gap starts a new run. Deleted posts and Mattermost `system_*` events are hard boundaries. If the previous sparse
+row is not currently available, the current row is conservatively treated as a
+run head until availability changes and the materialized neighborhood is
+re-evaluated.
+
+A continuation keeps its own post identity, actions, body, attachments,
+reactions, selection and navigation behavior. Repeated author chrome is fully
+collapsed: the author name, persistent header timestamp and avatar painting do
+not reserve header height. The avatar column keeps its 48-pixel width so message
+bodies remain horizontally aligned, while its height collapses so short runs are
+actually compact. Hovering a continuation reveals a short regional clock time
+in the fixed left gutter without changing row geometry; the gutter deliberately
+stays narrow even when a thread header uses a longer relative timestamp.
+
+Timestamp presentation follows Mattermost context semantics. Channel/DM/GM rows
+show the operating system locale's short clock time immediately after the author
+name; MatterLeast deliberately uses `QLocale::system()` so regional conventions
+such as a 24-hour clock are independent of the UI translation language. Thread
+rows show relative time (`now`, minutes, hours, days, weeks) using Mattermost's
+`THREADING_TIME` thresholds and refresh while materialized. In both contexts
+the visible timestamp uses muted text (0.73 opacity), while a continuation's
+hover-only gutter timestamp uses 0.50 opacity. Tooltips and clipboard output keep
+the full regionally formatted date/time.
+
+Post actions and thread state are deliberately separate. An interactive post has
+a floating hover action bar (reaction picker, thread/open, save, more) that does
+not participate in row layout. Entering the post list from outside keeps the
+normal 120 ms fade, but the whole list viewport is one hover session thereafter:
+crossing small layout gaps between posts does not dismiss the current toolbar,
+and the next post takes it over immediately. The same semantic session retains a
+presentation-only LongList hover-paint override for the active post, so moving
+onto the sibling floating toolbar does not drop the row highlight even though
+physical `hoveredItemChanged` correctly reports that the pointer left the row.
+Only leaving the viewport ends the session, so moving up/down a conversation
+cannot sporadically replay the fade. Its surface color is derived from
+`LongListWidget::hoverHighlightSurfaceColor()`, the same palette/alpha
+composition used by the hovered row itself. A one-pixel `QPalette::Mid`
+outline with a small rounded radius keeps the floating surface legible against
+the neighboring post without turning it into a heavy card. Hovering the
+leftmost reaction action reveals
+the ranked quick reactions as an animated inline extension of this same toolbar.
+The toolbar permanently owns a zero-width quick-reaction slot to the left of a
+separate ordinary-actions container; only that slot changes width. Normal action
+spacing and button-local geometry therefore stay invariant while the surface
+grows to the left, with no second floating popup or post-row geometry involved. A thread can therefore be
+opened even before its first reply exists. Once `reply_count > 0`, the participant/count
+`ThreadSummaryWidget` becomes persistent thread state below the post body.
+
+Persistent thread state and reaction chips share one horizontal engagement row:
+thread participants/count first, then reactions. Their separation is
+approximately 1.5 times the active chat-font height. Because this is layout
+spacing between actual widgets rather than a fixed spacer item, no empty gap is
+reserved when either thread state or reactions are absent. The row itself is
+hidden when both are absent.
+
+Explicit presentation separators (for example a future source-level unread
+marker) are boundaries by definition and must never be bridged by a grouping
+projection.
+
 ## Viewport and positioning invariants
 
 `LongListWidget` remains the sole owner of pixels, anchors and materialized-widget geometry.

@@ -98,6 +98,10 @@ private:
     void scheduleNavigationFinalize();
     void scheduleReadCursorUpdate();
     void updateReadCursorFromVisibility();
+    bool shouldContinueAuthorRun(int index) const;
+    void applyAuthorRunPresentation(int index, PostWidget& widget);
+    void refreshMaterializedAuthorRuns();
+    void scheduleAuthorRunRefresh();
     void markPostUnread(const QString& postId);
     bool isPostLowerEdgeVisible(const QString& postId) const;
     void setMessageSelectionRange(const QString& currentPostId);
@@ -128,6 +132,7 @@ private:
     bool navigationLockPending = false;
     bool navigationRecenterPending = false;
     bool readCursorUpdatePending_ = false;
+    bool authorRunRefreshPending_ = false;
     bool _initialScrollBarPulsePending = true;
     ManualUnreadVisibilityGate manualUnreadGate_;
     QString manualUnreadHighWaterPostId_;

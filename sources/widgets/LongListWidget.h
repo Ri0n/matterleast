@@ -27,6 +27,7 @@
 
 #include <QAbstractScrollArea>
 #include <QBitArray>
+#include <QColor>
 #include <QHash>
 #include <QPointer>
 #include <QSet>
@@ -151,6 +152,13 @@ public:
     /** Generic row hover feedback is enabled by default and can be disabled by subclasses/users. */
     bool isHoverHighlightEnabled() const { return hoverHighlightEnabled; }
     void setHoverHighlightEnabled(bool enabled);
+
+    /**
+     * Opaque surface color visually equivalent to the row hover overlay painted
+     * by this list over its viewport background. Floating row UI should use this
+     * instead of duplicating hover alpha/palette rules.
+     */
+    QColor hoverHighlightSurfaceColor() const;
 
     void setRangeAvailable(int first, int last, bool available = true);
     bool isItemAvailable(int index) const;
@@ -289,6 +297,18 @@ protected:
     /** Override when some unmeasured items have a better per-index estimate. */
     virtual int estimatedItemHeight(int index) const;
 
+    /**
+     * Keep hover paint on a materialized item while an external overlay
+     * logically belonging to that row owns the pointer. This affects only the
+     * painted highlight; hoveredItemChanged continues to report physical row
+     * enter/leave events.
+     */
+    void setHoverHighlightOverride(QWidget* widget);
+    QWidget* hoverHighlightOverrideWidget() const
+    {
+        return hoverHighlightOverride.data();
+    }
+
     bool eventFilter(QObject* watched, QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
@@ -416,6 +436,7 @@ private:
     QHash<QObject*, int> widgetIndexes;
     QSet<int> dirtyGeometry;
     QPointer<QWidget> hoveredWidget;
+    QPointer<QWidget> hoverHighlightOverride;
 
     QTimer syncTimer;
     QTimer geometryTimer;

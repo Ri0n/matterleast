@@ -534,6 +534,13 @@ target_link_libraries(post-unread-request-test PRIVATE Qt${QT_VERSION_MAJOR}::Te
 add_test(NAME post-unread-request-test COMMAND post-unread-request-test)
 
 if(TARGET matterleast-core)
+    add_executable(post-author-grouping-test PostAuthorGroupingTest.cpp)
+    target_link_libraries(post-author-grouping-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME post-author-grouping-test COMMAND post-author-grouping-test)
+    set_tests_properties(post-author-grouping-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
     add_executable(post-reaction-interaction-test PostReactionInteractionTest.cpp)
     target_link_libraries(post-reaction-interaction-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-reaction-interaction-test COMMAND post-reaction-interaction-test)

@@ -10,7 +10,6 @@
 #include <QVector>
 #include <QWidget>
 
-#include "backend/HTTPConnector.h"
 
 class QAbstractButton;
 class QComboBox;
@@ -97,7 +96,6 @@ private:
     QComboBox* scopeCombo = nullptr;
     QToolButton* searchAction = nullptr;
     BackendChannel* pinnedChannel = nullptr;
-    HTTPConnector actionConnector;
 
     QLabel* _titleLabel = nullptr;
     ThemeIconButton* _refreshButton = nullptr;

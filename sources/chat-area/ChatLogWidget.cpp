@@ -24,6 +24,7 @@
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
 #include "post/InteractivePostWidget.h"
+#include "post/PostAuthorRunPolicy.h"
 #include "post/PostWidget.h"
 #include "post/PostSelectionPolicy.h"
 #include "ui/IconUtils.h"
@@ -224,6 +225,7 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
             setRangeAvailable(index, index, true);
         }
     }
+    scheduleAuthorRunRefresh();
     scheduleReadCursorUpdate();
 }
 
@@ -370,6 +372,7 @@ void ChatLogWidget::refreshPost(const QString& postId)
     // survive ordinary data updates.
     if (post->isDeleted) {
         widget->markAsDeleted();
+        scheduleAuthorRunRefresh();
         return;
     }
 
@@ -379,6 +382,7 @@ void ChatLogWidget::refreshPost(const QString& postId)
         widget->addThreadButton();
     }
     itemsChanged(index, index);
+    scheduleAuthorRunRefresh();
 }
 
 void ChatLogWidget::followOwnPost(const QString& postId)
@@ -500,6 +504,60 @@ void ChatLogWidget::scheduleNavigationFinalize()
         if (!pendingHighlightPostId.isEmpty()) {
             highlightPost(pendingHighlightPostId);
         }
+    });
+}
+
+bool ChatLogWidget::shouldContinueAuthorRun(int index) const
+{
+    if (!postSource || index <= 0 || index >= postSource->itemCount()) {
+        return false;
+    }
+
+    // Sparse/paged history must be conservative. If the immediately preceding
+    // presented row is not available yet, the current post is temporarily the
+    // start of a run. range/body availability will schedule a re-evaluation.
+    if (!postSource->isAvailable(index)
+        || !postSource->isAvailable(index - 1)) {
+        return false;
+    }
+
+    BackendPost* current = postSource->postAt(index);
+    BackendPost* previous = postSource->postAt(index - 1);
+    return current && previous
+        && PostAuthorRunPolicy::continues(*previous, *current);
+}
+
+void ChatLogWidget::applyAuthorRunPresentation(int index, PostWidget& widget)
+{
+    widget.setAuthorRunContinuation(shouldContinueAuthorRun(index));
+}
+
+void ChatLogWidget::refreshMaterializedAuthorRuns()
+{
+    if (!postSource) {
+        return;
+    }
+
+    // Recompute from the current presented sequence instead of carrying a
+    // cached "first" bit. Insert/remove/filter/page operations can make either
+    // side of a seam change classification without recreating the surviving row.
+    for (int index : materializedIndices()) {
+        auto* widget = qobject_cast<PostWidget*>(itemWidget(index));
+        if (widget) {
+            applyAuthorRunPresentation(index, *widget);
+        }
+    }
+}
+
+void ChatLogWidget::scheduleAuthorRunRefresh()
+{
+    if (authorRunRefreshPending_) {
+        return;
+    }
+    authorRunRefreshPending_ = true;
+    QTimer::singleShot(0, this, [this] {
+        authorRunRefreshPending_ = false;
+        refreshMaterializedAuthorRuns();
     });
 }
 
@@ -863,6 +921,8 @@ QWidget* ChatLogWidget::createItemWidget(int index)
             *backend, *post, viewport(), chatArea, lastRootPost);
     }
 
+    applyAuthorRunPresentation(index, *widget);
+
     qCDebug(lcTimelineTrace).nospace()
         << "CREATE_WIDGET list=" << static_cast<const void*>(this)
         << " source=" << sourceName(postSource)
@@ -1049,6 +1109,7 @@ void ChatLogWidget::reconnectSource()
                     << " oldPostId=" << pendingPostId
                     << " newPostId=" << serverPostId;
                 replaceItem(index);
+                scheduleAuthorRunRefresh();
                 scheduleReadCursorUpdate();
             }));
         sourceConnections.push_back(connect(
@@ -1075,6 +1136,7 @@ void ChatLogWidget::reconnectSource()
             << " count=" << count;
         setItemCount(count);
         restoreNavigationTarget();
+        scheduleAuthorRunRefresh();
         scheduleReadCursorUpdate();
     }));
     sourceConnections.push_back(connect(postSource, &AbstractPostSource::itemsInserted,
@@ -1092,6 +1154,7 @@ void ChatLogWidget::reconnectSource()
         }
         insertItems(first, count, viewportPolicy);
         restoreNavigationTarget();
+        scheduleAuthorRunRefresh();
         scheduleReadCursorUpdate();
     }));
     sourceConnections.push_back(connect(postSource, &AbstractPostSource::itemsRemoved,
@@ -1103,6 +1166,7 @@ void ChatLogWidget::reconnectSource()
             << " count=" << count;
         removeItems(first, count);
         restoreNavigationTarget();
+        scheduleAuthorRunRefresh();
         scheduleReadCursorUpdate();
     }));
     sourceConnections.push_back(connect(postSource, &AbstractPostSource::rangeAvailable,
@@ -1113,6 +1177,7 @@ void ChatLogWidget::reconnectSource()
             << " range=[" << first << ',' << last << ']';
         setRangeAvailable(first, last, true);
         restoreNavigationTarget();
+        scheduleAuthorRunRefresh();
         scheduleReadCursorUpdate();
     }));
     sourceConnections.push_back(connect(postSource, &AbstractPostSource::bodyAvailabilityChanged,
@@ -1123,6 +1188,7 @@ void ChatLogWidget::reconnectSource()
             << " range=[" << first << ',' << last << ']'
             << " available=" << bodyAvailable;
         setRangeAvailable(first, last, bodyAvailable);
+        scheduleAuthorRunRefresh();
         if (bodyAvailable) {
             restoreNavigationTarget();
             scheduleReadCursorUpdate();
@@ -1138,6 +1204,7 @@ void ChatLogWidget::reconnectSource()
             << " range=[" << first << ',' << last << ']';
         reconcileItemLayout(first, last);
         restoreNavigationTarget();
+        scheduleAuthorRunRefresh();
         scheduleReadCursorUpdate();
     }));
     sourceConnections.push_back(connect(postSource, &AbstractPostSource::rangeRequestFinished,
@@ -1186,6 +1253,7 @@ void ChatLogWidget::reconnectSource()
         }
 
         finishRangeRequest(first, last);
+        scheduleAuthorRunRefresh();
         scheduleReadCursorUpdate();
     }));
 
@@ -1203,6 +1271,9 @@ void ChatLogWidget::reconnectSource()
                 itemsChanged(index, index);
             }
         }
+        // Author/type compatibility can affect the following surviving row
+        // even when the edited row itself is outside the materialized window.
+        scheduleAuthorRunRefresh();
     }));
     sourceConnections.push_back(connect(&channel, &BackendChannel::onPostReactionUpdated,
                                         this, [this](BackendPost& post) {
@@ -1219,6 +1290,9 @@ void ChatLogWidget::reconnectSource()
         if (PostWidget* widget = findPost(postId)) {
             widget->markAsDeleted();
         }
+        // Deletion is a hard author-run boundary for both this row and the
+        // following row, regardless of whether the deleted row is resident.
+        scheduleAuthorRunRefresh();
     }));
     sourceConnections.push_back(connect(&channel, &BackendChannel::onThreadSummaryChanged,
                                         this, [this](BackendPost& rootPost) {

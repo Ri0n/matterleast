@@ -88,6 +88,16 @@ public:
         deferredHeights[index] = settledHeight;
     }
 
+    void retainHoverHighlight(QWidget* widget)
+    {
+        setHoverHighlightOverride(widget);
+    }
+
+    QWidget* retainedHoverHighlight() const
+    {
+        return hoverHighlightOverrideWidget();
+    }
+
     bool updatesEnabledWhenDestroyed = true;
     int destroyedHeight = -1;
 
@@ -380,6 +390,67 @@ private slots:
         }
 
         QCOMPARE(requests.count(), 0);
+    }
+
+    void hoverSurfaceColorMatchesPaintComposition()
+    {
+        TestLongListWidget list;
+        QPalette listPalette = list.palette();
+        listPalette.setColor(QPalette::Highlight, QColor(200, 100, 50));
+        list.setPalette(listPalette);
+
+        list.viewport()->setBackgroundRole(QPalette::Base);
+        QPalette viewportPalette = list.viewport()->palette();
+        viewportPalette.setColor(QPalette::Base, QColor(20, 40, 60));
+        list.viewport()->setPalette(viewportPalette);
+
+        const float alpha = 24.0f / 255.0f;
+        const QColor expected = QColor::fromRgbF(
+            (200.0f / 255.0f) * alpha + (20.0f / 255.0f) * (1.0f - alpha),
+            (100.0f / 255.0f) * alpha + (40.0f / 255.0f) * (1.0f - alpha),
+            (50.0f / 255.0f) * alpha + (60.0f / 255.0f) * (1.0f - alpha),
+            1.0f);
+
+        QCOMPARE(list.hoverHighlightSurfaceColor(), expected);
+    }
+
+    void hoverHighlightOverrideDoesNotChangePhysicalHoverState()
+    {
+        TestLongListWidget list;
+        list.resize(480, 180);
+        list.setDefaultItemHeight(60);
+        list.setItemCount(2);
+        list.setRangeAvailable(0, 1);
+        list.show();
+        settleEvents();
+
+        QWidget* first = list.itemWidget(0);
+        QVERIFY(first);
+
+        list.setHoverHighlightEnabled(false);
+        list.setHoverHighlightEnabled(true);
+        QSignalSpy hoverChanges(
+            &list, &Mattermost::LongListWidget::hoveredItemChanged);
+
+        sendEnterEvent(first);
+        QCOMPARE(hoverChanges.count(), 1);
+
+        list.retainHoverHighlight(first);
+        QCOMPARE(list.retainedHoverHighlight(), first);
+
+        QEvent leaveFirst(QEvent::Leave);
+        QCoreApplication::sendEvent(first, &leaveFirst);
+
+        // The physical hover signal still reports the leave, while the
+        // presentation-only paint target survives for an overlay belonging to
+        // the same row.
+        QCOMPARE(hoverChanges.count(), 2);
+        QCOMPARE(hoverChanges.at(1).at(0).toInt(), 0);
+        QCOMPARE(hoverChanges.at(1).at(1).toInt(), -1);
+        QCOMPARE(list.retainedHoverHighlight(), first);
+
+        list.retainHoverHighlight(nullptr);
+        QVERIFY(!list.retainedHoverHighlight());
     }
 
     void hoverStateFollowsLatestTopLevelItem()
