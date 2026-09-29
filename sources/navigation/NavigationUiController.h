@@ -82,6 +82,9 @@ private:
     int appendNavigationTab(const Location& location);
     void ensureInitialTab();
     void refreshTabBarVisibility();
+    void setNavigationTabTitle(int index, const QString& title);
+    void refreshTabUnreadVisual(const QString& channelId);
+    void refreshAllTabUnreadVisuals();
     void updateTab(int index, const Location& location);
     void saveActiveTabLocation();
     void activateTab(int index, bool restoreBookmark = true);

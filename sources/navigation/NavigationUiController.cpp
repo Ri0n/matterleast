@@ -13,8 +13,10 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
+#include <QSet>
 #include <QShortcut>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStyle>
@@ -25,6 +27,7 @@
 #include <QVBoxLayout>
 
 #include "backend/Backend.h"
+#include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelTree.h"
@@ -121,6 +124,16 @@ void NavigationUiController::setupMainWindow()
 
     setupSidebarHeader();
     setupThreadPane();
+
+    if (Backend* sourceBackend = backend()) {
+        auto& sidebar = SidebarService::instance(*sourceBackend);
+        connect(&sidebar, &SidebarService::channelActivityChanged,
+                this, &NavigationUiController::refreshTabUnreadVisual,
+                Qt::UniqueConnection);
+        connect(&sidebar, &SidebarService::channelActivityReset,
+                this, &NavigationUiController::refreshAllTabUnreadVisuals,
+                Qt::UniqueConnection);
+    }
 
     if (mainStack) {
         connect(mainStack, &QStackedWidget::currentChanged, this,
@@ -269,6 +282,7 @@ void NavigationUiController::setupThreadPane()
     navigationTabs->setExpanding(false);
     navigationTabs->setUsesScrollButtons(true);
     navigationTabs->setElideMode(Qt::ElideRight);
+    navigationTabs->installEventFilter(this);
     navigationTabs->hide();
     hostLayout->addWidget(navigationTabs);
 
@@ -458,13 +472,140 @@ int NavigationUiController::appendNavigationTab(const Location& location)
     }
 
     const auto* entry = tabModel.at(index);
-    if (index < oldCount) {
-        navigationTabs->setTabText(index, entry ? entry->title : tabTitle(location));
-    } else {
-        navigationTabs->addTab(entry ? entry->title : tabTitle(location));
+    const QString title = entry ? entry->title : tabTitle(location);
+    if (index >= oldCount) {
+        // QTabBar has no per-tab font API. Keep its own text empty and render
+        // the semantic title as a mouse-transparent tab button so each tab can
+        // independently mirror sidebar unread boldness without replacing the
+        // platform tab style or drag/close behavior.
+        navigationTabs->addTab(QString());
     }
+    setNavigationTabTitle(index, title);
+    refreshTabUnreadVisual(location.channelId);
     refreshTabBarVisibility();
     return index;
+}
+
+void NavigationUiController::setNavigationTabTitle(
+    int index, const QString& title)
+{
+    if (!navigationTabs || index < 0 || index >= navigationTabs->count()) {
+        return;
+    }
+
+    QLabel* titleLabel = nullptr;
+    for (QTabBar::ButtonPosition position :
+         {QTabBar::LeftSide, QTabBar::RightSide}) {
+        auto* candidate = qobject_cast<QLabel*>(
+            navigationTabs->tabButton(index, position));
+        if (candidate
+            && candidate->property("navigationTabTitle").toBool()) {
+            titleLabel = candidate;
+            break;
+        }
+    }
+
+    if (!titleLabel) {
+        const auto closePosition = static_cast<QTabBar::ButtonPosition>(
+            navigationTabs->style()->styleHint(
+                QStyle::SH_TabBar_CloseButtonPosition,
+                nullptr, navigationTabs));
+        const QTabBar::ButtonPosition titlePosition =
+            closePosition == QTabBar::LeftSide
+                ? QTabBar::RightSide : QTabBar::LeftSide;
+
+        titleLabel = new QLabel(navigationTabs);
+        titleLabel->setProperty("navigationTabTitle", true);
+        titleLabel->setTextFormat(Qt::PlainText);
+        titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        titleLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        navigationTabs->setTabButton(index, titlePosition, titleLabel);
+    }
+
+    titleLabel->setText(title);
+    titleLabel->setAccessibleName(title);
+    navigationTabs->setTabToolTip(index, title);
+    titleLabel->updateGeometry();
+    navigationTabs->updateGeometry();
+}
+
+void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
+{
+    if (!navigationTabs || channelId.isEmpty()) {
+        return;
+    }
+
+    Backend* sourceBackend = backend();
+    BackendChannel* channel = sourceBackend
+        ? sourceBackend->getStorage().getChannelById(channelId)
+        : nullptr;
+    if (!sourceBackend || !channel) {
+        return;
+    }
+
+    auto& sidebar = SidebarService::instance(*sourceBackend);
+    // Match ChannelItemDelegate exactly: either unread channel activity or an
+    // unread mention makes the conversation title bold.
+    const bool bold =
+        sidebar.isChannelUnread(*channel)
+        || sidebar.hasUnreadMention(channelId);
+
+    for (int index = 0; index < tabModel.count(); ++index) {
+        const auto* entry = tabModel.at(index);
+        if (!entry || entry->channelId != channelId) {
+            continue;
+        }
+
+        QLabel* titleLabel = nullptr;
+        for (QTabBar::ButtonPosition position :
+             {QTabBar::LeftSide, QTabBar::RightSide}) {
+            auto* candidate = qobject_cast<QLabel*>(
+                navigationTabs->tabButton(index, position));
+            if (candidate
+                && candidate->property("navigationTabTitle").toBool()) {
+                titleLabel = candidate;
+                break;
+            }
+        }
+        if (!titleLabel) {
+            setNavigationTabTitle(index, entry->title);
+            for (QTabBar::ButtonPosition position :
+                 {QTabBar::LeftSide, QTabBar::RightSide}) {
+                auto* candidate = qobject_cast<QLabel*>(
+                    navigationTabs->tabButton(index, position));
+                if (candidate
+                    && candidate->property("navigationTabTitle").toBool()) {
+                    titleLabel = candidate;
+                    break;
+                }
+            }
+        }
+        if (!titleLabel) {
+            continue;
+        }
+
+        QFont font = navigationTabs->font();
+        font.setBold(bold);
+        titleLabel->setFont(font);
+        titleLabel->updateGeometry();
+    }
+
+    navigationTabs->updateGeometry();
+    navigationTabs->update();
+}
+
+void NavigationUiController::refreshAllTabUnreadVisuals()
+{
+    QSet<QString> channelIds;
+    for (int index = 0; index < tabModel.count(); ++index) {
+        if (const auto* entry = tabModel.at(index);
+            entry && !entry->channelId.isEmpty()) {
+            channelIds.insert(entry->channelId);
+        }
+    }
+    for (const QString& channelId : channelIds) {
+        refreshTabUnreadVisual(channelId);
+    }
 }
 
 void NavigationUiController::ensureInitialTab()
@@ -505,7 +646,8 @@ void NavigationUiController::updateTab(int index, const Location& location)
         || !tabModel.replace(index, tabEntry(location))) {
         return;
     }
-    navigationTabs->setTabText(index, tabTitle(location));
+    setNavigationTabTitle(index, tabTitle(location));
+    refreshTabUnreadVisual(location.channelId);
 }
 
 void NavigationUiController::saveActiveTabLocation()
@@ -1384,6 +1526,14 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
+    if (watched == navigationTabs && event
+        && event->type() == QEvent::FontChange) {
+        // Title labels intentionally have an explicit bold/normal font. Rebase
+        // that font on QTabBar whenever application/UI scaling changes it.
+        QTimer::singleShot(0, this,
+                           &NavigationUiController::refreshAllTabUnreadVisuals);
+    }
+
     const bool channelPointerSurface = channelTree
         && (watched == channelTree || watched == channelTree->viewport());
     if (channelPointerSurface && event

@@ -29,6 +29,10 @@ model merely to change its presentation.
   when there are at least two semantic tabs. Hiding the bar never hides the
   central destination itself; the normal channel surface remains the visible
   page of the central host.
+- Tab titles mirror the sidebar's conversation activity emphasis. The
+  authoritative state remains `SidebarService`: `isChannelUnread()` or an
+  unread mention makes every tab for that channel bold, and
+  `channelActivityChanged/channelActivityReset` return it to normal when read.
 - A canonical destination (`channelId + rootId`) is unique in the tab model.
   Repeated middle-click, **Open in new tab**, permalink navigation or other
   navigation to the same destination activates the existing tab instead of
