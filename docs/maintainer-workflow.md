@@ -4,9 +4,10 @@ This document contains repository-wide workflow rules that are useful to contrib
 
 ## Pull requests and commits
 
-- Keep ordinary PRs to one meaningful commit. During development, amend or squash rather than leaving fixup commits in the final PR.
-- Use a descriptive commit message that summarizes the implemented behavior and important rationale.
-- Do not merge code changes before the required CI jobs are green.
+- Development branches and ordinary PRs may contain multiple incremental commits. Preserve useful history while the work is in progress; there is no requirement to keep the PR itself at one commit.
+- Mark intermediate commits with `[skip ci]` when that exact commit does not need a build/test run. Commits representing a state that needs validation must omit `[skip ci]` so CI runs normally.
+- Merge ordinary code changes into `master` with squash merge. The resulting master commit must have a descriptive message that summarizes the implemented behavior and important rationale.
+- Do not merge code changes before the required CI jobs are green for the code state being merged.
 - If a change has meaningful manual-regression risk, keep it available for manual testing after CI rather than treating compilation alone as sufficient validation.
 
 ## CI and packaging

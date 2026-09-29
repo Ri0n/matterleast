@@ -16,9 +16,10 @@ This file is the entry point for automated coding agents working in this reposit
 - Treat `AbstractPostSource::layoutChanged` as a last-resort structural signal. It is allowed only for a real semantic identity-to-index remap that cannot be expressed as exact insert/remove/availability/replacement events. Never use it for content updates, pending/delivery state, ordinary geometry changes, append/remove, or optimistic confirmation. Read the structural-signal rules in `docs/post-sources/interface-and-indexing.md` before adding a new producer.
 - When a change introduces a non-obvious invariant, ownership rule, restart/failure semantic, CI/platform trap, or deliberate limitation, update the appropriate documentation in the same PR.
 - Keep public headers minimal; implementation-only helpers belong in private implementation where practical.
-- Ordinary PRs should contain one meaningful commit. Amend/squash before merge rather than accumulating fixup commits.
-- Do not merge code changes until required CI is green.
-- Keep commit messages descriptive enough to explain the implemented behavior, not merely the issue number or a generic "fix".
+- Working feature/bugfix branches may contain as many development commits as useful. Do not rewrite them merely to keep the PR at one commit.
+- Put `[skip ci]` in intermediate commit messages when that commit is not intended to be built/tested on its own. Leave it out of commits whose resulting branch state should run CI.
+- Merge ordinary code changes to `master` with squash merge so master receives one meaningful final commit. The squash commit message must describe the implemented behavior, not merely the issue number or a generic "fix".
+- Do not merge code changes until required CI is green for the code state being merged.
 
 ## Documentation routing
 
