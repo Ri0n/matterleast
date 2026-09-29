@@ -52,8 +52,11 @@ model merely to change its presentation.
 The normal left click preserves existing navigation semantics. A middle click
 is the browser-like modifier for opening the semantic target in a tab without
 changing the sidebar selection first. This applies to channel/conversation rows,
-Following/Attention channel or thread rows, and internal Mattermost links in
-message text. Permalinks still pass through `AppNavigationService` so cold-post
+Following/Attention channel or thread rows, internal Mattermost links in
+message text, and the parent-chat link in a thread header. A middle click on the
+thread header opens its root post in a tab through `openPostInTab()`, while the
+ordinary left-click path remains `openPost()`. Permalinks still pass through
+`AppNavigationService` so cold-post
 resolution and reply-root loading happen before the tab is presented.
 
 Ordinary semantic navigation also reuses existing tabs. Once a navigation target

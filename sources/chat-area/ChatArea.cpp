@@ -1,20 +1,20 @@
 /**
  * Copyright 2021, 2022 Lyubomir Filipov
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  *
- * Mattermost-QT is free software: you can redistribute it and/or modify
+ * MatterLeast is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * Mattermost-QT is distributed in the hope that it will be useful,
+ * MatterLeast is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
+ * along with MatterLeast. if not, see https://www.gnu.org/licenses/.
  */
 
 #include "ChatArea.h"
@@ -24,6 +24,7 @@
 #include <QIcon>
 #include <QMenu>
 #include <QMargins>
+#include <QMouseEvent>
 #include <QPointer>
 #include <QResizeEvent>
 #include <QStackedWidget>
@@ -208,6 +209,7 @@ ChatArea::ChatArea(Backend& backend,
     ui->titleLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     ui->titleLabel->setText(QStringLiteral("<a href=\"channel\">%1</a>")
                                 .arg(channel.display_name.toHtmlEscaped()));
+    ui->titleLabel->installEventFilter(this);
     connect(ui->titleLabel, &QLabel::linkActivated, this,
             [this](const QString&) {
         AppNavigationService::instance(this->backend).openPost(this->root_id);
@@ -289,6 +291,32 @@ ChatArea::ChatArea(Backend& backend,
     ui->pinnedPostsButton->hide();
     ui->usersButton->hide();
     ui->loadOldPosts->hide();
+}
+
+bool ChatArea::eventFilter(QObject* watched, QEvent* event)
+{
+    if (isThread && ui && watched == ui->titleLabel && event) {
+        const auto type = event->type();
+        if (type == QEvent::MouseButtonPress
+            || type == QEvent::MouseButtonRelease
+            || type == QEvent::MouseButtonDblClick) {
+            auto* mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::MiddleButton) {
+                // The thread title is one semantic link: the parent chat name
+                // points to this thread's root post in the channel timeline.
+                // Consume the complete middle-click gesture so QLabel's rich
+                // text interaction cannot partially handle it as a left-link
+                // activation or leave selection/focus state behind.
+                if (type == QEvent::MouseButtonRelease && !root_id.isEmpty()) {
+                    AppNavigationService::instance(backend).openPostInTab(root_id);
+                }
+                event->accept();
+                return true;
+            }
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
 }
 
 ChatArea::~ChatArea()
