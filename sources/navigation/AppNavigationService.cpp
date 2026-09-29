@@ -23,6 +23,7 @@
 #include "backend/types/BackendTeam.h"
 #include "backend/types/BackendUser.h"
 #include "mainwindow.h"
+#include "navigation/NavigationUiController.h"
 
 namespace Mattermost {
 namespace {
@@ -313,6 +314,10 @@ void AppNavigationService::ensureMainWindowConnection()
             connect(this, &AppNavigationService::channelRequested,
                     mainWindow, &MainWindow::openChannelPost,
                     Qt::UniqueConnection);
+            auto& navigationUi = NavigationUiController::instance(*mainWindow);
+            connect(this, &AppNavigationService::tabRequested,
+                    &navigationUi, &NavigationUiController::openInTab,
+                    Qt::UniqueConnection);
         }
     }
 }
@@ -371,6 +376,16 @@ void AppNavigationService::openChannel(const QString& channelId)
     }
 }
 
+void AppNavigationService::openChannelInTab(const QString& channelId)
+{
+    beginNavigation();
+    if (channelId.isEmpty() || !backend.getStorage().getChannelById(channelId)) {
+        return;
+    }
+    ensureMainWindowConnection();
+    emit tabRequested(channelId, QString(), QString());
+}
+
 void AppNavigationService::openThread(const QString& channelId, const QString& rootId)
 {
     beginNavigation();
@@ -386,6 +401,18 @@ void AppNavigationService::openThread(const QString& channelId, const QString& r
     ensureMainWindowConnection();
     emit channelRequested(channelId, QString(), rootId, QStringList(),
                           false, true, true);
+}
+
+void AppNavigationService::openThreadInTab(const QString& channelId,
+                                             const QString& rootId)
+{
+    beginNavigation();
+    if (channelId.isEmpty() || rootId.isEmpty()
+        || !backend.getStorage().getChannelById(channelId)) {
+        return;
+    }
+    ensureMainWindowConnection();
+    emit tabRequested(channelId, rootId, QString());
 }
 
 void AppNavigationService::openUrl(const QUrl& url)

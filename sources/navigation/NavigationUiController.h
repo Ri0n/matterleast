@@ -5,10 +5,14 @@
 #include <QString>
 #include <QVector>
 
+#include "NavigationTabsModel.h"
+
 class QEvent;
 class QSplitter;
 class QStackedWidget;
+class QTabBar;
 class QToolButton;
+class QWidget;
 
 namespace Mattermost {
 
@@ -45,7 +49,11 @@ public:
     ~NavigationUiController() override;
 
     ChatArea* findThread(const QString& channelId, const QString& rootId) const;
+    void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
+    void openInTab(const QString& channelId,
+                   const QString& rootId = QString(),
+                   const QString& postId = QString());
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -60,6 +68,21 @@ private:
     Location captureLocation(ChatArea* area) const;
     void recordArea(ChatArea* area);
     void navigateTo(const Location& location);
+
+    NavigationTabsModel::Entry tabEntry(const Location& location) const;
+    Location tabLocation(const NavigationTabsModel::Entry& entry) const;
+    QString tabTitle(const Location& location) const;
+    int appendNavigationTab(const Location& location, bool deduplicate);
+    void ensureInitialTab();
+    void refreshTabBarVisibility();
+    void updateTab(int index, const Location& location);
+    void saveActiveTabLocation();
+    void activateTab(int index);
+    void closeTab(int index);
+    void removeTab(int index, bool closeThread);
+    int tabIndexForThread(ChatArea* area) const;
+    int firstChannelTab() const;
+    void tabifyThread(ChatArea* area, int tabIndex);
     void goBack();
     void goForward();
 
@@ -76,6 +99,9 @@ private:
     QStackedWidget* mainStack = nullptr;
     QSplitter* sidebarSplitter = nullptr;
     QPointer<QSplitter> contentSplitter;
+    QWidget* contentHost = nullptr;
+    QStackedWidget* navigationSurfaceStack = nullptr;
+    QTabBar* navigationTabs = nullptr;
     QStackedWidget* threadStack = nullptr;
     QToolButton* backButton = nullptr;
     QToolButton* forwardButton = nullptr;
@@ -84,6 +110,9 @@ private:
     Location currentLocation;
     QVector<Location> backStack;
     QVector<Location> forwardStack;
+    NavigationTabsModel tabModel;
+    int activeTabIndex = -1;
+    bool switchingTabs = false;
     bool replayingHistory = false;
     bool threadSplitterStateRestored = false;
 };

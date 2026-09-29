@@ -25,8 +25,10 @@ public:
 
     void openUrl(const QUrl& url);
     void openChannel(const QString& channelId);
+    void openChannelInTab(const QString& channelId);
     void openPost(const QString& postId);
     void openThread(const QString& channelId, const QString& rootId);
+    void openThreadInTab(const QString& channelId, const QString& rootId);
     void openThreadAtLastViewed(const QString& channelId,
                                 const QString& rootId,
                                 uint64_t lastViewedAt,
@@ -45,6 +47,9 @@ signals:
                           bool reachedOldest,
                           bool reachedNewest,
                           bool preserveIfOpen);
+    void tabRequested(const QString& channelId,
+                      const QString& rootId,
+                      const QString& postId);
 
 private:
     explicit AppNavigationService(Backend& backend);
