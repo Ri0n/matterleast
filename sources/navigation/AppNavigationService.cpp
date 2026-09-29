@@ -325,7 +325,7 @@ void AppNavigationService::ensureMainWindowConnection()
 bool AppNavigationService::activateExistingDestination(
     const QString& channelId,
     const QString& rootId,
-    const QString& postId)
+    bool restoreBookmark)
 {
     if (channelId.isEmpty()) {
         return false;
@@ -339,7 +339,7 @@ bool AppNavigationService::activateExistingDestination(
         }
 
         if (NavigationUiController::instance(*mainWindow).activateExistingTab(
-                channelId, rootId, postId)) {
+                channelId, rootId, restoreBookmark)) {
             return true;
         }
     }
@@ -416,7 +416,8 @@ void AppNavigationService::openChannelInTab(const QString& channelId)
         return;
     }
     ensureMainWindowConnection();
-    emit tabRequested(channelId, QString(), QString());
+    emit tabRequested(channelId, QString(), QString(), QStringList(),
+                      false, false);
 }
 
 void AppNavigationService::openThread(const QString& channelId, const QString& rootId)
@@ -450,7 +451,8 @@ void AppNavigationService::openThreadInTab(const QString& channelId,
         return;
     }
     ensureMainWindowConnection();
-    emit tabRequested(channelId, rootId, QString());
+    emit tabRequested(channelId, rootId, QString(), QStringList(),
+                      false, false);
 }
 
 void AppNavigationService::openUrl(const QUrl& url)
@@ -618,16 +620,16 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
                 // its viewport (Following) or jump/highlight again (Attention).
                 // The same policy applies when the existing representation is
                 // a tab rather than the docked thread pane.
-                const QString tabPostId = preserveIfOpen
-                    ? QString() : targetPostId;
-                if (guard->activateExistingDestination(
-                        channelId, rootId, tabPostId)) {
+                if (preserveIfOpen
+                    && guard->activateExistingDestination(channelId, rootId)) {
                     if (callback) {
                         callback(true);
                     }
                     return;
                 }
 
+                guard->activateExistingDestination(
+                    channelId, rootId, false);
                 emit guard->channelRequested(channelId,
                                              targetPostId,
                                              rootId,
@@ -684,16 +686,18 @@ void AppNavigationService::presentPost(
 {
     ensureMainWindowConnection();
     if (inTab) {
-        emit tabRequested(channelId, rootId, postId);
+        // Keep explicit target semantics separate from passive tab bookmarks.
+        // The tab controller activates/creates the destination first and then
+        // runs MainWindow::openChannelPost() with this complete resolved context.
+        emit tabRequested(channelId, rootId, postId, contextPostIds,
+                          reachedOldest, reachedNewest);
         return;
     }
 
-    // All resolved links/posts use the same destination-reuse policy. This is
-    // intentionally below resolution: a permalink to a reply must know its
-    // thread root before deciding which existing tab represents the target.
-    if (activateExistingDestination(channelId, rootId, postId)) {
-        return;
-    }
+    // Reusing an existing tab is only a presentation decision. Suppress its
+    // passive bookmark restore because this explicit target is authoritative,
+    // then continue through the normal prepare/lock/highlight pipeline.
+    activateExistingDestination(channelId, rootId, false);
 
     emit channelRequested(channelId,
                           postId,

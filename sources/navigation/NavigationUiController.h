@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include "NavigationTabsModel.h"
@@ -52,11 +53,14 @@ public:
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
     void openInTab(const QString& channelId,
-                   const QString& rootId = QString(),
-                   const QString& postId = QString());
+                   const QString& rootId,
+                   const QString& postId,
+                   const QStringList& contextPostIds,
+                   bool reachedOldest,
+                   bool reachedNewest);
     bool activateExistingTab(const QString& channelId,
                              const QString& rootId = QString(),
-                             const QString& postId = QString());
+                             bool restoreBookmark = true);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -80,7 +84,7 @@ private:
     void refreshTabBarVisibility();
     void updateTab(int index, const Location& location);
     void saveActiveTabLocation();
-    void activateTab(int index);
+    void activateTab(int index, bool restoreBookmark = true);
     void closeTab(int index);
     void removeTab(int index, bool closeThread);
     int tabIndexForThread(ChatArea* area) const;

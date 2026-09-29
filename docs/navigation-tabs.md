@@ -52,10 +52,15 @@ resolution and reply-root loading happen before the tab is presented.
 Ordinary semantic navigation also reuses existing tabs. Once a navigation target
 has resolved to its canonical `channelId + rootId` destination,
 `AppNavigationService` asks the navigation UI to activate an existing matching
-tab before falling back to the legacy/current-surface presentation. A post target
-updates that tab's bookmark before activation. Explicit `open*InTab()` requests
-differ only in presentation intent: they ensure the destination exists as a tab,
-but are still idempotent for the same canonical destination.
+tab before continuing the normal semantic navigation pipeline.
+
+A tab bookmark is passive revisit state and must never stand in for an explicit
+post target. Explicit post/permalink navigation, including `openPostInTab()`,
+activates the destination without restoring an older bookmark, preserves the
+resolved post context, and then runs the same `MainWindow::openChannelPost()`
+prepare/lock/highlight path used outside tabs. Ordinary tab switching continues
+to restore bookmarks silently, without a highlight animation. Explicit
+`open*InTab()` requests remain idempotent for the same canonical destination.
 
 ## Extension point
 

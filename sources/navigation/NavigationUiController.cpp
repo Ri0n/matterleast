@@ -555,7 +555,7 @@ int NavigationUiController::tabIndexForThread(ChatArea* area) const
     return tabModel.findDestination(area->getChannel().id, area->root_id);
 }
 
-void NavigationUiController::activateTab(int index)
+void NavigationUiController::activateTab(int index, bool restoreBookmark)
 {
     const auto* entry = tabModel.at(index);
     if (!entry || !navigationTabs) {
@@ -566,7 +566,10 @@ void NavigationUiController::activateTab(int index)
         saveActiveTabLocation();
     }
 
-    const Location location = tabLocation(*entry);
+    Location location = tabLocation(*entry);
+    if (!restoreBookmark) {
+        location.postId.clear();
+    }
     activeTabIndex = index;
 
     if (navigationTabs->currentIndex() != index) {
@@ -740,7 +743,7 @@ void NavigationUiController::tabifyThread(ChatArea* area, int tabIndex)
 bool NavigationUiController::activateExistingTab(
     const QString& channelId,
     const QString& rootId,
-    const QString& postId)
+    bool restoreBookmark)
 {
     if (!navigationTabs || channelId.isEmpty()) {
         return false;
@@ -760,23 +763,21 @@ bool NavigationUiController::activateExistingTab(
         return false;
     }
 
-    if (!postId.isEmpty()) {
-        Location location = tabLocation(*tabModel.at(index));
-        location.postId = postId;
-        updateTab(index, location);
-    }
-
     {
         QSignalBlocker blocker(navigationTabs);
         navigationTabs->setCurrentIndex(index);
     }
-    activateTab(index);
+    activateTab(index, restoreBookmark);
     return true;
 }
 
-void NavigationUiController::openInTab(const QString& channelId,
-                                       const QString& rootId,
-                                       const QString& postId)
+void NavigationUiController::openInTab(
+    const QString& channelId,
+    const QString& rootId,
+    const QString& postId,
+    const QStringList& contextPostIds,
+    bool reachedOldest,
+    bool reachedNewest)
 {
     Backend* sourceBackend = backend();
     BackendChannel* channel = sourceBackend
@@ -788,12 +789,14 @@ void NavigationUiController::openInTab(const QString& channelId,
 
     ensureInitialTab();
 
-    Location location;
-    location.channelId = channelId;
-    location.rootId = rootId;
-    location.postId = postId;
+    // The tab entry contains passive revisit state only. An explicit post target
+    // must not be converted into a bookmark because bookmark restoration is
+    // intentionally silent (no navigation highlight).
+    Location destination;
+    destination.channelId = channelId;
+    destination.rootId = rootId;
 
-    const int index = appendNavigationTab(location);
+    const int index = appendNavigationTab(destination);
     if (index < 0) {
         return;
     }
@@ -802,7 +805,16 @@ void NavigationUiController::openInTab(const QString& channelId,
         QSignalBlocker blocker(navigationTabs);
         navigationTabs->setCurrentIndex(index);
     }
-    activateTab(index);
+    activateTab(index, postId.isEmpty());
+
+    if (postId.isEmpty()) {
+        return;
+    }
+
+    // Use the exact explicit-post path used outside tabs. It owns context
+    // installation, viewport locking and highlightPostWhenReady().
+    window.openChannelPost(channelId, postId, rootId, contextPostIds,
+                           reachedOldest, reachedNewest, false);
 }
 
 void NavigationUiController::recordArea(ChatArea* area)

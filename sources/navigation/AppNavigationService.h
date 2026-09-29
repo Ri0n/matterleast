@@ -51,7 +51,10 @@ signals:
                           bool preserveIfOpen);
     void tabRequested(const QString& channelId,
                       const QString& rootId,
-                      const QString& postId);
+                      const QString& postId,
+                      const QStringList& contextPostIds,
+                      bool reachedOldest,
+                      bool reachedNewest);
 
 private:
     explicit AppNavigationService(Backend& backend);
@@ -63,7 +66,7 @@ private:
     void openPostImpl(const QString& postId, bool inTab);
     bool activateExistingDestination(const QString& channelId,
                                      const QString& rootId = QString(),
-                                     const QString& postId = QString());
+                                     bool restoreBookmark = true);
     BackendChannel* findChannel(const QString& teamName,
                                 const QString& channelName) const;
     BackendChannel* findPostChannel(const QString& postId) const;
