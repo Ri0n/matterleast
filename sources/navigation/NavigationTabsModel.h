@@ -52,25 +52,23 @@ public:
         return -1;
     }
 
-    int append(Entry entry, bool deduplicate)
+    int append(Entry entry)
     {
         if (!entry.isValid()) {
             return -1;
         }
 
-        if (deduplicate) {
-            const int existing = findDestination(entry.channelId, entry.rootId);
-            if (existing >= 0) {
-                Entry merged = entries_.at(existing);
-                if (!entry.postId.isEmpty()) {
-                    merged.postId = entry.postId;
-                }
-                if (!entry.title.isEmpty()) {
-                    merged.title = entry.title;
-                }
-                entries_[existing] = std::move(merged);
-                return existing;
+        const int existing = findDestination(entry.channelId, entry.rootId);
+        if (existing >= 0) {
+            Entry merged = entries_.at(existing);
+            if (!entry.postId.isEmpty()) {
+                merged.postId = entry.postId;
             }
+            if (!entry.title.isEmpty()) {
+                merged.title = entry.title;
+            }
+            entries_[existing] = std::move(merged);
+            return existing;
         }
 
         entries_.push_back(std::move(entry));
@@ -82,6 +80,12 @@ public:
         if (index < 0 || index >= entries_.size() || !entry.isValid()) {
             return false;
         }
+
+        const int existing = findDestination(entry.channelId, entry.rootId);
+        if (existing >= 0 && existing != index) {
+            return false;
+        }
+
         entries_[index] = std::move(entry);
         return true;
     }

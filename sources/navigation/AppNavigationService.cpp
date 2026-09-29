@@ -398,8 +398,8 @@ void AppNavigationService::openChannel(const QString& channelId)
     }
 
     // Ordinary semantic navigation reuses an already represented destination.
-    // Explicit openChannelInTab() remains the operation that may create a
-    // duplicate channel tab intentionally.
+    // Explicit openChannelInTab() asks for tab presentation too, but tab
+    // destinations themselves are unique and therefore remain idempotent.
     if (activateExistingDestination(channelId)) {
         return;
     }

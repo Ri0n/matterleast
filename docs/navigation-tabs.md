@@ -29,12 +29,10 @@ model merely to change its presentation.
   when there are at least two semantic tabs. Hiding the bar never hides the
   central destination itself; the normal channel surface remains the visible
   page of the central host.
-- Explicit **Open in new tab** for a channel may create two tabs for the same
-  channel. They are separate navigation/bookmark entries over the shared
-  channel surface.
-- A thread destination is unique while its `ChatArea` exists. Reopening the
-  same thread in a tab selects the existing thread tab rather than trying to
-  parent one QWidget into two surfaces.
+- A canonical destination (`channelId + rootId`) is unique in the tab model.
+  Repeated middle-click, **Open in new tab**, permalink navigation or other
+  navigation to the same destination activates the existing tab instead of
+  creating a duplicate. This applies equally to channels, DMs/GMs and threads.
 - Docked thread, detached-window thread and tabbed thread are presentation
   states. They must not change backend membership, read-state authority,
   timeline sources, or thread identity.
@@ -56,8 +54,8 @@ has resolved to its canonical `channelId + rootId` destination,
 `AppNavigationService` asks the navigation UI to activate an existing matching
 tab before falling back to the legacy/current-surface presentation. A post target
 updates that tab's bookmark before activation. Explicit `open*InTab()` requests
-are intentionally different: they remain allowed to create duplicate channel
-tabs when the user asks for one.
+differ only in presentation intent: they ensure the destination exists as a tab,
+but are still idempotent for the same canonical destination.
 
 ## Extension point
 

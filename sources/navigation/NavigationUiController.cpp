@@ -445,21 +445,20 @@ QString NavigationUiController::tabTitle(const Location& location) const
     return title;
 }
 
-int NavigationUiController::appendNavigationTab(const Location& location,
-                                                bool deduplicate)
+int NavigationUiController::appendNavigationTab(const Location& location)
 {
     if (!navigationTabs || !location.isValid()) {
         return -1;
     }
 
     const int oldCount = tabModel.count();
-    const int index = tabModel.append(tabEntry(location), deduplicate);
+    const int index = tabModel.append(tabEntry(location));
     if (index < 0) {
         return -1;
     }
 
     const auto* entry = tabModel.at(index);
-    if (index < oldCount && deduplicate) {
+    if (index < oldCount) {
         navigationTabs->setTabText(index, entry ? entry->title : tabTitle(location));
     } else {
         navigationTabs->addTab(entry ? entry->title : tabTitle(location));
@@ -482,7 +481,7 @@ void NavigationUiController::ensureInitialTab()
         return;
     }
 
-    const int index = appendNavigationTab(location, false);
+    const int index = appendNavigationTab(location);
     if (index < 0) {
         return;
     }
@@ -666,7 +665,7 @@ void NavigationUiController::removeTab(int index, bool closeThread)
             if (!fallback.isValid()) {
                 fallback.channelId = removedEntry.channelId;
             }
-            nextIndex = appendNavigationTab(fallback, false);
+            nextIndex = appendNavigationTab(fallback);
         } else if (wasActive) {
             nextIndex = std::min(index, tabModel.count() - 1);
         } else {
@@ -794,22 +793,7 @@ void NavigationUiController::openInTab(const QString& channelId,
     location.rootId = rootId;
     location.postId = postId;
 
-    int index = -1;
-    if (!rootId.isEmpty()) {
-        index = tabModel.findDestination(channelId, rootId);
-        if (index < 0) {
-            index = appendNavigationTab(location, true);
-        } else if (!postId.isEmpty()) {
-            Location updated = tabLocation(*tabModel.at(index));
-            updated.postId = postId;
-            updateTab(index, updated);
-        }
-    } else {
-        // Explicit channel "Open in new tab" is browser-like: even the same
-        // destination can intentionally exist twice with independent bookmarks.
-        index = appendNavigationTab(location, false);
-    }
-
+    const int index = appendNavigationTab(location);
     if (index < 0) {
         return;
     }
@@ -833,6 +817,17 @@ void NavigationUiController::recordArea(ChatArea* area)
     }
 
     if (navigationTabs && !switchingTabs) {
+        const int existingIndex =
+            tabModel.findDestination(next.channelId, next.rootId);
+        if (existingIndex >= 0 && existingIndex != activeTabIndex) {
+            {
+                QSignalBlocker blocker(navigationTabs);
+                navigationTabs->setCurrentIndex(existingIndex);
+            }
+            activateTab(existingIndex);
+            return;
+        }
+
         if (area->isThread && area->property("threadTabbed").toBool()) {
             const int index = tabIndexForThread(area);
             if (index >= 0) {
@@ -843,7 +838,7 @@ void NavigationUiController::recordArea(ChatArea* area)
             }
         } else if (!area->isThread) {
             if (tabModel.isEmpty()) {
-                const int index = appendNavigationTab(next, false);
+                const int index = appendNavigationTab(next);
                 if (index >= 0) {
                     activeTabIndex = index;
                     QSignalBlocker blocker(navigationTabs);
@@ -858,7 +853,7 @@ void NavigationUiController::recordArea(ChatArea* area)
                     if (index >= 0) {
                         updateTab(index, next);
                     } else {
-                        index = appendNavigationTab(next, false);
+                        index = appendNavigationTab(next);
                     }
                     if (index >= 0) {
                         activeTabIndex = index;
@@ -1199,7 +1194,7 @@ void NavigationUiController::attachThread(ChatArea* area)
         if (channelTab < 0) {
             Location channelLocation;
             channelLocation.channelId = area->getChannel().id;
-            channelTab = appendNavigationTab(channelLocation, false);
+            channelTab = appendNavigationTab(channelLocation);
         }
         if (channelTab >= 0) {
             {

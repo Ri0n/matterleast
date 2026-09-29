@@ -16,7 +16,7 @@ private slots:
         entry.channelId = QStringLiteral("channel-a");
         entry.title = QStringLiteral("A");
 
-        QCOMPARE(model.append(entry, false), 0);
+        QCOMPARE(model.append(entry), 0);
         QCOMPARE(model.count(), 1);
         QVERIFY(!model.shouldShowTabBar());
     }
@@ -29,22 +29,43 @@ private slots:
         NavigationTabsModel::Entry second;
         second.channelId = QStringLiteral("channel-b");
 
-        model.append(first, false);
-        model.append(second, false);
+        model.append(first);
+        model.append(second);
 
         QCOMPARE(model.count(), 2);
         QVERIFY(model.shouldShowTabBar());
     }
 
-    void explicitChannelTabsMayDuplicateDestination()
+    void repeatedChannelDestinationIsIdempotent()
     {
         NavigationTabsModel model;
         NavigationTabsModel::Entry channel;
         channel.channelId = QStringLiteral("channel-a");
+        channel.postId = QStringLiteral("post-1");
 
-        QCOMPARE(model.append(channel, false), 0);
-        QCOMPARE(model.append(channel, false), 1);
+        QCOMPARE(model.append(channel), 0);
+
+        channel.postId = QStringLiteral("post-2");
+        QCOMPARE(model.append(channel), 0);
+        QCOMPARE(model.count(), 1);
+        QCOMPARE(model.at(0)->postId, QStringLiteral("post-2"));
+    }
+
+    void replaceCannotCreateDuplicateDestination()
+    {
+        NavigationTabsModel model;
+        NavigationTabsModel::Entry first;
+        first.channelId = QStringLiteral("channel-a");
+        NavigationTabsModel::Entry second;
+        second.channelId = QStringLiteral("channel-b");
+
+        model.append(first);
+        model.append(second);
+
+        second.channelId = QStringLiteral("channel-a");
+        QVERIFY(!model.replace(1, second));
         QCOMPARE(model.count(), 2);
+        QCOMPARE(model.at(1)->channelId, QStringLiteral("channel-b"));
     }
 
     void threadDestinationIsDeduplicatedAndBookmarkUpdated()
@@ -55,10 +76,10 @@ private slots:
         thread.rootId = QStringLiteral("root-a");
         thread.postId = QStringLiteral("reply-1");
 
-        QCOMPARE(model.append(thread, true), 0);
+        QCOMPARE(model.append(thread), 0);
 
         thread.postId = QStringLiteral("reply-2");
-        QCOMPARE(model.append(thread, true), 0);
+        QCOMPARE(model.append(thread), 0);
         QCOMPARE(model.count(), 1);
         QCOMPARE(model.at(0)->postId, QStringLiteral("reply-2"));
     }
@@ -70,7 +91,7 @@ private slots:
                  QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c") }) {
             NavigationTabsModel::Entry entry;
             entry.channelId = id;
-            model.append(entry, false);
+            model.append(entry);
         }
 
         model.move(0, 2);
