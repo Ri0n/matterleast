@@ -250,7 +250,12 @@ void NavigationUiController::setupThreadPane()
     const int oldIndex = sidebarSplitter->indexOf(mainStack);
     const QList<int> outerSizes = sidebarSplitter->sizes();
 
-    contentHost = new QWidget(sidebarSplitter);
+    // Build the replacement pane parentless. MainWindow is already visible when
+    // this controller is bootstrapped; constructing a QWidget directly under a
+    // visible QSplitter leaves the new subtree explicitly hidden while mainStack
+    // is reparented into it. insertWidget() below becomes the single ownership
+    // transition, matching the previously working splitter setup.
+    contentHost = new QWidget;
     contentHost->setObjectName(QStringLiteral("navigationContentHost"));
     auto* hostLayout = new QVBoxLayout(contentHost);
     hostLayout->setContentsMargins(0, 0, 0, 0);
@@ -271,7 +276,7 @@ void NavigationUiController::setupThreadPane()
     navigationSurfaceStack->setObjectName(QStringLiteral("navigationSurfaceStack"));
     hostLayout->addWidget(navigationSurfaceStack, 1);
 
-    contentSplitter = new ThinSplitter(Qt::Horizontal, navigationSurfaceStack);
+    contentSplitter = new ThinSplitter(Qt::Horizontal);
     contentSplitter->setObjectName(QStringLiteral("contentSplitter"));
     contentSplitter->setChildrenCollapsible(true);
     contentSplitter->setOpaqueResize(true);
@@ -292,6 +297,15 @@ void NavigationUiController::setupThreadPane()
     if (!outerSizes.isEmpty()) {
         sidebarSplitter->setSizes(outerSizes);
     }
+
+    // Reparenting a visible widget hides it. The central channel surface must
+    // remain visible independently of whether the tab bar itself is hidden.
+    // Thread presentation calls show() later on its own page; establish the
+    // normal channel surface immediately as well.
+    contentHost->show();
+    navigationSurfaceStack->show();
+    contentSplitter->show();
+    mainStack->show();
 
     const QByteArray state = MLOptions::instance()->value<QByteArray>(
         QStringLiteral("content_splitter_state"));
