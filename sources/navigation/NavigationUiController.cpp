@@ -745,8 +745,8 @@ void NavigationUiController::tabifyThread(ChatArea* area, int tabIndex)
         }
     }
 
-    if (area->isWindow()) {
-        area->setWindowFlag(Qt::Window, false);
+    if (area->isWindow() || area->parentWidget() != navigationSurfaceStack) {
+        area->setParent(navigationSurfaceStack, Qt::Widget);
     }
     if (navigationSurfaceStack->indexOf(area) < 0) {
         navigationSurfaceStack->addWidget(area);
@@ -1091,17 +1091,20 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         layout->addWidget(tabButton, 0, Qt::AlignVCenter);
 
         connect(tabButton, &QToolButton::clicked, this, [this, area] {
-            if (!area) {
-                return;
-            }
-            if (area->property("threadTabbed").toBool()) {
-                attachThread(area);
-                return;
-            }
-            if (Backend* sourceBackend = backend()) {
-                AppNavigationService::instance(*sourceBackend).openThreadInTab(
-                    area->getChannel().id, area->root_id);
-            }
+            QPointer<ChatArea> guard(area);
+            QTimer::singleShot(0, this, [this, guard] {
+                if (!guard) {
+                    return;
+                }
+                if (guard->property("threadTabbed").toBool()) {
+                    attachThread(guard);
+                    return;
+                }
+                if (Backend* sourceBackend = backend()) {
+                    AppNavigationService::instance(*sourceBackend).openThreadInTab(
+                        guard->getChannel().id, guard->root_id);
+                }
+            });
         });
     }
 
@@ -1117,14 +1120,17 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         layout->addWidget(presentationButton, 0, Qt::AlignVCenter);
 
         connect(presentationButton, &QToolButton::clicked, this, [this, area] {
-            if (!area) {
-                return;
-            }
-            if (area->property("threadDetached").toBool()) {
-                attachThread(area);
-            } else {
-                detachThread(area);
-            }
+            QPointer<ChatArea> guard(area);
+            QTimer::singleShot(0, this, [this, guard] {
+                if (!guard) {
+                    return;
+                }
+                if (guard->property("threadDetached").toBool()) {
+                    attachThread(guard);
+                } else {
+                    detachThread(guard);
+                }
+            });
         });
     }
 
@@ -1246,7 +1252,7 @@ void NavigationUiController::attachThread(ChatArea* area)
 
     area->hide();
     if (threadStack->indexOf(area) < 0) {
-        area->setWindowFlag(Qt::Window, false);
+        area->setParent(threadStack, Qt::Widget);
         threadStack->addWidget(area);
     }
     area->setProperty("threadDetached", false);
@@ -1286,8 +1292,7 @@ void NavigationUiController::detachThread(ChatArea* area)
     // Complete the QWidget state transition before removing the semantic tab.
     // removeTab() can then activate the replacement central tab without racing
     // another reparent of this thread.
-    area->setParent(nullptr);
-    area->setWindowFlag(Qt::Window, true);
+    area->setParent(nullptr, Qt::Window);
     area->setAttribute(Qt::WA_DeleteOnClose, true);
     area->setProperty("threadDetached", true);
     area->setProperty("threadTabbed", false);

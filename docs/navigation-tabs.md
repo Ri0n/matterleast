@@ -39,6 +39,10 @@ model merely to change its presentation.
   QWidget reparent atomically: first release the thread from the tab surface and
   clear its tabbed presentation marker, then establish the new dock/window
   parent, and only then remove the semantic tab entry / activate its replacement.
+  Toolbar-triggered presentation changes are queued to the next event-loop turn:
+  never reparent the ChatArea while Qt is still dispatching the button's mouse
+  release/grab sequence. Parent and window flags are changed in one setParent()
+  transition so no stale native top-level surface remains behind.
 - Browser-like Back/Forward history remains orthogonal to tabs. Tab switching
   may restore a recorded bookmark, but the tab model must not become a second
   post-loading state machine.
