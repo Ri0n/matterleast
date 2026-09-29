@@ -61,6 +61,9 @@ private:
     bool isLocalUrl(const QUrl& url) const;
     void openUrlImpl(const QUrl& url, bool inTab);
     void openPostImpl(const QString& postId, bool inTab);
+    bool activateExistingDestination(const QString& channelId,
+                                     const QString& rootId = QString(),
+                                     const QString& postId = QString());
     BackendChannel* findChannel(const QString& teamName,
                                 const QString& channelName) const;
     BackendChannel* findPostChannel(const QString& postId) const;

@@ -51,6 +51,14 @@ Following/Attention channel or thread rows, and internal Mattermost links in
 message text. Permalinks still pass through `AppNavigationService` so cold-post
 resolution and reply-root loading happen before the tab is presented.
 
+Ordinary semantic navigation also reuses existing tabs. Once a navigation target
+has resolved to its canonical `channelId + rootId` destination,
+`AppNavigationService` asks the navigation UI to activate an existing matching
+tab before falling back to the legacy/current-surface presentation. A post target
+updates that tab's bookmark before activation. Explicit `open*InTab()` requests
+are intentionally different: they remain allowed to create duplicate channel
+tabs when the user asks for one.
+
 ## Extension point
 
 Other central destinations (for example Saved, Drafts or search result

@@ -322,6 +322,30 @@ void AppNavigationService::ensureMainWindowConnection()
     }
 }
 
+bool AppNavigationService::activateExistingDestination(
+    const QString& channelId,
+    const QString& rootId,
+    const QString& postId)
+{
+    if (channelId.isEmpty()) {
+        return false;
+    }
+
+    ensureMainWindowConnection();
+    for (QWidget* widget : QApplication::topLevelWidgets()) {
+        auto* mainWindow = qobject_cast<MainWindow*>(widget);
+        if (!mainWindow) {
+            continue;
+        }
+
+        if (NavigationUiController::instance(*mainWindow).activateExistingTab(
+                channelId, rootId, postId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool AppNavigationService::isLocalUrl(const QUrl& url) const
 {
     if (url.isRelative() || url.host().isEmpty()) {
@@ -369,11 +393,20 @@ BackendChannel* AppNavigationService::findPostChannel(const QString& postId) con
 void AppNavigationService::openChannel(const QString& channelId)
 {
     beginNavigation();
-    if (!channelId.isEmpty() && backend.getStorage().getChannelById(channelId)) {
-        ensureMainWindowConnection();
-        emit channelRequested(channelId, QString(), QString(), QStringList(),
-                              false, false, false);
+    if (channelId.isEmpty() || !backend.getStorage().getChannelById(channelId)) {
+        return;
     }
+
+    // Ordinary semantic navigation reuses an already represented destination.
+    // Explicit openChannelInTab() remains the operation that may create a
+    // duplicate channel tab intentionally.
+    if (activateExistingDestination(channelId)) {
+        return;
+    }
+
+    ensureMainWindowConnection();
+    emit channelRequested(channelId, QString(), QString(), QStringList(),
+                          false, false, false);
 }
 
 void AppNavigationService::openChannelInTab(const QString& channelId)
@@ -395,9 +428,14 @@ void AppNavigationService::openThread(const QString& channelId, const QString& r
     }
 
     // A root-message click means "present this thread", not "reset its
-    // viewport". MainWindow/NavigationUiController decide whether that means
-    // creating a docked thread, revealing an existing docked one, or raising a
-    // detached window. New threads still start at the newest edge.
+    // viewport". Reuse a tabbed representation first; otherwise
+    // MainWindow/NavigationUiController decide whether that means creating a
+    // docked thread, revealing an existing docked one, or raising a detached
+    // window. New threads still start at the newest edge.
+    if (activateExistingDestination(channelId, rootId)) {
+        return;
+    }
+
     ensureMainWindowConnection();
     emit channelRequested(channelId, QString(), rootId, QStringList(),
                           false, true, true);
@@ -578,6 +616,18 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
             if (!targetPostId.isEmpty()) {
                 // Callers choose whether an already-open thread should preserve
                 // its viewport (Following) or jump/highlight again (Attention).
+                // The same policy applies when the existing representation is
+                // a tab rather than the docked thread pane.
+                const QString tabPostId = preserveIfOpen
+                    ? QString() : targetPostId;
+                if (guard->activateExistingDestination(
+                        channelId, rootId, tabPostId)) {
+                    if (callback) {
+                        callback(true);
+                    }
+                    return;
+                }
+
                 emit guard->channelRequested(channelId,
                                              targetPostId,
                                              rootId,
@@ -597,6 +647,13 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
                 // server unread metadata races the thread page. Open the thread
                 // without an explicit post target; callers still decide whether
                 // an existing viewport is preserved or repositioned.
+                if (guard->activateExistingDestination(channelId, rootId)) {
+                    if (callback) {
+                        callback(true);
+                    }
+                    return;
+                }
+
                 emit guard->channelRequested(channelId,
                                              QString(),
                                              rootId,
@@ -628,6 +685,13 @@ void AppNavigationService::presentPost(
     ensureMainWindowConnection();
     if (inTab) {
         emit tabRequested(channelId, rootId, postId);
+        return;
+    }
+
+    // All resolved links/posts use the same destination-reuse policy. This is
+    // intentionally below resolution: a permalink to a reply must know its
+    // thread root before deciding which existing tab represents the target.
+    if (activateExistingDestination(channelId, rootId, postId)) {
         return;
     }
 

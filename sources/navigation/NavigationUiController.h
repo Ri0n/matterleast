@@ -54,6 +54,9 @@ public:
     void openInTab(const QString& channelId,
                    const QString& rootId = QString(),
                    const QString& postId = QString());
+    bool activateExistingTab(const QString& channelId,
+                             const QString& rootId = QString(),
+                             const QString& postId = QString());
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;

@@ -738,6 +738,43 @@ void NavigationUiController::tabifyThread(ChatArea* area, int tabIndex)
     syncSplitterEdgeGutters();
 }
 
+bool NavigationUiController::activateExistingTab(
+    const QString& channelId,
+    const QString& rootId,
+    const QString& postId)
+{
+    if (!navigationTabs || channelId.isEmpty()) {
+        return false;
+    }
+
+    int index = -1;
+    const auto* activeEntry = tabModel.at(activeTabIndex);
+    if (activeEntry
+        && activeEntry->channelId == channelId
+        && activeEntry->rootId == rootId) {
+        index = activeTabIndex;
+    } else {
+        index = tabModel.findDestination(channelId, rootId);
+    }
+
+    if (index < 0) {
+        return false;
+    }
+
+    if (!postId.isEmpty()) {
+        Location location = tabLocation(*tabModel.at(index));
+        location.postId = postId;
+        updateTab(index, location);
+    }
+
+    {
+        QSignalBlocker blocker(navigationTabs);
+        navigationTabs->setCurrentIndex(index);
+    }
+    activateTab(index);
+    return true;
+}
+
 void NavigationUiController::openInTab(const QString& channelId,
                                        const QString& rootId,
                                        const QString& postId)
