@@ -89,6 +89,7 @@ private:
     void removeTab(int index, bool closeThread);
     int tabIndexForThread(ChatArea* area) const;
     int firstChannelTab() const;
+    int releaseThreadFromTabSurface(ChatArea* area);
     void tabifyThread(ChatArea* area, int tabIndex);
     void goBack();
     void goForward();

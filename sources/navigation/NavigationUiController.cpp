@@ -555,6 +555,30 @@ int NavigationUiController::tabIndexForThread(ChatArea* area) const
     return tabModel.findDestination(area->getChannel().id, area->root_id);
 }
 
+int NavigationUiController::releaseThreadFromTabSurface(ChatArea* area)
+{
+    if (!area || !area->isThread
+        || !area->property("threadTabbed").toBool()) {
+        return -1;
+    }
+
+    const int tabIndex = tabIndexForThread(area);
+    if (tabIndex < 0) {
+        return -1;
+    }
+
+    // Presentation transitions own QWidget reparenting. Remove the thread from
+    // the tab surface first and clear the tabbed marker so removeTab() will only
+    // remove semantic/tab-bar state and cannot perform a second widget move.
+    area->hide();
+    if (navigationSurfaceStack
+        && navigationSurfaceStack->indexOf(area) >= 0) {
+        navigationSurfaceStack->removeWidget(area);
+    }
+    area->setProperty("threadTabbed", false);
+    return tabIndex;
+}
+
 void NavigationUiController::activateTab(int index, bool restoreBookmark)
 {
     const auto* entry = tabModel.at(index);
@@ -1196,11 +1220,9 @@ void NavigationUiController::attachThread(ChatArea* area)
 
     ensureThreadButton(area);
 
-    if (area->property("threadTabbed").toBool()) {
-        const int tabIndex = tabIndexForThread(area);
-        if (tabIndex >= 0) {
-            removeTab(tabIndex, false);
-        }
+    const int releasedTabIndex = releaseThreadFromTabSurface(area);
+    if (releasedTabIndex >= 0) {
+        removeTab(releasedTabIndex, false);
 
         int channelTab = firstChannelTab();
         if (channelTab < 0) {
@@ -1251,25 +1273,29 @@ void NavigationUiController::detachThread(ChatArea* area)
         return;
     }
 
-    if (area->property("threadTabbed").toBool()) {
-        const int tabIndex = tabIndexForThread(area);
-        if (tabIndex >= 0) {
-            removeTab(tabIndex, false);
-        }
-    }
+    const int releasedTabIndex = releaseThreadFromTabSurface(area);
 
     const bool wasCurrent = threadStack->currentWidget() == area;
     area->hide();
-    threadStack->removeWidget(area);
+    if (threadStack->indexOf(area) >= 0) {
+        threadStack->removeWidget(area);
+    }
 
     area->setSplitterEdgeGutters(false, false);
 
+    // Complete the QWidget state transition before removing the semantic tab.
+    // removeTab() can then activate the replacement central tab without racing
+    // another reparent of this thread.
     area->setParent(nullptr);
     area->setWindowFlag(Qt::Window, true);
     area->setAttribute(Qt::WA_DeleteOnClose, true);
     area->setProperty("threadDetached", true);
     area->setProperty("threadTabbed", false);
     updateThreadButton(area);
+
+    if (releasedTabIndex >= 0) {
+        removeTab(releasedTabIndex, false);
+    }
 
     if (wasCurrent) {
         threadStack->hide();

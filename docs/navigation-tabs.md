@@ -35,7 +35,10 @@ model merely to change its presentation.
   creating a duplicate. This applies equally to channels, DMs/GMs and threads.
 - Docked thread, detached-window thread and tabbed thread are presentation
   states. They must not change backend membership, read-state authority,
-  timeline sources, or thread identity.
+  timeline sources, or thread identity. A transition out of a tab owns the
+  QWidget reparent atomically: first release the thread from the tab surface and
+  clear its tabbed presentation marker, then establish the new dock/window
+  parent, and only then remove the semantic tab entry / activate its replacement.
 - Browser-like Back/Forward history remains orthogonal to tabs. Tab switching
   may restore a recorded bookmark, but the tab model must not become a second
   post-loading state machine.
