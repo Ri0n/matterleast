@@ -22,6 +22,7 @@
 #include <functional>
 
 #include <QFont>
+#include <QMargins>
 #include <QPushButton>
 #include <memory>
 #include <vector>
@@ -32,12 +33,16 @@
 class QCheckBox;
 class QContextMenuEvent;
 class QEvent;
+class QFrame;
 class QGraphicsOpacityEffect;
+class QHBoxLayout;
 class QLabel;
 class QMouseEvent;
+class QMoveEvent;
 class QPaintEvent;
 class QPropertyAnimation;
 class QResizeEvent;
+class QTimer;
 
 namespace Ui {
 class PostWidget;
@@ -91,13 +96,22 @@ public:
 
     QString getSelectedText ();
 
-    QString getMessageTimeString (uint64_t timestamp);
+    QString getMessageTimeString (uint64_t timestamp) const;
     static QString formatMessageText (const QString& str);
     QString formatForClipboardSelection (FormatType formatType) const;
     void clearTextSelection();
     void setWholeMessageSelectionMode(bool enabled);
     void setWholeMessageSelected(bool selected);
-    void setHovered(bool hovered);
+    void setHovered(bool hovered, bool immediate = false);
+
+    /**
+     * Presentation-only grouping state. This is deliberately mutable: source
+     * paging/filtering/removal can change which post immediately precedes this
+     * widget without recreating the post itself.
+     */
+    void setAuthorRunContinuation(bool continuation);
+    bool authorRunContinuation() const { return authorRunContinuation_; }
+
     bool wholeMessageSelectionMode() const { return wholeMessageSelectionMode_; }
     bool wholeMessageSelected() const { return wholeMessageSelected_; }
 
@@ -134,18 +148,26 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void moveEvent(QMoveEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
 private:
     friend class ReactionQuickBarController;
 
     void showPostContextMenu(const QPoint& globalPos);
-    void animateReactionAffordance(bool visible);
-    void positionReactionAffordance();
+    void animateHoverActions(bool visible, bool immediate = false);
+    void positionHoverActions();
+    void updateHoverActionsPalette();
+    void updateTimestampPresentation();
+    void updateTimestampPalette();
+    bool usesRelativeTimestamp() const;
     void setAuthor(Backend& backendInstance, const BackendUser* user);
     void updateAuthorAvatar();
     void createReactionList();
     void connectReactionActions();
+    void ensureEngagementRow();
+    void updateEngagementRow();
+    void updateEngagementRowMetrics();
     void connectMessageLinks();
     void refreshMentionLinks();
     void refreshPermalinkPreviews();
@@ -170,6 +192,8 @@ private:
     ChatArea*				parentChatArea;
     PresentationMode                    presentationMode_ = PresentationMode::Interactive;
     ThreadSummaryWidget*                threadSummary = nullptr;
+    QWidget*                            engagementRow_ = nullptr;
+    QHBoxLayout*                        engagementLayout_ = nullptr;
     QCheckBox*                         wholeMessageCheck_ = nullptr;
     BusyIndicatorWidget*               pendingDeliveryIndicator_ = nullptr;
     QWidget*                           pendingDeliveryRow_ = nullptr;
@@ -178,15 +202,25 @@ private:
     QPushButton*                       pendingCancelButton_ = nullptr;
     std::function<void()>              pendingRetry_;
     std::function<void()>              pendingCancel_;
+    QFrame*                            hoverActions_ = nullptr;
+    QWidget*                           reactionQuickBarSlot_ = nullptr;
+    QPushButton*                       threadAffordance_ = nullptr;
     QPushButton*                       reactionAffordance_ = nullptr;
-    QGraphicsOpacityEffect*            reactionOpacity_ = nullptr;
-    QPropertyAnimation*                reactionAnimation_ = nullptr;
-    bool                               reactionAffordanceWanted_ = false;
+    QPushButton*                       saveAffordance_ = nullptr;
+    QPushButton*                       moreAffordance_ = nullptr;
+    QLabel*                            continuationTime_ = nullptr;
+    QGraphicsOpacityEffect*            hoverActionsOpacity_ = nullptr;
+    QPropertyAnimation*                hoverActionsAnimation_ = nullptr;
+    QTimer*                            hoverActionsHideTimer_ = nullptr;
+    QTimer*                            timestampRefreshTimer_ = nullptr;
+    bool                               hoverActionsWanted_ = false;
     bool                               hovered_ = false;
     bool                               wholeMessageSelectionMode_ = false;
     bool                               wholeMessageSelected_ = false;
     QPoint                              selectionPressPos_;
     bool                                rowSelectionDragPending_ = false;
+    bool                                authorRunContinuation_ = false;
+    QMargins                             normalRowMargins_;
     ChatLogWidget* chatLog() const;
     QFont                              chatFont_;
 };

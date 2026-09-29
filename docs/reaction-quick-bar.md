@@ -151,13 +151,31 @@ On restore the model discards invalid entries, merges duplicate names conservati
 
 ## Quick-bar composition
 
-Hovering the reaction affordance shows at most the eight hottest **renderable** names from the ranking.
+Hovering the reaction action in the post's floating action bar reveals at most
+the eight hottest **renderable** names from the ranking.
 
-There is no second favorites source and no overlap/deduplication policy to maintain.
+The ranked reactions are not a second popup. They are an inline extension of
+the same floating post-action surface, inserted immediately to the left of the
+reaction action. The extension animates its width from zero to its measured
+content width while the toolbar is repositioned on every animation step. Its
+right edge therefore stays anchored to the post and the ranked section appears
+to grow leftward instead of pushing the ordinary actions across the screen.
 
-If a ranked custom emoji is not yet available locally, that name is omitted from the current popup while the shared custom-emoji resolver is allowed to fetch it. Other ranked reactions still render normally.
+Leaving the reaction action/inline section collapses the extension after the
+same short hover grace period. Selecting a ranked reaction submits it and
+collapses the extension. Clicking the reaction action itself collapses the
+extension and opens the complete emoji chooser.
 
-Clicking the heart affordance itself continues to open the complete emoji chooser.
+There is no second favorites source and no overlap/deduplication policy to
+maintain.
+
+If a ranked custom emoji is not yet available locally, that name is omitted
+from the current inline extension while the shared custom-emoji resolver is
+allowed to fetch it. Other ranked reactions still render normally.
+
+The action bar is presentation-only and floats over the LongList viewport; it
+must not add height to a post row or become part of consecutive-author grouping
+geometry.
 
 ### Composer hover palette
 
@@ -236,7 +254,7 @@ sources/backend/Backend.cpp
     post-login ranked-name prewarm
 
 sources/chat-area/post/reactions/ReactionQuickBarController.cpp
-    top-eight reaction popup
+    animated top-eight inline toolbar extension
 
 sources/chat-area/outgoing-post/OutgoingPostCreator.cpp
     two-row top-sixteen composer hover palette

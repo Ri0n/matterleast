@@ -345,6 +345,17 @@ void BackendChannel::editPost (BackendPost& newPost)
 	}
 }
 
+void BackendChannel::setPostPinned(const QString& postId, bool pinned)
+{
+	BackendPost* existingPost = findPostById(postId);
+	if (!existingPost || existingPost->is_pinned == pinned) {
+		return;
+	}
+
+	existingPost->is_pinned = pinned;
+	emit onPostEdited(*existingPost);
+}
+
 void BackendChannel::addPostReaction(QString postId, QString userId, QString emojiName)
 {
 	BackendPost* existingPost = findPostById(postId);

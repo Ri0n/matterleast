@@ -21,10 +21,8 @@
 
 #include "backend/Backend.h"
 #include "backend/DraftService.h"
-#include "backend/NetworkRequest.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
-#include "backend/QByteArrayCreator.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -87,10 +85,6 @@ PostCollectionView::PostCollectionView(Backend& backendInstance, Mode viewMode, 
     , backend(backendInstance)
     , mode(viewMode)
 {
-    connect(&actionConnector, &HTTPConnector::onNetworkError,
-            &backend, &Backend::onNetworkError);
-    connect(&actionConnector, &HTTPConnector::onHttpError,
-            &backend, &Backend::onHttpError);
     buildUi();
 
     if (mode == Mode::Drafts) {
@@ -1011,17 +1005,7 @@ void PostCollectionView::unpinPost(const QString& postId, QAbstractButton* butto
         button->setEnabled(false);
     }
 
-    const QString channelId = pinnedChannel->id;
-    QPointer<PostCollectionView> guard(this);
-    NetworkRequest request(QStringLiteral("posts/") + postId + QStringLiteral("/unpin"));
-    actionConnector.post(request, QByteArrayCreator(QByteArray()), HttpResponseCallback(
-        [guard, channelId](const QJsonDocument&) {
-            if (!guard || !guard->pinnedChannel
-                || guard->pinnedChannel->id != channelId) {
-                return;
-            }
-            guard->backend.retrieveChannelPinnedPosts(*guard->pinnedChannel);
-        }));
+    backend.unpinPost(postId, pinnedChannel->id);
 }
 
 void PostCollectionView::updateStatus()

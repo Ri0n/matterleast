@@ -166,8 +166,9 @@ public:
 	//delete a post (/posts/{post_id})
 	void deletePost (const QString postID);
 
-	//pin a post (/posts/{post_id}/pin)
-	void pinPost (const QString postID);
+	// pin/unpin a post (/posts/{post_id}/pin, /posts/{post_id}/unpin)
+	void pinPost(const QString& postID, const QString& channelID);
+	void unpinPost(const QString& postID, const QString& channelID);
 
 	//add a poll (/actions/dialogs/submit /plugins/com.github.matterpoll.matterpoll/api/v1/polls/create)
 	void addPoll (BackendChannel& channel, const BackendNewPollData& pollData);

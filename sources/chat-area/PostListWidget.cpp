@@ -1,9 +1,9 @@
 /*
  * Copyright 2026 Sergei Ilinykh
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  *
- * Mattermost-QT is free software: you can redistribute it and/or modify
+ * MatterLeast is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
@@ -11,6 +11,7 @@
 
 #include "PostListWidget.h"
 
+#include <QEvent>
 #include <QFrame>
 
 #include "post/PostWidget.h"
@@ -30,15 +31,64 @@ PostListWidget::PostListWidget(QWidget* parent)
     setPrefetchScreens(0);
     setSeekDebounceMs(100);
 
+    // Row Enter/Leave events are not sufficient to identify a semantic hover
+    // handoff: the pointer may cross a few pixels of layout gap between posts.
+    // Track the viewport lifetime as the enclosing hover session instead.
+    viewport()->installEventFilter(this);
+
     connect(this, &LongListWidget::hoveredItemChanged, this,
-            [this](int previousIndex, int currentIndex) {
-        if (auto* previous = qobject_cast<PostWidget*>(itemWidget(previousIndex))) {
-            previous->setHovered(false);
+            [this](int, int currentIndex) {
+        auto* current = currentIndex >= 0
+            ? qobject_cast<PostWidget*>(itemWidget(currentIndex))
+            : nullptr;
+
+        if (!current) {
+            // A null row while the pointer is still inside the viewport is only
+            // a gap between materialized posts or the floating toolbar itself.
+            // Keep both the toolbar and row highlight attached to the previous
+            // semantic post.
+            return;
         }
-        if (auto* current = qobject_cast<PostWidget*>(itemWidget(currentIndex))) {
-            current->setHovered(true);
+
+        setHoverHighlightOverride(current);
+
+        const bool handoff = hoverSessionHasPost_
+            && activeHoverPost_.data() != current;
+
+        if (auto* previous =
+                qobject_cast<PostWidget*>(activeHoverPost_.data())) {
+            if (previous != current) {
+                previous->setHovered(false, true);
+            }
         }
+
+        current->setHovered(true, handoff);
+        activeHoverPost_ = current;
+        hoverSessionHasPost_ = true;
     });
+}
+
+bool PostListWidget::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == viewport() && event) {
+        if (event->type() == QEvent::Enter) {
+            // First concrete post entered during this viewport visit should use
+            // the normal fade. Subsequent post-to-post moves are handoffs.
+            setHoverHighlightOverride(nullptr);
+            hoverSessionHasPost_ = false;
+            activeHoverPost_.clear();
+        } else if (event->type() == QEvent::Leave) {
+            setHoverHighlightOverride(nullptr);
+            if (auto* active =
+                    qobject_cast<PostWidget*>(activeHoverPost_.data())) {
+                active->setHovered(false);
+            }
+            activeHoverPost_.clear();
+            hoverSessionHasPost_ = false;
+        }
+    }
+
+    return LongListWidget::eventFilter(watched, event);
 }
 
 QString PostListWidget::itemIdentity(const QWidget* widget) const

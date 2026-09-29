@@ -1,27 +1,25 @@
 #include <algorithm>
 
+#include <QAbstractAnimation>
 #include <QCoreApplication>
+#include <QEasingCurve>
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
-#include <QLabel>
 #include <QPointer>
+#include <QPropertyAnimation>
 #include <QPushButton>
-#include <QStyle>
+#include <QSizePolicy>
 #include <QTimer>
+#include <QVariant>
+#include <QWidget>
 
 #include "backend/Backend.h"
-#include "chat-area/ChatArea.h"
 #include "chat-area/post/PostWidget.h"
 #include "reactions/ReactionUsageTracker.h"
 #include "ui/RankedEmojiPresentation.h"
 
 namespace Mattermost {
-namespace {
-
-
-
-} // namespace
 
 class ReactionQuickBarController : public QObject
 {
@@ -40,13 +38,18 @@ protected:
         }
 
         const QEvent::Type type = event->type();
-        if (type != QEvent::Enter && type != QEvent::Leave
-            && type != QEvent::MouseButtonPress && type != QEvent::Destroy
-            && type != QEvent::Show && type != QEvent::Move) {
+
+        if (activePost_ && watched == activePost_->hoverActions_) {
+            if (type == QEvent::Hide || type == QEvent::Destroy) {
+                clearQuickBar();
+            }
             return QObject::eventFilter(watched, event);
         }
 
-        if (watched == popup_.data()) {
+        QWidget* watchedWidget = qobject_cast<QWidget*>(watched);
+        if (quickContent_ && watchedWidget
+            && (watchedWidget == quickContent_.data()
+                || quickContent_->isAncestorOf(watchedWidget))) {
             if (type == QEvent::Enter) {
                 hideTimer_.stop();
             } else if (type == QEvent::Leave) {
@@ -55,29 +58,29 @@ protected:
             return QObject::eventFilter(watched, event);
         }
 
+        if (type != QEvent::Enter && type != QEvent::Leave
+            && type != QEvent::MouseButtonPress && type != QEvent::Destroy) {
+            return QObject::eventFilter(watched, event);
+        }
+
         auto* button = qobject_cast<QPushButton*>(watched);
-        auto* post = button ? qobject_cast<PostWidget*>(button->parentWidget()) : nullptr;
+        QObject* owner = button
+            ? button->property("matterleastPostOwner").value<QObject*>()
+            : nullptr;
+        auto* post = qobject_cast<PostWidget*>(owner);
         if (!post || button != post->reactionAffordance_) {
             return QObject::eventFilter(watched, event);
         }
 
-        if (type == QEvent::Show || type == QEvent::Move) {
-            positionThreadAffordance(*post, *button);
-            return QObject::eventFilter(watched, event);
-        }
-
         if (type == QEvent::Enter) {
-            positionThreadAffordance(*post, *button);
             hideTimer_.stop();
             showFor(*post, *button);
         } else if (type == QEvent::Leave) {
             scheduleHide();
         } else if (type == QEvent::MouseButtonPress) {
-            // Clicking the heart opens the complete emoji chooser. Do not leave
-            // the hover strip floating behind that dialog.
-            hidePopup();
+            clearQuickBar();
         } else if (type == QEvent::Destroy) {
-            hidePopup();
+            clearQuickBar();
         }
 
         return QObject::eventFilter(watched, event);
@@ -88,61 +91,120 @@ private:
     {
         hideTimer_.setSingleShot(true);
         hideTimer_.setInterval(180);
-        connect(&hideTimer_, &QTimer::timeout, this,
-                [this] { hidePopup(); });
-    }
-
-    void positionThreadAffordance(PostWidget& post, QPushButton& heart)
-    {
-        if (!post.parentChatArea || !post.parentChatArea->isThread) {
-            return;
-        }
-
-        QLabel* timeLabel = post.findChild<QLabel*>(QStringLiteral("time"));
-        if (!timeLabel || timeLabel->text().isEmpty()) {
-            return;
-        }
-
-        const QFontMetrics metrics = timeLabel->fontMetrics();
-        const QSize textSize(metrics.horizontalAdvance(timeLabel->text()),
-                             metrics.height());
-        const QRect textRect = QStyle::alignedRect(
-            timeLabel->layoutDirection(), timeLabel->alignment(), textSize,
-            timeLabel->contentsRect());
-        const QPoint textTopLeft = timeLabel->mapTo(&post, textRect.topLeft());
-
-        const QPoint position(
-            std::max(4, textTopLeft.x() - heart.width() - 4),
-            std::max(2, textTopLeft.y()
-                            + (textRect.height() - heart.height()) / 2));
-        if (heart.pos() != position) {
-            heart.move(position);
-        }
+        connect(&hideTimer_, &QTimer::timeout, this, [this] {
+            animateSlot(false);
+        });
     }
 
     void scheduleHide()
     {
-        if (popup_) {
+        if (activeSlot_ && quickContent_) {
             hideTimer_.start();
         }
     }
 
-    void hidePopup()
+    void updateToolbarGeometry()
+    {
+        if (!activePost_ || !activePost_->hoverActions_) {
+            return;
+        }
+        if (activeSlot_) {
+            activeSlot_->updateGeometry();
+        }
+        activePost_->hoverActions_->adjustSize();
+        activePost_->positionHoverActions();
+    }
+
+    void clearQuickBar()
     {
         hideTimer_.stop();
-        if (popup_) {
-            popup_->hide();
-            popup_->deleteLater();
+        ++animationGeneration_;
+
+        if (animation_) {
+            animation_->stop();
+            animation_->deleteLater();
+            animation_.clear();
         }
-        popup_.clear();
+
+        if (activeSlot_) {
+            activeSlot_->setMaximumWidth(0);
+        }
+
+        QWidget* content = quickContent_.data();
+        quickContent_.clear();
+        activeSlot_.clear();
         activePost_.clear();
         activeHeart_.clear();
+        targetWidth_ = 0;
+
+        if (content) {
+            content->hide();
+            content->deleteLater();
+        }
+    }
+
+    void animateSlot(bool expand)
+    {
+        if (!activeSlot_ || !activePost_ || !quickContent_) {
+            return;
+        }
+
+        hideTimer_.stop();
+        ++animationGeneration_;
+        const quint64 generation = animationGeneration_;
+
+        if (animation_) {
+            animation_->stop();
+            animation_->deleteLater();
+            animation_.clear();
+        }
+
+        const int currentWidth = activeSlot_->maximumWidth();
+        const int endWidth = expand ? targetWidth_ : 0;
+        if (currentWidth == endWidth) {
+            if (!expand) {
+                clearQuickBar();
+            }
+            return;
+        }
+
+        auto* animation = new QPropertyAnimation(
+            activeSlot_.data(), "maximumWidth", activeSlot_.data());
+        animation_ = animation;
+        animation->setDuration(110);
+        animation->setStartValue(currentWidth);
+        animation->setEndValue(endWidth);
+        animation->setEasingCurve(
+            expand ? QEasingCurve::OutCubic : QEasingCurve::InCubic);
+
+        connect(animation, &QPropertyAnimation::valueChanged, this,
+                [this, generation](const QVariant&) {
+            if (generation == animationGeneration_) {
+                updateToolbarGeometry();
+            }
+        });
+
+        connect(animation, &QPropertyAnimation::finished, this,
+                [this, generation, expand] {
+            if (generation != animationGeneration_) {
+                return;
+            }
+            animation_.clear();
+            if (!expand) {
+                clearQuickBar();
+                return;
+            }
+            updateToolbarGeometry();
+        });
+
+        animation->start(QAbstractAnimation::DeleteWhenStopped);
     }
 
     void showFor(PostWidget& post, QPushButton& heart)
     {
-        if (post.post.isDeleted) {
-            hidePopup();
+        if (post.post.isDeleted || !post.hoverActions_
+            || !post.reactionQuickBarSlot_) {
+            clearQuickBar();
             return;
         }
 
@@ -150,37 +212,43 @@ private:
             RankedEmojiPresentation::renderableNames(
                 ReactionUsageTracker::instance().topNames(10)).mid(0, 8);
         if (quickNames.isEmpty()) {
-            hidePopup();
+            clearQuickBar();
             return;
         }
 
-        if (activePost_ == &post && activeHeart_ == &heart && popup_) {
+        if (activePost_ == &post && activeHeart_ == &heart
+            && quickContent_) {
+            animateSlot(true);
             return;
         }
 
-        hidePopup();
+        clearQuickBar();
+
+        auto* slotLayout =
+            qobject_cast<QHBoxLayout*>(post.reactionQuickBarSlot_->layout());
+        if (!slotLayout) {
+            return;
+        }
+
         activePost_ = &post;
         activeHeart_ = &heart;
+        activeSlot_ = post.reactionQuickBarSlot_;
 
-        // Keep the quick bar inside the post's widget hierarchy. A top-level
-        // Qt::Tool window cannot be positioned reliably on Wayland: the
-        // compositor owns its placement and may ignore QWidget::move(), which
-        // made the bar appear near the middle of the screen instead of next to
-        // the heart. Local widget coordinates are deterministic on every
-        // windowing system and the bar also follows the post while it moves.
-        auto* popup = new QFrame(&post);
-        popup_ = popup;
-        popup->setFrameShape(QFrame::StyledPanel);
-        popup->setFrameShadow(QFrame::Raised);
-        popup->setAutoFillBackground(true);
+        auto* content = new QWidget(activeSlot_.data());
+        quickContent_ = content;
+        content->setObjectName(QStringLiteral("reactionQuickBarInline"));
+        content->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
 
-        auto* layout = new QHBoxLayout(popup);
-        layout->setContentsMargins(3, 3, 3, 3);
-        layout->setSpacing(2);
+        auto* layout = new QHBoxLayout(content);
+        // The 1 px right margin is the explicit separator from the reaction
+        // action. Because it lives inside the animated zero-width slot, it does
+        // not exist at all while the slot is collapsed.
+        layout->setContentsMargins(0, 0, 1, 0);
+        layout->setSpacing(1);
 
         QPointer<PostWidget> postGuard(&post);
         for (const QString& name : quickNames) {
-            auto* reaction = new QPushButton(popup);
+            auto* reaction = new QPushButton(content);
             reaction->setFlat(true);
             reaction->setFixedSize(28, 28);
             reaction->setCursor(Qt::PointingHandCursor);
@@ -188,54 +256,44 @@ private:
                 delete reaction;
                 continue;
             }
-            reaction->setAccessibleName(
-                tr("React with :%1:").arg(name));
+
+            reaction->setAccessibleName(tr("React with :%1:").arg(name));
             layout->addWidget(reaction);
-            connect(reaction, &QPushButton::clicked, popup,
+
+            connect(reaction, &QPushButton::clicked, this,
                     [this, postGuard, name] {
                 if (postGuard && !postGuard->post.isDeleted) {
-                    postGuard->getBackend().addPostReaction(postGuard->post.id, name);
+                    postGuard->getBackend().addPostReaction(
+                        postGuard->post.id, name);
                 }
-                hidePopup();
+                animateSlot(false);
             });
         }
 
         if (layout->count() == 0) {
-            hidePopup();
+            clearQuickBar();
             return;
         }
 
-        connect(&post, &QObject::destroyed, popup, [this] {
-            if (!activePost_) {
-                hidePopup();
-            }
-        });
+        slotLayout->addWidget(content);
 
-        popup->adjustSize();
-        const QPoint heartPosition = heart.mapTo(&post, QPoint(0, 0));
-        const int rightX = heartPosition.x() + heart.width() + 4;
-        int x = heartPosition.x() - popup->width() - 4;
-        if (x < 0 && rightX + popup->width() <= post.width()) {
-            x = rightX;
-        }
+        targetWidth_ = layout->sizeHint().width();
+        activeSlot_->setMinimumWidth(0);
+        activeSlot_->setMaximumWidth(0);
+        content->show();
 
-        const int maxX = std::max(0, post.width() - popup->width());
-        const int maxY = std::max(0, post.height() - popup->height());
-        x = std::max(0, std::min(x, maxX));
-        const int y = std::max(
-            0,
-            std::min(heartPosition.y() + (heart.height() - popup->height()) / 2,
-                     maxY));
-
-        popup->move(x, y);
-        popup->show();
-        popup->raise();
+        updateToolbarGeometry();
+        animateSlot(true);
     }
 
     QTimer hideTimer_;
-    QPointer<QFrame> popup_;
+    QPointer<QWidget> activeSlot_;
+    QPointer<QWidget> quickContent_;
     QPointer<PostWidget> activePost_;
     QPointer<QPushButton> activeHeart_;
+    QPointer<QPropertyAnimation> animation_;
+    int targetWidth_ = 0;
+    quint64 animationGeneration_ = 0;
 };
 
 namespace {
