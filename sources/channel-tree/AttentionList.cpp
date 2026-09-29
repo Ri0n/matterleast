@@ -96,7 +96,7 @@ void AttentionList::initialize(Backend& backend)
 void AttentionList::mousePressEvent(QMouseEvent* event)
 {
     QTreeWidgetItem* pressedItem = nullptr;
-    if (event && event->button() == Qt::LeftButton) {
+    if (event) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         pressedItem = itemAt(event->position().toPoint());
 #else
@@ -104,7 +104,38 @@ void AttentionList::mousePressEvent(QMouseEvent* event)
 #endif
     }
 
-    const bool repeatActivation = pressedItem && pressedItem == currentItem();
+    if (event && event->button() == Qt::MiddleButton
+        && pressedItem && backend_ && model_) {
+        const QString channelId =
+            pressedItem->data(0, SidebarItem::ChannelIdRole).toString();
+        const QString threadId =
+            pressedItem->data(0, SidebarItem::ThreadIdRole).toString();
+        const FollowingModel::Entry* entry =
+            model_->findEntry(channelId, threadId);
+        if (!entry && retainedEntry_
+            && retainedEntry_->channelId == channelId
+            && retainedEntry_->threadId == threadId) {
+            entry = &*retainedEntry_;
+        }
+        if (entry) {
+            auto& navigation = AppNavigationService::instance(*backend_);
+            if (entry->isThread()) {
+                if (entry->synthetic) {
+                    navigation.openPostInTab(entry->threadId);
+                } else {
+                    navigation.openThreadInTab(entry->channelId, entry->threadId);
+                }
+            } else {
+                navigation.openChannelInTab(entry->channelId);
+            }
+            event->accept();
+            return;
+        }
+    }
+
+    const bool repeatActivation =
+        event && event->button() == Qt::LeftButton
+        && pressedItem && pressedItem == currentItem();
     QTreeWidget::mousePressEvent(event);
     if (repeatActivation && pressedItem == currentItem()) {
         activateItem(pressedItem);

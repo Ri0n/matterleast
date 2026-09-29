@@ -13,15 +13,21 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
+#include <QSet>
 #include <QShortcut>
+#include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStyle>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolButton>
+#include <QVBoxLayout>
 
 #include "backend/Backend.h"
+#include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelTree.h"
@@ -64,6 +70,22 @@ QIcon threadPresentationIcon(const QPalette& palette)
     return QIcon(pixmap);
 }
 
+QIcon threadTabIcon(const QPalette& palette)
+{
+    QPixmap pixmap(16, 16);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    QPen pen(palette.color(QPalette::ButtonText));
+    pen.setWidth(1);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(QRect(2, 3, 12, 10));
+    painter.drawLine(QPoint(5, 6), QPoint(11, 6));
+    painter.drawLine(QPoint(8, 3), QPoint(8, 9));
+    return QIcon(pixmap);
+}
+
 } // namespace
 
 NavigationUiController& NavigationUiController::instance(MainWindow& window)
@@ -103,9 +125,39 @@ void NavigationUiController::setupMainWindow()
     setupSidebarHeader();
     setupThreadPane();
 
+    if (Backend* sourceBackend = backend()) {
+        auto& sidebar = SidebarService::instance(*sourceBackend);
+        connect(&sidebar, &SidebarService::channelActivityChanged,
+                this, &NavigationUiController::refreshTabUnreadVisual,
+                Qt::UniqueConnection);
+        connect(&sidebar, &SidebarService::channelActivityReset,
+                this, &NavigationUiController::refreshAllTabUnreadVisuals,
+                Qt::UniqueConnection);
+    }
+
     if (mainStack) {
         connect(mainStack, &QStackedWidget::currentChanged, this,
-                [this](int) { syncSplitterEdgeGutters(); });
+                [this](int index) {
+            syncSplitterEdgeGutters();
+
+            QWidget* page = mainStack->widget(index);
+            const bool chatSurface = qobject_cast<ChatArea*>(page) != nullptr;
+            if (!chatSurface) {
+                // Saved/Drafts/Search still use MainWindow's existing transient
+                // collection surface. A tabbed thread must not cover a newly
+                // requested collection merely because that thread currently
+                // owns the navigation surface stack.
+                if (!switchingTabs && navigationSurfaceStack && contentSplitter) {
+                    navigationSurfaceStack->setCurrentWidget(contentSplitter);
+                }
+                if (navigationTabs) {
+                    navigationTabs->hide();
+                }
+                return;
+            }
+
+            refreshTabBarVisibility();
+        });
     }
 
     if (channelTree) {
@@ -211,6 +263,33 @@ void NavigationUiController::setupThreadPane()
     const int oldIndex = sidebarSplitter->indexOf(mainStack);
     const QList<int> outerSizes = sidebarSplitter->sizes();
 
+    // Build the replacement pane parentless. MainWindow is already visible when
+    // this controller is bootstrapped; constructing a QWidget directly under a
+    // visible QSplitter leaves the new subtree explicitly hidden while mainStack
+    // is reparented into it. insertWidget() below becomes the single ownership
+    // transition, matching the previously working splitter setup.
+    contentHost = new QWidget;
+    contentHost->setObjectName(QStringLiteral("navigationContentHost"));
+    auto* hostLayout = new QVBoxLayout(contentHost);
+    hostLayout->setContentsMargins(0, 0, 0, 0);
+    hostLayout->setSpacing(0);
+
+    navigationTabs = new QTabBar(contentHost);
+    navigationTabs->setObjectName(QStringLiteral("navigationTabs"));
+    navigationTabs->setDocumentMode(true);
+    navigationTabs->setMovable(true);
+    navigationTabs->setTabsClosable(true);
+    navigationTabs->setExpanding(false);
+    navigationTabs->setUsesScrollButtons(true);
+    navigationTabs->setElideMode(Qt::ElideRight);
+    navigationTabs->installEventFilter(this);
+    navigationTabs->hide();
+    hostLayout->addWidget(navigationTabs);
+
+    navigationSurfaceStack = new QStackedWidget(contentHost);
+    navigationSurfaceStack->setObjectName(QStringLiteral("navigationSurfaceStack"));
+    hostLayout->addWidget(navigationSurfaceStack, 1);
+
     contentSplitter = new ThinSplitter(Qt::Horizontal);
     contentSplitter->setObjectName(QStringLiteral("contentSplitter"));
     contentSplitter->setChildrenCollapsible(true);
@@ -225,10 +304,22 @@ void NavigationUiController::setupThreadPane()
     contentSplitter->setStretchFactor(0, 2);
     contentSplitter->setStretchFactor(1, 1);
 
-    sidebarSplitter->insertWidget(std::max(0, oldIndex), contentSplitter);
+    navigationSurfaceStack->addWidget(contentSplitter);
+    navigationSurfaceStack->setCurrentWidget(contentSplitter);
+
+    sidebarSplitter->insertWidget(std::max(0, oldIndex), contentHost);
     if (!outerSizes.isEmpty()) {
         sidebarSplitter->setSizes(outerSizes);
     }
+
+    // Reparenting a visible widget hides it. The central channel surface must
+    // remain visible independently of whether the tab bar itself is hidden.
+    // Thread presentation calls show() later on its own page; establish the
+    // normal channel surface immediately as well.
+    contentHost->show();
+    navigationSurfaceStack->show();
+    contentSplitter->show();
+    mainStack->show();
 
     const QByteArray state = MLOptions::instance()->value<QByteArray>(
         QStringLiteral("content_splitter_state"));
@@ -238,6 +329,26 @@ void NavigationUiController::setupThreadPane()
     // QSplitter persists handle width in its state; do not let legacy 4 px
     // states reintroduce layout space between channel and thread panes.
     contentSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+
+    connect(navigationTabs, &QTabBar::currentChanged, this,
+            [this](int index) {
+        if (!switchingTabs && index >= 0) {
+            activateTab(index);
+        }
+    });
+    connect(navigationTabs, &QTabBar::tabCloseRequested,
+            this, &NavigationUiController::closeTab);
+    connect(navigationTabs, &QTabBar::tabMoved, this,
+            [this](int from, int to) {
+        tabModel.move(from, to);
+        if (activeTabIndex == from) {
+            activeTabIndex = to;
+        } else if (from < activeTabIndex && activeTabIndex <= to) {
+            --activeTabIndex;
+        } else if (to <= activeTabIndex && activeTabIndex < from) {
+            ++activeTabIndex;
+        }
+    });
 }
 
 void NavigationUiController::updateIdentityTooltip()
@@ -305,6 +416,573 @@ NavigationUiController::captureLocation(ChatArea* area) const
     return location;
 }
 
+NavigationTabsModel::Entry
+NavigationUiController::tabEntry(const Location& location) const
+{
+    NavigationTabsModel::Entry entry;
+    entry.channelId = location.channelId;
+    entry.rootId = location.rootId;
+    entry.postId = location.postId;
+    entry.title = tabTitle(location);
+    return entry;
+}
+
+NavigationUiController::Location
+NavigationUiController::tabLocation(const NavigationTabsModel::Entry& entry) const
+{
+    Location location;
+    location.channelId = entry.channelId;
+    location.rootId = entry.rootId;
+    location.postId = entry.postId;
+    return location;
+}
+
+QString NavigationUiController::tabTitle(const Location& location) const
+{
+    QString title = location.channelId;
+    if (Backend* sourceBackend = backend()) {
+        if (BackendChannel* channel =
+                sourceBackend->getStorage().getChannelById(location.channelId)) {
+            title = channel->display_name.trimmed();
+            if (title.isEmpty()) {
+                title = channel->name.trimmed();
+            }
+            if (title.isEmpty()) {
+                title = channel->id;
+            }
+        }
+    }
+
+    if (!location.rootId.isEmpty()) {
+        title = tr("%1 · Thread").arg(title);
+    }
+    return title;
+}
+
+int NavigationUiController::appendNavigationTab(const Location& location)
+{
+    if (!navigationTabs || !location.isValid()) {
+        return -1;
+    }
+
+    const int oldCount = tabModel.count();
+    const int index = tabModel.append(tabEntry(location));
+    if (index < 0) {
+        return -1;
+    }
+
+    const auto* entry = tabModel.at(index);
+    const QString title = entry ? entry->title : tabTitle(location);
+    if (index >= oldCount) {
+        // QTabBar has no per-tab font API. Keep its own text empty and render
+        // the semantic title as a mouse-transparent tab button so each tab can
+        // independently mirror sidebar unread boldness without replacing the
+        // platform tab style or drag/close behavior.
+        navigationTabs->addTab(QString());
+    }
+    setNavigationTabTitle(index, title);
+    refreshTabUnreadVisual(location.channelId);
+    refreshTabBarVisibility();
+    return index;
+}
+
+void NavigationUiController::setNavigationTabTitle(
+    int index, const QString& title)
+{
+    if (!navigationTabs || index < 0 || index >= navigationTabs->count()) {
+        return;
+    }
+
+    QLabel* titleLabel = nullptr;
+    for (QTabBar::ButtonPosition position :
+         {QTabBar::LeftSide, QTabBar::RightSide}) {
+        auto* candidate = qobject_cast<QLabel*>(
+            navigationTabs->tabButton(index, position));
+        if (candidate
+            && candidate->property("navigationTabTitle").toBool()) {
+            titleLabel = candidate;
+            break;
+        }
+    }
+
+    if (!titleLabel) {
+        const auto closePosition = static_cast<QTabBar::ButtonPosition>(
+            navigationTabs->style()->styleHint(
+                QStyle::SH_TabBar_CloseButtonPosition,
+                nullptr, navigationTabs));
+        const QTabBar::ButtonPosition titlePosition =
+            closePosition == QTabBar::LeftSide
+                ? QTabBar::RightSide : QTabBar::LeftSide;
+
+        titleLabel = new QLabel(navigationTabs);
+        titleLabel->setProperty("navigationTabTitle", true);
+        titleLabel->setTextFormat(Qt::PlainText);
+        titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        titleLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        navigationTabs->setTabButton(index, titlePosition, titleLabel);
+    }
+
+    titleLabel->setText(title);
+    titleLabel->setAccessibleName(title);
+    navigationTabs->setTabToolTip(index, title);
+    titleLabel->updateGeometry();
+    navigationTabs->updateGeometry();
+}
+
+void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
+{
+    if (!navigationTabs || channelId.isEmpty()) {
+        return;
+    }
+
+    Backend* sourceBackend = backend();
+    BackendChannel* channel = sourceBackend
+        ? sourceBackend->getStorage().getChannelById(channelId)
+        : nullptr;
+    if (!sourceBackend || !channel) {
+        return;
+    }
+
+    auto& sidebar = SidebarService::instance(*sourceBackend);
+    // Match ChannelItemDelegate exactly: either unread channel activity or an
+    // unread mention makes the conversation title bold.
+    const bool bold =
+        sidebar.isChannelUnread(*channel)
+        || sidebar.hasUnreadMention(channelId);
+
+    for (int index = 0; index < tabModel.count(); ++index) {
+        const auto* entry = tabModel.at(index);
+        if (!entry || entry->channelId != channelId) {
+            continue;
+        }
+
+        QLabel* titleLabel = nullptr;
+        for (QTabBar::ButtonPosition position :
+             {QTabBar::LeftSide, QTabBar::RightSide}) {
+            auto* candidate = qobject_cast<QLabel*>(
+                navigationTabs->tabButton(index, position));
+            if (candidate
+                && candidate->property("navigationTabTitle").toBool()) {
+                titleLabel = candidate;
+                break;
+            }
+        }
+        if (!titleLabel) {
+            setNavigationTabTitle(index, entry->title);
+            for (QTabBar::ButtonPosition position :
+                 {QTabBar::LeftSide, QTabBar::RightSide}) {
+                auto* candidate = qobject_cast<QLabel*>(
+                    navigationTabs->tabButton(index, position));
+                if (candidate
+                    && candidate->property("navigationTabTitle").toBool()) {
+                    titleLabel = candidate;
+                    break;
+                }
+            }
+        }
+        if (!titleLabel) {
+            continue;
+        }
+
+        QFont font = navigationTabs->font();
+        font.setBold(bold);
+        titleLabel->setFont(font);
+        titleLabel->updateGeometry();
+    }
+
+    navigationTabs->updateGeometry();
+    navigationTabs->update();
+}
+
+void NavigationUiController::refreshAllTabUnreadVisuals()
+{
+    QSet<QString> channelIds;
+    for (int index = 0; index < tabModel.count(); ++index) {
+        if (const auto* entry = tabModel.at(index);
+            entry && !entry->channelId.isEmpty()) {
+            channelIds.insert(entry->channelId);
+        }
+    }
+    for (const QString& channelId : channelIds) {
+        refreshTabUnreadVisual(channelId);
+    }
+}
+
+void NavigationUiController::ensureInitialTab()
+{
+    if (!navigationTabs || !tabModel.isEmpty()) {
+        return;
+    }
+
+    auto* area = mainStack
+        ? qobject_cast<ChatArea*>(mainStack->currentWidget())
+        : nullptr;
+    const Location location = captureLocation(area);
+    if (!location.isValid()) {
+        return;
+    }
+
+    const int index = appendNavigationTab(location);
+    if (index < 0) {
+        return;
+    }
+
+    activeTabIndex = index;
+    switchingTabs = true;
+    navigationTabs->setCurrentIndex(index);
+    switchingTabs = false;
+}
+
+void NavigationUiController::refreshTabBarVisibility()
+{
+    if (navigationTabs) {
+        navigationTabs->setVisible(tabModel.shouldShowTabBar());
+    }
+}
+
+void NavigationUiController::updateTab(int index, const Location& location)
+{
+    if (!navigationTabs || !location.isValid()
+        || !tabModel.replace(index, tabEntry(location))) {
+        return;
+    }
+    setNavigationTabTitle(index, tabTitle(location));
+    refreshTabUnreadVisual(location.channelId);
+}
+
+void NavigationUiController::saveActiveTabLocation()
+{
+    const auto* entry = tabModel.at(activeTabIndex);
+    if (!entry) {
+        return;
+    }
+
+    ChatArea* area = nullptr;
+    if (!entry->rootId.isEmpty()) {
+        area = findThread(entry->channelId, entry->rootId);
+    } else if (!navigationSurfaceStack
+               || navigationSurfaceStack->currentWidget() == contentSplitter) {
+        area = mainStack
+            ? qobject_cast<ChatArea*>(mainStack->currentWidget())
+            : nullptr;
+    }
+
+    if (!area) {
+        return;
+    }
+
+    const Location location = captureLocation(area);
+    const Location expected = tabLocation(*entry);
+    if (location.isValid() && location.sameDestination(expected)) {
+        updateTab(activeTabIndex, location);
+    }
+}
+
+int NavigationUiController::firstChannelTab() const
+{
+    for (int i = 0; i < tabModel.count(); ++i) {
+        const auto* entry = tabModel.at(i);
+        if (entry && entry->rootId.isEmpty()) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int NavigationUiController::tabIndexForThread(ChatArea* area) const
+{
+    if (!area || !area->isThread) {
+        return -1;
+    }
+    return tabModel.findDestination(area->getChannel().id, area->root_id);
+}
+
+int NavigationUiController::releaseThreadFromTabSurface(ChatArea* area)
+{
+    if (!area || !area->isThread
+        || !area->property("threadTabbed").toBool()) {
+        return -1;
+    }
+
+    const int tabIndex = tabIndexForThread(area);
+    if (tabIndex < 0) {
+        return -1;
+    }
+
+    // Presentation transitions own QWidget reparenting. Remove the thread from
+    // the tab surface first and clear the tabbed marker so removeTab() will only
+    // remove semantic/tab-bar state and cannot perform a second widget move.
+    area->hide();
+    if (navigationSurfaceStack
+        && navigationSurfaceStack->indexOf(area) >= 0) {
+        navigationSurfaceStack->removeWidget(area);
+    }
+    area->setProperty("threadTabbed", false);
+    return tabIndex;
+}
+
+void NavigationUiController::activateTab(int index, bool restoreBookmark)
+{
+    const auto* entry = tabModel.at(index);
+    if (!entry || !navigationTabs) {
+        return;
+    }
+
+    if (activeTabIndex != index) {
+        saveActiveTabLocation();
+    }
+
+    Location location = tabLocation(*entry);
+    if (!restoreBookmark) {
+        location.postId.clear();
+    }
+    activeTabIndex = index;
+
+    if (navigationTabs->currentIndex() != index) {
+        QSignalBlocker blocker(navigationTabs);
+        navigationTabs->setCurrentIndex(index);
+    }
+
+    const bool previousSwitching = switchingTabs;
+    switchingTabs = true;
+
+    if (!location.rootId.isEmpty()) {
+        ChatArea* area = findThread(location.channelId, location.rootId);
+        Backend* sourceBackend = backend();
+        BackendChannel* channel = sourceBackend
+            ? sourceBackend->getStorage().getChannelById(location.channelId)
+            : nullptr;
+        if (!area && sourceBackend && channel) {
+            ChatArea* parent = channelTree ? channelTree->getCurrentPage() : nullptr;
+            if (!parent || &parent->getChannel() != channel) {
+                parent = nullptr;
+            }
+            area = new ChatArea(*sourceBackend, *channel, location.rootId, parent);
+            if (parent) {
+                parent->threadsAreas.insert(area);
+            }
+        }
+        if (area) {
+            tabifyThread(area, index);
+            currentLocation = location;
+            activeArea = area;
+            if (!location.postId.isEmpty()) {
+                auto* log = area->findChild<ChatLogWidget*>(
+                    QStringLiteral("listWidget"));
+                if (!log || !log->restoreViewportBookmark(location.postId)) {
+                    if (sourceBackend) {
+                        AppNavigationService::instance(*sourceBackend)
+                            .openPost(location.postId);
+                    }
+                }
+            }
+        }
+    } else {
+        if (navigationSurfaceStack && contentSplitter) {
+            navigationSurfaceStack->setCurrentWidget(contentSplitter);
+            contentSplitter->show();
+        }
+        navigateTo(location);
+    }
+
+    switchingTabs = previousSwitching;
+    refreshTabBarVisibility();
+    syncSplitterEdgeGutters();
+}
+
+void NavigationUiController::removeTab(int index, bool closeThread)
+{
+    if (!navigationTabs) {
+        return;
+    }
+    const auto* entryPtr = tabModel.at(index);
+    if (!entryPtr) {
+        return;
+    }
+
+    const NavigationTabsModel::Entry removedEntry = *entryPtr;
+    const bool wasActive = index == activeTabIndex;
+    if (wasActive) {
+        saveActiveTabLocation();
+    }
+
+    ChatArea* thread = nullptr;
+    if (!removedEntry.rootId.isEmpty()) {
+        thread = findThread(removedEntry.channelId, removedEntry.rootId);
+        if (thread && thread->property("threadTabbed").toBool()) {
+            thread->hide();
+            if (navigationSurfaceStack
+                && navigationSurfaceStack->indexOf(thread) >= 0) {
+                navigationSurfaceStack->removeWidget(thread);
+            }
+            thread->setProperty("threadTabbed", false);
+        }
+    }
+
+    int nextIndex = -1;
+    {
+        QSignalBlocker blocker(navigationTabs);
+        tabModel.remove(index);
+        navigationTabs->removeTab(index);
+
+        if (tabModel.isEmpty()) {
+            Location fallback;
+            if (ChatArea* channelArea =
+                    channelTree ? channelTree->getCurrentPage() : nullptr) {
+                fallback = captureLocation(channelArea);
+            }
+            if (!fallback.isValid()) {
+                fallback.channelId = removedEntry.channelId;
+            }
+            nextIndex = appendNavigationTab(fallback);
+        } else if (wasActive) {
+            nextIndex = std::min(index, tabModel.count() - 1);
+        } else {
+            activeTabIndex -= activeTabIndex > index ? 1 : 0;
+            nextIndex = activeTabIndex;
+        }
+
+        if (nextIndex >= 0) {
+            navigationTabs->setCurrentIndex(nextIndex);
+        }
+    }
+
+    refreshTabBarVisibility();
+
+    if (thread) {
+        if (closeThread) {
+            thread->close();
+            thread = nullptr;
+        } else {
+            updateThreadButton(thread);
+        }
+    }
+
+    if (wasActive && nextIndex >= 0) {
+        activeTabIndex = -1;
+        activateTab(nextIndex);
+    }
+}
+
+void NavigationUiController::closeTab(int index)
+{
+    removeTab(index, true);
+}
+
+void NavigationUiController::tabifyThread(ChatArea* area, int tabIndex)
+{
+    if (!area || !area->isThread || !navigationSurfaceStack) {
+        return;
+    }
+
+    ensureThreadButton(area);
+
+    const bool wasDockedCurrent =
+        threadStack && threadStack->currentWidget() == area;
+    area->hide();
+    if (threadStack && threadStack->indexOf(area) >= 0) {
+        threadStack->removeWidget(area);
+        if (wasDockedCurrent) {
+            threadStack->hide();
+        }
+    }
+
+    if (area->isWindow() || area->parentWidget() != navigationSurfaceStack) {
+        area->setParent(navigationSurfaceStack, Qt::Widget);
+    }
+    if (navigationSurfaceStack->indexOf(area) < 0) {
+        navigationSurfaceStack->addWidget(area);
+    }
+
+    area->setProperty("threadDetached", false);
+    area->setProperty("threadTabbed", true);
+    area->setSplitterEdgeGutters(false, false);
+    navigationSurfaceStack->setCurrentWidget(area);
+    area->show();
+
+    activeTabIndex = tabIndex;
+    updateThreadButton(area);
+    recordArea(area);
+    syncSplitterEdgeGutters();
+}
+
+bool NavigationUiController::activateExistingTab(
+    const QString& channelId,
+    const QString& rootId,
+    bool restoreBookmark)
+{
+    if (!navigationTabs || channelId.isEmpty()) {
+        return false;
+    }
+
+    int index = -1;
+    const auto* activeEntry = tabModel.at(activeTabIndex);
+    if (activeEntry
+        && activeEntry->channelId == channelId
+        && activeEntry->rootId == rootId) {
+        index = activeTabIndex;
+    } else {
+        index = tabModel.findDestination(channelId, rootId);
+    }
+
+    if (index < 0) {
+        return false;
+    }
+
+    {
+        QSignalBlocker blocker(navigationTabs);
+        navigationTabs->setCurrentIndex(index);
+    }
+    activateTab(index, restoreBookmark);
+    return true;
+}
+
+void NavigationUiController::openInTab(
+    const QString& channelId,
+    const QString& rootId,
+    const QString& postId,
+    const QStringList& contextPostIds,
+    bool reachedOldest,
+    bool reachedNewest)
+{
+    Backend* sourceBackend = backend();
+    BackendChannel* channel = sourceBackend
+        ? sourceBackend->getStorage().getChannelById(channelId)
+        : nullptr;
+    if (!navigationTabs || !channel) {
+        return;
+    }
+
+    ensureInitialTab();
+
+    // The tab entry contains passive revisit state only. An explicit post target
+    // must not be converted into a bookmark because bookmark restoration is
+    // intentionally silent (no navigation highlight).
+    Location destination;
+    destination.channelId = channelId;
+    destination.rootId = rootId;
+
+    const int index = appendNavigationTab(destination);
+    if (index < 0) {
+        return;
+    }
+
+    {
+        QSignalBlocker blocker(navigationTabs);
+        navigationTabs->setCurrentIndex(index);
+    }
+    activateTab(index, postId.isEmpty());
+
+    if (postId.isEmpty()) {
+        return;
+    }
+
+    // Use the exact explicit-post path used outside tabs. It owns context
+    // installation, viewport locking and highlightPostWhenReady().
+    window.openChannelPost(channelId, postId, rootId, contextPostIds,
+                           reachedOldest, reachedNewest, false);
+}
+
 void NavigationUiController::recordArea(ChatArea* area)
 {
     if (!area) {
@@ -314,6 +992,59 @@ void NavigationUiController::recordArea(ChatArea* area)
     const Location next = captureLocation(area);
     if (!next.isValid()) {
         return;
+    }
+
+    if (navigationTabs && !switchingTabs) {
+        const int existingIndex =
+            tabModel.findDestination(next.channelId, next.rootId);
+        if (existingIndex >= 0 && existingIndex != activeTabIndex) {
+            {
+                QSignalBlocker blocker(navigationTabs);
+                navigationTabs->setCurrentIndex(existingIndex);
+            }
+            activateTab(existingIndex);
+            return;
+        }
+
+        if (area->isThread && area->property("threadTabbed").toBool()) {
+            const int index = tabIndexForThread(area);
+            if (index >= 0) {
+                updateTab(index, next);
+                activeTabIndex = index;
+                QSignalBlocker blocker(navigationTabs);
+                navigationTabs->setCurrentIndex(index);
+            }
+        } else if (!area->isThread) {
+            if (tabModel.isEmpty()) {
+                const int index = appendNavigationTab(next);
+                if (index >= 0) {
+                    activeTabIndex = index;
+                    QSignalBlocker blocker(navigationTabs);
+                    navigationTabs->setCurrentIndex(index);
+                }
+            } else {
+                const auto* activeEntry = tabModel.at(activeTabIndex);
+                if (activeEntry && activeEntry->rootId.isEmpty()) {
+                    updateTab(activeTabIndex, next);
+                } else {
+                    int index = firstChannelTab();
+                    if (index >= 0) {
+                        updateTab(index, next);
+                    } else {
+                        index = appendNavigationTab(next);
+                    }
+                    if (index >= 0) {
+                        activeTabIndex = index;
+                        QSignalBlocker blocker(navigationTabs);
+                        navigationTabs->setCurrentIndex(index);
+                        if (navigationSurfaceStack && contentSplitter) {
+                            navigationSurfaceStack->setCurrentWidget(contentSplitter);
+                        }
+                    }
+                }
+            }
+        }
+        refreshTabBarVisibility();
     }
 
     if (!currentLocation.isValid()) {
@@ -490,6 +1221,35 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         return;
     }
 
+    auto* tabButton = area->findChild<QToolButton*>(
+        QStringLiteral("threadTabButton"));
+    if (!tabButton) {
+        tabButton = new QToolButton(area);
+        tabButton->setObjectName(QStringLiteral("threadTabButton"));
+        tabButton->setAutoRaise(true);
+        tabButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        tabButton->setIconSize(QSize(16, 16));
+        tabButton->setCursor(Qt::PointingHandCursor);
+        layout->addWidget(tabButton, 0, Qt::AlignVCenter);
+
+        connect(tabButton, &QToolButton::clicked, this, [this, area] {
+            QPointer<ChatArea> guard(area);
+            QTimer::singleShot(0, this, [this, guard] {
+                if (!guard) {
+                    return;
+                }
+                if (guard->property("threadTabbed").toBool()) {
+                    attachThread(guard);
+                    return;
+                }
+                if (Backend* sourceBackend = backend()) {
+                    AppNavigationService::instance(*sourceBackend).openThreadInTab(
+                        guard->getChannel().id, guard->root_id);
+                }
+            });
+        });
+    }
+
     auto* presentationButton = area->findChild<QToolButton*>(
         QStringLiteral("threadPresentationButton"));
     if (!presentationButton) {
@@ -502,14 +1262,17 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         layout->addWidget(presentationButton, 0, Qt::AlignVCenter);
 
         connect(presentationButton, &QToolButton::clicked, this, [this, area] {
-            if (!area) {
-                return;
-            }
-            if (area->property("threadDetached").toBool()) {
-                attachThread(area);
-            } else {
-                detachThread(area);
-            }
+            QPointer<ChatArea> guard(area);
+            QTimer::singleShot(0, this, [this, guard] {
+                if (!guard) {
+                    return;
+                }
+                if (guard->property("threadDetached").toBool()) {
+                    attachThread(guard);
+                } else {
+                    detachThread(guard);
+                }
+            });
         });
     }
 
@@ -530,6 +1293,14 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         connect(closeButton, &QToolButton::clicked, this, [this, area] {
             if (!area) {
                 return;
+            }
+
+            if (area->property("threadTabbed").toBool()) {
+                const int index = tabIndexForThread(area);
+                if (index >= 0) {
+                    closeTab(index);
+                    return;
+                }
             }
 
             const bool wasActive = activeArea == area;
@@ -577,6 +1348,16 @@ void NavigationUiController::updateThreadButton(ChatArea* area)
     button->setToolTip(label);
     button->setAccessibleName(label);
     button->setIcon(threadPresentationIcon(button->palette()));
+
+    if (auto* tabButton = area->findChild<QToolButton*>(
+            QStringLiteral("threadTabButton"))) {
+        const bool tabbed = area->property("threadTabbed").toBool();
+        const QString tabLabel = tabbed ? tr("Attach thread")
+                                       : tr("Open thread in new tab");
+        tabButton->setToolTip(tabLabel);
+        tabButton->setAccessibleName(tabLabel);
+        tabButton->setIcon(threadTabIcon(tabButton->palette()));
+    }
 }
 
 void NavigationUiController::attachThread(ChatArea* area)
@@ -587,6 +1368,25 @@ void NavigationUiController::attachThread(ChatArea* area)
 
     ensureThreadButton(area);
 
+    const int releasedTabIndex = releaseThreadFromTabSurface(area);
+    if (releasedTabIndex >= 0) {
+        removeTab(releasedTabIndex, false);
+
+        int channelTab = firstChannelTab();
+        if (channelTab < 0) {
+            Location channelLocation;
+            channelLocation.channelId = area->getChannel().id;
+            channelTab = appendNavigationTab(channelLocation);
+        }
+        if (channelTab >= 0) {
+            {
+                QSignalBlocker blocker(navigationTabs);
+                navigationTabs->setCurrentIndex(channelTab);
+            }
+            activateTab(channelTab);
+        }
+    }
+
     if (auto* previous = qobject_cast<ChatArea*>(threadStack->currentWidget());
         previous && previous != area) {
         previous->setSplitterEdgeGutters(false, false);
@@ -594,10 +1394,11 @@ void NavigationUiController::attachThread(ChatArea* area)
 
     area->hide();
     if (threadStack->indexOf(area) < 0) {
-        area->setWindowFlag(Qt::Window, false);
+        area->setParent(threadStack, Qt::Widget);
         threadStack->addWidget(area);
     }
     area->setProperty("threadDetached", false);
+    area->setProperty("threadTabbed", false);
     threadStack->setCurrentWidget(area);
 
     // A hidden splitter child is reported as size 0 regardless of the width
@@ -620,17 +1421,28 @@ void NavigationUiController::detachThread(ChatArea* area)
         return;
     }
 
+    const int releasedTabIndex = releaseThreadFromTabSurface(area);
+
     const bool wasCurrent = threadStack->currentWidget() == area;
     area->hide();
-    threadStack->removeWidget(area);
+    if (threadStack->indexOf(area) >= 0) {
+        threadStack->removeWidget(area);
+    }
 
     area->setSplitterEdgeGutters(false, false);
 
-    area->setParent(nullptr);
-    area->setWindowFlag(Qt::Window, true);
+    // Complete the QWidget state transition before removing the semantic tab.
+    // removeTab() can then activate the replacement central tab without racing
+    // another reparent of this thread.
+    area->setParent(nullptr, Qt::Window);
     area->setAttribute(Qt::WA_DeleteOnClose, true);
     area->setProperty("threadDetached", true);
+    area->setProperty("threadTabbed", false);
     updateThreadButton(area);
+
+    if (releasedTabIndex >= 0) {
+        removeTab(releasedTabIndex, false);
+    }
 
     if (wasCurrent) {
         threadStack->hide();
@@ -651,7 +1463,10 @@ void NavigationUiController::syncSplitterEdgeGutters()
         ? qobject_cast<ChatArea*>(threadStack->currentWidget())
         : nullptr;
 
-    const bool threadDocked = threadStack && !threadStack->isHidden()
+    const bool normalSurfaceVisible = !navigationSurfaceStack
+        || navigationSurfaceStack->currentWidget() == contentSplitter;
+    const bool threadDocked = normalSurfaceVisible
+        && threadStack && !threadStack->isHidden()
         && threadArea && !threadArea->property("threadDetached").toBool();
 
     if (channelArea) {
@@ -664,6 +1479,22 @@ void NavigationUiController::syncSplitterEdgeGutters()
     }
 }
 
+void NavigationUiController::presentChannel(ChatArea* area)
+{
+    if (!area || area->isThread) {
+        return;
+    }
+
+    if (navigationSurfaceStack && contentSplitter) {
+        navigationSurfaceStack->setCurrentWidget(contentSplitter);
+        contentSplitter->show();
+    }
+
+    recordArea(area);
+    refreshTabBarVisibility();
+    syncSplitterEdgeGutters();
+}
+
 void NavigationUiController::presentThread(ChatArea* area)
 {
     if (!area || !area->isThread) {
@@ -671,6 +1502,17 @@ void NavigationUiController::presentThread(ChatArea* area)
     }
 
     ensureThreadButton(area);
+    if (area->property("threadTabbed").toBool()) {
+        const int index = tabIndexForThread(area);
+        if (index >= 0) {
+            {
+                QSignalBlocker blocker(navigationTabs);
+                navigationTabs->setCurrentIndex(index);
+            }
+            activateTab(index);
+        }
+        return;
+    }
     if (area->property("threadDetached").toBool()) {
         area->show();
         area->raise();
@@ -684,6 +1526,14 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
+    if (watched == navigationTabs && event
+        && event->type() == QEvent::FontChange) {
+        // Title labels intentionally have an explicit bold/normal font. Rebase
+        // that font on QTabBar whenever application/UI scaling changes it.
+        QTimer::singleShot(0, this,
+                           &NavigationUiController::refreshAllTabUnreadVisuals);
+    }
+
     const bool channelPointerSurface = channelTree
         && (watched == channelTree || watched == channelTree->viewport());
     if (channelPointerSurface && event
@@ -697,11 +1547,15 @@ bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 
     if (event && event->type() == QEvent::Show) {
         auto* area = qobject_cast<ChatArea*>(watched);
-        if (area && area->isThread && !area->property("threadDetached").toBool()
+        if (area && area->isThread
+            && !area->property("threadDetached").toBool()
+            && !area->property("threadTabbed").toBool()
             && (!threadStack || threadStack->indexOf(area) < 0)) {
             QPointer<ChatArea> guard(area);
             QTimer::singleShot(0, this, [this, guard] {
-                if (guard && !guard->property("threadDetached").toBool()) {
+                if (guard
+                    && !guard->property("threadDetached").toBool()
+                    && !guard->property("threadTabbed").toBool()) {
                     attachThread(guard);
                 }
             });

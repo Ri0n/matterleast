@@ -23,6 +23,7 @@
 #include "backend/types/BackendTeam.h"
 #include "backend/types/BackendUser.h"
 #include "mainwindow.h"
+#include "navigation/NavigationUiController.h"
 
 namespace Mattermost {
 namespace {
@@ -313,8 +314,36 @@ void AppNavigationService::ensureMainWindowConnection()
             connect(this, &AppNavigationService::channelRequested,
                     mainWindow, &MainWindow::openChannelPost,
                     Qt::UniqueConnection);
+            auto& navigationUi = NavigationUiController::instance(*mainWindow);
+            connect(this, &AppNavigationService::tabRequested,
+                    &navigationUi, &NavigationUiController::openInTab,
+                    Qt::UniqueConnection);
         }
     }
+}
+
+bool AppNavigationService::activateExistingDestination(
+    const QString& channelId,
+    const QString& rootId,
+    bool restoreBookmark)
+{
+    if (channelId.isEmpty()) {
+        return false;
+    }
+
+    ensureMainWindowConnection();
+    for (QWidget* widget : QApplication::topLevelWidgets()) {
+        auto* mainWindow = qobject_cast<MainWindow*>(widget);
+        if (!mainWindow) {
+            continue;
+        }
+
+        if (NavigationUiController::instance(*mainWindow).activateExistingTab(
+                channelId, rootId, restoreBookmark)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool AppNavigationService::isLocalUrl(const QUrl& url) const
@@ -364,11 +393,31 @@ BackendChannel* AppNavigationService::findPostChannel(const QString& postId) con
 void AppNavigationService::openChannel(const QString& channelId)
 {
     beginNavigation();
-    if (!channelId.isEmpty() && backend.getStorage().getChannelById(channelId)) {
-        ensureMainWindowConnection();
-        emit channelRequested(channelId, QString(), QString(), QStringList(),
-                              false, false, false);
+    if (channelId.isEmpty() || !backend.getStorage().getChannelById(channelId)) {
+        return;
     }
+
+    // Ordinary semantic navigation reuses an already represented destination.
+    // Explicit openChannelInTab() asks for tab presentation too, but tab
+    // destinations themselves are unique and therefore remain idempotent.
+    if (activateExistingDestination(channelId)) {
+        return;
+    }
+
+    ensureMainWindowConnection();
+    emit channelRequested(channelId, QString(), QString(), QStringList(),
+                          false, false, false);
+}
+
+void AppNavigationService::openChannelInTab(const QString& channelId)
+{
+    beginNavigation();
+    if (channelId.isEmpty() || !backend.getStorage().getChannelById(channelId)) {
+        return;
+    }
+    ensureMainWindowConnection();
+    emit tabRequested(channelId, QString(), QString(), QStringList(),
+                      false, false);
 }
 
 void AppNavigationService::openThread(const QString& channelId, const QString& rootId)
@@ -380,15 +429,43 @@ void AppNavigationService::openThread(const QString& channelId, const QString& r
     }
 
     // A root-message click means "present this thread", not "reset its
-    // viewport". MainWindow/NavigationUiController decide whether that means
-    // creating a docked thread, revealing an existing docked one, or raising a
-    // detached window. New threads still start at the newest edge.
+    // viewport". Reuse a tabbed representation first; otherwise
+    // MainWindow/NavigationUiController decide whether that means creating a
+    // docked thread, revealing an existing docked one, or raising a detached
+    // window. New threads still start at the newest edge.
+    if (activateExistingDestination(channelId, rootId)) {
+        return;
+    }
+
     ensureMainWindowConnection();
     emit channelRequested(channelId, QString(), rootId, QStringList(),
                           false, true, true);
 }
 
+void AppNavigationService::openThreadInTab(const QString& channelId,
+                                             const QString& rootId)
+{
+    beginNavigation();
+    if (channelId.isEmpty() || rootId.isEmpty()
+        || !backend.getStorage().getChannelById(channelId)) {
+        return;
+    }
+    ensureMainWindowConnection();
+    emit tabRequested(channelId, rootId, QString(), QStringList(),
+                      false, false);
+}
+
 void AppNavigationService::openUrl(const QUrl& url)
+{
+    openUrlImpl(url, false);
+}
+
+void AppNavigationService::openUrlInTab(const QUrl& url)
+{
+    openUrlImpl(url, true);
+}
+
+void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
 {
     if (!url.isValid()) {
         return;
@@ -403,7 +480,11 @@ void AppNavigationService::openUrl(const QUrl& url)
     const QStringList path = url.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
     if (path.size() >= 3 && path.at(1) == QStringLiteral("channels")) {
         if (BackendChannel* channel = findChannel(path.at(0), path.at(2))) {
-            openChannel(channel->id);
+            if (inTab) {
+                openChannelInTab(channel->id);
+            } else {
+                openChannel(channel->id);
+            }
             return;
         }
     }
@@ -419,7 +500,11 @@ void AppNavigationService::openUrl(const QUrl& url)
                 continue;
             }
             if (BackendChannel* channel = backend.getStorage().getDirectChannelByUserId(user.id)) {
-                openChannel(channel->id);
+                if (inTab) {
+                    openChannelInTab(channel->id);
+                } else {
+                    openChannel(channel->id);
+                }
                 return;
             }
             break;
@@ -427,7 +512,11 @@ void AppNavigationService::openUrl(const QUrl& url)
     }
 
     if (path.size() >= 3 && path.at(1) == QStringLiteral("pl")) {
-        openPost(path.at(2));
+        if (inTab) {
+            openPostInTab(path.at(2));
+        } else {
+            openPost(path.at(2));
+        }
         return;
     }
 
@@ -440,6 +529,16 @@ void AppNavigationService::openUrl(const QUrl& url)
 
 void AppNavigationService::openPost(const QString& postId)
 {
+    openPostImpl(postId, false);
+}
+
+void AppNavigationService::openPostInTab(const QString& postId)
+{
+    openPostImpl(postId, true);
+}
+
+void AppNavigationService::openPostImpl(const QString& postId, bool inTab)
+{
     const quint64 navigationGeneration = beginNavigation();
     if (postId.isEmpty()) {
         qCWarning(lcNavigationResolve) << "Ignoring navigation to an empty post id";
@@ -447,7 +546,7 @@ void AppNavigationService::openPost(const QString& postId)
     }
 
     if (BackendChannel* channel = findPostChannel(postId)) {
-        openPostInChannel(*channel, postId, navigationGeneration);
+        openPostInChannel(*channel, postId, navigationGeneration, inTab);
         return;
     }
 
@@ -455,7 +554,7 @@ void AppNavigationService::openPost(const QString& postId)
     auto* resolver = new NavigationPostResolver(
         backend,
         postId,
-        [guard, postId, navigationGeneration](BackendChannel* channel) {
+        [guard, postId, navigationGeneration, inTab](BackendChannel* channel) {
             if (!guard || !guard->navigationRequests.isCurrent(navigationGeneration)) {
                 return;
             }
@@ -464,7 +563,8 @@ void AppNavigationService::openPost(const QString& postId)
                     << "Navigation target could not be resolved" << postId;
                 return;
             }
-            guard->openPostInChannel(*channel, postId, navigationGeneration);
+            guard->openPostInChannel(
+                *channel, postId, navigationGeneration, inTab);
         },
         this);
     resolver->start();
@@ -518,6 +618,18 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
             if (!targetPostId.isEmpty()) {
                 // Callers choose whether an already-open thread should preserve
                 // its viewport (Following) or jump/highlight again (Attention).
+                // The same policy applies when the existing representation is
+                // a tab rather than the docked thread pane.
+                if (preserveIfOpen
+                    && guard->activateExistingDestination(channelId, rootId)) {
+                    if (callback) {
+                        callback(true);
+                    }
+                    return;
+                }
+
+                guard->activateExistingDestination(
+                    channelId, rootId, false);
                 emit guard->channelRequested(channelId,
                                              targetPostId,
                                              rootId,
@@ -537,6 +649,13 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
                 // server unread metadata races the thread page. Open the thread
                 // without an explicit post target; callers still decide whether
                 // an existing viewport is preserved or repositioned.
+                if (guard->activateExistingDestination(channelId, rootId)) {
+                    if (callback) {
+                        callback(true);
+                    }
+                    return;
+                }
+
                 emit guard->channelRequested(channelId,
                                              QString(),
                                              rootId,
@@ -556,9 +675,43 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
         });
 }
 
+void AppNavigationService::presentPost(
+    const QString& channelId,
+    const QString& postId,
+    const QString& rootId,
+    const QStringList& contextPostIds,
+    bool reachedOldest,
+    bool reachedNewest,
+    bool inTab)
+{
+    ensureMainWindowConnection();
+    if (inTab) {
+        // Keep explicit target semantics separate from passive tab bookmarks.
+        // The tab controller activates/creates the destination first and then
+        // runs MainWindow::openChannelPost() with this complete resolved context.
+        emit tabRequested(channelId, rootId, postId, contextPostIds,
+                          reachedOldest, reachedNewest);
+        return;
+    }
+
+    // Reusing an existing tab is only a presentation decision. Suppress its
+    // passive bookmark restore because this explicit target is authoritative,
+    // then continue through the normal prepare/lock/highlight pipeline.
+    activateExistingDestination(channelId, rootId, false);
+
+    emit channelRequested(channelId,
+                          postId,
+                          rootId,
+                          contextPostIds,
+                          reachedOldest,
+                          reachedNewest,
+                          false);
+}
+
 void AppNavigationService::openPostInChannel(BackendChannel& channel,
                                              const QString& postId,
-                                             quint64 navigationGeneration)
+                                             quint64 navigationGeneration,
+                                             bool inTab)
 {
     if (!navigationRequests.isCurrent(navigationGeneration)) {
         return;
@@ -567,18 +720,13 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
         if (!cached->root_id.isEmpty()) {
             const QString channelId = channel.id;
             const QString rootId = cached->root_id;
-            const auto presentReply = [this, channelId, postId, rootId, navigationGeneration] {
+            const auto presentReply = [this, channelId, postId, rootId,
+                                       navigationGeneration, inTab] {
                 if (!navigationRequests.isCurrent(navigationGeneration)) {
                     return;
                 }
-                ensureMainWindowConnection();
-                emit channelRequested(channelId,
-                                      postId,
-                                      rootId,
-                                      QStringList(),
-                                      false,
-                                      false,
-                                      false);
+                presentPost(channelId, postId, rootId, QStringList(),
+                            false, false, inTab);
             };
 
             // ThreadPostSource derives its logical length and time anchors from
@@ -593,7 +741,8 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
             QPointer<AppNavigationService> guard(this);
             PostRepository::instance(backend).loadPost(
                 rootId,
-                [guard, channelId, postId, rootId, navigationGeneration](const PostRepository::PostResult& result) {
+                [guard, channelId, postId, rootId, navigationGeneration, inTab](
+                    const PostRepository::PostResult& result) {
                     if (!guard
                         || !guard->navigationRequests.isCurrent(navigationGeneration)
                         || !result.success || result.channelId != channelId) {
@@ -610,14 +759,8 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
                         return;
                     }
 
-                    guard->ensureMainWindowConnection();
-                    emit guard->channelRequested(channelId,
-                                                 postId,
-                                                 rootId,
-                                                 QStringList(),
-                                                 false,
-                                                 false,
-                                                 false);
+                    guard->presentPost(channelId, postId, rootId, QStringList(),
+                                       false, false, inTab);
                 });
             return;
         }
@@ -627,7 +770,8 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
     const QString channelId = channel.id;
     PostRepository::instance(backend).loadChannelAround(
         channel, postId,
-        [guard, channelId, postId, navigationGeneration](const PostRepository::Context& context) {
+        [guard, channelId, postId, navigationGeneration, inTab](
+            const PostRepository::Context& context) {
             if (!guard || !guard->navigationRequests.isCurrent(navigationGeneration)
                 || !context.success) {
                 return;
@@ -636,19 +780,17 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
             QString rootId;
             if (BackendChannel* currentChannel =
                     guard->backend.getStorage().getChannelById(channelId)) {
-                if (BackendPost* target = currentChannel->postIdToPost.value(postId, nullptr)) {
+                if (BackendPost* target =
+                        currentChannel->postIdToPost.value(postId, nullptr)) {
                     rootId = target->root_id;
                 }
             }
 
-            guard->ensureMainWindowConnection();
-            emit guard->channelRequested(channelId,
-                                         postId,
-                                         rootId,
-                                         context.postIds,
-                                         context.reachedOldest,
-                                         context.reachedNewest,
-                                         false);
+            guard->presentPost(channelId, postId, rootId,
+                               context.postIds,
+                               context.reachedOldest,
+                               context.reachedNewest,
+                               inTab);
         },
         true);
 }

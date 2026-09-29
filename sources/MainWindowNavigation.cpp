@@ -279,6 +279,7 @@ void MainWindow::openChannelPost(const QString& channelId,
         return;
     }
     QObject::disconnect(*retryConnection);
+    navigationUi.presentChannel(area);
 
     if (postId.isEmpty()) {
         // Re-evaluate the already visible viewport for repeated Following/

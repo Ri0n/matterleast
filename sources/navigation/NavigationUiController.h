@@ -3,12 +3,17 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QStringList>
 #include <QVector>
+
+#include "NavigationTabsModel.h"
 
 class QEvent;
 class QSplitter;
 class QStackedWidget;
+class QTabBar;
 class QToolButton;
+class QWidget;
 
 namespace Mattermost {
 
@@ -45,7 +50,17 @@ public:
     ~NavigationUiController() override;
 
     ChatArea* findThread(const QString& channelId, const QString& rootId) const;
+    void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
+    void openInTab(const QString& channelId,
+                   const QString& rootId,
+                   const QString& postId,
+                   const QStringList& contextPostIds,
+                   bool reachedOldest,
+                   bool reachedNewest);
+    bool activateExistingTab(const QString& channelId,
+                             const QString& rootId = QString(),
+                             bool restoreBookmark = true);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -60,6 +75,25 @@ private:
     Location captureLocation(ChatArea* area) const;
     void recordArea(ChatArea* area);
     void navigateTo(const Location& location);
+
+    NavigationTabsModel::Entry tabEntry(const Location& location) const;
+    Location tabLocation(const NavigationTabsModel::Entry& entry) const;
+    QString tabTitle(const Location& location) const;
+    int appendNavigationTab(const Location& location);
+    void ensureInitialTab();
+    void refreshTabBarVisibility();
+    void setNavigationTabTitle(int index, const QString& title);
+    void refreshTabUnreadVisual(const QString& channelId);
+    void refreshAllTabUnreadVisuals();
+    void updateTab(int index, const Location& location);
+    void saveActiveTabLocation();
+    void activateTab(int index, bool restoreBookmark = true);
+    void closeTab(int index);
+    void removeTab(int index, bool closeThread);
+    int tabIndexForThread(ChatArea* area) const;
+    int firstChannelTab() const;
+    int releaseThreadFromTabSurface(ChatArea* area);
+    void tabifyThread(ChatArea* area, int tabIndex);
     void goBack();
     void goForward();
 
@@ -76,6 +110,9 @@ private:
     QStackedWidget* mainStack = nullptr;
     QSplitter* sidebarSplitter = nullptr;
     QPointer<QSplitter> contentSplitter;
+    QWidget* contentHost = nullptr;
+    QStackedWidget* navigationSurfaceStack = nullptr;
+    QTabBar* navigationTabs = nullptr;
     QStackedWidget* threadStack = nullptr;
     QToolButton* backButton = nullptr;
     QToolButton* forwardButton = nullptr;
@@ -84,6 +121,9 @@ private:
     Location currentLocation;
     QVector<Location> backStack;
     QVector<Location> forwardStack;
+    NavigationTabsModel tabModel;
+    int activeTabIndex = -1;
+    bool switchingTabs = false;
     bool replayingHistory = false;
     bool threadSplitterStateRestored = false;
 };

@@ -6,20 +6,20 @@
  *
  * Copyright 2021, 2022 Lyubomir Filipov
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  *
- * Mattermost-QT is free software: you can redistribute it and/or modify
+ * MatterLeast is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
- * Mattermost-QT is distributed in the hope that it will be useful,
+ * MatterLeast is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
+ * along with MatterLeast. if not, see https://www.gnu.org/licenses/.
  */
 
 #include "ChannelItem.h"
@@ -33,6 +33,7 @@
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
+#include "navigation/AppNavigationService.h"
 
 namespace Mattermost {
 
@@ -136,6 +137,11 @@ BackendChannel* ChannelItem::backendChannel() const
 
 void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& channel)
 {
+    menu.addAction(QStringLiteral("Open in new tab"), [this, &channel] {
+        AppNavigationService::instance(backend).openChannelInTab(channel.id);
+    });
+    menu.addSeparator();
+
     auto& sidebar = SidebarService::instance(backend);
     const bool muted = sidebar.isChannelMuted(channel);
     const bool conversation = channel.type == BackendChannel::directChannel
