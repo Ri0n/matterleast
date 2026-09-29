@@ -400,6 +400,40 @@ void PostWidget::changeEvent(QEvent* event)
     }
 }
 
+bool PostWidget::eventFilter(QObject* watched, QEvent* event)
+{
+    if (event && event->type() == QEvent::MouseButtonRelease) {
+        auto* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::MiddleButton) {
+            auto* viewport = qobject_cast<QWidget*>(watched);
+            auto* browser = viewport
+                ? qobject_cast<QTextBrowser*>(viewport->parentWidget())
+                : nullptr;
+            if (browser && browser->viewport() == viewport) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                const QPoint pos = mouseEvent->position().toPoint();
+#else
+                const QPoint pos = mouseEvent->pos();
+#endif
+                const QString anchor = browser->anchorAt(pos);
+                if (!anchor.isEmpty()) {
+                    const QUrl url(anchor);
+                    const bool profileLink =
+                        url.scheme() == QStringLiteral("mattermost-user")
+                        || url.scheme() == QStringLiteral("mattermost-group");
+                    if (!profileLink) {
+                        AppNavigationService::instance(backend_).openUrlInTab(url);
+                        event->accept();
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
 void PostWidget::contextMenuEvent(QContextMenuEvent* event)
 {
     if (!event) {
@@ -922,6 +956,7 @@ void PostWidget::connectMessageLinks()
 		browser->setOpenLinks(false);
 		browser->setOpenExternalLinks(false);
         browser->setContextMenuPolicy(Qt::CustomContextMenu);
+        browser->viewport()->installEventFilter(this);
         QObject::disconnect(browser, nullptr, this, nullptr);
 		connect(browser, &QTextBrowser::anchorClicked, this,
 		        [this](const QUrl& url) {

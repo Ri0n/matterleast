@@ -24,9 +24,11 @@ public:
     static AppNavigationService& instance(Backend& backend);
 
     void openUrl(const QUrl& url);
+    void openUrlInTab(const QUrl& url);
     void openChannel(const QString& channelId);
     void openChannelInTab(const QString& channelId);
     void openPost(const QString& postId);
+    void openPostInTab(const QString& postId);
     void openThread(const QString& channelId, const QString& rootId);
     void openThreadInTab(const QString& channelId, const QString& rootId);
     void openThreadAtLastViewed(const QString& channelId,
@@ -57,11 +59,20 @@ private:
     quint64 beginNavigation();
     void ensureMainWindowConnection();
     bool isLocalUrl(const QUrl& url) const;
+    void openUrlImpl(const QUrl& url, bool inTab);
+    void openPostImpl(const QString& postId, bool inTab);
     BackendChannel* findChannel(const QString& teamName,
                                 const QString& channelName) const;
     BackendChannel* findPostChannel(const QString& postId) const;
     void openPostInChannel(BackendChannel& channel, const QString& postId,
-                           quint64 navigationGeneration);
+                           quint64 navigationGeneration, bool inTab);
+    void presentPost(const QString& channelId,
+                     const QString& postId,
+                     const QString& rootId,
+                     const QStringList& contextPostIds,
+                     bool reachedOldest,
+                     bool reachedNewest,
+                     bool inTab);
 
     Backend& backend;
     NavigationRequestGate navigationRequests;

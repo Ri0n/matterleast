@@ -26,7 +26,9 @@ model merely to change its presentation.
 ## Invariants
 
 - One visible tab does not consume vertical space: the tab bar is shown only
-  when there are at least two semantic tabs.
+  when there are at least two semantic tabs. Hiding the bar never hides the
+  central destination itself; the normal channel surface remains the visible
+  page of the central host.
 - Explicit **Open in new tab** for a channel may create two tabs for the same
   channel. They are separate navigation/bookmark entries over the shared
   channel surface.
@@ -39,6 +41,15 @@ model merely to change its presentation.
 - Browser-like Back/Forward history remains orthogonal to tabs. Tab switching
   may restore a recorded bookmark, but the tab model must not become a second
   post-loading state machine.
+
+## Opening a new tab
+
+The normal left click preserves existing navigation semantics. A middle click
+is the browser-like modifier for opening the semantic target in a tab without
+changing the sidebar selection first. This applies to channel/conversation rows,
+Following/Attention channel or thread rows, and internal Mattermost links in
+message text. Permalinks still pass through `AppNavigationService` so cold-post
+resolution and reply-root loading happen before the tab is presented.
 
 ## Extension point
 

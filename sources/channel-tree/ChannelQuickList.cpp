@@ -137,7 +137,7 @@ void ChannelQuickList::keyPressEvent(QKeyEvent* event)
 void ChannelQuickList::mousePressEvent(QMouseEvent* event)
 {
     QTreeWidgetItem* pressedItem = nullptr;
-    if (event && event->button() == Qt::LeftButton) {
+    if (event) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         pressedItem = itemAt(event->position().toPoint());
 #else
@@ -145,8 +145,33 @@ void ChannelQuickList::mousePressEvent(QMouseEvent* event)
 #endif
     }
 
+    if (event && event->button() == Qt::MiddleButton
+        && pressedItem && backend_ && model_) {
+        const QString channelId =
+            pressedItem->data(0, SidebarItem::ChannelIdRole).toString();
+        const QString threadId =
+            pressedItem->data(0, SidebarItem::ThreadIdRole).toString();
+        const FollowingModel::Entry* entry =
+            model_->findEntry(channelId, threadId);
+        if (entry) {
+            auto& navigation = AppNavigationService::instance(*backend_);
+            if (entry->isThread()) {
+                if (entry->synthetic) {
+                    navigation.openPostInTab(entry->threadId);
+                } else {
+                    navigation.openThreadInTab(entry->channelId, entry->threadId);
+                }
+            } else {
+                navigation.openChannelInTab(entry->channelId);
+            }
+            event->accept();
+            return;
+        }
+    }
+
+    const bool leftActivation = event && event->button() == Qt::LeftButton;
     QTreeWidget::mousePressEvent(event);
-    if (pressedItem) {
+    if (leftActivation && pressedItem) {
         activateItem(pressedItem);
     }
 }

@@ -417,6 +417,16 @@ void AppNavigationService::openThreadInTab(const QString& channelId,
 
 void AppNavigationService::openUrl(const QUrl& url)
 {
+    openUrlImpl(url, false);
+}
+
+void AppNavigationService::openUrlInTab(const QUrl& url)
+{
+    openUrlImpl(url, true);
+}
+
+void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
+{
     if (!url.isValid()) {
         return;
     }
@@ -430,7 +440,11 @@ void AppNavigationService::openUrl(const QUrl& url)
     const QStringList path = url.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
     if (path.size() >= 3 && path.at(1) == QStringLiteral("channels")) {
         if (BackendChannel* channel = findChannel(path.at(0), path.at(2))) {
-            openChannel(channel->id);
+            if (inTab) {
+                openChannelInTab(channel->id);
+            } else {
+                openChannel(channel->id);
+            }
             return;
         }
     }
@@ -446,7 +460,11 @@ void AppNavigationService::openUrl(const QUrl& url)
                 continue;
             }
             if (BackendChannel* channel = backend.getStorage().getDirectChannelByUserId(user.id)) {
-                openChannel(channel->id);
+                if (inTab) {
+                    openChannelInTab(channel->id);
+                } else {
+                    openChannel(channel->id);
+                }
                 return;
             }
             break;
@@ -454,7 +472,11 @@ void AppNavigationService::openUrl(const QUrl& url)
     }
 
     if (path.size() >= 3 && path.at(1) == QStringLiteral("pl")) {
-        openPost(path.at(2));
+        if (inTab) {
+            openPostInTab(path.at(2));
+        } else {
+            openPost(path.at(2));
+        }
         return;
     }
 
@@ -467,6 +489,16 @@ void AppNavigationService::openUrl(const QUrl& url)
 
 void AppNavigationService::openPost(const QString& postId)
 {
+    openPostImpl(postId, false);
+}
+
+void AppNavigationService::openPostInTab(const QString& postId)
+{
+    openPostImpl(postId, true);
+}
+
+void AppNavigationService::openPostImpl(const QString& postId, bool inTab)
+{
     const quint64 navigationGeneration = beginNavigation();
     if (postId.isEmpty()) {
         qCWarning(lcNavigationResolve) << "Ignoring navigation to an empty post id";
@@ -474,7 +506,7 @@ void AppNavigationService::openPost(const QString& postId)
     }
 
     if (BackendChannel* channel = findPostChannel(postId)) {
-        openPostInChannel(*channel, postId, navigationGeneration);
+        openPostInChannel(*channel, postId, navigationGeneration, inTab);
         return;
     }
 
@@ -482,7 +514,7 @@ void AppNavigationService::openPost(const QString& postId)
     auto* resolver = new NavigationPostResolver(
         backend,
         postId,
-        [guard, postId, navigationGeneration](BackendChannel* channel) {
+        [guard, postId, navigationGeneration, inTab](BackendChannel* channel) {
             if (!guard || !guard->navigationRequests.isCurrent(navigationGeneration)) {
                 return;
             }
@@ -491,7 +523,8 @@ void AppNavigationService::openPost(const QString& postId)
                     << "Navigation target could not be resolved" << postId;
                 return;
             }
-            guard->openPostInChannel(*channel, postId, navigationGeneration);
+            guard->openPostInChannel(
+                *channel, postId, navigationGeneration, inTab);
         },
         this);
     resolver->start();
@@ -583,9 +616,34 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
         });
 }
 
+void AppNavigationService::presentPost(
+    const QString& channelId,
+    const QString& postId,
+    const QString& rootId,
+    const QStringList& contextPostIds,
+    bool reachedOldest,
+    bool reachedNewest,
+    bool inTab)
+{
+    ensureMainWindowConnection();
+    if (inTab) {
+        emit tabRequested(channelId, rootId, postId);
+        return;
+    }
+
+    emit channelRequested(channelId,
+                          postId,
+                          rootId,
+                          contextPostIds,
+                          reachedOldest,
+                          reachedNewest,
+                          false);
+}
+
 void AppNavigationService::openPostInChannel(BackendChannel& channel,
                                              const QString& postId,
-                                             quint64 navigationGeneration)
+                                             quint64 navigationGeneration,
+                                             bool inTab)
 {
     if (!navigationRequests.isCurrent(navigationGeneration)) {
         return;
@@ -594,18 +652,13 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
         if (!cached->root_id.isEmpty()) {
             const QString channelId = channel.id;
             const QString rootId = cached->root_id;
-            const auto presentReply = [this, channelId, postId, rootId, navigationGeneration] {
+            const auto presentReply = [this, channelId, postId, rootId,
+                                       navigationGeneration, inTab] {
                 if (!navigationRequests.isCurrent(navigationGeneration)) {
                     return;
                 }
-                ensureMainWindowConnection();
-                emit channelRequested(channelId,
-                                      postId,
-                                      rootId,
-                                      QStringList(),
-                                      false,
-                                      false,
-                                      false);
+                presentPost(channelId, postId, rootId, QStringList(),
+                            false, false, inTab);
             };
 
             // ThreadPostSource derives its logical length and time anchors from
@@ -620,7 +673,8 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
             QPointer<AppNavigationService> guard(this);
             PostRepository::instance(backend).loadPost(
                 rootId,
-                [guard, channelId, postId, rootId, navigationGeneration](const PostRepository::PostResult& result) {
+                [guard, channelId, postId, rootId, navigationGeneration, inTab](
+                    const PostRepository::PostResult& result) {
                     if (!guard
                         || !guard->navigationRequests.isCurrent(navigationGeneration)
                         || !result.success || result.channelId != channelId) {
@@ -637,14 +691,8 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
                         return;
                     }
 
-                    guard->ensureMainWindowConnection();
-                    emit guard->channelRequested(channelId,
-                                                 postId,
-                                                 rootId,
-                                                 QStringList(),
-                                                 false,
-                                                 false,
-                                                 false);
+                    guard->presentPost(channelId, postId, rootId, QStringList(),
+                                       false, false, inTab);
                 });
             return;
         }
@@ -654,7 +702,8 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
     const QString channelId = channel.id;
     PostRepository::instance(backend).loadChannelAround(
         channel, postId,
-        [guard, channelId, postId, navigationGeneration](const PostRepository::Context& context) {
+        [guard, channelId, postId, navigationGeneration, inTab](
+            const PostRepository::Context& context) {
             if (!guard || !guard->navigationRequests.isCurrent(navigationGeneration)
                 || !context.success) {
                 return;
@@ -663,19 +712,17 @@ void AppNavigationService::openPostInChannel(BackendChannel& channel,
             QString rootId;
             if (BackendChannel* currentChannel =
                     guard->backend.getStorage().getChannelById(channelId)) {
-                if (BackendPost* target = currentChannel->postIdToPost.value(postId, nullptr)) {
+                if (BackendPost* target =
+                        currentChannel->postIdToPost.value(postId, nullptr)) {
                     rootId = target->root_id;
                 }
             }
 
-            guard->ensureMainWindowConnection();
-            emit guard->channelRequested(channelId,
-                                         postId,
-                                         rootId,
-                                         context.postIds,
-                                         context.reachedOldest,
-                                         context.reachedNewest,
-                                         false);
+            guard->presentPost(channelId, postId, rootId,
+                               context.postIds,
+                               context.reachedOldest,
+                               context.reachedNewest,
+                               inTab);
         },
         true);
 }

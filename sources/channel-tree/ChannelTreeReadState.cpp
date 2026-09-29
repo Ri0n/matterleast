@@ -6,7 +6,9 @@
 
 #include "ChannelItem.h"
 #include "backend/Backend.h"
+#include "backend/types/BackendChannel.h"
 #include "chat-area/ChatArea.h"
+#include "navigation/AppNavigationService.h"
 
 namespace Mattermost {
 
@@ -89,6 +91,45 @@ void ChannelTree::currentChanged(const QModelIndex& current, const QModelIndex& 
 
 void ChannelTree::mousePressEvent(QMouseEvent* event)
 {
+    if (!event) {
+        return;
+    }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPoint eventPos = event->position().toPoint();
+#else
+    const QPoint eventPos = event->pos();
+#endif
+
+    if (!renderingSidebar && event->button() == Qt::MiddleButton && backendForSidebar) {
+        QTreeWidgetItem* clickedItem = itemAt(eventPos);
+        if (clickedItem) {
+            QString channelId;
+            const int kind = clickedItem->data(0, ItemKindRole).toInt();
+            if (kind == ChannelItemKind) {
+                channelId = clickedItem->data(0, ItemIdRole).toString();
+            } else if (kind == VirtualDestinationItemKind
+                       && clickedItem->data(0, ItemDestinationRole).toInt()
+                           == SidebarItem::PersonalDestination) {
+                channelId = clickedItem->data(0, ItemChannelIdRole).toString();
+                if (channelId.isEmpty()) {
+                    if (BackendChannel* personal =
+                            backendForSidebar->getStorage().getDirectChannelByUserId(
+                                backendForSidebar->getLoginUser().id)) {
+                        channelId = personal->id;
+                    }
+                }
+            }
+
+            if (!channelId.isEmpty()) {
+                AppNavigationService::instance(*backendForSidebar)
+                    .openChannelInTab(channelId);
+                event->accept();
+                return;
+            }
+        }
+    }
+
     QTreeWidgetItem* previousItem = currentItem();
     QTreeWidget::mousePressEvent(event);
 
@@ -97,7 +138,7 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
     // page mismatch. Re-present it and then re-evaluate the resulting viewport;
     // neither action acknowledges read state by itself.
     if (!renderingSidebar && previousItem && previousItem == currentItem()) {
-        QTreeWidgetItem* clickedItem = itemAt(event->pos());
+        QTreeWidgetItem* clickedItem = itemAt(eventPos);
         if (clickedItem == previousItem
             && clickedItem->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             activateChannelItem(clickedItem);
