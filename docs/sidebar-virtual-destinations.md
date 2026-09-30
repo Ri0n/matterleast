@@ -4,10 +4,47 @@ This note records the model for user-centric destinations that look like navigat
 not ordinary server sidebar rows, plus the common collection semantics needed by Saved, Recent
 Mentions, and message search.
 
+## Fixed local destination block
+
+Each team starts with a fixed local presentation block, before every Mattermost server category:
+
+```text
+Personal
+Saved
+Drafts
+Recent Mentions
+---------------- server-owned categories begin here ----------------
+Favorites
+Channels
+Direct Messages
+…
+```
+
+These four rows are **direct `TeamItem` children**, not children of Favorites and not synthetic
+`SidebarCategory` objects. `VirtualDestinationBlock::Destinations` is the single source of truth for
+membership and order.
+
+This structural distinction is important:
+
+- server category `order` and `channel_ids` payloads never contain virtual destinations;
+- category collapse/reorder and channel drag/drop operate only on rows whose `KindRole` is Category or
+  Channel respectively;
+- a drop on a virtual destination is rejected rather than translated into an invented category ordinal;
+- reconciliation preserves one stable row per destination and keeps the block ahead of every server
+  category without recreating surviving rows;
+- `clearTeamSidebar()` destroys direct virtual rows through the normal ownership-aware cleanup path, so
+  a materialized Personal `ChatArea` cannot outlive its team row;
+- Unread mode filters server channels only. The fixed destinations remain available; an explicit text
+  filter may still hide a destination whose label does not match, and a visible destination keeps its
+  team visible;
+- palette-dependent destination presentation is refreshed directly from the team-level rows.
+
+Any code iterating `TeamItem::children` must inspect `KindRole`. A direct child is no longer necessarily
+a server category.
+
 ## Personal
 
-The user's self-contact/self-DM is exposed as **Personal** (`Личное`) as the first local row inside the
-existing **Favorites** sidebar category.
+The user's self-contact/self-DM is exposed as **Personal** (`Личное`) as the first local destination.
 
 `Personal` is a virtual navigation item, but its destination is a real canonical self-DM channel. It
 resolves the logged-in user's direct channel with themselves and opens the ordinary channel/timeline
@@ -32,11 +69,11 @@ explicit instead of pretending the local row is an ordinary server channel row.
 **Saved** (`Сохранённое`) is fundamentally different. Saved posts can originate from multiple channels
 and threads, so it does not pretend to be a `BackendChannel`.
 
-It is implemented as the second fixed local row in Favorites and opens the shared virtualized
-`PostCollectionView`. The producer is the paged `/users/{user_id}/posts/flagged` endpoint. Ordinary
-message context menus can add `flagged_post` preferences and Saved rows can remove them again. The
-sidebar row is a concrete virtual-destination item with no channel context menu: it deliberately cannot
-inherit mute, profile, or category-mutation actions from an unrelated real channel.
+It is the second fixed local destination and opens the shared virtualized `PostCollectionView`. The
+producer is the paged `/users/{user_id}/posts/flagged` endpoint. Ordinary message context menus can add
+`flagged_post` preferences and Saved rows can remove them again. The sidebar row is a concrete
+virtual-destination item with no channel context menu: it deliberately cannot inherit mute, profile, or
+category-mutation actions from an unrelated real channel.
 
 The destination is backed by a cross-conversation post collection:
 
@@ -60,10 +97,9 @@ navigation. The collection itself never invents channel page numbers or thread c
 
 ## Recent Mentions
 
-**Recent Mentions** is another fixed virtual destination inside Favorites, after Personal, Saved, and
-Drafts. Like Saved, it is a cross-conversation collection rather than a fake channel. It reuses
-`PostCollectionView`, collection paging, origin labels, and canonical `AppNavigationService::openPost()`
-activation.
+**Recent Mentions** is the fourth fixed local destination, after Personal, Saved, and Drafts. Like Saved,
+it is a cross-conversation collection rather than a fake channel. It reuses `PostCollectionView`,
+collection paging, origin labels, and canonical `AppNavigationService::openPost()` activation.
 
 The producer intentionally follows Mattermost web-client mention-search semantics instead of deriving a
 second client-side mention model:
@@ -88,10 +124,6 @@ must use that normalized user state rather than reinterpreting the raw profile J
 Recent Mentions does **not** inherit Attention semantics. Opening the collection does not mutate unread
 state, follow state, or mention counters; selecting a result navigates to the canonical conversation,
 where the normal read-tracking rules take over.
-
-The current sidebar placement deliberately remains inside Favorites. Moving Personal/Saved/Drafts/
-Recent Mentions above server categories is a separate presentation decision and must not be coupled to
-the collection model.
 
 ## Message search
 

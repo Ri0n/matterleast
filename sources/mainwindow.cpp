@@ -54,6 +54,7 @@
 #include "channel-tree/ChannelIcons.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/ChannelQuickList.h"
+#include "channel-tree/SidebarUnreadPolicy.h"
 #include "channel-tree-dialogs/FilterListDialog.h"
 #include "channel-tree-dialogs/TeamChannelsListDialog.h"
 #include "channel-tree-dialogs/UserSearchDialog.h"
@@ -460,7 +461,8 @@ void MainWindow::refreshChannelUnreadFilter()
         UNREAD_MODE_CHANNELS_ONLY, UNREAD_MODE_CHANNELS_ONLY_DEFAULT);
 	if (channelTabs && recentChannels) {
 		const int followingIndex = channelTabs->indexOf(recentChannels);
-        const bool showFollowing = !unreadOnly || channelsOnly;
+        const bool showFollowing = SidebarUnreadPolicy::followingVisible(
+            unreadOnly, channelsOnly);
 		if (!showFollowing && followingIndex >= 0) {
 			channelTabs->removeTab(followingIndex);
 		} else if (showFollowing && followingIndex < 0) {
@@ -474,9 +476,10 @@ void MainWindow::refreshChannelUnreadFilter()
     const bool ignoreWhileFiltering = options->value<bool>(
         UNREAD_MODE_IGNORE_WHILE_FILTERING,
         UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT);
-    const bool unreadGateActive = unreadOnly
-        && !(textFilterActive && ignoreWhileFiltering);
-	const bool anyFilterActive = unreadGateActive || textFilterActive;
+    const bool unreadGateActive = SidebarUnreadPolicy::unreadGateActive(
+        unreadOnly, textFilterActive, ignoreWhileFiltering);
+	const bool anyFilterActive = SidebarUnreadPolicy::anyFilterActive(
+        unreadOnly, textFilterActive, ignoreWhileFiltering);
 
 	if (!unreadOnly) {
 		retainedUnreadFilterChannelId.clear();
@@ -491,13 +494,28 @@ void MainWindow::refreshChannelUnreadFilter()
 			continue;
 		}
 
-		bool teamHasVisibleChannels = false;
-		for (int categoryIndex = 0; categoryIndex < teamItem->childCount(); ++categoryIndex) {
-			QTreeWidgetItem* categoryItem = teamItem->child(categoryIndex);
-			if (!categoryItem) {
+		bool teamHasVisibleRows = false;
+		for (int childIndex = 0; childIndex < teamItem->childCount(); ++childIndex) {
+			QTreeWidgetItem* childItem = teamItem->child(childIndex);
+			if (!childItem) {
 				continue;
 			}
 
+            const int kind = childItem->data(0, ChannelTree::ItemKindRole).toInt();
+            if (kind == ChannelTree::VirtualDestinationItemKind) {
+                const bool matchesText = childItem->text(0).contains(
+                    filterText, Qt::CaseInsensitive);
+                const bool visible = SidebarUnreadPolicy::virtualDestinationVisible(
+                    textFilterActive, matchesText);
+                childItem->setHidden(!visible);
+                teamHasVisibleRows = teamHasVisibleRows || visible;
+                continue;
+            }
+            if (kind != ChannelTree::CategoryItemKind) {
+                continue;
+            }
+
+            QTreeWidgetItem* categoryItem = childItem;
 			const QString teamId = categoryItem->data(0, ChannelTree::ItemTeamIdRole).toString();
 			const QString categoryId = categoryItem->data(0, ChannelTree::ItemIdRole).toString();
 			const SidebarTeamState* state = sidebar.teamState(teamId);
@@ -514,7 +532,6 @@ void MainWindow::refreshChannelUnreadFilter()
 				0, directMessages ? tr("Start conversation")
 				                  : (channelsCategory ? tr("Browse public channels")
 				                                      : QString()));
-
 
 			// Mattermost's category channel_ids order is not guaranteed to track
 			// live DM activity. Keep the server category membership but display
@@ -593,10 +610,10 @@ void MainWindow::refreshChannelUnreadFilter()
 			}
 
 			categoryItem->setHidden(anyFilterActive && !categoryHasVisibleChannels);
-			teamHasVisibleChannels = teamHasVisibleChannels || categoryHasVisibleChannels;
+			teamHasVisibleRows = teamHasVisibleRows || categoryHasVisibleChannels;
 		}
 
-		teamItem->setHidden(anyFilterActive && !teamHasVisibleChannels);
+		teamItem->setHidden(anyFilterActive && !teamHasVisibleRows);
 	}
 }
 
