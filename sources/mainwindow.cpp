@@ -5,7 +5,7 @@
  *
  * Mattermost-QT is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
  * Mattermost-QT is distributed in the hope that it will be useful,
@@ -41,6 +41,7 @@
 #include <QWindow>
 
 #include "./ui_mainwindow.h"
+#include "Settings.h"
 #include "SettingsWindow.h"
 #include "backend/Backend.h"
 #include "backend/PendingPostService.h"
@@ -273,7 +274,7 @@ GNU Lesser General Public License for more details.<br/>
 <br/>
 You should have received a copy of the GNU Lesser General Public License
 along with MatterLeast. If not, see <a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.<br/>
-)");
+)"));
 
 void MainWindow::setupChannelTabs()
 {
@@ -348,6 +349,20 @@ void MainWindow::setupChannelTabs()
 		refreshUnreadFilterIcon();
 		refreshChannelUnreadFilter();
 	});
+
+    auto* options = MLOptions::instance();
+    auto* channelsOnlyOption = options->optionObject<bool>(
+        UNREAD_MODE_CHANNELS_ONLY, UNREAD_MODE_CHANNELS_ONLY_DEFAULT);
+    auto* ignoreFilteringOption = options->optionObject<bool>(
+        UNREAD_MODE_IGNORE_WHILE_FILTERING,
+        UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT);
+    connect(channelsOnlyOption, &MLOptionObject::changed, this,
+            [this](const QVariant&) {
+        refreshUnreadFilterIcon();
+        refreshChannelUnreadFilter();
+    });
+    connect(ignoreFilteringOption, &MLOptionObject::changed, this,
+            [this](const QVariant&) { refreshChannelUnreadFilter(); });
 
 	connect(recentChannels, &ChannelQuickList::channelSelected,
 	        ui->channelList, &ChannelTree::openChannel);
@@ -440,11 +455,15 @@ void MainWindow::refreshChannelUnreadFilter()
 	}
 
 	const bool unreadOnly = unreadFilterButton->isChecked();
+    auto* options = MLOptions::instance();
+    const bool channelsOnly = options->value<bool>(
+        UNREAD_MODE_CHANNELS_ONLY, UNREAD_MODE_CHANNELS_ONLY_DEFAULT);
 	if (channelTabs && recentChannels) {
 		const int followingIndex = channelTabs->indexOf(recentChannels);
-		if (unreadOnly && followingIndex >= 0) {
+        const bool showFollowing = !unreadOnly || channelsOnly;
+		if (!showFollowing && followingIndex >= 0) {
 			channelTabs->removeTab(followingIndex);
-		} else if (!unreadOnly && followingIndex < 0) {
+		} else if (showFollowing && followingIndex < 0) {
 			channelTabs->insertTab(1, recentChannels, tr("Following"));
 		}
 	}
@@ -452,7 +471,12 @@ void MainWindow::refreshChannelUnreadFilter()
 	const QString filterText = sidebarFilterEdit
 		? sidebarFilterEdit->text().trimmed() : QString();
 	const bool textFilterActive = !filterText.isEmpty();
-	const bool anyFilterActive = unreadOnly || textFilterActive;
+    const bool ignoreWhileFiltering = options->value<bool>(
+        UNREAD_MODE_IGNORE_WHILE_FILTERING,
+        UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT);
+    const bool unreadGateActive = unreadOnly
+        && !(textFilterActive && ignoreWhileFiltering);
+	const bool anyFilterActive = unreadGateActive || textFilterActive;
 
 	if (!unreadOnly) {
 		retainedUnreadFilterChannelId.clear();
@@ -555,7 +579,7 @@ void MainWindow::refreshChannelUnreadFilter()
 				}
 
 				bool matchesUnread = true;
-				if (unreadOnly) {
+				if (unreadGateActive) {
 					const bool retained = channelsTabVisible
 						&& channelId == retainedUnreadFilterChannelId;
 					matchesUnread = channel
@@ -739,8 +763,11 @@ void MainWindow::refreshUnreadFilterIcon()
 		? palette.color(QPalette::Highlight)
 		: palette.color(QPalette::ButtonText);
 	unreadFilterButton->setIcon(IconUtils::tintedIcon(icon, color));
+    const bool channelsOnly = MLOptions::instance()->value<bool>(
+        UNREAD_MODE_CHANNELS_ONLY, UNREAD_MODE_CHANNELS_ONLY_DEFAULT);
 	unreadFilterButton->setToolTip(unreadFilterButton->isChecked()
-		? tr("Show all channels and Following")
+        ? (channelsOnly ? tr("Show all channels")
+                        : tr("Show all channels and Following"))
 		: tr("Show unread only"));
 }
 
