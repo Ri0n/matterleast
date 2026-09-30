@@ -75,6 +75,10 @@ second client-side mention model:
 - issue an all-team `posts/search` request with `is_or_search=true` and `include_deleted_channels=true`;
 - preserve the search endpoint's result order and paging authority.
 
+`RecentMentionsService` owns only the feature policy (deriving the current user's query). The actual
+`posts/search` transport and collection-response normalization remain under `PostRepository`, preserving
+its repository-wide ownership of post REST retrieval.
+
 Mattermost commonly serializes notification booleans in `notify_props` as the strings `"true"` and
 `"false"`. `BackendNotifyPreps` therefore accepts both those strings and JSON booleans. Recent Mentions
 must use that normalized user state rather than reinterpreting the raw profile JSON independently.
