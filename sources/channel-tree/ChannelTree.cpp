@@ -266,22 +266,22 @@ void ChannelTree::renderTeamSidebar(Backend& backend, TeamItem& teamItem,
 void ChannelTree::clearTeamSidebar(TeamItem& teamItem)
 {
     while (teamItem.childCount() > 0) {
-        QTreeWidgetItem* category = teamItem.takeChild(0);
-        while (category->childCount() > 0) {
-            QTreeWidgetItem* channelItem = category->takeChild(0);
-            const QString channelId = channelItem->data(0, ItemIdRole).toString();
-            removeChannelToItem(channelId, channelItem);
-
-            ChatArea* chatArea = channelItem->data(0, Qt::UserRole).value<ChatArea*>();
-            if (chatArea) {
-                if (chatAreaStackedWidget) {
-                    chatAreaStackedWidget->removeWidget(chatArea);
-                }
-                delete chatArea;
-            }
-            delete channelItem;
+        QTreeWidgetItem* row = teamItem.takeChild(0);
+        if (!row) {
+            continue;
         }
-        delete category;
+
+        if (row->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+            while (row->childCount() > 0) {
+                destroySidebarRow(row->takeChild(0));
+            }
+            delete row;
+        } else {
+            // Virtual destinations are direct team children. In particular,
+            // Personal may own a materialized ChatArea, so route it through the
+            // same ownership-aware cleanup as ordinary sidebar rows.
+            destroySidebarRow(row);
+        }
     }
 }
 
@@ -305,10 +305,10 @@ QTreeWidgetItem* ChannelTree::createCategoryItem(TeamItem& teamItem, const QStri
 }
 
 ChannelItem* ChannelTree::createPersonalItem(Backend& backend, TeamItem& teamItem,
-                                             QTreeWidgetItem& categoryItem)
+                                             QTreeWidgetItem& parentItem)
 {
     auto* item = new DirectChannelItem(backend, nullptr);
-    categoryItem.addChild(item);
+    parentItem.addChild(item);
     item->setData(0, ItemKindRole, VirtualDestinationItemKind);
     item->setData(0, ItemIdRole, QStringLiteral("virtual:personal"));
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
@@ -344,10 +344,10 @@ ChannelItem* ChannelTree::createPersonalItem(Backend& backend, TeamItem& teamIte
 }
 
 ChannelItem* ChannelTree::createSavedItem(Backend& backend, TeamItem& teamItem,
-                                          QTreeWidgetItem& categoryItem)
+                                          QTreeWidgetItem& parentItem)
 {
     auto* item = new VirtualDestinationItem(backend, nullptr);
-    categoryItem.addChild(item);
+    parentItem.addChild(item);
     item->setData(0, ItemKindRole, VirtualDestinationItemKind);
     item->setData(0, ItemIdRole, QStringLiteral("virtual:saved"));
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
@@ -361,10 +361,10 @@ ChannelItem* ChannelTree::createSavedItem(Backend& backend, TeamItem& teamItem,
 }
 
 ChannelItem* ChannelTree::createDraftsItem(Backend& backend, TeamItem& teamItem,
-                                           QTreeWidgetItem& categoryItem)
+                                           QTreeWidgetItem& parentItem)
 {
     auto* item = new VirtualDestinationItem(backend, nullptr);
-    categoryItem.addChild(item);
+    parentItem.addChild(item);
     item->setData(0, ItemKindRole, VirtualDestinationItemKind);
     item->setData(0, ItemIdRole, QStringLiteral("virtual:drafts"));
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
@@ -384,15 +384,13 @@ QTreeWidgetItem* ChannelTree::personalItemForTeam(const QString& teamId) const
         return nullptr;
     }
 
-    for (int categoryIndex = 0; categoryIndex < teamItem->childCount(); ++categoryIndex) {
-        QTreeWidgetItem* category = teamItem->child(categoryIndex);
-        for (int rowIndex = 0; category && rowIndex < category->childCount(); ++rowIndex) {
-            QTreeWidgetItem* row = category->child(rowIndex);
-            if (row
-                && row->data(0, ItemKindRole).toInt() == VirtualDestinationItemKind
-                && row->data(0, ItemDestinationRole).toInt() == SidebarItem::PersonalDestination) {
-                return row;
-            }
+    for (int rowIndex = 0; rowIndex < teamItem->childCount(); ++rowIndex) {
+        QTreeWidgetItem* row = teamItem->child(rowIndex);
+        if (row
+            && row->data(0, ItemKindRole).toInt() == VirtualDestinationItemKind
+            && row->data(0, ItemDestinationRole).toInt()
+                == SidebarItem::PersonalDestination) {
+            return row;
         }
     }
     return nullptr;
@@ -662,7 +660,8 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
 
     const int destination = item->data(0, ItemDestinationRole).toInt();
     if (destination == SidebarItem::SavedDestination
-        || destination == SidebarItem::DraftsDestination) {
+        || destination == SidebarItem::DraftsDestination
+        || destination == SidebarItem::RecentMentionsDestination) {
         emit virtualDestinationRequested(destination,
                                          item->data(0, ItemTeamIdRole).toString());
         return;
@@ -1209,10 +1208,10 @@ bool ChannelTree::resolveChannelDropTarget(QTreeWidgetItem* source,
     } else if (targetKind == CategoryItemKind) {
         targetCategoryItem = target;
     } else if (targetKind == VirtualDestinationItemKind) {
-        // Personal/Saved are presentation-only rows inside Favorites and have
-        // no position in category.channel_ids. Treat dropping on them as
-        // dropping on the category itself rather than inventing an ordinal.
-        targetCategoryItem = target->parent();
+        // The leading local block has no server category ordinal. A drop on a
+        // destination is therefore rejected rather than translated into a
+        // Mattermost category/channel mutation.
+        return false;
     } else {
         return false;
     }
@@ -1295,8 +1294,8 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
 
     // Match AnyKeep's GenericReorderController: compare the dragged block's
     // leading edge against insertion boundaries computed after removing the
-    // source.  Nearest-boundary selection means a neighbour moves once the
-    // leading edge has crossed half of that neighbour's extent.  Moving up and
+    // source. Nearest-boundary selection means a neighbour moves once the
+    // leading edge has crossed half of that neighbour's extent. Moving up and
     // down therefore naturally use the two different half-overlap thresholds.
     const int probe = draggedBlockStartLogicalY + (pos.y() - dragStartPointerY);
     const CategoryDragBoundary* boundary = nearestCategoryDragBoundary(probe);

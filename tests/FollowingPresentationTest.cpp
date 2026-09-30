@@ -3,6 +3,7 @@
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingPresentation.h"
 #include "channel-tree/SidebarUnreadPolicy.h"
+#include "channel-tree/VirtualDestinationBlock.h"
 
 using namespace Mattermost;
 
@@ -94,6 +95,33 @@ private slots:
         QVERIFY(anyFilterActive(true, false, true));
         QVERIFY(anyFilterActive(true, true, true));
         QVERIFY(anyFilterActive(true, true, false));
+    }
+
+    void leadingDestinationsIgnoreUnreadGateButRespectTextFilter()
+    {
+        using SidebarUnreadPolicy::virtualDestinationVisible;
+
+        QVERIFY(virtualDestinationVisible(false, false));
+        QVERIFY(virtualDestinationVisible(false, true));
+        QVERIFY(!virtualDestinationVisible(true, false));
+        QVERIFY(virtualDestinationVisible(true, true));
+    }
+
+    void leadingDestinationOrderIsStableAndComplete()
+    {
+        QCOMPARE(VirtualDestinationBlock::size(), 4);
+        QCOMPARE(VirtualDestinationBlock::Destinations.at(0),
+                 static_cast<int>(SidebarItem::PersonalDestination));
+        QCOMPARE(VirtualDestinationBlock::Destinations.at(1),
+                 static_cast<int>(SidebarItem::SavedDestination));
+        QCOMPARE(VirtualDestinationBlock::Destinations.at(2),
+                 static_cast<int>(SidebarItem::DraftsDestination));
+        QCOMPARE(VirtualDestinationBlock::Destinations.at(3),
+                 static_cast<int>(SidebarItem::RecentMentionsDestination));
+
+        for (const int destination : VirtualDestinationBlock::Destinations) {
+            QVERIFY(VirtualDestinationBlock::contains(destination));
+        }
     }
 
     void snippetRemainsCompact()

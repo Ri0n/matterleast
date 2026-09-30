@@ -64,28 +64,22 @@ void ChannelTree::refreshPaletteDependentIcons()
         }
     }
 
-    // Local virtual destinations are not present in channelToItemMap. Refresh
-    // their palette-derived icons explicitly so theme changes do not leave the
-    // Recent Mentions @ glyph in the previous theme's foreground colour.
+    // Local virtual destinations are direct TeamItem children and are not
+    // present in channelToItemMap. Refresh palette-derived icons explicitly so
+    // theme changes do not leave the Recent Mentions @ glyph in the old colour.
     for (TeamItem* teamItem : teamToItemMap) {
         if (!teamItem) {
             continue;
         }
-        for (int categoryIndex = 0; categoryIndex < teamItem->childCount(); ++categoryIndex) {
-            QTreeWidgetItem* category = teamItem->child(categoryIndex);
-            if (!category) {
+        for (int rowIndex = 0; rowIndex < teamItem->childCount(); ++rowIndex) {
+            QTreeWidgetItem* row = teamItem->child(rowIndex);
+            if (!row
+                || row->data(0, ItemKindRole).toInt() != VirtualDestinationItemKind
+                || row->data(0, ItemDestinationRole).toInt()
+                    != SidebarItem::RecentMentionsDestination) {
                 continue;
             }
-            for (int rowIndex = 0; rowIndex < category->childCount(); ++rowIndex) {
-                QTreeWidgetItem* row = category->child(rowIndex);
-                if (!row
-                    || row->data(0, ItemKindRole).toInt() != VirtualDestinationItemKind
-                    || row->data(0, ItemDestinationRole).toInt()
-                        != SidebarItem::RecentMentionsDestination) {
-                    continue;
-                }
-                row->setIcon(0, recentMentionsIcon(palette()));
-            }
+            row->setIcon(0, recentMentionsIcon(palette()));
         }
     }
 }

@@ -173,15 +173,13 @@ private:
 	ChannelItem* createChannelItem(Backend& backend, TeamItem& teamItem,
 	                               QTreeWidgetItem& categoryItem, BackendChannel& channel);
     ChannelItem* createPersonalItem(Backend& backend, TeamItem& teamItem,
-                                    QTreeWidgetItem& categoryItem);
+                                    QTreeWidgetItem& parentItem);
     ChannelItem* createSavedItem(Backend& backend, TeamItem& teamItem,
-                                 QTreeWidgetItem& categoryItem);
+                                 QTreeWidgetItem& parentItem);
     ChannelItem* createDraftsItem(Backend& backend, TeamItem& teamItem,
-                                  QTreeWidgetItem& categoryItem);
+                                  QTreeWidgetItem& parentItem);
     ChannelItem* createRecentMentionsItem(Backend& backend, TeamItem& teamItem,
-                                          QTreeWidgetItem& categoryItem);
-    void handleRecentMentionsSelection(QTreeWidgetItem* current,
-                                       QTreeWidgetItem* previous);
+                                          QTreeWidgetItem& parentItem);
     QTreeWidgetItem* personalItemForTeam(const QString& teamId) const;
     void refreshPersonalItems();
 	ChatArea* ensureChatArea(QTreeWidgetItem* item);

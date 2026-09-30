@@ -23,10 +23,10 @@ public:
 } // namespace
 
 ChannelItem* ChannelTree::createRecentMentionsItem(
-    Backend& backend, TeamItem& teamItem, QTreeWidgetItem& categoryItem)
+    Backend& backend, TeamItem& teamItem, QTreeWidgetItem& parentItem)
 {
     auto* item = new RecentMentionsItem(backend, nullptr);
-    categoryItem.addChild(item);
+    parentItem.addChild(item);
     item->setData(0, ItemKindRole, VirtualDestinationItemKind);
     item->setData(0, ItemIdRole, QStringLiteral("virtual:recent-mentions"));
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
@@ -38,29 +38,7 @@ ChannelItem* ChannelTree::createRecentMentionsItem(
                        | Qt::ItemIsEditable));
     item->setLabel(tr("Recent Mentions"));
     item->setIcon(recentMentionsIcon(palette()));
-
-    // Existing virtual destinations are dispatched from activateVirtualDestination().
-    // Recent Mentions has no backing ChatArea/channel, so route its selection to
-    // the same virtualDestinationRequested contract without inventing a channel.
-    connect(this, &QTreeWidget::currentItemChanged,
-            this, &ChannelTree::handleRecentMentionsSelection,
-            Qt::UniqueConnection);
     return item;
-}
-
-void ChannelTree::handleRecentMentionsSelection(QTreeWidgetItem* current,
-                                                QTreeWidgetItem*)
-{
-    if (!current
-        || current->data(0, ItemKindRole).toInt() != VirtualDestinationItemKind
-        || current->data(0, ItemDestinationRole).toInt()
-            != SidebarItem::RecentMentionsDestination) {
-        return;
-    }
-
-    emit virtualDestinationRequested(
-        SidebarItem::RecentMentionsDestination,
-        current->data(0, ItemTeamIdRole).toString());
 }
 
 } // namespace Mattermost
