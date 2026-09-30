@@ -13,22 +13,6 @@
   <property name="windowTitle">
    <string>Settings - MatterLeast</string>
   </property>
-  <property name="styleSheet">
-   <string notr="true">QGroupBox {
-    border: 1px solid palette(mid);
-    border-radius: 4px;
-    margin-top: 0.75em;
-    padding-top: 0.35em;
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    left: 8px;
-    padding: 0 4px;
-    background-color: palette(window);
-}</string>
-  </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QFrame" name="downloads">
