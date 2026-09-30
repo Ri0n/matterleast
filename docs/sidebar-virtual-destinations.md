@@ -73,6 +73,8 @@ second client-side mention model:
 - exclude broadcast keys `@channel`, `@all`, and `@here`;
 - quote each remaining key before search, so keys containing dashes or other search syntax stay atomic;
 - issue an all-team `posts/search` request with `is_or_search=true` and `include_deleted_channels=true`;
+- calculate `time_zone_offset` from the user's configured Mattermost timezone, with system timezone as
+  the fallback when the profile timezone is unavailable or invalid;
 - preserve the search endpoint's result order and paging authority.
 
 `RecentMentionsService` owns only the feature policy (deriving the current user's query). The actual
