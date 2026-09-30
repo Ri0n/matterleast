@@ -1,6 +1,5 @@
 #include "ChannelTree.h"
 
-#include <QIcon>
 #include <QTreeWidgetItem>
 #include <QVariant>
 
@@ -37,7 +36,6 @@ ChannelItem* ChannelTree::createRecentMentionsItem(
                    & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled
                        | Qt::ItemIsEditable));
     item->setLabel(tr("Recent Mentions"));
-    item->setIcon(QIcon(QStringLiteral(":/icons/unread")));
 
     // Existing virtual destinations are dispatched from activateVirtualDestination().
     // Recent Mentions has no backing ChatArea/channel, so route its selection to
