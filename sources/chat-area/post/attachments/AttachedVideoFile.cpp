@@ -25,6 +25,9 @@
 
 #include <QBuffer>
 #include <QPointer>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#include <QMediaContent>
+#endif
 
 #include "ui_AttachedVideoFile.h"
 #include "backend/AttachmentService.h"
@@ -43,7 +46,7 @@ AttachedVideoFile::AttachedVideoFile(Backend& backend, const BackendFile& file, 
 {
     ui->setupUi(this);
     videoWidget = new QVideoWidget(parent);
-    mediaPlayer = new QMediaPlayer();
+    mediaPlayer = new QMediaPlayer(this);
 
     ui->videoName->setText(file.name);
     ui->verticalLayout->addWidget(videoWidget);
@@ -64,11 +67,23 @@ void AttachedVideoFile::mousePressEvent(QMouseEvent*)
             return;
         }
 
-        qDebug() << "=====================PLAY VIDEO!!==============";
-        QByteArray* fileContentsCopy = new QByteArray(data);
-        QBuffer* mediaStream = new QBuffer(fileContentsCopy);
-        mediaStream->open(QIODevice::ReadOnly);
-        self->mediaPlayer->setMedia(QMediaContent(), mediaStream);
+        QBuffer* previousStream = self->mediaStream;
+        self->mediaStream = new QBuffer(self->mediaPlayer);
+        self->mediaStream->setData(data);
+        if (!self->mediaStream->open(QIODevice::ReadOnly)) {
+            self->mediaStream->deleteLater();
+            self->mediaStream = previousStream;
+            return;
+        }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        self->mediaPlayer->setSourceDevice(self->mediaStream);
+#else
+        self->mediaPlayer->setMedia(QMediaContent(), self->mediaStream);
+#endif
+        if (previousStream) {
+            previousStream->deleteLater();
+        }
         self->mediaPlayer->play();
     });
 }

@@ -222,10 +222,19 @@ ChatArea::ChatArea(Backend& backend,
 
     init();
 
-    // Thread follow state is a per-user Mattermost resource. Query it lazily
-    // when the thread window opens and use the official PUT/DELETE endpoint.
-    if (channel.team && !root_id.isEmpty()) {
-        const QString teamId = channel.team->id;
+    // Thread follow state is a per-user Mattermost resource. DM/GM threads do
+    // not intrinsically belong to a team, but Mattermost's thread endpoint is
+    // team-scoped; use the active team context for those conversations, matching
+    // the service's direct-thread query semantics and the official client.
+    QString teamId;
+    if (channel.team) {
+        teamId = channel.team->id;
+    }
+    if (teamId.isEmpty()) {
+        teamId = this->backend.getCurrentTeamContextId();
+    }
+
+    if (!root_id.isEmpty() && !teamId.isEmpty()) {
         const QString threadId = root_id;
         threadFollowButton = new ThemeIconButton(this);
         threadFollowButton->setObjectName(QStringLiteral("threadFollowButton"));

@@ -140,9 +140,8 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     sendWithCtrlEnter = new QCheckBox(
         tr("Send messages with Ctrl+Enter instead of Enter"), composerPage);
     sendWithCtrlEnter->setChecked(
-        MLOptions::instance()
-            ->optionObject<bool>(COMPOSER_SEND_WITH_CTRL_ENTER,
-                                 COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
+        options->optionObject<bool>(COMPOSER_SEND_WITH_CTRL_ENTER,
+                                    COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
             ->value().toBool());
     composerLayout->addWidget(sendWithCtrlEnter);
     composerLayout->addWidget(makeDescription(
@@ -152,6 +151,41 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     composerLayout->addStretch(1);
     tabs->addTab(composerPage, tr("Composer"));
 
+    auto* sidebarPage = new QWidget(tabs);
+    auto* sidebarLayout = new QVBoxLayout(sidebarPage);
+    sidebarLayout->setContentsMargins(12, 12, 12, 12);
+    sidebarLayout->setSpacing(8);
+
+    auto* unreadModeGroup = new QGroupBox(tr("Unread mode"), sidebarPage);
+    auto* unreadModeLayout = new QVBoxLayout(unreadModeGroup);
+    unreadModeLayout->setSpacing(6);
+
+    unreadModeChannelsOnly = new QCheckBox(tr("Channels only"), unreadModeGroup);
+    unreadModeChannelsOnly->setChecked(
+        options->optionObject<bool>(UNREAD_MODE_CHANNELS_ONLY,
+                                    UNREAD_MODE_CHANNELS_ONLY_DEFAULT)
+            ->value().toBool());
+    unreadModeLayout->addWidget(unreadModeChannelsOnly);
+    unreadModeLayout->addWidget(makeDescription(
+        unreadModeGroup,
+        tr("Keep Following available while Unread mode filters the Channels tab.")));
+
+    unreadModeIgnoreWhileFiltering = new QCheckBox(
+        tr("Ignore while filtering"), unreadModeGroup);
+    unreadModeIgnoreWhileFiltering->setChecked(
+        options->optionObject<bool>(UNREAD_MODE_IGNORE_WHILE_FILTERING,
+                                    UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT)
+            ->value().toBool());
+    unreadModeLayout->addWidget(unreadModeIgnoreWhileFiltering);
+    unreadModeLayout->addWidget(makeDescription(
+        unreadModeGroup,
+        tr("While text is entered in the channel filter, show matching read channels too. "
+           "Clearing the text restores Unread mode.")));
+
+    sidebarLayout->addWidget(unreadModeGroup);
+    sidebarLayout->addStretch(1);
+    tabs->addTab(sidebarPage, tr("Sidebar"));
+
     auto* appearancePage = new QWidget(tabs);
     auto* appearanceLayout = new QVBoxLayout(appearancePage);
     appearanceLayout->setContentsMargins(12, 12, 12, 12);
@@ -160,7 +194,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* chatFontGroup = new QGroupBox(tr("Chat"), appearancePage);
     auto* chatFontForm = new QFormLayout(chatFontGroup);
 
-    auto* chatFontOption = MLOptions::instance()->optionObject<QString>(
+    auto* chatFontOption = options->optionObject<QString>(
         CHAT_FONT, font().toString());
     originalChatFont = chatFontOption->value().toString();
     QFont chatFont = fontFromString(originalChatFont, font());
@@ -370,6 +404,14 @@ void SettingsWindow::applyNewSettings ()
         COMPOSER_SEND_WITH_CTRL_ENTER,
         COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
         ->setValue(sendWithCtrlEnter->isChecked());
+    options->optionObject<bool>(
+        UNREAD_MODE_CHANNELS_ONLY,
+        UNREAD_MODE_CHANNELS_ONLY_DEFAULT)
+        ->setValue(unreadModeChannelsOnly->isChecked());
+    options->optionObject<bool>(
+        UNREAD_MODE_IGNORE_WHILE_FILTERING,
+        UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT)
+        ->setValue(unreadModeIgnoreWhileFiltering->isChecked());
 
     options->optionObject<int>(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT)
         ->setValue(attachmentCacheSizeMB->value());
