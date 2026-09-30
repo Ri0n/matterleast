@@ -3,6 +3,7 @@
 #include <QTreeWidgetItem>
 #include <QVariant>
 
+#include "RecentMentionsIcon.h"
 #include "backend/Backend.h"
 #include "chat-area/ChatArea.h"
 #include "channel-tree/ChannelItem.h"
@@ -36,6 +37,7 @@ ChannelItem* ChannelTree::createRecentMentionsItem(
                    & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled
                        | Qt::ItemIsEditable));
     item->setLabel(tr("Recent Mentions"));
+    item->setIcon(recentMentionsIcon(palette()));
 
     // Existing virtual destinations are dispatched from activateVirtualDestination().
     // Recent Mentions has no backing ChatArea/channel, so route its selection to
