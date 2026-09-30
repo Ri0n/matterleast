@@ -77,6 +77,8 @@ public:
 
 private slots:
     void on_usericon_label_clicked();
+    void on_channelList_virtualDestinationRequested(int destination,
+                                                     const QString& teamId);
 
 protected:
 	bool eventFilter(QObject* watched, QEvent* event) override;
@@ -111,6 +113,7 @@ private:
 	AttentionList*						attentionList = nullptr;
     PostCollectionView*                 savedMessagesPage = nullptr;
     PostCollectionView*                 draftsPage = nullptr;
+    PostCollectionView*                 recentMentionsPage = nullptr;
     PostCollectionView*                 searchMessagesPage = nullptr;
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;

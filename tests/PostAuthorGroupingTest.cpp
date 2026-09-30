@@ -233,6 +233,31 @@ private slots:
         QVERIFY(hoverActions->isHidden());
         QCOMPARE(hoverOpacity->opacity(), 0.0);
     }
+
+    void widgetKeepsSnapshotLeaseUntilDeferredDelete()
+    {
+        Backend backend;
+        auto snapshot = std::make_shared<BackendPost>(makePost(
+            backend.getStorage(),
+            QStringLiteral("hhhhhhhhhhhhhhhhhhhhhhhhhh"),
+            QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
+            localMs(QDate(2026, 9, 29), QTime(12, 30))));
+        std::weak_ptr<BackendPost> weakSnapshot = snapshot;
+
+        auto* widget = new PostWidget(
+            backend, *snapshot, nullptr, nullptr, nullptr,
+            PostWidget::PresentationMode::Interactive, snapshot);
+        widget->deleteLater();
+        snapshot.reset();
+
+        // This is the collection reset window that previously produced a UAF:
+        // the logical snapshot owner is gone, but Qt has not delivered the
+        // PostWidget's DeferredDelete event yet.
+        QVERIFY(!weakSnapshot.expired());
+
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(weakSnapshot.expired());
+    }
 };
 
 QTEST_MAIN(PostAuthorGroupingTest)

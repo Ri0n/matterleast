@@ -178,6 +178,10 @@ private:
                                  QTreeWidgetItem& categoryItem);
     ChannelItem* createDraftsItem(Backend& backend, TeamItem& teamItem,
                                   QTreeWidgetItem& categoryItem);
+    ChannelItem* createRecentMentionsItem(Backend& backend, TeamItem& teamItem,
+                                          QTreeWidgetItem& categoryItem);
+    void handleRecentMentionsSelection(QTreeWidgetItem* current,
+                                       QTreeWidgetItem* previous);
     QTreeWidgetItem* personalItemForTeam(const QString& teamId) const;
     void refreshPersonalItems();
 	ChatArea* ensureChatArea(QTreeWidgetItem* item);

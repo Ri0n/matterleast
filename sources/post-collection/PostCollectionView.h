@@ -25,13 +25,19 @@ class InteractiveTextEdit;
 class ThemeIconButton;
 
 /**
- * Virtualized post collection used by Saved, Drafts, Search, and an in-channel Pinned view.
+ * Virtualized post collection used by Saved, Drafts, Recent Mentions, Search,
+ * and an in-channel Pinned view.
  *
- * Saved/Search entries own endpoint snapshots, Drafts owns local synthetic
- * snapshots, and all modes keep their original
- * channel/thread identity without becoming a fake BackendChannel timeline.
- * Pinned mode borrows the current channel's authoritative pinned-post objects;
- * LongListWidget only virtualizes collection presentation in all modes.
+ * Saved/Recent Mentions/Search entries own endpoint snapshots, Drafts owns
+ * local synthetic snapshots, and all modes keep their original channel/thread
+ * identity without becoming a fake BackendChannel timeline. Pinned mode borrows
+ * the current channel's authoritative pinned-post objects; LongListWidget only
+ * virtualizes collection presentation in all modes.
+ *
+ * Collection snapshots use shared ownership because LongListWidget destroys
+ * evicted row widgets with deleteLater(). A materialized PostWidget therefore
+ * keeps its snapshot alive until the deferred widget destruction has actually
+ * completed, even if the collection is reset/reloaded in the meantime.
  */
 class PostCollectionView final : public QWidget
 {
@@ -40,6 +46,7 @@ public:
     enum class Mode {
         Saved,
         Drafts,
+        RecentMentions,
         Search,
         Pinned,
     };
@@ -49,6 +56,7 @@ public:
 
     void activateSaved();
     void activateDrafts();
+    void activateRecentMentions();
     void activateSearch(const QString& preferredTeamId = QString());
     void activatePinned(BackendChannel& channel);
 
@@ -100,7 +108,7 @@ private:
     QLabel* _titleLabel = nullptr;
     ThemeIconButton* _refreshButton = nullptr;
 
-    std::vector<std::unique_ptr<BackendPost>> ownedPosts;
+    std::vector<std::shared_ptr<BackendPost>> ownedPosts;
     std::vector<BackendPost*> posts;
     QSet<QString> postIds;
     QHash<QString, QString> draftKeyByPostId;

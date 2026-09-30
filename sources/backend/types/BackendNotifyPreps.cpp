@@ -25,8 +25,20 @@
 #include "BackendNotifyPreps.h"
 
 #include <QJsonObject>
+#include <QJsonValue>
 
 namespace Mattermost {
+namespace {
+
+bool notificationBool(const QJsonValue& value)
+{
+    if (value.isBool()) {
+        return value.toBool();
+    }
+    return value.toString().compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
+}
+
+} // namespace
 
 BackendNotifyPreps::BackendNotifyPreps ()
 :channel (false)
@@ -40,16 +52,19 @@ BackendNotifyPreps::~BackendNotifyPreps () = default;
 
 void BackendNotifyPreps::deserialize (const QJsonObject& jsonObject)
 {
-	channel = jsonObject.value("channel").toBool();
+	// Mattermost user notify_props are commonly serialized as "true"/"false"
+	// strings, although fixtures/older servers may expose JSON booleans. Accept
+	// both forms so mention-key semantics match the official client.
+	channel = notificationBool(jsonObject.value("channel"));
 	comments = jsonObject.value("comments").toString();
 	desktop = jsonObject.value("desktop").toString();
-	desktop_sound = jsonObject.value("desktop_sound").toBool();
-	email = jsonObject.value("email").toBool();
-	first_name = jsonObject.value("first_name").toBool();
-	mention_keys = jsonObject.value("mention_keys").toString().split(',');
+	desktop_sound = notificationBool(jsonObject.value("desktop_sound"));
+	email = notificationBool(jsonObject.value("email"));
+	first_name = notificationBool(jsonObject.value("first_name"));
+	mention_keys = jsonObject.value("mention_keys").toString().split(
+		QLatin1Char(','), Qt::SkipEmptyParts);
 	push = jsonObject.value("push").toString();
 	push_status = jsonObject.value("push_status").toString();
 }
 
 } /* namespace Mattermost */
-

@@ -13,7 +13,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | thread paging and sparse loading | [Thread timeline loading](thread-timeline-loading.md) | working on thread gaps, cursors, permalink islands or live replies |
 | Following queue membership, sorting and click/navigation behavior | [Following behavior](following.md) | changing which rows appear, ordering, repeated activation, channel/thread navigation or manual-unread behavior |
 | unread/read state or Attention | [Following, Attention and read tracking](following-attention-read-tracking.md) | changing scroll-derived reads, resume cursors or server acknowledgement |
-| virtual sidebar views and collections | [Virtual sidebar destinations](sidebar-virtual-destinations.md) | changing Personal, Saved or search paging |
+| virtual sidebar views and collections | [Virtual sidebar destinations](sidebar-virtual-destinations.md) | changing Personal, Saved, Recent Mentions or search paging |
 | central navigation tabs, docked/tabbed/detached thread presentation | [Central navigation tabs](navigation-tabs.md) | changing tab ownership, semantic destinations or thread reparenting |
 | channel discovery, channel creation, DM/GM picker and sidebar category actions | [Channel and conversation discovery](channel-discovery.md) | changing public-channel browsing, participant matching, or sidebar + actions |
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |

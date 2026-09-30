@@ -23,6 +23,7 @@
 #include "backend/DraftService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
+#include "backend/RecentMentionsService.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -96,8 +97,9 @@ PostCollectionView::PostCollectionView(Backend& backendInstance, Mode viewMode, 
 PostCollectionView::~PostCollectionView()
 {
     if (list) {
-        // Destroy PostWidgets before either collection-owned snapshots or
-        // borrowed pinned-post objects can disappear.
+        // Stop materialization before the collection container itself dies.
+        // Collection-owned PostWidgets keep shared snapshot leases until their
+        // deferred deleteLater() destruction actually runs.
         list->setItemCount(0);
     }
 }
@@ -106,9 +108,9 @@ void PostCollectionView::buildUi()
 {
     auto* root = new QVBoxLayout(this);
     // Pinned is embedded inside ChatArea, which already owns the standard 2px
-    // page gutter. Saved/Search are standalone stacked pages and provide that
-    // same gutter themselves. Do not stack the old 8px collection inset on top
-    // of the shared PostListWidget viewport policy.
+    // page gutter. Standalone virtual collections provide that same gutter
+    // themselves. Do not stack the old 8px collection inset on top of the
+    // shared PostListWidget viewport policy.
     const int outerMargin = mode == Mode::Pinned ? 0 : 2;
     root->setContentsMargins(outerMargin, outerMargin, outerMargin, outerMargin);
     root->setSpacing(6);
@@ -121,6 +123,9 @@ void PostCollectionView::buildUi()
         break;
     case Mode::Drafts:
         titleText = tr("0 drafts");
+        break;
+    case Mode::RecentMentions:
+        titleText = tr("0 recent mentions");
         break;
     case Mode::Search:
         titleText = tr("Search messages");
@@ -137,21 +142,30 @@ void PostCollectionView::buildUi()
     header->addWidget(_titleLabel);
     header->addStretch();
 
-    if (mode == Mode::Saved || mode == Mode::Drafts) {
+    if (mode == Mode::Saved || mode == Mode::Drafts
+        || mode == Mode::RecentMentions) {
         _refreshButton = new ThemeIconButton(this);
         _refreshButton->setText(QString());
         _refreshButton->setFixedSize(28, 28);
         _refreshButton->setIconSize(QSize(16, 16));
         _refreshButton->setProperty(ThemeIconResourceProperty,
                                     QStringLiteral(":/icons/refresh"));
-        const bool draftsMode = mode == Mode::Drafts;
-        const QString refreshLabel = draftsMode
-            ? tr("Refresh drafts") : tr("Refresh saved messages");
+        QString refreshLabel;
+        if (mode == Mode::Drafts) {
+            refreshLabel = tr("Refresh drafts");
+        } else if (mode == Mode::RecentMentions) {
+            refreshLabel = tr("Refresh recent mentions");
+        } else {
+            refreshLabel = tr("Refresh saved messages");
+        }
         _refreshButton->setToolTip(refreshLabel);
         _refreshButton->setAccessibleName(refreshLabel);
-        if (draftsMode) {
+        if (mode == Mode::Drafts) {
             connect(_refreshButton, &QPushButton::clicked,
                     this, &PostCollectionView::activateDrafts);
+        } else if (mode == Mode::RecentMentions) {
+            connect(_refreshButton, &QPushButton::clicked,
+                    this, &PostCollectionView::activateRecentMentions);
         } else {
             connect(_refreshButton, &QPushButton::clicked,
                     this, &PostCollectionView::activateSaved);
@@ -271,6 +285,18 @@ void PostCollectionView::activateDrafts()
     DraftService::instance(backend).syncAllTeams();
 }
 
+void PostCollectionView::activateRecentMentions()
+{
+    if (mode != Mode::RecentMentions) {
+        return;
+    }
+    ++generation;
+    activeTerms.clear();
+    activeTeamId.clear();
+    resetCollection();
+    loadNextPage();
+}
+
 void PostCollectionView::refreshDrafts()
 {
     if (mode != Mode::Drafts) {
@@ -326,7 +352,7 @@ void PostCollectionView::refreshDrafts()
             {QStringLiteral("message"), draft.message},
             {QStringLiteral("props"), props},
         };
-        return std::make_unique<BackendPost>(raw, backend.getStorage());
+        return std::make_shared<BackendPost>(raw, backend.getStorage());
     };
 
     const auto removeAt = [&](int index) {
@@ -334,8 +360,9 @@ void PostCollectionView::refreshDrafts()
             return;
         }
 
-        // LongListWidget::removeItems() preserves the concrete viewport anchor.
-        // Destroy the materialized PostWidget before releasing its snapshot.
+        // LongListWidget removes the logical row immediately, while the
+        // materialized widget itself may be deferred with deleteLater(). Its
+        // PostWidget keeps a shared snapshot lease through that interval.
         if (list) {
             list->removeItems(index, 1);
         }
@@ -633,7 +660,7 @@ void PostCollectionView::appendPosts(const QVector<QJsonObject>& rawPosts)
             continue;
         }
         postIds.insert(postId);
-        auto owned = std::make_unique<BackendPost>(raw, backend.getStorage());
+        auto owned = std::make_shared<BackendPost>(raw, backend.getStorage());
         posts.push_back(owned.get());
         ownedPosts.push_back(std::move(owned));
     }
@@ -648,10 +675,10 @@ void PostCollectionView::appendPosts(const QVector<QJsonObject>& rawPosts)
         list->setRangeAvailable(index, index, true);
     }
 
-    // Search is a result collection, not a live chat timeline. The first result
-    // is the collection origin and should be shown at the top; later pages keep
-    // the user's current viewport while extending the list downward.
-    if ((mode == Mode::Search || mode == Mode::Drafts) && oldCount == 0) {
+    // Result collections have a meaningful server-defined origin. The first
+    // result is shown at the top; later pages preserve the current viewport.
+    if ((mode == Mode::Search || mode == Mode::RecentMentions
+         || mode == Mode::Drafts) && oldCount == 0) {
         list->scrollToIndex(0, LongListWidget::Alignment::Top);
     }
 }
@@ -719,10 +746,14 @@ void PostCollectionView::loadNextPage()
                 if (count > 0) {
                     guard->statusLabel->setText(
                         guard->tr("%1 messages loaded — loading more failed").arg(count));
+                } else if (guard->mode == Mode::Saved) {
+                    guard->statusLabel->setText(
+                        guard->tr("Could not load saved messages."));
+                } else if (guard->mode == Mode::RecentMentions) {
+                    guard->statusLabel->setText(
+                        guard->tr("Could not load recent mentions."));
                 } else {
-                    guard->statusLabel->setText(guard->mode == Mode::Saved
-                        ? guard->tr("Could not load saved messages.")
-                        : guard->tr("Search failed."));
+                    guard->statusLabel->setText(guard->tr("Search failed."));
                 }
             }
             return;
@@ -748,6 +779,12 @@ void PostCollectionView::loadNextPage()
         guard->serverHasMore = result.hasMore && newCount > oldCount;
         guard->updateStatus();
     };
+
+    if (mode == Mode::RecentMentions) {
+        RecentMentionsService::instance(backend).loadPage(
+            page, PageSize, std::move(callback));
+        return;
+    }
 
     auto& repository = PostRepository::instance(backend);
     if (mode == Mode::Saved) {
@@ -894,8 +931,12 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
     const auto presentationMode = mode == Mode::Drafts
         ? PostWidget::PresentationMode::ReadOnlySnapshot
         : PostWidget::PresentationMode::Interactive;
-    auto* postWidget =
-        new PostWidget(backend, post, row, nullptr, nullptr, presentationMode);
+    std::shared_ptr<BackendPost> postLease;
+    if (mode != Mode::Pinned && index < static_cast<int>(ownedPosts.size())) {
+        postLease = ownedPosts[index];
+    }
+    auto* postWidget = new PostWidget(
+        backend, post, row, nullptr, nullptr, presentationMode, std::move(postLease));
     layout->addWidget(postWidget);
     connect(postWidget, &PostWidget::dimensionsChanged, this, [this, postId] {
         const int currentIndex = indexOfPost(postId);
@@ -971,8 +1012,8 @@ void PostCollectionView::removeSavedPostLocally(const QString& postId)
         return;
     }
 
-    // removeItems destroys the materialized PostWidget before we release the
-    // collection-owned BackendPost it references.
+    // The row may be destroyed with deleteLater(); its PostWidget owns a shared
+    // snapshot lease until the deferred destruction completes.
     if (list) {
         list->removeItems(index, 1);
     }
@@ -1016,6 +1057,8 @@ void PostCollectionView::updateStatus()
         _titleLabel->setText(tr("%n saved message(s)", nullptr, count));
     } else if (_titleLabel && mode == Mode::Drafts) {
         _titleLabel->setText(tr("%n draft(s)", nullptr, count));
+    } else if (_titleLabel && mode == Mode::RecentMentions) {
+        _titleLabel->setText(tr("%n recent mention(s)", nullptr, count));
     }
     if (_refreshButton) {
         _refreshButton->setProperty(ThemeIconBusyProperty, loading);
@@ -1027,10 +1070,11 @@ void PostCollectionView::updateStatus()
 
     statusLabel->setVisible(false);
 
-    // Saved and Drafts use their compact count as the title and the refresh
+    // Compact virtual destinations use their count as the title and the refresh
     // icon itself as the sync/loading affordance, so a second status line would
     // only duplicate the collection state.
-    if (mode == Mode::Saved || mode == Mode::Drafts) {
+    if (mode == Mode::Saved || mode == Mode::Drafts
+        || mode == Mode::RecentMentions) {
         return;
     }
 

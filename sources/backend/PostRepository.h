@@ -106,6 +106,16 @@ public:
                      int perPage,
                      CollectionCallback callback);
 
+    /**
+     * Search the all-team Recent Mentions projection. Terms are already quoted
+     * by the mention policy; the repository owns the OR-search HTTP semantics
+     * and collection response normalization.
+     */
+    void searchRecentMentions(const QString& terms,
+                              int page,
+                              int perPage,
+                              CollectionCallback callback);
+
     /** Fetch an absolute main-channel page. Replies are deliberately excluded. */
     void loadChannelPage(BackendChannel& channel,
                          int page,

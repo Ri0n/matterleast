@@ -46,7 +46,7 @@ using BackendPostReaction = QVector<QString>;
 class BackendPost {
 public:
 	BackendPost (const QJsonObject& jsonObject, const Storage& storage);
-	BackendPost (BackendPost&& other) = default;
+	BackendPost (BackendPost&& other);
 	~BackendPost ();
 public:
 

@@ -1,8 +1,8 @@
 # Virtual sidebar destinations and post collections
 
 This note records the model for user-centric destinations that look like navigation entries but are
-not ordinary server sidebar rows, plus the common collection semantics needed by Saved and
-message search.
+not ordinary server sidebar rows, plus the common collection semantics needed by Saved, Recent
+Mentions, and message search.
 
 ## Personal
 
@@ -58,45 +58,80 @@ rootId      optional; non-empty means the origin is a thread
 Opening an entry resolves the real channel/thread and then performs ordinary semantic post-ID
 navigation. The collection itself never invents channel page numbers or thread cursor adjacency.
 
+## Recent Mentions
+
+**Recent Mentions** is another fixed virtual destination inside Favorites, after Personal, Saved, and
+Drafts. Like Saved, it is a cross-conversation collection rather than a fake channel. It reuses
+`PostCollectionView`, collection paging, origin labels, and canonical `AppNavigationService::openPost()`
+activation.
+
+The producer intentionally follows Mattermost web-client mention-search semantics instead of deriving a
+second client-side mention model:
+
+- start with the logged-in user's configured personal mention keys;
+- include the first name only when `notify_props.first_name` is enabled and always include `@username`;
+- exclude broadcast keys `@channel`, `@all`, and `@here`;
+- quote each remaining key before search, so keys containing dashes or other search syntax stay atomic;
+- issue an all-team `posts/search` request with `is_or_search=true` and `include_deleted_channels=true`;
+- calculate `time_zone_offset` from the user's configured Mattermost timezone, with system timezone as
+  the fallback when the profile timezone is unavailable or invalid;
+- preserve the search endpoint's result order and paging authority.
+
+`RecentMentionsService` owns only the feature policy (deriving the current user's query). The actual
+`posts/search` transport and collection-response normalization remain under `PostRepository`, preserving
+its repository-wide ownership of post REST retrieval.
+
+Mattermost commonly serializes notification booleans in `notify_props` as the strings `"true"` and
+`"false"`. `BackendNotifyPreps` therefore accepts both those strings and JSON booleans. Recent Mentions
+must use that normalized user state rather than reinterpreting the raw profile JSON independently.
+
+Recent Mentions does **not** inherit Attention semantics. Opening the collection does not mutate unread
+state, follow state, or mention counters; selecting a result navigates to the canonical conversation,
+where the normal read-tracking rules take over.
+
+The current sidebar placement deliberately remains inside Favorites. Moving Personal/Saved/Drafts/
+Recent Mentions above server categories is a separate presentation decision and must not be coupled to
+the collection model.
+
 ## Message search
 
-Message search reuses the same collection/navigation model as Saved. The difference is lifetime and
-producer, not row semantics. A magnifier beside the sidebar menu opens the transient Search page;
-queries are sent to Mattermost's search endpoint with the server-side search syntax kept authoritative.
-The UI exposes the standard modifiers `from:`, `in:`, `before:`, `after:` and `on:`, plus reminders for
-quoted phrases, exclusions, suffix wildcards and hashtags. Search can target the current/specific team
-or the server's all-team search endpoint when supported.
+Message search reuses the same collection/navigation model as Saved and Recent Mentions. The difference
+is lifetime and producer, not row semantics. A magnifier beside the sidebar menu opens the transient
+Search page; queries are sent to Mattermost's search endpoint with the server-side search syntax kept
+authoritative. The UI exposes the standard modifiers `from:`, `in:`, `before:`, `after:` and `on:`, plus
+reminders for quoted phrases, exclusions, suffix wildcards and hashtags. Search can target the
+current/specific team or the server's all-team search endpoint when supported.
 
 ```text
-Saved collection                 Search result collection
-persistent user-selected set     ephemeral query result set
-        |                                  |
-        +----------- common entry ----------+
-                    postId
-                    channelId
-                    optional rootId
-                          |
-                          v
-              canonical conversation
-                          |
-                    navigate to post
+Saved / Recent Mentions             Search result collection
+fixed virtual destination           ephemeral query result set
+          |                                    |
+          +------------- common entry ----------+
+                        postId
+                        channelId
+                        optional rootId
+                              |
+                              v
+                  canonical conversation
+                              |
+                        navigate to post
 ```
 
-This means search results should not be inserted into `BackendChannel::posts` as if they formed a
-contiguous history window. A search endpoint proves only that those posts matched a query and their
-result ordering; it does not prove adjacency in the source conversation.
+This means collection results should not be inserted into `BackendChannel::posts` as if they formed a
+contiguous history window. A collection/search endpoint proves only that those posts belong to the
+result and their result ordering; it does not prove adjacency in the source conversation.
 
 The shared collection layer therefore owns:
 
 - ordered collection entries and collection-specific paging;
-- lazy body resolution through `PostRepository::loadPost()`;
+- lazy body resolution through `PostRepository::loadPost()` where needed;
 - origin labels/context preview;
 - activation into channel versus thread based on `rootId`;
 - semantic `goToPost(postId)` after the real conversation is open.
 
-`Saved` may be represented by a fixed virtual navigation destination. Search results are normally a
-transient destination created by a search action rather than a permanent sidebar row, but both reuse
-the same post-collection view machinery.
+`Saved` and `Recent Mentions` are represented by fixed virtual navigation destinations. Search results
+are normally a transient destination created by a search action, but all reuse the same post-collection
+view machinery.
 
 ### User-driven paging
 
@@ -156,7 +191,7 @@ can be added independently of the search rules.
 
 ## Cache interaction
 
-The persistent post cache may make Saved/Search rows paint quickly because collection entries identify
-individual posts. It still receives no extra timeline authority from those collections. A cached body
-can satisfy first paint and normal HTTP validation can refresh it, while channel/thread sources remain
-the only owners of conversation placement.
+The persistent post cache may make Saved/Recent Mentions/Search rows paint quickly because collection
+entries identify individual posts. It still receives no extra timeline authority from those collections.
+A cached body can satisfy first paint and normal HTTP validation can refresh it, while channel/thread
+sources remain the only owners of conversation placement.

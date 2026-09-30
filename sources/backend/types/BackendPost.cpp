@@ -116,6 +116,7 @@ BackendPost::BackendPost (const QJsonObject& jsonObject, const Storage& storage)
 	}
 }
 
+BackendPost::BackendPost (BackendPost&& other) = default;
 BackendPost::~BackendPost () = default;
 
 bool BackendPost::isOwnPost () const

@@ -303,6 +303,14 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                 drafts = createDraftsItem(backend, teamItem, *categoryItem);
             }
             moveChild(*categoryItem, drafts, rowIndex++);
+
+            QTreeWidgetItem* recentMentions = findVirtualChild(
+                categoryItem, SidebarItem::RecentMentionsDestination);
+            if (!recentMentions) {
+                recentMentions = createRecentMentionsItem(
+                    backend, teamItem, *categoryItem);
+            }
+            moveChild(*categoryItem, recentMentions, rowIndex++);
         }
 
         for (const QString& channelId : desiredChannels.value(entry.category->id)) {
