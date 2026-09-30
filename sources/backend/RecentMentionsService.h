@@ -4,7 +4,6 @@
 
 #include <QObject>
 
-#include "HTTPConnector.h"
 #include "PostRepository.h"
 
 namespace Mattermost {
@@ -12,11 +11,9 @@ namespace Mattermost {
 class Backend;
 
 /**
- * Server-backed Recent Mentions collection matching Mattermost web semantics.
- *
- * This is a cross-conversation search projection, not a timeline source: it
- * searches all teams with OR semantics over the logged-in user's personal
- * mention keys and preserves the search endpoint's result order.
+ * Builds the logged-in user's Recent Mentions query and delegates post REST
+ * retrieval to PostRepository, preserving the repository as the single owner
+ * of post search transport and collection normalization.
  */
 class RecentMentionsService final : public QObject
 {
@@ -32,7 +29,6 @@ private:
     explicit RecentMentionsService(Backend& backend);
 
     Backend& backend;
-    HTTPConnector httpConnector;
 };
 
 } // namespace Mattermost
