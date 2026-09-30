@@ -2,6 +2,7 @@
 
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingPresentation.h"
+#include "channel-tree/SidebarUnreadPolicy.h"
 
 using namespace Mattermost;
 
@@ -61,6 +62,38 @@ private slots:
             false, QStringLiteral("channel"), QStringLiteral("other"), true));
         QVERIFY(!shouldPreserveRepeatedConversationActivation(
             true, QStringLiteral("channel"), QStringLiteral("channel"), true));
+    }
+
+    void unreadModeControlsFollowingVisibility()
+    {
+        using SidebarUnreadPolicy::followingVisible;
+
+        QVERIFY(followingVisible(false, false));
+        QVERIFY(followingVisible(false, true));
+        QVERIFY(!followingVisible(true, false));
+        QVERIFY(followingVisible(true, true));
+    }
+
+    void textFilterCanTemporarilySuspendUnreadGate()
+    {
+        using SidebarUnreadPolicy::unreadGateActive;
+
+        QVERIFY(!unreadGateActive(false, false, false));
+        QVERIFY(!unreadGateActive(false, true, false));
+        QVERIFY(unreadGateActive(true, false, true));
+        QVERIFY(!unreadGateActive(true, true, true));
+        QVERIFY(unreadGateActive(true, true, false));
+    }
+
+    void textFilterStillCountsAsAnActiveFilterWhenUnreadGateIsSuspended()
+    {
+        using SidebarUnreadPolicy::anyFilterActive;
+
+        QVERIFY(!anyFilterActive(false, false, true));
+        QVERIFY(anyFilterActive(false, true, true));
+        QVERIFY(anyFilterActive(true, false, true));
+        QVERIFY(anyFilterActive(true, true, true));
+        QVERIFY(anyFilterActive(true, true, false));
     }
 
     void snippetRemainsCompact()
