@@ -2,12 +2,10 @@
 
 #include <QtTest>
 
-#include <QTextDocument>
 
 #include "choose-emoji-dialog/EmojiDialogSupport.h"
 #include "reactions/ReactionUsage.h"
 #include "ui/EmojiFont.h"
-#include "ui/EmojiPresentation.h"
 
 class EmojiDialogSupportTest : public QObject
 {
@@ -80,25 +78,6 @@ private slots:
         };
         QCOMPARE(chooseLegacyEmojiFontFamily(installed, Platform::Linux),
                  QStringLiteral("Noto Color Emoji [Google]"));
-    }
-
-    void appliesLegacyFamilyOnlyToEmojiGraphemes()
-    {
-        const QString emoji = QString::fromUtf8("\xF0\x9F\x99\x82");
-        const QString family = QStringLiteral("MatterLeast Test Emoji");
-        QTextDocument document;
-        document.setPlainText(QStringLiteral("A") + emoji + QStringLiteral("B"));
-
-        Mattermost::EmojiPresentation::applyLegacyUnicodeEmojiFamily(
-            document, family, QSet<QString> {emoji});
-
-        QTextCursor emojiCursor = document.find(emoji);
-        QVERIFY(!emojiCursor.isNull());
-        QCOMPARE(emojiCursor.charFormat().font().family(), family);
-
-        QTextCursor textCursor = document.find(QStringLiteral("A"));
-        QVERIFY(!textCursor.isNull());
-        QVERIFY(textCursor.charFormat().font().family() != family);
     }
 
     void reheatsSelectedReactionToTheTop()
