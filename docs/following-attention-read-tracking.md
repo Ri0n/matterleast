@@ -18,6 +18,7 @@ Read tracking is cross-cutting, so the top-level contract remains here while mec
 ## Detailed documents
 
 - [Following behavior](following.md) — normative queue membership, sorting, activation and repeated-click behavior
+- [Sidebar Unread mode](unread-mode.md) — presentation-only unread filtering, Following visibility and text-filter interaction
 - [Scrolling and resume cursor](read-tracking/scroll-and-resume.md) — ownership, the single read rule, sticky-bottom live tail and monotonic resume cursor
 - [Projections and server acknowledgement](read-tracking/projections-and-acknowledgement.md) — Following/Attention projection rules, thread/channel acknowledgement, re-evaluation events and invariants
 
