@@ -4,12 +4,15 @@
 #include <QLoggingCategory>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
+#include <QTabBar>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QUrlQuery>
 
 #include "backend/Backend.h"
+#include "backend/FollowingModel.h"
+#include "backend/SidebarService.h"
 #include "backend/NetworkRequest.h"
 #include "backend/PostRepository.h"
 #include "backend/types/BackendChannel.h"
@@ -118,6 +121,56 @@ class ThreadTabsIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void threadTabAttentionIsIndependentFromParentChannel()
+    {
+        Server server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
+        auto* channel = storage.addGroupChannel(QJsonObject {{"id", "channel"}, {"type", "G"},
+                                                            {"display_name", "Test chat"}});
+        auto* root = channel->addPost(post(101));
+        auto* sibling = channel->addPost(post(102));
+        auto& model = FollowingModel::instance(backend);
+        model.markPostUnread(channel->id, root->id, root->id, root->create_at);
+        model.observeReadThrough(channel->id, root->id, *root, true);
+        model.markThreadRead(team->id, root->id);
+        QVERIFY(!model.findEntry(channel->id, root->id)->requiresAttention());
+        model.markPostUnread(channel->id, sibling->id, sibling->id, sibling->create_at);
+
+        auto& sidebar = SidebarService::instance(backend);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
+        NavigationUiController::instance(window);
+        sidebar.setChannelMentioned(channel->id, true);
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openThreadInTab(channel->id, root->id);
+        navigation.openThreadInTab(channel->id, sibling->id);
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QCOMPARE(tabs->count(), 2);
+        QVERIFY(!tabs->tabText(0).startsWith(QStringLiteral("★ ")));
+        QVERIFY(tabs->tabText(1).startsWith(QStringLiteral("★ ")));
+
+        // Parent activity updates must neither mark a read child nor clear
+        // another child's independent unread marker.
+        sidebar.setChannelMentioned(channel->id, false);
+        QVERIFY(!tabs->tabText(0).startsWith(QStringLiteral("★ ")));
+        QVERIFY(tabs->tabText(1).startsWith(QStringLiteral("★ ")));
+
+        // Model-only changes must refresh tab titles without any parent event.
+        model.markPostUnread(channel->id, root->id, root->id, root->create_at);
+        QVERIFY(tabs->tabText(0).startsWith(QStringLiteral("★ ")));
+        model.observeReadThrough(channel->id, root->id, *root, true);
+        model.markThreadRead(team->id, root->id);
+        QVERIFY(!tabs->tabText(0).startsWith(QStringLiteral("★ ")));
+        QVERIFY(tabs->tabText(1).startsWith(QStringLiteral("★ ")));
+    }
+
     void coldThreadsOpenInSuccessiveTabs()
     {
         Server server;

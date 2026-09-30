@@ -29,10 +29,13 @@ model merely to change its presentation.
   when there are at least two semantic tabs. Hiding the bar never hides the
   central destination itself; the normal channel surface remains the visible
   page of the central host.
-- Tab titles mirror the sidebar's conversation activity emphasis. The
-  authoritative state remains `SidebarService`: `isChannelUnread()` or an
-  unread mention makes every tab for that channel bold, and
-  `channelActivityChanged/channelActivityReset` return it to normal when read.
+- Tab titles use a leading star for their own unread domain. Channel/DM/GM
+  tabs use `SidebarService::isChannelUnread()` or a channel mention. Thread
+  tabs use their `FollowingModel::Entry::requiresAttention()`, including CRT
+  counters and manual unread; they never inherit parent-channel unreadness.
+  No known thread entry means no evidence for a star. Channel activity signals
+  and `FollowingModel::changed` refresh these projections; reading a thread
+  does not acknowledge its parent channel or another thread.
 - A canonical destination (`channelId + rootId`) is unique in the tab model.
   Repeated middle-click, **Open in new tab**, permalink navigation or other
   navigation to the same destination activates the existing tab instead of
@@ -89,3 +92,8 @@ surfaces get their own tab target kind, opening one keeps its established
 transient behavior: the normal central surface is revealed and the chat tab bar
 is temporarily hidden, so an active tabbed thread can never cover Saved, Drafts
 or Search.
+
+Navigation services are owned and discovered through their live Backend/MainWindow QObject children.
+A process-static map keyed by raw owner addresses must not retain services after owner destruction:
+a later session or integration fixture can reuse the same address. The navigation event filter must
+only inspect the sidebar viewport for relevant mouse events, not during child-destruction events.

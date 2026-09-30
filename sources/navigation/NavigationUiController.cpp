@@ -26,6 +26,7 @@
 #include <QVBoxLayout>
 
 #include "backend/Backend.h"
+#include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
@@ -130,6 +131,9 @@ void NavigationUiController::setupMainWindow()
                 this, &NavigationUiController::refreshTabUnreadVisual,
                 Qt::UniqueConnection);
         connect(&sidebar, &SidebarService::channelActivityReset,
+                this, &NavigationUiController::refreshAllTabUnreadVisuals,
+                Qt::UniqueConnection);
+        connect(&FollowingModel::instance(*sourceBackend), &FollowingModel::changed,
                 this, &NavigationUiController::refreshAllTabUnreadVisuals,
                 Qt::UniqueConnection);
     }
@@ -507,9 +511,8 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
     }
 
     auto& sidebar = SidebarService::instance(*sourceBackend);
-    // Keep native tab text/layout. A leading star mirrors the same unread/
-    // mention condition that previously made the title bold.
-    const bool marked =
+    auto& following = FollowingModel::instance(*sourceBackend);
+    const bool channelMarked =
         sidebar.isChannelUnread(*channel)
         || sidebar.hasUnreadMention(channelId);
 
@@ -518,6 +521,14 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
         if (!entry || entry->channelId != channelId) {
             continue;
         }
+
+        // A thread is an independent read domain. Reading it cannot consume
+        // parent-channel activity, so its tab must use the same CRT/manual
+        // attention state as its own Following row.
+        const auto* thread = entry->rootId.isEmpty()
+            ? nullptr : following.findEntry(channelId, entry->rootId);
+        const bool marked = entry->rootId.isEmpty()
+            ? channelMarked : thread && thread->requiresAttention();
 
         navigationTabs->setTabText(
             index,
@@ -1457,10 +1468,10 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
-    const bool channelPointerSurface = channelTree
-        && (watched == channelTree || watched == channelTree->viewport());
-    if (channelPointerSurface && event
-        && event->type() == QEvent::MouseButtonRelease) {
+    // Only a mouse release needs the sidebar viewport. Other events include
+    // child destruction while the main window is tearing down that sidebar.
+    if (event && event->type() == QEvent::MouseButtonRelease && channelTree
+        && (watched == channelTree || watched == channelTree->viewport())) {
         QTimer::singleShot(0, this, [this] {
             if (channelTree) {
                 recordArea(channelTree->getCurrentPage());
