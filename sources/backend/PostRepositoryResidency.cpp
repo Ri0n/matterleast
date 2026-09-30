@@ -360,6 +360,7 @@ void PostRepository::sweepResidentBodies()
     QSet<QString> currentKeys;
     QSet<BackendChannel*> seenChannels;
     qint64 currentBytes = 0;
+    qint64 protectedBytes = 0;
 
     const Storage& storage = backend.getStorage();
     for (auto channelIt = storage.channels.cbegin(); channelIt != storage.channels.cend(); ++channelIt) {
@@ -383,8 +384,15 @@ void PostRepository::sweepResidentBodies()
             }
             currentBytes += state->accountedBytes;
 
+            // An explicit raw-reference lease or a model dependency makes this
+            // body non-evictable. Protected bytes extend the effective resident
+            // capacity by exactly their accounted size instead of consuming the
+            // ordinary cache budget. Otherwise a few open chats can force the
+            // sweep to evict every unleased body just to compensate for objects
+            // it is not allowed to remove in the first place.
             if (residentLeaseCounts.value(key, 0) > 0
                 || !channel->canEvictPostBody(post.id)) {
+                protectedBytes += state->accountedBytes;
                 continue;
             }
             candidates.push_back(EvictionCandidate {
@@ -445,11 +453,12 @@ void PostRepository::sweepResidentBodies()
         }
     }
 
-    // The hard limit is an accounted cap. Once crossed, evict oldest unleased
-    // bodies until the lower pressure target is reached, creating hysteresis.
-    if (currentBytes > hardBytes) {
+    // Hard/target apply to the evictable working set. Leased/dependency-pinned
+    // bodies are additive mandatory residency, so their accounted bytes extend
+    // the effective total capacity instead of shrinking the useful cache.
+    if (std::max<qint64>(0, currentBytes - protectedBytes) > hardBytes) {
         for (const EvictionCandidate& candidate : std::as_const(candidates)) {
-            if (currentBytes <= targetBytes) {
+            if (std::max<qint64>(0, currentBytes - protectedBytes) <= targetBytes) {
                 break;
             }
             evict(candidate);
@@ -457,12 +466,14 @@ void PostRepository::sweepResidentBodies()
     }
 
     residentAccountedBytes = currentBytes;
-    if (residentAccountedBytes > hardBytes) {
+    const qint64 evictableBytes = std::max<qint64>(
+        0, residentAccountedBytes - protectedBytes);
+    if (evictableBytes > hardBytes) {
         qCWarning(lcResidentPosts).nospace()
-            << "resident post cache remains above hard limit: accounted="
-            << residentAccountedBytes << " hard=" << hardBytes
-            << " target=" << targetBytes
-            << " (remaining bodies are leased or dependency-pinned)";
+            << "resident post cache remains above hard limit: evictable="
+            << evictableBytes << " protected=" << protectedBytes
+            << " accounted=" << residentAccountedBytes
+            << " hard=" << hardBytes << " target=" << targetBytes;
     }
 }
 
