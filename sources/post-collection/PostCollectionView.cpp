@@ -97,8 +97,9 @@ PostCollectionView::PostCollectionView(Backend& backendInstance, Mode viewMode, 
 PostCollectionView::~PostCollectionView()
 {
     if (list) {
-        // Destroy PostWidgets before either collection-owned snapshots or
-        // borrowed pinned-post objects can disappear.
+        // Stop materialization before the collection container itself dies.
+        // Collection-owned PostWidgets keep shared snapshot leases until their
+        // deferred deleteLater() destruction actually runs.
         list->setItemCount(0);
     }
 }
@@ -351,7 +352,7 @@ void PostCollectionView::refreshDrafts()
             {QStringLiteral("message"), draft.message},
             {QStringLiteral("props"), props},
         };
-        return std::make_unique<BackendPost>(raw, backend.getStorage());
+        return std::make_shared<BackendPost>(raw, backend.getStorage());
     };
 
     const auto removeAt = [&](int index) {
@@ -359,8 +360,9 @@ void PostCollectionView::refreshDrafts()
             return;
         }
 
-        // LongListWidget::removeItems() preserves the concrete viewport anchor.
-        // Destroy the materialized PostWidget before releasing its snapshot.
+        // LongListWidget removes the logical row immediately, while the
+        // materialized widget itself may be deferred with deleteLater(). Its
+        // PostWidget keeps a shared snapshot lease through that interval.
         if (list) {
             list->removeItems(index, 1);
         }
@@ -658,7 +660,7 @@ void PostCollectionView::appendPosts(const QVector<QJsonObject>& rawPosts)
             continue;
         }
         postIds.insert(postId);
-        auto owned = std::make_unique<BackendPost>(raw, backend.getStorage());
+        auto owned = std::make_shared<BackendPost>(raw, backend.getStorage());
         posts.push_back(owned.get());
         ownedPosts.push_back(std::move(owned));
     }
@@ -929,8 +931,12 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
     const auto presentationMode = mode == Mode::Drafts
         ? PostWidget::PresentationMode::ReadOnlySnapshot
         : PostWidget::PresentationMode::Interactive;
-    auto* postWidget =
-        new PostWidget(backend, post, row, nullptr, nullptr, presentationMode);
+    std::shared_ptr<BackendPost> postLease;
+    if (mode != Mode::Pinned && index < static_cast<int>(ownedPosts.size())) {
+        postLease = ownedPosts[index];
+    }
+    auto* postWidget = new PostWidget(
+        backend, post, row, nullptr, nullptr, presentationMode, std::move(postLease));
     layout->addWidget(postWidget);
     connect(postWidget, &PostWidget::dimensionsChanged, this, [this, postId] {
         const int currentIndex = indexOfPost(postId);
@@ -1006,8 +1012,8 @@ void PostCollectionView::removeSavedPostLocally(const QString& postId)
         return;
     }
 
-    // removeItems destroys the materialized PostWidget before we release the
-    // collection-owned BackendPost it references.
+    // The row may be destroyed with deleteLater(); its PostWidget owns a shared
+    // snapshot lease until the deferred destruction completes.
     if (list) {
         list->removeItems(index, 1);
     }
