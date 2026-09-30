@@ -16,7 +16,6 @@
 #include <QSet>
 #include <QShortcut>
 #include <QSignalBlocker>
-#include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStyle>
@@ -474,11 +473,7 @@ int NavigationUiController::appendNavigationTab(const Location& location)
     const auto* entry = tabModel.at(index);
     const QString title = entry ? entry->title : tabTitle(location);
     if (index >= oldCount) {
-        // QTabBar has no per-tab font API. Keep its own text empty and render
-        // the semantic title as a mouse-transparent tab button so each tab can
-        // independently mirror sidebar unread boldness without replacing the
-        // platform tab style or drag/close behavior.
-        navigationTabs->addTab(QString());
+        navigationTabs->addTab(title);
     }
     setNavigationTabTitle(index, title);
     refreshTabUnreadVisual(location.channelId);
@@ -493,40 +488,8 @@ void NavigationUiController::setNavigationTabTitle(
         return;
     }
 
-    QLabel* titleLabel = nullptr;
-    for (QTabBar::ButtonPosition position :
-         {QTabBar::LeftSide, QTabBar::RightSide}) {
-        auto* candidate = qobject_cast<QLabel*>(
-            navigationTabs->tabButton(index, position));
-        if (candidate
-            && candidate->property("navigationTabTitle").toBool()) {
-            titleLabel = candidate;
-            break;
-        }
-    }
-
-    if (!titleLabel) {
-        const auto closePosition = static_cast<QTabBar::ButtonPosition>(
-            navigationTabs->style()->styleHint(
-                QStyle::SH_TabBar_CloseButtonPosition,
-                nullptr, navigationTabs));
-        const QTabBar::ButtonPosition titlePosition =
-            closePosition == QTabBar::LeftSide
-                ? QTabBar::RightSide : QTabBar::LeftSide;
-
-        titleLabel = new QLabel(navigationTabs);
-        titleLabel->setProperty("navigationTabTitle", true);
-        titleLabel->setTextFormat(Qt::PlainText);
-        titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-        titleLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-        navigationTabs->setTabButton(index, titlePosition, titleLabel);
-    }
-
-    titleLabel->setText(title);
-    titleLabel->setAccessibleName(title);
+    navigationTabs->setTabText(index, title);
     navigationTabs->setTabToolTip(index, title);
-    titleLabel->updateGeometry();
-    navigationTabs->updateGeometry();
 }
 
 void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
@@ -544,9 +507,9 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
     }
 
     auto& sidebar = SidebarService::instance(*sourceBackend);
-    // Match ChannelItemDelegate exactly: either unread channel activity or an
-    // unread mention makes the conversation title bold.
-    const bool bold =
+    // Keep native tab text/layout. A leading star mirrors the same unread/
+    // mention condition that previously made the title bold.
+    const bool marked =
         sidebar.isChannelUnread(*channel)
         || sidebar.hasUnreadMention(channelId);
 
@@ -556,42 +519,10 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
             continue;
         }
 
-        QLabel* titleLabel = nullptr;
-        for (QTabBar::ButtonPosition position :
-             {QTabBar::LeftSide, QTabBar::RightSide}) {
-            auto* candidate = qobject_cast<QLabel*>(
-                navigationTabs->tabButton(index, position));
-            if (candidate
-                && candidate->property("navigationTabTitle").toBool()) {
-                titleLabel = candidate;
-                break;
-            }
-        }
-        if (!titleLabel) {
-            setNavigationTabTitle(index, entry->title);
-            for (QTabBar::ButtonPosition position :
-                 {QTabBar::LeftSide, QTabBar::RightSide}) {
-                auto* candidate = qobject_cast<QLabel*>(
-                    navigationTabs->tabButton(index, position));
-                if (candidate
-                    && candidate->property("navigationTabTitle").toBool()) {
-                    titleLabel = candidate;
-                    break;
-                }
-            }
-        }
-        if (!titleLabel) {
-            continue;
-        }
-
-        QFont font = navigationTabs->font();
-        font.setBold(bold);
-        titleLabel->setFont(font);
-        titleLabel->updateGeometry();
+        navigationTabs->setTabText(
+            index,
+            marked ? QStringLiteral("★ ") + entry->title : entry->title);
     }
-
-    navigationTabs->updateGeometry();
-    navigationTabs->update();
 }
 
 void NavigationUiController::refreshAllTabUnreadVisuals()
@@ -1526,14 +1457,6 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == navigationTabs && event
-        && event->type() == QEvent::FontChange) {
-        // Title labels intentionally have an explicit bold/normal font. Rebase
-        // that font on QTabBar whenever application/UI scaling changes it.
-        QTimer::singleShot(0, this,
-                           &NavigationUiController::refreshAllTabUnreadVisuals);
-    }
-
     const bool channelPointerSurface = channelTree
         && (watched == channelTree || watched == channelTree->viewport());
     if (channelPointerSurface && event
