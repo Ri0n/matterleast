@@ -14,7 +14,7 @@
 #include "Backend.h"
 #include "NetworkRequest.h"
 #include "QByteArrayCreator.h"
-#include "types/BackendUser.h"
+#include "RecentMentionsPolicy.h"
 
 namespace Mattermost {
 namespace {
@@ -84,42 +84,11 @@ RecentMentionsService::RecentMentionsService(Backend& sourceBackend)
             &backend, &Backend::onHttpError);
 }
 
-QString RecentMentionsService::mentionTerms(const BackendUser& user)
-{
-    QStringList keys;
-    QSet<QString> seen;
-
-    const auto append = [&keys, &seen](QString key) {
-        key = key.trimmed();
-        if (key.isEmpty()
-            || key == QStringLiteral("@channel")
-            || key == QStringLiteral("@all")
-            || key == QStringLiteral("@here")
-            || seen.contains(key)) {
-            return;
-        }
-        seen.insert(key);
-        keys.push_back(std::move(key));
-    };
-
-    for (const QString& key : user.notify_preps.mention_keys) {
-        append(key);
-    }
-    if (user.notify_preps.first_name && !user.first_name.isEmpty()) {
-        append(user.first_name);
-    }
-    if (!user.username.isEmpty()) {
-        append(QStringLiteral("@") + user.username);
-    }
-
-    return keys.join(QLatin1Char(' '));
-}
-
 void RecentMentionsService::loadPage(int page,
                                      int perPage,
                                      CollectionCallback callback)
 {
-    const QString terms = mentionTerms(backend.getLoginUser());
+    const QString terms = RecentMentionsPolicy::searchTerms(backend.getLoginUser());
     if (terms.isEmpty()) {
         if (callback) {
             PostRepository::CollectionPage result;
