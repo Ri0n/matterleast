@@ -28,6 +28,8 @@
 #include <QVideoWidget>
 #include <QWidget>
 
+class QBuffer;
+
 namespace Ui {
 class AttachedVideoFile;
 }
@@ -48,12 +50,13 @@ public:
     void mousePressEvent(QMouseEvent *event) override;
 
 private:
-    Ui::AttachedVideoFile*	ui;
-    Backend&				backend;
-    QMediaPlayer*			mediaPlayer;
-    QVideoWidget*			videoWidget;
-    QString                     fileId;
-    bool					init;
+    Ui::AttachedVideoFile* ui;
+    Backend& backend;
+    QMediaPlayer* mediaPlayer;
+    QVideoWidget* videoWidget;
+    QBuffer* mediaStream = nullptr;
+    QString fileId;
+    bool init;
 };
 
 } /* namespace Mattermost */
