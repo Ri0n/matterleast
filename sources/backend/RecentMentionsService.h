@@ -3,7 +3,6 @@
 #include <functional>
 
 #include <QObject>
-#include <QString>
 
 #include "HTTPConnector.h"
 #include "PostRepository.h"
@@ -11,7 +10,6 @@
 namespace Mattermost {
 
 class Backend;
-class BackendUser;
 
 /**
  * Server-backed Recent Mentions collection matching Mattermost web semantics.
@@ -27,9 +25,6 @@ public:
     using CollectionCallback = PostRepository::CollectionCallback;
 
     static RecentMentionsService& instance(Backend& backend);
-
-    /** Mattermost personal mention terms, excluding broadcast mentions. */
-    static QString mentionTerms(const BackendUser& user);
 
     void loadPage(int page, int perPage, CollectionCallback callback);
 
