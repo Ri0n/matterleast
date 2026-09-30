@@ -254,6 +254,7 @@ void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
                 return;
             }
             renderTeamSidebar(backend, *teamItem, state);
+            emit teamSidebarPopulated(teamId);
         });
 }
 

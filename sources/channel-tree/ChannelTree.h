@@ -139,6 +139,7 @@ public:
 	void createGroupAndMoveChannel(ChannelItem* item);
 
 signals:
+    void teamSidebarPopulated(const QString& teamId);
     void virtualDestinationRequested(int destination, const QString& teamId);
     /** Completion of a stored-channel open that required asynchronous admission/join. */
     void storedChannelOpenFinished(const QString& channelId, bool opened);

@@ -39,6 +39,12 @@ A selected row may be retained temporarily so the item does not disappear under
 the pointer while the model refreshes; retention is UI-only and must not create
 an independent read state.
 
+Restoring a saved viewport is also passive navigation. While its cold post
+bookmark is unresolved, `ChatLogWidget` suppresses read observations from the
+incidental initial viewport; normal lower-edge tracking resumes after positioning
+or cancellation. See [restart restoration](../navigation-tabs.md#restart-restoration)
+for persistence and cancellation ownership.
+
 This is an important invariant: **Following and Attention must never differ in
 what counts as read.** If clicking the same semantic entry in one projection
 changes unread state while the other does not, the implementation is wrong.

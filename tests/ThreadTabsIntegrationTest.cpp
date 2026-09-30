@@ -1,10 +1,12 @@
 #include <QtTest>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QCryptographicHash>
 #include <QLoggingCategory>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
 #include <QTabBar>
+#include <QStackedWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -23,12 +25,19 @@
 #include "mainwindow.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/NavigationUiController.h"
+#include "options/MLOptions.h"
 
 using namespace Mattermost;
 
 namespace {
 QString rootId(int thread) { return QStringLiteral("root%1").arg(thread, 22, 10, QLatin1Char('0')); }
 QString replyId(int thread, int reply) { return QStringLiteral("reply%1_%2").arg(thread).arg(reply); }
+QString sessionKey(const QString& user = QStringLiteral("user"))
+{
+    return QStringLiteral("navigation_session/") + QString::fromLatin1(
+        QCryptographicHash::hash((NetworkRequest::host() + QChar(0x1f) + user).toUtf8(),
+                                QCryptographicHash::Sha256).toHex());
+}
 QJsonObject post(int thread, int reply = 0)
 {
     const qint64 time = 1000000000000LL + thread * 1000 + reply;
@@ -53,6 +62,7 @@ public:
     int replyCount = 3;
     int returnedReplies = 0;
     bool failPost = false;
+    bool startupChannels = false;
     Server()
     {
         connect(this, &QTcpServer::newConnection, this, [this] {
@@ -68,6 +78,13 @@ public:
                     const QStringList parts = url.path().split('/', Qt::SkipEmptyParts);
                     QByteArray body = "[]";
                     bool failed = false;
+                    if (startupChannels && url.path() == "/api/v4/users/me/teams") {
+                        body = R"([{"id":"team","name":"team","display_name":"Team"}])";
+                    } else if (startupChannels && url.path() == "/api/v4/users/me/teams/team/channels") {
+                        body = R"([{"id":"channel","type":"G","display_name":"Test chat"}])";
+                    } else if (startupChannels && url.path().endsWith("/channels/categories")) {
+                        body = R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
+                    }
                     if (parts.size() >= 4 && parts.at(2) == "posts") {
                         const QString root = parts.at(3);
                         const int thread = root.mid(4).toInt();
@@ -77,6 +94,10 @@ public:
                         if (parts.size() == 4) {
                             postLookups.push_back(root);
                             failed = failPost;
+                            if (root.startsWith("reply")) {
+                                const auto ids = root.mid(5).split('_');
+                                rootPost = post(ids.value(0).toInt(), ids.value(1).toInt());
+                            }
                             body = QJsonDocument(rootPost).toJson(QJsonDocument::Compact);
                         } else if (parts.at(4) == "thread") {
                             threadLookups.push_back(root);
@@ -121,6 +142,150 @@ class ThreadTabsIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void sessionRestoresTabOrderDockAndDetachedWindow()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        const QString key = sessionKey();
+        MLOptions::instance()->setValue(key, QByteArray());
+        QSystemTrayIcon tray;
+        {
+            Backend backend;
+            backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            MainWindow window(nullptr, tray, backend);
+            window.show();
+            QTRY_VERIFY(window.findChild<QTabBar*>(QStringLiteral("navigationTabs")));
+            QTRY_VERIFY(backend.getStorage().getChannelById("channel"));
+            QTRY_VERIFY(SidebarService::instance(backend).teamState("team")
+                        && SidebarService::instance(backend).teamState("team")->category("dm"));
+            auto& ui = NavigationUiController::instance(window);
+            auto& navigation = AppNavigationService::instance(backend);
+            navigation.openChannelInTab("channel");
+            navigation.openThreadInTab("channel", rootId(201));
+            navigation.openThreadInTab("channel", rootId(202));
+            auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+            QCOMPARE(tabs->count(), 3);
+            tabs->moveTab(2, 1);
+            tabs->setCurrentIndex(1);
+            auto* channel = backend.getStorage().getChannelById("channel");
+            QVERIFY(channel);
+            auto* dock = new ChatArea(backend, *channel, rootId(203), nullptr);
+            ui.presentThread(dock);
+            auto* detached = new ChatArea(backend, *channel, rootId(204), nullptr);
+            detached->setProperty("threadDetached", true);
+            detached->resize(640, 480);
+            ui.presentThread(detached);
+            QTRY_VERIFY(channel->postIdToPost.contains(rootId(204)));
+            tabs->setCurrentIndex(1);
+            ui.saveSession();
+            const auto saved = QJsonDocument::fromJson(MLOptions::instance()->value<QByteArray>(key)).object();
+            QCOMPARE(saved.value("tabs").toArray().size(), 3);
+            QCOMPARE(saved.value("tabs").toArray().at(1).toObject().value("root").toString(), rootId(202));
+            QCOMPARE(saved.value("active_tab").toObject().value("root").toString(), rootId(202));
+            QCOMPARE(saved.value("threads").toArray().size(), 2);
+            // The same process/account cache is not used by the next Backend.
+            delete detached;
+        }
+        {
+            Backend backend;
+            backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            MainWindow window(nullptr, tray, backend);
+            window.show();
+            // No manual restore call: exercise the real startup readiness path.
+            QTRY_VERIFY(NavigationUiController::instance(window).findThread("channel", rootId(204)));
+            auto& ui = NavigationUiController::instance(window);
+            auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+            QCOMPARE(tabs->count(), 3);
+            QCOMPARE(tabs->currentIndex(), 1);
+            QVERIFY(ui.findThread("channel", rootId(202))->property("threadTabbed").toBool());
+            auto* dock = ui.findThread("channel", rootId(203));
+            QVERIFY(dock);
+            auto* stack = window.findChild<QStackedWidget*>(QStringLiteral("threadStack"));
+            QCOMPARE(stack->currentWidget(), dock);
+            QVERIFY(!stack->isHidden());
+            auto* detached = ui.findThread("channel", rootId(204));
+            QVERIFY(detached->isWindow());
+            QVERIFY(detached->property("threadDetached").toBool());
+            QCOMPARE(detached->size(), QSize(640, 480));
+            QTRY_VERIFY(backend.getStorage().getChannelById("channel")->postIdToPost.contains(rootId(202)));
+            ui.saveSession();
+            const auto saved = QJsonDocument::fromJson(MLOptions::instance()->value<QByteArray>(key)).object();
+            QCOMPARE(saved.value("tabs").toArray().at(2).toObject().value("root").toString(), rootId(201));
+            QTest::mouseClick(tabs, Qt::MiddleButton, Qt::NoModifier, tabs->tabRect(2).center());
+            QTRY_COMPARE(tabs->count(), 2);
+            ui.saveSession();
+            QCOMPARE(QJsonDocument::fromJson(MLOptions::instance()->value<QByteArray>(key))
+                         .object().value("tabs").toArray().size(), 2);
+            delete detached;
+        }
+    }
+
+    void sessionColdBookmarkAndUserNavigation()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.replyCount = 731;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        const QJsonObject destination {{"channel", "channel"}, {"root", rootId(205)},
+                                       {"post", replyId(205, 365)}};
+        const QJsonObject snapshot {{"version", 1}, {"tabs", QJsonArray {destination}},
+                                    {"active_tab", destination}};
+        MLOptions::instance()->setValue(sessionKey(), QJsonDocument(snapshot).toJson());
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        auto& ui = NavigationUiController::instance(window);
+        QTRY_VERIFY(ui.findThread("channel", rootId(205)));
+        auto* area = ui.findThread("channel", rootId(205));
+        auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QTRY_VERIFY(server.postLookups.contains(replyId(205, 365)));
+        QTRY_VERIFY(area->property("sessionBookmark").toString().isEmpty());
+        QTRY_VERIFY(!log->isAtEnd());
+        const int index = log->source()->indexOfPost(replyId(205, 365));
+        QVERIFY(index >= 0);
+        QTRY_VERIFY(log->itemWidget(index));
+        QVERIFY(log->visibleRange().first <= index && index <= log->visibleRange().last);
+        QVERIFY(server.returnedReplies < 100);
+        // Explicit navigation cancels pending passive state immediately.
+        area->setProperty("sessionBookmark", replyId(205, 100));
+        area->goToNewest();
+        QVERIFY(area->property("sessionBookmark").toString().isEmpty());
+        QTRY_VERIFY(log->isAtEnd());
+        ui.saveSession();
+        const auto saved = QJsonDocument::fromJson(MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QVERIFY(saved.value("tabs").toArray().at(0).toObject().value("post").toString().isEmpty());
+        QVERIFY(!MLOptions::instance()->contains(sessionKey("other-user")));
+    }
+
+    void sessionDoesNotRestoreAnotherAccount()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        const QJsonObject destination {{"channel", "channel"}, {"root", rootId(299)}};
+        const QByteArray original = QJsonDocument(QJsonObject {{"version", 1},
+            {"tabs", QJsonArray {destination}}, {"active_tab", destination}}).toJson();
+        MLOptions::instance()->setValue(sessionKey(), original);
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {{"id", "other-user"}, {"username", "other"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        QTRY_VERIFY(SidebarService::instance(backend).teamState("team")
+                    && SidebarService::instance(backend).teamState("team")->category("dm"));
+        auto& ui = NavigationUiController::instance(window);
+        QVERIFY(!ui.findThread("channel", rootId(299)));
+        ui.saveSession();
+        QCOMPARE(MLOptions::instance()->value<QByteArray>(sessionKey()), original);
+        QVERIFY(MLOptions::instance()->contains(sessionKey("other-user")));
+    }
+
     void threadTabAttentionIsIndependentFromParentChannel()
     {
         Server server;

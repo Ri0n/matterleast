@@ -40,6 +40,8 @@ model merely to change its presentation.
   Repeated middle-click, **Open in new tab**, permalink navigation or other
   navigation to the same destination activates the existing tab instead of
   creating a duplicate. This applies equally to channels, DMs/GMs and threads.
+- Middle-clicking a tab closes that tab. Closing is deferred until the tab-bar
+  mouse event completes because closing a thread can reparent its `ChatArea`.
 - Docked thread, detached-window thread and tabbed thread are presentation
   states. They must not change backend membership, read-state authority,
   timeline sources, or thread identity. A transition out of a tab owns the
@@ -82,6 +84,32 @@ resolved post context, and then runs the same `MainWindow::openChannelPost()`
 prepare/lock/highlight path used outside tabs. Ordinary tab switching continues
 to restore bookmarks silently, without a highlight animation. Explicit
 `open*InTab()` requests remain idempotent for the same canonical destination.
+
+## Restart restoration
+
+`NavigationUiController` saves a versioned semantic session through `MLOptions`,
+scoped by server URL and login user ID. It records tab order and active tab,
+the ordinary central chat, docked threads and the visible dock selection, and
+detached threads with their window geometry. Browser Back/Forward history and
+transient collection/search surfaces are not persisted.
+
+Startup waits for channel memberships, team channels and rendered sidebar
+category snapshots from the existing startup requests before replaying the
+session. If initialization fails, the previous snapshot remains intact until
+initialization can complete. Missing/inaccessible channels are skipped.
+Presentation moves reuse the usual tab/dock/window ownership paths. The
+snapshot is debounced after navigation/viewport changes and saved synchronously
+when saving the main window or quitting; widget teardown must not replace it
+with an empty session.
+
+A viewport bookmark stores a post identity, never an estimated ordinal. A view
+at the newest edge stores no post bookmark and resumes at the live edge.
+Cold bookmarks resolve their bodies through `PostRepository` and use the quiet
+viewport navigation path, without permalink highlighting. While a bookmark is
+being resolved, it remains the saved identity and suppresses viewport read
+acknowledgement of an incidental initial position. User scrolling or explicit
+post/newest navigation cancels that pending restoration. Failed bookmark loads
+leave the chat usable at its normal initial position.
 
 ## Extension point
 

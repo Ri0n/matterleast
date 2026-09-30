@@ -13,6 +13,7 @@ class QSplitter;
 class QStackedWidget;
 class QTabBar;
 class QToolButton;
+class QTimer;
 class QWidget;
 
 namespace Mattermost {
@@ -61,12 +62,18 @@ public:
     bool activateExistingTab(const QString& channelId,
                              const QString& rootId = QString(),
                              bool restoreBookmark = true);
+    void saveSession();
+    void restoreSession();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void setupMainWindow();
+    QString sessionSettingsKey() const;
+    void scheduleSessionSave();
+    void trackSessionArea(ChatArea* area);
+    void restoreSessionBookmark(ChatArea* area, const QString& postId);
     void setupSidebarHeader();
     void setupThreadPane();
     void updateIdentityTooltip();
@@ -126,6 +133,9 @@ private:
     bool switchingTabs = false;
     bool replayingHistory = false;
     bool threadSplitterStateRestored = false;
+    QTimer* sessionSaveTimer = nullptr;
+    bool sessionRestored = false;
+    bool restoringSession = false;
 };
 
 } // namespace Mattermost

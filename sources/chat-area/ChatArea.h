@@ -87,12 +87,16 @@ public:
 	 * an external jump selects this ChatArea, before the queued navigation itself
 	 * runs.
 	 */
-	void preparePostNavigation () { ++viewportNavigationGeneration; }
+	void preparePostNavigation ()
+	{
+		++viewportNavigationGeneration;
+		setProperty("sessionBookmark", QString());
+	}
 
 	/** Explicitly navigate to the newest edge, superseding any older post target. */
 	void goToNewest ()
 	{
-		++viewportNavigationGeneration;
+		preparePostNavigation();
 		scheduleNewestPosition();
 	}
 

@@ -670,6 +670,9 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
 		for (auto& team: storage.teams) {
 			callback (team.second);
 		}
+        if (storage.teams.empty()) {
+            emit onAllTeamChannelsPopulated();
+        }
     }));
 }
 

@@ -576,7 +576,8 @@ void ChatLogWidget::scheduleReadCursorUpdate()
 void ChatLogWidget::updateReadCursorFromVisibility()
 {
     if (!backend || !chatArea || !postSource || !chatArea->isVisible()
-        || !chatArea->isActiveWindow()) {
+        || !chatArea->isActiveWindow()
+        || !chatArea->property("sessionBookmark").toString().isEmpty()) {
         return;
     }
 
