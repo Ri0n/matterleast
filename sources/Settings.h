@@ -38,6 +38,17 @@ static constexpr bool COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT = false;
 
 static constexpr const char* CHAT_FONT = "chat/font";
 
+// Unread-mode presentation policy. "Channels only" keeps the Following tab
+// available while the sidebar's unread filter is active. Text filtering may
+// temporarily suspend the unread gate so a known read channel can still be
+// found by name.
+static constexpr const char* UNREAD_MODE_CHANNELS_ONLY =
+    "sidebar/unreadMode/channelsOnly";
+static constexpr bool UNREAD_MODE_CHANNELS_ONLY_DEFAULT = false;
+static constexpr const char* UNREAD_MODE_IGNORE_WHILE_FILTERING =
+    "sidebar/unreadMode/ignoreWhileFiltering";
+static constexpr bool UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT = true;
+
 // Historical attachment-file cache setting. Keep the key stable for existing
 // installations, but expose it explicitly on the Cache settings tab.
 static constexpr const char* CACHE_SIZE_MB = "config/cacheSizeMB";
