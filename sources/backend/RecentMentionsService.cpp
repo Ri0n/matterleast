@@ -1,5 +1,8 @@
 #include "RecentMentionsService.h"
 
+#include <utility>
+
+#include <QHash>
 #include <QPointer>
 
 #include "Backend.h"
