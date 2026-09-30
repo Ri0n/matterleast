@@ -23,7 +23,9 @@
 
 #include "ChannelIcons.h"
 #include "ChannelItem.h"
+#include "RecentMentionsIcon.h"
 #include "backend/types/BackendChannel.h"
+#include "channel-tree/team-item/TeamItem.h"
 
 namespace Mattermost {
 
@@ -58,6 +60,31 @@ void ChannelTree::refreshPaletteDependentIcons()
                 channelItem->setIcon(ChannelIcons::privateChannel());
             } else if (type == BackendChannel::publicChannel) {
                 channelItem->setIcon(ChannelIcons::channel());
+            }
+        }
+    }
+
+    // Local virtual destinations are not present in channelToItemMap. Refresh
+    // their palette-derived icons explicitly so theme changes do not leave the
+    // Recent Mentions @ glyph in the previous theme's foreground colour.
+    for (TeamItem* teamItem : teamToItemMap) {
+        if (!teamItem) {
+            continue;
+        }
+        for (int categoryIndex = 0; categoryIndex < teamItem->childCount(); ++categoryIndex) {
+            QTreeWidgetItem* category = teamItem->child(categoryIndex);
+            if (!category) {
+                continue;
+            }
+            for (int rowIndex = 0; rowIndex < category->childCount(); ++rowIndex) {
+                QTreeWidgetItem* row = category->child(rowIndex);
+                if (!row
+                    || row->data(0, ItemKindRole).toInt() != VirtualDestinationItemKind
+                    || row->data(0, ItemDestinationRole).toInt()
+                        != SidebarItem::RecentMentionsDestination) {
+                    continue;
+                }
+                row->setIcon(0, recentMentionsIcon(palette()));
             }
         }
     }
