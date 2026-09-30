@@ -5,7 +5,7 @@
  *
  * Mattermost-QT is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
  * Mattermost-QT is distributed in the hope that it will be useful,
@@ -77,6 +77,8 @@ public:
 
 private slots:
     void on_usericon_label_clicked();
+    void on_channelList_virtualDestinationRequested(int destination,
+                                                     const QString& teamId);
 
 protected:
 	bool eventFilter(QObject* watched, QEvent* event) override;
@@ -111,6 +113,7 @@ private:
 	AttentionList*						attentionList = nullptr;
     PostCollectionView*                 savedMessagesPage = nullptr;
     PostCollectionView*                 draftsPage = nullptr;
+    PostCollectionView*                 recentMentionsPage = nullptr;
     PostCollectionView*                 searchMessagesPage = nullptr;
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;
