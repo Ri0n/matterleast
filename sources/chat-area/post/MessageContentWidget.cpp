@@ -256,6 +256,7 @@ protected:
         }
         QTextBrowser::mousePressEvent(event);
     }
+
     void mouseMoveEvent(QMouseEvent* event) override
     {
         if (!dragLink.isEmpty() && event
