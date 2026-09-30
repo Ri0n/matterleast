@@ -97,6 +97,12 @@ Startup waits for channel memberships, team channels and rendered sidebar
 category snapshots from the existing startup requests before replaying the
 session. If initialization fails, the previous snapshot remains intact until
 initialization can complete. Missing/inaccessible channels are skipped.
+Channel population responses retain a `QPointer` to their original team;
+replacing the team snapshot invalidates outstanding responses, including their
+startup-counter completion. A late response must not mutate a replacement team
+with the same ID or access the removed QObject. The startup counter is reset
+for each new team snapshot. Qt 5.15.3 exposes this race in successive session
+fixtures because HTTP completion order differs from newer Qt versions.
 Presentation moves reuse the usual tab/dock/window ownership paths. The
 snapshot is debounced after navigation/viewport changes and saved synchronously
 when saving the main window or quitting; widget teardown must not replace it

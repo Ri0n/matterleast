@@ -654,6 +654,7 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
     httpConnector.get (request, HttpResponseCallback ([this, callback] (const QJsonDocument& doc) {
     	LOG_DEBUG ("retrieveOwnTeams reply");
 		storage.teams.clear ();
+		nonFilledTeams = 0;
 
 #if 0
 		QString jsonString = doc.toJson(QJsonDocument::Indented);
@@ -776,21 +777,27 @@ void Backend::retrieveChannelsMemberCounts(
 void Backend::retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback)
 {
     NetworkRequest request ("users/me/teams/" + team.id + "/channels");
+    QPointer<BackendTeam> teamGuard(&team);
 
-    httpConnector.get (request, HttpResponseCallback ([this, &team, callback] (const QJsonDocument& doc) {
-    	team.channels.clear ();
+    httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (const QJsonDocument& doc) {
+        // A refreshed team snapshot may replace this QObject while HTTP is in
+        // flight, even reusing its ID/address. Never apply the old response to
+        // a destroyed team or decrement the new snapshot's startup counter.
+        if (!teamGuard) return;
+        BackendTeam& currentTeam = *teamGuard;
+        currentTeam.channels.clear ();
 
 #if 0
     	QString jsonString = doc.toJson(QJsonDocument::Indented);
     	std::cout << "retrieveOwnChannelMembershipsForTeam reply: " <<  jsonString.toStdString() << std::endl;
 #endif
 
-    	LOG_DEBUG ("Team " << team.display_name << ":");
+        LOG_DEBUG ("Team " << currentTeam.display_name << ":");
 		for (const auto &itemRef: doc.array()) {
-			storage.addChannel (team, itemRef.toObject());
+			storage.addChannel (currentTeam, itemRef.toObject());
 		}
 
-		for (auto& channel: team.channels) {
+		for (auto& channel: currentTeam.channels) {
 			callback (*channel.get());
 			LOG_DEBUG ("\tChannel added: " << channel->id << " " << channel->display_name);
 		}

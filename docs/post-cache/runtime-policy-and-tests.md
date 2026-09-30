@@ -45,6 +45,13 @@ Materialized `PostWidget`s, active edit/reply composer contexts and active threa
 Pinned-dialog copies do not accidentally pin a same-ID resident body because acquisition verifies
 object ownership in `BackendChannel::postIdToPost`.
 
+Repository shutdown disables lease release before member destruction begins.
+Pending HTTP/cache callbacks may own source-demand leases and destroy them after
+the residency maps have already been destroyed. A `QPointer<PostRepository>`
+alone cannot guard this interval: QObject clears it only in its base destructor.
+The shutdown flag outlives all callback-owning members; release then becomes a
+no-op, and callback destruction must never invoke success/failure user code.
+
 The legacy `BackendPost::rootPost` relationship is still handled conservatively: a root is not
 eligible for eviction while a resident reply names that root. The durable relationship remains
 `root_id`.

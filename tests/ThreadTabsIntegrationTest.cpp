@@ -58,6 +58,8 @@ class Server : public QTcpServer
 public:
     QStringList postLookups;
     QStringList threadLookups;
+    QStringList teamChannelLookups;
+    int teamChannelResponses = 0;
     int delayMs = 0;
     int replyCount = 3;
     int returnedReplies = 0;
@@ -78,6 +80,9 @@ public:
                     const QStringList parts = url.path().split('/', Qt::SkipEmptyParts);
                     QByteArray body = "[]";
                     bool failed = false;
+                    const bool teamChannels = url.path().startsWith("/api/v4/users/me/teams/")
+                        && url.path().endsWith("/channels");
+                    if (teamChannels) teamChannelLookups.push_back(url.path());
                     if (startupChannels && url.path() == "/api/v4/users/me/teams") {
                         body = R"([{"id":"team","name":"team","display_name":"Team"}])";
                     } else if (startupChannels && url.path() == "/api/v4/users/me/teams/team/channels") {
@@ -127,9 +132,10 @@ public:
                     const QByteArray response = "HTTP/1.1 " + QByteArray(failed ? "500 Failed" : "200 OK")
                         + "\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
                         + QByteArray::number(body.size()) + "\r\n\r\n" + body;
-                    QTimer::singleShot(delayMs, socket, [socket, response] {
+                    QTimer::singleShot(delayMs, socket, [this, socket, response, teamChannels] {
                         socket->write(response);
                         socket->disconnectFromHost();
+                        if (teamChannels) ++teamChannelResponses;
                     });
                 });
             }
@@ -142,6 +148,60 @@ class ThreadTabsIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void repositoryShutdownReleasesCallbackOwnedLeases()
+    {
+        Server server;
+        server.delayMs = 50;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* channel = storage.addGroupChannel(QJsonObject {{"id", "channel"}, {"type", "G"}});
+        auto* root = channel->addPost(post(300));
+        auto& repository = PostRepository::instance(backend);
+        auto lease = std::make_shared<PostResidencyLease>(repository.leasePost(*root));
+        std::weak_ptr<PostResidencyLease> callbackLease(lease);
+        int delivered = 0;
+        repository.loadThreadTail(*channel, root->id, 10,
+            [lease, &delivered](const PostRepository::Page&) { ++delivered; });
+        lease.reset();
+        QVERIFY(!callbackLease.expired());
+        QVERIFY(repository.isPostLeased(channel->id, root->id));
+        delete &repository;
+        QVERIFY(callbackLease.expired());
+        QCOMPARE(delivered, 0);
+        QCOMPARE(channel->postIdToPost.value(root->id), root);
+    }
+
+    void lateTeamChannelsResponseDoesNotTouchReplacementTeam()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.delayMs = 50;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "old"}});
+        int delivered = 0;
+        backend.retrieveOwnChannelMembershipsForTeam(*team, [&delivered](BackendChannel&) { ++delivered; });
+        QTRY_COMPARE(server.teamChannelLookups.size(), 1);
+        storage.teams.clear();
+        auto* replacement = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "replacement"}});
+        auto* retained = storage.addTeamChannel(*replacement, QJsonObject {{"id", "retained"}, {"type", "O"}});
+        QSignalSpy populated(&backend, &Backend::onAllTeamChannelsPopulated);
+        QTRY_COMPARE(server.teamChannelResponses, 1);
+        // Drain the HTTP completion, not merely the server's socket write.
+        QTest::qWait(100);
+        QCOMPARE(delivered, 0);
+        QCOMPARE(populated.count(), 0);
+        QCOMPARE(replacement->channels.size(), size_t(1));
+        QCOMPARE(replacement->channels.front().get(), retained);
+        QCOMPARE(storage.getChannelById("retained"), retained);
+    }
+
     void sessionRestoresTabOrderDockAndDetachedWindow()
     {
         Server server;
