@@ -2,6 +2,7 @@
 
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingPresentation.h"
+#include "channel-tree/RecentMentionsIcon.h"
 #include "channel-tree/SidebarUnreadPolicy.h"
 
 using namespace Mattermost;
@@ -94,6 +95,18 @@ private slots:
         QVERIFY(anyFilterActive(true, false, true));
         QVERIFY(anyFilterActive(true, true, true));
         QVERIFY(anyFilterActive(true, true, false));
+    }
+
+    void recentMentionsIconProvidesNormalAndSelectedGlyphs()
+    {
+        QPalette palette;
+        palette.setColor(QPalette::Text, QColor(10, 20, 30));
+        palette.setColor(QPalette::HighlightedText, QColor(240, 230, 220));
+
+        const QIcon icon = recentMentionsIcon(palette);
+        QVERIFY(!icon.isNull());
+        QVERIFY(!icon.pixmap(QSize(24, 24), QIcon::Normal).isNull());
+        QVERIFY(!icon.pixmap(QSize(24, 24), QIcon::Selected).isNull());
     }
 
     void snippetRemainsCompact()
