@@ -40,6 +40,7 @@ enum Destination {
     PersonalDestination,
     SavedDestination,
     DraftsDestination,
+    RecentMentionsDestination,
 };
 
 /**
