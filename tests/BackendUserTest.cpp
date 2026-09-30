@@ -2,6 +2,7 @@
 
 #include <QJsonObject>
 
+#include "backend/RecentMentionsPolicy.h"
 #include "backend/types/BackendUser.h"
 
 using namespace Mattermost;
@@ -56,6 +57,40 @@ private slots:
         QCOMPARE(user.update_at, uint64_t(200));
         QCOMPARE(user.first_name, QStringLiteral("Alicia"));
         QVERIFY(changes.contains(QStringLiteral("last_picture_update")));
+    }
+
+    void parsesStringAndBooleanNotificationFlags()
+    {
+        QJsonObject json = userJson(1234, 100);
+        json.insert(QStringLiteral("notify_props"), QJsonObject {
+            {QStringLiteral("channel"), QStringLiteral("true")},
+            {QStringLiteral("desktop_sound"), QStringLiteral("TRUE")},
+            {QStringLiteral("email"), true},
+            {QStringLiteral("first_name"), QStringLiteral("true")},
+            {QStringLiteral("mention_keys"), QStringLiteral("alpha,,beta")},
+        });
+
+        const BackendUser user(json);
+        QVERIFY(user.notify_preps.channel);
+        QVERIFY(user.notify_preps.desktop_sound);
+        QVERIFY(user.notify_preps.email);
+        QVERIFY(user.notify_preps.first_name);
+        QCOMPARE(user.notify_preps.mention_keys,
+                 QStringList({QStringLiteral("alpha"), QStringLiteral("beta")}));
+    }
+
+    void recentMentionsUseQuotedPersonalMentionKeys()
+    {
+        QJsonObject json = userJson(1234, 100);
+        json.insert(QStringLiteral("notify_props"), QJsonObject {
+            {QStringLiteral("first_name"), QStringLiteral("true")},
+            {QStringLiteral("mention_keys"),
+             QStringLiteral("custom-hyphen,@channel,@all,@here,@alice")},
+        });
+
+        const BackendUser user(json);
+        QCOMPARE(RecentMentionsPolicy::searchTerms(user),
+                 QStringLiteral("\"custom-hyphen\" \"@alice\" \"Alice\""));
     }
 };
 
