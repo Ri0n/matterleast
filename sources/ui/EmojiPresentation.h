@@ -144,7 +144,8 @@ inline const QSet<QString>& unicodeEmojiStrings()
 }
 
 inline void applyLegacyUnicodeEmojiFamily(QTextDocument& document,
-                                          const QString& family)
+                                          const QString& family,
+                                          const QSet<QString>& emojiStrings)
 {
     if (family.isEmpty()) {
         return;
@@ -155,7 +156,6 @@ inline void applyLegacyUnicodeEmojiFamily(QTextDocument& document,
         return;
     }
 
-    const QSet<QString>& emojiStrings = unicodeEmojiStrings();
     QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
     finder.toStart();
 
@@ -180,6 +180,12 @@ inline void applyLegacyUnicodeEmojiFamily(QTextDocument& document,
         }
         start = end;
     }
+}
+
+inline void applyLegacyUnicodeEmojiFamily(QTextDocument& document,
+                                          const QString& family)
+{
+    applyLegacyUnicodeEmojiFamily(document, family, unicodeEmojiStrings());
 }
 
 inline void apply(QTextDocument& document, Mode mode)
