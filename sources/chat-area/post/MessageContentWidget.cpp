@@ -37,6 +37,7 @@
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistryNotifier.h"
 #include "options/MLOptions.h"
+#include "ui/EmojiFont.h"
 #include "ui/EmojiPresentation.h"
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
@@ -132,6 +133,7 @@ void applyEmojiPresentation(QTextDocument& document, bool jumbo)
         ? EmojiPresentation::Mode::Jumbo
         : EmojiPresentation::Mode::Inline;
     const qreal scale = EmojiPresentation::fontScale(mode);
+    const QString emojiFamily = EmojiFont::legacyEmojiFontFamily();
     const QSet<QString>& emojiStrings = unicodeEmojiStrings();
     QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
     finder.toStart();
@@ -157,6 +159,13 @@ void applyEmojiPresentation(QTextDocument& document, bool jumbo)
                 cursor.setPosition(end, QTextCursor::KeepAnchor);
                 QTextCharFormat emojiFormat;
                 emojiFormat.setFontPointSize(pointSize * scale);
+                if (!emojiFamily.isEmpty()) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                    emojiFormat.setFontFamilies(QStringList {emojiFamily});
+#else
+                    emojiFormat.setFontFamily(emojiFamily);
+#endif
+                }
                 cursor.mergeCharFormat(emojiFormat);
             }
         }
