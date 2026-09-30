@@ -181,6 +181,15 @@ else()
   target_link_libraries(matterleast-core PUBLIC
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite)
+  if(BUILD_MULTIMEDIA)
+    # matterleast-core compiles the multimedia-aware production sources. Keep
+    # those Qt modules in its public link interface so integration tests that
+    # consume the object library inherit the same link requirements instead of
+    # duplicating them target by target.
+    target_link_libraries(matterleast-core PUBLIC
+      Qt${QT_VERSION_MAJOR}::Multimedia
+      Qt${QT_VERSION_MAJOR}::MultimediaWidgets)
+  endif()
   if(TARGET Qt${QT_VERSION_MAJOR}::DBus)
     target_link_libraries(matterleast-core PUBLIC Qt${QT_VERSION_MAJOR}::DBus)
     target_compile_definitions(matterleast-core PRIVATE MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS)

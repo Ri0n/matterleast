@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   ubuntu-2404:
-    name: Qt 6.4.2 / Ubuntu 24.04
+    name: Qt 6.4.2 + Multimedia / Ubuntu 24.04
     runs-on: ubuntu-24.04
 
     steps:
@@ -36,6 +36,7 @@ jobs:
             libqt6sql6-sqlite \
             libqt6svg6 \
             qt6-base-dev \
+            qt6-multimedia-dev \
             qt6-websockets-dev
 
       - name: Configure
@@ -43,6 +44,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DQT_6=ON
+          -DBUILD_MULTIMEDIA=ON
           -DBUILD_TESTING=ON
           -DWARNINGS_AS_ERRORS=ON
 
