@@ -48,6 +48,8 @@ private:
     Ui::SettingsWindow *ui;
 
     QCheckBox* sendWithCtrlEnter = nullptr;
+    QCheckBox* unreadModeChannelsOnly = nullptr;
+    QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
     QString originalChatFont;
     QSpinBox* attachmentCacheSizeMB = nullptr;
     QSpinBox* diskChannelIdleHours = nullptr;
