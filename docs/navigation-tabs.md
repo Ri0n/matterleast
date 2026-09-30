@@ -63,6 +63,10 @@ ordinary left-click path remains `openPost()`. Permalinks still pass through
 `AppNavigationService` so cold-post
 resolution and reply-root loading happen before the tab is presented.
 
+Direct thread-row activation may present a tab before its root body is resident; it does not run the
+left-click unread-resume query as a loading prerequisite. The ordinary thread source must bootstrap
+that cold identity itself, as described in [Thread source](post-sources/channel-and-thread.md#thread-source).
+
 Ordinary semantic navigation also reuses existing tabs. Once a navigation target
 has resolved to its canonical `channelId + rootId` destination,
 `AppNavigationService` asks the navigation UI to activate an existing matching
