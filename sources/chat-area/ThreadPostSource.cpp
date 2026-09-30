@@ -113,11 +113,14 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
 {
     postIds.resize(currentLogicalCount());
     if (!postIds.isEmpty()) {
+        // The requested root identity exists even before its body/summary is
+        // resident. Expose that missing row so the view can demand bootstrap.
+        postIds[0] = rootId;
         if (BackendPost* root = rootPost()) {
-            postIds[0] = rootId;
             cursorCreateAtById.insert(rootId, root->create_at);
         }
     }
+    rebuildIndex();
     seedCachedPosts();
 
     BackendPost* root = rootPost();
@@ -151,6 +154,20 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
             << "THREAD_SLOTS source=" << static_cast<const void*>(this)
             << ' ' << slotSummary(postIds);
     };
+
+    connect(&channel, &BackendChannel::onPostBodyAvailabilityChanged, this,
+            [this, syncLogicalCount](const QString& postId, bool available) {
+        if (postId != rootId || !available) return;
+        // Another source/navigation request can deliver the missing root
+        // before our first demand runs. Body arrival also resolves its summary;
+        // do not mistake the now-available root row for a complete thread.
+        if (BackendPost* root = rootPost()) {
+            rootResidencyLease = PostTimelineService::instance(backend).leasePost(*root);
+            cursorCreateAtById.insert(rootId, root->create_at);
+            syncLogicalCount(*root);
+            emit rangeAvailable(0, 0);
+        }
+    });
 
     connect(&channel, &BackendChannel::onNewPost, this,
             [this](BackendPost& post) { appendLiveReply(post); });
@@ -685,7 +702,32 @@ void ThreadPostSource::continueDemand(const std::shared_ptr<Demand>& demand)
         return;
     }
     if (!rootPost()) {
-        failDemand(demand, QStringLiteral("Thread root body unavailable"));
+        const QString key = QStringLiteral("root");
+        if (demand->cursors.contains(key)) {
+            failDemand(demand, QStringLiteral("Thread root body unavailable"));
+            return;
+        }
+        demand->cursors.insert(key);
+        demand->expectedFirst = 0;
+        demand->expectedLast = 0;
+        QPointer<ThreadPostSource> guard(this);
+        PostTimelineService::instance(backend).loadPost(rootId,
+            [guard, demand](const PostTimelineService::PostResult& result) {
+                if (!guard) return;
+                BackendPost* root = guard->rootPost();
+                if (!result.success || !root || !root->root_id.isEmpty()) {
+                    guard->failDemand(demand, QStringLiteral("Thread root retrieval failed"));
+                    return;
+                }
+                // Pin before publishing count/availability: the root is a
+                // dependency of this source, not just of a concrete widget.
+                guard->rootResidencyLease = PostTimelineService::instance(guard->backend).leasePost(*root);
+                guard->cursorCreateAtById.insert(guard->rootId, root->create_at);
+                guard->resizeLogicalTail(guard->currentLogicalCount());
+                guard->seedCachedPosts();
+                guard->hydrateCachedTail();
+                guard->continueDemand(demand);
+            });
         return;
     }
     int missingLast = missingFirst;
@@ -839,7 +881,9 @@ int ThreadPostSource::currentLogicalCount() const
 {
     BackendPost* root = rootPost();
     if (!root) {
-        return 0;
+        // Unknown reply count is not an empty thread. The semantic root row
+        // gives ordinary demand a way to retrieve its body and discover count.
+        return rootId.isEmpty() ? 0 : 1;
     }
 
     // Mattermost reply_count excludes deleted replies, and /thread never

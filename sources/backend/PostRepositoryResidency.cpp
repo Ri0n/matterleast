@@ -311,6 +311,7 @@ bool PostRepository::isPostLeased(const QString& channelId,
 void PostRepository::releasePostLease(const QString& channelId,
                                       const QString& postId)
 {
+    if (shuttingDown) return;
     const QString key = residencyKey(channelId, postId);
     auto it = residentLeaseCounts.find(key);
     if (it == residentLeaseCounts.end()) {

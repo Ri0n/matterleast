@@ -182,6 +182,14 @@ PostRepository::PostRepository(Backend& sourceBackend)
     initializeResidentMemory();
 }
 
+PostRepository::~PostRepository()
+{
+    // QPointer is cleared only by QObject's destructor, after our members.
+    // Pending callbacks can own leases and release them during that interval.
+    shuttingDown = true;
+    residentSweepTimer.stop();
+}
+
 PostRepository::CacheAccount PostRepository::currentCacheAccount() const
 {
     CacheAccount account;
@@ -300,7 +308,7 @@ void PostRepository::coalescedGet(const QString& path, JsonCallback callback)
     NetworkRequest request(path);
     httpConnector.get(request, HttpResponseCallback(
         [guard, requestKey, requestContext](QVariant status, const QJsonDocument& doc) mutable {
-            if (!guard) {
+            if (!guard || guard->shuttingDown) {
                 return;
             }
 

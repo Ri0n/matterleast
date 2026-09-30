@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <QMainWindow>
+#include <QSet>
 #include <QStringList>
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 
@@ -85,6 +86,7 @@ protected:
 private:
 	void createMenu ();
 	void setupChannelTabs ();
+	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
 	void refreshChannelUnreadFilter ();
 	void applySidebarTextFilter(QTreeWidget* tree) const;
@@ -118,6 +120,10 @@ private:
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;
 	bool								currentTeamRestoredFromSettings;
+	bool channelMembershipsReady = false;
+	bool teamChannelsReady = false;
+	QSet<QString> populatedSessionSidebars;
+	bool navigationSessionRestoreScheduled = false;
 	QMenu*								mainMenu;
 	bool								doDeinit;
 };

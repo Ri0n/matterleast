@@ -29,14 +29,19 @@ model merely to change its presentation.
   when there are at least two semantic tabs. Hiding the bar never hides the
   central destination itself; the normal channel surface remains the visible
   page of the central host.
-- Tab titles mirror the sidebar's conversation activity emphasis. The
-  authoritative state remains `SidebarService`: `isChannelUnread()` or an
-  unread mention makes every tab for that channel bold, and
-  `channelActivityChanged/channelActivityReset` return it to normal when read.
+- Tab titles use a leading star for their own unread domain. Channel/DM/GM
+  tabs use `SidebarService::isChannelUnread()` or a channel mention. Thread
+  tabs use their `FollowingModel::Entry::requiresAttention()`, including CRT
+  counters and manual unread; they never inherit parent-channel unreadness.
+  No known thread entry means no evidence for a star. Channel activity signals
+  and `FollowingModel::changed` refresh these projections; reading a thread
+  does not acknowledge its parent channel or another thread.
 - A canonical destination (`channelId + rootId`) is unique in the tab model.
   Repeated middle-click, **Open in new tab**, permalink navigation or other
   navigation to the same destination activates the existing tab instead of
   creating a duplicate. This applies equally to channels, DMs/GMs and threads.
+- Middle-clicking a tab closes that tab. Closing is deferred until the tab-bar
+  mouse event completes because closing a thread can reparent its `ChatArea`.
 - Docked thread, detached-window thread and tabbed thread are presentation
   states. They must not change backend membership, read-state authority,
   timeline sources, or thread identity. A transition out of a tab owns the
@@ -63,6 +68,10 @@ ordinary left-click path remains `openPost()`. Permalinks still pass through
 `AppNavigationService` so cold-post
 resolution and reply-root loading happen before the tab is presented.
 
+Direct thread-row activation may present a tab before its root body is resident; it does not run the
+left-click unread-resume query as a loading prerequisite. The ordinary thread source must bootstrap
+that cold identity itself, as described in [Thread source](post-sources/channel-and-thread.md#thread-source).
+
 Ordinary semantic navigation also reuses existing tabs. Once a navigation target
 has resolved to its canonical `channelId + rootId` destination,
 `AppNavigationService` asks the navigation UI to activate an existing matching
@@ -76,6 +85,38 @@ prepare/lock/highlight path used outside tabs. Ordinary tab switching continues
 to restore bookmarks silently, without a highlight animation. Explicit
 `open*InTab()` requests remain idempotent for the same canonical destination.
 
+## Restart restoration
+
+`NavigationUiController` saves a versioned semantic session through `MLOptions`,
+scoped by server URL and login user ID. It records tab order and active tab,
+the ordinary central chat, docked threads and the visible dock selection, and
+detached threads with their window geometry. Browser Back/Forward history and
+transient collection/search surfaces are not persisted.
+
+Startup waits for channel memberships, team channels and rendered sidebar
+category snapshots from the existing startup requests before replaying the
+session. If initialization fails, the previous snapshot remains intact until
+initialization can complete. Missing/inaccessible channels are skipped.
+Channel population responses retain a `QPointer` to their original team;
+replacing the team snapshot invalidates outstanding responses, including their
+startup-counter completion. A late response must not mutate a replacement team
+with the same ID or access the removed QObject. The startup counter is reset
+for each new team snapshot. Qt 5.15.3 exposes this race in successive session
+fixtures because HTTP completion order differs from newer Qt versions.
+Presentation moves reuse the usual tab/dock/window ownership paths. The
+snapshot is debounced after navigation/viewport changes and saved synchronously
+when saving the main window or quitting; widget teardown must not replace it
+with an empty session.
+
+A viewport bookmark stores a post identity, never an estimated ordinal. A view
+at the newest edge stores no post bookmark and resumes at the live edge.
+Cold bookmarks resolve their bodies through `PostRepository` and use the quiet
+viewport navigation path, without permalink highlighting. While a bookmark is
+being resolved, it remains the saved identity and suppresses viewport read
+acknowledgement of an incidental initial position. User scrolling or explicit
+post/newest navigation cancels that pending restoration. Failed bookmark loads
+leave the chat usable at its normal initial position.
+
 ## Extension point
 
 Other central destinations (for example Saved, Drafts or search result
@@ -85,3 +126,8 @@ surfaces get their own tab target kind, opening one keeps its established
 transient behavior: the normal central surface is revealed and the chat tab bar
 is temporarily hidden, so an active tabbed thread can never cover Saved, Drafts
 or Search.
+
+Navigation services are owned and discovered through their live Backend/MainWindow QObject children.
+A process-static map keyed by raw owner addresses must not retain services after owner destruction:
+a later session or integration fixture can reuse the same address. The navigation event filter must
+only inspect the sidebar viewport for relevant mouse events, not during child-destruction events.

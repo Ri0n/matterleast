@@ -45,6 +45,7 @@
 #include "SettingsWindow.h"
 #include "backend/Backend.h"
 #include "backend/PendingPostService.h"
+#include "navigation/NavigationUiController.h"
 #include "backend/SidebarService.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -195,7 +196,17 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 	sidebar.clear();
 	userProfiles.clear();
-	sidebar.retrieveChannelMemberships();
+	QPointer<MainWindow> windowGuard(this);
+	sidebar.retrieveChannelMemberships([windowGuard] {
+		if (!windowGuard) return;
+		windowGuard->channelMembershipsReady = true;
+		windowGuard->restoreNavigationSessionWhenReady();
+	});
+	connect(ui->channelList, &ChannelTree::teamSidebarPopulated, this,
+		[this](const QString& teamId) {
+			populatedSessionSidebars.insert(teamId);
+			restoreNavigationSessionWhenReady();
+		});
 
 	connect(&currentUser, &BackendUser::onStatusChanged, [this, &currentUser] {
 		ui->statusLabel->setText(currentUser.status);
@@ -833,11 +844,25 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
 void MainWindow::initializationComplete()
 {
+	teamChannelsReady = true;
+	restoreNavigationSessionWhenReady();
 	LOG_DEBUG("MainWindow initialization comlete");
 	if (!currentTeamRestoredFromSettings) {
 		// No persisted team was restored. ChannelTree will retain its first
 		// usable selection until the user explicitly chooses another one.
 	}
+}
+
+void MainWindow::restoreNavigationSessionWhenReady()
+{
+	if (!channelMembershipsReady || !teamChannelsReady || navigationSessionRestoreScheduled) return;
+	for (const auto& team : backend.getStorage().teams) {
+		if (!populatedSessionSidebars.contains(team.first)) return;
+	}
+	// Wait for the existing sidebar requests/rendering; restoration must not
+	// duplicate category HTTP requests merely to establish startup readiness.
+	navigationSessionRestoreScheduled = true;
+	NavigationUiController::instance(*this).restoreSession();
 }
 
 void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
@@ -918,6 +943,7 @@ void MainWindow::setNotificationsCountVisualization(uint32_t notificationsCount)
 
 void MainWindow::saveState()
 {
+	NavigationUiController::instance(*this).saveSession();
 	LOG_DEBUG("MainWindow saveState");
 	auto* options = MLOptions::instance();
 	options->setValue(QStringLiteral("geometry"), saveGeometry());

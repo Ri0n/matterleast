@@ -462,6 +462,11 @@ add_test(NAME emoji-dialog-support-test COMMAND emoji-dialog-support-test)
 set_tests_properties(emoji-dialog-support-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 if(TARGET matterleast-core)
+    add_executable(thread-tabs-integration-test ThreadTabsIntegrationTest.cpp)
+    target_link_libraries(thread-tabs-integration-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME thread-tabs-integration-test COMMAND thread-tabs-integration-test)
+    set_tests_properties(thread-tabs-integration-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(thread-post-source-integration-test ThreadPostSourceIntegrationTest.cpp)
     target_link_libraries(thread-post-source-integration-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME thread-post-source-integration-test COMMAND thread-post-source-integration-test)

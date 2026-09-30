@@ -26,6 +26,7 @@
 #include <QVBoxLayout>
 
 #include "backend/Backend.h"
+#include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
@@ -101,6 +102,10 @@ NavigationUiController::NavigationUiController(MainWindow& mainWindow)
     , window(mainWindow)
 {
     setObjectName(QStringLiteral("navigationUiController"));
+    sessionSaveTimer = new QTimer(this);
+    sessionSaveTimer->setSingleShot(true);
+    sessionSaveTimer->setInterval(500);
+    connect(sessionSaveTimer, &QTimer::timeout, this, &NavigationUiController::saveSession);
     setupMainWindow();
     qApp->installEventFilter(this);
 }
@@ -130,6 +135,9 @@ void NavigationUiController::setupMainWindow()
                 this, &NavigationUiController::refreshTabUnreadVisual,
                 Qt::UniqueConnection);
         connect(&sidebar, &SidebarService::channelActivityReset,
+                this, &NavigationUiController::refreshAllTabUnreadVisuals,
+                Qt::UniqueConnection);
+        connect(&FollowingModel::instance(*sourceBackend), &FollowingModel::changed,
                 this, &NavigationUiController::refreshAllTabUnreadVisuals,
                 Qt::UniqueConnection);
     }
@@ -162,8 +170,12 @@ void NavigationUiController::setupMainWindow()
     if (channelTree) {
         connect(channelTree, &QTreeWidget::currentItemChanged, this,
                 [this](QTreeWidgetItem*, QTreeWidgetItem*) {
+            if (switchingTabs || restoringSession) return;
             QTimer::singleShot(0, this, [this] {
-                if (channelTree) {
+                // A deferred sidebar selection must not steal an independently
+                // activated thread tab (including startup session replay).
+                if (channelTree && (!navigationSurfaceStack
+                    || navigationSurfaceStack->currentWidget() == contentSplitter)) {
                     recordArea(channelTree->getCurrentPage());
                 }
             });
@@ -176,6 +188,7 @@ void NavigationUiController::setupMainWindow()
     }
 
     connect(qApp, &QApplication::aboutToQuit, this, [this] {
+        saveSession();
         if (contentSplitter) {
             MLOptions::instance()->setValue(
             QStringLiteral("content_splitter_state"), contentSplitter->saveState());
@@ -340,6 +353,7 @@ void NavigationUiController::setupThreadPane()
     connect(navigationTabs, &QTabBar::tabMoved, this,
             [this](int from, int to) {
         tabModel.move(from, to);
+        scheduleSessionSave();
         if (activeTabIndex == from) {
             activeTabIndex = to;
         } else if (from < activeTabIndex && activeTabIndex <= to) {
@@ -401,6 +415,11 @@ NavigationUiController::captureLocation(ChatArea* area) const
     location.channelId = area->getChannel().id;
     if (area->isThread) {
         location.rootId = area->root_id;
+    }
+    const QString pendingBookmark = area->property("sessionBookmark").toString();
+    if (!pendingBookmark.isEmpty()) {
+        location.postId = pendingBookmark;
+        return location;
     }
 
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
@@ -507,9 +526,8 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
     }
 
     auto& sidebar = SidebarService::instance(*sourceBackend);
-    // Keep native tab text/layout. A leading star mirrors the same unread/
-    // mention condition that previously made the title bold.
-    const bool marked =
+    auto& following = FollowingModel::instance(*sourceBackend);
+    const bool channelMarked =
         sidebar.isChannelUnread(*channel)
         || sidebar.hasUnreadMention(channelId);
 
@@ -518,6 +536,14 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
         if (!entry || entry->channelId != channelId) {
             continue;
         }
+
+        // A thread is an independent read domain. Reading it cannot consume
+        // parent-channel activity, so its tab must use the same CRT/manual
+        // attention state as its own Following row.
+        const auto* thread = entry->rootId.isEmpty()
+            ? nullptr : following.findEntry(channelId, entry->rootId);
+        const bool marked = entry->rootId.isEmpty()
+            ? channelMarked : thread && thread->requiresAttention();
 
         navigationTabs->setTabText(
             index,
@@ -602,7 +628,12 @@ void NavigationUiController::saveActiveTabLocation()
         return;
     }
 
-    const Location location = captureLocation(area);
+    Location location = captureLocation(area);
+    if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        log && log->source() && log->isAtEnd()
+        && area->property("sessionBookmark").toString().isEmpty()) {
+        location.postId.clear();
+    }
     const Location expected = tabLocation(*entry);
     if (location.isValid() && location.sameDestination(expected)) {
         updateTab(activeTabIndex, location);
@@ -698,14 +729,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             currentLocation = location;
             activeArea = area;
             if (!location.postId.isEmpty()) {
-                auto* log = area->findChild<ChatLogWidget*>(
-                    QStringLiteral("listWidget"));
-                if (!log || !log->restoreViewportBookmark(location.postId)) {
-                    if (sourceBackend) {
-                        AppNavigationService::instance(*sourceBackend)
-                            .openPost(location.postId);
-                    }
-                }
+                restoreSessionBookmark(area, location.postId);
             }
         }
     } else {
@@ -798,6 +822,7 @@ void NavigationUiController::removeTab(int index, bool closeThread)
 void NavigationUiController::closeTab(int index)
 {
     removeTab(index, true);
+    scheduleSessionSave();
 }
 
 void NavigationUiController::tabifyThread(ChatArea* area, int tabIndex)
@@ -919,6 +944,8 @@ void NavigationUiController::recordArea(ChatArea* area)
     if (!area) {
         return;
     }
+    trackSessionArea(area);
+    scheduleSessionSave();
 
     const Location next = captureLocation(area);
     if (!next.isValid()) {
@@ -1109,16 +1136,9 @@ void NavigationUiController::navigateTo(const Location& location)
         return;
     }
 
-    // A history entry whose semantic bookmark is still present can be restored
-    // locally without a flash. If its source no longer knows the post, do not
-    // start another ChatArea-level state machine: resolve and present it through
-    // the same application navigation path used by every external post target.
-    auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-    if (log && log->restoreViewportBookmark(location.postId)) {
-        return;
-    }
-
-    AppNavigationService::instance(*sourceBackend).openPost(location.postId);
+    // Passive bookmarks resolve cold bodies without flashing a permalink or
+    // changing the current semantic destination.
+    restoreSessionBookmark(area, location.postId);
 }
 
 ChatArea* NavigationUiController::findThread(const QString& channelId,
@@ -1146,6 +1166,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
     if (!area || !area->isThread) {
         return;
     }
+    trackSessionArea(area);
 
     auto* layout = area->findChild<QHBoxLayout*>(QStringLiteral("propertieslLayout"));
     if (!layout) {
@@ -1457,10 +1478,30 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
-    const bool channelPointerSurface = channelTree
-        && (watched == channelTree || watched == channelTree->viewport());
-    if (channelPointerSurface && event
+    if (event && (event->type() == QEvent::Move || event->type() == QEvent::Resize)) {
+        auto* area = qobject_cast<ChatArea*>(watched);
+        if (area && area->property("sessionTracked").toBool()
+            && area->property("threadDetached").toBool()) scheduleSessionSave();
+    }
+    if (watched == navigationTabs && event
         && event->type() == QEvent::MouseButtonRelease) {
+        auto* mouse = static_cast<QMouseEvent*>(event);
+        if (mouse->button() == Qt::MiddleButton) {
+            const int index = navigationTabs->tabAt(mouse->pos());
+            if (index >= 0) {
+                // Thread tabs may need reparenting as they close. Let Qt finish
+                // dispatching the tab-bar mouse gesture before changing parents.
+                QTimer::singleShot(0, this, [this, index] { closeTab(index); });
+                event->accept();
+                return true;
+            }
+        }
+    }
+
+    // Only a mouse release needs the sidebar viewport. Other events include
+    // child destruction while the main window is tearing down that sidebar.
+    if (event && event->type() == QEvent::MouseButtonRelease && channelTree
+        && (watched == channelTree || watched == channelTree->viewport())) {
         QTimer::singleShot(0, this, [this] {
             if (channelTree) {
                 recordArea(channelTree->getCurrentPage());

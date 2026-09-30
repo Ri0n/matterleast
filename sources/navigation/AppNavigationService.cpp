@@ -8,7 +8,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLoggingCategory>
-#include <QMap>
 #include <QNetworkReply>
 #include <QPointer>
 
@@ -274,18 +273,18 @@ private:
 
 AppNavigationService& AppNavigationService::instance(Backend& backend)
 {
-    static QMap<Backend*, AppNavigationService*> instances;
-    auto it = instances.find(&backend);
-    if (it == instances.end()) {
-        it = instances.insert(&backend, new AppNavigationService(backend));
+    if (auto* existing = backend.findChild<AppNavigationService*>(
+            QStringLiteral("appNavigationService"), Qt::FindDirectChildrenOnly)) {
+        return *existing;
     }
-    return **it;
+    return *new AppNavigationService(backend);
 }
 
 AppNavigationService::AppNavigationService(Backend& sourceBackend)
     : QObject(&sourceBackend)
     , backend(sourceBackend)
 {
+    setObjectName(QStringLiteral("appNavigationService"));
     ensureMainWindowConnection();
 }
 

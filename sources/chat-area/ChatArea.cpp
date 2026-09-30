@@ -19,6 +19,8 @@
 
 #include "ChatArea.h"
 
+#include <memory>
+
 #include <QApplication>
 #include <QClipboard>
 #include <QIcon>
@@ -533,6 +535,20 @@ void ChatArea::setupPostSource()
 void ChatArea::scheduleNewestPosition()
 {
     const std::uint64_t generation = viewportNavigationGeneration;
+    if (isThread && postSource && !channel.postIdToPost.contains(root_id)) {
+        // A cold thread initially exposes only its missing root. Retain this
+        // newest intent through summary discovery, including explicit
+        // goToNewest(). A later post navigation supersedes the weak position.
+        auto connection = std::make_shared<QMetaObject::Connection>();
+        *connection = connect(postSource, &AbstractPostSource::rangeAvailable,
+                              this, [this, generation, connection](int first, int last) {
+            if (first > 0 || last < 0) return;
+            disconnect(*connection);
+            if (generation == viewportNavigationGeneration) {
+                ui->listWidget->scrollToEnd();
+            }
+        });
+    }
     QPointer<ChatArea> guard(this);
     QTimer::singleShot(0, this, [guard, generation] {
         if (!guard || !guard->ui || !guard->ui->listWidget

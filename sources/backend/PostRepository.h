@@ -86,6 +86,7 @@ public:
     using CollectionCallback = std::function<void(const CollectionPage&)>;
 
     static PostRepository& instance(Backend& backend);
+    ~PostRepository() override;
 
     /** Fetch one post by id and quietly merge it into its known channel cache. */
     void loadPost(const QString& postId, PostCallback callback);
@@ -287,6 +288,8 @@ private:
 
     friend class PostResidencyLease;
 
+    // Must outlive callback/residency members during reverse member destruction.
+    bool shuttingDown = false;
     Backend& backend;
     HTTPConnector httpConnector;
     PostCacheService postCache;

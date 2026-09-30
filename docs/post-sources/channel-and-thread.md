@@ -79,6 +79,17 @@ indices 1..N        replies oldest -> newest
 Mattermost threads do not share the channel absolute-page grid. They are loaded through root/thread
 requests and `(fromCreateAt, fromPost, direction)` cursors.
 
+A thread may be opened from Following directly into a tab without any resident root body. The known
+root ID still occupies one unavailable logical row at index 0; an unknown reply count must not be
+represented by a zero-length source, since the view cannot demand any data from it. Demand for this
+row retrieves the root through `PostRepository::loadPost()`, pins it, discovers the reply count and
+publishes root availability before continuing ordinary demand. Retrieval failure finishes explicitly
+and leaves the missing root row available for a later demand to retry. Each source owns this bootstrap
+independently, including when several tabs are opened before their HTTP responses arrive.
+
+`ChatArea` retains the initial newest-position intent across that first summary expansion. Explicit
+post navigation supersedes it; the source continues to own only identities and transport, not pixels.
+
 The normal loading order is symmetrical at the two known thread edges:
 
 ```text
