@@ -5,7 +5,9 @@
 #include <QFontMetricsF>
 #include <QImageReader>
 #include <QRegularExpression>
+#include <QSet>
 #include <QTextBlock>
+#include <QTextBoundaryFinder>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -115,8 +117,79 @@ inline void apply(QTextImageFormat& imageFormat, const QFont& font, Mode mode)
     imageFormat.setVerticalAlignment(QTextCharFormat::AlignMiddle);
 }
 
+inline const QSet<QString>& unicodeEmojiStrings()
+{
+    static const QSet<QString> strings = [] {
+        QSet<QString> result;
+        for (int category = 0; category < EmojiCategory::COUNT; ++category) {
+            if (category == EmojiCategory::custom) {
+                continue;
+            }
+            const int skinToneCount = category == EmojiCategory::people
+                ? EmojiSkinTone::COUNT
+                : 1;
+            for (int skinTone = 0; skinTone < skinToneCount; ++skinTone) {
+                const QVector<Emoji> emojis = EmojiInfo::getAllEmojis(category, skinTone);
+                for (const Emoji& emoji : emojis) {
+                    const QString glyph = emoji.unicodeString.trimmed();
+                    if (!glyph.isEmpty() && !glyph.contains(QStringLiteral("<img"))) {
+                        result.insert(glyph);
+                    }
+                }
+            }
+        }
+        return result;
+    }();
+    return strings;
+}
+
+inline void applyLegacyUnicodeEmojiFamily(QTextDocument& document,
+                                          const QString& family)
+{
+    if (family.isEmpty()) {
+        return;
+    }
+
+    const QString text = document.toPlainText();
+    if (text.isEmpty()) {
+        return;
+    }
+
+    const QSet<QString>& emojiStrings = unicodeEmojiStrings();
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
+    finder.toStart();
+
+    int start = 0;
+    while (true) {
+        const int end = finder.toNextBoundary();
+        if (end < 0) {
+            break;
+        }
+
+        if (emojiStrings.contains(text.mid(start, end - start))) {
+            QTextCursor cursor(&document);
+            cursor.setPosition(start);
+            cursor.setPosition(end, QTextCursor::KeepAnchor);
+            QTextCharFormat emojiFormat;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            emojiFormat.setFontFamilies(QStringList {family});
+#else
+            emojiFormat.setFontFamily(family);
+#endif
+            cursor.mergeCharFormat(emojiFormat);
+        }
+        start = end;
+    }
+}
+
 inline void apply(QTextDocument& document, Mode mode)
 {
+    // Qt 6.9+ has a dedicated platform emoji fallback path. On older Qt the
+    // fallback selected by EmojiFont must also be assigned to Unicode emoji in
+    // rich message documents; changing only their point size leaves ordinary
+    // text fallback in control and can render monochrome/missing glyphs.
+    applyLegacyUnicodeEmojiFamily(document, EmojiFont::legacyEmojiFontFamily());
+
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
         for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
             const QTextFragment fragment = it.fragment();
