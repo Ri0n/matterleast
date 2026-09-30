@@ -9,12 +9,29 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QSet>
+#include <QTimeZone>
 
+#include "Backend.h"
 #include "NetworkRequest.h"
 #include "QByteArrayCreator.h"
 
 namespace Mattermost {
 namespace {
+
+int currentUserTimeZoneOffset(const BackendUser& user)
+{
+    const QString zoneName = user.timezone.useAutomaticTimezone
+        ? user.timezone.automaticTimezone
+        : user.timezone.manualTimezone;
+    if (!zoneName.isEmpty()) {
+        const QTimeZone zone(zoneName.toUtf8());
+        if (zone.isValid()) {
+            return zone.offsetFromUtc(QDateTime::currentDateTimeUtc());
+        }
+    }
+
+    return QDateTime::currentDateTime().offsetFromUtc();
+}
 
 PostRepository::CollectionPage recentMentionsPageFromDocument(
     QVariant status, const QJsonDocument& document, int perPage)
@@ -83,7 +100,7 @@ void PostRepository::searchRecentMentions(const QString& terms,
         {QStringLiteral("is_or_search"), true},
         {QStringLiteral("include_deleted_channels"), true},
         {QStringLiteral("time_zone_offset"),
-         QDateTime::currentDateTime().offsetFromUtc()},
+         currentUserTimeZoneOffset(backend.getLoginUser())},
         {QStringLiteral("page"), safePage},
         {QStringLiteral("per_page"), safePerPage},
     };
