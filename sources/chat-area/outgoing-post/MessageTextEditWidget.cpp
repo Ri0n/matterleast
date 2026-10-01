@@ -1,10 +1,9 @@
 /**
  * @file MessageTextEditWidget.cpp
- * @brief
- * @author Lyubomir Filipov
- * @date Jan 7, 2022
+ * @brief Plain-Markdown message composer with formatting helpers.
  *
  * Copyright 2021, 2022 Lyubomir Filipov
+ * Copyright 2026 Sergei Ilinykh
  *
  * This file is part of MatterLeast.
  *
@@ -12,46 +11,36 @@
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * MatterLeast is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with MatterLeast. if not, see https://www.gnu.org/licenses/.
  */
 
 #include "MessageTextEditWidget.h"
-#include "RichTextEditorCommands.h"
 
 #include <algorithm>
 #include <cmath>
 
+#include <QAbstractAnimation>
 #include <QAbstractTextDocumentLayout>
 #include <QContextMenuEvent>
-#include <QDebug>
+#include <QEasingCurve>
 #include <QFocusEvent>
 #include <QFrame>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QLayout>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMimeData>
 #include <QPalette>
+#include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QResizeEvent>
 #include <QStringList>
-#include <QTextBlock>
-#include <QTextBlockFormat>
-#include <QTextCharFormat>
+#include <QTextCursor>
 #include <QTextDocument>
-#include <QTextFormat>
-#include <QTextFragment>
-#include <QTextList>
 #include <QTimer>
 #include <QUrl>
+#include <QWidget>
 
 #include "Settings.h"
 #include "options/MLOptions.h"
@@ -60,6 +49,13 @@ namespace Mattermost {
 namespace {
 
 constexpr int ComposerMaximumHeight = 300;
+constexpr int FormattingToolbarAnimationMs = 110;
+constexpr int FormattingToolbarGap = 2;
+constexpr char FormattingToolbarObjectName[] = "formattingToolbar";
+constexpr char FormattingAnimationObjectName[] =
+    "_matterleast_formatting_toolbar_animation";
+constexpr char FormattingNormalizedProperty[] =
+    "_matterleast_formatting_layout_normalized";
 
 struct MarkdownLinkMatch {
     int start = -1;
@@ -69,83 +65,6 @@ struct MarkdownLinkMatch {
 
     bool isValid() const { return start >= 0 && end > start; }
 };
-
-QTextDocument::MarkdownFeatures markdownFeatures()
-{
-    return QTextDocument::MarkdownDialectGitHub;
-}
-
-QString serializedMarkdown(const QTextDocument& document)
-{
-    QString markdown = document.toMarkdown(markdownFeatures());
-    // QTextDocument serializes the final paragraph terminator. Mattermost
-    // messages do not require that synthetic newline, while real trailing blank
-    // lines remain represented by additional newlines.
-    if (markdown.endsWith(QLatin1Char('\n'))) {
-        markdown.chop(1);
-    }
-    return markdown;
-}
-
-bool hasStructuralFormatting(const QTextDocument& document)
-{
-    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
-        if (block.textList()) {
-            return true;
-        }
-        const QTextBlockFormat format = block.blockFormat();
-        if (format.intProperty(QTextFormat::BlockQuoteLevel) > 0
-            || format.hasProperty(QTextFormat::BlockCodeFence)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-QString escapedForRichTextLog(QString value)
-{
-    value.replace(QLatin1Char('\n'), QStringLiteral("\\n"));
-    value.replace(QLatin1Char('\r'), QStringLiteral("\\r"));
-    return value;
-}
-
-QString structuralFormattingSummary(const QTextDocument& document)
-{
-    QStringList blocks;
-    int index = 0;
-    for (QTextBlock block = document.begin(); block.isValid(); block = block.next(), ++index) {
-        QStringList flags;
-        if (QTextList* list = block.textList()) {
-            flags.push_back(
-                QStringLiteral("list(style=%1,indent=%2,count=%3,obj=%4)")
-                    .arg(static_cast<int>(list->format().style()))
-                    .arg(list->format().indent())
-                    .arg(list->count())
-                    .arg(block.blockFormat().objectIndex()));
-        }
-        const QTextBlockFormat format = block.blockFormat();
-        const int quoteLevel = format.intProperty(QTextFormat::BlockQuoteLevel);
-        if (quoteLevel > 0) {
-            flags.push_back(QStringLiteral("quote=%1").arg(quoteLevel));
-        }
-        if (format.hasProperty(QTextFormat::BlockCodeFence)) {
-            flags.push_back(QStringLiteral("code"));
-        }
-        if (flags.isEmpty()) {
-            flags.push_back(QStringLiteral("plain"));
-        }
-
-        blocks.push_back(
-            QStringLiteral("#%1{%2,text=\"%3\"}")
-                .arg(index)
-                .arg(flags.join(QLatin1Char(',')))
-                .arg(escapedForRichTextLog(block.text())));
-    }
-
-    return QStringLiteral("indentWidth=%1 blocks=%2")
-        .arg(document.indentWidth())
-        .arg(blocks.join(QLatin1Char(' ')));
-}
 
 bool hasPrimaryModifier(Qt::KeyboardModifiers modifiers)
 {
@@ -166,8 +85,9 @@ QString normalizedHttpUrl(const QString& text)
 
     const QUrl url(trimmed, QUrl::StrictMode);
     const QString scheme = url.scheme().toLower();
-    if (!url.isValid() || (scheme != QStringLiteral("http")
-                           && scheme != QStringLiteral("https"))) {
+    if (!url.isValid()
+        || (scheme != QStringLiteral("http")
+            && scheme != QStringLiteral("https"))) {
         return {};
     }
     return url.toString(QUrl::FullyEncoded);
@@ -210,9 +130,9 @@ MarkdownLinkMatch markdownLinkAt(const QString& text,
         QStringLiteral("\\[([^\\]\\n]+)\\]\\((https?://[^)\\s]+)\\)"),
         QRegularExpression::CaseInsensitiveOption);
 
-    auto it = expression.globalMatch(text);
-    while (it.hasNext()) {
-        const QRegularExpressionMatch match = it.next();
+    auto matches = expression.globalMatch(text);
+    while (matches.hasNext()) {
+        const QRegularExpressionMatch match = matches.next();
         const int start = match.capturedStart(0);
         const int end = match.capturedEnd(0);
         const bool intersects = selectionStart == selectionEnd
@@ -222,61 +142,14 @@ MarkdownLinkMatch markdownLinkAt(const QString& text,
             continue;
         }
 
-        MarkdownLinkMatch result;
-        result.start = start;
-        result.end = end;
-        result.label = match.captured(1);
-        result.url = match.captured(2);
-        return result;
+        return MarkdownLinkMatch {
+            start,
+            end,
+            match.captured(1),
+            match.captured(2),
+        };
     }
     return {};
-}
-
-bool richLinkAt(QTextDocument* document,
-                const QTextCursor& current,
-                QTextCursor* range,
-                QString* url)
-{
-    if (!document) {
-        return false;
-    }
-
-    const int selectionStart = current.hasSelection()
-        ? current.selectionStart() : current.position();
-    const int selectionEnd = current.hasSelection()
-        ? current.selectionEnd() : current.position();
-    QTextBlock block = document->findBlock(
-        qBound(0, selectionStart, std::max(0, document->characterCount() - 1)));
-
-    for (; block.isValid() && block.position() <= selectionEnd;
-         block = block.next()) {
-        for (auto it = block.begin(); !it.atEnd(); ++it) {
-            const QTextFragment fragment = it.fragment();
-            if (!fragment.isValid() || !fragment.charFormat().isAnchor()) {
-                continue;
-            }
-            const int start = fragment.position();
-            const int end = start + fragment.length();
-            const bool intersects = selectionStart == selectionEnd
-                ? selectionStart >= start && selectionStart <= end
-                : selectionStart < end && selectionEnd > start;
-            if (!intersects) {
-                continue;
-            }
-
-            if (range) {
-                QTextCursor cursor(document);
-                cursor.setPosition(start);
-                cursor.setPosition(end, QTextCursor::KeepAnchor);
-                *range = cursor;
-            }
-            if (url) {
-                *url = fragment.charFormat().anchorHref();
-            }
-            return true;
-        }
-    }
-    return false;
 }
 
 } // namespace
@@ -286,6 +159,7 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
 {
     setSubmitOnEnter(true);
     setAcceptRichText(false);
+    setContextMenuPolicy(Qt::DefaultContextMenu);
 
     auto* sendWithCtrlEnter = MLOptions::instance()->optionObject<bool>(
         COMPOSER_SEND_WITH_CTRL_ENTER,
@@ -318,9 +192,6 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
     document()->setDocumentMargin(3.0);
 
     connect(this, &QTextEdit::textChanged, this, [this] {
-        if (isRichTextEditing() && !loadingMarkdown_) {
-            richDocumentDirty_ = true;
-        }
         updateHeightToContents();
         QTimer::singleShot(0, this, &MessageTextEditWidget::updateHeightToContents);
     });
@@ -330,74 +201,13 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
             &QAbstractTextDocumentLayout::documentSizeChanged,
             this, [this](const QSizeF&) { updateHeightToContents(); });
 
-    QTimer::singleShot(0, this, &MessageTextEditWidget::updateHeightToContents);
+    QTimer::singleShot(0, this, [this] {
+        normalizeFormattingToolbar();
+        updateHeightToContents();
+    });
 }
 
 MessageTextEditWidget::~MessageTextEditWidget() = default;
-
-QString MessageTextEditWidget::markdownText() const
-{
-    if (!isRichTextEditing()) {
-        return QTextEdit::toPlainText();
-    }
-    if (!richDocumentDirty_) {
-        return richSourceMarkdown_;
-    }
-
-    const QString markdown = serializedMarkdown(*document());
-    if (hasStructuralFormatting(*document())) {
-        qDebug().noquote()
-            << "RICH_TEXT_SERIALIZE"
-            << QStringLiteral("plain=\"%1\"")
-                   .arg(escapedForRichTextLog(QTextEdit::toPlainText()))
-            << QStringLiteral("markdown=\"%1\"")
-                   .arg(escapedForRichTextLog(markdown))
-            << structuralFormattingSummary(*document());
-    }
-    return markdown;
-}
-
-void MessageTextEditWidget::setMarkdownText(const QString& markdown)
-{
-    loadingMarkdown_ = true;
-    if (isRichTextEditing()) {
-        richSourceMarkdown_ = markdown;
-        richDocumentDirty_ = false;
-        document()->setMarkdown(markdown, markdownFeatures());
-    } else {
-        QTextEdit::setPlainText(markdown);
-    }
-    loadingMarkdown_ = false;
-    updateHeightToContents();
-}
-
-void MessageTextEditWidget::setRichTextEditing(bool enabled)
-{
-    const EditingMode next = enabled ? EditingMode::RichText : EditingMode::Markdown;
-    if (editingMode_ == next) {
-        return;
-    }
-
-    const QString markdown = markdownText();
-    editingMode_ = next;
-    setAcceptRichText(enabled);
-
-    loadingMarkdown_ = true;
-    if (enabled) {
-        richSourceMarkdown_ = markdown;
-        richDocumentDirty_ = false;
-        document()->setMarkdown(markdown, markdownFeatures());
-    } else {
-        QTextEdit::setPlainText(markdown);
-        richSourceMarkdown_.clear();
-        richDocumentDirty_ = false;
-    }
-    loadingMarkdown_ = false;
-
-    moveCursor(QTextCursor::End);
-    updateHeightToContents();
-    emit editingModeChanged(editingMode_);
-}
 
 bool MessageTextEditWidget::formattingToolbarPreferredVisible() const
 {
@@ -406,12 +216,86 @@ bool MessageTextEditWidget::formattingToolbarPreferredVisible() const
         COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT)->value().toBool();
 }
 
+void MessageTextEditWidget::normalizeFormattingToolbar()
+{
+    if (!parentWidget()) {
+        return;
+    }
+    QWidget* toolbar = parentWidget()->findChild<QWidget*>(
+        QString::fromLatin1(FormattingToolbarObjectName));
+    if (!toolbar || toolbar->property(FormattingNormalizedProperty).toBool()) {
+        return;
+    }
+
+    toolbar->setProperty(FormattingNormalizedProperty, true);
+    if (QWidget* container = toolbar->parentWidget()) {
+        if (QLayout* layout = container->layout()) {
+            layout->setSpacing(0);
+        }
+    }
+    if (QLayout* layout = toolbar->layout()) {
+        QMargins margins = layout->contentsMargins();
+        margins.setBottom(std::max(margins.bottom(), FormattingToolbarGap));
+        layout->setContentsMargins(margins);
+    }
+
+    toolbar->setMinimumHeight(0);
+    toolbar->setMaximumHeight(0);
+    toolbar->show();
+    toolbar->updateGeometry();
+}
+
+void MessageTextEditWidget::animateFormattingToolbar(bool visible)
+{
+    normalizeFormattingToolbar();
+    if (!parentWidget()) {
+        return;
+    }
+    QWidget* toolbar = parentWidget()->findChild<QWidget*>(
+        QString::fromLatin1(FormattingToolbarObjectName));
+    if (!toolbar) {
+        return;
+    }
+
+    if (auto* previous = toolbar->findChild<QPropertyAnimation*>(
+            QString::fromLatin1(FormattingAnimationObjectName),
+            Qt::FindDirectChildrenOnly)) {
+        previous->stop();
+        previous->deleteLater();
+    }
+
+    int currentHeight = toolbar->maximumHeight();
+    if (currentHeight >= QWIDGETSIZE_MAX) {
+        currentHeight = toolbar->height();
+    }
+    const int expandedHeight = toolbar->layout()
+        ? std::max(1, toolbar->layout()->sizeHint().height())
+        : std::max(1, toolbar->sizeHint().height());
+    const int targetHeight = visible ? expandedHeight : 0;
+    if (currentHeight == targetHeight) {
+        toolbar->updateGeometry();
+        return;
+    }
+
+    auto* animation = new QPropertyAnimation(toolbar, "maximumHeight", toolbar);
+    animation->setObjectName(QString::fromLatin1(FormattingAnimationObjectName));
+    animation->setDuration(FormattingToolbarAnimationMs);
+    animation->setStartValue(std::max(0, currentHeight));
+    animation->setEndValue(targetHeight);
+    animation->setEasingCurve(
+        visible ? QEasingCurve::OutCubic : QEasingCurve::InCubic);
+    connect(animation, &QPropertyAnimation::valueChanged,
+            toolbar, [toolbar](const QVariant&) { toolbar->updateGeometry(); });
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 void MessageTextEditWidget::setFormattingToolbarVisible(bool visible)
 {
     if (formattingToolbarVisible_ == visible) {
         return;
     }
     formattingToolbarVisible_ = visible;
+    animateFormattingToolbar(visible);
     emit formattingToolbarVisibilityChanged(visible);
 }
 
@@ -421,25 +305,6 @@ void MessageTextEditWidget::setFormattingToolbarPreferredVisible(bool visible)
         COMPOSER_FORMATTING_TOOLBAR_VISIBLE,
         COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT)->setValue(visible);
     setFormattingToolbarVisible(hasFocus() && visible);
-}
-
-void MessageTextEditWidget::markRichDocumentChanged()
-{
-    if (isRichTextEditing() && !loadingMarkdown_) {
-        richDocumentDirty_ = true;
-    }
-}
-
-void MessageTextEditWidget::applyRichCharFormat(const QTextCharFormat& format)
-{
-    QTextCursor cursor = textCursor();
-    if (cursor.hasSelection()) {
-        cursor.mergeCharFormat(format);
-        setTextCursor(cursor);
-    } else {
-        mergeCurrentCharFormat(format);
-    }
-    markRichDocumentChanged();
 }
 
 void MessageTextEditWidget::wrapMarkdownSelection(const QString& before,
@@ -462,27 +327,30 @@ void MessageTextEditWidget::wrapMarkdownSelection(const QString& before,
     setTextCursor(cursor);
 }
 
-void MessageTextEditWidget::prefixMarkdownLines(const QString& prefix, bool numbered)
+void MessageTextEditWidget::prefixMarkdownLines(const QString& prefix,
+                                                bool numbered)
 {
     QTextCursor cursor = textCursor();
-    const QString text = QTextEdit::toPlainText();
+    const QString text = toPlainText();
     const int selectionStart = cursor.hasSelection()
         ? cursor.selectionStart() : cursor.position();
     const int selectionEnd = cursor.hasSelection()
         ? cursor.selectionEnd() : cursor.position();
 
-    int lineStart = text.lastIndexOf(QLatin1Char('\n'), std::max(0, selectionStart - 1));
+    int lineStart = text.lastIndexOf(
+        QLatin1Char('\n'), std::max(0, selectionStart - 1));
     lineStart = lineStart < 0 ? 0 : lineStart + 1;
     int lineEnd = text.indexOf(QLatin1Char('\n'), selectionEnd);
     if (lineEnd < 0) {
         lineEnd = text.size();
     }
 
-    QStringList lines = text.mid(lineStart, lineEnd - lineStart).split(QLatin1Char('\n'));
+    QStringList lines = text.mid(lineStart, lineEnd - lineStart)
+                            .split(QLatin1Char('\n'));
     for (int index = 0; index < lines.size(); ++index) {
-        const QString linePrefix = numbered
-            ? QString::number(index + 1) + QStringLiteral(". ") : prefix;
-        lines[index].prepend(linePrefix);
+        lines[index].prepend(numbered
+            ? QString::number(index + 1) + QStringLiteral(". ")
+            : prefix);
     }
 
     cursor.setPosition(lineStart);
@@ -493,132 +361,49 @@ void MessageTextEditWidget::prefixMarkdownLines(const QString& prefix, bool numb
 
 void MessageTextEditWidget::toggleBold()
 {
-    if (!isRichTextEditing()) {
-        wrapMarkdownSelection(QStringLiteral("**"), QStringLiteral("**"));
-        return;
-    }
-    if (RichTextEditorCommands::toggleInline(
-            *this, RichTextEditorCommands::InlineStyle::Bold)) {
-        markRichDocumentChanged();
-    }
+    wrapMarkdownSelection(QStringLiteral("**"), QStringLiteral("**"));
 }
 
 void MessageTextEditWidget::toggleItalic()
 {
-    if (!isRichTextEditing()) {
-        wrapMarkdownSelection(QStringLiteral("_"), QStringLiteral("_"));
-        return;
-    }
-    if (RichTextEditorCommands::toggleInline(
-            *this, RichTextEditorCommands::InlineStyle::Italic)) {
-        markRichDocumentChanged();
-    }
+    wrapMarkdownSelection(QStringLiteral("_"), QStringLiteral("_"));
 }
 
 void MessageTextEditWidget::toggleStrikeOut()
 {
-    if (!isRichTextEditing()) {
-        wrapMarkdownSelection(QStringLiteral("~~"), QStringLiteral("~~"));
-        return;
-    }
-    if (RichTextEditorCommands::toggleInline(
-            *this, RichTextEditorCommands::InlineStyle::StrikeOut)) {
-        markRichDocumentChanged();
-    }
+    wrapMarkdownSelection(QStringLiteral("~~"), QStringLiteral("~~"));
 }
 
 void MessageTextEditWidget::toggleInlineCode()
 {
-    if (!isRichTextEditing()) {
-        wrapMarkdownSelection(QStringLiteral("`"), QStringLiteral("`"));
-        return;
-    }
-    if (RichTextEditorCommands::toggleInline(
-            *this, RichTextEditorCommands::InlineStyle::Code)) {
-        markRichDocumentChanged();
-    }
+    wrapMarkdownSelection(QStringLiteral("`"), QStringLiteral("`"));
 }
 
 void MessageTextEditWidget::toggleCodeBlock()
 {
-    if (!isRichTextEditing()) {
-        wrapMarkdownSelection(QStringLiteral("```\n"), QStringLiteral("\n```"));
-        return;
-    }
-
-    if (RichTextEditorCommands::toggleCodeBlock(*this)) {
-        markRichDocumentChanged();
-    }
+    wrapMarkdownSelection(QStringLiteral("```\n"), QStringLiteral("\n```"));
 }
 
 void MessageTextEditWidget::toggleQuote()
 {
-    if (!isRichTextEditing()) {
-        prefixMarkdownLines(QStringLiteral("> "));
-        return;
-    }
-
-    if (RichTextEditorCommands::toggleQuote(*this)) {
-        markRichDocumentChanged();
-    }
+    prefixMarkdownLines(QStringLiteral("> "));
 }
 
 void MessageTextEditWidget::toggleBulletList()
 {
-    if (!isRichTextEditing()) {
-        prefixMarkdownLines(QStringLiteral("- "));
-        return;
-    }
-
-    if (RichTextEditorCommands::toggleList(
-            *this, RichTextEditorCommands::ListStyle::Bullet)) {
-        markRichDocumentChanged();
-    }
+    prefixMarkdownLines(QStringLiteral("- "));
 }
 
 void MessageTextEditWidget::toggleNumberedList()
 {
-    if (!isRichTextEditing()) {
-        prefixMarkdownLines(QString(), true);
-        return;
-    }
-
-    if (RichTextEditorCommands::toggleList(
-            *this, RichTextEditorCommands::ListStyle::Numbered)) {
-        markRichDocumentChanged();
-    }
+    prefixMarkdownLines(QString(), true);
 }
 
 bool MessageTextEditWidget::editLinkAtCursor()
 {
-    if (isRichTextEditing()) {
-        QTextCursor range;
-        QString currentUrl;
-        if (!richLinkAt(document(), textCursor(), &range, &currentUrl)) {
-            return false;
-        }
-
-        bool accepted = false;
-        const QString url = QInputDialog::getText(
-            this, tr("Edit link"), tr("URL:"), QLineEdit::Normal,
-            currentUrl, &accepted).trimmed();
-        if (!accepted || url.isEmpty()) {
-            return true;
-        }
-
-        QTextCharFormat format;
-        format.setAnchor(true);
-        format.setAnchorHref(url);
-        format.setFontUnderline(true);
-        range.mergeCharFormat(format);
-        setTextCursor(range);
-        markRichDocumentChanged();
-        return true;
-    }
-
     const QTextCursor current = textCursor();
     const MarkdownLinkMatch link = markdownLinkAt(
-        QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd());
+        toPlainText(), current.selectionStart(), current.selectionEnd());
     if (!link.isValid()) {
         return false;
     }
@@ -641,27 +426,13 @@ bool MessageTextEditWidget::editLinkAtCursor()
 
 bool MessageTextEditWidget::removeLinkAtCursor()
 {
-    if (isRichTextEditing()) {
-        QTextCursor range;
-        if (!richLinkAt(document(), textCursor(), &range, nullptr)) {
-            return false;
-        }
-        QTextCharFormat format;
-        format.setAnchor(false);
-        format.setAnchorHref(QString());
-        format.setFontUnderline(false);
-        range.mergeCharFormat(format);
-        setTextCursor(range);
-        markRichDocumentChanged();
-        return true;
-    }
-
     const QTextCursor current = textCursor();
     const MarkdownLinkMatch link = markdownLinkAt(
-        QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd());
+        toPlainText(), current.selectionStart(), current.selectionEnd());
     if (!link.isValid()) {
         return false;
     }
+
     QTextCursor replacement(document());
     replacement.setPosition(link.start);
     replacement.setPosition(link.end, QTextCursor::KeepAnchor);
@@ -673,15 +444,10 @@ bool MessageTextEditWidget::removeLinkAtCursor()
 bool MessageTextEditWidget::selectionContainsLink() const
 {
     const QTextCursor current = textCursor();
-    if (!current.hasSelection()) {
-        return false;
-    }
-    if (isRichTextEditing()) {
-        return richLinkAt(document(), current, nullptr, nullptr);
-    }
-    return markdownLinkAt(
-        QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd())
-        .isValid();
+    return current.hasSelection()
+        && markdownLinkAt(
+            toPlainText(), current.selectionStart(), current.selectionEnd())
+               .isValid();
 }
 
 void MessageTextEditWidget::insertLink()
@@ -705,24 +471,9 @@ void MessageTextEditWidget::insertLink()
         label = url;
     }
 
-    if (!isRichTextEditing()) {
-        cursor.insertText(QStringLiteral("[%1](%2)")
-                              .arg(escapedMarkdownLinkLabel(label), url));
-        setTextCursor(cursor);
-        return;
-    }
-
-    QTextCharFormat format;
-    format.setAnchor(true);
-    format.setAnchorHref(url);
-    format.setFontUnderline(true);
-    if (cursor.hasSelection()) {
-        cursor.mergeCharFormat(format);
-    } else {
-        cursor.insertText(label, format);
-    }
+    cursor.insertText(QStringLiteral("[%1](%2)")
+                          .arg(escapedMarkdownLinkLabel(label), url));
     setTextCursor(cursor);
-    markRichDocumentChanged();
 }
 
 void MessageTextEditWidget::insertFromMimeData(const QMimeData* source)
@@ -733,19 +484,9 @@ void MessageTextEditWidget::insertFromMimeData(const QMimeData* source)
         QString label = cursor.selectedText();
         label.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
         if (!label.contains(QLatin1Char('\n'))) {
-            if (isRichTextEditing()) {
-                QTextCharFormat format;
-                format.setAnchor(true);
-                format.setAnchorHref(url);
-                format.setFontUnderline(true);
-                cursor.mergeCharFormat(format);
-                setTextCursor(cursor);
-                markRichDocumentChanged();
-            } else {
-                cursor.insertText(QStringLiteral("[%1](%2)")
-                                      .arg(escapedMarkdownLinkLabel(label), url));
-                setTextCursor(cursor);
-            }
+            cursor.insertText(QStringLiteral("[%1](%2)")
+                                  .arg(escapedMarkdownLinkLabel(label), url));
+            setTextCursor(cursor);
             return;
         }
     }
@@ -766,17 +507,10 @@ void MessageTextEditWidget::contextMenuEvent(QContextMenuEvent* event)
         return;
     }
 
-    bool hasLink = false;
-    if (isRichTextEditing()) {
-        hasLink = richLinkAt(document(), textCursor(), nullptr, nullptr);
-    } else {
-        const QTextCursor current = textCursor();
-        hasLink = markdownLinkAt(
-            QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd())
-            .isValid();
-    }
-
-    if (hasLink) {
+    const QTextCursor current = textCursor();
+    const MarkdownLinkMatch link = markdownLinkAt(
+        toPlainText(), current.selectionStart(), current.selectionEnd());
+    if (link.isValid()) {
         menu->addSeparator();
         QAction* editLinkAction = menu->addAction(tr("Edit link…"));
         connect(editLinkAction, &QAction::triggered,
@@ -793,13 +527,6 @@ void MessageTextEditWidget::contextMenuEvent(QContextMenuEvent* event)
             : tr("Show formatting toolbar"));
     connect(toolbarAction, &QAction::triggered, this, [this] {
         setFormattingToolbarPreferredVisible(!formattingToolbarVisible_);
-    });
-
-    QAction* modeAction = menu->addAction(
-        isRichTextEditing() ? tr("Edit Markdown source")
-                            : tr("Use rich text editor"));
-    connect(modeAction, &QAction::triggered, this, [this] {
-        setRichTextEditing(!isRichTextEditing());
     });
 
     menu->exec(event->globalPos());
@@ -839,8 +566,6 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
         return;
     }
 
-    // Completion navigation owns its keys while visible. Formatting and
-    // structural commands run only when no completion overlay intercepts input.
     if (!completionPopupVisible()) {
         if (event->matches(QKeySequence::Bold)) {
             toggleBold();
@@ -852,7 +577,6 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
             event->accept();
             return;
         }
-
         if (hasPrimaryModifier(modifiers)
             && event->key() == Qt::Key_K
             && !modifiers.testFlag(Qt::AltModifier)) {
@@ -865,16 +589,6 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
             && event->key() == Qt::Key_X) {
             toggleStrikeOut();
             event->accept();
-            return;
-        }
-
-        // Structural rich-text editing gets the key before InteractiveTextEdit
-        // applies submit-on-Enter. List/code/quote commands deliberately decline
-        // Ctrl+Enter, so the configured explicit-send chord still reaches the
-        // global composer policy.
-        if (isRichTextEditing()
-            && RichTextEditorCommands::handleStructuralKey(*this, *event)) {
-            markRichDocumentChanged();
             return;
         }
 
@@ -907,7 +621,8 @@ void MessageTextEditWidget::updateHeightToContents()
 
     const QMargins margins = contentsMargins();
     const int chromeHeight = margins.top() + margins.bottom() + 2 * frameWidth();
-    const int documentMargins = static_cast<int>(std::ceil(document()->documentMargin() * 2.0));
+    const int documentMargins =
+        static_cast<int>(std::ceil(document()->documentMargin() * 2.0));
     const int lineHeight = fontMetrics().lineSpacing();
     const int oneLineHeight = lineHeight + documentMargins + chromeHeight;
     const int laidOutHeight = static_cast<int>(std::ceil(
@@ -929,4 +644,4 @@ bool MessageTextEditWidget::hasNonEmptyText()
     return document()->characterCount() > 1;
 }
 
-} /* namespace Mattermost */
+} // namespace Mattermost
