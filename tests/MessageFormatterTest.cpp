@@ -5,6 +5,7 @@
 #include <QImage>
 #include <QTextBlock>
 #include <QTextDocument>
+#include <QTextDocumentFragment>
 #include <QTextFragment>
 #include <QTextLayout>
 
@@ -119,6 +120,32 @@ private slots:
         QVERIFY(second.isValid());
         QVERIFY2(first.textList(), qPrintable(document.toPlainText()));
         QVERIFY2(second.textList(), qPrintable(document.toPlainText()));
+        QCOMPARE(second.textList(), first.textList());
+#else
+        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
+#endif
+    }
+
+    void markdownListSurvivesFragmentHtmlRoundTrip()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        QTextDocument source;
+        MessageFormatter::buildMarkdownDocument(
+            source, QStringLiteral("- first\n- second"));
+
+        QTextCursor cursor(&source);
+        cursor.setPosition(0);
+        cursor.setPosition(source.characterCount() - 1, QTextCursor::KeepAnchor);
+        const QString html = QTextDocumentFragment(cursor).toHtml();
+
+        QTextDocument rendered;
+        rendered.setHtml(html);
+        const QTextBlock first = rendered.firstBlock();
+        const QTextBlock second = first.next();
+        QVERIFY(first.isValid());
+        QVERIFY(second.isValid());
+        QVERIFY2(first.textList(), qPrintable(html));
+        QVERIFY2(second.textList(), qPrintable(html));
         QCOMPARE(second.textList(), first.textList());
 #else
         QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
