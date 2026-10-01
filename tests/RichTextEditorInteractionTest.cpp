@@ -259,9 +259,6 @@ private slots:
         prepareEditor(editor, source);
         QCoreApplication::processEvents();
 
-        // Quote/code styling is presentation-only. Showing the rich editor must
-        // not dirty the source snapshot or serialize the document back through
-        // QTextDocument merely to obtain the target visual appearance.
         QCOMPARE(editor.markdownText(), source);
 
         bool hasMutedQuote = false;
@@ -281,17 +278,16 @@ private slots:
         QVERIFY(hasMutedQuote);
         QVERIFY(hasCodeBackground);
 
-        QWidget* overlay = editor.findChild<QWidget*>(
-            QStringLiteral("_matterleast_rich_block_decoration_overlay"));
-        QVERIFY(overlay);
-
+        // The quote bar is now painted after QTextEdit's viewport paint rather
+        // than by a child overlay. Grab the actual viewport to test the same
+        // rendering path the user sees.
         const QTextBlock quote = editor.document()->firstBlock();
         QTextCursor quoteCursor(quote);
         const int quoteY = editor.cursorRect(quoteCursor).center().y();
-        const QImage overlayImage = overlay->grab().toImage();
-        QVERIFY(!overlayImage.isNull());
-        QVERIFY(quoteY >= 0 && quoteY < overlayImage.height());
-        QCOMPARE(overlayImage.pixelColor(2, quoteY),
+        const QImage viewportImage = editor.viewport()->grab().toImage();
+        QVERIFY(!viewportImage.isNull());
+        QVERIFY(quoteY >= 0 && quoteY < viewportImage.height());
+        QCOMPARE(viewportImage.pixelColor(2, quoteY),
                  editor.palette().color(QPalette::Mid));
     }
 
@@ -303,7 +299,11 @@ private slots:
         editor.toggleCodeBlock();
         QCoreApplication::processEvents();
 
-        QVERIFY(isStructuralCodeBlock(editor.document()->firstBlock()));
+        const QTextBlock block = editor.document()->firstBlock();
+        QVERIFY(isStructuralCodeBlock(block));
+        QCOMPARE(codeBlockFence(block), QStringLiteral("`"));
+        QVERIFY(block.blockFormat().property(QTextFormat::BlockCodeFence).isValid());
+
         bool hasCodeBackground = false;
         for (const QTextEdit::ExtraSelection& selection : editor.extraSelections()) {
             if (selection.format.background().color() == QColor(39, 40, 34)) {
@@ -366,12 +366,6 @@ private slots:
         parsed.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
         QTextTable* parsedTable = firstTable(parsed);
 
-        // Qt 5.15, 6.4 and 6.11 currently serialize this table with a delimiter
-        // row such as "|-|-|". GFM requires at least three '-' characters per
-        // delimiter cell, and Qt's own parser consequently does not reconstruct
-        // a QTextTable. Keep this as an explicit serialization gate: an XPASS
-        // on a future Qt version tells us to reconsider whether the owned
-        // MatterLeast table serializer is still necessary.
         QEXPECT_FAIL(
             "",
             "Native Qt GFM table Markdown is not round-trip safe; use the MatterLeast table serializer",
