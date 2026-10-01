@@ -39,7 +39,7 @@ Conventional keyboard shortcuts are handled at the editor layer where practical 
 
 Formatting-toolbar SVGs are rasterized only at their final display resolution. `SvgRasterCache` is keyed by resource name, logical requested size, physical pixel size, and device-pixel ratio, so a raster generated for one screen scale is never bitmap-rescaled for another.
 
-The cache stores **untinted** rasters. Palette, hover, checked, and disabled colors are applied by `ThemeIconButton` after lookup, which lets all visual states share the same source raster. The cache is bounded to 8 MiB and evicts the least-recently-used entries when the bound is exceeded. A very-coarse daily timer also removes entries that have not been used for 24 hours.
+The cache stores **untinted** rasters. Palette, hover, checked, and disabled colors are applied by `ThemeIconButton` after lookup, which lets all visual states share the same source raster. The cache is bounded to 8 MiB and evicts the least-recently-used entries when the bound is exceeded. A very-coarse hourly timer also removes entries that have not been used for one hour, so inactive sessions do not retain stale UI rasters unnecessarily.
 
 SVG decoding uses Qt's image-format plugin with the exact target physical size (`QImageReader::setScaledSize()`), avoiding the fixed-size raster layers used by generic `QIcon` symbolic helpers. Packaged MatterLeast builds already depend on the Qt SVG runtime/plugin; CI must keep that runtime available as well.
 
