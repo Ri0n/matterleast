@@ -280,6 +280,8 @@ add_test(NAME navigation-tabs-model-test COMMAND navigation-tabs-model-test)
 add_executable(message-text-edit-widget-test
     MessageTextEditWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/MessageTextEditWidget.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/RichTextEditorCommands.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/RichTextEditorStructuralCommands.cpp"
     "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
     "${CMAKE_SOURCE_DIR}/sources/widgets/InteractiveTextEdit.cpp"
 )
