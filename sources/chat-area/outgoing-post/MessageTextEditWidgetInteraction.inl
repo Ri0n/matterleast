@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <QAbstractAnimation>
 #include <QDynamicPropertyChangeEvent>
 #include <QEasingCurve>
 #include <QEvent>
@@ -9,12 +10,12 @@
 #include <QLayout>
 #include <QPalette>
 #include <QPointer>
+#include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QSyntaxHighlighter>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTimer>
-#include <QVariantAnimation>
 #include <QWidget>
 
 namespace Mattermost {
@@ -33,7 +34,7 @@ constexpr char PostEditModeHookProperty[] =
     "_matterleast_post_edit_mode_hook";
 constexpr char MarkdownLinkHighlighterObjectName[] =
     "_matterleast_markdown_link_highlighter";
-constexpr int FormattingToolbarAnimationMs = 240;
+constexpr int FormattingToolbarAnimationMs = 110;
 constexpr int FormattingToolbarGap = 2;
 
 class MarkdownSourceLinkHighlighter final : public QSyntaxHighlighter
@@ -131,10 +132,10 @@ inline void normalizeFormattingToolbarLayout(MessageTextEditWidget* editor)
         return;
     }
 
-    // uic also wires this signal directly to QWidget::setVisible(). The direct
-    // connection makes the toolbar participate in layout at full height before
-    // our animation can clamp it, which causes the editor text to jump by a few
-    // pixels at the start of the slide. Animation owns visibility instead.
+    // The reaction quick bar never removes its animated slot from layout: the
+    // collapsed slot simply has maximumWidth=0. Do the vertical equivalent
+    // here. uic's direct setVisible() connection would reintroduce a discrete
+    // layout step, so animation exclusively owns the slot extent instead.
     QObject::disconnect(
         editor,
         &MessageTextEditWidget::formattingToolbarVisibilityChanged,
@@ -146,9 +147,9 @@ inline void normalizeFormattingToolbarLayout(MessageTextEditWidget* editor)
     }
     toolbar->setProperty(FormattingLayoutNormalizedProperty, true);
 
-    // QBoxLayout spacing appears/disappears atomically when the toolbar is
-    // shown/hidden. Move that gap inside the animated widget so every vertical
-    // pixel, including the separation from the editor, is part of the slide.
+    // Like the quick bar's 1 px separator, the composer gap lives inside the
+    // zero-height animated slot. It therefore grows continuously with the slot
+    // instead of appearing atomically when a hidden widget becomes visible.
     if (QWidget* container = toolbar->parentWidget()) {
         if (QLayout* layout = container->layout()) {
             layout->setSpacing(0);
@@ -159,63 +160,72 @@ inline void normalizeFormattingToolbarLayout(MessageTextEditWidget* editor)
         margins.setBottom(std::max(margins.bottom(), FormattingToolbarGap));
         layout->setContentsMargins(margins);
     }
+
+    toolbar->setMinimumHeight(0);
+    toolbar->setMaximumHeight(0);
+    toolbar->show();
+    toolbar->updateGeometry();
 }
 
-inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool visible)
+inline int formattingToolbarExpandedHeight(QWidget* toolbar)
+{
+    if (!toolbar) {
+        return 0;
+    }
+    if (QLayout* layout = toolbar->layout()) {
+        return std::max(1, layout->sizeHint().height());
+    }
+    return std::max(1, toolbar->sizeHint().height());
+}
+
+inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool expand)
 {
     QWidget* toolbar = formattingToolbarFor(editor);
     if (!toolbar) {
         return;
     }
 
-    auto* previous = toolbar->findChild<QVariantAnimation*>(
-        QString::fromLatin1(FormattingAnimationObjectName),
-        Qt::FindDirectChildrenOnly);
-    int interruptedHeight = -1;
-    if (previous) {
-        interruptedHeight = previous->currentValue().toInt();
+    if (auto* previous = toolbar->findChild<QPropertyAnimation*>(
+            QString::fromLatin1(FormattingAnimationObjectName),
+            Qt::FindDirectChildrenOnly)) {
         previous->stop();
         previous->deleteLater();
     }
 
-    const int targetHeight = std::max(1, toolbar->sizeHint().height());
-    const int startHeight = interruptedHeight >= 0
-        ? qBound(0, interruptedHeight, targetHeight)
-        : (visible ? 0 : std::max(toolbar->height(), targetHeight));
+    int currentHeight = toolbar->maximumHeight();
+    if (currentHeight >= QWIDGETSIZE_MAX) {
+        currentHeight = toolbar->height();
+    }
+    const int endHeight = expand ? formattingToolbarExpandedHeight(toolbar) : 0;
 
-    // Visibility and geometry belong to one animation path. Keeping the widget
-    // painted during the collapsing leg lets the parent layout shrink smoothly.
-    toolbar->show();
-    toolbar->setMaximumHeight(startHeight);
+    editor->setProperty(FormattingRequestedVisibleProperty, expand);
+    if (currentHeight == endHeight) {
+        toolbar->updateGeometry();
+        return;
+    }
 
-    auto* animation = new QVariantAnimation(toolbar);
+    // Mirror ReactionQuickBarController::animateSlot(): animate the slot's
+    // maximum extent, keep it in layout at zero when collapsed, and use the
+    // same asymmetric easing for opening/closing.
+    auto* animation = new QPropertyAnimation(
+        toolbar, "maximumHeight", toolbar);
     animation->setObjectName(QString::fromLatin1(FormattingAnimationObjectName));
     animation->setDuration(FormattingToolbarAnimationMs);
-    animation->setEasingCurve(QEasingCurve::OutCubic);
-    animation->setStartValue(startHeight);
-    animation->setEndValue(visible ? targetHeight : 0);
+    animation->setStartValue(std::max(0, currentHeight));
+    animation->setEndValue(endHeight);
+    animation->setEasingCurve(
+        expand ? QEasingCurve::OutCubic : QEasingCurve::InCubic);
 
-    QObject::connect(animation, &QVariantAnimation::valueChanged,
-                     toolbar, [toolbar](const QVariant& value) {
-        toolbar->setMaximumHeight(std::max(0, value.toInt()));
+    QObject::connect(animation, &QPropertyAnimation::valueChanged,
+                     toolbar, [toolbar](const QVariant&) {
+        toolbar->updateGeometry();
     });
-    QObject::connect(animation, &QVariantAnimation::finished,
-                     editor, [editor, toolbar, animation, visible] {
-        animation->deleteLater();
-        const bool requestedVisible =
-            editor->property(FormattingRequestedVisibleProperty).toBool();
-        if (requestedVisible != visible) {
-            return;
-        }
-
-        toolbar->setMaximumHeight(QWIDGETSIZE_MAX);
-        if (!visible) {
-            toolbar->hide();
-        }
+    QObject::connect(animation, &QPropertyAnimation::finished,
+                     toolbar, [toolbar] {
+        toolbar->updateGeometry();
     });
 
-    editor->setProperty(FormattingRequestedVisibleProperty, visible);
-    animation->start();
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 inline void ensureFormattingAnimationHook(MessageTextEditWidget* editor)
@@ -400,6 +410,13 @@ inline bool MessageTextEditWidget::event(QEvent* event)
         if (auto* highlighter = markdownLinkHighlighterFor(this)) {
             highlighter->rehighlight();
         }
+    }
+
+    if (event && event->type() == QEvent::FontChange
+        && property(FormattingRequestedVisibleProperty).toBool()) {
+        QTimer::singleShot(0, this, [this] {
+            animateFormattingToolbar(this, true);
+        });
     }
 
     if (event && event->type() == QEvent::KeyPress) {
