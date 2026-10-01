@@ -113,8 +113,8 @@ private:
     };
 
     static constexpr qint64 MaxCacheBytes = 8 * 1024 * 1024;
-    static constexpr qint64 MaxIdleMs = 24LL * 60 * 60 * 1000;
-    static constexpr int CleanupIntervalMs = 24 * 60 * 60 * 1000;
+    static constexpr qint64 MaxIdleMs = 60LL * 60 * 1000;
+    static constexpr int CleanupIntervalMs = 60 * 60 * 1000;
 
     SvgRasterCache()
     {
