@@ -6,6 +6,10 @@
 
 #pragma once
 
+#include <iterator>
+
+#include <QVector>
+
 class QKeyEvent;
 class QTextEdit;
 
