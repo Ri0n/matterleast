@@ -68,6 +68,60 @@ private slots:
         QCOMPARE(model.at(1)->channelId, QStringLiteral("channel-b"));
     }
 
+    void pinnedDestinationCannotBeReplaced()
+    {
+        NavigationTabsModel model;
+        NavigationTabsModel::Entry first;
+        first.channelId = QStringLiteral("channel-a");
+        first.title = QStringLiteral("A");
+        QCOMPARE(model.append(first), 0);
+        QVERIFY(model.setPinned(0, true));
+
+        NavigationTabsModel::Entry replacement;
+        replacement.channelId = QStringLiteral("channel-b");
+        replacement.title = QStringLiteral("B");
+
+        QVERIFY(!model.replace(0, replacement));
+        QCOMPARE(model.at(0)->channelId, QStringLiteral("channel-a"));
+        QVERIFY(model.at(0)->pinned);
+    }
+
+    void pinnedDestinationStillAcceptsBookmarkUpdates()
+    {
+        NavigationTabsModel model;
+        NavigationTabsModel::Entry entry;
+        entry.channelId = QStringLiteral("channel-a");
+        entry.postId = QStringLiteral("post-1");
+        QCOMPARE(model.append(entry), 0);
+        QVERIFY(model.setPinned(0, true));
+
+        entry.postId = QStringLiteral("post-2");
+        entry.title = QStringLiteral("Updated title");
+        QVERIFY(model.replace(0, entry));
+        QCOMPARE(model.at(0)->postId, QStringLiteral("post-2"));
+        QCOMPARE(model.at(0)->title, QStringLiteral("Updated title"));
+        QVERIFY(model.at(0)->pinned);
+    }
+
+    void reusableChannelTabSkipsPinnedDestinations()
+    {
+        NavigationTabsModel model;
+        for (const QString& id : {
+                 QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c") }) {
+            NavigationTabsModel::Entry entry;
+            entry.channelId = id;
+            model.append(entry);
+        }
+        QVERIFY(model.setPinned(0, true));
+        QVERIFY(model.setPinned(1, true));
+
+        QCOMPARE(model.findReusableChannelTab(0), 2);
+        QCOMPARE(model.findReusableChannelTab(2), 2);
+
+        QVERIFY(model.setPinned(2, true));
+        QCOMPARE(model.findReusableChannelTab(0), -1);
+    }
+
     void threadDestinationIsDeduplicatedAndBookmarkUpdated()
     {
         NavigationTabsModel model;
