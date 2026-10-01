@@ -27,6 +27,7 @@
 #include "widgets/InteractiveTextEdit.h"
 
 class QResizeEvent;
+class QTextCharFormat;
 
 namespace Mattermost {
 
