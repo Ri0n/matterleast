@@ -6,6 +6,7 @@
 #include <QEasingCurve>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QLayout>
 #include <QPalette>
 #include <QPointer>
 #include <QRegularExpression>
@@ -26,11 +27,14 @@ constexpr char FormattingAnimationObjectName[] =
     "_matterleast_formatting_toolbar_animation";
 constexpr char FormattingRequestedVisibleProperty[] =
     "_matterleast_formatting_requested_visible";
+constexpr char FormattingLayoutNormalizedProperty[] =
+    "_matterleast_formatting_layout_normalized";
 constexpr char PostEditModeHookProperty[] =
     "_matterleast_post_edit_mode_hook";
 constexpr char MarkdownLinkHighlighterObjectName[] =
     "_matterleast_markdown_link_highlighter";
 constexpr int FormattingToolbarAnimationMs = 240;
+constexpr int FormattingToolbarGap = 2;
 
 class MarkdownSourceLinkHighlighter final : public QSyntaxHighlighter
 {
@@ -120,6 +124,43 @@ inline QWidget* formattingToolbarFor(MessageTextEditWidget* editor)
         QStringLiteral("formattingToolbar"));
 }
 
+inline void normalizeFormattingToolbarLayout(MessageTextEditWidget* editor)
+{
+    QWidget* toolbar = formattingToolbarFor(editor);
+    if (!editor || !toolbar) {
+        return;
+    }
+
+    // uic also wires this signal directly to QWidget::setVisible(). The direct
+    // connection makes the toolbar participate in layout at full height before
+    // our animation can clamp it, which causes the editor text to jump by a few
+    // pixels at the start of the slide. Animation owns visibility instead.
+    QObject::disconnect(
+        editor,
+        &MessageTextEditWidget::formattingToolbarVisibilityChanged,
+        toolbar,
+        &QWidget::setVisible);
+
+    if (toolbar->property(FormattingLayoutNormalizedProperty).toBool()) {
+        return;
+    }
+    toolbar->setProperty(FormattingLayoutNormalizedProperty, true);
+
+    // QBoxLayout spacing appears/disappears atomically when the toolbar is
+    // shown/hidden. Move that gap inside the animated widget so every vertical
+    // pixel, including the separation from the editor, is part of the slide.
+    if (QWidget* container = toolbar->parentWidget()) {
+        if (QLayout* layout = container->layout()) {
+            layout->setSpacing(0);
+        }
+    }
+    if (QLayout* layout = toolbar->layout()) {
+        QMargins margins = layout->contentsMargins();
+        margins.setBottom(std::max(margins.bottom(), FormattingToolbarGap));
+        layout->setContentsMargins(margins);
+    }
+}
+
 inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool visible)
 {
     QWidget* toolbar = formattingToolbarFor(editor);
@@ -142,8 +183,8 @@ inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool visible
         ? qBound(0, interruptedHeight, targetHeight)
         : (visible ? 0 : std::max(toolbar->height(), targetHeight));
 
-    // ChatArea.ui owns semantic visibility. Keep the widget painted during the
-    // collapsing leg so the layout shrinks instead of disappearing abruptly.
+    // Visibility and geometry belong to one animation path. Keeping the widget
+    // painted during the collapsing leg lets the parent layout shrink smoothly.
     toolbar->show();
     toolbar->setMaximumHeight(startHeight);
 
@@ -179,7 +220,16 @@ inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool visible
 
 inline void ensureFormattingAnimationHook(MessageTextEditWidget* editor)
 {
-    if (!editor || editor->property(FormattingAnimationHookProperty).toBool()) {
+    if (!editor) {
+        return;
+    }
+
+    // This may run before or after uic creates its connections. Keep the
+    // normalization idempotent and repeat the disconnect once the toolbar
+    // exists, even when our animation hook was installed earlier.
+    normalizeFormattingToolbarLayout(editor);
+
+    if (editor->property(FormattingAnimationHookProperty).toBool()) {
         return;
     }
 
@@ -189,6 +239,7 @@ inline void ensureFormattingAnimationHook(MessageTextEditWidget* editor)
         &MessageTextEditWidget::formattingToolbarVisibilityChanged,
         editor,
         [editor](bool visible) {
+            normalizeFormattingToolbarLayout(editor);
             animateFormattingToolbar(editor, visible);
         });
 }
