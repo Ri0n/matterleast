@@ -270,10 +270,97 @@ private slots:
         setMembership(tracker, 1000, 5, 5);
         synchronize(tracker, 1000, 5, 5, true, false);
 
-        tracker.recordPost(QStringLiteral("channel"), 2500, true, false, false);
+        // Even if the websocket metadata says the current user is mentioned,
+        // their own post cannot create unread/mention attention for themselves.
+        tracker.recordPost(QStringLiteral("channel"), 2500, true, false, true);
 
         QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
         QCOMPARE(tracker.activityTime(QStringLiteral("channel")), uint64_t(2500));
+    }
+
+    void ownPostDoesNotReappearFromStaleServerCounters()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 5, 5);
+        synchronize(tracker, 1000, 5, 5, true, false);
+
+        tracker.recordPost(QStringLiteral("channel"), 2500, true, false, false);
+
+        // Channel totals can advance before the membership msg_count does.
+        // The one-message gap is exactly the locally observed own post.
+        synchronize(tracker, 2500, 6, 6, true, false);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+
+        // A stale membership response must not drop that local knowledge.
+        setMembership(tracker, 1000, 5, 5);
+        synchronize(tracker, 2500, 6, 6, true, false);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+
+        // Once the membership counter catches up, the credit is consumed. A
+        // subsequent unexplained server gap must therefore become unread.
+        setMembership(tracker, 2500, 6, 6);
+        synchronize(tracker, 3000, 7, 7, true, false);
+        QVERIFY(tracker.isUnread(QStringLiteral("channel")));
+    }
+
+    void ownRootPostDoesNotReappearInCrtRootCounters()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 20, 5);
+        synchronize(tracker, 1000, 20, 5, true, true);
+        QVERIFY(tracker.usesRootUnreadCounts(QStringLiteral("channel")));
+
+        tracker.recordPost(QStringLiteral("channel"), 2000, true, false, false);
+        synchronize(tracker, 2000, 21, 6, true, true);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+
+        setMembership(tracker, 2000, 21, 6);
+        synchronize(tracker, 3000, 22, 7, true, true);
+        QVERIFY(tracker.isUnread(QStringLiteral("channel")));
+    }
+
+    void ownReplyCreditSurvivesCrtFallback()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 5, 5);
+        synchronize(tracker, 1000, 5, 5, true, true);
+        QVERIFY(tracker.usesRootUnreadCounts(QStringLiteral("channel")));
+
+        tracker.recordPost(QStringLiteral("channel"), 2000, true, true, true);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+
+        // Replies do not advance the root total while CRT is active.
+        synchronize(tracker, 2000, 6, 5, true, true);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+
+        // If root counters disappear, the all-message fallback now includes the
+        // reply. The own-post credit must move with that semantic domain.
+        synchronize(tracker, 2000, 6, 0, false, true);
+        QVERIFY(!tracker.usesRootUnreadCounts(QStringLiteral("channel")));
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+
+        setMembership(tracker, 2000, 6, 5);
+        synchronize(tracker, 3000, 7, 0, false, true);
+        QVERIFY(tracker.isUnread(QStringLiteral("channel")));
+    }
+
+    void ownPostBeforeFirstMembershipDoesNotMaskLaterUnread()
+    {
+        ChannelActivityTracker tracker;
+
+        // Without an absolute read-count baseline an own post cannot safely be
+        // carried as count credit: the first membership may already include it.
+        tracker.recordPost(QStringLiteral("channel"), 2000, true, false, false);
+        setMembership(tracker, 2000, 6, 6);
+        synchronize(tracker, 2000, 6, 6, true, false);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+
+        // A later server-only gap is real unread state and must not be hidden by
+        // an unanchored credit from before membership initialization.
+        synchronize(tracker, 3000, 7, 7, true, false);
+        QVERIFY(tracker.isUnread(QStringLiteral("channel")));
     }
 };
 
