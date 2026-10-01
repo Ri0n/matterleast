@@ -10,6 +10,7 @@
         <file alias="refresh">img/refresh.svg</file>
         <file alias="members">img/members.svg</file>
         <file alias="pin">img/pin.svg</file>
+        <file alias="tab-pin">img/tab-pin.svg</file>
         <file alias="bell">img/bell.svg</file>
         <file alias="bell-filled">img/bell-filled.svg</file>
         <file alias="emoji">img/emoji.svg</file>

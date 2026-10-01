@@ -1241,7 +1241,7 @@ void NavigationUiController::updateTabPinButton(ChatArea* area)
         iconColor.setAlpha(150);
     }
     button->setIcon(IconUtils::tintedSymbolicIcon(
-        QStringLiteral(":/icons/pin"), iconColor));
+        QStringLiteral(":/icons/tab-pin"), iconColor));
 
     const QString label = pinned ? tr("Unpin tab") : tr("Pin tab");
     button->setToolTip(label);
