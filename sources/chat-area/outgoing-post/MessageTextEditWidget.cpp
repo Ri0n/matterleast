@@ -45,13 +45,9 @@
 #include <QResizeEvent>
 #include <QStringList>
 #include <QTextBlock>
-#include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextDocument>
-#include <QTextFormat>
 #include <QTextFragment>
-#include <QTextList>
-#include <QTextListFormat>
 #include <QTimer>
 #include <QUrl>
 
@@ -489,27 +485,9 @@ void MessageTextEditWidget::toggleCodeBlock()
         return;
     }
 
-    QTextCursor cursor = textCursor();
-    QTextBlockFormat blockFormat = cursor.blockFormat();
-    const bool code = blockFormat.hasProperty(QTextFormat::BlockCodeFence);
-    if (code) {
-        blockFormat.clearProperty(QTextFormat::BlockCodeFence);
-        blockFormat.clearProperty(QTextFormat::BlockCodeLanguage);
-    } else {
-        blockFormat.setProperty(QTextFormat::BlockCodeFence, QStringLiteral("```"));
+    if (RichTextEditorCommands::toggleCodeBlock(*this)) {
+        markRichDocumentChanged();
     }
-    cursor.mergeBlockFormat(blockFormat);
-
-    QTextCharFormat charFormat;
-    charFormat.setFontFixedPitch(!code);
-    if (!code) {
-        setFontFamilyCompat(
-            charFormat,
-            QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
-    }
-    cursor.mergeCharFormat(charFormat);
-    setTextCursor(cursor);
-    markRichDocumentChanged();
 }
 
 void MessageTextEditWidget::toggleQuote()
@@ -519,17 +497,9 @@ void MessageTextEditWidget::toggleQuote()
         return;
     }
 
-    QTextCursor cursor = textCursor();
-    QTextBlockFormat format = cursor.blockFormat();
-    const int quoteLevel = format.intProperty(QTextFormat::BlockQuoteLevel);
-    if (quoteLevel > 0) {
-        format.clearProperty(QTextFormat::BlockQuoteLevel);
-    } else {
-        format.setProperty(QTextFormat::BlockQuoteLevel, 1);
+    if (RichTextEditorCommands::toggleQuote(*this)) {
+        markRichDocumentChanged();
     }
-    cursor.mergeBlockFormat(format);
-    setTextCursor(cursor);
-    markRichDocumentChanged();
 }
 
 void MessageTextEditWidget::toggleBulletList()
@@ -838,12 +808,11 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
         }
 
         // Structural rich-text editing gets the key before InteractiveTextEdit
-        // applies submit-on-Enter. This is what makes Enter extend/leave a list
-        // instead of accidentally sending the message. Explicit Ctrl+Enter is
-        // not consumed by list commands and therefore still reaches the global
-        // send policy when that preference is enabled.
+        // applies submit-on-Enter. List/code/quote commands deliberately decline
+        // Ctrl+Enter, so the configured explicit-send chord still reaches the
+        // global composer policy.
         if (isRichTextEditing()
-            && RichTextEditorCommands::handleListKey(*this, *event)) {
+            && RichTextEditorCommands::handleStructuralKey(*this, *event)) {
             markRichDocumentChanged();
             return;
         }
