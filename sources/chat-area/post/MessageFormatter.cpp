@@ -384,7 +384,7 @@ void normalizeParsedCodeProperties(QTextDocument& document)
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
         QTextBlockFormat format = block.blockFormat();
         const bool structural = format.nonBreakableLines()
-            || !format.stringProperty(QTextFormat::BlockCodeFence).isEmpty()
+            || !format.property(QTextFormat::BlockCodeFence).toString().isEmpty()
             || !format.stringProperty(QTextFormat::BlockCodeLanguage).isEmpty();
         if (structural) {
             continue;
