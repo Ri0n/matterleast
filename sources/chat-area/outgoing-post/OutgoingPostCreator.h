@@ -39,6 +39,7 @@ class QDropEvent;
 class QLabel;
 class QEvent;
 class QFrame;
+class QJsonObject;
 class QMimeData;
 class QPushButton;
 class QTimer;
@@ -82,6 +83,7 @@ public:
 public slots:
 	void onAttachButtonClick ();
 	void createPoll ();
+    void showMessagePriorityMenu();
 	void onPollPostReceived(BackendPost& post);
 	void onPostReceived (BackendPost& post);
 	void sendPostButtonAction ();
@@ -121,6 +123,11 @@ private:
     void setEmbeddedEmojiPickerExpanded(bool expanded, bool animate = true);
     void ensureEmbeddedEmojiPicker();
     void destroyEmbeddedEmojiPicker();
+    void ensurePriorityOutboxHook();
+    bool messagePriorityAvailable() const;
+    QJsonObject currentPostMetadata() const;
+    void resetMessagePriority();
+    void updateMessagePriorityButtonState();
 	bool isEditingPost() const;
 	bool isCreatingPost ();
 	bool isWaitingForPostServerResponse ();
@@ -160,6 +167,10 @@ private:
     bool                                rankedEmojiPickerExpanded = false;
     bool                                rankedEmojiPopupAbove = true;
     bool                                suppressDraftPersistence = false;
+    QString                             messagePriority;
+    bool                                priorityRequestedAck = false;
+    bool                                priorityPersistentNotifications = false;
+    bool                                priorityOutboxHookInstalled = false;
 };
 
 } /* namespace Mattermost */
