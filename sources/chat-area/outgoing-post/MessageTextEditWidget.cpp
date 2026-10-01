@@ -36,6 +36,7 @@
 #include <QKeySequence>
 #include <QPalette>
 #include <QResizeEvent>
+#include <QStringList>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
@@ -76,6 +77,15 @@ bool hasPrimaryModifier(Qt::KeyboardModifiers modifiers)
     return modifiers.testFlag(Qt::MetaModifier);
 #else
     return modifiers.testFlag(Qt::ControlModifier);
+#endif
+}
+
+void setFontFamilyCompat(QTextCharFormat& format, const QString& family)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    format.setFontFamilies(QStringList {family});
+#else
+    format.setFontFamily(family);
 #endif
 }
 
@@ -295,7 +305,9 @@ void MessageTextEditWidget::toggleInlineCode()
     const bool fixed = currentCharFormat().fontFixedPitch();
     format.setFontFixedPitch(!fixed);
     if (!fixed) {
-        format.setFontFamily(QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
+        setFontFamilyCompat(
+            format,
+            QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
     }
     applyRichCharFormat(format);
 }
@@ -321,7 +333,9 @@ void MessageTextEditWidget::toggleCodeBlock()
     QTextCharFormat charFormat;
     charFormat.setFontFixedPitch(!code);
     if (!code) {
-        charFormat.setFontFamily(QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
+        setFontFamilyCompat(
+            charFormat,
+            QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
     }
     cursor.mergeCharFormat(charFormat);
     setTextCursor(cursor);
