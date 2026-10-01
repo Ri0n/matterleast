@@ -15,6 +15,7 @@
 #include <QFontMetrics>
 #include <QPainter>
 #include <QPalette>
+#include <QToolButton>
 #include <QWidget>
 
 #include "BusyIndicator.h"
@@ -33,6 +34,15 @@ constexpr int FormattingToolbarHorizontalPadding = 10;
 QString tintKey(const QColor& color)
 {
     return color.name(QColor::HexArgb);
+}
+
+QString cssColor(const QColor& color)
+{
+    return QStringLiteral("rgba(%1,%2,%3,%4)")
+        .arg(color.red())
+        .arg(color.green())
+        .arg(color.blue())
+        .arg(color.alpha());
 }
 
 bool isFormattingToolbarIcon(const QString& objectName)
@@ -58,6 +68,53 @@ int formattingToolbarOpticalExtent(const QWidget& widget)
     return std::max(1, qRound(capHeight * FormattingToolbarOpticalScale));
 }
 
+void syncFormattingToolButtonAppearance(QAbstractButton* button,
+                                        const QPalette& palette)
+{
+    auto* toolButton = qobject_cast<QToolButton*>(button);
+    if (!toolButton) {
+        return;
+    }
+
+    QColor resting = palette.color(QPalette::Active, QPalette::ButtonText);
+    resting.setAlphaF(resting.alphaF() * RestingOpacity);
+    const QColor hover = palette.color(QPalette::Active, QPalette::ButtonText);
+    const QColor active = palette.color(QPalette::Highlight);
+    const QColor disabled = palette.color(QPalette::Disabled, QPalette::ButtonText);
+
+    const QString style = QStringLiteral(
+        "QToolButton {"
+        " border: none;"
+        " outline: none;"
+        " background: transparent;"
+        " padding: 0px;"
+        " color: %1;"
+        "}"
+        "QToolButton:hover:enabled {"
+        " border: none;"
+        " background: transparent;"
+        " color: %2;"
+        "}"
+        "QToolButton:pressed:enabled, QToolButton:checked:enabled {"
+        " border: none;"
+        " background: transparent;"
+        " color: %3;"
+        "}"
+        "QToolButton:disabled {"
+        " border: none;"
+        " background: transparent;"
+        " color: %4;"
+        "}")
+        .arg(cssColor(resting),
+             cssColor(hover),
+             cssColor(active),
+             cssColor(disabled));
+
+    if (toolButton->styleSheet() != style) {
+        toolButton->setStyleSheet(style);
+    }
+}
+
 void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
 {
     if (!isFormattingToolbar(toolbar)) {
@@ -67,6 +124,7 @@ void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
     const QFontMetrics metrics(toolbar->font());
     const int buttonHeight = std::max(
         28, metrics.height() + FormattingToolbarButtonPadding);
+    const QPalette currentPalette = qApp ? qApp->palette() : toolbar->palette();
 
     const auto buttons = toolbar->findChildren<QAbstractButton*>(
         QString(), Qt::FindDirectChildrenOnly);
@@ -74,6 +132,8 @@ void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
         if (!button) {
             continue;
         }
+
+        syncFormattingToolButtonAppearance(button, currentPalette);
 
         int buttonWidth = buttonHeight;
         if (!button->text().isEmpty()) {
