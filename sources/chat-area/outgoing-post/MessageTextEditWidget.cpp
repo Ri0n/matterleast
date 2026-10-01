@@ -23,6 +23,7 @@
  */
 
 #include "MessageTextEditWidget.h"
+#include "RichTextEditorCommands.h"
 
 #include <algorithm>
 #include <cmath>
@@ -538,12 +539,10 @@ void MessageTextEditWidget::toggleBulletList()
         return;
     }
 
-    QTextCursor cursor = textCursor();
-    QTextListFormat format;
-    format.setStyle(QTextListFormat::ListDisc);
-    cursor.createList(format);
-    setTextCursor(cursor);
-    markRichDocumentChanged();
+    if (RichTextEditorCommands::toggleList(
+            *this, RichTextEditorCommands::ListStyle::Bullet)) {
+        markRichDocumentChanged();
+    }
 }
 
 void MessageTextEditWidget::toggleNumberedList()
@@ -553,12 +552,10 @@ void MessageTextEditWidget::toggleNumberedList()
         return;
     }
 
-    QTextCursor cursor = textCursor();
-    QTextListFormat format;
-    format.setStyle(QTextListFormat::ListDecimal);
-    cursor.createList(format);
-    setTextCursor(cursor);
-    markRichDocumentChanged();
+    if (RichTextEditorCommands::toggleList(
+            *this, RichTextEditorCommands::ListStyle::Numbered)) {
+        markRichDocumentChanged();
+    }
 }
 
 bool MessageTextEditWidget::editLinkAtCursor()
@@ -811,8 +808,8 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
         return;
     }
 
-    // Completion navigation owns its keys while visible. Formatting shortcuts
-    // remain editor-level only when no completion popup is intercepting input.
+    // Completion navigation owns its keys while visible. Formatting and
+    // structural commands run only when no completion overlay intercepts input.
     if (!completionPopupVisible()) {
         if (event->matches(QKeySequence::Bold)) {
             toggleBold();
@@ -837,6 +834,17 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
             && event->key() == Qt::Key_X) {
             toggleStrikeOut();
             event->accept();
+            return;
+        }
+
+        // Structural rich-text editing gets the key before InteractiveTextEdit
+        // applies submit-on-Enter. This is what makes Enter extend/leave a list
+        // instead of accidentally sending the message. Explicit Ctrl+Enter is
+        // not consumed by list commands and therefore still reaches the global
+        // send policy when that preference is enabled.
+        if (isRichTextEditing()
+            && RichTextEditorCommands::handleListKey(*this, *event)) {
+            markRichDocumentChanged();
             return;
         }
 
