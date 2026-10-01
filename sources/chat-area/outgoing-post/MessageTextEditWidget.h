@@ -29,6 +29,7 @@
 #include "widgets/InteractiveTextEdit.h"
 
 class QContextMenuEvent;
+class QEvent;
 class QFocusEvent;
 class QMimeData;
 class QResizeEvent;
@@ -87,6 +88,7 @@ signals:
     void formattingToolbarVisibilityChanged(bool visible);
 
 protected:
+    bool event(QEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
@@ -110,6 +112,8 @@ private:
     bool richDocumentDirty_ = false;
     bool loadingMarkdown_ = false;
     bool formattingToolbarVisible_ = false;
+    bool postEditModeForced_ = false;
+    bool restoreRichAfterPostEdit_ = false;
 };
 
 } /* namespace Mattermost */
