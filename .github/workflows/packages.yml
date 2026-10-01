@@ -20,10 +20,10 @@ permissions:
 env:
   QT_WINDOWS_VERSION: "6.11.2"
   QT_APPIMAGE_VERSION: "6.11.2"
-  LINUXDEPLOY_ASSET_ID: "538917371"
-  LINUXDEPLOY_SHA256: "36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62"
-  LINUXDEPLOY_QT_ASSET_ID: "525032210"
-  LINUXDEPLOY_QT_SHA256: "cfc1055b2b9dbc08412b579f20990b7b41a17b61beaa5847dc9477c96c9e9617"
+  LINUXDEPLOY_VERSION: "1-alpha-20251107-1"
+  LINUXDEPLOY_SHA256: "c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d"
+  LINUXDEPLOY_QT_VERSION: "1-alpha-20250213-1"
+  LINUXDEPLOY_QT_SHA256: "15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724"
 
 jobs:
   debian:
@@ -243,22 +243,19 @@ jobs:
 
       - name: Fetch pinned linuxdeploy tools
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p appimage-tools
-          api_headers=(
-            -H "Accept: application/octet-stream"
-            -H "Authorization: Bearer $GH_TOKEN"
-            -H "X-GitHub-Api-Version: 2022-11-28"
-          )
 
-          curl --fail --location --retry 3 "${api_headers[@]}" \
-            "https://api.github.com/repos/linuxdeploy/linuxdeploy/releases/assets/${LINUXDEPLOY_ASSET_ID}" \
+          # Never pin assets from the mutable `continuous` releases: those
+          # assets are deleted and recreated on rebuild, which invalidates the
+          # GitHub asset ID. Versioned release URLs plus SHA256 keep the tool
+          # input stable and fail closed if upstream content ever changes.
+          curl --fail --location --retry 3 \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-x86_64.AppImage" \
             -o appimage-tools/linuxdeploy-x86_64.AppImage
-          curl --fail --location --retry 3 "${api_headers[@]}" \
-            "https://api.github.com/repos/linuxdeploy/linuxdeploy-plugin-qt/releases/assets/${LINUXDEPLOY_QT_ASSET_ID}" \
+          curl --fail --location --retry 3 \
+            "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/${LINUXDEPLOY_QT_VERSION}/linuxdeploy-plugin-qt-x86_64.AppImage" \
             -o appimage-tools/linuxdeploy-plugin-qt-x86_64.AppImage
 
           echo "${LINUXDEPLOY_SHA256}  appimage-tools/linuxdeploy-x86_64.AppImage" | sha256sum -c -
