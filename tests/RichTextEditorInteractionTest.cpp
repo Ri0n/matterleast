@@ -91,6 +91,27 @@ private slots:
         QVERIFY(second.text().isEmpty());
     }
 
+    void listStartedInEmptyComposerSerializesAsMarkdownList()
+    {
+        SendOptionGuard option(false);
+        MessageTextEditWidget editor;
+        prepareEditor(editor, QString());
+        QSignalSpy submitted(&editor, &MessageTextEditWidget::enterPressed);
+
+        editor.toggleBulletList();
+        QVERIFY(editor.textCursor().block().textList());
+
+        QTest::keyClicks(&editor, QStringLiteral("first"));
+        QTest::keyClick(&editor, Qt::Key_Return);
+        QCOMPARE(submitted.count(), 0);
+        QVERIFY(editor.textCursor().block().textList());
+        QTest::keyClicks(&editor, QStringLiteral("second"));
+
+        const QString markdown = editor.markdownText();
+        QVERIFY2(markdown.contains(QStringLiteral("- first")), qPrintable(markdown));
+        QVERIFY2(markdown.contains(QStringLiteral("- second")), qPrintable(markdown));
+    }
+
     void emptyTopLevelListItemEnterLeavesList()
     {
         SendOptionGuard option(false);
