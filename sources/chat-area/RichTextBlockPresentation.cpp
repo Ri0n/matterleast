@@ -3,10 +3,9 @@
  *
  * This file is part of MatterLeast.
  *
- * Presentation-only styling for structural Markdown blocks. Markdown remains
- * the canonical representation: this layer never mutates QTextBlock/QTextChar
- * formats, because doing so would make the rich composer look modified and
- * force an otherwise untouched source through QTextDocument::toMarkdown().
+ * Presentation-only styling for structural Markdown blocks in the composer.
+ * Rendered messages keep their existing QuoteBlock/CodeBlockEdit presentation;
+ * this layer must not restyle those widgets globally.
  */
 
 #include "RichTextBlockPresentation.h"
@@ -16,17 +15,13 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QEvent>
-#include <QFont>
 #include <QFontDatabase>
-#include <QFrame>
-#include <QLayout>
 #include <QPainter>
 #include <QPalette>
-#include <QPlainTextEdit>
+#include <QScrollBar>
 #include <QStringList>
 #include <QTextBlock>
 #include <QTextBlockFormat>
-#include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
@@ -46,6 +41,9 @@ constexpr qreal QuoteTextOpacity = 0.72;
 constexpr qreal CodeBorderRadius = 4.0;
 constexpr int PresentationSelectionProperty = QTextFormat::UserProperty + 317;
 constexpr char PresentationHookProperty[] = "_matterleast_rich_block_presentation_hook";
+constexpr char DecorationProperty[] = "_matterleast_composer_block_decoration";
+constexpr char QuoteDecorationName[] = "_matterleast_composer_quote_bar";
+constexpr char CodeDecorationName[] = "_matterleast_composer_code_border";
 
 QColor codeBackground()
 {
@@ -64,11 +62,6 @@ QColor codeBorder()
     return color;
 }
 
-QColor quoteBar(const QPalette& palette)
-{
-    return palette.color(QPalette::Mid);
-}
-
 QColor quoteText(const QPalette& palette)
 {
     QColor color = palette.color(QPalette::Text);
@@ -84,56 +77,13 @@ bool isQuoteBlock(const QTextBlock& block)
 
 bool richPresentationEnabled(const QTextEdit* editor)
 {
-    if (!editor) {
-        return false;
-    }
-    if (const auto* composer = qobject_cast<const MessageTextEditWidget*>(editor)) {
-        return composer->isRichTextEditing();
-    }
-    return editor->objectName() == QStringLiteral("messageRichText");
-}
-
-bool isReceivedQuoteBrowser(const QTextBrowser* browser)
-{
-    if (!browser || browser->objectName() != QStringLiteral("messageRichText")) {
-        return false;
-    }
-    const QWidget* parent = browser->parentWidget();
-    const QLayout* layout = parent ? parent->layout() : nullptr;
-    if (!layout || layout->count() < 2) {
-        return false;
-    }
-
-    for (int index = 0; index < layout->count(); ++index) {
-        QWidget* sibling = layout->itemAt(index)->widget();
-        if (sibling && sibling != browser
-            && sibling->minimumWidth() == QuoteBarWidth
-            && sibling->maximumWidth() == QuoteBarWidth) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void syncReceivedQuotePalette(QTextBrowser* browser)
-{
-    if (!isReceivedQuoteBrowser(browser)) {
-        return;
-    }
-    QPalette wanted = browser->palette();
-    const QColor text = quoteText(browser->parentWidget()
-                                      ? browser->parentWidget()->palette()
-                                      : browser->palette());
-    wanted.setColor(QPalette::Text, text);
-    wanted.setColor(QPalette::WindowText, text);
-    if (wanted != browser->palette()) {
-        browser->setPalette(wanted);
-    }
+    const auto* composer = qobject_cast<const MessageTextEditWidget*>(editor);
+    return composer && composer->isRichTextEditing();
 }
 
 QRectF blockViewportRect(QTextEdit& editor, const QTextBlock& block)
 {
-    if (!block.isValid()) {
+    if (!block.isValid() || !editor.viewport()) {
         return {};
     }
 
@@ -150,10 +100,10 @@ QRectF blockViewportRect(QTextEdit& editor, const QTextBlock& block)
                   std::max<qreal>(1.0, bottom - top + 1.0));
 }
 
-template<typename Predicate, typename PaintGroup>
-void paintBlockGroups(QTextEdit& editor,
+template<typename Predicate, typename VisitGroup>
+void visitBlockGroups(QTextEdit& editor,
                       Predicate predicate,
-                      PaintGroup paintGroup)
+                      VisitGroup visitGroup)
 {
     QTextDocument* document = editor.document();
     if (!document || !editor.viewport()) {
@@ -163,9 +113,8 @@ void paintBlockGroups(QTextEdit& editor,
     bool active = false;
     QRectF group;
     const auto flush = [&] {
-        if (active && group.isValid() && group.bottom() >= 0
-            && group.top() <= editor.viewport()->height()) {
-            paintGroup(group);
+        if (active && group.isValid()) {
+            visitGroup(group);
         }
         active = false;
         group = {};
@@ -186,6 +135,115 @@ void paintBlockGroups(QTextEdit& editor,
         }
     }
     flush();
+}
+
+class ComposerBlockDecoration final : public QWidget
+{
+public:
+    enum class Kind {
+        QuoteBar,
+        CodeBorder,
+    };
+
+    ComposerBlockDecoration(Kind kind, QWidget* parent)
+        : QWidget(parent)
+        , kind_(kind)
+    {
+        setProperty(DecorationProperty, true);
+        setObjectName(QString::fromLatin1(
+            kind_ == Kind::QuoteBar ? QuoteDecorationName : CodeDecorationName));
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setFocusPolicy(Qt::NoFocus);
+        setAutoFillBackground(false);
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+
+        if (kind_ == Kind::QuoteBar) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(palette().color(QPalette::Mid));
+            painter.drawRoundedRect(rect(), 1.5, 1.5);
+            return;
+        }
+
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(codeBorder(), 1.0));
+        QRectF border = rect();
+        border.adjust(0.5, 0.5, -0.5, -0.5);
+        painter.drawRoundedRect(border, CodeBorderRadius, CodeBorderRadius);
+    }
+
+private:
+    Kind kind_;
+};
+
+void clearDecorationWidgets(QTextEdit* editor)
+{
+    if (!editor || !editor->viewport()) {
+        return;
+    }
+
+    const auto children = editor->viewport()->findChildren<QWidget*>(
+        QString(), Qt::FindDirectChildrenOnly);
+    for (QWidget* child : children) {
+        if (child && child->property(DecorationProperty).toBool()) {
+            delete child;
+        }
+    }
+}
+
+QRect clippedGroupGeometry(QTextEdit& editor, QRectF group)
+{
+    if (!editor.viewport()) {
+        return {};
+    }
+    QRect geometry = group.toAlignedRect();
+    geometry.setLeft(0);
+    geometry.setRight(std::max(0, editor.viewport()->width() - 1));
+    return geometry.intersected(editor.viewport()->rect());
+}
+
+void syncDecorationWidgets(QTextEdit* editor)
+{
+    clearDecorationWidgets(editor);
+    if (!richPresentationEnabled(editor) || !editor->viewport()) {
+        return;
+    }
+
+    visitBlockGroups(
+        *editor,
+        [](const QTextBlock& block) { return isStructuralCodeBlock(block); },
+        [editor](QRectF group) {
+            const QRect geometry = clippedGroupGeometry(*editor, group);
+            if (!geometry.isValid() || geometry.isEmpty()) {
+                return;
+            }
+            auto* border = new ComposerBlockDecoration(
+                ComposerBlockDecoration::Kind::CodeBorder, editor->viewport());
+            border->setGeometry(geometry);
+            border->show();
+            border->raise();
+        });
+
+    visitBlockGroups(
+        *editor,
+        [](const QTextBlock& block) { return isQuoteBlock(block); },
+        [editor](QRectF group) {
+            const QRect clipped = clippedGroupGeometry(*editor, group);
+            if (!clipped.isValid() || clipped.isEmpty()) {
+                return;
+            }
+            auto* bar = new ComposerBlockDecoration(
+                ComposerBlockDecoration::Kind::QuoteBar, editor->viewport());
+            bar->setGeometry(
+                QuoteBarOffset, clipped.top(), QuoteBarWidth, clipped.height());
+            bar->show();
+            bar->raise();
+        });
 }
 
 void updatePresentationSelections(QTextEdit* editor)
@@ -242,55 +300,43 @@ void updatePresentationSelections(QTextEdit* editor)
     }
 
     editor->setExtraSelections(selections);
-    if (editor->viewport()) {
-        editor->viewport()->update();
-    }
 }
 
-void ensureTextEditPresentation(QTextEdit* editor)
+void syncComposerPresentation(QTextEdit* editor)
+{
+    updatePresentationSelections(editor);
+    syncDecorationWidgets(editor);
+}
+
+void ensureTextEditPresentation(MessageTextEditWidget* editor)
 {
     if (!editor || editor->property(PresentationHookProperty).toBool()) {
         return;
     }
     editor->setProperty(PresentationHookProperty, true);
 
-    if (qobject_cast<MessageTextEditWidget*>(editor)) {
-        // QTextDocument::indentWidth() controls layout only. It does not change
-        // QTextListFormat::indent(), so Markdown nesting remains structural.
-        editor->document()->setIndentWidth(ComposerListIndentWidth);
-    }
+    // QTextDocument::indentWidth() controls layout only. It does not change
+    // QTextListFormat::indent(), so Markdown nesting remains structural.
+    editor->document()->setIndentWidth(ComposerListIndentWidth);
 
     QObject::connect(editor, &QTextEdit::textChanged, editor, [editor] {
-        updatePresentationSelections(editor);
+        syncComposerPresentation(editor);
+    });
+    QObject::connect(
+        editor, &MessageTextEditWidget::editingModeChanged,
+        editor, [editor](MessageTextEditWidget::EditingMode) {
+            syncComposerPresentation(editor);
+        });
+    QObject::connect(editor->verticalScrollBar(), &QScrollBar::valueChanged,
+                     editor, [editor](int) {
+        syncDecorationWidgets(editor);
+    });
+    QObject::connect(editor->verticalScrollBar(), &QScrollBar::rangeChanged,
+                     editor, [editor](int, int) {
+        syncDecorationWidgets(editor);
     });
 
-    if (auto* composer = qobject_cast<MessageTextEditWidget*>(editor)) {
-        QObject::connect(
-            composer, &MessageTextEditWidget::editingModeChanged,
-            composer, [editor](MessageTextEditWidget::EditingMode) {
-                updatePresentationSelections(editor);
-            });
-    }
-
-    updatePresentationSelections(editor);
-}
-
-void ensureCodeWidgetPresentation(QPlainTextEdit* editor)
-{
-    if (!editor || editor->property(PresentationHookProperty).toBool()) {
-        return;
-    }
-    editor->setProperty(PresentationHookProperty, true);
-
-    QPalette palette = editor->palette();
-    palette.setColor(QPalette::Base, codeBackground());
-    palette.setColor(QPalette::Text, codeForeground());
-    palette.setColor(QPalette::WindowText, codeBorder());
-    editor->setPalette(palette);
-
-    editor->setFrameShape(QFrame::Box);
-    editor->setFrameShadow(QFrame::Plain);
-    editor->setLineWidth(1);
+    syncComposerPresentation(editor);
 }
 
 class RichTextBlockPresentationFilter final : public QObject
@@ -316,42 +362,22 @@ protected:
         if (auto* composer = qobject_cast<MessageTextEditWidget*>(watched)) {
             if (structuralEvent) {
                 ensureTextEditPresentation(composer);
-                if (type == QEvent::PaletteChange
-                    || type == QEvent::ApplicationPaletteChange
-                    || type == QEvent::FontChange) {
-                    updatePresentationSelections(composer);
-                }
+                syncComposerPresentation(composer);
             }
             return false;
         }
 
-        if (auto* browser = qobject_cast<QTextBrowser*>(watched)) {
-            if (browser->objectName() == QStringLiteral("messageRichText")
-                && structuralEvent) {
-                ensureTextEditPresentation(browser);
-                syncReceivedQuotePalette(browser);
-                if (type == QEvent::PaletteChange
-                    || type == QEvent::ApplicationPaletteChange
-                    || type == QEvent::FontChange) {
-                    updatePresentationSelections(browser);
+        // The viewport can resize independently when the vertical scrollbar is
+        // shown or hidden. Keep the small decoration widgets pinned to the new
+        // viewport geometry without changing rendered-message widgets.
+        if (type == QEvent::Resize) {
+            if (auto* viewport = qobject_cast<QWidget*>(watched)) {
+                auto* composer = qobject_cast<MessageTextEditWidget*>(
+                    viewport->parentWidget());
+                if (composer && viewport == composer->viewport()) {
+                    syncDecorationWidgets(composer);
                 }
             }
-            return false;
-        }
-
-        if (auto* code = qobject_cast<QPlainTextEdit*>(watched)) {
-            if (code->objectName() == QStringLiteral("messageCodeBlock")
-                && structuralEvent) {
-                ensureCodeWidgetPresentation(code);
-                QPalette wanted = code->palette();
-                wanted.setColor(QPalette::Base, codeBackground());
-                wanted.setColor(QPalette::Text, codeForeground());
-                wanted.setColor(QPalette::WindowText, codeBorder());
-                if (wanted != code->palette()) {
-                    code->setPalette(wanted);
-                }
-            }
-            return false;
         }
 
         return false;
@@ -370,40 +396,11 @@ void installRichTextBlockPresentation()
 
 void paintRichTextBlockDecorations(QTextEdit& editor, QPainter& painter)
 {
-    if (!richPresentationEnabled(&editor) || !editor.viewport()) {
-        return;
-    }
-
-    painter.save();
-    painter.setRenderHint(QPainter::Antialiasing, true);
-
-    paintBlockGroups(
-        editor,
-        [](const QTextBlock& block) { return isStructuralCodeBlock(block); },
-        [&editor, &painter](QRectF rect) {
-            rect.setLeft(0.5);
-            rect.setRight(std::max<qreal>(0.5, editor.viewport()->width() - 0.5));
-            rect.adjust(0.0, -0.5, 0.0, 0.5);
-            painter.setBrush(Qt::NoBrush);
-            painter.setPen(QPen(codeBorder(), 1.0));
-            painter.drawRoundedRect(rect, CodeBorderRadius, CodeBorderRadius);
-        });
-
-    paintBlockGroups(
-        editor,
-        [](const QTextBlock& block) { return isQuoteBlock(block); },
-        [&editor, &painter](QRectF rect) {
-            const QRectF barRect(
-                QuoteBarOffset,
-                rect.top(),
-                QuoteBarWidth,
-                std::max<qreal>(1.0, rect.height()));
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(quoteBar(editor.palette()));
-            painter.drawRoundedRect(barRect, 1.5, 1.5);
-        });
-
-    painter.restore();
+    // Composer chrome is represented by small child widgets so it is not
+    // dependent on QTextEdit's paint-event dirty region. Keep this legacy
+    // entry point inert; rendered messages have their own presentation.
+    Q_UNUSED(editor)
+    Q_UNUSED(painter)
 }
 
 } // namespace Mattermost
