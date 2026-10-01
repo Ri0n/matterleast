@@ -9,6 +9,8 @@
  * force an otherwise untouched source through QTextDocument::toMarkdown().
  */
 
+#include "RichTextBlockPresentation.h"
+
 #include <algorithm>
 
 #include <QApplication>
@@ -21,8 +23,6 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPlainTextEdit>
-#include <QPointer>
-#include <QScrollBar>
 #include <QStringList>
 #include <QTextBlock>
 #include <QTextBlockFormat>
@@ -46,13 +46,9 @@ constexpr qreal QuoteTextOpacity = 0.72;
 constexpr qreal CodeBorderRadius = 4.0;
 constexpr int PresentationSelectionProperty = QTextFormat::UserProperty + 317;
 constexpr char PresentationHookProperty[] = "_matterleast_rich_block_presentation_hook";
-constexpr char DecorationOverlayName[] = "_matterleast_rich_block_decoration_overlay";
-constexpr char CodeWidgetBorderName[] = "_matterleast_code_widget_border_overlay";
 
 QColor codeBackground()
 {
-    // Keep the composer and the standalone received-post code widget on the
-    // same Monokai-derived surface that MatterLeast already uses for code.
     return QColor(39, 40, 34);
 }
 
@@ -154,183 +150,43 @@ QRectF blockViewportRect(QTextEdit& editor, const QTextBlock& block)
                   std::max<qreal>(1.0, bottom - top + 1.0));
 }
 
-class BlockDecorationOverlay final : public QWidget
+template<typename Predicate, typename PaintGroup>
+void paintBlockGroups(QTextEdit& editor,
+                      QPainter& painter,
+                      Predicate predicate,
+                      PaintGroup paintGroup)
 {
-public:
-    explicit BlockDecorationOverlay(QTextEdit* editor)
-        : QWidget(editor ? editor->viewport() : nullptr)
-        , editor_(editor)
-    {
-        setObjectName(QString::fromLatin1(DecorationOverlayName));
-        setAttribute(Qt::WA_TransparentForMouseEvents, true);
-        setAttribute(Qt::WA_NoSystemBackground, true);
-        // This is an ordinary child overlay, not a translucent top-level
-        // window. WA_TranslucentBackground is unnecessary here and can make
-        // composition platform-dependent on Linux window systems.
-        setAutoFillBackground(false);
-        setFocusPolicy(Qt::NoFocus);
-        syncGeometry();
-        show();
-        raise();
+    QTextDocument* document = editor.document();
+    if (!document || !editor.viewport()) {
+        return;
     }
 
-    void syncGeometry()
-    {
-        if (!editor_ || !editor_->viewport()) {
-            return;
+    bool active = false;
+    QRectF group;
+    const auto flush = [&] {
+        if (active && group.isValid() && group.bottom() >= 0
+            && group.top() <= editor.viewport()->height()) {
+            paintGroup(group);
         }
-        const QRect wanted = editor_->viewport()->rect();
-        if (geometry() != wanted) {
-            setGeometry(wanted);
-        }
-        update();
-    }
+        active = false;
+        group = {};
+    };
 
-protected:
-    void paintEvent(QPaintEvent*) override
-    {
-        if (!editor_ || !richPresentationEnabled(editor_)) {
-            return;
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+        if (!predicate(block)) {
+            flush();
+            continue;
         }
 
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-
-        drawCodeGroups(painter);
-        drawQuoteGroups(painter);
-    }
-
-private:
-    template<typename Predicate, typename PaintGroup>
-    void drawGroups(QPainter& painter,
-                    Predicate predicate,
-                    PaintGroup paintGroup)
-    {
-        QTextDocument* document = editor_ ? editor_->document() : nullptr;
-        if (!document) {
-            return;
+        const QRectF current = blockViewportRect(editor, block);
+        if (!active) {
+            active = true;
+            group = current;
+        } else {
+            group = group.united(current);
         }
-
-        bool active = false;
-        QRectF group;
-        const auto flush = [&] {
-            if (active && group.isValid() && group.bottom() >= 0
-                && group.top() <= height()) {
-                paintGroup(painter, group);
-            }
-            active = false;
-            group = {};
-        };
-
-        for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
-            if (!predicate(block)) {
-                flush();
-                continue;
-            }
-
-            const QRectF current = blockViewportRect(*editor_, block);
-            if (!active) {
-                active = true;
-                group = current;
-            } else {
-                group = group.united(current);
-            }
-        }
-        flush();
     }
-
-    void drawCodeGroups(QPainter& painter)
-    {
-        drawGroups(
-            painter,
-            [](const QTextBlock& block) { return isStructuralCodeBlock(block); },
-            [this](QPainter& groupPainter, QRectF rect) {
-                rect.setLeft(0.5);
-                rect.setRight(std::max<qreal>(0.5, width() - 0.5));
-                rect.adjust(0.0, -0.5, 0.0, 0.5);
-                groupPainter.setBrush(Qt::NoBrush);
-                groupPainter.setPen(QPen(codeBorder(), 1.0));
-                groupPainter.drawRoundedRect(
-                    rect, CodeBorderRadius, CodeBorderRadius);
-            });
-    }
-
-    void drawQuoteGroups(QPainter& painter)
-    {
-        drawGroups(
-            painter,
-            [](const QTextBlock& block) { return isQuoteBlock(block); },
-            [this](QPainter& groupPainter, QRectF rect) {
-                const QRectF barRect(
-                    QuoteBarOffset,
-                    rect.top(),
-                    QuoteBarWidth,
-                    std::max<qreal>(1.0, rect.height()));
-                groupPainter.setPen(Qt::NoPen);
-                groupPainter.setBrush(quoteBar(editor_->palette()));
-                groupPainter.drawRoundedRect(barRect, 1.5, 1.5);
-            });
-    }
-
-    QPointer<QTextEdit> editor_;
-};
-
-class CodeWidgetBorderOverlay final : public QWidget
-{
-public:
-    explicit CodeWidgetBorderOverlay(QPlainTextEdit* editor)
-        : QWidget(editor)
-        , editor_(editor)
-    {
-        setObjectName(QString::fromLatin1(CodeWidgetBorderName));
-        setAttribute(Qt::WA_TransparentForMouseEvents, true);
-        setAttribute(Qt::WA_NoSystemBackground, true);
-        setAutoFillBackground(false);
-        setFocusPolicy(Qt::NoFocus);
-        syncGeometry();
-        show();
-        raise();
-    }
-
-    void syncGeometry()
-    {
-        if (!editor_) {
-            return;
-        }
-        if (geometry() != editor_->rect()) {
-            setGeometry(editor_->rect());
-        }
-        update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent*) override
-    {
-        if (!editor_) {
-            return;
-        }
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setBrush(Qt::NoBrush);
-        painter.setPen(QPen(codeBorder(), 1.0));
-        QRectF border = rect();
-        border.adjust(0.5, 0.5, -0.5, -0.5);
-        painter.drawRoundedRect(border, CodeBorderRadius, CodeBorderRadius);
-    }
-
-private:
-    QPointer<QPlainTextEdit> editor_;
-};
-
-template<typename T>
-T* findDirectWidget(QObject* parent, const char* objectName)
-{
-    if (!parent) {
-        return nullptr;
-    }
-    QWidget* widget = parent->findChild<QWidget*>(
-        QString::fromLatin1(objectName), Qt::FindDirectChildrenOnly);
-    return dynamic_cast<T*>(widget);
+    flush();
 }
 
 void updatePresentationSelections(QTextEdit* editor)
@@ -351,8 +207,6 @@ void updatePresentationSelections(QTextEdit* editor)
         const QPalette palette = editor->palette();
         const QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
 
-        // Quotes first; code second so a code block nested in a quote keeps the
-        // code palette while the quote bar still remains visible.
         for (QTextBlock block = editor->document()->begin();
              block.isValid(); block = block.next()) {
             if (!isQuoteBlock(block)) {
@@ -373,9 +227,6 @@ void updatePresentationSelections(QTextEdit* editor)
             }
             QTextEdit::ExtraSelection selection;
             selection.cursor = QTextCursor(block);
-            // Select the actual block text as well as asking QTextEdit for a
-            // full-width selection. Some platform styles ignore background on
-            // a zero-length extra selection even with FullWidthSelection set.
             selection.cursor.select(QTextCursor::BlockUnderCursor);
             selection.format.setBackground(codeBackground());
             selection.format.setForeground(codeForeground());
@@ -392,11 +243,8 @@ void updatePresentationSelections(QTextEdit* editor)
     }
 
     editor->setExtraSelections(selections);
-
-    if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
-            editor->viewport(), DecorationOverlayName)) {
-        overlay->syncGeometry();
-        overlay->raise();
+    if (editor->viewport()) {
+        editor->viewport()->update();
     }
 }
 
@@ -408,41 +256,20 @@ void ensureTextEditPresentation(QTextEdit* editor)
     editor->setProperty(PresentationHookProperty, true);
 
     if (qobject_cast<MessageTextEditWidget*>(editor)) {
-        // This changes only QTextDocument layout geometry. The logical list
-        // level remains QTextListFormat::indent(), and Markdown serialization
-        // is therefore unchanged.
+        // QTextDocument::indentWidth() controls layout only. It does not change
+        // QTextListFormat::indent(), so Markdown nesting remains structural.
         editor->document()->setIndentWidth(ComposerListIndentWidth);
     }
 
-    auto* overlay = new BlockDecorationOverlay(editor);
-
-    QObject::connect(editor, &QTextEdit::textChanged, editor, [editor, overlay] {
+    QObject::connect(editor, &QTextEdit::textChanged, editor, [editor] {
         updatePresentationSelections(editor);
-        if (overlay) {
-            overlay->syncGeometry();
-        }
-    });
-    QObject::connect(editor->verticalScrollBar(), &QScrollBar::valueChanged,
-                     editor, [overlay](int) {
-        if (overlay) {
-            overlay->syncGeometry();
-        }
-    });
-    QObject::connect(editor->horizontalScrollBar(), &QScrollBar::valueChanged,
-                     editor, [overlay](int) {
-        if (overlay) {
-            overlay->syncGeometry();
-        }
     });
 
     if (auto* composer = qobject_cast<MessageTextEditWidget*>(editor)) {
         QObject::connect(
             composer, &MessageTextEditWidget::editingModeChanged,
-            composer, [editor, overlay](MessageTextEditWidget::EditingMode) {
+            composer, [editor](MessageTextEditWidget::EditingMode) {
                 updatePresentationSelections(editor);
-                if (overlay) {
-                    overlay->syncGeometry();
-                }
             });
     }
 
@@ -459,13 +286,15 @@ void ensureCodeWidgetPresentation(QPlainTextEdit* editor)
     QPalette palette = editor->palette();
     palette.setColor(QPalette::Base, codeBackground());
     palette.setColor(QPalette::Text, codeForeground());
+    palette.setColor(QPalette::WindowText, codeBorder());
     editor->setPalette(palette);
 
-    // Do not delegate code-block boundaries to the current platform style.
-    // Some styles collapse the QPlainTextEdit frame entirely; use the same
-    // explicit one-pixel block boundary as the composer instead.
-    editor->setFrameShape(QFrame::NoFrame);
-    new CodeWidgetBorderOverlay(editor);
+    // Use QFrame's own chrome instead of a transparent child overlay. This is
+    // reliable across X11/Wayland styles and keeps the boundary attached to the
+    // actual received-post code widget.
+    editor->setFrameShape(QFrame::Box);
+    editor->setFrameShadow(QFrame::Plain);
+    editor->setLineWidth(1);
 }
 
 class RichTextBlockPresentationFilter final : public QObject
@@ -496,10 +325,6 @@ protected:
                     || type == QEvent::FontChange) {
                     updatePresentationSelections(composer);
                 }
-                if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
-                        composer->viewport(), DecorationOverlayName)) {
-                    overlay->syncGeometry();
-                }
             }
             return false;
         }
@@ -514,10 +339,6 @@ protected:
                     || type == QEvent::FontChange) {
                     updatePresentationSelections(browser);
                 }
-                if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
-                        browser->viewport(), DecorationOverlayName)) {
-                    overlay->syncGeometry();
-                }
             }
             return false;
         }
@@ -529,31 +350,12 @@ protected:
                 QPalette wanted = code->palette();
                 wanted.setColor(QPalette::Base, codeBackground());
                 wanted.setColor(QPalette::Text, codeForeground());
+                wanted.setColor(QPalette::WindowText, codeBorder());
                 if (wanted != code->palette()) {
                     code->setPalette(wanted);
                 }
-                if (auto* overlay = findDirectWidget<CodeWidgetBorderOverlay>(
-                        code, CodeWidgetBorderName)) {
-                    overlay->syncGeometry();
-                }
             }
             return false;
-        }
-
-        // QAbstractScrollArea's viewport can resize independently when a
-        // scrollbar appears/disappears. Keep decoration overlays exactly over
-        // the viewport instead of assuming the outer QTextEdit resized too.
-        if (type == QEvent::Resize) {
-            if (auto* widget = qobject_cast<QWidget*>(watched)) {
-                if (auto* editor = qobject_cast<QTextEdit*>(widget->parentWidget())) {
-                    if (widget == editor->viewport()) {
-                        if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
-                                widget, DecorationOverlayName)) {
-                            overlay->syncGeometry();
-                        }
-                    }
-                }
-            }
         }
 
         return false;
@@ -569,6 +371,45 @@ void installRichTextBlockPresentation()
 }
 
 } // namespace
+
+void paintRichTextBlockDecorations(QTextEdit& editor, QPainter& painter)
+{
+    if (!richPresentationEnabled(&editor) || !editor.viewport()) {
+        return;
+    }
+
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    paintBlockGroups(
+        editor, painter,
+        [](const QTextBlock& block) { return isStructuralCodeBlock(block); },
+        [&editor, &painter](QRectF rect) {
+            rect.setLeft(0.5);
+            rect.setRight(std::max<qreal>(0.5, editor.viewport()->width() - 0.5));
+            rect.adjust(0.0, -0.5, 0.0, 0.5);
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(codeBorder(), 1.0));
+            painter.drawRoundedRect(rect, CodeBorderRadius, CodeBorderRadius);
+        });
+
+    paintBlockGroups(
+        editor, painter,
+        [](const QTextBlock& block) { return isQuoteBlock(block); },
+        [&editor, &painter](QRectF rect) {
+            const QRectF barRect(
+                QuoteBarOffset,
+                rect.top(),
+                QuoteBarWidth,
+                std::max<qreal>(1.0, rect.height()));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(quoteBar(editor.palette()));
+            painter.drawRoundedRect(barRect, 1.5, 1.5);
+        });
+
+    painter.restore();
+}
+
 } // namespace Mattermost
 
 static void installMatterLeastRichTextBlockPresentation()
