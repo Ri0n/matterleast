@@ -374,6 +374,38 @@ QString promoteMultilineCodeSpans(const QString& text)
     return result;
 }
 
+void normalizeParsedCodeProperties(QTextDocument& document)
+{
+    // Some Qt versions leave empty BlockCodeFence/BlockCodeLanguage properties
+    // on otherwise ordinary paragraphs. Downstream message layout historically
+    // used hasProperty(), so those empty values can turn inline code or quoted
+    // prose into a standalone CodeBlockEdit. Strip only empty properties from
+    // blocks that have no structural preformatted-code evidence.
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        QTextBlockFormat format = block.blockFormat();
+        const bool structural = format.nonBreakableLines()
+            || !format.stringProperty(QTextFormat::BlockCodeFence).isEmpty()
+            || !format.stringProperty(QTextFormat::BlockCodeLanguage).isEmpty();
+        if (structural) {
+            continue;
+        }
+
+        bool changed = false;
+        if (format.hasProperty(QTextFormat::BlockCodeFence)) {
+            format.clearProperty(QTextFormat::BlockCodeFence);
+            changed = true;
+        }
+        if (format.hasProperty(QTextFormat::BlockCodeLanguage)) {
+            format.clearProperty(QTextFormat::BlockCodeLanguage);
+            changed = true;
+        }
+        if (changed) {
+            QTextCursor cursor(block);
+            cursor.setBlockFormat(format);
+        }
+    }
+}
+
 bool rangeAlreadyFormattedAsLinkOrCode(QTextDocument& document, int position, int length)
 {
     QTextCursor cursor(&document);
@@ -632,6 +664,7 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text)
     features.setFlag(QTextDocument::MarkdownNoHTML);
     const QString markdown = promoteMultilineCodeSpans(text);
     document.setMarkdown(preserveUserLineBreaks(markdown), features);
+    normalizeParsedCodeProperties(document);
 
     // Qt's GFM autolinker still misses some valid long percent-encoded URLs.
     // Complete only bare http(s) links after Markdown parsing so explicit links
