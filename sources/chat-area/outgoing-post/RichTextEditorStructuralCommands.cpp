@@ -21,6 +21,8 @@
 #include <QTextList>
 #include <QVector>
 
+#include "chat-area/CodeBlockSupport.h"
+
 namespace Mattermost::RichTextEditorCommands {
 namespace {
 
@@ -169,8 +171,7 @@ void applyBlockCharFormat(const QTextBlock& block,
 
 bool isCodeBlock(const QTextBlock& block)
 {
-    return block.isValid()
-        && block.blockFormat().hasProperty(QTextFormat::BlockCodeFence);
+    return isStructuralCodeBlock(block);
 }
 
 int quoteLevel(const QTextBlock& block)
