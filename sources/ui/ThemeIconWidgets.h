@@ -1,7 +1,7 @@
 /**
  * Copyright 2026 Sergei Ilinykh
  *
- * This file is part of MatterLeast.
+ * This file is part of Mattermost-QT.
  */
 
 #pragma once
@@ -50,7 +50,6 @@ private:
     QString _renderedResource;
     QSize _renderedSize;
     QPixmap _renderedPixmap;
-    int _renderedDprMilli = 0;
     bool _busyAnimationAcquired = false;
 };
 
