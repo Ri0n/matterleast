@@ -24,6 +24,7 @@ public:
         QString rootId;
         QString postId;
         QString title;
+        bool pinned = false;
 
         bool isValid() const { return !channelId.isEmpty(); }
         bool sameDestination(const Entry& other) const
@@ -52,6 +53,25 @@ public:
         return -1;
     }
 
+    int findReusableChannelTab(int preferredIndex = -1) const
+    {
+        if (const Entry* preferred = at(preferredIndex);
+            preferred && preferred->rootId.isEmpty() && !preferred->pinned) {
+            return preferredIndex;
+        }
+
+        for (int i = 0; i < entries_.size(); ++i) {
+            if (i == preferredIndex) {
+                continue;
+            }
+            const Entry& entry = entries_.at(i);
+            if (entry.rootId.isEmpty() && !entry.pinned) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     int append(Entry entry)
     {
         if (!entry.isValid()) {
@@ -67,6 +87,7 @@ public:
             if (!entry.title.isEmpty()) {
                 merged.title = entry.title;
             }
+            merged.pinned = merged.pinned || entry.pinned;
             entries_[existing] = std::move(merged);
             return existing;
         }
@@ -81,12 +102,29 @@ public:
             return false;
         }
 
+        const Entry previous = entries_.at(index);
+        if (previous.pinned && !previous.sameDestination(entry)) {
+            return false;
+        }
+
         const int existing = findDestination(entry.channelId, entry.rootId);
         if (existing >= 0 && existing != index) {
             return false;
         }
 
+        if (previous.sameDestination(entry)) {
+            entry.pinned = previous.pinned || entry.pinned;
+        }
         entries_[index] = std::move(entry);
+        return true;
+    }
+
+    bool setPinned(int index, bool pinned)
+    {
+        if (index < 0 || index >= entries_.size()) {
+            return false;
+        }
+        entries_[index].pinned = pinned;
         return true;
     }
 
