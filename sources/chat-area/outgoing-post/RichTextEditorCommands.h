@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include <QTextListFormat>
-
 class QKeyEvent;
 class QTextEdit;
 
@@ -18,13 +16,14 @@ enum class ListStyle {
     Numbered,
 };
 
-/** Toggle/convert the selected rich-text blocks to the requested list style. */
 bool toggleList(QTextEdit& editor, ListStyle style);
+bool toggleQuote(QTextEdit& editor);
+bool toggleCodeBlock(QTextEdit& editor);
 
 /**
- * Handle structural list keys before the composer's submit-on-Enter policy.
- * Returns true only when the key has been fully consumed.
+ * Handle structural rich-text keys before the composer's submit-on-Enter
+ * policy. Returns true only when the key has been fully consumed.
  */
-bool handleListKey(QTextEdit& editor, QKeyEvent& event);
+bool handleStructuralKey(QTextEdit& editor, QKeyEvent& event);
 
 } // namespace Mattermost::RichTextEditorCommands
