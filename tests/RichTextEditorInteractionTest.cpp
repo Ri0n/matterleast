@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QCoreApplication>
+#include <QImage>
 #include <QKeyEvent>
 #include <QSignalSpy>
 #include <QTextBlock>
@@ -14,6 +15,7 @@
 #include <QTextTable>
 
 #include "Settings.h"
+#include "chat-area/CodeBlockSupport.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
 #include "chat-area/outgoing-post/RichTextEditorCommands.h"
 #include "chat-area/post/MessageContentWidget.h"
@@ -279,8 +281,69 @@ private slots:
         QVERIFY(hasMutedQuote);
         QVERIFY(hasCodeBackground);
 
-        QVERIFY(editor.findChild<QWidget*>(
-            QStringLiteral("_matterleast_rich_block_decoration_overlay")));
+        QWidget* overlay = editor.findChild<QWidget*>(
+            QStringLiteral("_matterleast_rich_block_decoration_overlay"));
+        QVERIFY(overlay);
+
+        const QTextBlock quote = editor.document()->firstBlock();
+        QTextCursor quoteCursor(quote);
+        const int quoteY = editor.cursorRect(quoteCursor).center().y();
+        const QImage overlayImage = overlay->grab().toImage();
+        QVERIFY(!overlayImage.isNull());
+        QVERIFY(quoteY >= 0 && quoteY < overlayImage.height());
+        QCOMPARE(overlayImage.pixelColor(2, quoteY),
+                 editor.palette().color(QPalette::Mid));
+    }
+
+    void toolbarCodeBlockGetsPresentation()
+    {
+        MessageTextEditWidget editor;
+        prepareEditor(editor, QStringLiteral("code"));
+        selectWholeDocument(editor);
+        editor.toggleCodeBlock();
+        QCoreApplication::processEvents();
+
+        QVERIFY(isStructuralCodeBlock(editor.document()->firstBlock()));
+        bool hasCodeBackground = false;
+        for (const QTextEdit::ExtraSelection& selection : editor.extraSelections()) {
+            if (selection.format.background().color() == QColor(39, 40, 34)) {
+                hasCodeBackground = true;
+                break;
+            }
+        }
+        QVERIFY(hasCodeBackground);
+        QVERIFY2(editor.markdownText().contains(QStringLiteral("```")),
+                 qPrintable(editor.markdownText()));
+    }
+
+    void codeLanguageAppliesToWholeBlockAndSerializes()
+    {
+        MessageTextEditWidget editor;
+        prepareEditor(editor, QStringLiteral("```\nfirst\nsecond\n```"));
+        editor.setTextCursor(QTextCursor(editor.document()->firstBlock()));
+
+        QVERIFY(RichTextEditorCommands::setCodeBlockLanguage(
+            editor, QStringLiteral("c++")));
+        QCOMPARE(RichTextEditorCommands::codeBlockLanguageAt(editor),
+                 QStringLiteral("cpp"));
+
+        bool sawCode = false;
+        for (QTextBlock block = editor.document()->begin();
+             block.isValid(); block = block.next()) {
+            if (!isStructuralCodeBlock(block)) {
+                continue;
+            }
+            sawCode = true;
+            QCOMPARE(codeBlockLanguage(block), QStringLiteral("cpp"));
+        }
+        QVERIFY(sawCode);
+
+        const QString markdown = editor.markdownText();
+        QVERIFY2(markdown.contains(QStringLiteral("```cpp")), qPrintable(markdown));
+
+        QVERIFY(RichTextEditorCommands::setCodeBlockLanguage(editor, QString()));
+        QVERIFY(RichTextEditorCommands::codeBlockLanguageAt(editor).isEmpty());
+        QVERIFY(isStructuralCodeBlock(editor.textCursor().block()));
     }
 
     void nativeQtTableMarkdownIsNotRoundTripSafe()
@@ -416,18 +479,17 @@ private slots:
         QSignalSpy submitted(&editor, &MessageTextEditWidget::enterPressed);
 
         QTextBlock code = editor.document()->firstBlock();
-        QVERIFY(code.blockFormat().hasProperty(QTextFormat::BlockCodeFence));
+        QVERIFY(isStructuralCodeBlock(code));
         placeCursorAtBlockEnd(editor, code);
         QTest::keyClick(&editor, Qt::Key_Return);
 
         QCOMPARE(submitted.count(), 0);
         QTextBlock empty = editor.textCursor().block();
-        QVERIFY(empty.blockFormat().hasProperty(QTextFormat::BlockCodeFence));
+        QVERIFY(isStructuralCodeBlock(empty));
         QVERIFY(empty.text().isEmpty());
 
         QTest::keyClick(&editor, Qt::Key_Backspace);
-        QVERIFY(!editor.textCursor().block().blockFormat().hasProperty(
-            QTextFormat::BlockCodeFence));
+        QVERIFY(!isStructuralCodeBlock(editor.textCursor().block()));
     }
 
     void configuredCtrlEnterStillSubmitsInsideList()
