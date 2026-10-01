@@ -143,8 +143,10 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
 
     const QPalette::ColorGroup group = isEnabled()
         ? QPalette::Active : QPalette::Disabled;
-    QColor color = currentPalette.color(group, QPalette::ButtonText);
-    if (!underMouse()) {
+    QColor color = isChecked() && isEnabled()
+        ? currentPalette.color(QPalette::Highlight)
+        : currentPalette.color(group, QPalette::ButtonText);
+    if (!underMouse() && !isChecked()) {
         color.setAlphaF(color.alphaF() * RestingOpacity);
     }
 
