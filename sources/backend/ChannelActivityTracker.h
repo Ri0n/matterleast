@@ -25,6 +25,17 @@ public:
         uint64_t readRootMessageCount = 0;
         uint64_t mentionCount = 0;
         uint64_t rootMentionCount = 0;
+
+        // A websocket own-post event can arrive before Mattermost advances the
+        // membership read counters. Keep those already-read posts as a local
+        // count credit so a later channel snapshot cannot resurrect them as
+        // unread. A membership/read acknowledgement consumes the credit once
+        // its absolute counter advances.
+        uint64_t pendingOwnMessageCount = 0;
+        uint64_t pendingOwnRootMessageCount = 0;
+        bool membershipInitialized = false;
+        bool rootMembershipInitialized = false;
+
         bool hasReadRootMessageCount = false;
         bool hasRootMentionCount = false;
         bool rootUnreadMode = false;
