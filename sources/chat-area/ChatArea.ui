@@ -168,7 +168,7 @@
             </layout>
            </widget>
           </item>
-          <item><widget class="Mattermost::OutgoingPostCreator" name="outgoingPostCreator"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="contextMenuPolicy"><enum>Qt::DefaultContextMenu</enum></property><property name="richTextEditing"><bool>true</bool></property></widget></item>
+          <item><widget class="Mattermost::OutgoingPostCreator" name="outgoingPostCreator"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="contextMenuPolicy"><enum>Qt::DefaultContextMenu</enum></property></widget></item>
          </layout>
         </widget>
        </item>
