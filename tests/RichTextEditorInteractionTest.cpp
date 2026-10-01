@@ -217,7 +217,7 @@ private slots:
         QCOMPARE(after, before);
     }
 
-    void basicTableRoundTripPreservesShapeAndCells()
+    void nativeQtTableMarkdownIsNotRoundTripSafe()
     {
         QTextDocument document;
         QTextCursor cursor(&document);
@@ -236,17 +236,18 @@ private slots:
         QTextDocument parsed;
         parsed.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
         QTextTable* parsedTable = firstTable(parsed);
+
+        // Qt 5.15, 6.4 and 6.11 currently serialize this table with a delimiter
+        // row such as "|-|-|". GFM requires at least three '-' characters per
+        // delimiter cell, and Qt's own parser consequently does not reconstruct
+        // a QTextTable. Keep this as an explicit serialization gate: an XPASS
+        // on a future Qt version tells us to reconsider whether the owned
+        // MatterLeast table serializer is still necessary.
+        QEXPECT_FAIL(
+            "",
+            "Native Qt GFM table Markdown is not round-trip safe; use the MatterLeast table serializer",
+            Abort);
         QVERIFY2(parsedTable, qPrintable(markdown));
-        QCOMPARE(parsedTable->rows(), 2);
-        QCOMPARE(parsedTable->columns(), 2);
-        QCOMPARE(parsedTable->cellAt(0, 0).firstCursorPosition().block().text(),
-                 QStringLiteral("A"));
-        QCOMPARE(parsedTable->cellAt(0, 1).firstCursorPosition().block().text(),
-                 QStringLiteral("B"));
-        QCOMPARE(parsedTable->cellAt(1, 0).firstCursorPosition().block().text(),
-                 QString());
-        QCOMPARE(parsedTable->cellAt(1, 1).firstCursorPosition().block().text(),
-                 QStringLiteral("D"));
     }
 
     void emptyTopLevelListItemEnterLeavesList()
