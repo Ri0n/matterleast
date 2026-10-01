@@ -11,8 +11,10 @@
 
 #include "PostListWidget.h"
 
+#include <QApplication>
 #include <QEvent>
 #include <QFrame>
+#include <QGuiApplication>
 
 #include "post/PostWidget.h"
 
@@ -35,6 +37,13 @@ PostListWidget::PostListWidget(QWidget* parent)
     // handoff: the pointer may cross a few pixels of layout gap between posts.
     // Track the viewport lifetime as the enclosing hover session instead.
     viewport()->installEventFilter(this);
+
+    connect(qApp, &QGuiApplication::focusWindowChanged, this, [this] {
+        auto* active = qobject_cast<PostWidget*>(activeHoverPost_.data());
+        if (active && active->window() && !active->window()->isActiveWindow()) {
+            clearActiveHover(true);
+        }
+    });
 
     connect(this, &LongListWidget::hoveredItemChanged, this,
             [this](int, int currentIndex) {
@@ -68,23 +77,26 @@ PostListWidget::PostListWidget(QWidget* parent)
     });
 }
 
+void PostListWidget::clearActiveHover(bool immediate)
+{
+    setHoverHighlightOverride(nullptr);
+    if (auto* active = qobject_cast<PostWidget*>(activeHoverPost_.data())) {
+        active->setHovered(false, immediate);
+    }
+    activeHoverPost_.clear();
+    hoverSessionHasPost_ = false;
+}
+
 bool PostListWidget::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched == viewport() && event) {
         if (event->type() == QEvent::Enter) {
-            // First concrete post entered during this viewport visit should use
-            // the normal fade. Subsequent post-to-post moves are handoffs.
-            setHoverHighlightOverride(nullptr);
-            hoverSessionHasPost_ = false;
-            activeHoverPost_.clear();
+            // Some window systems do not deliver the matching Leave when the
+            // application loses activation. Never forget an old hover owner
+            // without first hiding its viewport-owned floating toolbar.
+            clearActiveHover(true);
         } else if (event->type() == QEvent::Leave) {
-            setHoverHighlightOverride(nullptr);
-            if (auto* active =
-                    qobject_cast<PostWidget*>(activeHoverPost_.data())) {
-                active->setHovered(false);
-            }
-            activeHoverPost_.clear();
-            hoverSessionHasPost_ = false;
+            clearActiveHover();
         }
     }
 
