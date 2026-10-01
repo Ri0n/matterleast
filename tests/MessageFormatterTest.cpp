@@ -10,6 +10,7 @@
 #include <QTextLayout>
 
 #include "backend/emoji/EmojiInfo.h"
+#include "chat-area/CodeBlockSupport.h"
 #include "chat-area/post/MessageFormatter.h"
 
 using namespace Mattermost;
@@ -177,6 +178,63 @@ private slots:
         QVERIFY2(!plain.contains(QStringLiteral("&quot;")), qPrintable(plain));
 #else
         QSKIP("Qt Markdown renderer is enabled starting with Qt 6.10");
+#endif
+    }
+
+    void embeddedMultilineCodeSpanStaysInline()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        const QString source = QStringLiteral("before `first\nsecond` after");
+        QTextDocument document;
+        MessageFormatter::buildMarkdownDocument(document, source);
+
+        for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+            QVERIFY2(!isStructuralCodeBlock(block), qPrintable(document.toHtml()));
+        }
+        const QString html = document.toHtml();
+        QVERIFY2(!html.contains(QStringLiteral("<pre"), Qt::CaseInsensitive),
+                 qPrintable(html));
+#else
+        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
+#endif
+    }
+
+    void inlineCodeDoesNotCarryEmptyCodeBlockProperties()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        QTextDocument document;
+        MessageFormatter::buildMarkdownDocument(
+            document, QStringLiteral("before `inline` after"));
+
+        const QTextBlock block = document.firstBlock();
+        QVERIFY(block.isValid());
+        QVERIFY(!isStructuralCodeBlock(block));
+        QVERIFY(!block.blockFormat().hasProperty(QTextFormat::BlockCodeFence));
+        QVERIFY(!block.blockFormat().hasProperty(QTextFormat::BlockCodeLanguage));
+#else
+        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
+#endif
+    }
+
+    void singleLineFencedCodeWithLanguageIsStructural()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        QTextDocument document;
+        MessageFormatter::buildMarkdownDocument(
+            document,
+            QStringLiteral("```cpp\nreturn 42;\n```"));
+
+        bool foundCode = false;
+        for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+            if (!isStructuralCodeBlock(block)) {
+                continue;
+            }
+            foundCode = true;
+            QCOMPARE(codeBlockLanguage(block), QStringLiteral("cpp"));
+        }
+        QVERIFY2(foundCode, qPrintable(document.toHtml()));
+#else
+        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
 #endif
     }
 
