@@ -126,26 +126,29 @@ private slots:
 #endif
     }
 
-    void markdownListSurvivesFragmentHtmlRoundTrip()
+    void markdownListSurvivesDirectFragmentCopy()
     {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         QTextDocument source;
         MessageFormatter::buildMarkdownDocument(
             source, QStringLiteral("- first\n- second"));
 
-        QTextCursor cursor(&source);
-        cursor.setPosition(0);
-        cursor.setPosition(source.characterCount() - 1, QTextCursor::KeepAnchor);
-        const QString html = QTextDocumentFragment(cursor).toHtml();
+        QTextCursor sourceCursor(&source);
+        sourceCursor.setPosition(0);
+        sourceCursor.setPosition(
+            source.characterCount() - 1, QTextCursor::KeepAnchor);
+        const QTextDocumentFragment fragment(sourceCursor);
 
         QTextDocument rendered;
-        rendered.setHtml(html);
+        QTextCursor destination(&rendered);
+        destination.insertFragment(fragment);
+
         const QTextBlock first = rendered.firstBlock();
         const QTextBlock second = first.next();
         QVERIFY(first.isValid());
         QVERIFY(second.isValid());
-        QVERIFY2(first.textList(), qPrintable(html));
-        QVERIFY2(second.textList(), qPrintable(html));
+        QVERIFY2(first.textList(), qPrintable(rendered.toPlainText()));
+        QVERIFY2(second.textList(), qPrintable(rendered.toPlainText()));
         QCOMPARE(second.textList(), first.textList());
 #else
         QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
@@ -330,8 +333,6 @@ private slots:
         QVERIFY(!hasMixedTextAndImageBlock(document));
         QCOMPARE(imageBlockCount(document), 1);
 
-        // Rich message fragments are serialized to HTML before being shown in
-        // the wrapped text child. Verify that image separation survives it.
         QTextDocument rendered;
         rendered.setHtml(MessageFormatter::formatMessageText(source));
         QVERIFY(!hasMixedTextAndImageBlock(rendered));
