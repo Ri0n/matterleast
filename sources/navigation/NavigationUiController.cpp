@@ -37,6 +37,7 @@
 #include "options/MLOptions.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ThreadPaneLayout.h"
+#include "ui/IconUtils.h"
 #include "ui/ThinSplitter.h"
 
 namespace Mattermost {
@@ -191,7 +192,7 @@ void NavigationUiController::setupMainWindow()
         saveSession();
         if (contentSplitter) {
             MLOptions::instance()->setValue(
-            QStringLiteral("content_splitter_state"), contentSplitter->saveState());
+                QStringLiteral("content_splitter_state"), contentSplitter->saveState());
         }
     });
 
@@ -945,6 +946,9 @@ void NavigationUiController::recordArea(ChatArea* area)
         return;
     }
     trackSessionArea(area);
+    if (!area->isThread) {
+        ensureTabPinButton(area);
+    }
     scheduleSessionSave();
 
     const Location next = captureLocation(area);
@@ -973,34 +977,46 @@ void NavigationUiController::recordArea(ChatArea* area)
                 navigationTabs->setCurrentIndex(index);
             }
         } else if (!area->isThread) {
-            if (tabModel.isEmpty()) {
-                const int index = appendNavigationTab(next);
-                if (index >= 0) {
-                    activeTabIndex = index;
-                    QSignalBlocker blocker(navigationTabs);
-                    navigationTabs->setCurrentIndex(index);
-                }
+            int index = -1;
+            if (existingIndex == activeTabIndex && activeTabIndex >= 0) {
+                index = activeTabIndex;
+                updateTab(index, next);
+            } else if (tabModel.isEmpty()) {
+                index = appendNavigationTab(next);
             } else {
                 const auto* activeEntry = tabModel.at(activeTabIndex);
                 if (activeEntry && activeEntry->rootId.isEmpty()) {
-                    updateTab(activeTabIndex, next);
+                    if (activeEntry->pinned) {
+                        // A pinned current tab behaves like a browser pinned tab:
+                        // ordinary navigation may activate an existing target,
+                        // but a new destination gets its own new tab.
+                        index = appendNavigationTab(next);
+                    } else {
+                        index = activeTabIndex;
+                        updateTab(index, next);
+                    }
                 } else {
-                    int index = firstChannelTab();
+                    // Thread tabs are never channel reuse targets. Reuse an
+                    // existing ordinary channel slot if one is available, but
+                    // never overwrite a pinned background channel tab.
+                    index = tabModel.findReusableChannelTab();
                     if (index >= 0) {
                         updateTab(index, next);
                     } else {
                         index = appendNavigationTab(next);
                     }
-                    if (index >= 0) {
-                        activeTabIndex = index;
-                        QSignalBlocker blocker(navigationTabs);
-                        navigationTabs->setCurrentIndex(index);
-                        if (navigationSurfaceStack && contentSplitter) {
-                            navigationSurfaceStack->setCurrentWidget(contentSplitter);
-                        }
-                    }
                 }
             }
+
+            if (index >= 0) {
+                activeTabIndex = index;
+                QSignalBlocker blocker(navigationTabs);
+                navigationTabs->setCurrentIndex(index);
+                if (navigationSurfaceStack && contentSplitter) {
+                    navigationSurfaceStack->setCurrentWidget(contentSplitter);
+                }
+            }
+            updateTabPinButton(area);
         }
         refreshTabBarVisibility();
     }
@@ -1159,6 +1175,77 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
         }
     }
     return nullptr;
+}
+
+void NavigationUiController::ensureTabPinButton(ChatArea* area)
+{
+    if (!area || area->isThread) {
+        return;
+    }
+
+    auto* layout = area->findChild<QHBoxLayout*>(QStringLiteral("propertieslLayout"));
+    if (!layout) {
+        return;
+    }
+
+    auto* button = area->findChild<QToolButton*>(QStringLiteral("tabPinButton"));
+    if (!button) {
+        button = new QToolButton(area);
+        button->setObjectName(QStringLiteral("tabPinButton"));
+        button->setAutoRaise(true);
+        button->setCheckable(true);
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        button->setIconSize(QSize(16, 16));
+        button->setCursor(Qt::PointingHandCursor);
+        button->installEventFilter(this);
+        layout->addWidget(button, 0, Qt::AlignVCenter);
+
+        connect(button, &QToolButton::clicked, this,
+                [this, area](bool checked) {
+            const int index = tabModel.findDestination(
+                area->getChannel().id, QString());
+            if (index >= 0) {
+                tabModel.setPinned(index, checked);
+                scheduleSessionSave();
+            }
+            updateTabPinButton(area);
+        });
+    }
+
+    updateTabPinButton(area);
+}
+
+void NavigationUiController::updateTabPinButton(ChatArea* area)
+{
+    if (!area || area->isThread) {
+        return;
+    }
+
+    auto* button = area->findChild<QToolButton*>(QStringLiteral("tabPinButton"));
+    if (!button) {
+        return;
+    }
+
+    const int index = tabModel.findDestination(area->getChannel().id, QString());
+    const auto* entry = tabModel.at(index);
+    const bool available = entry && entry->rootId.isEmpty();
+    const bool pinned = available && entry->pinned;
+
+    QSignalBlocker blocker(button);
+    button->setVisible(available);
+    button->setEnabled(available);
+    button->setChecked(pinned);
+
+    auto iconColor = button->palette().color(QPalette::ButtonText);
+    if (!pinned) {
+        iconColor.setAlpha(150);
+    }
+    button->setIcon(IconUtils::tintedSymbolicIcon(
+        QStringLiteral(":/icons/pin"), iconColor));
+
+    const QString label = pinned ? tr("Unpin tab") : tr("Pin tab");
+    button->setToolTip(label);
+    button->setAccessibleName(label);
 }
 
 void NavigationUiController::ensureThreadButton(ChatArea* area)
@@ -1478,6 +1565,15 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
+    if (event && event->type() == QEvent::PaletteChange
+        && watched && watched->objectName() == QStringLiteral("tabPinButton")) {
+        if (auto* button = qobject_cast<QToolButton*>(watched)) {
+            if (auto* area = qobject_cast<ChatArea*>(button->parentWidget())) {
+                updateTabPinButton(area);
+            }
+        }
+    }
+
     if (event && (event->type() == QEvent::Move || event->type() == QEvent::Resize)) {
         auto* area = qobject_cast<ChatArea*>(watched);
         if (area && area->property("sessionTracked").toBool()
