@@ -280,8 +280,6 @@ add_test(NAME navigation-tabs-model-test COMMAND navigation-tabs-model-test)
 add_executable(message-text-edit-widget-test
     MessageTextEditWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/MessageTextEditWidget.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/RichTextEditorCommands.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/RichTextEditorStructuralCommands.cpp"
     "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
     "${CMAKE_SOURCE_DIR}/sources/widgets/InteractiveTextEdit.cpp"
 )
@@ -729,15 +727,3 @@ target_link_libraries(network-request-test
 )
 
 add_test(NAME network-request-test COMMAND network-request-test)
-
-if(TARGET matterleast-core)
-    add_executable(rich-text-editor-interaction-test RichTextEditorInteractionTest.cpp)
-    target_link_libraries(rich-text-editor-interaction-test
-        PRIVATE
-            matterleast-core
-            Qt${QT_VERSION_MAJOR}::Test
-    )
-    add_test(NAME rich-text-editor-interaction-test COMMAND rich-text-editor-interaction-test)
-    set_tests_properties(rich-text-editor-interaction-test
-        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()

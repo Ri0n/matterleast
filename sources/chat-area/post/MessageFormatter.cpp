@@ -182,48 +182,11 @@ int fencedBlockEnd(const QString& text, int lineStart)
     return text.size();
 }
 
-bool startsMarkdownBlock(const QString& line)
-{
-    static const QRegularExpression blockStart(
-        QStringLiteral(
-            R"(^\s*(?:(?:[-+*]|\d{1,9}[.)])(?:\s+|$)|>(?:\s+|$)|#{1,6}(?:\s+|$)))"));
-    static const QRegularExpression setextOrRule(
-        QStringLiteral(R"(^\s*(?:={3,}|-{3,}|_{3,})\s*$)"));
-
-    if (line.isEmpty()) {
-        return true;
-    }
-    if (line.startsWith(QStringLiteral("    ")) || line.startsWith(QLatin1Char('\t'))) {
-        return true;
-    }
-    return blockStart.match(line).hasMatch()
-        || setextOrRule.match(line).hasMatch();
-}
-
-bool containsUnescapedPipe(const QString& line)
-{
-    for (int i = 0; i < line.size(); ++i) {
-        if (line.at(i) == QLatin1Char('|') && !isEscaped(line, i)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool isTableDelimiter(const QString& line)
-{
-    static const QRegularExpression delimiter(
-        QStringLiteral(
-            R"(^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$)"));
-    return delimiter.match(line).hasMatch();
-}
-
 QString preserveUserLineBreaks(const QString& text)
 {
     QString result;
     result.reserve(text.size() + text.count(QLatin1Char('\n')) * 2);
 
-    bool inTable = false;
     int position = 0;
     while (position < text.size()) {
         const int fenceEnd = fencedBlockEnd(text, position);
@@ -239,35 +202,16 @@ QString preserveUserLineBreaks(const QString& text)
             break;
         }
 
-        const QString currentLine = text.mid(position, newline - position);
-        result += currentLine;
+        result += text.mid(position, newline - position);
 
-        const int nextLineEnd = text.indexOf(QLatin1Char('\n'), newline + 1);
-        const QString nextLine = text.mid(
-            newline + 1,
-            nextLineEnd == -1 ? text.size() - newline - 1
-                              : nextLineEnd - newline - 1);
-
-        // preserveUserLineBreaks exists only to turn otherwise-soft prose
-        // newlines into visible hard breaks. Never inject that marker at a
-        // Markdown structural boundary: doing so can make Qt parse lists,
-        // quotes or GFM tables as ordinary multiline text.
-        const bool blankBoundary = nextLine.isEmpty();
+        // A blank line already creates a Markdown block boundary, and a fenced
+        // block beginning on the next line is also a hard structural boundary.
+        // Only ordinary soft line breaks need CommonMark's two-space marker.
+        const bool blankBoundary = newline + 1 < text.size()
+            && text.at(newline + 1) == QLatin1Char('\n');
         const bool beforeFence = newline + 1 < text.size()
             && fencedBlockEnd(text, newline + 1) != -1;
-        const bool tableStarts = containsUnescapedPipe(currentLine)
-            && isTableDelimiter(nextLine);
-        if (tableStarts) {
-            inTable = true;
-        }
-        const bool tableBoundary = inTable
-            && (containsUnescapedPipe(currentLine)
-                || isTableDelimiter(currentLine));
-        const bool structuralBoundary = startsMarkdownBlock(nextLine)
-            || tableStarts || tableBoundary;
-
-        if (!blankBoundary && !beforeFence && !structuralBoundary
-            && newline + 1 < text.size()) {
+        if (!blankBoundary && !beforeFence && newline + 1 < text.size()) {
             int trailingSpaces = 0;
             for (int i = result.size() - 1;
                  i >= 0 && result.at(i) == QLatin1Char(' '); --i) {
@@ -276,12 +220,6 @@ QString preserveUserLineBreaks(const QString& text)
             while (trailingSpaces++ < 2) {
                 result += QLatin1Char(' ');
             }
-        }
-
-        if (inTable && !nextLine.isEmpty()
-            && !containsUnescapedPipe(nextLine)
-            && !isTableDelimiter(nextLine)) {
-            inTable = false;
         }
 
         result += QLatin1Char('\n');
@@ -341,26 +279,29 @@ QString promoteMultilineCodeSpans(const QString& text)
 
         const int contentStart = position + delimiterLength;
         const QString content = text.mid(contentStart, closingPosition - contentStart);
-        const int afterClosing = closingPosition + delimiterLength;
-        const bool startsAtLineStart = position == 0
-            || text.at(position - 1) == QLatin1Char('\n');
-        const bool endsAtLineEnd = afterClosing == text.size()
-            || text.at(afterClosing) == QLatin1Char('\n');
-
-        // Only reinterpret the old real-world compatibility syntax when the
-        // backtick span itself occupies complete logical lines and actually is
-        // multiline. Embedded spans retain inline-code semantics even if they
-        // contain a newline. Explicit ```lang fences are handled separately by
-        // fencedBlockEnd() and are always structural, including one-line code.
-        if (!content.contains(QLatin1Char('\n'))
-            || !startsAtLineStart || !endsAtLineEnd) {
-            result += text.mid(position, afterClosing - position);
-            position = afterClosing;
+        if (!content.contains(QLatin1Char('\n'))) {
+            result += text.mid(position, closingPosition + delimiterLength - position);
+            position = closingPosition + delimiterLength;
             continue;
         }
 
+        // CommonMark intentionally collapses whitespace inside multiline code
+        // spans. Mattermost messages in the wild also contain multiline snippets
+        // wrapped in one or two backticks, so promote those spans to a fenced
+        // code block before handing the text to QTextDocument's Markdown parser.
         const int fenceLength = std::max(3, longestBacktickRun(content) + 1);
         const QString fence(fenceLength, QLatin1Char('`'));
+        const bool startsAtLineStart = position == 0 || text.at(position - 1) == QLatin1Char('\n');
+        const int afterClosing = closingPosition + delimiterLength;
+        const bool endsAtLineEnd = afterClosing == text.size() || text.at(afterClosing) == QLatin1Char('\n');
+
+        if (!startsAtLineStart) {
+            if (!result.endsWith(QLatin1Char('\n'))) {
+                result += QLatin1Char('\n');
+            }
+            result += QLatin1Char('\n');
+        }
+
         result += fence;
         result += QLatin1Char('\n');
         result += content;
@@ -368,42 +309,15 @@ QString promoteMultilineCodeSpans(const QString& text)
             result += QLatin1Char('\n');
         }
         result += fence;
+
+        if (!endsAtLineEnd) {
+            result += QStringLiteral("\n\n");
+        }
+
         position = afterClosing;
     }
 
     return result;
-}
-
-void normalizeParsedCodeProperties(QTextDocument& document)
-{
-    // Some Qt versions leave empty BlockCodeFence/BlockCodeLanguage properties
-    // on otherwise ordinary paragraphs. Downstream message layout historically
-    // used hasProperty(), so those empty values can turn inline code or quoted
-    // prose into a standalone CodeBlockEdit. Strip only empty properties from
-    // blocks that have no structural preformatted-code evidence.
-    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
-        QTextBlockFormat format = block.blockFormat();
-        const bool structural = format.nonBreakableLines()
-            || !format.property(QTextFormat::BlockCodeFence).toString().isEmpty()
-            || !format.stringProperty(QTextFormat::BlockCodeLanguage).isEmpty();
-        if (structural) {
-            continue;
-        }
-
-        bool changed = false;
-        if (format.hasProperty(QTextFormat::BlockCodeFence)) {
-            format.clearProperty(QTextFormat::BlockCodeFence);
-            changed = true;
-        }
-        if (format.hasProperty(QTextFormat::BlockCodeLanguage)) {
-            format.clearProperty(QTextFormat::BlockCodeLanguage);
-            changed = true;
-        }
-        if (changed) {
-            QTextCursor cursor(block);
-            cursor.setBlockFormat(format);
-        }
-    }
 }
 
 bool rangeAlreadyFormattedAsLinkOrCode(QTextDocument& document, int position, int length)
@@ -664,7 +578,6 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text)
     features.setFlag(QTextDocument::MarkdownNoHTML);
     const QString markdown = promoteMultilineCodeSpans(text);
     document.setMarkdown(preserveUserLineBreaks(markdown), features);
-    normalizeParsedCodeProperties(document);
 
     // Qt's GFM autolinker still misses some valid long percent-encoded URLs.
     // Complete only bare http(s) links after Markdown parsing so explicit links

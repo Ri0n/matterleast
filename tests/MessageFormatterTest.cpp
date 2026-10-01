@@ -5,12 +5,10 @@
 #include <QImage>
 #include <QTextBlock>
 #include <QTextDocument>
-#include <QTextDocumentFragment>
 #include <QTextFragment>
 #include <QTextLayout>
 
 #include "backend/emoji/EmojiInfo.h"
-#include "chat-area/CodeBlockSupport.h"
 #include "chat-area/post/MessageFormatter.h"
 
 using namespace Mattermost;
@@ -108,54 +106,6 @@ class MessageFormatterTest : public QObject
     Q_OBJECT
 
 private slots:
-    void markdownListRemainsStructural()
-    {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        QTextDocument document;
-        MessageFormatter::buildMarkdownDocument(
-            document, QStringLiteral("- first\n- second"));
-
-        const QTextBlock first = document.firstBlock();
-        const QTextBlock second = first.next();
-        QVERIFY(first.isValid());
-        QVERIFY(second.isValid());
-        QVERIFY2(first.textList(), qPrintable(document.toPlainText()));
-        QVERIFY2(second.textList(), qPrintable(document.toPlainText()));
-        QCOMPARE(second.textList(), first.textList());
-#else
-        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
-#endif
-    }
-
-    void markdownListSurvivesDirectFragmentCopy()
-    {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        QTextDocument source;
-        MessageFormatter::buildMarkdownDocument(
-            source, QStringLiteral("- first\n- second"));
-
-        QTextCursor sourceCursor(&source);
-        sourceCursor.setPosition(0);
-        sourceCursor.setPosition(
-            source.characterCount() - 1, QTextCursor::KeepAnchor);
-        const QTextDocumentFragment fragment(sourceCursor);
-
-        QTextDocument rendered;
-        QTextCursor destination(&rendered);
-        destination.insertFragment(fragment);
-
-        const QTextBlock first = rendered.firstBlock();
-        const QTextBlock second = first.next();
-        QVERIFY(first.isValid());
-        QVERIFY(second.isValid());
-        QVERIFY2(first.textList(), qPrintable(rendered.toPlainText()));
-        QVERIFY2(second.textList(), qPrintable(rendered.toPlainText()));
-        QCOMPARE(second.textList(), first.textList());
-#else
-        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
-#endif
-    }
-
     void multilineSingleBacktickCodeBecomesPreformattedBlock()
     {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
@@ -178,63 +128,6 @@ private slots:
         QVERIFY2(!plain.contains(QStringLiteral("&quot;")), qPrintable(plain));
 #else
         QSKIP("Qt Markdown renderer is enabled starting with Qt 6.10");
-#endif
-    }
-
-    void embeddedMultilineCodeSpanStaysInline()
-    {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        const QString source = QStringLiteral("before `first\nsecond` after");
-        QTextDocument document;
-        MessageFormatter::buildMarkdownDocument(document, source);
-
-        for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
-            QVERIFY2(!isStructuralCodeBlock(block), qPrintable(document.toHtml()));
-        }
-        const QString html = document.toHtml();
-        QVERIFY2(!html.contains(QStringLiteral("<pre"), Qt::CaseInsensitive),
-                 qPrintable(html));
-#else
-        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
-#endif
-    }
-
-    void inlineCodeDoesNotCarryEmptyCodeBlockProperties()
-    {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        QTextDocument document;
-        MessageFormatter::buildMarkdownDocument(
-            document, QStringLiteral("before `inline` after"));
-
-        const QTextBlock block = document.firstBlock();
-        QVERIFY(block.isValid());
-        QVERIFY(!isStructuralCodeBlock(block));
-        QVERIFY(!block.blockFormat().hasProperty(QTextFormat::BlockCodeFence));
-        QVERIFY(!block.blockFormat().hasProperty(QTextFormat::BlockCodeLanguage));
-#else
-        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
-#endif
-    }
-
-    void singleLineFencedCodeWithLanguageIsStructural()
-    {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        QTextDocument document;
-        MessageFormatter::buildMarkdownDocument(
-            document,
-            QStringLiteral("```cpp\nreturn 42;\n```"));
-
-        bool foundCode = false;
-        for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
-            if (!isStructuralCodeBlock(block)) {
-                continue;
-            }
-            foundCode = true;
-            QCOMPARE(codeBlockLanguage(block), QStringLiteral("cpp"));
-        }
-        QVERIFY2(foundCode, qPrintable(document.toHtml()));
-#else
-        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
 #endif
     }
 
@@ -391,6 +284,8 @@ private slots:
         QVERIFY(!hasMixedTextAndImageBlock(document));
         QCOMPARE(imageBlockCount(document), 1);
 
+        // Rich message fragments are serialized to HTML before being shown in
+        // the wrapped text child. Verify that image separation survives it.
         QTextDocument rendered;
         rendered.setHtml(MessageFormatter::formatMessageText(source));
         QVERIFY(!hasMixedTextAndImageBlock(rendered));

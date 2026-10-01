@@ -1,12 +1,9 @@
 #include <QtTest>
 
 #include <QApplication>
-#include <QClipboard>
 #include <QCoreApplication>
 #include <QKeyEvent>
-#include <QLineEdit>
 #include <QListView>
-#include <QTextDocument>
 
 #include "Settings.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
@@ -19,142 +16,6 @@ class MessageTextEditWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
-    void markdownFormattingWrapsSelection()
-    {
-        MessageTextEditWidget editor;
-        editor.setMarkdownText(QStringLiteral("hello"));
-
-        QTextCursor cursor = editor.textCursor();
-        cursor.setPosition(0);
-        cursor.setPosition(5, QTextCursor::KeepAnchor);
-        editor.setTextCursor(cursor);
-        editor.toggleBold();
-
-        QCOMPARE(editor.markdownText(), QStringLiteral("**hello**"));
-    }
-
-    void untouchedRichModePreservesRawMarkdownExactly()
-    {
-        MessageTextEditWidget editor;
-        const QString raw = QStringLiteral(
-            "**known** <details><summary>raw</summary>custom</details>\n\n"
-            ":::unsupported directive:::");
-        editor.setMarkdownText(raw);
-
-        editor.setRichTextEditing(true);
-        QCOMPARE(editor.markdownText(), raw);
-
-        editor.setRichTextEditing(false);
-        QCOMPARE(editor.markdownText(), raw);
-    }
-
-    void richModeParsesExistingMarkdown()
-    {
-        MessageTextEditWidget editor;
-        editor.setMarkdownText(QStringLiteral("**bold** and _italic_"));
-        editor.setRichTextEditing(true);
-
-        QCOMPARE(editor.document()->toPlainText(), QStringLiteral("bold and italic"));
-        QCOMPARE(editor.markdownText(), QStringLiteral("**bold** and _italic_"));
-    }
-
-    void richFormattingSerializesBackToMarkdown()
-    {
-        MessageTextEditWidget editor;
-        editor.setMarkdownText(QStringLiteral("hello"));
-        editor.setRichTextEditing(true);
-
-        QTextCursor cursor = editor.textCursor();
-        cursor.setPosition(0);
-        cursor.setPosition(5, QTextCursor::KeepAnchor);
-        editor.setTextCursor(cursor);
-        editor.toggleBold();
-
-        const QString markdown = editor.markdownText();
-        QVERIFY2(markdown.contains(QStringLiteral("**hello**")),
-                 qPrintable(QStringLiteral("Unexpected Markdown: %1").arg(markdown)));
-        QVERIFY(editor.document()->toPlainText().contains(QStringLiteral("hello")));
-    }
-
-    void pastingUrlOverSelectedPlainTextCreatesLink()
-    {
-        MessageTextEditWidget editor;
-        editor.setRichTextEditing(true);
-        editor.setMarkdownText(QStringLiteral("MatterLeast rocks"));
-        editor.resize(360, 40);
-        editor.show();
-        editor.setFocus();
-        QCoreApplication::processEvents();
-
-        QTextCursor cursor = editor.textCursor();
-        cursor.setPosition(0);
-        cursor.setPosition(QStringLiteral("MatterLeast").size(),
-                           QTextCursor::KeepAnchor);
-        editor.setTextCursor(cursor);
-
-        QApplication::clipboard()->setText(
-            QStringLiteral("https://github.com/Ri0n/matterleast"));
-        QTest::keyClick(&editor, Qt::Key_V, Qt::ControlModifier);
-        QCoreApplication::processEvents();
-
-        const QString markdown = editor.markdownText();
-        QVERIFY2(
-            markdown.contains(QStringLiteral(
-                "[MatterLeast](https://github.com/Ri0n/matterleast)")),
-            qPrintable(QStringLiteral("Unexpected Markdown: %1").arg(markdown)));
-        QCOMPARE(editor.document()->toPlainText(), QStringLiteral("MatterLeast rocks"));
-    }
-
-    void formattingToolbarPreferenceFollowsShortcutsAndFocus()
-    {
-        auto* option = MLOptions::instance()->optionObject<bool>(
-            COMPOSER_FORMATTING_TOOLBAR_VISIBLE,
-            COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT);
-        const bool previous = option->value().toBool();
-        option->setValue(false);
-
-        QWidget host;
-        host.resize(500, 160);
-        MessageTextEditWidget editor(&host);
-        editor.setGeometry(10, 20, 320, 40);
-        QLineEdit other(&host);
-        other.setGeometry(10, 90, 200, 30);
-        host.show();
-        editor.show();
-        other.show();
-
-        QSignalSpy visibility(
-            &editor,
-            &MessageTextEditWidget::formattingToolbarVisibilityChanged);
-        editor.setFocus();
-        QCoreApplication::processEvents();
-
-        QTest::keyClick(&editor, Qt::Key_Up, Qt::ControlModifier);
-        QCoreApplication::processEvents();
-        QVERIFY(!visibility.isEmpty());
-        QCOMPARE(visibility.constLast().at(0).toBool(), true);
-        QCOMPARE(option->value().toBool(), true);
-
-        other.setFocus();
-        QCoreApplication::processEvents();
-        QVERIFY(!visibility.isEmpty());
-        QCOMPARE(visibility.constLast().at(0).toBool(), false);
-        // Losing focus hides only this toolbar instance; the user's default
-        // remains "show on focus".
-        QCOMPARE(option->value().toBool(), true);
-
-        editor.setFocus();
-        QCoreApplication::processEvents();
-        QCOMPARE(visibility.constLast().at(0).toBool(), true);
-
-        QTest::keyClick(&editor, Qt::Key_Down, Qt::ControlModifier);
-        QCoreApplication::processEvents();
-        QCOMPARE(visibility.constLast().at(0).toBool(), false);
-        QCOMPARE(option->value().toBool(), false);
-
-        option->setValue(previous);
-    }
-
     void growsAndShrinksWithExplicitLines()
     {
         MessageTextEditWidget editor;

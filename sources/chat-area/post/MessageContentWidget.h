@@ -5,7 +5,6 @@
 #include <QWidget>
 
 class QEvent;
-class QTextDocumentFragment;
 class QVBoxLayout;
 
 namespace Mattermost {
@@ -35,11 +34,10 @@ private:
     void clearContent();
     void applyChatFont(const QString& serializedFont);
     void addRichText(const QString& html);
-    void addQuote(const QString& markdown);
+    void addQuote(const QString& html);
     void scheduleDimensionsChanged();
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-    void addRichTextFragment(const QTextDocumentFragment& fragment);
     void addMarkdownContent(const QString& message);
     void addCodeBlock(const QString& code, const QString& language);
 #endif
