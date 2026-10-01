@@ -98,6 +98,7 @@ private:
     void scheduleNavigationFinalize();
     void scheduleReadCursorUpdate();
     void updateReadCursorFromVisibility();
+    void acknowledgeVisibleLiveThreadPost(const BackendPost& post);
     bool shouldContinueAuthorRun(int index) const;
     void applyAuthorRunPresentation(int index, PostWidget& widget);
     void refreshMaterializedAuthorRuns();
