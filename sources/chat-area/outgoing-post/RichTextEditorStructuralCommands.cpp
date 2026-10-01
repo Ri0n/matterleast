@@ -19,6 +19,7 @@
 #include <QTextEdit>
 #include <QTextFormat>
 #include <QTextList>
+#include <QVariant>
 #include <QVector>
 
 #include "chat-area/CodeBlockSupport.h"
@@ -442,8 +443,11 @@ bool toggleCodeBlock(QTextEdit& editor)
             }
             // QTextFormat::BlockCodeFence stores the fence character, not the
             // complete Markdown delimiter. Qt's Markdown serializer chooses the
-            // required fence length when writing the document back.
-            blockFormat.setProperty(QTextFormat::BlockCodeFence, QLatin1Char('`'));
+            // required fence length when writing the document back. setProperty
+            // requires a QVariant, so preserve the QChar type explicitly.
+            blockFormat.setProperty(
+                QTextFormat::BlockCodeFence,
+                QVariant::fromValue(QChar(QLatin1Char('`'))));
             charFormat.setFontFixedPitch(true);
             setFontFamilyCompat(
                 charFormat,
