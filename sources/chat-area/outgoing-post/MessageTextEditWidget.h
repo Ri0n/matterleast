@@ -100,7 +100,7 @@ protected:
             // Draw after the base implementation so structural chrome cannot be
             // overwritten by the document/background paint pass.
             QPainter painter(viewport());
-            paintRichTextBlockDecorations(*this, painter);
+            paintComposerRichTextBlockDecorations(*this, painter);
         }
     }
     void contextMenuEvent(QContextMenuEvent* event) override;
@@ -111,7 +111,8 @@ protected:
 
 private:
     void updateHeightToContents();
-    void wrapMarkdownSelection(const QString& before, const QString& after);
+    void wrapMarkdownSelection(const QString& before,
+                               const QString& after);
     void prefixMarkdownLines(const QString& prefix, bool numbered = false);
     void applyRichCharFormat(const QTextCharFormat& format);
     void markRichDocumentChanged();
