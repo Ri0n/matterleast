@@ -12,7 +12,6 @@
 #include <QColor>
 #include <QEvent>
 #include <QIcon>
-#include <QImage>
 #include <QPainter>
 #include <QPalette>
 
@@ -49,70 +48,32 @@ int formattingToolbarOpticalExtent(const QWidget& widget)
     return std::max(1, qRound(capHeight * FormattingToolbarOpticalScale));
 }
 
-QRect opaqueBounds(const QImage& image)
+QPixmap sharpFormattingToolbarPixmap(const QString& resource,
+                                      const QColor& color,
+                                      const QWidget& widget)
 {
-    if (image.isNull()) {
-        return {};
-    }
-
-    int left = image.width();
-    int top = image.height();
-    int right = -1;
-    int bottom = -1;
-
-    for (int y = 0; y < image.height(); ++y) {
-        for (int x = 0; x < image.width(); ++x) {
-            if (qAlpha(image.pixel(x, y)) <= 8) {
-                continue;
-            }
-            left = std::min(left, x);
-            top = std::min(top, y);
-            right = std::max(right, x);
-            bottom = std::max(bottom, y);
-        }
-    }
-
-    if (right < left || bottom < top) {
-        return {};
-    }
-    return QRect(QPoint(left, top), QPoint(right, bottom));
-}
-
-QPixmap normalizedFormattingToolbarPixmap(const QString& resource,
-                                           const QColor& color,
-                                           const QWidget& widget)
-{
-    const int opticalExtent = formattingToolbarOpticalExtent(widget);
+    const int logicalExtent = formattingToolbarOpticalExtent(widget);
     const qreal dpr = std::max<qreal>(1.0, widget.devicePixelRatioF());
+    const int deviceExtent = std::max(1, qRound(logicalExtent * dpr));
 
-    // Render generously first. Different SVGs use their viewBox padding very
-    // differently; normalizing the visible alpha bounds makes their apparent
-    // size consistent instead of treating the nominal 24x24 canvas as content.
-    const int sampleLogicalExtent = std::max(32, opticalExtent * 3);
-    const int sampleDeviceExtent = std::max(
-        1, qRound(sampleLogicalExtent * dpr));
-    QPixmap raw = IconUtils::tintedSymbolicIcon(resource, color).pixmap(
-        QSize(sampleDeviceExtent, sampleDeviceExtent));
-    if (raw.isNull()) {
+    // Keep the SVG vector until the final requested device-pixel size. The
+    // generic symbolic-icon helper intentionally pre-rasterizes several common
+    // sizes, which is fine for ordinary icons but becomes visibly soft when a
+    // fractional DPR (for example 150%) asks Qt to scale one of those cached
+    // bitmaps again. Formatting icons are small enough that we can render the
+    // source SVG directly at the exact final pixel extent and tint only once.
+    QPixmap pixmap = QIcon(resource).pixmap(QSize(deviceExtent, deviceExtent));
+    if (pixmap.isNull()) {
         return {};
     }
 
-    const QImage image = raw.toImage();
-    const QRect bounds = opaqueBounds(image);
-    if (!bounds.isValid()) {
-        return raw;
-    }
+    QPainter tintPainter(&pixmap);
+    tintPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    tintPainter.fillRect(pixmap.rect(), color);
+    tintPainter.end();
 
-    const int targetDeviceExtent = std::max(1, qRound(opticalExtent * dpr));
-    QImage visible = image.copy(bounds);
-    visible = visible.scaled(
-        QSize(targetDeviceExtent, targetDeviceExtent),
-        Qt::KeepAspectRatio,
-        Qt::SmoothTransformation);
-
-    QPixmap normalized = QPixmap::fromImage(visible);
-    normalized.setDevicePixelRatio(dpr);
-    return normalized;
+    pixmap.setDevicePixelRatio(dpr);
+    return pixmap;
 }
 
 } // namespace
@@ -253,7 +214,7 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
             || _renderedResource != resource
             || _renderedSize != targetSize) {
             _renderedPixmap = formattingIcon
-                ? normalizedFormattingToolbarPixmap(resource, color, *this)
+                ? sharpFormattingToolbarPixmap(resource, color, *this)
                 : IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
             _renderedTint = desiredTint;
             _renderedResource = resource;
