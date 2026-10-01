@@ -4,6 +4,7 @@
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextFormat>
+#include <QVariant>
 #include <QVector>
 
 namespace Mattermost {
@@ -105,6 +106,24 @@ inline QString canonicalCodeBlockLanguage(QString language)
     return {};
 }
 
+inline QString codeBlockFence(const QTextBlock& block)
+{
+    if (!block.isValid()) {
+        return {};
+    }
+
+    const QVariant value = block.blockFormat().property(QTextFormat::BlockCodeFence);
+    if (!value.isValid()) {
+        return {};
+    }
+
+    // Qt stores BlockCodeFence as the fence *character* (QChar), not as a
+    // QString containing the complete delimiter. QVariant::toString() handles
+    // both Qt's QChar value and older/locally-created QString values, which
+    // keeps this helper compatible across Qt 5/6 and existing drafts.
+    return value.toString();
+}
+
 inline bool isStructuralCodeBlock(const QTextBlock& block)
 {
     if (!block.isValid()) {
@@ -112,12 +131,8 @@ inline bool isStructuralCodeBlock(const QTextBlock& block)
     }
 
     const QTextBlockFormat format = block.blockFormat();
-    // Qt may expose BlockCodeFence/BlockCodeLanguage as present properties with
-    // empty/default values on non-code blocks. Presence alone is therefore not
-    // a structural discriminator. A real code block has preformatted layout,
-    // a non-empty fence, or an explicit language.
     return format.nonBreakableLines()
-        || !format.stringProperty(QTextFormat::BlockCodeFence).isEmpty()
+        || !codeBlockFence(block).isEmpty()
         || !format.stringProperty(QTextFormat::BlockCodeLanguage).isEmpty();
 }
 
