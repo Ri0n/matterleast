@@ -223,6 +223,14 @@ void MainWindow::openChannelPost(const QString& channelId,
             return;
         }
 
+        // A docked thread is a child surface of the ordinary channel splitter.
+        // If a thread tab currently owns the navigation surface, merely adding
+        // another thread to threadStack leaves it hidden behind that tab. Reveal
+        // the already-selected central channel first; presentChannel() also
+        // restores the corresponding semantic channel tab, keeping tab state and
+        // the visible surface in sync before the right pane is presented.
+        navigationUi.presentChannel(centralArea);
+
         ChatArea* threadArea = navigationUi.findThread(channelId, rootId);
         if (threadArea && preserveIfOpen) {
             navigationUi.presentThread(threadArea);
