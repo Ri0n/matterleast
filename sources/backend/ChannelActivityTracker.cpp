@@ -107,11 +107,14 @@ void ChannelActivityTracker::recordPost(const QString& channelId, uint64_t creat
     entry.lastActivityAt = std::max(entry.lastActivityAt, createdAt);
 
     if (ownPost) {
-        // The server may publish the post before its membership counters catch
-        // up. Remember that this message is already read so a later absolute
-        // total-count reconciliation cannot turn it into unread activity.
-        ++entry.pendingOwnMessageCount;
-        if (!threadReply) {
+        // Credit an own post only when it can be anchored to a known absolute
+        // read counter. Before the first membership snapshot there is no safe
+        // way to distinguish a stale count from one that already includes this
+        // post, and carrying an unanchored credit could hide a later real unread.
+        if (entry.membershipInitialized) {
+            ++entry.pendingOwnMessageCount;
+        }
+        if (!threadReply && entry.rootMembershipInitialized) {
             ++entry.pendingOwnRootMessageCount;
         }
         return;
