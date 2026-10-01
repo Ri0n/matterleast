@@ -23,6 +23,14 @@ Editing an existing post deliberately uses a hybrid source presentation instead 
 
 Mentions and emoji remain ordinary inserted text. Attachments remain outside the text document.
 
+## Structural block presentation
+
+`RichTextBlockPresentation.cpp` owns the visual policy shared by the rich composer and rendered message blocks. It deliberately applies presentation without modifying canonical document formats: code backgrounds/text use `QTextEdit::ExtraSelection`, quote/code boundaries use transparent overlays, and received standalone code blocks use the same palette/border policy.
+
+This separation is important for source preservation. Painting a quote/code style must not emit a document edit, mark an untouched rich document dirty, or force its original Markdown through `QTextDocument::toMarkdown()` merely because it was displayed.
+
+Rich-mode quotes use the standard vertical `QPalette::Mid` bar and slightly translucent text. Code blocks use MatterLeast's Monokai-derived background/text colors plus one explicit rounded border instead of relying on the platform-dependent `QPlainTextEdit` frame. The same presentation layer also reduces `QTextDocument::indentWidth()` to 20 px in the composer while leaving `QTextListFormat::indent()` unchanged, so list nesting and serialization remain structural.
+
 ## Formatting toolbar
 
 The ordinary composer layout is intentionally unchanged: attachment action on the left, editor in the middle, emoji/send actions on the right, and no enclosing composer frame. The formatting toolbar is an auxiliary row inside the editor column and appears above the editor only while the editor owns focus.
