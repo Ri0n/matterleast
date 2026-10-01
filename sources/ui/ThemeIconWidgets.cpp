@@ -8,12 +8,15 @@
 
 #include <algorithm>
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QColor>
 #include <QEvent>
+#include <QFontMetrics>
 #include <QIcon>
 #include <QPainter>
 #include <QPalette>
+#include <QWidget>
 
 #include "BusyIndicator.h"
 #include "IconUtils.h"
@@ -24,6 +27,8 @@ namespace {
 constexpr qreal RestingOpacity = 0.8;
 constexpr int BusyIndicatorExtent = 18;
 constexpr qreal FormattingToolbarOpticalScale = 1.12;
+constexpr int FormattingToolbarButtonPadding = 8;
+constexpr int FormattingToolbarHorizontalPadding = 10;
 
 QString tintKey(const QColor& color)
 {
@@ -38,6 +43,11 @@ bool isFormattingToolbarIcon(const QString& objectName)
         || objectName == QStringLiteral("messagePriorityButton");
 }
 
+bool isFormattingToolbar(const QWidget* widget)
+{
+    return widget && widget->objectName() == QStringLiteral("formattingToolbar");
+}
+
 int formattingToolbarOpticalExtent(const QWidget& widget)
 {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
@@ -48,6 +58,41 @@ int formattingToolbarOpticalExtent(const QWidget& widget)
     return std::max(1, qRound(capHeight * FormattingToolbarOpticalScale));
 }
 
+void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
+{
+    if (!isFormattingToolbar(toolbar)) {
+        return;
+    }
+
+    const QFontMetrics metrics(toolbar->font());
+    const int buttonHeight = std::max(
+        28, metrics.height() + FormattingToolbarButtonPadding);
+
+    const auto buttons = toolbar->findChildren<QAbstractButton*>(
+        QString(), Qt::FindDirectChildrenOnly);
+    for (QAbstractButton* button : buttons) {
+        if (!button) {
+            continue;
+        }
+
+        int buttonWidth = buttonHeight;
+        if (!button->text().isEmpty()) {
+            buttonWidth = std::max(
+                buttonHeight,
+                metrics.horizontalAdvance(button->text())
+                    + FormattingToolbarHorizontalPadding);
+        }
+
+        const QSize target(buttonWidth, buttonHeight);
+        if (button->minimumSize() != target
+            || button->maximumSize() != target) {
+            button->setMinimumSize(target);
+            button->setMaximumSize(target);
+            button->updateGeometry();
+        }
+    }
+}
+
 QPixmap sharpFormattingToolbarPixmap(const QString& resource,
                                       const QColor& color,
                                       const QWidget& widget)
@@ -56,23 +101,29 @@ QPixmap sharpFormattingToolbarPixmap(const QString& resource,
     const qreal dpr = std::max<qreal>(1.0, widget.devicePixelRatioF());
     const int deviceExtent = std::max(1, qRound(logicalExtent * dpr));
 
-    // Keep the SVG vector until the final requested device-pixel size. The
-    // generic symbolic-icon helper intentionally pre-rasterizes several common
-    // sizes, which is fine for ordinary icons but becomes visibly soft when a
-    // fractional DPR (for example 150%) asks Qt to scale one of those cached
-    // bitmaps again. Formatting icons are small enough that we can render the
-    // source SVG directly at the exact final pixel extent and tint only once.
-    QPixmap pixmap = QIcon(resource).pixmap(QSize(deviceExtent, deviceExtent));
-    if (pixmap.isNull()) {
-        return {};
-    }
-
-    QPainter tintPainter(&pixmap);
-    tintPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-    tintPainter.fillRect(pixmap.rect(), color);
-    tintPainter.end();
-
+    // Paint the SVG through QIcon directly into a DPR-aware target. The target
+    // pixmap has physical device-pixel storage, but QPainter exposes logical
+    // coordinates because the DPR is assigned before painting. This lets the
+    // SVG icon engine rasterize exactly once at the destination screen scale
+    // and avoids both the generic fixed-size symbolic cache and a second bitmap
+    // resize on fractional DPRs such as 150%.
+    QPixmap pixmap(deviceExtent, deviceExtent);
     pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+
+    QPainter iconPainter(&pixmap);
+    iconPainter.setRenderHint(QPainter::Antialiasing, true);
+    iconPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    QIcon(resource).paint(
+        &iconPainter,
+        QRect(0, 0, logicalExtent, logicalExtent),
+        Qt::AlignCenter,
+        QIcon::Normal,
+        QIcon::Off);
+    iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    iconPainter.fillRect(QRect(0, 0, logicalExtent, logicalExtent), color);
+    iconPainter.end();
+
     return pixmap;
 }
 
@@ -160,6 +211,9 @@ bool ThemeIconButton::event(QEvent* event)
                || type == QEvent::FontChange
                || type == QEvent::ScreenChangeInternal) {
         invalidateRenderedIcon();
+        if (isFormattingToolbar(parentWidget())) {
+            syncFormattingToolbarButtonGeometry(parentWidget());
+        }
         update();
     } else if (type == QEvent::Enter
                || type == QEvent::Leave
@@ -172,6 +226,10 @@ bool ThemeIconButton::event(QEvent* event)
 void ThemeIconButton::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
+
+    if (isFormattingToolbar(parentWidget())) {
+        syncFormattingToolbarButtonGeometry(parentWidget());
+    }
 
     const QPalette currentPalette = qApp ? qApp->palette() : palette();
 
