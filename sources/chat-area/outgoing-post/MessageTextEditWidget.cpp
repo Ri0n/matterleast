@@ -44,9 +44,12 @@
 #include <QResizeEvent>
 #include <QStringList>
 #include <QTextBlock>
+#include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextDocument>
+#include <QTextFormat>
 #include <QTextFragment>
+#include <QTextList>
 #include <QTimer>
 #include <QUrl>
 
@@ -82,6 +85,66 @@ QString serializedMarkdown(const QTextDocument& document)
         markdown.chop(1);
     }
     return markdown;
+}
+
+bool hasStructuralFormatting(const QTextDocument& document)
+{
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        if (block.textList()) {
+            return true;
+        }
+        const QTextBlockFormat format = block.blockFormat();
+        if (format.intProperty(QTextFormat::BlockQuoteLevel) > 0
+            || format.hasProperty(QTextFormat::BlockCodeFence)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QString escapedForRichTextLog(QString value)
+{
+    value.replace(QLatin1Char('\n'), QStringLiteral("\\n"));
+    value.replace(QLatin1Char('\r'), QStringLiteral("\\r"));
+    return value;
+}
+
+QString structuralFormattingSummary(const QTextDocument& document)
+{
+    QStringList blocks;
+    int index = 0;
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next(), ++index) {
+        QStringList flags;
+        if (QTextList* list = block.textList()) {
+            flags.push_back(
+                QStringLiteral("list(style=%1,indent=%2,count=%3,obj=%4)")
+                    .arg(static_cast<int>(list->format().style()))
+                    .arg(list->format().indent())
+                    .arg(list->count())
+                    .arg(block.blockFormat().objectIndex()));
+        }
+        const QTextBlockFormat format = block.blockFormat();
+        const int quoteLevel = format.intProperty(QTextFormat::BlockQuoteLevel);
+        if (quoteLevel > 0) {
+            flags.push_back(QStringLiteral("quote=%1").arg(quoteLevel));
+        }
+        if (format.hasProperty(QTextFormat::BlockCodeFence)) {
+            flags.push_back(QStringLiteral("code"));
+        }
+        if (flags.isEmpty()) {
+            flags.push_back(QStringLiteral("plain"));
+        }
+
+        blocks.push_back(
+            QStringLiteral("#%1{%2,text=\"%3\"}")
+                .arg(index)
+                .arg(flags.join(QLatin1Char(',')))
+                .arg(escapedForRichTextLog(block.text())));
+    }
+
+    return QStringLiteral("indentWidth=%1 blocks=%2")
+        .arg(document.indentWidth())
+        .arg(blocks.join(QLatin1Char(' ')));
 }
 
 bool hasPrimaryModifier(Qt::KeyboardModifiers modifiers)
@@ -280,7 +343,18 @@ QString MessageTextEditWidget::markdownText() const
     if (!richDocumentDirty_) {
         return richSourceMarkdown_;
     }
-    return serializedMarkdown(*document());
+
+    const QString markdown = serializedMarkdown(*document());
+    if (hasStructuralFormatting(*document())) {
+        qDebug().noquote()
+            << "RICH_TEXT_SERIALIZE"
+            << QStringLiteral("plain=\"%1\"")
+                   .arg(escapedForRichTextLog(QTextEdit::toPlainText()))
+            << QStringLiteral("markdown=\"%1\"")
+                   .arg(escapedForRichTextLog(markdown))
+            << structuralFormattingSummary(*document());
+    }
+    return markdown;
 }
 
 void MessageTextEditWidget::setMarkdownText(const QString& markdown)
