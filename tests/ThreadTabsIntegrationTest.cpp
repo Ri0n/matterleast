@@ -569,6 +569,8 @@ int main(int argc, char** argv)
     qputenv("XDG_CONFIG_HOME", state.path().toUtf8());
     qputenv("XDG_DATA_HOME", state.path().toUtf8());
     QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("MatterLeastTest"));
+    QCoreApplication::setApplicationName(QStringLiteral("thread-tabs-integration-test"));
     QStandardPaths::setTestModeEnabled(true);
     QLoggingCategory::setFilterRules(QStringLiteral("*.debug=false\n"));
     ThreadTabsIntegrationTest test;
