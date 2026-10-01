@@ -19,7 +19,7 @@
 
 namespace Mattermost {
 
-bool OutgoingPostCreator::messagePriorityAvailable() const
+bool OutgoingPostCreator::messagePriorityAvailable()
 {
     // Mattermost message priority is defined for newly created root posts.
     return backend && channel && root_id.isEmpty()
@@ -83,12 +83,12 @@ void OutgoingPostCreator::ensurePriorityOutboxHook()
     }
 
     auto& outbox = PendingPostService::instance(*backend);
-    auto& postCreate = PostCreateService::instance(*backend);
+    auto* postCreate = &PostCreateService::instance(*backend);
     connect(&outbox, &PendingPostService::postAdded,
             this,
-            [this, &postCreate](const QString& channelId,
-                                const QString& rootId,
-                                const QString& pendingPostId) {
+            [this, postCreate](const QString& channelId,
+                               const QString& rootId,
+                               const QString& pendingPostId) {
         if (messagePriority.isEmpty()
             || !channel
             || channelId != channel->id
@@ -97,7 +97,7 @@ void OutgoingPostCreator::ensurePriorityOutboxHook()
             return;
         }
 
-        postCreate.stagePendingPostMetadata(
+        postCreate->stagePendingPostMetadata(
             pendingPostId, currentPostMetadata());
         resetMessagePriority();
     });
