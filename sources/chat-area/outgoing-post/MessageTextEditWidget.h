@@ -6,20 +6,20 @@
  *
  * Copyright 2021, 2022 Lyubomir Filipov
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  *
- * Mattermost-QT is free software: you can redistribute it and/or modify
+ * MatterLeast is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * Mattermost-QT is distributed in the hope that it will be useful,
+ * MatterLeast is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
+ * along with MatterLeast. if not, see https://www.gnu.org/licenses/.
  */
 
 #pragma once
@@ -31,24 +31,66 @@ class QResizeEvent;
 namespace Mattermost {
 
 class MessageTextEditWidget: public InteractiveTextEdit {
-	Q_OBJECT
+    Q_OBJECT
 public:
-	MessageTextEditWidget (QWidget *parent = nullptr);
-	~MessageTextEditWidget () override;
-public:
-	void keyPressEvent (QKeyEvent* event) override;
-	bool hasNonEmptyText ();
+    enum class EditingMode {
+        Markdown,
+        RichText,
+    };
+    Q_ENUM(EditingMode)
 
-protected:
-	void resizeEvent(QResizeEvent* event) override;
+    MessageTextEditWidget(QWidget *parent = nullptr);
+    ~MessageTextEditWidget() override;
 
-private:
-	void updateHeightToContents();
+    void keyPressEvent(QKeyEvent* event) override;
+    bool hasNonEmptyText();
+
+    EditingMode editingMode() const { return editingMode_; }
+    bool isRichTextEditing() const { return editingMode_ == EditingMode::RichText; }
+
+    /** Canonical Mattermost message representation regardless of editor mode. */
+    QString markdownText() const;
+    void setMarkdownText(const QString& markdown);
+
+    /**
+     * Preserve the historical QTextEdit-facing API for callers such as
+     * OutgoingPostCreator, but make it Markdown-aware in rich mode.
+     */
+    QString toPlainText() const { return markdownText(); }
+    void setPlainText(const QString& text) { setMarkdownText(text); }
+
+public slots:
+    void setRichTextEditing(bool enabled);
+    void toggleBold();
+    void toggleItalic();
+    void toggleStrikeOut();
+    void toggleInlineCode();
+    void toggleCodeBlock();
+    void toggleQuote();
+    void toggleBulletList();
+    void toggleNumberedList();
+    void insertLink();
 
 signals:
-	void enterPressed ();
-	void escapePressed ();
-	void upArrowPressed ();
+    void enterPressed();
+    void escapePressed();
+    void upArrowPressed();
+    void editingModeChanged(Mattermost::MessageTextEditWidget::EditingMode mode);
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
+private:
+    void updateHeightToContents();
+    void wrapMarkdownSelection(const QString& before, const QString& after);
+    void prefixMarkdownLines(const QString& prefix, bool numbered = false);
+    void applyRichCharFormat(const QTextCharFormat& format);
+    void markRichDocumentChanged();
+
+    EditingMode editingMode_ = EditingMode::Markdown;
+    QString richSourceMarkdown_;
+    bool richDocumentDirty_ = false;
+    bool loadingMarkdown_ = false;
 };
 
 } /* namespace Mattermost */
