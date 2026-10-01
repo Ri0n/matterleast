@@ -264,6 +264,12 @@ void MessageTextEditWidget::animateFormattingToolbar(bool visible)
         previous->deleteLater();
     }
 
+    if (visible) {
+        // The Designer connection hides the toolbar after a completed collapse.
+        // Make it visible again before expanding its real layout slot.
+        toolbar->show();
+    }
+
     int currentHeight = toolbar->maximumHeight();
     if (currentHeight >= QWIDGETSIZE_MAX) {
         currentHeight = toolbar->height();
@@ -274,6 +280,7 @@ void MessageTextEditWidget::animateFormattingToolbar(bool visible)
     const int targetHeight = visible ? expandedHeight : 0;
     if (currentHeight == targetHeight) {
         toolbar->updateGeometry();
+        emit formattingToolbarVisibilityChanged(visible);
         return;
     }
 
@@ -286,6 +293,11 @@ void MessageTextEditWidget::animateFormattingToolbar(bool visible)
         visible ? QEasingCurve::OutCubic : QEasingCurve::InCubic);
     connect(animation, &QPropertyAnimation::valueChanged,
             toolbar, [toolbar](const QVariant&) { toolbar->updateGeometry(); });
+    connect(animation, &QPropertyAnimation::finished,
+            this, [this, toolbar, visible] {
+        toolbar->updateGeometry();
+        emit formattingToolbarVisibilityChanged(visible);
+    });
     animation->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
@@ -296,7 +308,6 @@ void MessageTextEditWidget::setFormattingToolbarVisible(bool visible)
     }
     formattingToolbarVisible_ = visible;
     animateFormattingToolbar(visible);
-    emit formattingToolbarVisibilityChanged(visible);
 }
 
 void MessageTextEditWidget::setFormattingToolbarPreferredVisible(bool visible)
