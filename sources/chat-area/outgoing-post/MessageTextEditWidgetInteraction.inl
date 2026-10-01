@@ -325,9 +325,12 @@ inline void syncStructuralPlaceholder(MessageTextEditWidget* editor)
     }
 
     if (suppress) {
+        // Flip the state first. setProperty() itself can synchronously deliver
+        // QDynamicPropertyChangeEvent, and the re-entrant event must already
+        // observe a consistent state instead of attempting suppression again.
+        editor->setProperty(StructuralPlaceholderSuppressedProperty, true);
         editor->setProperty(
             StructuralPlaceholderTextProperty, editor->placeholderText());
-        editor->setProperty(StructuralPlaceholderSuppressedProperty, true);
         editor->setPlaceholderText(QString());
         return;
     }
