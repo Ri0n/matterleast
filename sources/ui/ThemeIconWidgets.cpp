@@ -1,7 +1,7 @@
 /**
  * Copyright 2026 Sergei Ilinykh
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  */
 
 #include "ThemeIconWidgets.h"
@@ -21,6 +21,7 @@ namespace {
 
 constexpr qreal RestingOpacity = 0.8;
 constexpr int BusyIndicatorExtent = 18;
+constexpr qreal ComposerCornerRadius = 5.0;
 
 QString tintKey(const QColor& color)
 {
@@ -28,6 +29,32 @@ QString tintKey(const QColor& color)
 }
 
 } // namespace
+
+ComposerSurface::ComposerSurface(QWidget* parent)
+    : QFrame(parent)
+{
+    setFrameShape(QFrame::NoFrame);
+    setAutoFillBackground(false);
+}
+
+void ComposerSurface::paintEvent(QPaintEvent* event)
+{
+    Q_UNUSED(event);
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    QRectF bounds(rect());
+    bounds.adjust(0.5, 0.5, -0.5, -0.5);
+
+    QPen border(palette().color(QPalette::Mid));
+    border.setWidthF(1.0);
+    painter.setPen(border);
+    painter.setBrush(palette().color(QPalette::Window));
+    painter.drawRoundedRect(bounds,
+                            ComposerCornerRadius,
+                            ComposerCornerRadius);
+}
 
 ThemeIconButton::ThemeIconButton(QWidget* parent)
     : QPushButton(parent)
