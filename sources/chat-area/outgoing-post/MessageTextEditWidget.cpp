@@ -531,13 +531,15 @@ void MessageTextEditWidget::contextMenuEvent(QContextMenuEvent* event)
                 this, [this] { removeLinkAtCursor(); });
     }
 
+    const bool toolbarPreferred = formattingToolbarPreferredVisible();
     menu->addSeparator();
     QAction* toolbarAction = menu->addAction(
-        formattingToolbarVisible_
+        toolbarPreferred
             ? tr("Hide formatting toolbar")
             : tr("Show formatting toolbar"));
-    connect(toolbarAction, &QAction::triggered, this, [this] {
-        setFormattingToolbarPreferredVisible(!formattingToolbarVisible_);
+    connect(toolbarAction, &QAction::triggered,
+            this, [this, toolbarPreferred] {
+        setFormattingToolbarPreferredVisible(!toolbarPreferred);
     });
 
     menu->exec(event->globalPos());
