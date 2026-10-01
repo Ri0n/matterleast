@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include <QHash>
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QList>
@@ -53,6 +54,14 @@ public:
 
     static PostCreateService& instance(Backend& backend);
 
+    /**
+     * Attach top-level Mattermost post metadata to the next/retried create
+     * request identified by pending_post_id. Metadata survives retryable
+     * transport failures and is discarded after success/terminal failure.
+     */
+    void stagePendingPostMetadata(const QString& pendingPostId,
+                                  const QJsonObject& metadata);
+
     void createPost(BackendChannel& channel,
                     const QString& message,
                     const QList<QString>& attachments,
@@ -86,6 +95,7 @@ private:
 
     Backend& backend;
     HTTPConnector httpConnector;
+    QHash<QString, QJsonObject> pendingPostMetadata;
 };
 
 } // namespace Mattermost
