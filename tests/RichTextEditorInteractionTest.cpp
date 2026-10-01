@@ -4,6 +4,7 @@
 #include <QKeyEvent>
 #include <QSignalSpy>
 #include <QTextBlock>
+#include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextFormat>
@@ -13,6 +14,7 @@
 #include "Settings.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
 #include "chat-area/outgoing-post/RichTextEditorCommands.h"
+#include "chat-area/post/MessageContentWidget.h"
 #include "options/MLOptions.h"
 
 using namespace Mattermost;
@@ -131,6 +133,28 @@ private slots:
         const QString markdown = editor.markdownText();
         QVERIFY2(markdown.contains(QStringLiteral("- first")), qPrintable(markdown));
         QVERIFY2(markdown.contains(QStringLiteral("- second")), qPrintable(markdown));
+    }
+
+    void renderedMessageListRemainsStructural()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("- first\n- second"));
+        widget.resize(480, 120);
+        widget.show();
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+
+        auto* richText = widget.findChild<QTextBrowser*>(
+            QStringLiteral("messageRichText"));
+        QVERIFY(richText);
+
+        const QTextBlock first = richText->document()->firstBlock();
+        const QTextBlock second = first.next();
+        QVERIFY(first.isValid());
+        QVERIFY(second.isValid());
+        QVERIFY2(first.textList(), qPrintable(richText->document()->toHtml()));
+        QVERIFY2(second.textList(), qPrintable(richText->document()->toHtml()));
+        QCOMPARE(second.textList(), first.textList());
     }
 
     void listToolbarConvertsAndTogglesSelection()
