@@ -15,6 +15,8 @@
 
 #pragma once
 
+#include <QAction>
+
 #include "widgets/InteractiveTextEdit.h"
 
 class QContextMenuEvent;
