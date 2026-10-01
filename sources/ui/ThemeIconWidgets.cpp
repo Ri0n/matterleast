@@ -68,13 +68,37 @@ int formattingToolbarOpticalExtent(const QWidget& widget)
     return std::max(1, qRound(capHeight * FormattingToolbarOpticalScale));
 }
 
+void syncFormattingToolButtonFont(QToolButton* button, const QFont& toolbarFont)
+{
+    if (!button) {
+        return;
+    }
+
+    // Designer gives B/I/S their own font only to carry style traits. Once a
+    // stylesheet is installed those widgets no longer reliably inherit the
+    // parent's scaled point/pixel size, so explicitly synchronize the size
+    // while preserving the local bold/italic/strike/family traits.
+    QFont font = button->font();
+    if (toolbarFont.pointSizeF() > 0.0) {
+        font.setPointSizeF(toolbarFont.pointSizeF());
+    } else if (toolbarFont.pixelSize() > 0) {
+        font.setPixelSize(toolbarFont.pixelSize());
+    }
+    if (button->font() != font) {
+        button->setFont(font);
+    }
+}
+
 void syncFormattingToolButtonAppearance(QAbstractButton* button,
-                                        const QPalette& palette)
+                                        const QPalette& palette,
+                                        const QFont& toolbarFont)
 {
     auto* toolButton = qobject_cast<QToolButton*>(button);
     if (!toolButton) {
         return;
     }
+
+    syncFormattingToolButtonFont(toolButton, toolbarFont);
 
     QColor resting = palette.color(QPalette::Active, QPalette::ButtonText);
     resting.setAlphaF(resting.alphaF() * RestingOpacity);
@@ -121,7 +145,8 @@ void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
         return;
     }
 
-    const QFontMetrics metrics(toolbar->font());
+    const QFont toolbarFont = toolbar->font();
+    const QFontMetrics metrics(toolbarFont);
     const int buttonHeight = std::max(
         28, metrics.height() + FormattingToolbarButtonPadding);
     const QPalette currentPalette = qApp ? qApp->palette() : toolbar->palette();
@@ -133,13 +158,14 @@ void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
             continue;
         }
 
-        syncFormattingToolButtonAppearance(button, currentPalette);
+        syncFormattingToolButtonAppearance(button, currentPalette, toolbarFont);
 
         int buttonWidth = buttonHeight;
         if (!button->text().isEmpty()) {
+            const QFontMetrics buttonMetrics(button->font());
             buttonWidth = std::max(
                 buttonHeight,
-                metrics.horizontalAdvance(button->text())
+                buttonMetrics.horizontalAdvance(button->text())
                     + FormattingToolbarHorizontalPadding);
         }
 
