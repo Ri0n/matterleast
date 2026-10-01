@@ -15,6 +15,7 @@
 #include <QEvent>
 #include <QFrame>
 #include <QGuiApplication>
+#include <QWindow>
 
 #include "post/PostWidget.h"
 
