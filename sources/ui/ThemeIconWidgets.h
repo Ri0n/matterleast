@@ -1,11 +1,12 @@
 /**
  * Copyright 2026 Sergei Ilinykh
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  */
 
 #pragma once
 
+#include <QFrame>
 #include <QPixmap>
 #include <QPushButton>
 #include <QString>
@@ -20,6 +21,16 @@ inline constexpr char ComposerBusyTextProperty[] = "_mmqt_composer_busy_text";
 inline constexpr char ComposerMessageLoadingProperty[] = "_mmqt_composer_message_loading";
 inline constexpr char ThemeIconResourceProperty[] = "_mmqt_theme_icon_resource";
 inline constexpr char ThemeIconBusyProperty[] = "_mmqt_theme_icon_busy";
+
+/** Palette-driven rounded surface shared by the editor and its action toolbar. */
+class ComposerSurface final : public QFrame
+{
+public:
+    explicit ComposerSurface(QWidget* parent = nullptr);
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+};
 
 /**
  * Borderless palette-aware action button.
