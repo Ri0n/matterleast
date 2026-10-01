@@ -25,11 +25,13 @@
 #pragma once
 
 #include <QAction>
+#include <QEvent>
+#include <QPainter>
 
+#include "chat-area/RichTextBlockPresentation.h"
 #include "widgets/InteractiveTextEdit.h"
 
 class QContextMenuEvent;
-class QEvent;
 class QFocusEvent;
 class QMimeData;
 class QResizeEvent;
@@ -89,6 +91,18 @@ signals:
 
 protected:
     bool event(QEvent* event) override;
+    bool viewportEvent(QEvent* event) override
+    {
+        // Let QTextEdit render the viewport first. Structural chrome is then
+        // painted into the same backing store, so quote/code boundaries cannot
+        // disappear because of child-widget stacking or compositor behavior.
+        const bool handled = InteractiveTextEdit::viewportEvent(event);
+        if (event && event->type() == QEvent::Paint && isRichTextEditing()) {
+            QPainter painter(viewport());
+            paintRichTextBlockDecorations(*this, painter);
+        }
+        return handled;
+    }
     void contextMenuEvent(QContextMenuEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
