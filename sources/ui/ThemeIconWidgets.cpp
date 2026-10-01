@@ -27,6 +27,25 @@ QString tintKey(const QColor& color)
     return color.name(QColor::HexArgb);
 }
 
+bool isFormattingToolbarIcon(const QString& objectName)
+{
+    return objectName == QStringLiteral("formatLinkButton")
+        || objectName == QStringLiteral("formatBulletListButton")
+        || objectName == QStringLiteral("formatNumberedListButton")
+        || objectName == QStringLiteral("messagePriorityButton");
+}
+
+QSize formattingToolbarIconSize(const QWidget& widget)
+{
+    // Text formatting buttons (B/I/S/...) scale with the application font.
+    // Keep symbolic neighbours on the same optical scale rather than freezing
+    // them to a physical pixel size from the .ui file. 0.85 em matches the
+    // visual mass of the text glyphs while still tracking system font scaling.
+    const int extent = std::max(
+        1, qRound(widget.fontMetrics().height() * 0.85));
+    return QSize(extent, extent);
+}
+
 } // namespace
 
 ThemeIconButton::ThemeIconButton(QWidget* parent)
@@ -107,7 +126,8 @@ bool ThemeIconButton::event(QEvent* event)
         syncBusyAnimation();
     } else if (type == QEvent::PaletteChange
                || type == QEvent::ApplicationPaletteChange
-               || type == QEvent::StyleChange) {
+               || type == QEvent::StyleChange
+               || type == QEvent::FontChange) {
         invalidateRenderedIcon();
         update();
     } else if (type == QEvent::Enter
@@ -152,7 +172,9 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
 
     const QString resource = symbolicResource();
     if (!resource.isEmpty()) {
-        const QSize targetSize = iconSize().isValid() ? iconSize() : QSize(24, 24);
+        const QSize targetSize = isFormattingToolbarIcon(objectName())
+            ? formattingToolbarIconSize(*this)
+            : (iconSize().isValid() ? iconSize() : QSize(24, 24));
         const QString desiredTint = tintKey(color);
         if (_renderedTint != desiredTint
             || _renderedResource != resource
