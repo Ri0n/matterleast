@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QEvent>
+#include <QKeySequence>
 #include <QMenu>
 #include <QPointer>
 
@@ -15,6 +16,33 @@ namespace {
 
 constexpr char LanguageMenuInjectedProperty[] =
     "_matterleast_code_language_menu_injected";
+
+bool hasStandardShortcut(const QMenu& menu, QKeySequence::StandardKey key)
+{
+    const QKeySequence expected(key);
+    for (QAction* action : menu.actions()) {
+        if (!action) {
+            continue;
+        }
+        const QList<QKeySequence> shortcuts = action->shortcuts();
+        for (const QKeySequence& shortcut : shortcuts) {
+            if (shortcut.matches(expected) == QKeySequence::ExactMatch) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool isStandardTextContextMenu(const QMenu& menu)
+{
+    // OutgoingPostCreator also parents other QMenus (notably message priority)
+    // to itself. Requiring the QTextEdit Copy/Paste actions keeps language
+    // injection scoped to createStandardContextMenu() rather than every menu
+    // opened while the composer owns focus.
+    return hasStandardShortcut(menu, QKeySequence::Copy)
+        && hasStandardShortcut(menu, QKeySequence::Paste);
+}
 
 class CodeBlockLanguageMenuFilter final : public QObject
 {
@@ -29,13 +57,12 @@ protected:
         }
 
         auto* menu = qobject_cast<QMenu*>(watched);
-        if (!menu || menu->property(LanguageMenuInjectedProperty).toBool()) {
+        if (!menu || menu->property(LanguageMenuInjectedProperty).toBool()
+            || !isStandardTextContextMenu(*menu)) {
             return false;
         }
 
-        // createStandardContextMenu() keeps the editor as the menu parent. This
-        // distinguishes the editor context menu from unrelated application
-        // menus that happen to open while the composer owns keyboard focus.
+        // createStandardContextMenu() keeps the editor as the menu parent.
         auto* editor = qobject_cast<MessageTextEditWidget*>(menu->parentWidget());
         if (!editor || !editor->isRichTextEditing()
             || !isStructuralCodeBlock(editor->textCursor().block())) {
