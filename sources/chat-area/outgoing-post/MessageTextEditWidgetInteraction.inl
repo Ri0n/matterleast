@@ -6,6 +6,7 @@
 #include <QDynamicPropertyChangeEvent>
 #include <QEasingCurve>
 #include <QEvent>
+#include <QFont>
 #include <QKeyEvent>
 #include <QLayout>
 #include <QPalette>
@@ -13,8 +14,13 @@
 #include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QSyntaxHighlighter>
+#include <QTextBlock>
+#include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QTextDocument>
+#include <QTextFormat>
+#include <QTextList>
 #include <QTimer>
 #include <QWidget>
 
@@ -34,8 +40,13 @@ constexpr char PostEditModeHookProperty[] =
     "_matterleast_post_edit_mode_hook";
 constexpr char MarkdownLinkHighlighterObjectName[] =
     "_matterleast_markdown_link_highlighter";
+constexpr char StructuralPlaceholderSuppressedProperty[] =
+    "_matterleast_structural_placeholder_suppressed";
+constexpr char StructuralPlaceholderTextProperty[] =
+    "_matterleast_structural_placeholder_text";
 constexpr int FormattingToolbarAnimationMs = 110;
 constexpr int FormattingToolbarGap = 2;
+constexpr qreal FormattingToolbarContentScale = 1.25;
 
 class MarkdownSourceLinkHighlighter final : public QSyntaxHighlighter
 {
@@ -125,12 +136,37 @@ inline QWidget* formattingToolbarFor(MessageTextEditWidget* editor)
         QStringLiteral("formattingToolbar"));
 }
 
+inline void syncFormattingToolbarFont(MessageTextEditWidget* editor,
+                                      QWidget* toolbar)
+{
+    if (!editor || !toolbar) {
+        return;
+    }
+
+    // Keep the toolbar tied to the user's current UI font/scale instead of
+    // baking a point size into the .ui file. ThemeIconButton also derives its
+    // normalized symbolic-icon extent from these font metrics, so text glyphs
+    // and SVG icons grow together.
+    QFont font = editor->font();
+    if (font.pointSizeF() > 0.0) {
+        font.setPointSizeF(font.pointSizeF() * FormattingToolbarContentScale);
+    } else if (font.pixelSize() > 0) {
+        font.setPixelSize(std::max(
+            1, qRound(font.pixelSize() * FormattingToolbarContentScale)));
+    }
+    if (toolbar->font() != font) {
+        toolbar->setFont(font);
+    }
+}
+
 inline void normalizeFormattingToolbarLayout(MessageTextEditWidget* editor)
 {
     QWidget* toolbar = formattingToolbarFor(editor);
     if (!editor || !toolbar) {
         return;
     }
+
+    syncFormattingToolbarFont(editor, toolbar);
 
     // The reaction quick bar never removes its animated slot from layout: the
     // collapsed slot simply has maximumWidth=0. Do the vertical equivalent
@@ -252,6 +288,55 @@ inline void ensureFormattingAnimationHook(MessageTextEditWidget* editor)
             normalizeFormattingToolbarLayout(editor);
             animateFormattingToolbar(editor, visible);
         });
+}
+
+inline bool hasEmptyRichStructure(MessageTextEditWidget* editor)
+{
+    if (!editor || !editor->isRichTextEditing()
+        || !editor->document()->toPlainText().isEmpty()) {
+        return false;
+    }
+
+    const QTextBlock block = editor->textCursor().block();
+    if (!block.isValid()) {
+        return false;
+    }
+
+    if (block.textList()) {
+        return true;
+    }
+
+    const QTextBlockFormat format = block.blockFormat();
+    return format.intProperty(QTextFormat::BlockQuoteLevel) > 0
+        || format.hasProperty(QTextFormat::BlockCodeFence);
+}
+
+inline void syncStructuralPlaceholder(MessageTextEditWidget* editor)
+{
+    if (!editor) {
+        return;
+    }
+
+    const bool suppress = hasEmptyRichStructure(editor);
+    const bool suppressed =
+        editor->property(StructuralPlaceholderSuppressedProperty).toBool();
+    if (suppress == suppressed) {
+        return;
+    }
+
+    if (suppress) {
+        editor->setProperty(
+            StructuralPlaceholderTextProperty, editor->placeholderText());
+        editor->setProperty(StructuralPlaceholderSuppressedProperty, true);
+        editor->setPlaceholderText(QString());
+        return;
+    }
+
+    const QString placeholder =
+        editor->property(StructuralPlaceholderTextProperty).toString();
+    editor->setProperty(StructuralPlaceholderSuppressedProperty, false);
+    editor->setProperty(StructuralPlaceholderTextProperty, QVariant());
+    editor->setPlaceholderText(placeholder);
 }
 
 inline void ensurePostEditModeHook(MessageTextEditWidget* editor)
@@ -381,6 +466,7 @@ inline bool MessageTextEditWidget::event(QEvent* event)
 
     ensureFormattingAnimationHook(this);
     ensurePostEditModeHook(this);
+    syncStructuralPlaceholder(this);
 
     if (event && event->type() == QEvent::DynamicPropertyChange) {
         auto* propertyEvent = static_cast<QDynamicPropertyChangeEvent*>(event);
@@ -427,7 +513,9 @@ inline bool MessageTextEditWidget::event(QEvent* event)
         }
     }
 
-    return InteractiveTextEdit::event(event);
+    const bool handled = InteractiveTextEdit::event(event);
+    syncStructuralPlaceholder(this);
+    return handled;
 }
 
 } // namespace Mattermost
