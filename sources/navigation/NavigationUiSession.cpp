@@ -119,14 +119,17 @@ void NavigationUiController::saveSession()
     saveActiveTabLocation();
     QJsonArray tabs;
     for (int i = 0; i < tabModel.count(); ++i) {
-        Location location = tabLocation(*tabModel.at(i));
+        const auto* modelEntry = tabModel.at(i);
+        Location location = tabLocation(*modelEntry);
         ChatArea* area = location.rootId.isEmpty() ? nullptr
             : findThread(location.channelId, location.rootId);
         auto* central = channelTree ? channelTree->getCurrentPage() : nullptr;
         if (location.rootId.isEmpty() && central && central->getChannel().id == location.channelId)
             area = central;
         if (area) location = locationOf(area);
-        tabs.append(encode(location));
+        QJsonObject tab = encode(location);
+        tab.insert("pinned", modelEntry->pinned);
+        tabs.append(tab);
     }
     QJsonArray threads;
     Backend* owner = backend();
@@ -178,9 +181,11 @@ void NavigationUiController::restoreSession()
         tabModel = NavigationTabsModel();
         activeTabIndex = -1;
         for (const QJsonValue& value : state.value("tabs").toArray()) {
-            const Location location = decode(value.toObject());
+            const QJsonObject tab = value.toObject();
+            const Location location = decode(tab);
             if (!valid(location)) continue;
             const int index = appendNavigationTab(location);
+            tabModel.setPinned(index, tab.value("pinned").toBool());
             if (!location.rootId.isEmpty()) {
                 activateTab(index, false);
                 if (auto* area = findThread(location.channelId, location.rootId))
