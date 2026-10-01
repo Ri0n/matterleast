@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QLocale>
 #include <QPalette>
+#include <QPushButton>
 #include <QSizePolicy>
 
 #include "backend/Backend.h"
@@ -232,6 +233,59 @@ private slots:
         widget.setHovered(false, true);
         QVERIFY(hoverActions->isHidden());
         QCOMPARE(hoverOpacity->opacity(), 0.0);
+    }
+
+    void expandedQuickBarKeepsReactionButtonStableThroughClick()
+    {
+        Backend backend;
+        auto post = makePost(
+            backend.getStorage(),
+            QStringLiteral("iiiiiiiiiiiiiiiiiiiiiiiiii"),
+            QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
+            localMs(QDate(2026, 9, 29), QTime(12, 15)));
+
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        widget.resize(640, 180);
+        widget.show();
+        widget.setHovered(true, true);
+        QApplication::processEvents();
+
+        auto* hoverActions =
+            widget.findChild<QFrame*>(QStringLiteral("postHoverActions"));
+        auto* quickSlot =
+            widget.findChild<QWidget*>(QStringLiteral("reactionQuickBarSlot"));
+        QVERIFY(hoverActions);
+        QVERIFY(quickSlot);
+
+        QPushButton* reactionButton = nullptr;
+        for (QPushButton* button : hoverActions->findChildren<QPushButton*>()) {
+            if (button->property("matterleastPostOwner").value<QObject*>() == &widget) {
+                reactionButton = button;
+                break;
+            }
+        }
+        QVERIFY(reactionButton);
+
+        QEvent enterReaction(QEvent::Enter);
+        QCoreApplication::sendEvent(reactionButton, &enterReaction);
+        QTRY_VERIFY(quickSlot->maximumWidth() > 0);
+        const int expandedSlotWidth = quickSlot->maximumWidth();
+        const int expandedToolbarWidth = hoverActions->width();
+
+        // Avoid opening the real chooser in this regression test; we only need
+        // QAbstractButton's click contract while the inline extension is open.
+        QObject::disconnect(reactionButton, nullptr, &widget, nullptr);
+        QSignalSpy clicked(reactionButton, &QPushButton::clicked);
+
+        QTest::mousePress(reactionButton, Qt::LeftButton);
+        // The old regression collapsed/moved the toolbar on press, before the
+        // button could process its release, which could suppress clicked().
+        QCOMPARE(quickSlot->maximumWidth(), expandedSlotWidth);
+
+        QTest::mouseRelease(reactionButton, Qt::LeftButton);
+        QCOMPARE(clicked.count(), 1);
+        QTRY_COMPARE(quickSlot->maximumWidth(), 0);
+        QTRY_VERIFY(hoverActions->width() < expandedToolbarWidth);
     }
 
     void widgetKeepsSnapshotLeaseUntilDeferredDelete()

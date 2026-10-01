@@ -59,7 +59,7 @@ protected:
         }
 
         if (type != QEvent::Enter && type != QEvent::Leave
-            && type != QEvent::MouseButtonPress && type != QEvent::Destroy) {
+            && type != QEvent::MouseButtonRelease && type != QEvent::Destroy) {
             return QObject::eventFilter(watched, event);
         }
 
@@ -77,8 +77,12 @@ protected:
             showFor(*post, *button);
         } else if (type == QEvent::Leave) {
             scheduleHide();
-        } else if (type == QEvent::MouseButtonPress) {
-            clearQuickBar();
+        } else if (type == QEvent::MouseButtonRelease) {
+            // Do not mutate toolbar geometry between QAbstractButton's press and
+            // release handling. Moving the reaction button during that interval
+            // can suppress clicked(), so the complete emoji chooser never opens.
+            // Collapse only after the release has reached the button.
+            QTimer::singleShot(0, this, [this] { clearQuickBar(); });
         } else if (type == QEvent::Destroy) {
             clearQuickBar();
         }
@@ -126,21 +130,34 @@ private:
             animation_.clear();
         }
 
-        if (activeSlot_) {
-            activeSlot_->setMaximumWidth(0);
+        QPointer<PostWidget> post = activePost_;
+        QPointer<QWidget> slot = activeSlot_;
+        QWidget* content = quickContent_.data();
+
+        if (slot) {
+            slot->setMaximumWidth(0);
+        }
+        if (content) {
+            content->hide();
+            content->deleteLater();
         }
 
-        QWidget* content = quickContent_.data();
+        // Commit the collapsed layout before forgetting the owning post. Without
+        // this reflow the floating frame keeps its old expanded size and leaves
+        // the empty slab visible after the quick-reaction content is removed.
+        if (slot) {
+            slot->updateGeometry();
+        }
+        if (post && post->hoverActions_) {
+            post->hoverActions_->adjustSize();
+            post->positionHoverActions();
+        }
+
         quickContent_.clear();
         activeSlot_.clear();
         activePost_.clear();
         activeHeart_.clear();
         targetWidth_ = 0;
-
-        if (content) {
-            content->hide();
-            content->deleteLater();
-        }
     }
 
     void animateSlot(bool expand)
