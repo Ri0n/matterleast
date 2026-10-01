@@ -50,6 +50,7 @@ private:
     QString _renderedResource;
     QSize _renderedSize;
     QPixmap _renderedPixmap;
+    int _renderedDprMilli = 0;
     bool _busyAnimationAcquired = false;
 };
 
