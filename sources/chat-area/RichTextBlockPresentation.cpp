@@ -33,6 +33,7 @@
 #include <QTextFormat>
 #include <QWidget>
 
+#include "chat-area/CodeBlockSupport.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
 
 namespace Mattermost {
@@ -77,17 +78,6 @@ QColor quoteText(const QPalette& palette)
     QColor color = palette.color(QPalette::Text);
     color.setAlphaF(color.alphaF() * QuoteTextOpacity);
     return color;
-}
-
-bool isCodeBlock(const QTextBlock& block)
-{
-    if (!block.isValid()) {
-        return false;
-    }
-    const QTextBlockFormat format = block.blockFormat();
-    return format.nonBreakableLines()
-        || format.hasProperty(QTextFormat::BlockCodeFence)
-        || format.hasProperty(QTextFormat::BlockCodeLanguage);
 }
 
 bool isQuoteBlock(const QTextBlock& block)
@@ -174,7 +164,10 @@ public:
         setObjectName(QString::fromLatin1(DecorationOverlayName));
         setAttribute(Qt::WA_TransparentForMouseEvents, true);
         setAttribute(Qt::WA_NoSystemBackground, true);
-        setAttribute(Qt::WA_TranslucentBackground, true);
+        // This is an ordinary child overlay, not a translucent top-level
+        // window. WA_TranslucentBackground is unnecessary here and can make
+        // composition platform-dependent on Linux window systems.
+        setAutoFillBackground(false);
         setFocusPolicy(Qt::NoFocus);
         syncGeometry();
         show();
@@ -250,7 +243,7 @@ private:
     {
         drawGroups(
             painter,
-            [](const QTextBlock& block) { return isCodeBlock(block); },
+            [](const QTextBlock& block) { return isStructuralCodeBlock(block); },
             [this](QPainter& groupPainter, QRectF rect) {
                 rect.setLeft(0.5);
                 rect.setRight(std::max<qreal>(0.5, width() - 0.5));
@@ -292,7 +285,7 @@ public:
         setObjectName(QString::fromLatin1(CodeWidgetBorderName));
         setAttribute(Qt::WA_TransparentForMouseEvents, true);
         setAttribute(Qt::WA_NoSystemBackground, true);
-        setAttribute(Qt::WA_TranslucentBackground, true);
+        setAutoFillBackground(false);
         setFocusPolicy(Qt::NoFocus);
         syncGeometry();
         show();
@@ -375,12 +368,15 @@ void updatePresentationSelections(QTextEdit* editor)
 
         for (QTextBlock block = editor->document()->begin();
              block.isValid(); block = block.next()) {
-            if (!isCodeBlock(block)) {
+            if (!isStructuralCodeBlock(block)) {
                 continue;
             }
             QTextEdit::ExtraSelection selection;
             selection.cursor = QTextCursor(block);
-            selection.cursor.clearSelection();
+            // Select the actual block text as well as asking QTextEdit for a
+            // full-width selection. Some platform styles ignore background on
+            // a zero-length extra selection even with FullWidthSelection set.
+            selection.cursor.select(QTextCursor::BlockUnderCursor);
             selection.format.setBackground(codeBackground());
             selection.format.setForeground(codeForeground());
             selection.format.setFontFixedPitch(true);
