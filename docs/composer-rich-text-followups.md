@@ -18,13 +18,8 @@ Reproduce and keep covered by tests:
 
 Qt separates list nesting from its on-screen indentation. `QTextListFormat::indent()` stores the logical indentation level while `QTextDocument::indentWidth()` controls the pixel width of one indentation step; Qt's default is 40 px.
 
-The composer currently inherits that Qt default, which makes top-level lists look too far from the left edge in the compact message editor.
+MatterLeast deliberately uses a compact **20 px** indentation step in the rich composer. `RichTextBlockPresentation.cpp` applies it once at the presentation layer with `document()->setIndentWidth(20.0)`. The logical `QTextListFormat::indent()` remains untouched, so Tab/Backtab semantics and Markdown nesting continue to be structural rather than pixel-based.
 
-Before changing the presentation value:
+`RichTextEditorInteractionTest::listIndentWidthDoesNotChangeMarkdown()` is the cross-version serialization guard: changing the visual indentation width must not change GitHub-flavoured Markdown output.
 
-- run the Qt 5.15 and Qt 6 interaction tests proving that changing `QTextDocument::indentWidth()` does not alter GitHub-flavoured Markdown serialization;
-- choose a compact value visually appropriate for the composer (start by evaluating ~20 px);
-- verify nested lists still have clearly distinguishable levels;
-- keep `QTextListFormat::indent()` untouched so keyboard Tab/Backtab semantics and Markdown nesting remain structural rather than pixel-based.
-
-Once the cross-version test is green, the likely implementation is one composer-level `document()->setIndentWidth(...)` setting rather than per-list margins or format hacks.
+Do not replace this with per-list margins or marker-padding hacks unless Qt behavior forces it; those would mix layout policy into list structure and make nested-list behavior substantially harder to reason about.
