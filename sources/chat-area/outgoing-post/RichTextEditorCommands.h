@@ -15,11 +15,19 @@ class QTextEdit;
 
 namespace Mattermost::RichTextEditorCommands {
 
+enum class InlineStyle {
+    Bold,
+    Italic,
+    StrikeOut,
+    Code,
+};
+
 enum class ListStyle {
     Bullet,
     Numbered,
 };
 
+bool toggleInline(QTextEdit& editor, InlineStyle style);
 bool toggleList(QTextEdit& editor, ListStyle style);
 bool toggleQuote(QTextEdit& editor);
 bool toggleCodeBlock(QTextEdit& editor);
