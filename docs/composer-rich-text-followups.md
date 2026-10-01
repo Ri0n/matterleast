@@ -23,3 +23,18 @@ MatterLeast deliberately uses a compact **20 px** indentation step in the rich c
 `RichTextEditorInteractionTest::listIndentWidthDoesNotChangeMarkdown()` is the cross-version serialization guard: changing the visual indentation width must not change GitHub-flavoured Markdown output.
 
 Do not replace this with per-list margins or marker-padding hacks unless Qt behavior forces it; those would mix layout policy into list structure and make nested-list behavior substantially harder to reason about.
+
+## Code block boundary and language
+
+MatterLeast distinguishes inline code from block code by structural boundaries rather than by the mere presence of a newline inside backticks.
+
+- ordinary one- or two-backtick spans remain inline code;
+- the legacy multiline compatibility promotion is used only when the opening delimiter starts a logical line, the closing delimiter ends a logical line, and the span contains at least one newline;
+- explicit fenced Markdown (` ```lang ... ``` `) is always a structural code block, including a fence containing only one line of code;
+- a non-empty `QTextFormat::BlockCodeLanguage` is structural code-block metadata, never inline-code metadata.
+
+`CodeBlockSupport.h` is the shared source for structural code detection and supported/canonical language names. Empty/default `BlockCodeFence` or `BlockCodeLanguage` Qt properties must not be treated as structural evidence.
+
+When the rich composer cursor is inside a fenced code block, its standard context menu gains **Code language**. **Plain text** clears only `BlockCodeLanguage`; the fenced-code structure stays intact. A named language applies to the complete contiguous code-block region and serializes as the Markdown fence info string.
+
+Renderer parsing normalizes empty code-block properties after Qt Markdown parsing so an inline-code paragraph cannot be materialized accidentally as `CodeBlockEdit`.
