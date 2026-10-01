@@ -341,29 +341,26 @@ QString promoteMultilineCodeSpans(const QString& text)
 
         const int contentStart = position + delimiterLength;
         const QString content = text.mid(contentStart, closingPosition - contentStart);
-        if (!content.contains(QLatin1Char('\n'))) {
-            result += text.mid(position, closingPosition + delimiterLength - position);
-            position = closingPosition + delimiterLength;
+        const int afterClosing = closingPosition + delimiterLength;
+        const bool startsAtLineStart = position == 0
+            || text.at(position - 1) == QLatin1Char('\n');
+        const bool endsAtLineEnd = afterClosing == text.size()
+            || text.at(afterClosing) == QLatin1Char('\n');
+
+        // Only reinterpret the old real-world compatibility syntax when the
+        // backtick span itself occupies complete logical lines and actually is
+        // multiline. Embedded spans retain inline-code semantics even if they
+        // contain a newline. Explicit ```lang fences are handled separately by
+        // fencedBlockEnd() and are always structural, including one-line code.
+        if (!content.contains(QLatin1Char('\n'))
+            || !startsAtLineStart || !endsAtLineEnd) {
+            result += text.mid(position, afterClosing - position);
+            position = afterClosing;
             continue;
         }
 
-        // CommonMark intentionally collapses whitespace inside multiline code
-        // spans. Mattermost messages in the wild also contain multiline snippets
-        // wrapped in one or two backticks, so promote those spans to a fenced
-        // code block before handing the text to QTextDocument's Markdown parser.
         const int fenceLength = std::max(3, longestBacktickRun(content) + 1);
         const QString fence(fenceLength, QLatin1Char('`'));
-        const bool startsAtLineStart = position == 0 || text.at(position - 1) == QLatin1Char('\n');
-        const int afterClosing = closingPosition + delimiterLength;
-        const bool endsAtLineEnd = afterClosing == text.size() || text.at(afterClosing) == QLatin1Char('\n');
-
-        if (!startsAtLineStart) {
-            if (!result.endsWith(QLatin1Char('\n'))) {
-                result += QLatin1Char('\n');
-            }
-            result += QLatin1Char('\n');
-        }
-
         result += fence;
         result += QLatin1Char('\n');
         result += content;
@@ -371,11 +368,6 @@ QString promoteMultilineCodeSpans(const QString& text)
             result += QLatin1Char('\n');
         }
         result += fence;
-
-        if (!endsAtLineEnd) {
-            result += QStringLiteral("\n\n");
-        }
-
         position = afterClosing;
     }
 
