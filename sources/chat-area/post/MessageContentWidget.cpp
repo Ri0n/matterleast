@@ -225,12 +225,32 @@ public:
     {
         document()->setDefaultFont(font());
         setHtml(html);
-        document()->setDefaultFont(font());
-        document()->setDocumentMargin(0);
-        applyEmojiPresentation(*document(), jumboEmoji);
-        applyWrapMode();
-        scheduleHeightUpdate();
+        finishContent(jumboEmoji);
     }
+
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    void setContentFragment(const QTextDocumentFragment& fragment,
+                            bool jumboEmoji = false)
+    {
+        QTextDocument* target = document();
+        target->clear();
+        target->setDefaultFont(font());
+        target->setDocumentMargin(0);
+
+        QTextCursor cursor(target);
+        cursor.movePosition(QTextCursor::Start);
+        cursor.insertFragment(fragment);
+        finishContent(jumboEmoji);
+    }
+
+    void setContentMarkdown(const QString& markdown, bool jumboEmoji = false)
+    {
+        QTextDocument* target = document();
+        target->setDefaultFont(font());
+        MessageFormatter::buildMarkdownDocument(*target, markdown);
+        finishContent(jumboEmoji);
+    }
+#endif
 
     QSize sizeHint() const override
     {
@@ -297,6 +317,15 @@ protected:
     }
 
 private:
+    void finishContent(bool jumboEmoji)
+    {
+        document()->setDefaultFont(font());
+        document()->setDocumentMargin(0);
+        applyEmojiPresentation(*document(), jumboEmoji);
+        applyWrapMode();
+        scheduleHeightUpdate();
+    }
+
     void applyWrapMode()
     {
         QTextOption option = document()->defaultTextOption();
@@ -354,7 +383,7 @@ protected:
 class QuoteBlock final : public QWidget
 {
 public:
-    QuoteBlock(const QString& html,
+    QuoteBlock(const QString& markdown,
                std::function<void()> heightChanged,
                QWidget* parent = nullptr)
         : QWidget(parent)
@@ -377,7 +406,11 @@ public:
                 this->heightChanged();
             }
         }, this);
-        text->setContentHtml(html);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        text->setContentMarkdown(markdown);
+#else
+        text->setContentHtml(MessageFormatter::formatMessageText(markdown));
+#endif
         layout->addWidget(text, 1);
         updateMutedPalette();
     }
@@ -736,7 +769,7 @@ QString codeLanguage(const QTextBlock& block)
     return block.blockFormat().stringProperty(QTextFormat::BlockCodeLanguage);
 }
 
-QString fragmentHtml(QTextDocument& document, int start, int end)
+QTextDocumentFragment fragmentForRange(QTextDocument& document, int start, int end)
 {
     if (end <= start) {
         return {};
@@ -745,23 +778,10 @@ QString fragmentHtml(QTextDocument& document, int start, int end)
     QTextCursor cursor(&document);
     cursor.setPosition(start);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
-    return QTextDocumentFragment(cursor).toHtml();
+    return QTextDocumentFragment(cursor);
 }
 
 #endif
-
-QString formatRichTextForFont(const QString& message, const QFont& font)
-{
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-    QTextDocument document;
-    document.setDefaultFont(font);
-    MessageFormatter::buildMarkdownDocument(document, message);
-    return document.toHtml();
-#else
-    Q_UNUSED(font);
-    return MessageFormatter::formatMessageText(message);
-#endif
-}
 
 } // namespace
 
@@ -838,7 +858,7 @@ void MessageContentWidget::setMessage(const QString& message)
     const QVector<MessageSegment> segments = splitMessageSegments(message);
     for (const MessageSegment& segment : segments) {
         if (segment.quote) {
-            addQuote(formatRichTextForFont(segment.text, font()));
+            addQuote(segment.text);
             continue;
         }
         if (segment.text.isEmpty()) {
@@ -960,14 +980,14 @@ void MessageContentWidget::scheduleDimensionsChanged()
     });
 }
 
-void MessageContentWidget::addQuote(const QString& html)
+void MessageContentWidget::addQuote(const QString& markdown)
 {
-    if (html.isEmpty()) {
+    if (markdown.isEmpty()) {
         return;
     }
 
     auto* quote = new QuoteBlock(
-        html, [this] { scheduleDimensionsChanged(); }, this);
+        markdown, [this] { scheduleDimensionsChanged(); }, this);
     quote->browser()->setLinkDragHandler([this](const QString& link) {
         emit linkDragRequested(link);
     });
@@ -1002,6 +1022,27 @@ void MessageContentWidget::addRichText(const QString& html)
 }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+void MessageContentWidget::addRichTextFragment(const QTextDocumentFragment& fragment)
+{
+    if (fragment.isEmpty()) {
+        return;
+    }
+
+    auto* richText = new WrappedRichText(
+        [this] { scheduleDimensionsChanged(); }, this);
+    richText->setLinkDragHandler([this](const QString& link) {
+        emit linkDragRequested(link);
+    });
+    richText->setContentFragment(fragment, _jumboEmojiMessage);
+    connect(richText,
+            QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
+            this,
+            [this](const QUrl& url) {
+                emit linkHovered(url.toString());
+            });
+    contentLayout->addWidget(richText);
+}
+
 void MessageContentWidget::addMarkdownContent(const QString& message)
 {
     QTextDocument document;
@@ -1017,7 +1058,7 @@ void MessageContentWidget::addMarkdownContent(const QString& message)
         }
 
         const int codeStart = block.position();
-        addRichText(fragmentHtml(document, richStart, codeStart));
+        addRichTextFragment(fragmentForRange(document, richStart, codeStart));
 
         QString language = codeLanguage(block);
         QStringList codeLines;
@@ -1042,7 +1083,8 @@ void MessageContentWidget::addMarkdownContent(const QString& message)
         richStart = block.isValid() ? block.position() : document.characterCount() - 1;
     }
 
-    addRichText(fragmentHtml(document, richStart, document.characterCount() - 1));
+    addRichTextFragment(fragmentForRange(
+        document, richStart, document.characterCount() - 1));
 }
 
 void MessageContentWidget::addCodeBlock(const QString& code, const QString& language)
