@@ -6,6 +6,8 @@
 
 #include "ThemeIconWidgets.h"
 
+#include <algorithm>
+
 #include <QApplication>
 #include <QColor>
 #include <QEvent>
