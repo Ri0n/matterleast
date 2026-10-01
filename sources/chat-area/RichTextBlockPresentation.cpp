@@ -329,6 +329,17 @@ private:
     QPointer<QPlainTextEdit> editor_;
 };
 
+template<typename T>
+T* findDirectWidget(QObject* parent, const char* objectName)
+{
+    if (!parent) {
+        return nullptr;
+    }
+    QWidget* widget = parent->findChild<QWidget*>(
+        QString::fromLatin1(objectName), Qt::FindDirectChildrenOnly);
+    return dynamic_cast<T*>(widget);
+}
+
 void updatePresentationSelections(QTextEdit* editor)
 {
     if (!editor) {
@@ -386,9 +397,8 @@ void updatePresentationSelections(QTextEdit* editor)
 
     editor->setExtraSelections(selections);
 
-    if (auto* overlay = editor->viewport()->findChild<BlockDecorationOverlay*>(
-            QString::fromLatin1(DecorationOverlayName),
-            Qt::FindDirectChildrenOnly)) {
+    if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
+            editor->viewport(), DecorationOverlayName)) {
         overlay->syncGeometry();
         overlay->raise();
     }
@@ -490,9 +500,8 @@ protected:
                     || type == QEvent::FontChange) {
                     updatePresentationSelections(composer);
                 }
-                if (auto* overlay = composer->viewport()->findChild<BlockDecorationOverlay*>(
-                        QString::fromLatin1(DecorationOverlayName),
-                        Qt::FindDirectChildrenOnly)) {
+                if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
+                        composer->viewport(), DecorationOverlayName)) {
                     overlay->syncGeometry();
                 }
             }
@@ -509,9 +518,8 @@ protected:
                     || type == QEvent::FontChange) {
                     updatePresentationSelections(browser);
                 }
-                if (auto* overlay = browser->viewport()->findChild<BlockDecorationOverlay*>(
-                        QString::fromLatin1(DecorationOverlayName),
-                        Qt::FindDirectChildrenOnly)) {
+                if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
+                        browser->viewport(), DecorationOverlayName)) {
                     overlay->syncGeometry();
                 }
             }
@@ -528,9 +536,8 @@ protected:
                 if (wanted != code->palette()) {
                     code->setPalette(wanted);
                 }
-                if (auto* overlay = code->findChild<CodeWidgetBorderOverlay*>(
-                        QString::fromLatin1(CodeWidgetBorderName),
-                        Qt::FindDirectChildrenOnly)) {
+                if (auto* overlay = findDirectWidget<CodeWidgetBorderOverlay>(
+                        code, CodeWidgetBorderName)) {
                     overlay->syncGeometry();
                 }
             }
@@ -544,9 +551,8 @@ protected:
             if (auto* widget = qobject_cast<QWidget*>(watched)) {
                 if (auto* editor = qobject_cast<QTextEdit*>(widget->parentWidget())) {
                     if (widget == editor->viewport()) {
-                        if (auto* overlay = widget->findChild<BlockDecorationOverlay*>(
-                                QString::fromLatin1(DecorationOverlayName),
-                                Qt::FindDirectChildrenOnly)) {
+                        if (auto* overlay = findDirectWidget<BlockDecorationOverlay>(
+                                widget, DecorationOverlayName)) {
                             overlay->syncGeometry();
                         }
                     }
