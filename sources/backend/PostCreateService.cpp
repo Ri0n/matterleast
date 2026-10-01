@@ -8,6 +8,7 @@
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QStringList>
+#include <QTimer>
 
 #include "Backend.h"
 #include "NetworkRequest.h"
@@ -19,6 +20,8 @@
 
 namespace Mattermost {
 namespace {
+
+constexpr int PendingMetadataLifetimeMs = 10 * 60 * 1000;
 
 QString quoteMatterpollArgument(QString value)
 {
@@ -73,6 +76,28 @@ PostCreateService::PostCreateService(Backend& sourceBackend)
             &backend, &Backend::onHttpError);
 }
 
+void PostCreateService::stagePendingPostMetadata(
+    const QString& pendingPostId,
+    const QJsonObject& metadata)
+{
+    if (pendingPostId.isEmpty()) {
+        return;
+    }
+    if (metadata.isEmpty()) {
+        pendingPostMetadata.remove(pendingPostId);
+        return;
+    }
+
+    pendingPostMetadata.insert(pendingPostId, metadata);
+    QPointer<PostCreateService> guard(this);
+    QTimer::singleShot(PendingMetadataLifetimeMs, this,
+                       [guard, pendingPostId] {
+        if (guard) {
+            guard->pendingPostMetadata.remove(pendingPostId);
+        }
+    });
+}
+
 void PostCreateService::createPost(BackendChannel& channel,
                                    const QString& message,
                                    const QList<QString>& attachments,
@@ -112,6 +137,10 @@ void PostCreateService::createPostDetailed(
     if (!props.isEmpty()) {
         json.insert(QStringLiteral("props"), props);
     }
+    const QJsonObject metadata = pendingPostMetadata.value(pendingPostId);
+    if (!metadata.isEmpty()) {
+        json.insert(QStringLiteral("metadata"), metadata);
+    }
     if (!files.isEmpty()) {
         json.insert(QStringLiteral("file_ids"), files);
     }
@@ -128,7 +157,7 @@ void PostCreateService::createPostDetailed(
     httpConnector.post(
         request, payload,
         HttpResponseCallback(
-            [guard, callback = std::move(callback)](
+            [guard, pendingPostId, callback = std::move(callback)](
                 QVariant status,
                 QByteArray response,
                 const QNetworkReply& reply) mutable {
@@ -148,6 +177,11 @@ void PostCreateService::createPostDetailed(
             && parseError.error == QJsonParseError::NoError
             && document.isObject()) {
             result.post = guard->ingestCreatedPost(document.object());
+        }
+
+        if (guard && !pendingPostId.isEmpty()
+            && (result.success() || !result.retryable())) {
+            guard->pendingPostMetadata.remove(pendingPostId);
         }
 
         if (callback) {
