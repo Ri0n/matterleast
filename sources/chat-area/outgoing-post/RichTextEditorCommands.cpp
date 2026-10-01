@@ -57,10 +57,13 @@ int listIndent(const QTextBlock& block)
 
 QTextListFormat::Style listStyle(const QTextBlock& block)
 {
+    // All callers establish list membership first. Keep a valid Qt enum value
+    // as the defensive fallback because QTextListFormat::Style has no
+    // "undefined" enumerator on either Qt 5 or Qt 6.
     if (QTextList* list = block.textList()) {
         return list->format().style();
     }
-    return QTextListFormat::ListStyleUndefined;
+    return QTextListFormat::ListDisc;
 }
 
 BlockRange selectedBlockRange(QTextEdit& editor)
