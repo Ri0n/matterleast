@@ -396,6 +396,83 @@ private slots:
         QVERIFY(tabs->tabText(1).startsWith(QStringLiteral("★ ")));
     }
 
+    void dockedThreadCoexistsWithActiveThreadTab()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        MLOptions::instance()->setValue(sessionKey(), QByteArray());
+
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1100, 700);
+        window.show();
+
+        QTRY_VERIFY(storage.getChannelById(QStringLiteral("channel")));
+        QTRY_VERIFY(storage.getTeamById(QStringLiteral("team")));
+        QTRY_VERIFY(SidebarService::instance(backend).teamState(QStringLiteral("team")));
+        BackendChannel* channel = storage.getChannelById(QStringLiteral("channel"));
+        QVERIFY(channel);
+        channel->addPost(post(110));
+
+        auto* team = storage.getTeamById(QStringLiteral("team"));
+        QVERIFY(team);
+        BackendChannel* other = storage.addTeamChannel(
+            *team, QJsonObject {{"id", "other-channel"}, {"type", "O"},
+                               {"display_name", "Other chat"}});
+        QVERIFY(other);
+        QJsonObject otherRoot = post(111);
+        otherRoot.insert(QStringLiteral("channel_id"), other->id);
+        otherRoot.insert(QStringLiteral("reply_count"), 0);
+        otherRoot.insert(QStringLiteral("last_reply_at"),
+                         otherRoot.value(QStringLiteral("create_at")));
+        other->addPost(otherRoot);
+
+        auto& navigationUi = NavigationUiController::instance(window);
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openChannel(channel->id);
+        QTRY_VERIFY(window.findChild<ChannelTree*>(QStringLiteral("channelList"))->getCurrentPage());
+
+        navigation.openThreadInTab(channel->id, rootId(110));
+        QTRY_VERIFY(navigationUi.findThread(channel->id, rootId(110)));
+        ChatArea* tabbed = navigationUi.findThread(channel->id, rootId(110));
+        QVERIFY(tabbed->property("threadTabbed").toBool());
+        auto* surfaceStack = window.findChild<QStackedWidget*>(
+            QStringLiteral("navigationSurfaceStack"));
+        auto* threadStack = window.findChild<QStackedWidget*>(QStringLiteral("threadStack"));
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(surfaceStack);
+        QVERIFY(threadStack);
+        QVERIFY(tabs);
+        QCOMPARE(surfaceStack->currentWidget(), static_cast<QWidget*>(tabbed));
+        const int tabCount = tabs->count();
+
+        // This is the path used by an ordinary Following/Attention activation.
+        // The central thread tab belongs to channel A; a thread from channel B
+        // must be allowed to coexist in the independent right-hand pane.
+        navigation.openThread(other->id, rootId(111));
+        QTRY_VERIFY(navigationUi.findThread(other->id, rootId(111)));
+        ChatArea* docked = navigationUi.findThread(other->id, rootId(111));
+        QCOMPARE(tabs->count(), tabCount);
+        QCOMPARE(surfaceStack->currentWidget(), static_cast<QWidget*>(tabbed));
+        QTRY_VERIFY(!threadStack->isHidden());
+        QCOMPARE(threadStack->currentWidget(), static_cast<QWidget*>(docked));
+        QVERIFY(tabbed->isVisible());
+        QVERIFY(docked->isVisible());
+        QVERIFY(!docked->property("threadTabbed").toBool());
+
+        // Re-activating the same thread must reuse the existing pane rather than
+        // materialize a second ChatArea or disturb the central thread tab.
+        navigation.openThread(other->id, rootId(111));
+        QCOMPARE(navigationUi.findThread(other->id, rootId(111)), docked);
+        QCOMPARE(threadStack->currentWidget(), static_cast<QWidget*>(docked));
+        QCOMPARE(surfaceStack->currentWidget(), static_cast<QWidget*>(tabbed));
+    }
+
     void coldThreadsOpenInSuccessiveTabs()
     {
         Server server;

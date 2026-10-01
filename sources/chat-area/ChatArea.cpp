@@ -810,6 +810,18 @@ void ChatArea::onDeactivate()
     deinit();
 
     if (!isThread && ui && ui->listWidget) {
+        // rangeRequested/rangeRequestFinished account only the currently
+        // attached presentation. Detaching a tab clears LongList's pending
+        // ranges without synthesizing completion signals, so discard any
+        // presentation-only loading state before attaching this ChatArea again.
+        pendingMessageLoads = 0;
+        if (loadingDelayTimer) {
+            loadingDelayTimer->stop();
+        }
+        if (ui->attachButton) {
+            ui->attachButton->setProperty(ComposerMessageLoadingProperty, false);
+        }
+
         // Keep ChannelPostSource alive as the semantic timeline authority while
         // dropping the concrete view. setItemCount(0) inside setSource(nullptr)
         // destroys every materialized PostWidget and releases its residency lease.

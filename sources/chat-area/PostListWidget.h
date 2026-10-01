@@ -35,6 +35,8 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    void clearActiveHover(bool immediate = false);
+
     QPointer<QWidget> activeHoverPost_;
     bool hoverSessionHasPost_ = false;
 };

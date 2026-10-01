@@ -151,12 +151,11 @@ void NavigationUiController::setupMainWindow()
             QWidget* page = mainStack->widget(index);
             const bool chatSurface = qobject_cast<ChatArea*>(page) != nullptr;
             if (!chatSurface) {
-                // Saved/Drafts/Search still use MainWindow's existing transient
-                // collection surface. A tabbed thread must not cover a newly
-                // requested collection merely because that thread currently
-                // owns the navigation surface stack.
-                if (!switchingTabs && navigationSurfaceStack && contentSplitter) {
-                    navigationSurfaceStack->setCurrentWidget(contentSplitter);
+                // Saved/Drafts/Search are central surfaces just like channels.
+                // They replace only the central tab surface; a docked thread on
+                // the right remains an independent presentation pane.
+                if (!switchingTabs && navigationSurfaceStack && mainStack) {
+                    navigationSurfaceStack->setCurrentWidget(mainStack);
                 }
                 if (navigationTabs) {
                     navigationTabs->hide();
@@ -176,7 +175,7 @@ void NavigationUiController::setupMainWindow()
                 // A deferred sidebar selection must not steal an independently
                 // activated thread tab (including startup session replay).
                 if (channelTree && (!navigationSurfaceStack
-                    || navigationSurfaceStack->currentWidget() == contentSplitter)) {
+                    || navigationSurfaceStack->currentWidget() == mainStack)) {
                     recordArea(channelTree->getCurrentPage());
                 }
             });
@@ -299,16 +298,21 @@ void NavigationUiController::setupThreadPane()
     navigationTabs->hide();
     hostLayout->addWidget(navigationTabs);
 
-    navigationSurfaceStack = new QStackedWidget(contentHost);
-    navigationSurfaceStack->setObjectName(QStringLiteral("navigationSurfaceStack"));
-    hostLayout->addWidget(navigationSurfaceStack, 1);
-
+    // Central navigation and the right thread pane are independent siblings.
+    // A channel or thread tab replaces only the left/central surface; it must
+    // never hide a docked thread that happens to be open at the same time.
     contentSplitter = new ThinSplitter(Qt::Horizontal);
     contentSplitter->setObjectName(QStringLiteral("contentSplitter"));
     contentSplitter->setChildrenCollapsible(true);
     contentSplitter->setOpaqueResize(true);
+    hostLayout->addWidget(contentSplitter, 1);
 
-    contentSplitter->addWidget(mainStack);
+    navigationSurfaceStack = new QStackedWidget(contentSplitter);
+    navigationSurfaceStack->setObjectName(QStringLiteral("navigationSurfaceStack"));
+    navigationSurfaceStack->addWidget(mainStack);
+    navigationSurfaceStack->setCurrentWidget(mainStack);
+    contentSplitter->addWidget(navigationSurfaceStack);
+
     threadStack = new QStackedWidget(contentSplitter);
     threadStack->setObjectName(QStringLiteral("threadStack"));
     threadStack->setMinimumWidth(280);
@@ -317,21 +321,16 @@ void NavigationUiController::setupThreadPane()
     contentSplitter->setStretchFactor(0, 2);
     contentSplitter->setStretchFactor(1, 1);
 
-    navigationSurfaceStack->addWidget(contentSplitter);
-    navigationSurfaceStack->setCurrentWidget(contentSplitter);
-
     sidebarSplitter->insertWidget(std::max(0, oldIndex), contentHost);
     if (!outerSizes.isEmpty()) {
         sidebarSplitter->setSizes(outerSizes);
     }
 
-    // Reparenting a visible widget hides it. The central channel surface must
-    // remain visible independently of whether the tab bar itself is hidden.
-    // Thread presentation calls show() later on its own page; establish the
-    // normal channel surface immediately as well.
+    // Reparenting a visible widget hides it. Establish the central surface and
+    // splitter explicitly; thread presentation controls only the right sibling.
     contentHost->show();
-    navigationSurfaceStack->show();
     contentSplitter->show();
+    navigationSurfaceStack->show();
     mainStack->show();
 
     const QByteArray state = MLOptions::instance()->value<QByteArray>(
@@ -619,7 +618,7 @@ void NavigationUiController::saveActiveTabLocation()
     if (!entry->rootId.isEmpty()) {
         area = findThread(entry->channelId, entry->rootId);
     } else if (!navigationSurfaceStack
-               || navigationSurfaceStack->currentWidget() == contentSplitter) {
+               || navigationSurfaceStack->currentWidget() == mainStack) {
         area = mainStack
             ? qobject_cast<ChatArea*>(mainStack->currentWidget())
             : nullptr;
@@ -734,9 +733,9 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             }
         }
     } else {
-        if (navigationSurfaceStack && contentSplitter) {
-            navigationSurfaceStack->setCurrentWidget(contentSplitter);
-            contentSplitter->show();
+        if (navigationSurfaceStack && mainStack) {
+            navigationSurfaceStack->setCurrentWidget(mainStack);
+            mainStack->show();
         }
         navigateTo(location);
     }
@@ -1012,8 +1011,8 @@ void NavigationUiController::recordArea(ChatArea* area)
                 activeTabIndex = index;
                 QSignalBlocker blocker(navigationTabs);
                 navigationTabs->setCurrentIndex(index);
-                if (navigationSurfaceStack && contentSplitter) {
-                    navigationSurfaceStack->setCurrentWidget(contentSplitter);
+                if (navigationSurfaceStack && mainStack) {
+                    navigationSurfaceStack->setCurrentWidget(mainStack);
                 }
             }
             updateTabPinButton(area);
@@ -1409,21 +1408,10 @@ void NavigationUiController::attachThread(ChatArea* area)
 
     const int releasedTabIndex = releaseThreadFromTabSurface(area);
     if (releasedTabIndex >= 0) {
+        // Removing the tab already selects the next central destination. Do not
+        // force a channel tab here: a thread tab in the central surface is fully
+        // compatible with another thread docked on the right.
         removeTab(releasedTabIndex, false);
-
-        int channelTab = firstChannelTab();
-        if (channelTab < 0) {
-            Location channelLocation;
-            channelLocation.channelId = area->getChannel().id;
-            channelTab = appendNavigationTab(channelLocation);
-        }
-        if (channelTab >= 0) {
-            {
-                QSignalBlocker blocker(navigationTabs);
-                navigationTabs->setCurrentIndex(channelTab);
-            }
-            activateTab(channelTab);
-        }
     }
 
     if (auto* previous = qobject_cast<ChatArea*>(threadStack->currentWidget());
@@ -1495,23 +1483,30 @@ void NavigationUiController::detachThread(ChatArea* area)
 
 void NavigationUiController::syncSplitterEdgeGutters()
 {
-    auto* channelArea = mainStack
-        ? qobject_cast<ChatArea*>(mainStack->currentWidget())
-        : nullptr;
+    ChatArea* centralArea = nullptr;
+    if (navigationSurfaceStack) {
+        QWidget* centralSurface = navigationSurfaceStack->currentWidget();
+        if (centralSurface == mainStack) {
+            centralArea = mainStack
+                ? qobject_cast<ChatArea*>(mainStack->currentWidget())
+                : nullptr;
+        } else {
+            centralArea = qobject_cast<ChatArea*>(centralSurface);
+        }
+    } else if (mainStack) {
+        centralArea = qobject_cast<ChatArea*>(mainStack->currentWidget());
+    }
+
     auto* threadArea = threadStack
         ? qobject_cast<ChatArea*>(threadStack->currentWidget())
         : nullptr;
-
-    const bool normalSurfaceVisible = !navigationSurfaceStack
-        || navigationSurfaceStack->currentWidget() == contentSplitter;
-    const bool threadDocked = normalSurfaceVisible
-        && threadStack && !threadStack->isHidden()
+    const bool threadDocked = threadStack && !threadStack->isHidden()
         && threadArea && !threadArea->property("threadDetached").toBool();
 
-    if (channelArea) {
-        // The main chat always touches the sidebar splitter on the left.
-        // Its right edge touches the thread splitter only while that pane is open.
-        channelArea->setSplitterEdgeGutters(true, threadDocked);
+    if (centralArea) {
+        // Whatever occupies the central surface touches the outer/sidebar edge
+        // on the left and the thread splitter only while a docked pane is open.
+        centralArea->setSplitterEdgeGutters(true, threadDocked);
     }
     if (threadArea && threadDocked) {
         threadArea->setSplitterEdgeGutters(true, false);
@@ -1524,9 +1519,9 @@ void NavigationUiController::presentChannel(ChatArea* area)
         return;
     }
 
-    if (navigationSurfaceStack && contentSplitter) {
-        navigationSurfaceStack->setCurrentWidget(contentSplitter);
-        contentSplitter->show();
+    if (navigationSurfaceStack && mainStack) {
+        navigationSurfaceStack->setCurrentWidget(mainStack);
+        mainStack->show();
     }
 
     recordArea(area);

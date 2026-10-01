@@ -189,9 +189,9 @@ void MainWindow::openChannelPost(const QString& channelId,
         return connection;
     };
 
-    // Thread presentation is independent from the main-channel surface. A
-    // followed thread can therefore open in the right pane without stealing an
-    // already visible central channel. A completely empty centre is different:
+    // Thread presentation is independent from the central navigation surface.
+    // A channel or thread tab may remain visible in the centre while another
+    // thread is docked on the right. A completely empty centre is different:
     // showing a thread beside blank space looks broken, so establish its parent
     // channel as the central context first.
     if (!rootId.isEmpty()) {
