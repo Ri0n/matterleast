@@ -63,6 +63,8 @@ protected:
         auto matches = expression.globalMatch(text);
         while (matches.hasNext()) {
             const QRegularExpressionMatch match = matches.next();
+            // Keep the complete Markdown source visible and editable. Only the
+            // human-readable label is decorated like a conventional link.
             setFormat(match.capturedStart(1),
                       match.capturedLength(1),
                       linkFormat);
@@ -76,11 +78,14 @@ private:
 inline MarkdownSourceLinkHighlighter* markdownLinkHighlighterFor(
     MessageTextEditWidget* editor)
 {
-    return editor
-        ? editor->findChild<MarkdownSourceLinkHighlighter*>(
-              QString::fromLatin1(MarkdownLinkHighlighterObjectName),
-              Qt::FindDirectChildrenOnly)
-        : nullptr;
+    if (!editor) {
+        return nullptr;
+    }
+
+    QObject* object = editor->findChild<QObject*>(
+        QString::fromLatin1(MarkdownLinkHighlighterObjectName),
+        Qt::FindDirectChildrenOnly);
+    return dynamic_cast<MarkdownSourceLinkHighlighter*>(object);
 }
 
 inline void setMarkdownLinkHighlighting(MessageTextEditWidget* editor,
@@ -137,6 +142,8 @@ inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool visible
         ? qBound(0, interruptedHeight, targetHeight)
         : (visible ? 0 : std::max(toolbar->height(), targetHeight));
 
+    // ChatArea.ui owns semantic visibility. Keep the widget painted during the
+    // collapsing leg so the layout shrinks instead of disappearing abruptly.
     toolbar->show();
     toolbar->setMaximumHeight(startHeight);
 
@@ -203,6 +210,10 @@ inline void ensurePostEditModeHook(MessageTextEditWidget* editor)
                 return;
             }
 
+            // Existing posts deliberately use the hybrid source presentation:
+            // raw Markdown remains exact while links are only decorated. If a
+            // generic mode action tries to enter full rich mode, return to the
+            // source presentation on the next turn.
             QTimer::singleShot(0, editor, [editor] {
                 if (editor->property(EditingPostProperty).toBool()
                     && editor->isRichTextEditing()) {
@@ -301,6 +312,8 @@ inline bool MessageTextEditWidget::event(QEvent* event)
 {
     using namespace MessageTextEditWidgetInteractionDetail;
 
+    // OutgoingPostCreator historically disabled the context menu. Restore the
+    // ordinary QTextEdit policy without making that class own editor behavior.
     if (contextMenuPolicy() != Qt::DefaultContextMenu) {
         setContextMenuPolicy(Qt::DefaultContextMenu);
     }
