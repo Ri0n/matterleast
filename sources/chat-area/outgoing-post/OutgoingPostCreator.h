@@ -157,6 +157,7 @@ private:
     QString                             activeRecoveredDraftKey;
     QTimer*                             draftSaveTimer = nullptr;
     QTimer*                             rankedEmojiHideTimer = nullptr;
+    QTimer*                             rankedEmojiPickerDestroyTimer = nullptr;
     QVariantAnimation*                  rankedEmojiRevealAnimation = nullptr;
     QPointer<QFrame>                    rankedEmojiPopup;
     QPointer<QWidget>                   rankedEmojiContentRoot;
