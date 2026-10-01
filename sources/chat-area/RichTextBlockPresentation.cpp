@@ -3,7 +3,7 @@
  *
  * This file is part of MatterLeast.
  *
- * Presentation-only styling for structural Markdown blocks.  Markdown remains
+ * Presentation-only styling for structural Markdown blocks. Markdown remains
  * the canonical representation: this layer never mutates QTextBlock/QTextChar
  * formats, because doing so would make the rich composer look modified and
  * force an otherwise untouched source through QTextDocument::toMarkdown().
@@ -16,11 +16,14 @@
 #include <QEvent>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFrame>
+#include <QLayout>
 #include <QPainter>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QScrollBar>
+#include <QStringList>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextBrowser>
@@ -102,6 +105,44 @@ bool richPresentationEnabled(const QTextEdit* editor)
         return composer->isRichTextEditing();
     }
     return editor->objectName() == QStringLiteral("messageRichText");
+}
+
+bool isReceivedQuoteBrowser(const QTextBrowser* browser)
+{
+    if (!browser || browser->objectName() != QStringLiteral("messageRichText")) {
+        return false;
+    }
+    const QWidget* parent = browser->parentWidget();
+    const QLayout* layout = parent ? parent->layout() : nullptr;
+    if (!layout || layout->count() < 2) {
+        return false;
+    }
+
+    for (int index = 0; index < layout->count(); ++index) {
+        QWidget* sibling = layout->itemAt(index)->widget();
+        if (sibling && sibling != browser
+            && sibling->minimumWidth() == QuoteBarWidth
+            && sibling->maximumWidth() == QuoteBarWidth) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void syncReceivedQuotePalette(QTextBrowser* browser)
+{
+    if (!isReceivedQuoteBrowser(browser)) {
+        return;
+    }
+    QPalette wanted = browser->palette();
+    const QColor text = quoteText(browser->parentWidget()
+                                      ? browser->parentWidget()->palette()
+                                      : browser->palette());
+    wanted.setColor(QPalette::Text, text);
+    wanted.setColor(QPalette::WindowText, text);
+    if (wanted != browser->palette()) {
+        browser->setPalette(wanted);
+    }
 }
 
 QRectF blockViewportRect(QTextEdit& editor, const QTextBlock& block)
@@ -227,9 +268,8 @@ private:
             painter,
             [](const QTextBlock& block) { return isQuoteBlock(block); },
             [this](QPainter& groupPainter, QRectF rect) {
-                const qreal x = QuoteBarOffset;
                 const QRectF barRect(
-                    x,
+                    QuoteBarOffset,
                     rect.top(),
                     QuoteBarWidth,
                     std::max<qreal>(1.0, rect.height()));
@@ -273,11 +313,7 @@ public:
 protected:
     void paintEvent(QPaintEvent*) override
     {
-        // Native styles that already provide a visible frame remain untouched.
-        // The fallback matters for styles/platforms where QPlainTextEdit's
-        // frame width collapses to zero, which made some code blocks look like
-        // an unbounded dark rectangle.
-        if (!editor_ || editor_->frameWidth() > 0) {
+        if (!editor_) {
             return;
         }
         QPainter painter(this);
@@ -419,6 +455,10 @@ void ensureCodeWidgetPresentation(QPlainTextEdit* editor)
     palette.setColor(QPalette::Text, codeForeground());
     editor->setPalette(palette);
 
+    // Do not delegate code-block boundaries to the current platform style.
+    // Some styles collapse the QPlainTextEdit frame entirely; use the same
+    // explicit one-pixel block boundary as the composer instead.
+    editor->setFrameShape(QFrame::NoFrame);
     new CodeWidgetBorderOverlay(editor);
 }
 
@@ -463,6 +503,7 @@ protected:
             if (browser->objectName() == QStringLiteral("messageRichText")
                 && structuralEvent) {
                 ensureTextEditPresentation(browser);
+                syncReceivedQuotePalette(browser);
                 if (type == QEvent::PaletteChange
                     || type == QEvent::ApplicationPaletteChange
                     || type == QEvent::FontChange) {
@@ -481,10 +522,12 @@ protected:
             if (code->objectName() == QStringLiteral("messageCodeBlock")
                 && structuralEvent) {
                 ensureCodeWidgetPresentation(code);
-                QPalette palette = code->palette();
-                palette.setColor(QPalette::Base, codeBackground());
-                palette.setColor(QPalette::Text, codeForeground());
-                code->setPalette(palette);
+                QPalette wanted = code->palette();
+                wanted.setColor(QPalette::Base, codeBackground());
+                wanted.setColor(QPalette::Text, codeForeground());
+                if (wanted != code->palette()) {
+                    code->setPalette(wanted);
+                }
                 if (auto* overlay = code->findChild<CodeWidgetBorderOverlay*>(
                         QString::fromLatin1(CodeWidgetBorderName),
                         Qt::FindDirectChildrenOnly)) {
@@ -526,4 +569,9 @@ void installRichTextBlockPresentation()
 } // namespace
 } // namespace Mattermost
 
-Q_COREAPP_STARTUP_FUNCTION(Mattermost::installRichTextBlockPresentation)
+static void installMatterLeastRichTextBlockPresentation()
+{
+    Mattermost::installRichTextBlockPresentation();
+}
+
+Q_COREAPP_STARTUP_FUNCTION(installMatterLeastRichTextBlockPresentation)
