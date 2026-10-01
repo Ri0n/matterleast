@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <QApplication>
+#include <QColor>
 #include <QCoreApplication>
 #include <QKeyEvent>
 #include <QSignalSpy>
@@ -225,20 +227,60 @@ private slots:
 
     void listIndentWidthDoesNotChangeMarkdown()
     {
+        const QString source = QStringLiteral("- parent\n  - child");
+
+        QTextDocument document;
+        document.setMarkdown(source, QTextDocument::MarkdownDialectGitHub);
+        const QString before = document.toMarkdown(
+            QTextDocument::MarkdownDialectGitHub);
+        QVERIFY(document.indentWidth() > 20.0);
+
+        document.setIndentWidth(20.0);
+        QCOMPARE(document.indentWidth(), qreal(20.0));
+        QCOMPARE(document.toMarkdown(QTextDocument::MarkdownDialectGitHub), before);
+
         MessageTextEditWidget editor;
-        prepareEditor(editor, QStringLiteral("- parent\n  - child"));
+        prepareEditor(editor, source);
+        QCOMPARE(editor.document()->indentWidth(), qreal(20.0));
+        QCOMPARE(editor.markdownText(), source);
+    }
 
-        const QString before = editor.document()->toMarkdown(
-            QTextDocument::MarkdownDialectGitHub);
-        const qreal originalIndentWidth = editor.document()->indentWidth();
-        QVERIFY(originalIndentWidth > 20.0);
+    void structuralPresentationPreservesCanonicalMarkdown()
+    {
+        const QString source = QStringLiteral(
+            "> quoted text\n\n"
+            "```cpp\n"
+            "int answer = 42;\n"
+            "```");
 
-        editor.document()->setIndentWidth(20.0);
-        QCOMPARE(editor.document()->indentWidth(), 20.0);
+        MessageTextEditWidget editor;
+        prepareEditor(editor, source);
+        QCoreApplication::processEvents();
 
-        const QString after = editor.document()->toMarkdown(
-            QTextDocument::MarkdownDialectGitHub);
-        QCOMPARE(after, before);
+        // Quote/code styling is presentation-only. Showing the rich editor must
+        // not dirty the source snapshot or serialize the document back through
+        // QTextDocument merely to obtain the target visual appearance.
+        QCOMPARE(editor.markdownText(), source);
+
+        bool hasMutedQuote = false;
+        bool hasCodeBackground = false;
+        const QColor ordinaryText = editor.palette().color(QPalette::Text);
+        for (const QTextEdit::ExtraSelection& selection : editor.extraSelections()) {
+            const QColor foreground = selection.format.foreground().color();
+            const QColor background = selection.format.background().color();
+            if (foreground.isValid()
+                && foreground.alpha() < ordinaryText.alpha()) {
+                hasMutedQuote = true;
+            }
+            if (background == QColor(39, 40, 34)) {
+                hasCodeBackground = true;
+            }
+        }
+        QVERIFY(hasMutedQuote);
+        QVERIFY(hasCodeBackground);
+
+        QVERIFY(editor.findChild<QWidget*>(
+            QStringLiteral("_matterleast_rich_block_decoration_overlay")));
     }
 
     void nativeQtTableMarkdownIsNotRoundTripSafe()
