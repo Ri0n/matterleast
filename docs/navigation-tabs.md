@@ -10,7 +10,8 @@ A tab stores a semantic destination:
 - channel ID;
 - optional thread root ID;
 - a best-effort post/viewport bookmark;
-- display title.
+- display title;
+- whether the tab is pinned against ordinary channel-destination reuse.
 
 Ordinary channel/DM/GM tabs reuse the one normal channel surface owned by
 `ChannelTree` and `chatAreaStackedWidget`. Switching such a tab restores its
@@ -40,6 +41,13 @@ model merely to change its presentation.
   Repeated middle-click, **Open in new tab**, permalink navigation or other
   navigation to the same destination activates the existing tab instead of
   creating a duplicate. This applies equally to channels, DMs/GMs and threads.
+- Pinning is a property of the semantic channel-tab entry, not of a `ChatArea`
+  widget. A pinned channel destination cannot be replaced by ordinary
+  navigation. If a new channel is opened while its pinned tab is active, a new
+  tab is appended; if the target already exists, that existing tab is activated
+  as usual. When a thread tab is active, ordinary channel navigation may reuse
+  an existing unpinned channel tab but must skip pinned channel tabs. Pinning
+  does not prevent explicitly closing or moving a tab.
 - Middle-clicking a tab closes that tab. Closing is deferred until the tab-bar
   mouse event completes because closing a thread can reparent its `ChatArea`.
 - Docked thread, detached-window thread and tabbed thread are presentation
@@ -75,7 +83,10 @@ that cold identity itself, as described in [Thread source](post-sources/channel-
 Ordinary semantic navigation also reuses existing tabs. Once a navigation target
 has resolved to its canonical `channelId + rootId` destination,
 `AppNavigationService` asks the navigation UI to activate an existing matching
-tab before continuing the normal semantic navigation pipeline.
+tab before continuing the normal semantic navigation pipeline. For channel,
+DM and GM tabs, the pin button in the chat header marks the current semantic tab
+as non-reusable. This control remains available when there is only one tab and
+the tab bar itself is hidden.
 
 A tab bookmark is passive revisit state and must never stand in for an explicit
 post target. Explicit post/permalink navigation, including `openPostInTab()`,
@@ -88,10 +99,11 @@ to restore bookmarks silently, without a highlight animation. Explicit
 ## Restart restoration
 
 `NavigationUiController` saves a versioned semantic session through `MLOptions`,
-scoped by server URL and login user ID. It records tab order and active tab,
-the ordinary central chat, docked threads and the visible dock selection, and
-detached threads with their window geometry. Browser Back/Forward history and
-transient collection/search surfaces are not persisted.
+scoped by server URL and login user ID. It records tab order, each tab's pin
+state and the active tab, the ordinary central chat, docked threads and the
+visible dock selection, and detached threads with their window geometry.
+Browser Back/Forward history and transient collection/search surfaces are not
+persisted.
 
 Startup waits for channel memberships, team channels and rendered sidebar
 category snapshots from the existing startup requests before replaying the
