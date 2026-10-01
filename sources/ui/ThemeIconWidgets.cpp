@@ -178,6 +178,7 @@ void ThemeIconButton::invalidateRenderedIcon()
     _renderedResource.clear();
     _renderedSize = {};
     _renderedPixmap = {};
+    _renderedDprMilli = 0;
 }
 
 bool ThemeIconButton::event(QEvent* event)
@@ -250,13 +251,16 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
             ? QSize(formattingToolbarOpticalExtent(*this),
                     formattingToolbarOpticalExtent(*this))
             : (iconSize().isValid() ? iconSize() : QSize(24, 24));
+        const qreal currentDpr = std::max<qreal>(1.0, devicePixelRatioF());
+        const int currentDprMilli = qRound(currentDpr * 1000.0);
         const QString desiredTint = tintKey(color);
         if (_renderedTint != desiredTint
             || _renderedResource != resource
-            || _renderedSize != targetSize) {
+            || _renderedSize != targetSize
+            || _renderedDprMilli != currentDprMilli) {
             if (formattingIcon) {
                 _renderedPixmap = SvgRasterCache::instance().raster(
-                    resource, targetSize, devicePixelRatioF());
+                    resource, targetSize, currentDpr);
                 tintPixmap(_renderedPixmap, color);
             } else {
                 _renderedPixmap =
@@ -265,6 +269,7 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
             _renderedTint = desiredTint;
             _renderedResource = resource;
             _renderedSize = targetSize;
+            _renderedDprMilli = currentDprMilli;
         }
 
         if (!_renderedPixmap.isNull()) {
