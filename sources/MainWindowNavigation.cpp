@@ -189,9 +189,9 @@ void MainWindow::openChannelPost(const QString& channelId,
         return connection;
     };
 
-    // Thread presentation is independent from the main-channel surface. A
-    // followed thread can therefore open in the right pane without stealing an
-    // already visible central channel. A completely empty centre is different:
+    // Thread presentation is independent from the central navigation surface.
+    // A channel or thread tab may remain visible in the centre while another
+    // thread is docked on the right. A completely empty centre is different:
     // showing a thread beside blank space looks broken, so establish its parent
     // channel as the central context first.
     if (!rootId.isEmpty()) {
@@ -222,14 +222,6 @@ void MainWindow::openChannelPost(const QString& channelId,
                 });
             return;
         }
-
-        // A docked thread is a child surface of the ordinary channel splitter.
-        // If a thread tab currently owns the navigation surface, merely adding
-        // another thread to threadStack leaves it hidden behind that tab. Reveal
-        // the already-selected central channel first; presentChannel() also
-        // restores the corresponding semantic channel tab, keeping tab state and
-        // the visible surface in sync before the right pane is presented.
-        navigationUi.presentChannel(centralArea);
 
         ChatArea* threadArea = navigationUi.findThread(channelId, rootId);
         if (threadArea && preserveIfOpen) {
