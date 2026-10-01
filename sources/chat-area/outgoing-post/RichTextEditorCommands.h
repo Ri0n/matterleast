@@ -8,6 +8,7 @@
 
 #include <iterator>
 
+#include <QString>
 #include <QVector>
 
 class QKeyEvent;
@@ -31,6 +32,15 @@ bool toggleInline(QTextEdit& editor, InlineStyle style);
 bool toggleList(QTextEdit& editor, ListStyle style);
 bool toggleQuote(QTextEdit& editor);
 bool toggleCodeBlock(QTextEdit& editor);
+
+/** Current fenced-code language at the cursor, or empty for plain/non-code. */
+QString codeBlockLanguageAt(const QTextEdit& editor);
+
+/**
+ * Set/clear the language for the complete contiguous fenced-code region that
+ * contains the cursor. Returns false when the cursor is not in a code block.
+ */
+bool setCodeBlockLanguage(QTextEdit& editor, const QString& language);
 
 // Kept as the list-specific primitive while the aggregate structural handler
 // composes list/quote/code/table behavior around it.
