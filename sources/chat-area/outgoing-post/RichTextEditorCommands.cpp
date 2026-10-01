@@ -8,7 +8,9 @@
 
 #include <algorithm>
 
+#include <QDebug>
 #include <QKeyEvent>
+#include <QStringList>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCursor>
@@ -64,6 +66,40 @@ QTextListFormat::Style listStyle(const QTextBlock& block)
         return list->format().style();
     }
     return QTextListFormat::ListDisc;
+}
+
+void traceListState(const char* action, const QTextEdit& editor)
+{
+    const QTextDocument* document = editor.document();
+    if (!document) {
+        return;
+    }
+
+    QStringList blocks;
+    int index = 0;
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next(), ++index) {
+        QString kind = QStringLiteral("plain");
+        if (QTextList* list = block.textList()) {
+            kind = QStringLiteral("list(style=%1,indent=%2,count=%3,obj=%4)")
+                       .arg(static_cast<int>(list->format().style()))
+                       .arg(list->format().indent())
+                       .arg(list->count())
+                       .arg(block.blockFormat().objectIndex());
+        }
+        QString text = block.text();
+        text.replace(QLatin1Char('\n'), QStringLiteral("\\n"));
+        blocks.push_back(
+            QStringLiteral("#%1{%2,text=\"%3\"}").arg(index).arg(kind, text));
+    }
+
+    QString markdown = document->toMarkdown(QTextDocument::MarkdownDialectGitHub);
+    markdown.replace(QLatin1Char('\n'), QStringLiteral("\\n"));
+    qDebug().noquote()
+        << "RICH_TEXT_LIST"
+        << "action=" << action
+        << "indentWidth=" << document->indentWidth()
+        << "markdown=\"" + markdown + "\""
+        << "blocks=" + blocks.join(QStringLiteral(" "));
 }
 
 BlockRange selectedBlockRange(QTextEdit& editor)
@@ -355,6 +391,7 @@ bool changeListIndent(QTextEdit& editor, int delta)
 
     transaction.endEditBlock();
     editor.setTextCursor(original);
+    traceListState(delta > 0 ? "indent" : "outdent", editor);
     return true;
 }
 
@@ -386,6 +423,7 @@ bool splitListItem(QTextEdit& editor)
         detachBlocksFromLists({block});
         cursor.endEditBlock();
         editor.setTextCursor(QTextCursor(block));
+        traceListState("exit-empty-top-level", editor);
         return true;
     }
 
@@ -398,6 +436,7 @@ bool splitListItem(QTextEdit& editor)
     cursor.endEditBlock();
     editor.setTextCursor(cursor);
     editor.setCurrentCharFormat(charFormat);
+    traceListState("split", editor);
     return true;
 }
 
@@ -412,6 +451,7 @@ bool insertListHardBreak(QTextEdit& editor)
     cursor.insertText(QString(QChar::LineSeparator), format);
     editor.setTextCursor(cursor);
     editor.setCurrentCharFormat(format);
+    traceListState("hard-break", editor);
     return true;
 }
 
@@ -435,6 +475,7 @@ bool backspaceAtListBoundary(QTextEdit& editor)
         detachBlocksFromLists({block});
         cursor.endEditBlock();
         editor.setTextCursor(QTextCursor(block));
+        traceListState("backspace-unlist", editor);
         return true;
     }
 
@@ -444,6 +485,7 @@ bool backspaceAtListBoundary(QTextEdit& editor)
         detachBlocksFromLists({block});
         cursor.endEditBlock();
         editor.setTextCursor(QTextCursor(block));
+        traceListState("backspace-empty-only-item", editor);
         return true;
     }
 
@@ -460,6 +502,7 @@ bool backspaceAtListBoundary(QTextEdit& editor)
     }
     cursor.endEditBlock();
     editor.setTextCursor(cursor);
+    traceListState("backspace-remove-empty-item", editor);
     return true;
 }
 
@@ -495,6 +538,7 @@ bool deleteAtListBoundary(QTextEdit& editor)
     cursor.deleteChar();
     cursor.endEditBlock();
     editor.setTextCursor(cursor);
+    traceListState("delete-merge", editor);
     return true;
 }
 
@@ -517,6 +561,8 @@ bool toggleList(QTextEdit& editor, ListStyle style)
     }
     transaction.endEditBlock();
     editor.setTextCursor(original);
+    traceListState(style == ListStyle::Numbered ? "toggle-numbered" : "toggle-bullet",
+                   editor);
     return true;
 }
 
