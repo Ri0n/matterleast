@@ -112,6 +112,24 @@ private slots:
         QVERIFY2(markdown.contains(QStringLiteral("- second")), qPrintable(markdown));
     }
 
+    void listIndentWidthDoesNotChangeMarkdown()
+    {
+        MessageTextEditWidget editor;
+        prepareEditor(editor, QStringLiteral("- parent\n  - child"));
+
+        const QString before = editor.document()->toMarkdown(
+            QTextDocument::MarkdownDialectGitHub);
+        const qreal originalIndentWidth = editor.document()->indentWidth();
+        QVERIFY(originalIndentWidth > 20.0);
+
+        editor.document()->setIndentWidth(20.0);
+        QCOMPARE(editor.document()->indentWidth(), 20.0);
+
+        const QString after = editor.document()->toMarkdown(
+            QTextDocument::MarkdownDialectGitHub);
+        QCOMPARE(after, before);
+    }
+
     void emptyTopLevelListItemEnterLeavesList()
     {
         SendOptionGuard option(false);
