@@ -15,6 +15,8 @@ Until the rich document is actually modified, `markdownText()` returns that orig
 
 After a real rich edit, the document is serialized back with `QTextDocument::MarkdownDialectGitHub`. Switching to Markdown mode exposes that serialization for direct inspection/editing.
 
+Editing an existing post deliberately uses a hybrid source presentation instead of full Rich Text mode. The complete Markdown source stays visible and is the actual editor document, including code fences, emphasis markers, lists and unsupported syntax. Markdown links are the only decorated construct: their human-readable label is rendered with the current palette's conventional link color and underline while the surrounding `[label](url)` source remains visible and editable. This keeps edit/save byte semantics predictable without making links visually indistinguishable from ordinary source text.
+
 ## Integration contract
 
 `MessageTextEditWidget::markdownText()` / `setMarkdownText()` are the semantic boundary. The historical `toPlainText()` / `setPlainText()` names are intentionally hidden by `MessageTextEditWidget` and route through that Markdown-aware API so existing `OutgoingPostCreator` send, edit, and draft code keeps working without acquiring rich-text semantics itself.
@@ -29,6 +31,8 @@ Toolbar visibility has a persistent *show on focus* preference (`composer/format
 
 The toolbar exposes bold, italic, strike-through, inline code, code blocks, links, quotes, bulleted lists, numbered lists, and message priority. In Markdown mode formatting commands edit Markdown syntax directly. In Rich Text mode they change the `QTextDocument` formatting and mark the source snapshot dirty so subsequent serialization reflects the edit.
 
+The formatting toolbar expands and collapses by animating its real layout height with the same 240 ms `OutCubic` motion profile used by the expanded emoji/reaction picker, including continuation from an interrupted animation state.
+
 Conventional keyboard shortcuts are handled at the editor layer where practical (`Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K`, and `Ctrl/Cmd+Shift+X`). Completion-popup navigation keeps priority over ordinary navigation keys.
 
 ## Links and paste
@@ -36,6 +40,8 @@ Conventional keyboard shortcuts are handled at the editor layer where practical 
 The editor uses the normal Qt text-editor context menu (undo/redo/cut/copy/paste/etc.). When the cursor or selection is on a link, the menu additionally offers **Edit link…** and **Remove link**.
 
 Pasting a single HTTP(S) URL while ordinary non-link text is selected preserves the selected label and turns it into a link instead of replacing it. Image paste remains owned by `OutgoingPostCreatorClipboard` and continues to create an attachment.
+
+In Rich Text mode, pressing Space twice immediately after link-formatted text converts the first inherited linked space into one ordinary space and consumes the second keypress. The same gesture after a Markdown link in source mode collapses the two spaces to one, giving a consistent way to continue typing outside a link.
 
 ## Message priority
 
