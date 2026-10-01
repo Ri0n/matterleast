@@ -8,6 +8,7 @@
 #include <QTextDocument>
 #include <QTextFormat>
 #include <QTextList>
+#include <QTextTable>
 
 #include "Settings.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
@@ -60,6 +61,17 @@ void placeCursorAtBlockEnd(MessageTextEditWidget& editor, QTextBlock block)
 int listIndent(const QTextBlock& block)
 {
     return block.textList() ? block.textList()->format().indent() : 0;
+}
+
+QTextTable* firstTable(QTextDocument& document)
+{
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        QTextCursor cursor(block);
+        if (QTextTable* table = cursor.currentTable()) {
+            return table;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -128,6 +140,38 @@ private slots:
         const QString after = editor.document()->toMarkdown(
             QTextDocument::MarkdownDialectGitHub);
         QCOMPARE(after, before);
+    }
+
+    void basicTableRoundTripPreservesShapeAndCells()
+    {
+        QTextDocument document;
+        QTextCursor cursor(&document);
+        QTextTable* table = cursor.insertTable(2, 2);
+        QVERIFY(table);
+        table->cellAt(0, 0).firstCursorPosition().insertText(QStringLiteral("A"));
+        table->cellAt(0, 1).firstCursorPosition().insertText(QStringLiteral("B"));
+        table->cellAt(1, 1).firstCursorPosition().insertText(QStringLiteral("D"));
+
+        const QString markdown = document.toMarkdown(
+            QTextDocument::MarkdownDialectGitHub);
+        QVERIFY2(markdown.contains(QLatin1Char('|')), qPrintable(markdown));
+        QVERIFY2(markdown.contains(QStringLiteral("A")), qPrintable(markdown));
+        QVERIFY2(markdown.contains(QStringLiteral("D")), qPrintable(markdown));
+
+        QTextDocument parsed;
+        parsed.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+        QTextTable* parsedTable = firstTable(parsed);
+        QVERIFY2(parsedTable, qPrintable(markdown));
+        QCOMPARE(parsedTable->rows(), 2);
+        QCOMPARE(parsedTable->columns(), 2);
+        QCOMPARE(parsedTable->cellAt(0, 0).firstCursorPosition().block().text(),
+                 QStringLiteral("A"));
+        QCOMPARE(parsedTable->cellAt(0, 1).firstCursorPosition().block().text(),
+                 QStringLiteral("B"));
+        QCOMPARE(parsedTable->cellAt(1, 0).firstCursorPosition().block().text(),
+                 QString());
+        QCOMPARE(parsedTable->cellAt(1, 1).firstCursorPosition().block().text(),
+                 QStringLiteral("D"));
     }
 
     void emptyTopLevelListItemEnterLeavesList()
