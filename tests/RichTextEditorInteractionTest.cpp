@@ -58,6 +58,15 @@ void placeCursorAtBlockEnd(MessageTextEditWidget& editor, QTextBlock block)
     editor.setTextCursor(cursor);
 }
 
+void selectWholeDocument(MessageTextEditWidget& editor)
+{
+    QTextCursor cursor(editor.document());
+    cursor.setPosition(0);
+    cursor.setPosition(editor.document()->characterCount() - 1,
+                       QTextCursor::KeepAnchor);
+    editor.setTextCursor(cursor);
+}
+
 int listIndent(const QTextBlock& block)
 {
     return block.textList() ? block.textList()->format().indent() : 0;
@@ -122,6 +131,72 @@ private slots:
         const QString markdown = editor.markdownText();
         QVERIFY2(markdown.contains(QStringLiteral("- first")), qPrintable(markdown));
         QVERIFY2(markdown.contains(QStringLiteral("- second")), qPrintable(markdown));
+    }
+
+    void listToolbarConvertsAndTogglesSelection()
+    {
+        MessageTextEditWidget editor;
+        prepareEditor(editor, QStringLiteral("first\n\nsecond"));
+
+        selectWholeDocument(editor);
+        editor.toggleBulletList();
+        QTextBlock first = editor.document()->firstBlock();
+        QTextBlock second = first.next();
+        QVERIFY(first.textList());
+        QVERIFY(second.isValid());
+        QVERIFY(second.textList());
+        QCOMPARE(first.textList()->format().style(), QTextListFormat::ListDisc);
+        QCOMPARE(second.textList()->format().style(), QTextListFormat::ListDisc);
+
+        selectWholeDocument(editor);
+        editor.toggleNumberedList();
+        first = editor.document()->firstBlock();
+        second = first.next();
+        QVERIFY(first.textList());
+        QVERIFY(second.textList());
+        QCOMPARE(first.textList()->format().style(), QTextListFormat::ListDecimal);
+        QCOMPARE(second.textList()->format().style(), QTextListFormat::ListDecimal);
+
+        selectWholeDocument(editor);
+        editor.toggleNumberedList();
+        QVERIFY(editor.document()->firstBlock().textList() == nullptr);
+        QVERIFY(editor.document()->firstBlock().next().textList() == nullptr);
+    }
+
+    void listSplitIsSingleUndoStep()
+    {
+        SendOptionGuard option(false);
+        MessageTextEditWidget editor;
+        prepareEditor(editor, QStringLiteral("- first"));
+
+        placeCursorAtBlockEnd(editor, editor.document()->firstBlock());
+        QTest::keyClick(&editor, Qt::Key_Return);
+        QCOMPARE(editor.document()->blockCount(), 2);
+        QVERIFY(editor.document()->firstBlock().next().textList());
+
+        editor.undo();
+        QCOMPARE(editor.document()->blockCount(), 1);
+        QCOMPARE(editor.document()->firstBlock().text(), QStringLiteral("first"));
+        QVERIFY(editor.document()->firstBlock().textList());
+    }
+
+    void listExitIsSingleUndoStep()
+    {
+        SendOptionGuard option(false);
+        MessageTextEditWidget editor;
+        prepareEditor(editor, QStringLiteral("- first"));
+
+        placeCursorAtBlockEnd(editor, editor.document()->firstBlock());
+        QTest::keyClick(&editor, Qt::Key_Return);
+        QVERIFY(editor.textCursor().block().textList());
+        QTest::keyClick(&editor, Qt::Key_Return);
+        QVERIFY(editor.textCursor().block().textList() == nullptr);
+
+        editor.undo();
+        const QTextBlock second = editor.document()->firstBlock().next();
+        QVERIFY(second.isValid());
+        QVERIFY(second.textList());
+        QVERIFY(second.text().isEmpty());
     }
 
     void listIndentWidthDoesNotChangeMarkdown()
