@@ -12,6 +12,7 @@
 #include <QColor>
 #include <QEvent>
 #include <QIcon>
+#include <QImage>
 #include <QPainter>
 #include <QPalette>
 
@@ -23,6 +24,7 @@ namespace {
 
 constexpr qreal RestingOpacity = 0.8;
 constexpr int BusyIndicatorExtent = 18;
+constexpr qreal FormattingToolbarOpticalScale = 1.12;
 
 QString tintKey(const QColor& color)
 {
@@ -37,15 +39,80 @@ bool isFormattingToolbarIcon(const QString& objectName)
         || objectName == QStringLiteral("messagePriorityButton");
 }
 
-QSize formattingToolbarIconSize(const QWidget& widget)
+int formattingToolbarOpticalExtent(const QWidget& widget)
 {
-    // Text formatting buttons (B/I/S/...) scale with the application font.
-    // Keep symbolic neighbours on the same optical scale rather than freezing
-    // them to a physical pixel size from the .ui file. 0.85 em matches the
-    // visual mass of the text glyphs while still tracking system font scaling.
-    const int extent = std::max(
-        1, qRound(widget.fontMetrics().height() * 0.85));
-    return QSize(extent, extent);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
+    const int capHeight = widget.fontMetrics().capHeight();
+#else
+    const int capHeight = widget.fontMetrics().height() * 3 / 4;
+#endif
+    return std::max(1, qRound(capHeight * FormattingToolbarOpticalScale));
+}
+
+QRect opaqueBounds(const QImage& image)
+{
+    if (image.isNull()) {
+        return {};
+    }
+
+    int left = image.width();
+    int top = image.height();
+    int right = -1;
+    int bottom = -1;
+
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            if (qAlpha(image.pixel(x, y)) <= 8) {
+                continue;
+            }
+            left = std::min(left, x);
+            top = std::min(top, y);
+            right = std::max(right, x);
+            bottom = std::max(bottom, y);
+        }
+    }
+
+    if (right < left || bottom < top) {
+        return {};
+    }
+    return QRect(QPoint(left, top), QPoint(right, bottom));
+}
+
+QPixmap normalizedFormattingToolbarPixmap(const QString& resource,
+                                           const QColor& color,
+                                           const QWidget& widget)
+{
+    const int opticalExtent = formattingToolbarOpticalExtent(widget);
+    const qreal dpr = std::max<qreal>(1.0, widget.devicePixelRatioF());
+
+    // Render generously first. Different SVGs use their viewBox padding very
+    // differently; normalizing the visible alpha bounds makes their apparent
+    // size consistent instead of treating the nominal 24x24 canvas as content.
+    const int sampleLogicalExtent = std::max(32, opticalExtent * 3);
+    const int sampleDeviceExtent = std::max(
+        1, qRound(sampleLogicalExtent * dpr));
+    QPixmap raw = IconUtils::tintedSymbolicIcon(resource, color).pixmap(
+        QSize(sampleDeviceExtent, sampleDeviceExtent));
+    if (raw.isNull()) {
+        return {};
+    }
+
+    const QImage image = raw.toImage();
+    const QRect bounds = opaqueBounds(image);
+    if (!bounds.isValid()) {
+        return raw;
+    }
+
+    const int targetDeviceExtent = std::max(1, qRound(opticalExtent * dpr));
+    QImage visible = image.copy(bounds);
+    visible = visible.scaled(
+        QSize(targetDeviceExtent, targetDeviceExtent),
+        Qt::KeepAspectRatio,
+        Qt::SmoothTransformation);
+
+    QPixmap normalized = QPixmap::fromImage(visible);
+    normalized.setDevicePixelRatio(dpr);
+    return normalized;
 }
 
 } // namespace
@@ -129,7 +196,8 @@ bool ThemeIconButton::event(QEvent* event)
     } else if (type == QEvent::PaletteChange
                || type == QEvent::ApplicationPaletteChange
                || type == QEvent::StyleChange
-               || type == QEvent::FontChange) {
+               || type == QEvent::FontChange
+               || type == QEvent::ScreenChangeInternal) {
         invalidateRenderedIcon();
         update();
     } else if (type == QEvent::Enter
@@ -149,6 +217,7 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     if (isBusy()) {
         QColor busyColor = currentPalette.color(QPalette::WindowText);
@@ -174,22 +243,32 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
 
     const QString resource = symbolicResource();
     if (!resource.isEmpty()) {
-        const QSize targetSize = isFormattingToolbarIcon(objectName())
-            ? formattingToolbarIconSize(*this)
+        const bool formattingIcon = isFormattingToolbarIcon(objectName());
+        const QSize targetSize = formattingIcon
+            ? QSize(formattingToolbarOpticalExtent(*this),
+                    formattingToolbarOpticalExtent(*this))
             : (iconSize().isValid() ? iconSize() : QSize(24, 24));
         const QString desiredTint = tintKey(color);
         if (_renderedTint != desiredTint
             || _renderedResource != resource
             || _renderedSize != targetSize) {
-            _renderedPixmap = IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
+            _renderedPixmap = formattingIcon
+                ? normalizedFormattingToolbarPixmap(resource, color, *this)
+                : IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
             _renderedTint = desiredTint;
             _renderedResource = resource;
             _renderedSize = targetSize;
         }
 
         if (!_renderedPixmap.isNull()) {
-            const QPoint topLeft((width() - _renderedPixmap.width()) / 2,
-                                 (height() - _renderedPixmap.height()) / 2);
+            const qreal dpr = std::max<qreal>(
+                1.0, _renderedPixmap.devicePixelRatioF());
+            const QSizeF logicalSize(
+                _renderedPixmap.width() / dpr,
+                _renderedPixmap.height() / dpr);
+            const QPointF topLeft(
+                (width() - logicalSize.width()) / 2.0,
+                (height() - logicalSize.height()) / 2.0);
             painter.drawPixmap(topLeft, _renderedPixmap);
         }
         return;
