@@ -193,7 +193,6 @@ private slots:
         auto* retained = storage.addTeamChannel(*replacement, QJsonObject {{"id", "retained"}, {"type", "O"}});
         QSignalSpy populated(&backend, &Backend::onAllTeamChannelsPopulated);
         QTRY_COMPARE(server.teamChannelResponses, 1);
-        // Drain the HTTP completion, not merely the server's socket write.
         QTest::qWait(100);
         QCOMPARE(delivered, 0);
         QCOMPARE(populated.count(), 0);
@@ -245,7 +244,6 @@ private slots:
             QCOMPARE(saved.value("tabs").toArray().at(1).toObject().value("root").toString(), rootId(202));
             QCOMPARE(saved.value("active_tab").toObject().value("root").toString(), rootId(202));
             QCOMPARE(saved.value("threads").toArray().size(), 2);
-            // The same process/account cache is not used by the next Backend.
             delete detached;
         }
         {
@@ -253,7 +251,6 @@ private slots:
             backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
             MainWindow window(nullptr, tray, backend);
             window.show();
-            // No manual restore call: exercise the real startup readiness path.
             QTRY_VERIFY(NavigationUiController::instance(window).findThread("channel", rootId(204)));
             auto& ui = NavigationUiController::instance(window);
             auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
@@ -311,7 +308,6 @@ private slots:
         QTRY_VERIFY(log->itemWidget(index));
         QVERIFY(log->visibleRange().first <= index && index <= log->visibleRange().last);
         QVERIFY(server.returnedReplies < 100);
-        // Explicit navigation cancels pending passive state immediately.
         area->setProperty("sessionBookmark", replyId(205, 100));
         area->goToNewest();
         QVERIFY(area->property("sessionBookmark").toString().isEmpty());
@@ -381,19 +377,71 @@ private slots:
         QVERIFY(!tabs->tabText(0).startsWith(QStringLiteral("★ ")));
         QVERIFY(tabs->tabText(1).startsWith(QStringLiteral("★ ")));
 
-        // Parent activity updates must neither mark a read child nor clear
-        // another child's independent unread marker.
         sidebar.setChannelMentioned(channel->id, false);
         QVERIFY(!tabs->tabText(0).startsWith(QStringLiteral("★ ")));
         QVERIFY(tabs->tabText(1).startsWith(QStringLiteral("★ ")));
 
-        // Model-only changes must refresh tab titles without any parent event.
         model.markPostUnread(channel->id, root->id, root->id, root->create_at);
         QVERIFY(tabs->tabText(0).startsWith(QStringLiteral("★ ")));
         model.observeReadThrough(channel->id, root->id, *root, true);
         model.markThreadRead(team->id, root->id);
         QVERIFY(!tabs->tabText(0).startsWith(QStringLiteral("★ ")));
         QVERIFY(tabs->tabText(1).startsWith(QStringLiteral("★ ")));
+    }
+
+    void dockedThreadActivationEscapesActiveThreadTab()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        MLOptions::instance()->setValue(sessionKey(), QByteArray());
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1100, 700);
+        window.show();
+
+        QTRY_VERIFY(backend.getStorage().getChannelById(QStringLiteral("channel")));
+        QTRY_VERIFY(SidebarService::instance(backend).teamState(QStringLiteral("team")));
+        BackendChannel* channel = backend.getStorage().getChannelById(QStringLiteral("channel"));
+        QVERIFY(channel);
+        channel->addPost(post(110));
+        channel->addPost(post(111));
+
+        auto& navigationUi = NavigationUiController::instance(window);
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openChannel(channel->id);
+        QTRY_VERIFY(window.findChild<ChannelTree*>(QStringLiteral("channelList"))->getCurrentPage());
+
+        navigation.openThreadInTab(channel->id, rootId(110));
+        QTRY_VERIFY(navigationUi.findThread(channel->id, rootId(110)));
+        ChatArea* tabbed = navigationUi.findThread(channel->id, rootId(110));
+        QVERIFY(tabbed->property("threadTabbed").toBool());
+        auto* surfaceStack = window.findChild<QStackedWidget*>(
+            QStringLiteral("navigationSurfaceStack"));
+        QVERIFY(surfaceStack);
+        QCOMPARE(surfaceStack->currentWidget(), static_cast<QWidget*>(tabbed));
+
+        // This is the path used by an ordinary Following/Attention activation.
+        // A docked thread must become visible even when a thread tab currently
+        // owns the central navigation surface.
+        navigation.openThread(channel->id, rootId(111));
+        QTRY_VERIFY(navigationUi.findThread(channel->id, rootId(111)));
+        ChatArea* docked = navigationUi.findThread(channel->id, rootId(111));
+        auto* contentSplitter = window.findChild<QWidget*>(QStringLiteral("contentSplitter"));
+        auto* threadStack = window.findChild<QStackedWidget*>(QStringLiteral("threadStack"));
+        QVERIFY(contentSplitter);
+        QVERIFY(threadStack);
+        QTRY_COMPARE(surfaceStack->currentWidget(), contentSplitter);
+        QTRY_VERIFY(!threadStack->isHidden());
+        QCOMPARE(threadStack->currentWidget(), static_cast<QWidget*>(docked));
+        QVERIFY(docked->isVisible());
+        QVERIFY(!docked->property("threadTabbed").toBool());
+        QVERIFY(!tabbed->isVisible());
     }
 
     void coldThreadsOpenInSuccessiveTabs()
@@ -408,7 +456,7 @@ private slots:
         auto* channel = storage.addGroupChannel(QJsonObject {{"id", "channel"}, {"type", "G"},
                                                             {"display_name", "Test chat"}});
         QVERIFY(channel);
-        channel->addPost(post(1)); // Only the first Following entry has a resident root.
+        channel->addPost(post(1));
         QSystemTrayIcon tray;
         MainWindow window(nullptr, tray, backend);
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
@@ -435,8 +483,6 @@ private slots:
         QCOMPARE(server.postLookups.size(), 7);
         QVERIFY(!server.postLookups.contains(rootId(1)));
 
-        // Tab presentation must not cancel other sources' bootstrap when the
-        // user opens several Following entries before any HTTP reply arrives.
         server.delayMs = 50;
         for (int thread = 21; thread <= 28; ++thread) {
             navigation.openThreadInTab(channel->id, rootId(thread));
@@ -480,7 +526,7 @@ private slots:
         QCOMPARE(source.itemCount(), 4);
         QVERIFY(source.isAvailable(0));
         QCOMPARE(server.postLookups.size(), 2);
-        QCOMPARE(server.threadLookups.size(), 0); // Root demand does not enumerate replies.
+        QCOMPARE(server.threadLookups.size(), 0);
     }
 
     void rootDeliveredByAnotherRequestResolvesSummary()
@@ -529,7 +575,7 @@ private slots:
             area.preparePostNavigation();
             QVERIFY(area.lockNavigationToPost(rootId(thread), 0));
         } else {
-            area.goToNewest(); // Same intent as opening a fresh docked thread.
+            area.goToNewest();
         }
         QTRY_COMPARE(list->itemCount(), 732);
         if (explicitRoot) {
