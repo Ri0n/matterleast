@@ -124,7 +124,7 @@ private:
     void ensureEmbeddedEmojiPicker();
     void destroyEmbeddedEmojiPicker();
     void ensurePriorityOutboxHook();
-    bool messagePriorityAvailable() const;
+    bool messagePriorityAvailable();
     QJsonObject currentPostMetadata() const;
     void resetMessagePriority();
     void updateMessagePriorityButtonState();
@@ -157,7 +157,6 @@ private:
     QString                             activeRecoveredDraftKey;
     QTimer*                             draftSaveTimer = nullptr;
     QTimer*                             rankedEmojiHideTimer = nullptr;
-    QTimer*                             rankedEmojiPickerDestroyTimer = nullptr;
     QVariantAnimation*                  rankedEmojiRevealAnimation = nullptr;
     QPointer<QFrame>                    rankedEmojiPopup;
     QPointer<QWidget>                   rankedEmojiContentRoot;
