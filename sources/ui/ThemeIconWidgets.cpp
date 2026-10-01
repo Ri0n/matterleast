@@ -17,6 +17,7 @@
 #include <QPainter>
 #include <QPalette>
 #include <QWidget>
+#include <QWindow>
 
 #include "BusyIndicator.h"
 #include "IconUtils.h"
@@ -26,7 +27,7 @@ namespace {
 
 constexpr qreal RestingOpacity = 0.8;
 constexpr int BusyIndicatorExtent = 18;
-constexpr qreal FormattingToolbarOpticalScale = 1.12;
+constexpr qreal FormattingToolbarOpticalScale = 1.20;
 constexpr int FormattingToolbarButtonPadding = 8;
 constexpr int FormattingToolbarHorizontalPadding = 10;
 
@@ -98,31 +99,40 @@ QPixmap sharpFormattingToolbarPixmap(const QString& resource,
                                       const QWidget& widget)
 {
     const int logicalExtent = formattingToolbarOpticalExtent(widget);
-    const qreal dpr = std::max<qreal>(1.0, widget.devicePixelRatioF());
-    const int deviceExtent = std::max(1, qRound(logicalExtent * dpr));
+    const QSize logicalSize(logicalExtent, logicalExtent);
+    const QIcon icon(resource);
+    if (icon.isNull()) {
+        return {};
+    }
 
-    // Paint the SVG through QIcon directly into a DPR-aware target. The target
-    // pixmap has physical device-pixel storage, but QPainter exposes logical
-    // coordinates because the DPR is assigned before painting. This lets the
-    // SVG icon engine rasterize exactly once at the destination screen scale
-    // and avoids both the generic fixed-size symbolic cache and a second bitmap
-    // resize on fractional DPRs such as 150%.
-    QPixmap pixmap(deviceExtent, deviceExtent);
-    pixmap.setDevicePixelRatio(dpr);
-    pixmap.fill(Qt::transparent);
+    QPixmap pixmap;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    // Qt 6 has an explicit DPR-aware overload. Keep the requested size in
+    // device-independent pixels and let the icon engine rasterize the SVG for
+    // the target screen scale. Do not multiply the size by DPR ourselves.
+    pixmap = icon.pixmap(logicalSize,
+                         std::max<qreal>(1.0, widget.devicePixelRatioF()),
+                         QIcon::Normal,
+                         QIcon::Off);
+#else
+    // On Qt 5 the window-aware overload is the equivalent API: it returns a
+    // high-DPI pixmap when the target window is on a scaled screen.
+    QWindow* windowHandle = widget.window() ? widget.window()->windowHandle()
+                                             : nullptr;
+    pixmap = windowHandle
+        ? icon.pixmap(windowHandle, logicalSize, QIcon::Normal, QIcon::Off)
+        : icon.pixmap(logicalSize, QIcon::Normal, QIcon::Off);
+#endif
+    if (pixmap.isNull()) {
+        return {};
+    }
 
-    QPainter iconPainter(&pixmap);
-    iconPainter.setRenderHint(QPainter::Antialiasing, true);
-    iconPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    QIcon(resource).paint(
-        &iconPainter,
-        QRect(0, 0, logicalExtent, logicalExtent),
-        Qt::AlignCenter,
-        QIcon::Normal,
-        QIcon::Off);
-    iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-    iconPainter.fillRect(QRect(0, 0, logicalExtent, logicalExtent), color);
-    iconPainter.end();
+    // Tint only; there is deliberately no image scaling after the SVG engine
+    // produced the final DPR-aware pixmap.
+    QPainter tintPainter(&pixmap);
+    tintPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    tintPainter.fillRect(pixmap.rect(), color);
+    tintPainter.end();
 
     return pixmap;
 }
