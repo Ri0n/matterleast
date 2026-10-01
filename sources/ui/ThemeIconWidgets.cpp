@@ -13,11 +13,10 @@
 #include <QColor>
 #include <QEvent>
 #include <QFontMetrics>
-#include <QIcon>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPalette>
 #include <QWidget>
-#include <QWindow>
 
 #include "BusyIndicator.h"
 #include "IconUtils.h"
@@ -94,47 +93,152 @@ void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
     }
 }
 
-QPixmap sharpFormattingToolbarPixmap(const QString& resource,
-                                      const QColor& color,
-                                      const QWidget& widget)
+void drawLinkGlyph(QPainter& painter, const QRectF& bounds)
 {
-    const int logicalExtent = formattingToolbarOpticalExtent(widget);
-    const QSize logicalSize(logicalExtent, logicalExtent);
-    const QIcon icon(resource);
-    if (icon.isNull()) {
-        return {};
+    const qreal extent = std::min(bounds.width(), bounds.height());
+    const qreal stroke = std::max<qreal>(1.25, extent * 0.105);
+    const QSizeF ringSize(extent * 0.58, extent * 0.29);
+
+    QPen pen = painter.pen();
+    pen.setWidthF(stroke);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+
+    const QPointF center = bounds.center();
+    const qreal offset = extent * 0.17;
+    const auto drawRing = [&](const QPointF& ringCenter) {
+        painter.save();
+        painter.translate(ringCenter);
+        painter.rotate(-45.0);
+        const QRectF ringRect(
+            -ringSize.width() / 2.0,
+            -ringSize.height() / 2.0,
+            ringSize.width(),
+            ringSize.height());
+        const qreal radius = ringSize.height() / 2.0;
+        painter.drawRoundedRect(ringRect, radius, radius);
+        painter.restore();
+    };
+
+    drawRing(center + QPointF(-offset, offset));
+    drawRing(center + QPointF(offset, -offset));
+}
+
+void drawBulletListGlyph(QPainter& painter, const QRectF& bounds)
+{
+    const qreal extent = std::min(bounds.width(), bounds.height());
+    const qreal stroke = std::max<qreal>(1.2, extent * 0.095);
+    const qreal radius = std::max<qreal>(1.1, extent * 0.075);
+    const qreal dotX = bounds.left() + extent * 0.14;
+    const qreal lineLeft = bounds.left() + extent * 0.34;
+    const qreal lineRight = bounds.left() + extent * 0.96;
+
+    QPen pen = painter.pen();
+    pen.setWidthF(stroke);
+    pen.setCapStyle(Qt::RoundCap);
+    painter.setPen(pen);
+    painter.setBrush(painter.pen().color());
+
+    for (qreal fraction : {0.22, 0.50, 0.78}) {
+        const qreal y = bounds.top() + extent * fraction;
+        painter.drawEllipse(QPointF(dotX, y), radius, radius);
+        painter.drawLine(QPointF(lineLeft, y), QPointF(lineRight, y));
+    }
+}
+
+void drawNumberedListGlyph(QPainter& painter, const QRectF& bounds,
+                           const QFont& baseFont)
+{
+    const qreal extent = std::min(bounds.width(), bounds.height());
+    const qreal stroke = std::max<qreal>(1.2, extent * 0.09);
+    const qreal numberWidth = extent * 0.27;
+    const qreal lineLeft = bounds.left() + extent * 0.38;
+    const qreal lineRight = bounds.left() + extent * 0.96;
+
+    QPen pen = painter.pen();
+    pen.setWidthF(stroke);
+    pen.setCapStyle(Qt::RoundCap);
+    painter.setPen(pen);
+
+    QFont numberFont = baseFont;
+    numberFont.setBold(true);
+    numberFont.setPixelSize(std::max(7, qRound(extent * 0.31)));
+
+    const QFont savedFont = painter.font();
+    for (int index = 0; index < 3; ++index) {
+        const qreal fraction = 0.22 + 0.28 * index;
+        const qreal y = bounds.top() + extent * fraction;
+        const QRectF numberRect(
+            bounds.left(),
+            y - extent * 0.17,
+            numberWidth,
+            extent * 0.34);
+        painter.setFont(numberFont);
+        painter.drawText(numberRect,
+                         Qt::AlignRight | Qt::AlignVCenter,
+                         QString::number(index + 1));
+        painter.drawLine(QPointF(lineLeft, y), QPointF(lineRight, y));
+    }
+    painter.setFont(savedFont);
+}
+
+void drawPriorityGlyph(QPainter& painter, const QRectF& bounds)
+{
+    const qreal extent = std::min(bounds.width(), bounds.height());
+    const qreal stroke = std::max<qreal>(1.25, extent * 0.10);
+    const QPointF center = bounds.center();
+    const qreal radius = extent * 0.43;
+
+    QPen pen = painter.pen();
+    pen.setWidthF(stroke);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawEllipse(center, radius, radius);
+
+    painter.drawLine(
+        QPointF(center.x(), center.y() - extent * 0.23),
+        QPointF(center.x(), center.y() + extent * 0.07));
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(pen.color());
+    painter.drawEllipse(
+        QPointF(center.x(), center.y() + extent * 0.25),
+        std::max<qreal>(1.0, extent * 0.055),
+        std::max<qreal>(1.0, extent * 0.055));
+}
+
+void drawFormattingToolbarIcon(QPainter& painter,
+                               const QWidget& widget,
+                               const QString& objectName,
+                               const QColor& color)
+{
+    const qreal extent = formattingToolbarOpticalExtent(widget);
+    const QRectF bounds(
+        (widget.width() - extent) / 2.0,
+        (widget.height() - extent) / 2.0,
+        extent,
+        extent);
+
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.setPen(color);
+    painter.setBrush(color);
+
+    if (objectName == QStringLiteral("formatLinkButton")) {
+        drawLinkGlyph(painter, bounds);
+    } else if (objectName == QStringLiteral("formatBulletListButton")) {
+        drawBulletListGlyph(painter, bounds);
+    } else if (objectName == QStringLiteral("formatNumberedListButton")) {
+        drawNumberedListGlyph(painter, bounds, widget.font());
+    } else if (objectName == QStringLiteral("messagePriorityButton")) {
+        drawPriorityGlyph(painter, bounds);
     }
 
-    QPixmap pixmap;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    // Qt 6 has an explicit DPR-aware overload. Keep the requested size in
-    // device-independent pixels and let the icon engine rasterize the SVG for
-    // the target screen scale. Do not multiply the size by DPR ourselves.
-    pixmap = icon.pixmap(logicalSize,
-                         std::max<qreal>(1.0, widget.devicePixelRatioF()),
-                         QIcon::Normal,
-                         QIcon::Off);
-#else
-    // On Qt 5 the window-aware overload is the equivalent API: it returns a
-    // high-DPI pixmap when the target window is on a scaled screen.
-    QWindow* windowHandle = widget.window() ? widget.window()->windowHandle()
-                                             : nullptr;
-    pixmap = windowHandle
-        ? icon.pixmap(windowHandle, logicalSize, QIcon::Normal, QIcon::Off)
-        : icon.pixmap(logicalSize, QIcon::Normal, QIcon::Off);
-#endif
-    if (pixmap.isNull()) {
-        return {};
-    }
-
-    // Tint only; there is deliberately no image scaling after the SVG engine
-    // produced the final DPR-aware pixmap.
-    QPainter tintPainter(&pixmap);
-    tintPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-    tintPainter.fillRect(pixmap.rect(), color);
-    tintPainter.end();
-
-    return pixmap;
+    painter.restore();
 }
 
 } // namespace
@@ -156,18 +260,6 @@ QString ThemeIconButton::symbolicResource() const
     }
     if (objectName() == QStringLiteral("attachButton")) {
         return QStringLiteral(":/icons/paperclip");
-    }
-    if (objectName() == QStringLiteral("formatLinkButton")) {
-        return QStringLiteral(":/icons/link");
-    }
-    if (objectName() == QStringLiteral("formatBulletListButton")) {
-        return QStringLiteral(":/icons/format-bullet-list");
-    }
-    if (objectName() == QStringLiteral("formatNumberedListButton")) {
-        return QStringLiteral(":/icons/format-numbered-list");
-    }
-    if (objectName() == QStringLiteral("messagePriorityButton")) {
-        return QStringLiteral(":/icons/message-priority");
     }
     return {};
 }
@@ -270,20 +362,20 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
         color.setAlphaF(color.alphaF() * RestingOpacity);
     }
 
+    if (isFormattingToolbarIcon(objectName())) {
+        drawFormattingToolbarIcon(painter, *this, objectName(), color);
+        return;
+    }
+
     const QString resource = symbolicResource();
     if (!resource.isEmpty()) {
-        const bool formattingIcon = isFormattingToolbarIcon(objectName());
-        const QSize targetSize = formattingIcon
-            ? QSize(formattingToolbarOpticalExtent(*this),
-                    formattingToolbarOpticalExtent(*this))
-            : (iconSize().isValid() ? iconSize() : QSize(24, 24));
+        const QSize targetSize = iconSize().isValid() ? iconSize() : QSize(24, 24);
         const QString desiredTint = tintKey(color);
         if (_renderedTint != desiredTint
             || _renderedResource != resource
             || _renderedSize != targetSize) {
-            _renderedPixmap = formattingIcon
-                ? sharpFormattingToolbarPixmap(resource, color, *this)
-                : IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
+            _renderedPixmap =
+                IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
             _renderedTint = desiredTint;
             _renderedResource = resource;
             _renderedSize = targetSize;
