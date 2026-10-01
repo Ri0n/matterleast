@@ -39,7 +39,7 @@ public:
         : QSyntaxHighlighter(editor)
         , editor_(editor)
     {
-        setObjectName(QStringLiteral(MarkdownLinkHighlighterObjectName));
+        setObjectName(QString::fromLatin1(MarkdownLinkHighlighterObjectName));
         if (editor_) {
             setDocument(editor_->document());
         }
@@ -63,8 +63,6 @@ protected:
         auto matches = expression.globalMatch(text);
         while (matches.hasNext()) {
             const QRegularExpressionMatch match = matches.next();
-            // Keep the complete Markdown source visible and editable. Only the
-            // human-readable label is decorated like a conventional link.
             setFormat(match.capturedStart(1),
                       match.capturedLength(1),
                       linkFormat);
@@ -80,7 +78,7 @@ inline MarkdownSourceLinkHighlighter* markdownLinkHighlighterFor(
 {
     return editor
         ? editor->findChild<MarkdownSourceLinkHighlighter*>(
-              QStringLiteral(MarkdownLinkHighlighterObjectName),
+              QString::fromLatin1(MarkdownLinkHighlighterObjectName),
               Qt::FindDirectChildrenOnly)
         : nullptr;
 }
@@ -125,7 +123,7 @@ inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool visible
     }
 
     auto* previous = toolbar->findChild<QVariantAnimation*>(
-        QStringLiteral(FormattingAnimationObjectName),
+        QString::fromLatin1(FormattingAnimationObjectName),
         Qt::FindDirectChildrenOnly);
     int interruptedHeight = -1;
     if (previous) {
@@ -139,13 +137,11 @@ inline void animateFormattingToolbar(MessageTextEditWidget* editor, bool visible
         ? qBound(0, interruptedHeight, targetHeight)
         : (visible ? 0 : std::max(toolbar->height(), targetHeight));
 
-    // ChatArea.ui owns semantic visibility. Keep the widget painted during the
-    // collapsing leg so the layout shrinks instead of disappearing abruptly.
     toolbar->show();
     toolbar->setMaximumHeight(startHeight);
 
     auto* animation = new QVariantAnimation(toolbar);
-    animation->setObjectName(QStringLiteral(FormattingAnimationObjectName));
+    animation->setObjectName(QString::fromLatin1(FormattingAnimationObjectName));
     animation->setDuration(FormattingToolbarAnimationMs);
     animation->setEasingCurve(QEasingCurve::OutCubic);
     animation->setStartValue(startHeight);
@@ -207,10 +203,6 @@ inline void ensurePostEditModeHook(MessageTextEditWidget* editor)
                 return;
             }
 
-            // Existing posts deliberately use the hybrid source presentation:
-            // raw Markdown remains exact while links are only decorated. If a
-            // generic mode action tries to enter full rich mode, return to the
-            // source presentation on the next turn.
             QTimer::singleShot(0, editor, [editor] {
                 if (editor->property(EditingPostProperty).toBool()
                     && editor->isRichTextEditing()) {
@@ -309,8 +301,6 @@ inline bool MessageTextEditWidget::event(QEvent* event)
 {
     using namespace MessageTextEditWidgetInteractionDetail;
 
-    // OutgoingPostCreator historically disabled the context menu. Restore the
-    // ordinary QTextEdit policy without making that class own editor behavior.
     if (contextMenuPolicy() != Qt::DefaultContextMenu) {
         setContextMenuPolicy(Qt::DefaultContextMenu);
     }
