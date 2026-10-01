@@ -440,8 +440,10 @@ bool toggleCodeBlock(QTextEdit& editor)
                 blockFormat = block.blockFormat();
                 blockFormat.setIndent(0);
             }
-            blockFormat.setProperty(QTextFormat::BlockCodeFence,
-                                    QStringLiteral("```"));
+            // QTextFormat::BlockCodeFence stores the fence character, not the
+            // complete Markdown delimiter. Qt's Markdown serializer chooses the
+            // required fence length when writing the document back.
+            blockFormat.setProperty(QTextFormat::BlockCodeFence, QLatin1Char('`'));
             charFormat.setFontFixedPitch(true);
             setFontFamilyCompat(
                 charFormat,
