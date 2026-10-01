@@ -6,194 +6,25 @@
 
 #include "ThemeIconWidgets.h"
 
-#include <algorithm>
-
-#include <QAbstractButton>
 #include <QApplication>
 #include <QColor>
 #include <QEvent>
-#include <QFontMetrics>
+#include <QIcon>
 #include <QPainter>
 #include <QPalette>
-#include <QToolButton>
-#include <QWidget>
 
 #include "BusyIndicator.h"
 #include "IconUtils.h"
-#include "SvgRasterCache.h"
 
 namespace Mattermost {
 namespace {
 
 constexpr qreal RestingOpacity = 0.8;
 constexpr int BusyIndicatorExtent = 18;
-constexpr qreal FormattingToolbarOpticalScale = 1.28;
-constexpr int FormattingToolbarButtonPadding = 8;
-constexpr int FormattingToolbarHorizontalPadding = 10;
 
 QString tintKey(const QColor& color)
 {
     return color.name(QColor::HexArgb);
-}
-
-QString cssColor(const QColor& color)
-{
-    return QStringLiteral("rgba(%1,%2,%3,%4)")
-        .arg(color.red())
-        .arg(color.green())
-        .arg(color.blue())
-        .arg(color.alpha());
-}
-
-bool isFormattingToolbarIcon(const QString& objectName)
-{
-    return objectName == QStringLiteral("formatLinkButton")
-        || objectName == QStringLiteral("formatBulletListButton")
-        || objectName == QStringLiteral("formatNumberedListButton")
-        || objectName == QStringLiteral("messagePriorityButton");
-}
-
-bool isFormattingToolbar(const QWidget* widget)
-{
-    return widget && widget->objectName() == QStringLiteral("formattingToolbar");
-}
-
-int formattingToolbarOpticalExtent(const QWidget& widget)
-{
-#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
-    const int capHeight = widget.fontMetrics().capHeight();
-#else
-    const int capHeight = widget.fontMetrics().height() * 3 / 4;
-#endif
-    return std::max(1, qRound(capHeight * FormattingToolbarOpticalScale));
-}
-
-void syncFormattingToolButtonFont(QToolButton* button, const QFont& toolbarFont)
-{
-    if (!button) {
-        return;
-    }
-
-    // Designer gives B/I/S their own font only to carry style traits. Once a
-    // stylesheet is installed those widgets no longer reliably inherit the
-    // parent's scaled point/pixel size, so explicitly synchronize the size
-    // while preserving the local bold/italic/strike/family traits.
-    QFont font = button->font();
-    if (toolbarFont.pointSizeF() > 0.0) {
-        font.setPointSizeF(toolbarFont.pointSizeF());
-    } else if (toolbarFont.pixelSize() > 0) {
-        font.setPixelSize(toolbarFont.pixelSize());
-    }
-    if (button->font() != font) {
-        button->setFont(font);
-    }
-}
-
-void syncFormattingToolButtonAppearance(QAbstractButton* button,
-                                        const QPalette& palette,
-                                        const QFont& toolbarFont)
-{
-    auto* toolButton = qobject_cast<QToolButton*>(button);
-    if (!toolButton) {
-        return;
-    }
-
-    syncFormattingToolButtonFont(toolButton, toolbarFont);
-
-    QColor resting = palette.color(QPalette::Active, QPalette::ButtonText);
-    resting.setAlphaF(resting.alphaF() * RestingOpacity);
-    const QColor hover = palette.color(QPalette::Active, QPalette::ButtonText);
-    const QColor active = palette.color(QPalette::Highlight);
-    const QColor disabled = palette.color(QPalette::Disabled, QPalette::ButtonText);
-
-    const QString style = QStringLiteral(
-        "QToolButton {"
-        " border: none;"
-        " outline: none;"
-        " background: transparent;"
-        " padding: 0px;"
-        " color: %1;"
-        "}"
-        "QToolButton:hover:enabled {"
-        " border: none;"
-        " background: transparent;"
-        " color: %2;"
-        "}"
-        "QToolButton:pressed:enabled, QToolButton:checked:enabled {"
-        " border: none;"
-        " background: transparent;"
-        " color: %3;"
-        "}"
-        "QToolButton:disabled {"
-        " border: none;"
-        " background: transparent;"
-        " color: %4;"
-        "}")
-        .arg(cssColor(resting),
-             cssColor(hover),
-             cssColor(active),
-             cssColor(disabled));
-
-    if (toolButton->styleSheet() != style) {
-        toolButton->setStyleSheet(style);
-    }
-}
-
-void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
-{
-    if (!isFormattingToolbar(toolbar)) {
-        return;
-    }
-
-    const QFont toolbarFont = toolbar->font();
-    const QFontMetrics metrics(toolbarFont);
-    const int buttonHeight = std::max(
-        28, metrics.height() + FormattingToolbarButtonPadding);
-    const QPalette currentPalette = qApp ? qApp->palette() : toolbar->palette();
-
-    const auto buttons = toolbar->findChildren<QAbstractButton*>(
-        QString(), Qt::FindDirectChildrenOnly);
-    for (QAbstractButton* button : buttons) {
-        if (!button) {
-            continue;
-        }
-
-        syncFormattingToolButtonAppearance(button, currentPalette, toolbarFont);
-
-        int buttonWidth = buttonHeight;
-        if (!button->text().isEmpty()) {
-            const QFontMetrics buttonMetrics(button->font());
-            buttonWidth = std::max(
-                buttonHeight,
-                buttonMetrics.horizontalAdvance(button->text())
-                    + FormattingToolbarHorizontalPadding);
-        }
-
-        const QSize target(buttonWidth, buttonHeight);
-        if (button->minimumSize() != target
-            || button->maximumSize() != target) {
-            button->setMinimumSize(target);
-            button->setMaximumSize(target);
-            button->updateGeometry();
-        }
-    }
-}
-
-void tintPixmap(QPixmap& pixmap, const QColor& color)
-{
-    if (pixmap.isNull()) {
-        return;
-    }
-
-    const qreal dpr = std::max<qreal>(1.0, pixmap.devicePixelRatioF());
-    QPainter painter(&pixmap);
-    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-    painter.fillRect(
-        QRectF(0.0,
-               0.0,
-               pixmap.width() / dpr,
-               pixmap.height() / dpr),
-        color);
 }
 
 } // namespace
@@ -264,7 +95,6 @@ void ThemeIconButton::invalidateRenderedIcon()
     _renderedResource.clear();
     _renderedSize = {};
     _renderedPixmap = {};
-    _renderedDprMilli = 0;
 }
 
 bool ThemeIconButton::event(QEvent* event)
@@ -277,13 +107,8 @@ bool ThemeIconButton::event(QEvent* event)
         syncBusyAnimation();
     } else if (type == QEvent::PaletteChange
                || type == QEvent::ApplicationPaletteChange
-               || type == QEvent::StyleChange
-               || type == QEvent::FontChange
-               || type == QEvent::ScreenChangeInternal) {
+               || type == QEvent::StyleChange) {
         invalidateRenderedIcon();
-        if (isFormattingToolbar(parentWidget())) {
-            syncFormattingToolbarButtonGeometry(parentWidget());
-        }
         update();
     } else if (type == QEvent::Enter
                || type == QEvent::Leave
@@ -297,16 +122,11 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
 
-    if (isFormattingToolbar(parentWidget())) {
-        syncFormattingToolbarButtonGeometry(parentWidget());
-    }
-
     const QPalette currentPalette = qApp ? qApp->palette() : palette();
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     if (isBusy()) {
         QColor busyColor = currentPalette.color(QPalette::WindowText);
@@ -332,41 +152,20 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
 
     const QString resource = symbolicResource();
     if (!resource.isEmpty()) {
-        const bool formattingIcon = isFormattingToolbarIcon(objectName());
-        const QSize targetSize = formattingIcon
-            ? QSize(formattingToolbarOpticalExtent(*this),
-                    formattingToolbarOpticalExtent(*this))
-            : (iconSize().isValid() ? iconSize() : QSize(24, 24));
-        const qreal currentDpr = std::max<qreal>(1.0, devicePixelRatioF());
-        const int currentDprMilli = qRound(currentDpr * 1000.0);
+        const QSize targetSize = iconSize().isValid() ? iconSize() : QSize(24, 24);
         const QString desiredTint = tintKey(color);
         if (_renderedTint != desiredTint
             || _renderedResource != resource
-            || _renderedSize != targetSize
-            || _renderedDprMilli != currentDprMilli) {
-            if (formattingIcon) {
-                _renderedPixmap = SvgRasterCache::instance().raster(
-                    resource, targetSize, currentDpr);
-                tintPixmap(_renderedPixmap, color);
-            } else {
-                _renderedPixmap =
-                    IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
-            }
+            || _renderedSize != targetSize) {
+            _renderedPixmap = IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
             _renderedTint = desiredTint;
             _renderedResource = resource;
             _renderedSize = targetSize;
-            _renderedDprMilli = currentDprMilli;
         }
 
         if (!_renderedPixmap.isNull()) {
-            const qreal dpr = std::max<qreal>(
-                1.0, _renderedPixmap.devicePixelRatioF());
-            const QSizeF logicalSize(
-                _renderedPixmap.width() / dpr,
-                _renderedPixmap.height() / dpr);
-            const QPointF topLeft(
-                (width() - logicalSize.width()) / 2.0,
-                (height() - logicalSize.height()) / 2.0);
+            const QPoint topLeft((width() - _renderedPixmap.width()) / 2,
+                                 (height() - _renderedPixmap.height()) / 2);
             painter.drawPixmap(topLeft, _renderedPixmap);
         }
         return;
