@@ -77,6 +77,75 @@ void setFontFamilyCompat(QTextCharFormat& format, const QString& family)
 #endif
 }
 
+bool inlineStyleEnabled(const QTextCharFormat& format, InlineStyle style)
+{
+    switch (style) {
+    case InlineStyle::Bold:
+        return format.fontWeight() >= QFont::Bold;
+    case InlineStyle::Italic:
+        return format.fontItalic();
+    case InlineStyle::StrikeOut:
+        return format.fontStrikeOut();
+    case InlineStyle::Code:
+        return format.fontFixedPitch();
+    }
+    return false;
+}
+
+QTextCharFormat inlineToggleFormat(QTextEdit& editor,
+                                   InlineStyle style,
+                                   bool enabled)
+{
+    QTextCharFormat format;
+    switch (style) {
+    case InlineStyle::Bold:
+        format.setFontWeight(enabled ? QFont::Bold : QFont::Normal);
+        break;
+    case InlineStyle::Italic:
+        format.setFontItalic(enabled);
+        break;
+    case InlineStyle::StrikeOut:
+        format.setFontStrikeOut(enabled);
+        break;
+    case InlineStyle::Code:
+        format.setFontFixedPitch(enabled);
+        setFontFamilyCompat(
+            format,
+            enabled
+                ? QFontDatabase::systemFont(QFontDatabase::FixedFont).family()
+                : editor.font().family());
+        break;
+    }
+    return format;
+}
+
+bool wholeSelectionHasInlineStyle(QTextEdit& editor,
+                                  const QTextCursor& selection,
+                                  InlineStyle style)
+{
+    if (!selection.hasSelection()) {
+        return inlineStyleEnabled(selection.charFormat(), style);
+    }
+
+    const int start = selection.selectionStart();
+    const int end = selection.selectionEnd();
+    bool sawText = false;
+    for (int position = start; position < end; ++position) {
+        const QChar character = editor.document()->characterAt(position);
+        if (character == QChar::ParagraphSeparator) {
+            continue;
+        }
+        sawText = true;
+        QTextCursor probe(editor.document());
+        probe.setPosition(position);
+        probe.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+        if (!inlineStyleEnabled(probe.charFormat(), style)) {
+            return false;
+        }
+    }
+    return sawText;
+}
+
 void applyBlockFormat(const QTextBlock& block, const QTextBlockFormat& format)
 {
     QTextCursor cursor(block);
@@ -292,6 +361,23 @@ bool handleCodeKey(QTextEdit& editor, QKeyEvent& event)
 }
 
 } // namespace
+
+bool toggleInline(QTextEdit& editor, InlineStyle style)
+{
+    QTextCursor cursor = editor.textCursor();
+    const bool enabled = !wholeSelectionHasInlineStyle(editor, cursor, style);
+    const QTextCharFormat format = inlineToggleFormat(editor, style, enabled);
+
+    if (cursor.hasSelection()) {
+        cursor.beginEditBlock();
+        cursor.mergeCharFormat(format);
+        cursor.endEditBlock();
+        editor.setTextCursor(cursor);
+    } else {
+        editor.mergeCurrentCharFormat(format);
+    }
+    return true;
+}
 
 bool toggleQuote(QTextEdit& editor)
 {
