@@ -117,3 +117,5 @@ private:
 };
 
 } /* namespace Mattermost */
+
+#include "MessageTextEditWidgetInteraction.inl"
