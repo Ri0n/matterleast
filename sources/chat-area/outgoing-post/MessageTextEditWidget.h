@@ -26,6 +26,9 @@
 
 #include "widgets/InteractiveTextEdit.h"
 
+class QContextMenuEvent;
+class QFocusEvent;
+class QMimeData;
 class QResizeEvent;
 class QTextCharFormat;
 
@@ -33,6 +36,7 @@ namespace Mattermost {
 
 class MessageTextEditWidget: public InteractiveTextEdit {
     Q_OBJECT
+    Q_PROPERTY(bool richTextEditing READ isRichTextEditing WRITE setRichTextEditing)
 public:
     enum class EditingMode {
         Markdown,
@@ -62,6 +66,7 @@ public:
 
 public slots:
     void setRichTextEditing(bool enabled);
+    void setFormattingToolbarPreferredVisible(bool visible);
     void toggleBold();
     void toggleItalic();
     void toggleStrikeOut();
@@ -77,8 +82,13 @@ signals:
     void escapePressed();
     void upArrowPressed();
     void editingModeChanged(Mattermost::MessageTextEditWidget::EditingMode mode);
+    void formattingToolbarVisibilityChanged(bool visible);
 
 protected:
+    void contextMenuEvent(QContextMenuEvent* event) override;
+    void focusInEvent(QFocusEvent* event) override;
+    void focusOutEvent(QFocusEvent* event) override;
+    void insertFromMimeData(const QMimeData* source) override;
     void resizeEvent(QResizeEvent* event) override;
 
 private:
@@ -87,11 +97,17 @@ private:
     void prefixMarkdownLines(const QString& prefix, bool numbered = false);
     void applyRichCharFormat(const QTextCharFormat& format);
     void markRichDocumentChanged();
+    void setFormattingToolbarVisible(bool visible);
+    bool formattingToolbarPreferredVisible() const;
+    bool editLinkAtCursor();
+    bool removeLinkAtCursor();
+    bool selectionContainsLink() const;
 
     EditingMode editingMode_ = EditingMode::Markdown;
     QString richSourceMarkdown_;
     bool richDocumentDirty_ = false;
     bool loadingMarkdown_ = false;
+    bool formattingToolbarVisible_ = false;
 };
 
 } /* namespace Mattermost */
