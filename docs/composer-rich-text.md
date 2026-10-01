@@ -31,6 +31,8 @@ Toolbar visibility has a persistent *show on focus* preference (`composer/format
 
 The toolbar exposes bold, italic, strike-through, inline code, code blocks, links, quotes, bulleted lists, numbered lists, and message priority. In Markdown mode formatting commands edit Markdown syntax directly. In Rich Text mode they change the `QTextDocument` formatting and mark the source snapshot dirty so subsequent serialization reflects the edit.
 
+The toolbar is only a command surface. Detailed structural behavior for lists, quotes, code blocks, tables, send-key precedence, deletion/navigation and undo is specified in [`composer-rich-text-interactions.md`](composer-rich-text-interactions.md). New formatting features must define their interaction semantics there before being exposed in the toolbar.
+
 The formatting toolbar expands and collapses by animating its real layout-height slot with the same quick-bar pattern used by reaction actions: the slot stays in the layout at height zero when collapsed, expansion uses `OutCubic`, collapse uses `InCubic`, both run for 110 ms, and an interrupted animation continues from the current height.
 
 Conventional keyboard shortcuts are handled at the editor layer where practical (`Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K`, and `Ctrl/Cmd+Shift+X`). Completion-popup navigation keeps priority over ordinary navigation keys.
