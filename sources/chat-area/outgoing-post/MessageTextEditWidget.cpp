@@ -28,13 +28,19 @@
 #include <cmath>
 
 #include <QAbstractTextDocumentLayout>
+#include <QContextMenuEvent>
 #include <QDebug>
+#include <QFocusEvent>
 #include <QFontDatabase>
 #include <QFrame>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QLineEdit>
+#include <QMenu>
+#include <QMimeData>
 #include <QPalette>
+#include <QRegularExpression>
 #include <QResizeEvent>
 #include <QStringList>
 #include <QTextBlock>
@@ -42,9 +48,11 @@
 #include <QTextCharFormat>
 #include <QTextDocument>
 #include <QTextFormat>
+#include <QTextFragment>
 #include <QTextList>
 #include <QTextListFormat>
 #include <QTimer>
+#include <QUrl>
 
 #include "Settings.h"
 #include "options/MLOptions.h"
@@ -53,6 +61,15 @@ namespace Mattermost {
 namespace {
 
 constexpr int ComposerMaximumHeight = 300;
+
+struct MarkdownLinkMatch {
+    int start = -1;
+    int end = -1;
+    QString label;
+    QString url;
+
+    bool isValid() const { return start >= 0 && end > start; }
+};
 
 QTextDocument::MarkdownFeatures markdownFeatures()
 {
@@ -89,6 +106,129 @@ void setFontFamilyCompat(QTextCharFormat& format, const QString& family)
 #endif
 }
 
+QString normalizedHttpUrl(const QString& text)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()
+        || QRegularExpression(QStringLiteral("\\s")).match(trimmed).hasMatch()) {
+        return {};
+    }
+
+    const QUrl url(trimmed, QUrl::StrictMode);
+    const QString scheme = url.scheme().toLower();
+    if (!url.isValid() || (scheme != QStringLiteral("http")
+                           && scheme != QStringLiteral("https"))) {
+        return {};
+    }
+    return url.toString(QUrl::FullyEncoded);
+}
+
+QString httpUrlFromMimeData(const QMimeData* source)
+{
+    if (!source) {
+        return {};
+    }
+
+    if (source->hasUrls()) {
+        const QList<QUrl> urls = source->urls();
+        if (urls.size() == 1 && !urls.first().isLocalFile()) {
+            const QString url = normalizedHttpUrl(urls.first().toString());
+            if (!url.isEmpty()) {
+                return url;
+            }
+        }
+    }
+    if (source->hasText()) {
+        return normalizedHttpUrl(source->text());
+    }
+    return {};
+}
+
+QString escapedMarkdownLinkLabel(QString label)
+{
+    label.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    label.replace(QLatin1Char('['), QStringLiteral("\\["));
+    label.replace(QLatin1Char(']'), QStringLiteral("\\]"));
+    return label;
+}
+
+MarkdownLinkMatch markdownLinkAt(const QString& text,
+                                 int selectionStart,
+                                 int selectionEnd)
+{
+    static const QRegularExpression expression(
+        QStringLiteral("\\[([^\\]\\n]+)\\]\\((https?://[^)\\s]+)\\)"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    auto it = expression.globalMatch(text);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        const int start = match.capturedStart(0);
+        const int end = match.capturedEnd(0);
+        const bool intersects = selectionStart == selectionEnd
+            ? selectionStart >= start && selectionStart <= end
+            : selectionStart < end && selectionEnd > start;
+        if (!intersects) {
+            continue;
+        }
+
+        MarkdownLinkMatch result;
+        result.start = start;
+        result.end = end;
+        result.label = match.captured(1);
+        result.url = match.captured(2);
+        return result;
+    }
+    return {};
+}
+
+bool richLinkAt(QTextDocument* document,
+                const QTextCursor& current,
+                QTextCursor* range,
+                QString* url)
+{
+    if (!document) {
+        return false;
+    }
+
+    const int selectionStart = current.hasSelection()
+        ? current.selectionStart() : current.position();
+    const int selectionEnd = current.hasSelection()
+        ? current.selectionEnd() : current.position();
+    QTextBlock block = document->findBlock(
+        qBound(0, selectionStart, std::max(0, document->characterCount() - 1)));
+
+    for (; block.isValid() && block.position() <= selectionEnd;
+         block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid() || !fragment.charFormat().isAnchor()) {
+                continue;
+            }
+            const int start = fragment.position();
+            const int end = start + fragment.length();
+            const bool intersects = selectionStart == selectionEnd
+                ? selectionStart >= start && selectionStart <= end
+                : selectionStart < end && selectionEnd > start;
+            if (!intersects) {
+                continue;
+            }
+
+            if (range) {
+                QTextCursor cursor(document);
+                cursor.setPosition(start);
+                cursor.setPosition(end, QTextCursor::KeepAnchor);
+                *range = cursor;
+            }
+            if (url) {
+                *url = fragment.charFormat().anchorHref();
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
@@ -106,11 +246,18 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
         setSubmitOnCtrlEnter(value.toBool());
     });
 
+    auto* toolbarVisible = MLOptions::instance()->optionObject<bool>(
+        COMPOSER_FORMATTING_TOOLBAR_VISIBLE,
+        COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT);
+    connect(toolbarVisible, &MLOptionObject::changed, this,
+            [this](const QVariant& value) {
+        if (hasFocus()) {
+            setFormattingToolbarVisible(value.toBool());
+        }
+    });
+
     setSubmitHandler([this] { emit enterPressed(); });
 
-    // Keep the composer visually continuous with the action row below it.
-    // BackgroundRole references remain palette-driven instead of baking the
-    // current theme color into the editor.
     setFrameShape(QFrame::NoFrame);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -125,8 +272,6 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
             richDocumentDirty_ = true;
         }
         updateHeightToContents();
-        // The block inserted by Shift+Enter may finish layout after the key
-        // event. Measure once more on the next event-loop turn.
         QTimer::singleShot(0, this, &MessageTextEditWidget::updateHeightToContents);
     });
     connect(document(), &QTextDocument::blockCountChanged, this,
@@ -191,6 +336,30 @@ void MessageTextEditWidget::setRichTextEditing(bool enabled)
     moveCursor(QTextCursor::End);
     updateHeightToContents();
     emit editingModeChanged(editingMode_);
+}
+
+bool MessageTextEditWidget::formattingToolbarPreferredVisible() const
+{
+    return MLOptions::instance()->optionObject<bool>(
+        COMPOSER_FORMATTING_TOOLBAR_VISIBLE,
+        COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT)->value().toBool();
+}
+
+void MessageTextEditWidget::setFormattingToolbarVisible(bool visible)
+{
+    if (formattingToolbarVisible_ == visible) {
+        return;
+    }
+    formattingToolbarVisible_ = visible;
+    emit formattingToolbarVisibilityChanged(visible);
+}
+
+void MessageTextEditWidget::setFormattingToolbarPreferredVisible(bool visible)
+{
+    MLOptions::instance()->optionObject<bool>(
+        COMPOSER_FORMATTING_TOOLBAR_VISIBLE,
+        COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT)->setValue(visible);
+    setFormattingToolbarVisible(hasFocus() && visible);
 }
 
 void MessageTextEditWidget::markRichDocumentChanged()
@@ -392,8 +561,107 @@ void MessageTextEditWidget::toggleNumberedList()
     markRichDocumentChanged();
 }
 
+bool MessageTextEditWidget::editLinkAtCursor()
+{
+    if (isRichTextEditing()) {
+        QTextCursor range;
+        QString currentUrl;
+        if (!richLinkAt(document(), textCursor(), &range, &currentUrl)) {
+            return false;
+        }
+
+        bool accepted = false;
+        const QString url = QInputDialog::getText(
+            this, tr("Edit link"), tr("URL:"), QLineEdit::Normal,
+            currentUrl, &accepted).trimmed();
+        if (!accepted || url.isEmpty()) {
+            return true;
+        }
+
+        QTextCharFormat format;
+        format.setAnchor(true);
+        format.setAnchorHref(url);
+        format.setFontUnderline(true);
+        range.mergeCharFormat(format);
+        setTextCursor(range);
+        markRichDocumentChanged();
+        return true;
+    }
+
+    const QTextCursor current = textCursor();
+    const MarkdownLinkMatch link = markdownLinkAt(
+        QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd());
+    if (!link.isValid()) {
+        return false;
+    }
+
+    bool accepted = false;
+    const QString url = QInputDialog::getText(
+        this, tr("Edit link"), tr("URL:"), QLineEdit::Normal,
+        link.url, &accepted).trimmed();
+    if (!accepted || url.isEmpty()) {
+        return true;
+    }
+
+    QTextCursor replacement(document());
+    replacement.setPosition(link.start);
+    replacement.setPosition(link.end, QTextCursor::KeepAnchor);
+    replacement.insertText(QStringLiteral("[%1](%2)").arg(link.label, url));
+    setTextCursor(replacement);
+    return true;
+}
+
+bool MessageTextEditWidget::removeLinkAtCursor()
+{
+    if (isRichTextEditing()) {
+        QTextCursor range;
+        if (!richLinkAt(document(), textCursor(), &range, nullptr)) {
+            return false;
+        }
+        QTextCharFormat format;
+        format.setAnchor(false);
+        format.setAnchorHref(QString());
+        format.setFontUnderline(false);
+        range.mergeCharFormat(format);
+        setTextCursor(range);
+        markRichDocumentChanged();
+        return true;
+    }
+
+    const QTextCursor current = textCursor();
+    const MarkdownLinkMatch link = markdownLinkAt(
+        QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd());
+    if (!link.isValid()) {
+        return false;
+    }
+    QTextCursor replacement(document());
+    replacement.setPosition(link.start);
+    replacement.setPosition(link.end, QTextCursor::KeepAnchor);
+    replacement.insertText(link.label);
+    setTextCursor(replacement);
+    return true;
+}
+
+bool MessageTextEditWidget::selectionContainsLink() const
+{
+    const QTextCursor current = textCursor();
+    if (!current.hasSelection()) {
+        return false;
+    }
+    if (isRichTextEditing()) {
+        return richLinkAt(document(), current, nullptr, nullptr);
+    }
+    return markdownLinkAt(
+        QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd())
+        .isValid();
+}
+
 void MessageTextEditWidget::insertLink()
 {
+    if (editLinkAtCursor()) {
+        return;
+    }
+
     bool accepted = false;
     const QString url = QInputDialog::getText(
         this, tr("Insert link"), tr("URL:"), QLineEdit::Normal,
@@ -410,7 +678,8 @@ void MessageTextEditWidget::insertLink()
     }
 
     if (!isRichTextEditing()) {
-        cursor.insertText(QStringLiteral("[%1](%2)").arg(label, url));
+        cursor.insertText(QStringLiteral("[%1](%2)")
+                              .arg(escapedMarkdownLinkLabel(label), url));
         setTextCursor(cursor);
         return;
     }
@@ -428,9 +697,117 @@ void MessageTextEditWidget::insertLink()
     markRichDocumentChanged();
 }
 
+void MessageTextEditWidget::insertFromMimeData(const QMimeData* source)
+{
+    QTextCursor cursor = textCursor();
+    const QString url = httpUrlFromMimeData(source);
+    if (!url.isEmpty() && cursor.hasSelection() && !selectionContainsLink()) {
+        QString label = cursor.selectedText();
+        label.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        if (!label.contains(QLatin1Char('\n'))) {
+            if (isRichTextEditing()) {
+                QTextCharFormat format;
+                format.setAnchor(true);
+                format.setAnchorHref(url);
+                format.setFontUnderline(true);
+                cursor.mergeCharFormat(format);
+                setTextCursor(cursor);
+                markRichDocumentChanged();
+            } else {
+                cursor.insertText(QStringLiteral("[%1](%2)")
+                                      .arg(escapedMarkdownLinkLabel(label), url));
+                setTextCursor(cursor);
+            }
+            return;
+        }
+    }
+
+    if (source) {
+        InteractiveTextEdit::insertFromMimeData(source);
+    }
+}
+
+void MessageTextEditWidget::contextMenuEvent(QContextMenuEvent* event)
+{
+    if (!event) {
+        return;
+    }
+
+    QMenu* menu = createStandardContextMenu();
+    if (!menu) {
+        return;
+    }
+
+    bool hasLink = false;
+    if (isRichTextEditing()) {
+        hasLink = richLinkAt(document(), textCursor(), nullptr, nullptr);
+    } else {
+        const QTextCursor current = textCursor();
+        hasLink = markdownLinkAt(
+            QTextEdit::toPlainText(), current.selectionStart(), current.selectionEnd())
+            .isValid();
+    }
+
+    if (hasLink) {
+        menu->addSeparator();
+        QAction* editLinkAction = menu->addAction(tr("Edit link…"));
+        connect(editLinkAction, &QAction::triggered,
+                this, [this] { editLinkAtCursor(); });
+        QAction* removeLinkAction = menu->addAction(tr("Remove link"));
+        connect(removeLinkAction, &QAction::triggered,
+                this, [this] { removeLinkAtCursor(); });
+    }
+
+    menu->addSeparator();
+    QAction* toolbarAction = menu->addAction(
+        formattingToolbarVisible_
+            ? tr("Hide formatting toolbar")
+            : tr("Show formatting toolbar"));
+    connect(toolbarAction, &QAction::triggered, this, [this] {
+        setFormattingToolbarPreferredVisible(!formattingToolbarVisible_);
+    });
+
+    QAction* modeAction = menu->addAction(
+        isRichTextEditing() ? tr("Edit Markdown source")
+                            : tr("Use rich text editor"));
+    connect(modeAction, &QAction::triggered, this, [this] {
+        setRichTextEditing(!isRichTextEditing());
+    });
+
+    menu->exec(event->globalPos());
+    delete menu;
+}
+
+void MessageTextEditWidget::focusInEvent(QFocusEvent* event)
+{
+    InteractiveTextEdit::focusInEvent(event);
+    setFormattingToolbarVisible(formattingToolbarPreferredVisible());
+}
+
+void MessageTextEditWidget::focusOutEvent(QFocusEvent* event)
+{
+    setFormattingToolbarVisible(false);
+    InteractiveTextEdit::focusOutEvent(event);
+}
+
 void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
 {
     if (!event) {
+        return;
+    }
+
+    const Qt::KeyboardModifiers modifiers = event->modifiers();
+    const bool primaryOnly = hasPrimaryModifier(modifiers)
+        && !modifiers.testFlag(Qt::ShiftModifier)
+        && !modifiers.testFlag(Qt::AltModifier);
+    if (primaryOnly && event->key() == Qt::Key_Up) {
+        setFormattingToolbarPreferredVisible(true);
+        event->accept();
+        return;
+    }
+    if (primaryOnly && event->key() == Qt::Key_Down) {
+        setFormattingToolbarPreferredVisible(false);
+        event->accept();
         return;
     }
 
@@ -448,7 +825,6 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
             return;
         }
 
-        const Qt::KeyboardModifiers modifiers = event->modifiers();
         if (hasPrimaryModifier(modifiers)
             && event->key() == Qt::Key_K
             && !modifiers.testFlag(Qt::AltModifier)) {
@@ -505,10 +881,6 @@ void MessageTextEditWidget::updateHeightToContents()
         oneLineHeight, ComposerMaximumHeight);
 
     if (height() != wantedHeight) {
-        // Do not derive the next height limit from maximumHeight():
-        // setFixedHeight() deliberately changes maximumHeight() to the current
-        // value, which would otherwise permanently cap the editor at its first
-        // one-line measurement.
         setFixedHeight(wantedHeight);
         updateGeometry();
     }
