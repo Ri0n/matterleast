@@ -152,7 +152,6 @@ QRectF blockViewportRect(QTextEdit& editor, const QTextBlock& block)
 
 template<typename Predicate, typename PaintGroup>
 void paintBlockGroups(QTextEdit& editor,
-                      QPainter& painter,
                       Predicate predicate,
                       PaintGroup paintGroup)
 {
@@ -289,9 +288,6 @@ void ensureCodeWidgetPresentation(QPlainTextEdit* editor)
     palette.setColor(QPalette::WindowText, codeBorder());
     editor->setPalette(palette);
 
-    // Use QFrame's own chrome instead of a transparent child overlay. This is
-    // reliable across X11/Wayland styles and keeps the boundary attached to the
-    // actual received-post code widget.
     editor->setFrameShape(QFrame::Box);
     editor->setFrameShadow(QFrame::Plain);
     editor->setLineWidth(1);
@@ -382,7 +378,7 @@ void paintRichTextBlockDecorations(QTextEdit& editor, QPainter& painter)
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     paintBlockGroups(
-        editor, painter,
+        editor,
         [](const QTextBlock& block) { return isStructuralCodeBlock(block); },
         [&editor, &painter](QRectF rect) {
             rect.setLeft(0.5);
@@ -394,7 +390,7 @@ void paintRichTextBlockDecorations(QTextEdit& editor, QPainter& painter)
         });
 
     paintBlockGroups(
-        editor, painter,
+        editor,
         [](const QTextBlock& block) { return isQuoteBlock(block); },
         [&editor, &painter](QRectF rect) {
             const QRectF barRect(
