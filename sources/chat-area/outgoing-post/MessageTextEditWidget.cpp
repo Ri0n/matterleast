@@ -32,7 +32,6 @@
 #include <QContextMenuEvent>
 #include <QDebug>
 #include <QFocusEvent>
-#include <QFontDatabase>
 #include <QFrame>
 #include <QInputDialog>
 #include <QKeyEvent>
@@ -91,15 +90,6 @@ bool hasPrimaryModifier(Qt::KeyboardModifiers modifiers)
     return modifiers.testFlag(Qt::MetaModifier);
 #else
     return modifiers.testFlag(Qt::ControlModifier);
-#endif
-}
-
-void setFontFamilyCompat(QTextCharFormat& format, const QString& family)
-{
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    format.setFontFamilies(QStringList {family});
-#else
-    format.setFontFamily(family);
 #endif
 }
 
@@ -433,10 +423,10 @@ void MessageTextEditWidget::toggleBold()
         wrapMarkdownSelection(QStringLiteral("**"), QStringLiteral("**"));
         return;
     }
-    QTextCharFormat format;
-    const bool bold = currentCharFormat().fontWeight() >= QFont::Bold;
-    format.setFontWeight(bold ? QFont::Normal : QFont::Bold);
-    applyRichCharFormat(format);
+    if (RichTextEditorCommands::toggleInline(
+            *this, RichTextEditorCommands::InlineStyle::Bold)) {
+        markRichDocumentChanged();
+    }
 }
 
 void MessageTextEditWidget::toggleItalic()
@@ -445,9 +435,10 @@ void MessageTextEditWidget::toggleItalic()
         wrapMarkdownSelection(QStringLiteral("_"), QStringLiteral("_"));
         return;
     }
-    QTextCharFormat format;
-    format.setFontItalic(!currentCharFormat().fontItalic());
-    applyRichCharFormat(format);
+    if (RichTextEditorCommands::toggleInline(
+            *this, RichTextEditorCommands::InlineStyle::Italic)) {
+        markRichDocumentChanged();
+    }
 }
 
 void MessageTextEditWidget::toggleStrikeOut()
@@ -456,9 +447,10 @@ void MessageTextEditWidget::toggleStrikeOut()
         wrapMarkdownSelection(QStringLiteral("~~"), QStringLiteral("~~"));
         return;
     }
-    QTextCharFormat format;
-    format.setFontStrikeOut(!currentCharFormat().fontStrikeOut());
-    applyRichCharFormat(format);
+    if (RichTextEditorCommands::toggleInline(
+            *this, RichTextEditorCommands::InlineStyle::StrikeOut)) {
+        markRichDocumentChanged();
+    }
 }
 
 void MessageTextEditWidget::toggleInlineCode()
@@ -467,15 +459,10 @@ void MessageTextEditWidget::toggleInlineCode()
         wrapMarkdownSelection(QStringLiteral("`"), QStringLiteral("`"));
         return;
     }
-    QTextCharFormat format;
-    const bool fixed = currentCharFormat().fontFixedPitch();
-    format.setFontFixedPitch(!fixed);
-    if (!fixed) {
-        setFontFamilyCompat(
-            format,
-            QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
+    if (RichTextEditorCommands::toggleInline(
+            *this, RichTextEditorCommands::InlineStyle::Code)) {
+        markRichDocumentChanged();
     }
-    applyRichCharFormat(format);
 }
 
 void MessageTextEditWidget::toggleCodeBlock()
