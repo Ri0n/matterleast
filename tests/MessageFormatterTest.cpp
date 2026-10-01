@@ -106,6 +106,25 @@ class MessageFormatterTest : public QObject
     Q_OBJECT
 
 private slots:
+    void markdownListRemainsStructural()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        QTextDocument document;
+        MessageFormatter::buildMarkdownDocument(
+            document, QStringLiteral("- first\n- second"));
+
+        const QTextBlock first = document.firstBlock();
+        const QTextBlock second = first.next();
+        QVERIFY(first.isValid());
+        QVERIFY(second.isValid());
+        QVERIFY2(first.textList(), qPrintable(document.toPlainText()));
+        QVERIFY2(second.textList(), qPrintable(document.toPlainText()));
+        QCOMPARE(second.textList(), first.textList());
+#else
+        QSKIP("Qt Markdown renderer is enabled starting with Qt 5.14");
+#endif
+    }
+
     void multilineSingleBacktickCodeBecomesPreformattedBlock()
     {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
