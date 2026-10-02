@@ -56,6 +56,16 @@ The explicit image action also uses `OutgoingPostCreator` and the existing `Atta
 
 Internal attachment references are transport-only Markdown. `PostCreateService` is the final safety boundary: after the normal attachment upload has produced `file_id` values, it rewrites the internal URI to `/api/v4/files/<file_id>`. A missing, malformed, or unresolved internal reference fails locally and must never be included in an HTTP create/edit request.
 
+### Delivered inline attachments
+
+After delivery, the stored message contains ordinary Mattermost Markdown such as `![label](/api/v4/files/<file_id>)`; no MatterLeast-only marker is persisted on the server.
+
+`MessageContentWidget` treats a Markdown image as a post attachment only when the referenced `file_id` is also one of that post's image files. This prevents an arbitrary image URL or an ordinary file link from claiming a post attachment. Recognition is performed on the parsed `QTextImageFormat`, so text that merely looks like image Markdown inside code is not treated as an inline attachment.
+
+The actual image bytes are loaded through the existing `AttachmentService`, not through `QTextDocument`'s unauthenticated URL loader. The renderer requests the Mattermost preview first and falls back to the thumbnail, using the service's authenticated requests, network-cache preference, and in-flight request coalescing. Image decoding runs off the GUI thread; the decoded image is fitted to the configured preview rectangle and current text viewport, then installed as a `QTextDocument::ImageResource` under the original `/api/v4/files/<file_id>` URL.
+
+`PostWidget` owns the presentation contract between message content and the attachment list. It supplies the set of image `file_id` candidates to `MessageContentWidget`; IDs actually materialized as Markdown images are then considered claimed. `PostAttachmentList` omits claimed files, so an inline image is rendered at its Markdown position rather than appearing a second time below the message. The attachment-list shell stays hidden when every attached file was claimed inline.
+
 When multiline plain text is pasted into an existing Markdown quote line, every inserted line after the first inherits that line's quote prefix. Nested quote prefixes such as `> > ` are preserved, CRLF input is normalized to LF, and a trailing pasted newline leaves the caret on a quoted blank line so the quote can continue naturally. Multiline replacements spanning multiple existing lines are left to the ordinary paste path rather than guessing a single quote depth.
 
 ## Message priority
@@ -68,4 +78,4 @@ Priority metadata is staged by `pending_post_id` in `PostCreateService`, so retr
 
 ## Rendering boundary
 
-This feature must not change how received messages are rendered. `MessageFormatter` and `MessageContentWidget` are independent of the composer formatting toolbar. Changes to raw Markdown editing should therefore not require message-log rendering changes.
+Raw-Markdown editing and the formatting toolbar remain independent of ordinary received-message formatting. The one post-aware bridge required by uploaded inline images is deliberately narrow: standard Mattermost `/api/v4/files/<file_id>` image nodes are resolved through the authenticated attachment service and the same claimed file IDs are suppressed from the separate attachment list. No WYSIWYG/editor state is consumed by the message-log renderer.
