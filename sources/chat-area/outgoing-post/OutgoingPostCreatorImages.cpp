@@ -34,7 +34,7 @@ void OutgoingPostCreator::insertImages()
     }
 
     const int previousCount = attachmentList
-        ? attachmentList->attachments().size() : 0;
+        ? static_cast<int>(attachmentList->attachments().size()) : 0;
     QStringList attachmentFiles = files;
     createAttachmentList(attachmentFiles);
     if (!attachmentList) {
@@ -58,12 +58,13 @@ void OutgoingPostCreator::insertImages()
     }
 
     const QList<OutgoingAttachmentItem> items = attachmentList->attachments();
-    if (previousCount >= items.size()) {
+    const int itemCount = static_cast<int>(items.size());
+    if (previousCount >= itemCount) {
         return;
     }
 
     QStringList snippets;
-    for (int index = previousCount; index < items.size(); ++index) {
+    for (int index = previousCount; index < itemCount; ++index) {
         const OutgoingAttachmentItem& item = items.at(index);
         snippets.push_back(LocalAttachmentMarkdown::image(
             QFileInfo(item.path).fileName(), item.id, index));
