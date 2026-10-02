@@ -8,12 +8,15 @@
 
 #include <algorithm>
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QColor>
 #include <QEvent>
+#include <QFontMetrics>
 #include <QIcon>
 #include <QPainter>
 #include <QPalette>
+#include <QWidget>
 
 #include "BusyIndicator.h"
 #include "IconUtils.h"
@@ -24,6 +27,9 @@ namespace {
 
 constexpr qreal RestingOpacity = 0.8;
 constexpr int BusyIndicatorExtent = 18;
+constexpr qreal FormattingToolbarOpticalScale = 1.28;
+constexpr int FormattingToolbarButtonPadding = 8;
+constexpr int FormattingToolbarHorizontalPadding = 10;
 
 QString tintKey(const QColor& color)
 {
@@ -39,14 +45,78 @@ bool isFormattingToolbarIcon(const QString& objectName)
         || objectName == QStringLiteral("messagePriorityButton");
 }
 
-bool isFormattingToolbarGlyph(const QString& objectName)
+bool isFormattingToolbar(const QWidget* widget)
 {
-    return objectName == QStringLiteral("formatBoldButton")
-        || objectName == QStringLiteral("formatItalicButton")
-        || objectName == QStringLiteral("formatStrikeButton")
-        || objectName == QStringLiteral("formatInlineCodeButton")
-        || objectName == QStringLiteral("formatCodeBlockButton")
-        || objectName == QStringLiteral("formatQuoteButton");
+    return widget && widget->objectName() == QStringLiteral("formattingToolbar");
+}
+
+int formattingToolbarOpticalExtent(const QWidget& widget)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
+    const int capHeight = widget.fontMetrics().capHeight();
+#else
+    const int capHeight = widget.fontMetrics().height() * 3 / 4;
+#endif
+    return std::max(1, qRound(capHeight * FormattingToolbarOpticalScale));
+}
+
+void syncFormattingButtonFont(QAbstractButton* button, const QFont& toolbarFont)
+{
+    if (!button) {
+        return;
+    }
+
+    // Individual toolbar buttons carry local traits (bold/italic/strike), but
+    // their size must follow the toolbar font. Designer-local fonts otherwise
+    // stop inheriting application font scaling and drift away from SVG icons.
+    QFont font = button->font();
+    if (toolbarFont.pointSizeF() > 0.0) {
+        font.setPointSizeF(toolbarFont.pointSizeF());
+    } else if (toolbarFont.pixelSize() > 0) {
+        font.setPixelSize(toolbarFont.pixelSize());
+    }
+    if (button->font() != font) {
+        button->setFont(font);
+    }
+}
+
+void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
+{
+    if (!isFormattingToolbar(toolbar)) {
+        return;
+    }
+
+    const QFont toolbarFont = toolbar->font();
+    const QFontMetrics metrics(toolbarFont);
+    const int buttonHeight = std::max(
+        28, metrics.height() + FormattingToolbarButtonPadding);
+
+    const auto buttons = toolbar->findChildren<QAbstractButton*>(
+        QString(), Qt::FindDirectChildrenOnly);
+    for (QAbstractButton* button : buttons) {
+        if (!button) {
+            continue;
+        }
+
+        syncFormattingButtonFont(button, toolbarFont);
+
+        int buttonWidth = buttonHeight;
+        if (!button->text().isEmpty()) {
+            const QFontMetrics buttonMetrics(button->font());
+            buttonWidth = std::max(
+                buttonHeight,
+                buttonMetrics.horizontalAdvance(button->text())
+                    + FormattingToolbarHorizontalPadding);
+        }
+
+        const QSize target(buttonWidth, buttonHeight);
+        if (button->minimumSize() != target
+            || button->maximumSize() != target) {
+            button->setMinimumSize(target);
+            button->setMaximumSize(target);
+            button->updateGeometry();
+        }
+    }
 }
 
 void tintPixmap(QPixmap& pixmap, const QColor& color)
@@ -151,8 +221,12 @@ bool ThemeIconButton::event(QEvent* event)
     } else if (type == QEvent::PaletteChange
                || type == QEvent::ApplicationPaletteChange
                || type == QEvent::StyleChange
+               || type == QEvent::FontChange
                || type == QEvent::ScreenChangeInternal) {
         invalidateRenderedIcon();
+        if (isFormattingToolbar(parentWidget())) {
+            syncFormattingToolbarButtonGeometry(parentWidget());
+        }
         update();
     } else if (type == QEvent::Enter
                || type == QEvent::Leave
@@ -166,11 +240,16 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
 
+    if (isFormattingToolbar(parentWidget())) {
+        syncFormattingToolbarButtonGeometry(parentWidget());
+    }
+
     const QPalette currentPalette = qApp ? qApp->palette() : palette();
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     if (isBusy()) {
         QColor busyColor = currentPalette.color(QPalette::WindowText);
@@ -196,8 +275,11 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
 
     const QString resource = symbolicResource();
     if (!resource.isEmpty()) {
-        const QSize targetSize = iconSize().isValid() ? iconSize() : QSize(24, 24);
-        const bool useSvgRasterCache = isFormattingToolbarIcon(objectName());
+        const bool formattingIcon = isFormattingToolbarIcon(objectName());
+        const QSize targetSize = formattingIcon
+            ? QSize(formattingToolbarOpticalExtent(*this),
+                    formattingToolbarOpticalExtent(*this))
+            : (iconSize().isValid() ? iconSize() : QSize(24, 24));
         const qreal currentDpr = std::max<qreal>(1.0, devicePixelRatioF());
         const int currentDprMilli = qRound(currentDpr * 1000.0);
         const QString desiredTint = tintKey(color);
@@ -205,7 +287,7 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
             || _renderedResource != resource
             || _renderedSize != targetSize
             || _renderedDprMilli != currentDprMilli) {
-            if (useSvgRasterCache) {
+            if (formattingIcon) {
                 _renderedPixmap = SvgRasterCache::instance().raster(
                     resource, targetSize, currentDpr);
                 tintPixmap(_renderedPixmap, color);
@@ -234,16 +316,7 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
     }
 
     painter.setPen(color);
-    QFont drawFont = font();
-    if (isFormattingToolbarGlyph(objectName())) {
-        // Formatting glyphs share the same logical extent as the SVG-backed
-        // actions. Using the button's iconSize rather than a Designer point
-        // size keeps them visually aligned across DPI/font scaling changes.
-        const int extent = iconSize().isValid()
-            ? iconSize().height() : std::max(16, height() - 6);
-        drawFont.setPixelSize(std::max(12, extent - 3));
-    }
-    painter.setFont(drawFont);
+    painter.setFont(font());
     painter.drawText(rect(), Qt::AlignCenter, text());
 }
 
