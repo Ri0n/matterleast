@@ -24,6 +24,7 @@
 #include <QFont>
 #include <QMargins>
 #include <QPushButton>
+#include <QSet>
 #include <memory>
 #include <vector>
 
@@ -119,6 +120,23 @@ public:
 
     void addThreadButton();
     Backend& getBackend() const { return backend_; }
+
+    void prepareInlineAttachmentContext()
+    {
+        if (!messageContent) {
+            return;
+        }
+
+        QSet<QString> imageFileIds;
+        for (const BackendFile& file : post.files) {
+            if (file.mimeType.startsWith(
+                    QStringLiteral("image"), Qt::CaseInsensitive)) {
+                imageFileIds.insert(file.id);
+            }
+        }
+        messageContent->setInlineAttachmentContext(backend_, imageFileIds);
+    }
+
     bool isAttachmentRenderedInline(const QString& fileId) const
     {
         return messageContent
