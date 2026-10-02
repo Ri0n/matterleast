@@ -135,6 +135,11 @@ public:
             }
         }
         messageContent->setInlineAttachmentContext(backend_, imageFileIds);
+
+        // setInlineAttachmentContext() rematerializes the QTextBrowser children
+        // when a message is already present. Reattach PostWidget-owned link,
+        // mention and context-menu behavior to those replacement browsers.
+        connectMessageLinks();
     }
 
     bool isAttachmentRenderedInline(const QString& fileId) const
