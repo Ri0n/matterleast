@@ -33,9 +33,20 @@ QString tintKey(const QColor& color)
 bool isFormattingToolbarIcon(const QString& objectName)
 {
     return objectName == QStringLiteral("formatLinkButton")
+        || objectName == QStringLiteral("formatImageButton")
         || objectName == QStringLiteral("formatBulletListButton")
         || objectName == QStringLiteral("formatNumberedListButton")
         || objectName == QStringLiteral("messagePriorityButton");
+}
+
+bool isFormattingToolbarGlyph(const QString& objectName)
+{
+    return objectName == QStringLiteral("formatBoldButton")
+        || objectName == QStringLiteral("formatItalicButton")
+        || objectName == QStringLiteral("formatStrikeButton")
+        || objectName == QStringLiteral("formatInlineCodeButton")
+        || objectName == QStringLiteral("formatCodeBlockButton")
+        || objectName == QStringLiteral("formatQuoteButton");
 }
 
 void tintPixmap(QPixmap& pixmap, const QColor& color)
@@ -77,6 +88,9 @@ QString ThemeIconButton::symbolicResource() const
     }
     if (objectName() == QStringLiteral("formatLinkButton")) {
         return QStringLiteral(":/icons/link");
+    }
+    if (objectName() == QStringLiteral("formatImageButton")) {
+        return QStringLiteral(":/icons/image");
     }
     if (objectName() == QStringLiteral("formatBulletListButton")) {
         return QStringLiteral(":/icons/format-bullet-list");
@@ -220,7 +234,16 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
     }
 
     painter.setPen(color);
-    painter.setFont(font());
+    QFont drawFont = font();
+    if (isFormattingToolbarGlyph(objectName())) {
+        // Formatting glyphs share the same logical extent as the SVG-backed
+        // actions. Using the button's iconSize rather than a Designer point
+        // size keeps them visually aligned across DPI/font scaling changes.
+        const int extent = iconSize().isValid()
+            ? iconSize().height() : std::max(16, height() - 6);
+        drawFont.setPixelSize(std::max(12, extent - 3));
+    }
+    painter.setFont(drawFont);
     painter.drawText(rect(), Qt::AlignCenter, text());
 }
 
