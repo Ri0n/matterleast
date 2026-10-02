@@ -30,9 +30,13 @@ Conventional shortcuts are handled at the editor layer where practical: `Ctrl/Cm
 
 The toolbar slot expands/collapses over 110 ms using `OutCubic` / `InCubic`, matching the interaction style used by other compact composer controls.
 
-### Toolbar icon and glyph sizing
+### Toolbar sizing and narrow windows
 
-Formatting controls use `ThemeIconButton` for both SVG-backed actions and textual glyph actions. SVGs use the button's logical `iconSize`; textual actions such as **B**, **I**, **S**, `</>`, fenced code, and quote derive their paint font from that same extent. This avoids mixing fixed SVG pixels with the platform's unrelated default tool-button font size and keeps the row visually aligned across DPI changes.
+Formatting controls use `ThemeIconButton` for both SVG-backed actions and textual glyph actions. The toolbar font is the common optical scale: SVG-backed actions derive their rendered extent from its cap height, while textual actions such as **B**, **I**, **S**, `</>`, fenced code, and quote inherit its point/pixel size while preserving local bold/italic/strike traits. Button geometry is also derived from the same font metrics. This keeps SVGs and glyphs visually aligned across application-font and DPI changes instead of mixing unrelated fixed pixel sizes.
+
+The Designer layout is only the construction-time ordering of formatting buttons. Once the toolbar is polished, those button items move into the shared height-for-width `FlowLayout`. If the composer becomes narrower than the combined fixed button widths, complete buttons wrap onto subsequent rows. They must never be squeezed into overlapping geometries or partially clipped merely to keep the toolbar on one row. Non-widget spacer items from the original horizontal layout are intentionally discarded during that transition.
+
+`FlowLayout` is a header-only UI utility so lightweight widget tests that compile their dependencies directly can use the same production layout behavior without duplicating a source/link dependency.
 
 ### SVG raster cache
 
