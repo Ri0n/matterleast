@@ -200,6 +200,27 @@ bool startsMarkdownBlock(const QString& line)
         || setextOrRule.match(line).hasMatch();
 }
 
+int quoteDepth(const QString& line, QString& content)
+{
+    int position = 0;
+    while (position < line.size() && position < 3
+           && line.at(position) == QLatin1Char(' ')) {
+        ++position;
+    }
+
+    int depth = 0;
+    while (position < line.size() && line.at(position) == QLatin1Char('>')) {
+        ++depth;
+        ++position;
+        if (position < line.size() && line.at(position) == QLatin1Char(' ')) {
+            ++position;
+        }
+    }
+
+    content = depth > 0 ? line.mid(position) : QString();
+    return depth;
+}
+
 bool containsUnescapedPipe(const QString& line)
 {
     for (int i = 0; i < line.size(); ++i) {
@@ -249,9 +270,10 @@ QString preserveUserLineBreaks(const QString& text)
                               : nextLineEnd - newline - 1);
 
         // preserveUserLineBreaks exists only to turn otherwise-soft prose
-        // newlines into visible hard breaks. Never inject that marker at a
-        // Markdown structural boundary: doing so can make Qt parse lists,
-        // quotes or GFM tables as ordinary multiline text.
+        // newlines into visible hard breaks. Structural boundaries normally
+        // stay untouched. The exception is consecutive prose lines inside the
+        // same blockquote: CommonMark treats their newlines as soft whitespace,
+        // so add a hard-break marker without removing the quote structure.
         const bool blankBoundary = nextLine.isEmpty();
         const bool beforeFence = newline + 1 < text.size()
             && fencedBlockEnd(text, newline + 1) != -1;
@@ -263,7 +285,22 @@ QString preserveUserLineBreaks(const QString& text)
         const bool tableBoundary = inTable
             && (containsUnescapedPipe(currentLine)
                 || isTableDelimiter(currentLine));
-        const bool structuralBoundary = startsMarkdownBlock(nextLine)
+
+        QString currentQuoteContent;
+        QString nextQuoteContent;
+        const int currentQuoteDepth = quoteDepth(currentLine, currentQuoteContent);
+        const int nextQuoteDepth = quoteDepth(nextLine, nextQuoteContent);
+        const bool quotedProseContinuation = currentQuoteDepth > 0
+            && currentQuoteDepth == nextQuoteDepth
+            && !currentQuoteContent.isEmpty()
+            && !nextQuoteContent.isEmpty()
+            && !startsMarkdownBlock(currentQuoteContent)
+            && !startsMarkdownBlock(nextQuoteContent)
+            && !containsUnescapedPipe(currentQuoteContent)
+            && !containsUnescapedPipe(nextQuoteContent);
+
+        const bool structuralBoundary =
+            (startsMarkdownBlock(nextLine) && !quotedProseContinuation)
             || tableStarts || tableBoundary;
 
         if (!blankBoundary && !beforeFence && !structuralBoundary
