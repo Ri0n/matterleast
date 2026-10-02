@@ -1,9 +1,11 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QHBoxLayout>
 #include <QImage>
 #include <QPainter>
 #include <QPalette>
+#include <QWidget>
 
 #include "ui/SvgRasterCache.h"
 #include "ui/ThemeIconWidgets.h"
@@ -116,6 +118,46 @@ private slots:
         const QPixmap cachedAgain = cache.raster(
             QStringLiteral(":/icons/link"), logicalSize, 1.5);
         QCOMPARE(cachedAgain.cacheKey(), oneAndHalfX.cacheKey());
+    }
+
+    void narrowFormattingToolbarWrapsWithoutOverlap()
+    {
+        QWidget toolbar;
+        toolbar.setObjectName(QStringLiteral("formattingToolbar"));
+        toolbar.resize(58, 100);
+
+        auto* originalLayout = new QHBoxLayout(&toolbar);
+        originalLayout->setContentsMargins(0, 0, 0, 0);
+        originalLayout->setSpacing(1);
+
+        auto makeButton = [&toolbar, originalLayout](const QString& name,
+                                                     const QString& text) {
+            auto* button = new ThemeIconButton(&toolbar);
+            button->setObjectName(name);
+            button->setText(text);
+            originalLayout->addWidget(button);
+            return button;
+        };
+
+        ThemeIconButton* first = makeButton(
+            QStringLiteral("formatBoldButton"), QStringLiteral("B"));
+        ThemeIconButton* second = makeButton(
+            QStringLiteral("formatItalicButton"), QStringLiteral("I"));
+        ThemeIconButton* third = makeButton(
+            QStringLiteral("formatStrikeButton"), QStringLiteral("S"));
+
+        toolbar.show();
+        QCoreApplication::processEvents();
+        toolbar.layout()->setGeometry(toolbar.rect());
+        QCoreApplication::processEvents();
+
+        QVERIFY(toolbar.layout()->hasHeightForWidth());
+        QVERIFY(toolbar.sizePolicy().hasHeightForWidth());
+        QCOMPARE(first->geometry().y(), second->geometry().y());
+        QVERIFY(third->geometry().y() > first->geometry().y());
+        QVERIFY(!first->geometry().intersects(second->geometry()));
+        QVERIFY(!first->geometry().intersects(third->geometry()));
+        QVERIFY(!second->geometry().intersects(third->geometry()));
     }
 };
 
