@@ -8,15 +8,20 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFontDatabase>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QImage>
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QResizeEvent>
+#include <QRunnable>
 #include <QScrollBar>
 #include <QSet>
 #include <QTextBlock>
@@ -26,7 +31,10 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextDocumentFragment>
+#include <QTextFragment>
+#include <QTextImageFormat>
 #include <QTextOption>
+#include <QThreadPool>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -34,6 +42,7 @@
 
 #include "MessageFormatter.h"
 #include "Settings.h"
+#include "backend/AttachmentService.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistryNotifier.h"
 #include "options/MLOptions.h"
@@ -189,6 +198,97 @@ bool isDraggableMessageLink(const QString& link)
         && scheme != QStringLiteral("mattermost-group");
 }
 
+QString mattermostFileIdForImageSource(const QString& source)
+{
+    const QUrl url(source);
+    const QString path = url.path();
+    const QString prefix = QStringLiteral("/api/v4/files/");
+    if (!path.startsWith(prefix)) {
+        return {};
+    }
+
+    const QString fileId = path.mid(prefix.size());
+    if (fileId.isEmpty() || fileId.contains(QLatin1Char('/'))) {
+        return {};
+    }
+    return fileId;
+}
+
+class InlineImageDecodeTask final : public QRunnable
+{
+public:
+    using Callback = std::function<void(QImage)>;
+
+    InlineImageDecodeTask(QByteArray data, Callback callback)
+        : data(std::move(data))
+        , callback(std::move(callback))
+    {
+        setAutoDelete(true);
+    }
+
+    void run() override
+    {
+        QImage image = QImage::fromData(data);
+        QObject* dispatcher = QCoreApplication::instance();
+        if (!dispatcher) {
+            return;
+        }
+
+        QMetaObject::invokeMethod(
+            dispatcher,
+            [callback = std::move(callback), image = std::move(image)]() mutable {
+                if (callback) {
+                    callback(std::move(image));
+                }
+            },
+            Qt::QueuedConnection);
+    }
+
+private:
+    QByteArray data;
+    Callback callback;
+};
+
+void decodeInlineImageAsync(const QByteArray& data,
+                            InlineImageDecodeTask::Callback callback)
+{
+    QThreadPool::globalInstance()->start(
+        new InlineImageDecodeTask(data, std::move(callback)));
+}
+
+QImage fittedInlineImage(QImage image, const QTextBrowser& browser)
+{
+    if (image.isNull()) {
+        return image;
+    }
+
+    int maxWidth = std::max(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                DOWNLOAD_IMAGE_MAX_WIDTH, DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT)
+            ->value().toInt());
+    const int maxHeight = std::max(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)
+            ->value().toInt());
+
+    const int viewportWidth = browser.viewport()->width();
+    if (viewportWidth > 0) {
+        maxWidth = std::min(maxWidth, viewportWidth);
+    }
+
+    if (image.width() > maxWidth || image.height() > maxHeight) {
+        image = image.scaled(
+            QSize(maxWidth, maxHeight),
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation);
+    }
+    return image;
+}
+
 class WrappedRichText final : public QTextBrowser
 {
 public:
@@ -226,6 +326,19 @@ public:
         document()->setDefaultFont(font());
         setHtml(html);
         finishContent(jumboEmoji);
+    }
+
+    void setImageResource(const QUrl& resourceUrl, const QImage& image)
+    {
+        if (image.isNull()) {
+            return;
+        }
+
+        QTextDocument* target = document();
+        target->addResource(QTextDocument::ImageResource, resourceUrl, image);
+        target->markContentsDirty(0, target->characterCount());
+        viewport()->update();
+        scheduleHeightUpdate();
     }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
@@ -816,6 +929,21 @@ MessageContentWidget::MessageContentWidget(QWidget* parent)
     });
 }
 
+void MessageContentWidget::setInlineAttachmentContext(
+    Backend& backend, const QSet<QString>& imageFileIds)
+{
+    _attachmentBackend = &backend;
+    _inlineImageCandidates = imageFileIds;
+    if (!_sourceMessage.isEmpty()) {
+        setMessage(_sourceMessage);
+    }
+}
+
+QSet<QString> MessageContentWidget::inlineAttachmentFileIds() const
+{
+    return _inlineAttachmentFileIds;
+}
+
 void MessageContentWidget::changeEvent(QEvent* event)
 {
     QWidget::changeEvent(event);
@@ -846,6 +974,7 @@ void MessageContentWidget::setMessage(const QString& message)
 {
     _sourceMessage = message;
     _jumboEmojiMessage = isEmojiOnlyMessage(message);
+    _inlineAttachmentFileIds.clear();
     clearContent();
 
     if (message.isEmpty()) {
@@ -877,6 +1006,7 @@ void MessageContentWidget::clear()
 {
     _sourceMessage.clear();
     _jumboEmojiMessage = false;
+    _inlineAttachmentFileIds.clear();
     clearContent();
     setVisible(false);
     scheduleDimensionsChanged();
@@ -991,6 +1121,7 @@ void MessageContentWidget::addQuote(const QString& markdown)
     quote->browser()->setLinkDragHandler([this](const QString& link) {
         emit linkDragRequested(link);
     });
+    resolveInlineImages(quote->browser());
     connect(quote->browser(),
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
             this,
@@ -1012,6 +1143,7 @@ void MessageContentWidget::addRichText(const QString& html)
         emit linkDragRequested(link);
     });
     richText->setContentHtml(html, _jumboEmojiMessage);
+    resolveInlineImages(richText);
     connect(richText,
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
             this,
@@ -1019,6 +1151,89 @@ void MessageContentWidget::addRichText(const QString& html)
                 emit linkHovered(url.toString());
             });
     contentLayout->addWidget(richText);
+}
+
+void MessageContentWidget::resolveInlineImages(QTextBrowser* browser)
+{
+    if (!browser || _inlineImageCandidates.isEmpty()) {
+        return;
+    }
+
+    QSet<QString> requestedResources;
+    QTextDocument* document = browser->document();
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid() || !fragment.charFormat().isImageFormat()) {
+                continue;
+            }
+
+            const QString source =
+                fragment.charFormat().toImageFormat().name();
+            const QString fileId = mattermostFileIdForImageSource(source);
+            if (fileId.isEmpty() || !_inlineImageCandidates.contains(fileId)) {
+                continue;
+            }
+
+            _inlineAttachmentFileIds.insert(fileId);
+            if (!_attachmentBackend || requestedResources.contains(source)) {
+                continue;
+            }
+            requestedResources.insert(source);
+            requestInlineImage(browser, QUrl(source), fileId);
+        }
+    }
+}
+
+void MessageContentWidget::requestInlineImage(QTextBrowser* browser,
+                                              const QUrl& resourceUrl,
+                                              const QString& fileId,
+                                              bool thumbnailFallback)
+{
+    if (!_attachmentBackend || !browser || fileId.isEmpty()) {
+        return;
+    }
+
+    QPointer<MessageContentWidget> self(this);
+    QPointer<QTextBrowser> target(browser);
+    const auto received =
+        [self, target, resourceUrl, fileId, thumbnailFallback](const QByteArray& data) {
+        if (!self || !target) {
+            return;
+        }
+        if (data.isEmpty()) {
+            if (!thumbnailFallback) {
+                self->requestInlineImage(target, resourceUrl, fileId, true);
+            }
+            return;
+        }
+
+        decodeInlineImageAsync(
+            data,
+            [self, target, resourceUrl, fileId, thumbnailFallback](QImage image) mutable {
+                if (!self || !target) {
+                    return;
+                }
+                if (image.isNull()) {
+                    if (!thumbnailFallback) {
+                        self->requestInlineImage(target, resourceUrl, fileId, true);
+                    }
+                    return;
+                }
+
+                image = fittedInlineImage(std::move(image), *target);
+                auto* wrapped = static_cast<WrappedRichText*>(target.data());
+                wrapped->setImageResource(resourceUrl, image);
+                self->scheduleDimensionsChanged();
+            });
+    };
+
+    AttachmentService& service = AttachmentService::instance(*_attachmentBackend);
+    if (thumbnailFallback) {
+        service.retrieveThumbnail(fileId, received);
+    } else {
+        service.retrievePreview(fileId, received);
+    }
 }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
@@ -1034,6 +1249,7 @@ void MessageContentWidget::addRichTextFragment(const QTextDocumentFragment& frag
         emit linkDragRequested(link);
     });
     richText->setContentFragment(fragment, _jumboEmojiMessage);
+    resolveInlineImages(richText);
     connect(richText,
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
             this,
