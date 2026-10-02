@@ -21,6 +21,18 @@ This file is the entry point for automated coding agents working in this reposit
 - Merge ordinary code changes to `master` with GitHub squash merge. The requirement for one meaningful commit applies only to the resulting squash-merge commit on `master`, not to the commits inside the PR branch. Its title/body must describe the implemented behavior, not merely the issue number or a generic "fix".
 - Do not merge code changes until required CI is green for the code state being merged.
 
+## Remote release control
+
+MatterLeast releases can be created or retargeted without a local checkout through `.github/workflows/release-control.yml`.
+
+- For a normal release request such as `release v1.6`, create the owner-only command issue with the exact title `[matterleast release]` and a JSON body like `{"tag":"v1.6","target":"master","move_existing":false,"run_release":true}`.
+- To move an existing release tag, set `move_existing` to `true` and point `target` at the desired branch, tag, or commit SHA.
+- To update only the tag without starting a release build, set `run_release` to `false`.
+- The issue-trigger path is intentionally restricted to commands created by the repository owner. Do not weaken that guard.
+- `release-control.yml` explicitly dispatches `.github/workflows/release.yml` after creating or moving the tag. Do not rely on the tag push itself to trigger the release because pushes performed with `GITHUB_TOKEN` do not start another push-triggered workflow.
+- Release-control requests are serialized with workflow concurrency; do not remove that serialization without replacing it with equivalent protection against concurrent tag mutation.
+- The workflow also supports manual `workflow_dispatch` with the same tag/target/move/run-release semantics.
+
 ## Documentation routing
 
 The authoritative documentation index is [docs/README.md](docs/README.md). Top-level files in `docs/` are landing pages; detailed subsystem contracts live in focused subdirectories. Historical/obsolete architecture belongs under `docs/deprecated/`.
