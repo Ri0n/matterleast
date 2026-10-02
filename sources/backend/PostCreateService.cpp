@@ -17,6 +17,7 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendNewPollData.h"
 #include "backend/types/BackendPost.h"
+#include "chat-area/outgoing-post/LocalAttachmentMarkdown.h"
 
 namespace Mattermost {
 namespace {
@@ -124,6 +125,18 @@ void PostCreateService::createPostDetailed(
     const QString& pendingPostId,
     CreatePostCallback callback)
 {
+    QString wireMessage;
+    QString localReferenceError;
+    if (!LocalAttachmentMarkdown::resolveForDelivery(
+            message, attachments, wireMessage, localReferenceError)) {
+        CreatePostResult result;
+        result.errorText = localReferenceError;
+        if (callback) {
+            callback(std::move(result));
+        }
+        return;
+    }
+
     QJsonArray files;
     for (const QString& id : attachments) {
         if (!id.isEmpty()) {
@@ -133,7 +146,7 @@ void PostCreateService::createPostDetailed(
 
     QJsonObject json;
     json.insert(QStringLiteral("channel_id"), channel.id);
-    json.insert(QStringLiteral("message"), message);
+    json.insert(QStringLiteral("message"), wireMessage);
     if (!props.isEmpty()) {
         json.insert(QStringLiteral("props"), props);
     }
@@ -195,6 +208,19 @@ void PostCreateService::editPost(const QString& postId,
                                  const QList<QString>& attachments,
                                  PostCallback callback)
 {
+    QString wireMessage;
+    QString localReferenceError;
+    if (!LocalAttachmentMarkdown::resolveForDelivery(
+            message, attachments, wireMessage, localReferenceError)) {
+        qWarning().noquote()
+            << "Cannot edit post with unresolved inline attachment:"
+            << localReferenceError;
+        if (callback) {
+            callback(nullptr);
+        }
+        return;
+    }
+
     QJsonArray files;
     for (const QString& id : attachments) {
         if (!id.isEmpty()) {
@@ -203,7 +229,7 @@ void PostCreateService::editPost(const QString& postId,
     }
 
     QJsonObject json;
-    json.insert(QStringLiteral("message"), message);
+    json.insert(QStringLiteral("message"), wireMessage);
     if (!files.isEmpty()) {
         json.insert(QStringLiteral("file_ids"), files);
     }
@@ -257,7 +283,6 @@ void PostCreateService::submitPoll(BackendChannel& channel,
             if (!guard) {
                 return;
             }
-
             if (configurationStatus.toInt() != QNetworkReply::NoError
                 || !configurationDocument.isObject()) {
                 qWarning().noquote()
