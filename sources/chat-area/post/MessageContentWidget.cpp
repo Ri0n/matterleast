@@ -1197,11 +1197,11 @@ void MessageContentWidget::requestInlineImage(QTextBrowser* browser,
     QPointer<MessageContentWidget> self(this);
     QPointer<QTextBrowser> target(browser);
     const auto received =
-        [self, target, resourceUrl, fileId, thumbnailFallback](const QByteArray& data) {
+        [self, target, resourceUrl, fileId, thumbnailFallback](const QByteArray& payload) {
         if (!self || !target) {
             return;
         }
-        if (data.isEmpty()) {
+        if (payload.isEmpty()) {
             if (!thumbnailFallback) {
                 self->requestInlineImage(target, resourceUrl, fileId, true);
             }
@@ -1209,7 +1209,7 @@ void MessageContentWidget::requestInlineImage(QTextBrowser* browser,
         }
 
         decodeInlineImageAsync(
-            data,
+            payload,
             [self, target, resourceUrl, fileId, thumbnailFallback](QImage image) mutable {
                 if (!self || !target) {
                     return;
