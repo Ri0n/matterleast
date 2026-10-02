@@ -29,6 +29,7 @@
 #include "AttachedImageFile.h"
 #include "AttachedVideoFile.h"
 #include "backend/types/BackendFile.h"
+#include "chat-area/post/PostWidget.h"
 
 namespace Mattermost {
 
@@ -44,6 +45,10 @@ PostAttachmentList::PostAttachmentList (Backend& backend, QWidget *parent)
     ui->listWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ui->listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+    if (auto* postWidget = qobject_cast<PostWidget*>(parent)) {
+        postWidget->prepareInlineAttachmentContext();
+    }
 }
 
 PostAttachmentList::~PostAttachmentList()
@@ -53,6 +58,12 @@ PostAttachmentList::~PostAttachmentList()
 
 void PostAttachmentList::addFile (const BackendFile& file, const QString& authorName)
 {
+    if (auto* postWidget = qobject_cast<PostWidget*>(parentWidget())) {
+        if (postWidget->isAttachmentRenderedInline(file.id)) {
+            return;
+        }
+    }
+
     auto* newItem = new QListWidgetItem();
     QWidget* fileWidget = nullptr;
 
