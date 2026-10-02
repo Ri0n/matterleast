@@ -154,13 +154,21 @@ MarkdownLinkMatch markdownLinkAt(const QString& text,
 
 QString markdownQuotePrefixAt(const QString& text, int position)
 {
-    const int clampedPosition = std::clamp(position, 0, text.size());
-    int lineStart = text.lastIndexOf(
-        QLatin1Char('\n'), std::max(0, clampedPosition - 1));
-    lineStart = lineStart < 0 ? 0 : lineStart + 1;
+    const int textSize = static_cast<int>(text.size());
+    const int clampedPosition = std::min(std::max(position, 0), textSize);
+
+    int lineStart = 0;
+    if (clampedPosition > 0) {
+        const int previousNewline = text.lastIndexOf(
+            QLatin1Char('\n'), clampedPosition - 1);
+        if (previousNewline >= 0) {
+            lineStart = previousNewline + 1;
+        }
+    }
+
     int lineEnd = text.indexOf(QLatin1Char('\n'), clampedPosition);
     if (lineEnd < 0) {
-        lineEnd = text.size();
+        lineEnd = textSize;
     }
 
     const QString line = text.mid(lineStart, lineEnd - lineStart);
