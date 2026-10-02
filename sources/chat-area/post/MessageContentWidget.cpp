@@ -488,7 +488,9 @@ protected:
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
-        painter.fillRect(rect(), palette().color(QPalette::Mid));
+        QColor barColor = palette().color(QPalette::Text);
+        barColor.setAlphaF(0.50);
+        painter.fillRect(rect(), barColor);
     }
 };
 
