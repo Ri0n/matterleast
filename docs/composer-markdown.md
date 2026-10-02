@@ -24,10 +24,15 @@ The toolbar inserts these Markdown primitives:
 - bulleted list: `- ` at the beginning of selected/current lines
 - numbered list: sequential `1. `, `2. `, ... prefixes
 - link: `[label](https://...)`
+- image: starts the normal Mattermost attachment upload immediately and inserts an inline Markdown image reference tied to that attachment
 
 Conventional shortcuts are handled at the editor layer where practical: `Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K`, and `Ctrl/Cmd+Shift+X`. Completion-popup navigation keeps priority over ordinary editor navigation.
 
 The toolbar slot expands/collapses over 110 ms using `OutCubic` / `InCubic`, matching the interaction style used by other compact composer controls.
+
+### Toolbar icon and glyph sizing
+
+Formatting controls use `ThemeIconButton` for both SVG-backed actions and textual glyph actions. SVGs use the button's logical `iconSize`; textual actions such as **B**, **I**, **S**, `</>`, fenced code, and quote derive their paint font from that same extent. This avoids mixing fixed SVG pixels with the platform's unrelated default tool-button font size and keeps the row visually aligned across DPI changes.
 
 ### SVG raster cache
 
@@ -37,11 +42,15 @@ Cached rasters are deliberately untinted. `ThemeIconButton` applies the current 
 
 When a button moves between screens with different DPR, its local tinted pixmap is invalidated and looked up again at the new device resolution. This keeps toolbar SVGs sharp without coupling the cache itself to composer or toolbar semantics.
 
-## Links and paste
+## Links, images, and paste
 
 The editor uses the standard Qt text-editor context menu. When the cursor or selection intersects a Markdown link, the menu additionally offers **Edit link…** and **Remove link**.
 
 Pasting a single HTTP(S) URL while ordinary single-line text is selected turns the selection into `[label](url)` rather than replacing the label. Image paste remains owned by `OutgoingPostCreator` and continues to create an attachment.
+
+The explicit image action also uses `OutgoingPostCreator` and the existing `AttachmentUploadService`; there is no second upload implementation. The editor inserts an internal reference of the form `matterleast-attachment:<attachment-id>@<index>` immediately, so the user can continue editing and can press Send without waiting for the upload. Removing an attachment removes its inline image reference and reindexes later references.
+
+Internal attachment references are transport-only Markdown. `PostCreateService` is the final safety boundary: after the normal attachment upload has produced `file_id` values, it rewrites the internal URI to `/api/v4/files/<file_id>`. A missing, malformed, or unresolved internal reference fails locally and must never be included in an HTTP create/edit request.
 
 When multiline plain text is pasted into an existing Markdown quote line, every inserted line after the first inherits that line's quote prefix. Nested quote prefixes such as `> > ` are preserved, CRLF input is normalized to LF, and a trailing pasted newline leaves the caret on a quoted blank line so the quote can continue naturally. Multiline replacements spanning multiple existing lines are left to the ordinary paste path rather than guessing a single quote depth.
 
