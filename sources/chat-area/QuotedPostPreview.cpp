@@ -259,7 +259,16 @@ void QuotedPostPreview::refreshText()
     }
 
     messageBrowser->show();
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    // Keep the parsed Markdown document intact. Serializing it through HTML and
+    // feeding that HTML into QTextBrowser loses structural/soft line boundaries
+    // (notably consecutive quote lines), which made the edit/reply preview
+    // collapse user-visible newlines even though the composer source was intact.
+    messageBrowser->document()->setDefaultFont(messageBrowser->font());
+    MessageFormatter::buildMarkdownDocument(*messageBrowser->document(), fullText);
+#else
     messageBrowser->setHtml(MessageFormatter::formatMessageText(fullText));
+#endif
     messageBrowser->document()->setDocumentMargin(0);
 }
 

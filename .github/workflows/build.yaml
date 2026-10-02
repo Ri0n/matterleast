@@ -140,4 +140,8 @@ jobs:
         run: cmake --build build --parallel 4
 
       - name: Unit tests
-        run: ctest --test-dir build --output-on-failure
+        # CTest's failure-only capture on Windows can lose QtTest output when a
+        # test is terminated. Verbose mode streams each test process output to
+        # the Actions log as it runs, so the last active Qt test/function is
+        # still visible even for hangs or abrupt failures.
+        run: ctest --test-dir build --verbose --output-on-failure
