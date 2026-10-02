@@ -27,6 +27,7 @@
 #include <memory>
 #include <vector>
 
+#include "MessageContentWidget.h"
 #include "backend/PostResidencyLease.h"
 #include "backend/types/BackendPost.h"
 
@@ -61,7 +62,6 @@ class PostPoll;
 class ChatArea;
 class ChatLogWidget;
 class KTalkMeetingWidget;
-class MessageContentWidget;
 class ReactionQuickBarController;
 class ThreadSummaryWidget;
 
@@ -119,6 +119,11 @@ public:
 
     void addThreadButton();
     Backend& getBackend() const { return backend_; }
+    bool isAttachmentRenderedInline(const QString& fileId) const
+    {
+        return messageContent
+            && messageContent->inlineAttachmentFileIds().contains(fileId);
+    }
 
     void setPendingDeliveryPresentation(const QString& statusText,
                                         bool failed,
