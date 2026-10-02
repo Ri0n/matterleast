@@ -14,11 +14,16 @@
 #include <QEvent>
 #include <QFontMetrics>
 #include <QIcon>
+#include <QLayout>
+#include <QLayoutItem>
 #include <QPainter>
 #include <QPalette>
+#include <QSizePolicy>
+#include <QVector>
 #include <QWidget>
 
 #include "BusyIndicator.h"
+#include "FlowLayout.h"
 #include "IconUtils.h"
 #include "SvgRasterCache.h"
 
@@ -30,6 +35,8 @@ constexpr int BusyIndicatorExtent = 18;
 constexpr qreal FormattingToolbarOpticalScale = 1.28;
 constexpr int FormattingToolbarButtonPadding = 8;
 constexpr int FormattingToolbarHorizontalPadding = 10;
+constexpr char FormattingToolbarFlowProperty[] =
+    "_matterleast_formatting_toolbar_flow";
 
 QString tintKey(const QColor& color)
 {
@@ -48,6 +55,50 @@ bool isFormattingToolbarIcon(const QString& objectName)
 bool isFormattingToolbar(const QWidget* widget)
 {
     return widget && widget->objectName() == QStringLiteral("formattingToolbar");
+}
+
+void ensureFormattingToolbarFlowLayout(QWidget* toolbar)
+{
+    if (!isFormattingToolbar(toolbar)
+        || toolbar->property(FormattingToolbarFlowProperty).toBool()) {
+        return;
+    }
+
+    QLayout* oldLayout = toolbar->layout();
+    if (!oldLayout) {
+        return;
+    }
+
+    // A fixed QHBoxLayout cannot satisfy all fixed-size formatting buttons once
+    // the composer gets narrower than their combined width. Preserve the same
+    // button order but let the already shared FlowLayout wrap whole buttons onto
+    // another row instead of squeezing their geometries into each other.
+    QVector<QLayoutItem*> buttonItems;
+    while (QLayoutItem* item = oldLayout->takeAt(0)) {
+        if (item->widget()) {
+            buttonItems.push_back(item);
+        } else {
+            // The horizontal layout may contain a trailing stretch/spacer. It
+            // has no meaning in a wrapping layout and would create blank rows.
+            delete item;
+        }
+    }
+
+    const QString layoutName = oldLayout->objectName();
+    delete oldLayout;
+
+    auto* flow = new FlowLayout(toolbar, 0, 1);
+    flow->setObjectName(layoutName);
+    for (QLayoutItem* item : buttonItems) {
+        flow->addItem(item);
+    }
+
+    QSizePolicy policy = toolbar->sizePolicy();
+    policy.setVerticalPolicy(QSizePolicy::Preferred);
+    policy.setHeightForWidth(true);
+    toolbar->setSizePolicy(policy);
+    toolbar->setProperty(FormattingToolbarFlowProperty, true);
+    toolbar->updateGeometry();
 }
 
 int formattingToolbarOpticalExtent(const QWidget& widget)
@@ -90,6 +141,7 @@ void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
     const QFontMetrics metrics(toolbarFont);
     const int buttonHeight = std::max(
         28, metrics.height() + FormattingToolbarButtonPadding);
+    bool geometryChanged = false;
 
     const auto buttons = toolbar->findChildren<QAbstractButton*>(
         QString(), Qt::FindDirectChildrenOnly);
@@ -115,7 +167,13 @@ void syncFormattingToolbarButtonGeometry(QWidget* toolbar)
             button->setMinimumSize(target);
             button->setMaximumSize(target);
             button->updateGeometry();
+            geometryChanged = true;
         }
+    }
+
+    if (geometryChanged && toolbar->layout()) {
+        toolbar->layout()->invalidate();
+        toolbar->updateGeometry();
     }
 }
 
@@ -214,6 +272,13 @@ bool ThemeIconButton::event(QEvent* event)
 {
     const QEvent::Type type = event ? event->type() : QEvent::None;
     const bool result = QPushButton::event(event);
+
+    if ((type == QEvent::Polish || type == QEvent::ShowToParent
+         || type == QEvent::ParentChange)
+        && isFormattingToolbar(parentWidget())) {
+        ensureFormattingToolbarFlowLayout(parentWidget());
+        syncFormattingToolbarButtonGeometry(parentWidget());
+    }
 
     if (type == QEvent::DynamicPropertyChange) {
         invalidateRenderedIcon();
