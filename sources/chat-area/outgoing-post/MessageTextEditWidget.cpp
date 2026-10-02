@@ -152,6 +152,37 @@ MarkdownLinkMatch markdownLinkAt(const QString& text,
     return {};
 }
 
+QString markdownQuotePrefixAt(const QString& text, int position)
+{
+    const int clampedPosition = std::clamp(position, 0, text.size());
+    int lineStart = text.lastIndexOf(
+        QLatin1Char('\n'), std::max(0, clampedPosition - 1));
+    lineStart = lineStart < 0 ? 0 : lineStart + 1;
+    int lineEnd = text.indexOf(QLatin1Char('\n'), clampedPosition);
+    if (lineEnd < 0) {
+        lineEnd = text.size();
+    }
+
+    const QString line = text.mid(lineStart, lineEnd - lineStart);
+    static const QRegularExpression quotePrefix(
+        QStringLiteral("^([ \\t]*(?:>[ \\t]*)+)"));
+    const QRegularExpressionMatch match = quotePrefix.match(line);
+    return match.hasMatch() ? match.captured(1) : QString();
+}
+
+QString quoteMultilinePaste(QString text, const QString& quotePrefix)
+{
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    if (quotePrefix.isEmpty() || !text.contains(QLatin1Char('\n'))) {
+        return {};
+    }
+
+    text.replace(QStringLiteral("\n"),
+                 QStringLiteral("\n") + quotePrefix);
+    return text;
+}
+
 } // namespace
 
 MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
@@ -497,6 +528,21 @@ void MessageTextEditWidget::insertFromMimeData(const QMimeData* source)
         if (!label.contains(QLatin1Char('\n'))) {
             cursor.insertText(QStringLiteral("[%1](%2)")
                                   .arg(escapedMarkdownLinkLabel(label), url));
+            setTextCursor(cursor);
+            return;
+        }
+    }
+
+    if (source && source->hasText()) {
+        QString selected = cursor.selectedText();
+        selected.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        const bool replacesMultipleLines = selected.contains(QLatin1Char('\n'));
+        const QString quotePrefix = replacesMultipleLines
+            ? QString()
+            : markdownQuotePrefixAt(toPlainText(), cursor.selectionStart());
+        const QString quotedText = quoteMultilinePaste(source->text(), quotePrefix);
+        if (!quotedText.isEmpty()) {
+            cursor.insertText(quotedText);
             setTextCursor(cursor);
             return;
         }
