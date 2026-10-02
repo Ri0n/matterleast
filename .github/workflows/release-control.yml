@@ -1,0 +1,201 @@
+name: Release control
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v1.4)
+        required: true
+        type: string
+      target:
+        description: Branch, tag, or commit to tag
+        required: true
+        default: master
+        type: string
+      move_existing:
+        description: Move the tag if it already points elsewhere
+        required: true
+        default: false
+        type: boolean
+      run_release:
+        description: Start the Release workflow after updating the tag
+        required: true
+        default: true
+        type: boolean
+  issues:
+    types: [opened]
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+
+concurrency:
+  group: matterleast-release-control
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Set release tag
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.actor == github.repository_owner &&
+       github.event.issue.title == '[matterleast release]')
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.request.outputs.tag }}
+      target_sha: ${{ steps.target.outputs.sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate request
+        id: request
+        shell: bash
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_TARGET: ${{ inputs.target }}
+          INPUT_MOVE: ${{ inputs.move_existing }}
+          INPUT_RELEASE: ${{ inputs.run_release }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "issues" ]]; then
+            tag=$(jq -er '.tag | strings' <<< "$ISSUE_BODY")
+            target=$(jq -er '.target | strings' <<< "$ISSUE_BODY")
+            move=$(jq -r '
+              if has("move_existing") then
+                .move_existing
+                | if type == "boolean" then tostring else error("move_existing must be boolean") end
+              else "false" end
+            ' <<< "$ISSUE_BODY")
+            release=$(jq -r '
+              if has("run_release") then
+                .run_release
+                | if type == "boolean" then tostring else error("run_release must be boolean") end
+              else "true" end
+            ' <<< "$ISSUE_BODY")
+          else
+            tag="$INPUT_TAG"
+            target="$INPUT_TARGET"
+            move="$INPUT_MOVE"
+            release="$INPUT_RELEASE"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::Unsupported release tag '$tag'. Expected vMAJOR.MINOR or vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          if [[ -z "$target" || "$target" == -* || "$target" == *..* || ! "$target" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::Invalid target ref '$target'."
+            exit 1
+          fi
+          if [[ "$move" != "true" && "$move" != "false" ]]; then
+            echo "::error::move_existing must be true or false."
+            exit 1
+          fi
+          if [[ "$release" != "true" && "$release" != "false" ]]; then
+            echo "::error::run_release must be true or false."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "move=$move" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve target commit
+        id: target
+        shell: bash
+        env:
+          TARGET: ${{ steps.request.outputs.target }}
+        run: |
+          set -euo pipefail
+          git fetch --force --prune --tags origin
+          git fetch --force origin '+refs/heads/*:refs/remotes/origin/*'
+
+          if sha=$(git rev-parse --verify "${TARGET}^{commit}" 2>/dev/null); then
+            :
+          elif sha=$(git rev-parse --verify "origin/${TARGET}^{commit}" 2>/dev/null); then
+            :
+          else
+            git fetch --no-tags origin "$TARGET"
+            sha=$(git rev-parse --verify 'FETCH_HEAD^{commit}')
+          fi
+
+          echo "Resolved $TARGET -> $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Create or move tag
+        shell: bash
+        env:
+          TAG: ${{ steps.request.outputs.tag }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          MOVE_EXISTING: ${{ steps.request.outputs.move }}
+        run: |
+          set -euo pipefail
+
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            current_sha=$(git rev-list -n 1 "$TAG")
+            if [[ "$current_sha" == "$TARGET_SHA" ]]; then
+              echo "$TAG already points to $TARGET_SHA; nothing to change."
+              exit 0
+            fi
+            if [[ "$MOVE_EXISTING" != "true" ]]; then
+              echo "::error::$TAG currently points to $current_sha. Enable move_existing to move it to $TARGET_SHA."
+              exit 1
+            fi
+            git tag --force "$TAG" "$TARGET_SHA"
+            git push --force origin "refs/tags/$TAG"
+          else
+            git tag "$TAG" "$TARGET_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Start release workflow
+        if: steps.request.outputs.release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.request.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A tag pushed with GITHUB_TOKEN does not emit another push-triggered
+          # Actions run. workflow_dispatch is the supported exception, so invoke
+          # Release explicitly at the tag we just created or moved.
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TAG"
+
+      - name: Close successful command issue
+        if: success() && github.event_name == 'issues'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TAG: ${{ steps.request.outputs.tag }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          RUN_RELEASE: ${{ steps.request.outputs.release }}
+        run: |
+          set -euo pipefail
+          message="Set $TAG to ${TARGET_SHA:0:12}."
+          if [[ "$RUN_RELEASE" == "true" ]]; then
+            message+=" Release workflow dispatched."
+          fi
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$message"
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason completed
+
+      - name: Report failed command issue
+        if: failure() && github.event_name == 'issues'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "Release command failed. See $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
