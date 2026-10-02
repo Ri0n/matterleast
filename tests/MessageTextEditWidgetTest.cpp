@@ -113,6 +113,32 @@ private slots:
                  QStringLiteral("[label](https://example.com/path?q=1)"));
     }
 
+    void multilinePasteContinuesMarkdownQuote()
+    {
+        ExposedMessageTextEditWidget editor;
+        QMimeData mimeData;
+
+        editor.setPlainText(QStringLiteral("> before "));
+        editor.moveCursor(QTextCursor::End);
+        mimeData.setText(QStringLiteral("one\ntwo\nthree"));
+        editor.insertFromMimeData(&mimeData);
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("> before one\n> two\n> three"));
+
+        editor.setPlainText(QStringLiteral("> > nested "));
+        editor.moveCursor(QTextCursor::End);
+        mimeData.setText(QStringLiteral("one\r\ntwo\n"));
+        editor.insertFromMimeData(&mimeData);
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("> > nested one\n> > two\n> > "));
+
+        editor.setPlainText(QStringLiteral("plain "));
+        editor.moveCursor(QTextCursor::End);
+        mimeData.setText(QStringLiteral("one\ntwo"));
+        editor.insertFromMimeData(&mimeData);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("plain one\ntwo"));
+    }
+
     void growsAndShrinksWithExplicitLines()
     {
         MessageTextEditWidget editor;
