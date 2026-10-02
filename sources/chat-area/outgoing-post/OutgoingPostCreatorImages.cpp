@@ -90,8 +90,15 @@ void OutgoingPostCreator::syncInlineImageAttachmentReferences(
     QHash<QString, int> indexes;
     if (attachmentList) {
         const QList<OutgoingAttachmentItem> items = attachmentList->attachments();
-        for (int index = 0; index < items.size(); ++index) {
-            indexes.insert(items.at(index).id, index);
+        int deliveredIndex = 0;
+        for (const OutgoingAttachmentItem& item : items) {
+            // fileRemoved is emitted immediately before the QTreeWidgetItem is
+            // deleted, so compute the post-removal ordering explicitly.
+            if (!removedAttachmentId.isEmpty()
+                && item.id == removedAttachmentId) {
+                continue;
+            }
+            indexes.insert(item.id, deliveredIndex++);
         }
     }
 
