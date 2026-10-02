@@ -37,7 +37,7 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     bar = new QFrame(this);
     bar->setFixedWidth(3);
     bar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    bar->setBackgroundRole(QPalette::Mid);
+    bar->setBackgroundRole(QPalette::Window);
     bar->setAutoFillBackground(true);
     bar->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     layout->addWidget(bar);
@@ -246,6 +246,14 @@ void QuotedPostPreview::refreshPalette()
     authorLabel->setPalette(mutedPalette);
     messageBrowser->setPalette(mutedPalette);
     messageBrowser->viewport()->setAutoFillBackground(false);
+
+    if (bar) {
+        QColor barColor = textColor;
+        barColor.setAlphaF(0.50);
+        QPalette barPalette = bar->palette();
+        barPalette.setColor(QPalette::Window, barColor);
+        bar->setPalette(barPalette);
+    }
 }
 
 void QuotedPostPreview::refreshText()
