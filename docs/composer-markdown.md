@@ -43,6 +43,8 @@ The editor uses the standard Qt text-editor context menu. When the cursor or sel
 
 Pasting a single HTTP(S) URL while ordinary single-line text is selected turns the selection into `[label](url)` rather than replacing the label. Image paste remains owned by `OutgoingPostCreator` and continues to create an attachment.
 
+When multiline plain text is pasted into an existing Markdown quote line, every inserted line after the first inherits that line's quote prefix. Nested quote prefixes such as `> > ` are preserved, CRLF input is normalized to LF, and a trailing pasted newline leaves the caret on a quoted blank line so the quote can continue naturally. Multiline replacements spanning multiple existing lines are left to the ordinary paste path rather than guessing a single quote depth.
+
 ## Message priority
 
 Priority is independent of Markdown. Mattermost expects it in top-level `metadata.priority`, so it must never be encoded into message text or `props`.
