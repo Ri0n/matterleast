@@ -182,11 +182,48 @@ int fencedBlockEnd(const QString& text, int lineStart)
     return text.size();
 }
 
+bool startsMarkdownBlock(const QString& line)
+{
+    static const QRegularExpression blockStart(
+        QStringLiteral(
+            R"(^\s*(?:(?:[-+*]|\d{1,9}[.)])(?:\s+|$)|>(?:\s+|$)|#{1,6}(?:\s+|$)))"));
+    static const QRegularExpression setextOrRule(
+        QStringLiteral(R"(^\s*(?:={3,}|-{3,}|_{3,})\s*$)"));
+
+    if (line.isEmpty()) {
+        return true;
+    }
+    if (line.startsWith(QStringLiteral("    ")) || line.startsWith(QLatin1Char('\t'))) {
+        return true;
+    }
+    return blockStart.match(line).hasMatch()
+        || setextOrRule.match(line).hasMatch();
+}
+
+bool containsUnescapedPipe(const QString& line)
+{
+    for (int i = 0; i < line.size(); ++i) {
+        if (line.at(i) == QLatin1Char('|') && !isEscaped(line, i)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isTableDelimiter(const QString& line)
+{
+    static const QRegularExpression delimiter(
+        QStringLiteral(
+            R"(^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$)"));
+    return delimiter.match(line).hasMatch();
+}
+
 QString preserveUserLineBreaks(const QString& text)
 {
     QString result;
     result.reserve(text.size() + text.count(QLatin1Char('\n')) * 2);
 
+    bool inTable = false;
     int position = 0;
     while (position < text.size()) {
         const int fenceEnd = fencedBlockEnd(text, position);
@@ -202,16 +239,35 @@ QString preserveUserLineBreaks(const QString& text)
             break;
         }
 
-        result += text.mid(position, newline - position);
+        const QString currentLine = text.mid(position, newline - position);
+        result += currentLine;
 
-        // A blank line already creates a Markdown block boundary, and a fenced
-        // block beginning on the next line is also a hard structural boundary.
-        // Only ordinary soft line breaks need CommonMark's two-space marker.
-        const bool blankBoundary = newline + 1 < text.size()
-            && text.at(newline + 1) == QLatin1Char('\n');
+        const int nextLineEnd = text.indexOf(QLatin1Char('\n'), newline + 1);
+        const QString nextLine = text.mid(
+            newline + 1,
+            nextLineEnd == -1 ? text.size() - newline - 1
+                              : nextLineEnd - newline - 1);
+
+        // preserveUserLineBreaks exists only to turn otherwise-soft prose
+        // newlines into visible hard breaks. Never inject that marker at a
+        // Markdown structural boundary: doing so can make Qt parse lists,
+        // quotes or GFM tables as ordinary multiline text.
+        const bool blankBoundary = nextLine.isEmpty();
         const bool beforeFence = newline + 1 < text.size()
             && fencedBlockEnd(text, newline + 1) != -1;
-        if (!blankBoundary && !beforeFence && newline + 1 < text.size()) {
+        const bool tableStarts = containsUnescapedPipe(currentLine)
+            && isTableDelimiter(nextLine);
+        if (tableStarts) {
+            inTable = true;
+        }
+        const bool tableBoundary = inTable
+            && (containsUnescapedPipe(currentLine)
+                || isTableDelimiter(currentLine));
+        const bool structuralBoundary = startsMarkdownBlock(nextLine)
+            || tableStarts || tableBoundary;
+
+        if (!blankBoundary && !beforeFence && !structuralBoundary
+            && newline + 1 < text.size()) {
             int trailingSpaces = 0;
             for (int i = result.size() - 1;
                  i >= 0 && result.at(i) == QLatin1Char(' '); --i) {
@@ -220,6 +276,12 @@ QString preserveUserLineBreaks(const QString& text)
             while (trailingSpaces++ < 2) {
                 result += QLatin1Char(' ');
             }
+        }
+
+        if (inTable && !nextLine.isEmpty()
+            && !containsUnescapedPipe(nextLine)
+            && !isTableDelimiter(nextLine)) {
+            inTable = false;
         }
 
         result += QLatin1Char('\n');
