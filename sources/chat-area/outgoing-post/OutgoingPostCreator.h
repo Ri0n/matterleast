@@ -83,6 +83,7 @@ public:
 
 public slots:
 	void onAttachButtonClick ();
+    void insertImages();
 	void createPoll ();
     void showMessagePriorityMenu();
 	void onPollPostReceived(BackendPost& post);
@@ -150,6 +151,8 @@ private:
     void discardPersistentDraft();
     void failAttachmentUpload(const QString& statusText);
     void releaseComposerAttachmentUploads();
+    void syncInlineImageAttachmentReferences(
+        const QString& removedAttachmentId = QString());
     void showRankedEmojiPopup();
     void positionRankedEmojiPopup();
     void scheduleRankedEmojiPopupHide();
