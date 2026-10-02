@@ -320,13 +320,7 @@ PostWidget::PostWidget(Backend& backend,
         continuationTime_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         continuationTime_->setAttribute(Qt::WA_TransparentForMouseEvents);
         continuationTime_->setFixedWidth(48);
-        QFont compactTimeFont = ui->authorName->font();
-        compactTimeFont.setBold(false);
-        if (compactTimeFont.pointSizeF() > 0) {
-            compactTimeFont.setPointSizeF(
-                std::max(1.0, compactTimeFont.pointSizeF() * 0.70));
-        }
-        continuationTime_->setFont(compactTimeFont);
+        continuationTime_->setFont(ui->time->font());
         continuationTime_->hide();
     }
 	ui->authorAvatar->setFrameShape(QFrame::NoFrame);
@@ -1394,8 +1388,8 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     chatFont_ = nextFont;
 
     // Timestamp belongs to author chrome, not message-body typography.
-    // Mattermost renders the normal post time at ~0.9em and the narrow
-    // continuation time at ~0.7em relative to the author header.
+    // Both the normal post time and continuation hover time use the same
+    // compact font relative to the author header.
     QFont headerTimeFont = ui->authorName->font();
     headerTimeFont.setBold(false);
     if (headerTimeFont.pointSizeF() > 0) {
@@ -1408,13 +1402,7 @@ void PostWidget::applyChatFont(const QString& serializedFont,
         qMax(2, qRound(QFontMetrics(ui->authorName->font()).height() * 0.30)));
 
     if (continuationTime_) {
-        QFont compactTimeFont = ui->authorName->font();
-        compactTimeFont.setBold(false);
-        if (compactTimeFont.pointSizeF() > 0) {
-            compactTimeFont.setPointSizeF(
-                std::max(1.0, compactTimeFont.pointSizeF() * 0.70));
-        }
-        continuationTime_->setFont(compactTimeFont);
+        continuationTime_->setFont(ui->time->font());
     }
     updateTimestampPresentation();
     updateTimestampPalette();
