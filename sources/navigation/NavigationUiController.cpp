@@ -983,27 +983,15 @@ void NavigationUiController::recordArea(ChatArea* area)
             } else if (tabModel.isEmpty()) {
                 index = appendNavigationTab(next);
             } else {
-                const auto* activeEntry = tabModel.at(activeTabIndex);
-                if (activeEntry && activeEntry->rootId.isEmpty()) {
-                    if (activeEntry->pinned) {
-                        // A pinned current tab behaves like a browser pinned tab:
-                        // ordinary navigation may activate an existing target,
-                        // but a new destination gets its own new tab.
-                        index = appendNavigationTab(next);
-                    } else {
-                        index = activeTabIndex;
-                        updateTab(index, next);
-                    }
+                // Ordinary channel/DM/GM navigation reuses the active channel
+                // tab when it is unpinned. If the active tab is pinned (or is a
+                // thread), fall back to another unpinned channel slot. Only
+                // create a new tab when every existing channel tab is pinned.
+                index = tabModel.findReusableChannelTab(activeTabIndex);
+                if (index >= 0) {
+                    updateTab(index, next);
                 } else {
-                    // Thread tabs are never channel reuse targets. Reuse an
-                    // existing ordinary channel slot if one is available, but
-                    // never overwrite a pinned background channel tab.
-                    index = tabModel.findReusableChannelTab();
-                    if (index >= 0) {
-                        updateTab(index, next);
-                    } else {
-                        index = appendNavigationTab(next);
-                    }
+                    index = appendNavigationTab(next);
                 }
             }
 
