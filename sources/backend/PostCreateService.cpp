@@ -8,6 +8,7 @@
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QStringList>
+#include <QTimer>
 
 #include "Backend.h"
 #include "NetworkRequest.h"
@@ -16,9 +17,12 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendNewPollData.h"
 #include "backend/types/BackendPost.h"
+#include "chat-area/outgoing-post/LocalAttachmentMarkdown.h"
 
 namespace Mattermost {
 namespace {
+
+constexpr int PendingMetadataLifetimeMs = 10 * 60 * 1000;
 
 QString quoteMatterpollArgument(QString value)
 {
@@ -73,6 +77,28 @@ PostCreateService::PostCreateService(Backend& sourceBackend)
             &backend, &Backend::onHttpError);
 }
 
+void PostCreateService::stagePendingPostMetadata(
+    const QString& pendingPostId,
+    const QJsonObject& metadata)
+{
+    if (pendingPostId.isEmpty()) {
+        return;
+    }
+    if (metadata.isEmpty()) {
+        pendingPostMetadata.remove(pendingPostId);
+        return;
+    }
+
+    pendingPostMetadata.insert(pendingPostId, metadata);
+    QPointer<PostCreateService> guard(this);
+    QTimer::singleShot(PendingMetadataLifetimeMs, this,
+                       [guard, pendingPostId] {
+        if (guard) {
+            guard->pendingPostMetadata.remove(pendingPostId);
+        }
+    });
+}
+
 void PostCreateService::createPost(BackendChannel& channel,
                                    const QString& message,
                                    const QList<QString>& attachments,
@@ -99,6 +125,18 @@ void PostCreateService::createPostDetailed(
     const QString& pendingPostId,
     CreatePostCallback callback)
 {
+    QString wireMessage;
+    QString localReferenceError;
+    if (!LocalAttachmentMarkdown::resolveForDelivery(
+            message, attachments, wireMessage, localReferenceError)) {
+        CreatePostResult result;
+        result.errorText = localReferenceError;
+        if (callback) {
+            callback(std::move(result));
+        }
+        return;
+    }
+
     QJsonArray files;
     for (const QString& id : attachments) {
         if (!id.isEmpty()) {
@@ -108,9 +146,13 @@ void PostCreateService::createPostDetailed(
 
     QJsonObject json;
     json.insert(QStringLiteral("channel_id"), channel.id);
-    json.insert(QStringLiteral("message"), message);
+    json.insert(QStringLiteral("message"), wireMessage);
     if (!props.isEmpty()) {
         json.insert(QStringLiteral("props"), props);
+    }
+    const QJsonObject metadata = pendingPostMetadata.value(pendingPostId);
+    if (!metadata.isEmpty()) {
+        json.insert(QStringLiteral("metadata"), metadata);
     }
     if (!files.isEmpty()) {
         json.insert(QStringLiteral("file_ids"), files);
@@ -128,7 +170,7 @@ void PostCreateService::createPostDetailed(
     httpConnector.post(
         request, payload,
         HttpResponseCallback(
-            [guard, callback = std::move(callback)](
+            [guard, pendingPostId, callback = std::move(callback)](
                 QVariant status,
                 QByteArray response,
                 const QNetworkReply& reply) mutable {
@@ -150,6 +192,11 @@ void PostCreateService::createPostDetailed(
             result.post = guard->ingestCreatedPost(document.object());
         }
 
+        if (guard && !pendingPostId.isEmpty()
+            && (result.success() || !result.retryable())) {
+            guard->pendingPostMetadata.remove(pendingPostId);
+        }
+
         if (callback) {
             callback(std::move(result));
         }
@@ -161,6 +208,19 @@ void PostCreateService::editPost(const QString& postId,
                                  const QList<QString>& attachments,
                                  PostCallback callback)
 {
+    QString wireMessage;
+    QString localReferenceError;
+    if (!LocalAttachmentMarkdown::resolveForDelivery(
+            message, attachments, wireMessage, localReferenceError)) {
+        qWarning().noquote()
+            << "Cannot edit post with unresolved inline attachment:"
+            << localReferenceError;
+        if (callback) {
+            callback(nullptr);
+        }
+        return;
+    }
+
     QJsonArray files;
     for (const QString& id : attachments) {
         if (!id.isEmpty()) {
@@ -169,7 +229,7 @@ void PostCreateService::editPost(const QString& postId,
     }
 
     QJsonObject json;
-    json.insert(QStringLiteral("message"), message);
+    json.insert(QStringLiteral("message"), wireMessage);
     if (!files.isEmpty()) {
         json.insert(QStringLiteral("file_ids"), files);
     }
@@ -223,7 +283,6 @@ void PostCreateService::submitPoll(BackendChannel& channel,
             if (!guard) {
                 return;
             }
-
             if (configurationStatus.toInt() != QNetworkReply::NoError
                 || !configurationDocument.isObject()) {
                 qWarning().noquote()

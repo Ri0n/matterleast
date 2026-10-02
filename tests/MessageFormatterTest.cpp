@@ -7,6 +7,7 @@
 #include <QTextDocument>
 #include <QTextFragment>
 #include <QTextLayout>
+#include <QTextList>
 
 #include "backend/emoji/EmojiInfo.h"
 #include "chat-area/post/MessageFormatter.h"
@@ -136,6 +137,48 @@ private slots:
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
         QCOMPARE(renderedPlainText(QStringLiteral("first line\nsecond line\nthird line")),
        QStringLiteral("first line\nsecond line\nthird line"));
+#else
+        QSKIP("Qt Markdown renderer is enabled starting with Qt 6.10");
+#endif
+    }
+
+    void bulletedListRemainsStructural()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+        QTextDocument document;
+        MessageFormatter::buildMarkdownDocument(
+            document, QStringLiteral("- first\n- second"));
+
+        const QTextBlock first = document.begin();
+        const QTextBlock second = first.next();
+        QVERIFY(first.isValid());
+        QVERIFY(second.isValid());
+        QTextList* list = first.textList();
+        QVERIFY(list != nullptr);
+        QCOMPARE(second.textList(), list);
+        QCOMPARE(list->count(), 2);
+        QCOMPARE(list->format().style(), QTextListFormat::ListDisc);
+#else
+        QSKIP("Qt Markdown renderer is enabled starting with Qt 6.10");
+#endif
+    }
+
+    void numberedListRemainsStructural()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+        QTextDocument document;
+        MessageFormatter::buildMarkdownDocument(
+            document, QStringLiteral("1. first\n2. second"));
+
+        const QTextBlock first = document.begin();
+        const QTextBlock second = first.next();
+        QVERIFY(first.isValid());
+        QVERIFY(second.isValid());
+        QTextList* list = first.textList();
+        QVERIFY(list != nullptr);
+        QCOMPARE(second.textList(), list);
+        QCOMPARE(list->count(), 2);
+        QCOMPARE(list->format().style(), QTextListFormat::ListDecimal);
 #else
         QSKIP("Qt Markdown renderer is enabled starting with Qt 6.10");
 #endif

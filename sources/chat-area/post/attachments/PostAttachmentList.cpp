@@ -1,20 +1,20 @@
 /**
  * Copyright 2021, 2022 Lyubomir Filipov
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  *
- * Mattermost-QT is free software: you can redistribute it and/or modify
+ * MatterLeast is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * Mattermost-QT is distributed in the hope that it will be useful,
+ * MatterLeast is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
+ * along with MatterLeast. if not, see https://www.gnu.org/licenses/.
  */
 
 #include "PostAttachmentList.h"
@@ -29,6 +29,7 @@
 #include "AttachedImageFile.h"
 #include "AttachedVideoFile.h"
 #include "backend/types/BackendFile.h"
+#include "chat-area/post/PostWidget.h"
 
 namespace Mattermost {
 
@@ -44,6 +45,15 @@ PostAttachmentList::PostAttachmentList (Backend& backend, QWidget *parent)
     ui->listWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ui->listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+    // PostWidget creates the list before it enumerates its files. Keep the
+    // shell out of layout geometry until addFile() finds at least one file that
+    // was not claimed by a Markdown image in the message body.
+    setVisible(false);
+
+    if (auto* postWidget = qobject_cast<PostWidget*>(parent)) {
+        postWidget->prepareInlineAttachmentContext();
+    }
 }
 
 PostAttachmentList::~PostAttachmentList()
@@ -53,6 +63,12 @@ PostAttachmentList::~PostAttachmentList()
 
 void PostAttachmentList::addFile (const BackendFile& file, const QString& authorName)
 {
+    if (auto* postWidget = qobject_cast<PostWidget*>(parentWidget())) {
+        if (postWidget->isAttachmentRenderedInline(file.id)) {
+            return;
+        }
+    }
+
     auto* newItem = new QListWidgetItem();
     QWidget* fileWidget = nullptr;
 
@@ -75,6 +91,7 @@ void PostAttachmentList::addFile (const BackendFile& file, const QString& author
 
     ui->listWidget->addItem(newItem);
     ui->listWidget->setItemWidget(newItem, fileWidget);
+    setVisible(true);
 
     fileWidget->adjustSize();
     newItem->setSizeHint(fileWidget->sizeHint().expandedTo(fileWidget->minimumSizeHint()));

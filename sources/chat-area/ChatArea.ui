@@ -144,7 +144,32 @@
           <property name="topMargin"><number>0</number></property>
           <property name="rightMargin"><number>0</number></property>
           <property name="bottomMargin"><number>0</number></property>
-          <item><widget class="Mattermost::OutgoingPostCreator" name="outgoingPostCreator"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item>
+          <item>
+           <widget class="QWidget" name="formattingToolbar">
+            <property name="visible"><bool>false</bool></property>
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+            <layout class="QHBoxLayout" name="formattingToolbarLayout">
+             <property name="spacing"><number>1</number></property>
+             <property name="leftMargin"><number>0</number></property>
+             <property name="topMargin"><number>0</number></property>
+             <property name="rightMargin"><number>0</number></property>
+             <property name="bottomMargin"><number>0</number></property>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatBoldButton"><property name="minimumSize"><size><width>26</width><height>26</height></size></property><property name="maximumSize"><size><width>26</width><height>26</height></size></property><property name="font"><font><bold>true</bold></font></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Bold (Ctrl+B)</string></property><property name="text"><string>B</string></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatItalicButton"><property name="minimumSize"><size><width>26</width><height>26</height></size></property><property name="maximumSize"><size><width>26</width><height>26</height></size></property><property name="font"><font><italic>true</italic></font></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Italic (Ctrl+I)</string></property><property name="text"><string>I</string></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatStrikeButton"><property name="minimumSize"><size><width>26</width><height>26</height></size></property><property name="maximumSize"><size><width>26</width><height>26</height></size></property><property name="font"><font><strikeout>true</strikeout></font></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Strikethrough (Ctrl+Shift+X)</string></property><property name="text"><string>S</string></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatLinkButton"><property name="minimumSize"><size><width>28</width><height>26</height></size></property><property name="maximumSize"><size><width>28</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Link (Ctrl+K)</string></property><property name="text"><string/></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatImageButton"><property name="minimumSize"><size><width>28</width><height>26</height></size></property><property name="maximumSize"><size><width>28</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Insert image</string></property><property name="text"><string/></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatInlineCodeButton"><property name="minimumSize"><size><width>30</width><height>26</height></size></property><property name="maximumSize"><size><width>30</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Inline code</string></property><property name="text"><string>&lt;/&gt;</string></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatCodeBlockButton"><property name="minimumSize"><size><width>30</width><height>26</height></size></property><property name="maximumSize"><size><width>30</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Code block</string></property><property name="text"><string>```</string></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatQuoteButton"><property name="minimumSize"><size><width>26</width><height>26</height></size></property><property name="maximumSize"><size><width>26</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Quote</string></property><property name="text"><string>❝</string></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatBulletListButton"><property name="minimumSize"><size><width>28</width><height>26</height></size></property><property name="maximumSize"><size><width>28</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Bulleted list</string></property><property name="text"><string/></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="formatNumberedListButton"><property name="minimumSize"><size><width>28</width><height>26</height></size></property><property name="maximumSize"><size><width>28</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Numbered list</string></property><property name="text"><string/></property></widget></item>
+             <item><widget class="Mattermost::ThemeIconButton" name="messagePriorityButton"><property name="minimumSize"><size><width>28</width><height>26</height></size></property><property name="maximumSize"><size><width>28</width><height>26</height></size></property><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property><property name="toolTip"><string>Message priority</string></property><property name="text"><string/></property></widget></item>
+             <item><spacer name="formattingToolbarSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+            </layout>
+           </widget>
+          </item>
+          <item><widget class="Mattermost::OutgoingPostCreator" name="outgoingPostCreator"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="contextMenuPolicy"><enum>Qt::DefaultContextMenu</enum></property></widget></item>
          </layout>
         </widget>
        </item>
@@ -182,5 +207,18 @@
   <customwidget><class>Mattermost::OutgoingPostCreator</class><extends>QTextEdit</extends><header>chat-area/outgoing-post/OutgoingPostCreator.h</header></customwidget>
  </customwidgets>
  <resources><include location="../../resource.qrc"/></resources>
- <connections/>
+ <connections>
+  <connection><sender>formatBoldButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleBold()</slot></connection>
+  <connection><sender>formatItalicButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleItalic()</slot></connection>
+  <connection><sender>formatStrikeButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleStrikeOut()</slot></connection>
+  <connection><sender>formatLinkButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>insertLink()</slot></connection>
+  <connection><sender>formatImageButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>insertImages()</slot></connection>
+  <connection><sender>formatInlineCodeButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleInlineCode()</slot></connection>
+  <connection><sender>formatCodeBlockButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleCodeBlock()</slot></connection>
+  <connection><sender>formatQuoteButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleQuote()</slot></connection>
+  <connection><sender>formatBulletListButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleBulletList()</slot></connection>
+  <connection><sender>formatNumberedListButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleNumberedList()</slot></connection>
+  <connection><sender>messagePriorityButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>showMessagePriorityMenu()</slot></connection>
+  <connection><sender>outgoingPostCreator</sender><signal>formattingToolbarVisibilityChanged(bool)</signal><receiver>formattingToolbar</receiver><slot>setVisible(bool)</slot></connection>
+ </connections>
 </ui>

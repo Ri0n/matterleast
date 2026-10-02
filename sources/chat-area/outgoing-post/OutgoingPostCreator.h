@@ -28,6 +28,7 @@
 #include <QBoxLayout>
 #include <QPointer>
 #include <QTemporaryDir>
+#include <QTextCursor>
 
 #include "MessageTextEditWidget.h"
 #include "backend/PostResidencyLease.h"
@@ -39,6 +40,7 @@ class QDropEvent;
 class QLabel;
 class QEvent;
 class QFrame;
+class QJsonObject;
 class QMimeData;
 class QPushButton;
 class QTimer;
@@ -81,12 +83,50 @@ public:
 
 public slots:
 	void onAttachButtonClick ();
+    void insertImages();
 	void createPoll ();
+    void showMessagePriorityMenu();
 	void onPollPostReceived(BackendPost& post);
 	void onPostReceived (BackendPost& post);
 	void sendPostButtonAction ();
 	void postEditInitiated (BackendPost& post);
 	void cancelPostEdit ();
+    void toggleInlineCode()
+    {
+        QTextCursor cursor = textCursor();
+        const QString text = toPlainText();
+        const int selectionStart = cursor.selectionStart();
+        const int selectionEnd = cursor.selectionEnd();
+        const bool multilineSelection = cursor.hasSelection()
+            && text.mid(selectionStart, selectionEnd - selectionStart)
+                   .contains(QLatin1Char('\n'));
+
+        const int position = cursor.position();
+        const int lineStartMarker = position > 0
+            ? text.lastIndexOf(QLatin1Char('\n'), position - 1)
+            : -1;
+        const int lineStart = lineStartMarker + 1;
+        int lineEnd = text.indexOf(QLatin1Char('\n'), position);
+        if (lineEnd < 0) {
+            lineEnd = text.size();
+        }
+        const bool blankCurrentLine = !cursor.hasSelection()
+            && text.mid(lineStart, lineEnd - lineStart).trimmed().isEmpty();
+
+        if (blankCurrentLine) {
+            if (lineEnd > lineStart) {
+                cursor.setPosition(lineStart);
+                cursor.setPosition(lineEnd, QTextCursor::KeepAnchor);
+                cursor.removeSelectedText();
+                setTextCursor(cursor);
+            }
+            MessageTextEditWidget::toggleCodeBlock();
+        } else if (multilineSelection) {
+            MessageTextEditWidget::toggleCodeBlock();
+        } else {
+            MessageTextEditWidget::toggleInlineCode();
+        }
+    }
 
 signals:
 	void postEditFinished ();
@@ -111,6 +151,8 @@ private:
     void discardPersistentDraft();
     void failAttachmentUpload(const QString& statusText);
     void releaseComposerAttachmentUploads();
+    void syncInlineImageAttachmentReferences(
+        const QString& removedAttachmentId = QString());
     void showRankedEmojiPopup();
     void positionRankedEmojiPopup();
     void scheduleRankedEmojiPopupHide();
@@ -121,6 +163,11 @@ private:
     void setEmbeddedEmojiPickerExpanded(bool expanded, bool animate = true);
     void ensureEmbeddedEmojiPicker();
     void destroyEmbeddedEmojiPicker();
+    void ensurePriorityOutboxHook();
+    bool messagePriorityAvailable();
+    QJsonObject currentPostMetadata() const;
+    void resetMessagePriority();
+    void updateMessagePriorityButtonState();
 	bool isEditingPost() const;
 	bool isCreatingPost ();
 	bool isWaitingForPostServerResponse ();
@@ -160,6 +207,10 @@ private:
     bool                                rankedEmojiPickerExpanded = false;
     bool                                rankedEmojiPopupAbove = true;
     bool                                suppressDraftPersistence = false;
+    QString                             messagePriority;
+    bool                                priorityRequestedAck = false;
+    bool                                priorityPersistentNotifications = false;
+    bool                                priorityOutboxHookInstalled = false;
 };
 
 } /* namespace Mattermost */

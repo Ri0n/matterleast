@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QKeyEvent>
 #include <QListView>
+#include <QMimeData>
 
 #include "Settings.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
@@ -11,11 +12,133 @@
 
 using namespace Mattermost;
 
+namespace {
+
+class ExposedMessageTextEditWidget : public MessageTextEditWidget
+{
+public:
+    using MessageTextEditWidget::MessageTextEditWidget;
+    using MessageTextEditWidget::insertFromMimeData;
+};
+
+void selectRange(MessageTextEditWidget& editor, int start, int end)
+{
+    QTextCursor cursor = editor.textCursor();
+    cursor.setPosition(start);
+    cursor.setPosition(end, QTextCursor::KeepAnchor);
+    editor.setTextCursor(cursor);
+}
+
+void selectDocument(MessageTextEditWidget& editor)
+{
+    QTextCursor cursor = editor.textCursor();
+    cursor.select(QTextCursor::Document);
+    editor.setTextCursor(cursor);
+}
+
+} // namespace
+
 class MessageTextEditWidgetTest : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void markdownInlineHelpersWrapSelection()
+    {
+        MessageTextEditWidget editor;
+
+        editor.setPlainText(QStringLiteral("hello world"));
+        selectRange(editor, 6, 11);
+        editor.toggleBold();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("hello **world**"));
+        QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("world"));
+
+        editor.setPlainText(QStringLiteral("hello world"));
+        selectRange(editor, 6, 11);
+        editor.toggleItalic();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("hello _world_"));
+
+        editor.setPlainText(QStringLiteral("hello world"));
+        selectRange(editor, 6, 11);
+        editor.toggleStrikeOut();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("hello ~~world~~"));
+
+        editor.setPlainText(QStringLiteral("hello world"));
+        selectRange(editor, 6, 11);
+        editor.toggleInlineCode();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("hello `world`"));
+    }
+
+    void markdownBlockHelpersPrefixSelectedLines()
+    {
+        MessageTextEditWidget editor;
+
+        editor.setPlainText(QStringLiteral("one\ntwo"));
+        selectDocument(editor);
+        editor.toggleQuote();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("> one\n> two"));
+
+        editor.setPlainText(QStringLiteral("one\ntwo"));
+        selectDocument(editor);
+        editor.toggleBulletList();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("- one\n- two"));
+
+        editor.setPlainText(QStringLiteral("one\ntwo"));
+        selectDocument(editor);
+        editor.toggleNumberedList();
+        QCOMPARE(editor.toPlainText(), QStringLiteral("1. one\n2. two"));
+    }
+
+    void fencedCodeHelperWrapsRawMarkdown()
+    {
+        MessageTextEditWidget editor;
+        editor.setPlainText(QStringLiteral("code\nblock"));
+        selectDocument(editor);
+        editor.toggleCodeBlock();
+
+        QCOMPARE(editor.toPlainText(), QStringLiteral("```\ncode\nblock\n```"));
+    }
+
+    void pastedUrlWrapsSelectedLabel()
+    {
+        ExposedMessageTextEditWidget editor;
+        editor.setPlainText(QStringLiteral("label"));
+        selectDocument(editor);
+
+        QMimeData mimeData;
+        mimeData.setText(QStringLiteral("https://example.com/path?q=1"));
+        editor.insertFromMimeData(&mimeData);
+
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("[label](https://example.com/path?q=1)"));
+    }
+
+    void multilinePasteContinuesMarkdownQuote()
+    {
+        ExposedMessageTextEditWidget editor;
+        QMimeData mimeData;
+
+        editor.setPlainText(QStringLiteral("> before "));
+        editor.moveCursor(QTextCursor::End);
+        mimeData.setText(QStringLiteral("one\ntwo\nthree"));
+        editor.insertFromMimeData(&mimeData);
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("> before one\n> two\n> three"));
+
+        editor.setPlainText(QStringLiteral("> > nested "));
+        editor.moveCursor(QTextCursor::End);
+        mimeData.setText(QStringLiteral("one\r\ntwo\n"));
+        editor.insertFromMimeData(&mimeData);
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("> > nested one\n> > two\n> > "));
+
+        editor.setPlainText(QStringLiteral("plain "));
+        editor.moveCursor(QTextCursor::End);
+        mimeData.setText(QStringLiteral("one\ntwo"));
+        editor.insertFromMimeData(&mimeData);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("plain one\ntwo"));
+    }
+
     void growsAndShrinksWithExplicitLines()
     {
         MessageTextEditWidget editor;

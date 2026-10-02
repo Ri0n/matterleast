@@ -8,15 +8,20 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFontDatabase>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QImage>
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QResizeEvent>
+#include <QRunnable>
 #include <QScrollBar>
 #include <QSet>
 #include <QTextBlock>
@@ -26,7 +31,10 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextDocumentFragment>
+#include <QTextFragment>
+#include <QTextImageFormat>
 #include <QTextOption>
+#include <QThreadPool>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -189,6 +197,97 @@ bool isDraggableMessageLink(const QString& link)
         && scheme != QStringLiteral("mattermost-group");
 }
 
+QString mattermostFileIdForImageSource(const QString& source)
+{
+    const QUrl url(source);
+    const QString path = url.path();
+    const QString prefix = QStringLiteral("/api/v4/files/");
+    if (!path.startsWith(prefix)) {
+        return {};
+    }
+
+    const QString fileId = path.mid(prefix.size());
+    if (fileId.isEmpty() || fileId.contains(QLatin1Char('/'))) {
+        return {};
+    }
+    return fileId;
+}
+
+class InlineImageDecodeTask final : public QRunnable
+{
+public:
+    using Callback = std::function<void(QImage)>;
+
+    InlineImageDecodeTask(QByteArray data, Callback callback)
+        : data(std::move(data))
+        , callback(std::move(callback))
+    {
+        setAutoDelete(true);
+    }
+
+    void run() override
+    {
+        QImage image = QImage::fromData(data);
+        QObject* dispatcher = QCoreApplication::instance();
+        if (!dispatcher) {
+            return;
+        }
+
+        QMetaObject::invokeMethod(
+            dispatcher,
+            [callback = std::move(callback), image = std::move(image)]() mutable {
+                if (callback) {
+                    callback(std::move(image));
+                }
+            },
+            Qt::QueuedConnection);
+    }
+
+private:
+    QByteArray data;
+    Callback callback;
+};
+
+void decodeInlineImageAsync(const QByteArray& data,
+                            InlineImageDecodeTask::Callback callback)
+{
+    QThreadPool::globalInstance()->start(
+        new InlineImageDecodeTask(data, std::move(callback)));
+}
+
+QImage fittedInlineImage(QImage image, const QTextBrowser& browser)
+{
+    if (image.isNull()) {
+        return image;
+    }
+
+    int maxWidth = std::max(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                DOWNLOAD_IMAGE_MAX_WIDTH, DOWNLOAD_IMAGE_MAX_WIDTH_DEFAULT)
+            ->value().toInt());
+    const int maxHeight = std::max(
+        1,
+        MLOptions::instance()
+            ->optionObject<int>(
+                DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)
+            ->value().toInt());
+
+    const int viewportWidth = browser.viewport()->width();
+    if (viewportWidth > 0) {
+        maxWidth = std::min(maxWidth, viewportWidth);
+    }
+
+    if (image.width() > maxWidth || image.height() > maxHeight) {
+        image = image.scaled(
+            QSize(maxWidth, maxHeight),
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation);
+    }
+    return image;
+}
+
 class WrappedRichText final : public QTextBrowser
 {
 public:
@@ -225,12 +324,45 @@ public:
     {
         document()->setDefaultFont(font());
         setHtml(html);
-        document()->setDefaultFont(font());
-        document()->setDocumentMargin(0);
-        applyEmojiPresentation(*document(), jumboEmoji);
-        applyWrapMode();
+        finishContent(jumboEmoji);
+    }
+
+    void setImageResource(const QUrl& resourceUrl, const QImage& image)
+    {
+        if (image.isNull()) {
+            return;
+        }
+
+        QTextDocument* target = document();
+        target->addResource(QTextDocument::ImageResource, resourceUrl, image);
+        target->markContentsDirty(0, target->characterCount());
+        viewport()->update();
         scheduleHeightUpdate();
     }
+
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    void setContentFragment(const QTextDocumentFragment& fragment,
+                            bool jumboEmoji = false)
+    {
+        QTextDocument* target = document();
+        target->clear();
+        target->setDefaultFont(font());
+        target->setDocumentMargin(0);
+
+        QTextCursor cursor(target);
+        cursor.movePosition(QTextCursor::Start);
+        cursor.insertFragment(fragment);
+        finishContent(jumboEmoji);
+    }
+
+    void setContentMarkdown(const QString& markdown, bool jumboEmoji = false)
+    {
+        QTextDocument* target = document();
+        target->setDefaultFont(font());
+        MessageFormatter::buildMarkdownDocument(*target, markdown);
+        finishContent(jumboEmoji);
+    }
+#endif
 
     QSize sizeHint() const override
     {
@@ -297,6 +429,15 @@ protected:
     }
 
 private:
+    void finishContent(bool jumboEmoji)
+    {
+        document()->setDefaultFont(font());
+        document()->setDocumentMargin(0);
+        applyEmojiPresentation(*document(), jumboEmoji);
+        applyWrapMode();
+        scheduleHeightUpdate();
+    }
+
     void applyWrapMode()
     {
         QTextOption option = document()->defaultTextOption();
@@ -354,7 +495,7 @@ protected:
 class QuoteBlock final : public QWidget
 {
 public:
-    QuoteBlock(const QString& html,
+    QuoteBlock(const QString& markdown,
                std::function<void()> heightChanged,
                QWidget* parent = nullptr)
         : QWidget(parent)
@@ -377,7 +518,11 @@ public:
                 this->heightChanged();
             }
         }, this);
-        text->setContentHtml(html);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        text->setContentMarkdown(markdown);
+#else
+        text->setContentHtml(MessageFormatter::formatMessageText(markdown));
+#endif
         layout->addWidget(text, 1);
         updateMutedPalette();
     }
@@ -736,7 +881,7 @@ QString codeLanguage(const QTextBlock& block)
     return block.blockFormat().stringProperty(QTextFormat::BlockCodeLanguage);
 }
 
-QString fragmentHtml(QTextDocument& document, int start, int end)
+QTextDocumentFragment fragmentForRange(QTextDocument& document, int start, int end)
 {
     if (end <= start) {
         return {};
@@ -745,23 +890,10 @@ QString fragmentHtml(QTextDocument& document, int start, int end)
     QTextCursor cursor(&document);
     cursor.setPosition(start);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
-    return QTextDocumentFragment(cursor).toHtml();
+    return QTextDocumentFragment(cursor);
 }
 
 #endif
-
-QString formatRichTextForFont(const QString& message, const QFont& font)
-{
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-    QTextDocument document;
-    document.setDefaultFont(font);
-    MessageFormatter::buildMarkdownDocument(document, message);
-    return document.toHtml();
-#else
-    Q_UNUSED(font);
-    return MessageFormatter::formatMessageText(message);
-#endif
-}
 
 } // namespace
 
@@ -796,6 +928,22 @@ MessageContentWidget::MessageContentWidget(QWidget* parent)
     });
 }
 
+void MessageContentWidget::setInlineAttachmentContext(
+    const QSet<QString>& imageFileIds,
+    InlineImageLoader imageLoader)
+{
+    _inlineImageCandidates = imageFileIds;
+    _inlineImageLoader = std::move(imageLoader);
+    if (!_sourceMessage.isEmpty()) {
+        setMessage(_sourceMessage);
+    }
+}
+
+QSet<QString> MessageContentWidget::inlineAttachmentFileIds() const
+{
+    return _inlineAttachmentFileIds;
+}
+
 void MessageContentWidget::changeEvent(QEvent* event)
 {
     QWidget::changeEvent(event);
@@ -826,6 +974,7 @@ void MessageContentWidget::setMessage(const QString& message)
 {
     _sourceMessage = message;
     _jumboEmojiMessage = isEmojiOnlyMessage(message);
+    _inlineAttachmentFileIds.clear();
     clearContent();
 
     if (message.isEmpty()) {
@@ -838,7 +987,7 @@ void MessageContentWidget::setMessage(const QString& message)
     const QVector<MessageSegment> segments = splitMessageSegments(message);
     for (const MessageSegment& segment : segments) {
         if (segment.quote) {
-            addQuote(formatRichTextForFont(segment.text, font()));
+            addQuote(segment.text);
             continue;
         }
         if (segment.text.isEmpty()) {
@@ -857,6 +1006,7 @@ void MessageContentWidget::clear()
 {
     _sourceMessage.clear();
     _jumboEmojiMessage = false;
+    _inlineAttachmentFileIds.clear();
     clearContent();
     setVisible(false);
     scheduleDimensionsChanged();
@@ -960,17 +1110,18 @@ void MessageContentWidget::scheduleDimensionsChanged()
     });
 }
 
-void MessageContentWidget::addQuote(const QString& html)
+void MessageContentWidget::addQuote(const QString& markdown)
 {
-    if (html.isEmpty()) {
+    if (markdown.isEmpty()) {
         return;
     }
 
     auto* quote = new QuoteBlock(
-        html, [this] { scheduleDimensionsChanged(); }, this);
+        markdown, [this] { scheduleDimensionsChanged(); }, this);
     quote->browser()->setLinkDragHandler([this](const QString& link) {
         emit linkDragRequested(link);
     });
+    resolveInlineImages(quote->browser());
     connect(quote->browser(),
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
             this,
@@ -992,6 +1143,7 @@ void MessageContentWidget::addRichText(const QString& html)
         emit linkDragRequested(link);
     });
     richText->setContentHtml(html, _jumboEmojiMessage);
+    resolveInlineImages(richText);
     connect(richText,
             QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
             this,
@@ -1001,7 +1153,107 @@ void MessageContentWidget::addRichText(const QString& html)
     contentLayout->addWidget(richText);
 }
 
+void MessageContentWidget::resolveInlineImages(QTextBrowser* browser)
+{
+    if (!browser || _inlineImageCandidates.isEmpty()) {
+        return;
+    }
+
+    QSet<QString> requestedResources;
+    QTextDocument* document = browser->document();
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid() || !fragment.charFormat().isImageFormat()) {
+                continue;
+            }
+
+            const QString source =
+                fragment.charFormat().toImageFormat().name();
+            const QString fileId = mattermostFileIdForImageSource(source);
+            if (fileId.isEmpty() || !_inlineImageCandidates.contains(fileId)) {
+                continue;
+            }
+
+            _inlineAttachmentFileIds.insert(fileId);
+            if (!_inlineImageLoader || requestedResources.contains(source)) {
+                continue;
+            }
+            requestedResources.insert(source);
+            requestInlineImage(browser, QUrl(source), fileId);
+        }
+    }
+}
+
+void MessageContentWidget::requestInlineImage(QTextBrowser* browser,
+                                              const QUrl& resourceUrl,
+                                              const QString& fileId,
+                                              bool thumbnailFallback)
+{
+    if (!_inlineImageLoader || !browser || fileId.isEmpty()) {
+        return;
+    }
+
+    QPointer<MessageContentWidget> self(this);
+    QPointer<QTextBrowser> target(browser);
+    const auto received =
+        [self, target, resourceUrl, fileId, thumbnailFallback](const QByteArray& payload) {
+        if (!self || !target) {
+            return;
+        }
+        if (payload.isEmpty()) {
+            if (!thumbnailFallback) {
+                self->requestInlineImage(target, resourceUrl, fileId, true);
+            }
+            return;
+        }
+
+        decodeInlineImageAsync(
+            payload,
+            [self, target, resourceUrl, fileId, thumbnailFallback](QImage image) mutable {
+                if (!self || !target) {
+                    return;
+                }
+                if (image.isNull()) {
+                    if (!thumbnailFallback) {
+                        self->requestInlineImage(target, resourceUrl, fileId, true);
+                    }
+                    return;
+                }
+
+                image = fittedInlineImage(std::move(image), *target);
+                auto* wrapped = static_cast<WrappedRichText*>(target.data());
+                wrapped->setImageResource(resourceUrl, image);
+                self->scheduleDimensionsChanged();
+            });
+    };
+
+    _inlineImageLoader(fileId, thumbnailFallback, received);
+}
+
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+void MessageContentWidget::addRichTextFragment(const QTextDocumentFragment& fragment)
+{
+    if (fragment.isEmpty()) {
+        return;
+    }
+
+    auto* richText = new WrappedRichText(
+        [this] { scheduleDimensionsChanged(); }, this);
+    richText->setLinkDragHandler([this](const QString& link) {
+        emit linkDragRequested(link);
+    });
+    richText->setContentFragment(fragment, _jumboEmojiMessage);
+    resolveInlineImages(richText);
+    connect(richText,
+            QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
+            this,
+            [this](const QUrl& url) {
+                emit linkHovered(url.toString());
+            });
+    contentLayout->addWidget(richText);
+}
+
 void MessageContentWidget::addMarkdownContent(const QString& message)
 {
     QTextDocument document;
@@ -1017,7 +1269,7 @@ void MessageContentWidget::addMarkdownContent(const QString& message)
         }
 
         const int codeStart = block.position();
-        addRichText(fragmentHtml(document, richStart, codeStart));
+        addRichTextFragment(fragmentForRange(document, richStart, codeStart));
 
         QString language = codeLanguage(block);
         QStringList codeLines;
@@ -1042,7 +1294,8 @@ void MessageContentWidget::addMarkdownContent(const QString& message)
         richStart = block.isValid() ? block.position() : document.characterCount() - 1;
     }
 
-    addRichText(fragmentHtml(document, richStart, document.characterCount() - 1));
+    addRichTextFragment(fragmentForRange(
+        document, richStart, document.characterCount() - 1));
 }
 
 void MessageContentWidget::addCodeBlock(const QString& code, const QString& language)

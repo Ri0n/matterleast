@@ -19,6 +19,10 @@
         <file alias="edit">img/edit.svg</file>
         <file alias="copy">img/copy.svg</file>
         <file alias="link">img/link.svg</file>
+        <file alias="image">img/image.svg</file>
+        <file alias="format-bullet-list">img/format-bullet-list.svg</file>
+        <file alias="format-numbered-list">img/format-numbered-list.svg</file>
+        <file alias="message-priority">img/message-priority.svg</file>
         <file alias="unread">img/unread.svg</file>
         <file>img/quote-arrow.png</file>
     </qresource>

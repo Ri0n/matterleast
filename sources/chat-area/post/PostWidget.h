@@ -24,9 +24,12 @@
 #include <QFont>
 #include <QMargins>
 #include <QPushButton>
+#include <QSet>
 #include <memory>
 #include <vector>
 
+#include "MessageContentWidget.h"
+#include "backend/AttachmentService.h"
 #include "backend/PostResidencyLease.h"
 #include "backend/types/BackendPost.h"
 
@@ -61,7 +64,6 @@ class PostPoll;
 class ChatArea;
 class ChatLogWidget;
 class KTalkMeetingWidget;
-class MessageContentWidget;
 class ReactionQuickBarController;
 class ThreadSummaryWidget;
 
@@ -119,6 +121,48 @@ public:
 
     void addThreadButton();
     Backend& getBackend() const { return backend_; }
+
+    void prepareInlineAttachmentContext()
+    {
+        if (!messageContent) {
+            return;
+        }
+
+        QSet<QString> imageFileIds;
+        for (const BackendFile& file : post.files) {
+            if (file.mimeType.startsWith(
+                    QStringLiteral("image"), Qt::CaseInsensitive)) {
+                imageFileIds.insert(file.id);
+            }
+        }
+
+        Backend* sourceBackend = &backend_;
+        messageContent->setInlineAttachmentContext(
+            imageFileIds,
+            [sourceBackend](
+                const QString& fileId,
+                bool thumbnail,
+                MessageContentWidget::InlineImageDataCallback callback) {
+                AttachmentService& service =
+                    AttachmentService::instance(*sourceBackend);
+                if (thumbnail) {
+                    service.retrieveThumbnail(fileId, callback);
+                } else {
+                    service.retrievePreview(fileId, callback);
+                }
+            });
+
+        // setInlineAttachmentContext() rematerializes the QTextBrowser children
+        // when a message is already present. Reattach PostWidget-owned link,
+        // mention and context-menu behavior to those replacement browsers.
+        connectMessageLinks();
+    }
+
+    bool isAttachmentRenderedInline(const QString& fileId) const
+    {
+        return messageContent
+            && messageContent->inlineAttachmentFileIds().contains(fileId);
+    }
 
     void setPendingDeliveryPresentation(const QString& statusText,
                                         bool failed,

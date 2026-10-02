@@ -254,6 +254,29 @@ private slots:
                  "Rich text transparency must not rely on a per-widget style sheet");
     }
 
+    void markdownListRemainsStructuralAfterMaterialization()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("- first\n- second"));
+        showAndSettle(widget, QSize(480, 120));
+
+        auto* richText =
+            widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
+        QVERIFY(richText != nullptr);
+
+        const QTextBlock first = richText->document()->firstBlock();
+        const QTextBlock second = first.next();
+        QVERIFY(first.isValid());
+        QVERIFY(second.isValid());
+        QVERIFY2(first.textList(), qPrintable(richText->document()->toHtml()));
+        QVERIFY2(second.textList(), qPrintable(richText->document()->toHtml()));
+        QCOMPARE(second.textList(), first.textList());
+#else
+        QSKIP("Structured Markdown rendering requires Qt 5.14 or newer");
+#endif
+    }
+
     void paletteChangeDefersContentRebuild()
     {
         MessageContentWidget widget;
