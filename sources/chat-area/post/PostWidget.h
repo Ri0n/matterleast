@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "MessageContentWidget.h"
+#include "backend/AttachmentService.h"
 #include "backend/PostResidencyLease.h"
 #include "backend/types/BackendPost.h"
 
@@ -134,7 +135,22 @@ public:
                 imageFileIds.insert(file.id);
             }
         }
-        messageContent->setInlineAttachmentContext(backend_, imageFileIds);
+
+        Backend* sourceBackend = &backend_;
+        messageContent->setInlineAttachmentContext(
+            imageFileIds,
+            [sourceBackend](
+                const QString& fileId,
+                bool thumbnail,
+                MessageContentWidget::InlineImageDataCallback callback) {
+                AttachmentService& service =
+                    AttachmentService::instance(*sourceBackend);
+                if (thumbnail) {
+                    service.retrieveThumbnail(fileId, callback);
+                } else {
+                    service.retrievePreview(fileId, callback);
+                }
+            });
 
         // setInlineAttachmentContext() rematerializes the QTextBrowser children
         // when a message is already present. Reattach PostWidget-owned link,
