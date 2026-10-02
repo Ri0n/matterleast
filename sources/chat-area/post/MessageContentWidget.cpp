@@ -42,7 +42,6 @@
 
 #include "MessageFormatter.h"
 #include "Settings.h"
-#include "backend/AttachmentService.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistryNotifier.h"
 #include "options/MLOptions.h"
@@ -930,10 +929,11 @@ MessageContentWidget::MessageContentWidget(QWidget* parent)
 }
 
 void MessageContentWidget::setInlineAttachmentContext(
-    Backend& backend, const QSet<QString>& imageFileIds)
+    const QSet<QString>& imageFileIds,
+    InlineImageLoader imageLoader)
 {
-    _attachmentBackend = &backend;
     _inlineImageCandidates = imageFileIds;
+    _inlineImageLoader = std::move(imageLoader);
     if (!_sourceMessage.isEmpty()) {
         setMessage(_sourceMessage);
     }
@@ -1176,7 +1176,7 @@ void MessageContentWidget::resolveInlineImages(QTextBrowser* browser)
             }
 
             _inlineAttachmentFileIds.insert(fileId);
-            if (!_attachmentBackend || requestedResources.contains(source)) {
+            if (!_inlineImageLoader || requestedResources.contains(source)) {
                 continue;
             }
             requestedResources.insert(source);
@@ -1190,7 +1190,7 @@ void MessageContentWidget::requestInlineImage(QTextBrowser* browser,
                                               const QString& fileId,
                                               bool thumbnailFallback)
 {
-    if (!_attachmentBackend || !browser || fileId.isEmpty()) {
+    if (!_inlineImageLoader || !browser || fileId.isEmpty()) {
         return;
     }
 
@@ -1228,12 +1228,7 @@ void MessageContentWidget::requestInlineImage(QTextBrowser* browser,
             });
     };
 
-    AttachmentService& service = AttachmentService::instance(*_attachmentBackend);
-    if (thumbnailFallback) {
-        service.retrieveThumbnail(fileId, received);
-    } else {
-        service.retrievePreview(fileId, received);
-    }
+    _inlineImageLoader(fileId, thumbnailFallback, received);
 }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
