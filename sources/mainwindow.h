@@ -56,6 +56,7 @@ public:
 	MainWindow (QWidget *parent, QSystemTrayIcon& trayIcon, Backend& backend);
 	~MainWindow();
 public:
+    Backend& backendInstance() const { return backend; }
 	void initializationComplete ();
     void installRealtimeUiSync();
     void beginSemanticNavigation();

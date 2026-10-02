@@ -84,7 +84,7 @@ public:
 	virtual ~ChannelTree ();
 public:
 	bool isChannelActive (const BackendChannel& channel);
-	Backend* backendInstance() const { return backendForSidebar; }
+	Backend* backendInstance() const;
 
     // ChannelItemDelegate requests this lazily when a group-DM row becomes
     // visible. Keeping the request on the tree side avoids backend/network work
