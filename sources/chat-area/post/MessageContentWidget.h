@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+
+#include <QByteArray>
 #include <QSet>
 #include <QString>
 #include <QtGlobal>
@@ -13,17 +16,21 @@ class QVBoxLayout;
 
 namespace Mattermost {
 
-class Backend;
-
 class MessageContentWidget : public QWidget
 {
     Q_OBJECT
 
 public:
+    using InlineImageDataCallback = std::function<void(const QByteArray&)>;
+    using InlineImageLoader = std::function<void(
+        const QString& fileId,
+        bool thumbnail,
+        InlineImageDataCallback callback)>;
+
     explicit MessageContentWidget(QWidget* parent = nullptr);
 
-    void setInlineAttachmentContext(Backend& backend,
-                                    const QSet<QString>& imageFileIds);
+    void setInlineAttachmentContext(const QSet<QString>& imageFileIds,
+                                    InlineImageLoader imageLoader);
     QSet<QString> inlineAttachmentFileIds() const;
     void setMessage(const QString& message);
     void clear();
@@ -62,7 +69,7 @@ private:
     bool paletteRefreshPending = false;
     QString _sourceMessage;
     bool _jumboEmojiMessage = false;
-    Backend* _attachmentBackend = nullptr;
+    InlineImageLoader _inlineImageLoader;
     QSet<QString> _inlineImageCandidates;
     QSet<QString> _inlineAttachmentFileIds;
 };
