@@ -22,7 +22,7 @@ The toolbar inserts these Markdown primitives:
 - fenced code block: the separate block-code action always inserts triple-backtick fences around the selection
 - quote: `> ` at the beginning of selected/current lines
 - bulleted list: `- ` at the beginning of selected/current lines
-- numbered list: sequential `1. `, `2. `, ... prefixes
+- numbered list: sequential `1. `, `2. `, ...` prefixes
 - link: `[label](https://...)`
 - image: starts the normal Mattermost attachment upload immediately and inserts an inline Markdown image reference tied to that attachment
 
@@ -62,9 +62,9 @@ After delivery, the stored message contains ordinary Mattermost Markdown such as
 
 `MessageContentWidget` treats a Markdown image as a post attachment only when the referenced `file_id` is also one of that post's image files. This prevents an arbitrary image URL or an ordinary file link from claiming a post attachment. Recognition is performed on the parsed `QTextImageFormat`, so text that merely looks like image Markdown inside code is not treated as an inline attachment.
 
-The actual image bytes are loaded through the existing `AttachmentService`, not through `QTextDocument`'s unauthenticated URL loader. The renderer requests the Mattermost preview first and falls back to the thumbnail, using the service's authenticated requests, network-cache preference, and in-flight request coalescing. Image decoding runs off the GUI thread; the decoded image is fitted to the configured preview rectangle and current text viewport, then installed as a `QTextDocument::ImageResource` under the original `/api/v4/files/<file_id>` URL.
+`MessageContentWidget` deliberately does not depend on the backend/network stack. It consumes an injected image-byte loader. `PostWidget` binds that loader to the existing `AttachmentService`, so the real application still uses authenticated requests, network-cache preference, and in-flight request coalescing while lightweight renderer tests stay backend-free. The loader requests the Mattermost preview first and falls back to the thumbnail. Image decoding runs off the GUI thread; the decoded image is fitted to the configured preview rectangle and current text viewport, then installed as a `QTextDocument::ImageResource` under the original `/api/v4/files/<file_id>` URL.
 
-`PostWidget` owns the presentation contract between message content and the attachment list. It supplies the set of image `file_id` candidates to `MessageContentWidget`; IDs actually materialized as Markdown images are then considered claimed. `PostAttachmentList` omits claimed files, so an inline image is rendered at its Markdown position rather than appearing a second time below the message. The attachment-list shell stays hidden when every attached file was claimed inline.
+`PostWidget` owns the presentation contract between message content and the attachment list. It supplies both the set of image `file_id` candidates and the image loader to `MessageContentWidget`; IDs actually materialized as Markdown images are then considered claimed. `PostAttachmentList` omits claimed files, so an inline image is rendered at its Markdown position rather than appearing a second time below the message. The attachment-list shell stays hidden when every attached file was claimed inline.
 
 When multiline plain text is pasted into an existing Markdown quote line, every inserted line after the first inherits that line's quote prefix. Nested quote prefixes such as `> > ` are preserved, CRLF input is normalized to LF, and a trailing pasted newline leaves the caret on a quoted blank line so the quote can continue naturally. Multiline replacements spanning multiple existing lines are left to the ordinary paste path rather than guessing a single quote depth.
 
@@ -78,4 +78,4 @@ Priority metadata is staged by `pending_post_id` in `PostCreateService`, so retr
 
 ## Rendering boundary
 
-Raw-Markdown editing and the formatting toolbar remain independent of ordinary received-message formatting. The one post-aware bridge required by uploaded inline images is deliberately narrow: standard Mattermost `/api/v4/files/<file_id>` image nodes are resolved through the authenticated attachment service and the same claimed file IDs are suppressed from the separate attachment list. No WYSIWYG/editor state is consumed by the message-log renderer.
+Raw-Markdown editing and the formatting toolbar remain independent of ordinary received-message formatting. The one post-aware bridge required by uploaded inline images is deliberately narrow: standard Mattermost `/api/v4/files/<file_id>` image nodes are resolved through the injected authenticated attachment loader and the same claimed file IDs are suppressed from the separate attachment list. No WYSIWYG/editor state is consumed by the message-log renderer.
