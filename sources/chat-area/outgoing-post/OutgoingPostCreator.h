@@ -28,6 +28,7 @@
 #include <QBoxLayout>
 #include <QPointer>
 #include <QTemporaryDir>
+#include <QTextCursor>
 
 #include "MessageTextEditWidget.h"
 #include "backend/PostResidencyLease.h"
@@ -89,6 +90,42 @@ public slots:
 	void sendPostButtonAction ();
 	void postEditInitiated (BackendPost& post);
 	void cancelPostEdit ();
+    void toggleInlineCode()
+    {
+        QTextCursor cursor = textCursor();
+        const QString text = toPlainText();
+        const int selectionStart = cursor.selectionStart();
+        const int selectionEnd = cursor.selectionEnd();
+        const bool multilineSelection = cursor.hasSelection()
+            && text.mid(selectionStart, selectionEnd - selectionStart)
+                   .contains(QLatin1Char('\n'));
+
+        const int position = cursor.position();
+        const int lineStartMarker = position > 0
+            ? text.lastIndexOf(QLatin1Char('\n'), position - 1)
+            : -1;
+        const int lineStart = lineStartMarker + 1;
+        int lineEnd = text.indexOf(QLatin1Char('\n'), position);
+        if (lineEnd < 0) {
+            lineEnd = text.size();
+        }
+        const bool blankCurrentLine = !cursor.hasSelection()
+            && text.mid(lineStart, lineEnd - lineStart).trimmed().isEmpty();
+
+        if (blankCurrentLine) {
+            if (lineEnd > lineStart) {
+                cursor.setPosition(lineStart);
+                cursor.setPosition(lineEnd, QTextCursor::KeepAnchor);
+                cursor.removeSelectedText();
+                setTextCursor(cursor);
+            }
+            MessageTextEditWidget::toggleCodeBlock();
+        } else if (multilineSelection) {
+            MessageTextEditWidget::toggleCodeBlock();
+        } else {
+            MessageTextEditWidget::toggleInlineCode();
+        }
+    }
 
 signals:
 	void postEditFinished ();

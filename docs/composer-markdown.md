@@ -18,8 +18,8 @@ The toolbar inserts these Markdown primitives:
 - bold: `**text**`
 - italic: `_text_`
 - strikethrough: `~~text~~`
-- inline code: `` `text` ``
-- fenced code block: triple-backtick fences around the selection
+- code: the `</>` action inserts inline backticks in ordinary text, but inserts a fenced code block on a blank current line or for a multiline selection
+- fenced code block: the separate block-code action always inserts triple-backtick fences around the selection
 - quote: `> ` at the beginning of selected/current lines
 - bulleted list: `- ` at the beginning of selected/current lines
 - numbered list: sequential `1. `, `2. `, ... prefixes
