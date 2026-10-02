@@ -1,14 +1,19 @@
 #pragma once
 
+#include <QSet>
 #include <QString>
 #include <QtGlobal>
 #include <QWidget>
 
 class QEvent;
+class QTextBrowser;
 class QTextDocumentFragment;
+class QUrl;
 class QVBoxLayout;
 
 namespace Mattermost {
+
+class Backend;
 
 class MessageContentWidget : public QWidget
 {
@@ -17,6 +22,9 @@ class MessageContentWidget : public QWidget
 public:
     explicit MessageContentWidget(QWidget* parent = nullptr);
 
+    void setInlineAttachmentContext(Backend& backend,
+                                    const QSet<QString>& imageFileIds);
+    QSet<QString> inlineAttachmentFileIds() const;
     void setMessage(const QString& message);
     void clear();
     QString selectedText() const;
@@ -36,6 +44,11 @@ private:
     void applyChatFont(const QString& serializedFont);
     void addRichText(const QString& html);
     void addQuote(const QString& markdown);
+    void resolveInlineImages(QTextBrowser* browser);
+    void requestInlineImage(QTextBrowser* browser,
+                            const QUrl& resourceUrl,
+                            const QString& fileId,
+                            bool thumbnailFallback = false);
     void scheduleDimensionsChanged();
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
@@ -49,6 +62,9 @@ private:
     bool paletteRefreshPending = false;
     QString _sourceMessage;
     bool _jumboEmojiMessage = false;
+    Backend* _attachmentBackend = nullptr;
+    QSet<QString> _inlineImageCandidates;
+    QSet<QString> _inlineAttachmentFileIds;
 };
 
 } // namespace Mattermost
