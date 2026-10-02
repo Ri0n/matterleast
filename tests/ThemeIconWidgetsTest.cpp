@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QPalette>
 
+#include "ui/SvgRasterCache.h"
 #include "ui/ThemeIconWidgets.h"
 
 using namespace Mattermost;
@@ -88,6 +89,33 @@ private slots:
         QVERIFY(luma.first >= 0);
         QVERIFY(luma.second >= 0);
         QVERIFY(luma.first > luma.second + 100);
+    }
+
+    void svgRasterCacheUsesFinalDeviceResolution()
+    {
+        const QSize logicalSize(20, 20);
+        auto& cache = SvgRasterCache::instance();
+
+        const QPixmap oneX = cache.raster(
+            QStringLiteral(":/icons/link"), logicalSize, 1.0);
+        const QPixmap oneAndHalfX = cache.raster(
+            QStringLiteral(":/icons/link"), logicalSize, 1.5);
+        const QPixmap twoX = cache.raster(
+            QStringLiteral(":/icons/link"), logicalSize, 2.0);
+
+        QVERIFY(!oneX.isNull());
+        QVERIFY(!oneAndHalfX.isNull());
+        QVERIFY(!twoX.isNull());
+        QCOMPARE(oneX.size(), QSize(20, 20));
+        QCOMPARE(oneAndHalfX.size(), QSize(30, 30));
+        QCOMPARE(twoX.size(), QSize(40, 40));
+        QCOMPARE(oneX.devicePixelRatioF(), qreal(1.0));
+        QCOMPARE(oneAndHalfX.devicePixelRatioF(), qreal(1.5));
+        QCOMPARE(twoX.devicePixelRatioF(), qreal(2.0));
+
+        const QPixmap cachedAgain = cache.raster(
+            QStringLiteral(":/icons/link"), logicalSize, 1.5);
+        QCOMPARE(cachedAgain.cacheKey(), oneAndHalfX.cacheKey());
     }
 };
 

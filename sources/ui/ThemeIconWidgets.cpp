@@ -6,6 +6,8 @@
 
 #include "ThemeIconWidgets.h"
 
+#include <algorithm>
+
 #include <QApplication>
 #include <QColor>
 #include <QEvent>
@@ -15,6 +17,7 @@
 
 #include "BusyIndicator.h"
 #include "IconUtils.h"
+#include "SvgRasterCache.h"
 
 namespace Mattermost {
 namespace {
@@ -25,6 +28,31 @@ constexpr int BusyIndicatorExtent = 18;
 QString tintKey(const QColor& color)
 {
     return color.name(QColor::HexArgb);
+}
+
+bool isFormattingToolbarIcon(const QString& objectName)
+{
+    return objectName == QStringLiteral("formatLinkButton")
+        || objectName == QStringLiteral("formatBulletListButton")
+        || objectName == QStringLiteral("formatNumberedListButton")
+        || objectName == QStringLiteral("messagePriorityButton");
+}
+
+void tintPixmap(QPixmap& pixmap, const QColor& color)
+{
+    if (pixmap.isNull()) {
+        return;
+    }
+
+    const qreal dpr = std::max<qreal>(1.0, pixmap.devicePixelRatioF());
+    QPainter painter(&pixmap);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(
+        QRectF(0.0,
+               0.0,
+               pixmap.width() / dpr,
+               pixmap.height() / dpr),
+        color);
 }
 
 } // namespace
@@ -95,6 +123,7 @@ void ThemeIconButton::invalidateRenderedIcon()
     _renderedResource.clear();
     _renderedSize = {};
     _renderedPixmap = {};
+    _renderedDprMilli = 0;
 }
 
 bool ThemeIconButton::event(QEvent* event)
@@ -107,7 +136,8 @@ bool ThemeIconButton::event(QEvent* event)
         syncBusyAnimation();
     } else if (type == QEvent::PaletteChange
                || type == QEvent::ApplicationPaletteChange
-               || type == QEvent::StyleChange) {
+               || type == QEvent::StyleChange
+               || type == QEvent::ScreenChangeInternal) {
         invalidateRenderedIcon();
         update();
     } else if (type == QEvent::Enter
@@ -153,19 +183,37 @@ void ThemeIconButton::paintEvent(QPaintEvent* event)
     const QString resource = symbolicResource();
     if (!resource.isEmpty()) {
         const QSize targetSize = iconSize().isValid() ? iconSize() : QSize(24, 24);
+        const bool useSvgRasterCache = isFormattingToolbarIcon(objectName());
+        const qreal currentDpr = std::max<qreal>(1.0, devicePixelRatioF());
+        const int currentDprMilli = qRound(currentDpr * 1000.0);
         const QString desiredTint = tintKey(color);
         if (_renderedTint != desiredTint
             || _renderedResource != resource
-            || _renderedSize != targetSize) {
-            _renderedPixmap = IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
+            || _renderedSize != targetSize
+            || _renderedDprMilli != currentDprMilli) {
+            if (useSvgRasterCache) {
+                _renderedPixmap = SvgRasterCache::instance().raster(
+                    resource, targetSize, currentDpr);
+                tintPixmap(_renderedPixmap, color);
+            } else {
+                _renderedPixmap =
+                    IconUtils::tintedSymbolicIcon(resource, color).pixmap(targetSize);
+            }
             _renderedTint = desiredTint;
             _renderedResource = resource;
             _renderedSize = targetSize;
+            _renderedDprMilli = currentDprMilli;
         }
 
         if (!_renderedPixmap.isNull()) {
-            const QPoint topLeft((width() - _renderedPixmap.width()) / 2,
-                                 (height() - _renderedPixmap.height()) / 2);
+            const qreal dpr = std::max<qreal>(
+                1.0, _renderedPixmap.devicePixelRatioF());
+            const QSizeF logicalSize(
+                _renderedPixmap.width() / dpr,
+                _renderedPixmap.height() / dpr);
+            const QPointF topLeft(
+                (width() - logicalSize.width()) / 2.0,
+                (height() - logicalSize.height()) / 2.0);
             painter.drawPixmap(topLeft, _renderedPixmap);
         }
         return;

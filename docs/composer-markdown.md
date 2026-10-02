@@ -29,6 +29,14 @@ Conventional shortcuts are handled at the editor layer where practical: `Ctrl/Cm
 
 The toolbar slot expands/collapses over 110 ms using `OutCubic` / `InCubic`, matching the interaction style used by other compact composer controls.
 
+### SVG raster cache
+
+SVG-backed toolbar actions use the shared `SvgRasterCache` rather than asking `QIcon` to rescale an already-rasterized layer. The cache decodes each resource directly at the requested physical pixel size and keys entries by resource, logical size, physical size, and device-pixel ratio.
+
+Cached rasters are deliberately untinted. `ThemeIconButton` applies the current palette/state color after lookup, so hover, checked, disabled, and theme variants share the same source raster. The cache is limited to 8 MiB with least-recently-used eviction, and a very-coarse hourly cleanup drops entries that have been idle for an hour.
+
+When a button moves between screens with different DPR, its local tinted pixmap is invalidated and looked up again at the new device resolution. This keeps toolbar SVGs sharp without coupling the cache itself to composer or toolbar semantics.
+
 ## Links and paste
 
 The editor uses the standard Qt text-editor context menu. When the cursor or selection intersects a Markdown link, the menu additionally offers **Edit link…** and **Remove link**.
