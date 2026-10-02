@@ -1,12 +1,8 @@
 #pragma once
 
-#include <algorithm>
-
-#include <QHash>
 #include <QList>
 #include <QRegularExpression>
 #include <QString>
-#include <QStringList>
 
 namespace Mattermost::LocalAttachmentMarkdown {
 
@@ -67,10 +63,10 @@ inline QList<ImageReference> imageReferences(const QString& markdown)
             continue;
         }
         references.push_back({
-            match.capturedStart(0),
-            match.capturedLength(0),
-            match.capturedStart(2),
-            match.capturedLength(2),
+            static_cast<int>(match.capturedStart(0)),
+            static_cast<int>(match.capturedLength(0)),
+            static_cast<int>(match.capturedStart(2)),
+            static_cast<int>(match.capturedLength(2)),
             match.captured(3),
             index,
         });
@@ -86,11 +82,12 @@ inline bool resolveForDelivery(const QString& markdown,
     resolvedMarkdown = markdown;
     errorText.clear();
 
-    QList<ImageReference> references = imageReferences(markdown);
+    const int attachmentCount = static_cast<int>(attachmentFileIds.size());
+    const QList<ImageReference> references = imageReferences(markdown);
     for (auto it = references.crbegin(); it != references.crend(); ++it) {
         const ImageReference& reference = *it;
         if (reference.attachmentIndex < 0
-            || reference.attachmentIndex >= attachmentFileIds.size()
+            || reference.attachmentIndex >= attachmentCount
             || attachmentFileIds.at(reference.attachmentIndex).isEmpty()) {
             errorText = QStringLiteral(
                 "Inline image attachment %1 is not available for delivery")
