@@ -118,6 +118,30 @@ QString displayMessage(const BackendPost& post, const QString& wireMessage)
         ? wireMessage : QuotedReplyFormat::stripFallback(wireMessage);
 }
 
+
+void updateAuthorNameColor(QLabel* authorName, bool ownPost,
+                           const QPalette& basePalette)
+{
+    if (!authorName) {
+        return;
+    }
+
+    QColor color = basePalette.color(QPalette::WindowText);
+    if (ownPost) {
+        const QColor blue(Qt::blue);
+        const auto mix = [](int text, int accent) {
+            return (text * 3 + accent * 2) / 5;
+        };
+        color = QColor(mix(color.red(), blue.red()),
+                       mix(color.green(), blue.green()),
+                       mix(color.blue(), blue.blue()));
+    }
+
+    QPalette authorPalette = authorName->palette();
+    authorPalette.setColor(QPalette::WindowText, color);
+    authorName->setPalette(authorPalette);
+}
+
 } // namespace
 
 PostWidget::PostWidget(Backend& backend,
@@ -346,9 +370,7 @@ PostWidget::PostWidget(Backend& backend,
         ui->horizontalLayout->insertSpacing(3, indicatorTimeGap);
     }
 
-	if (post.isOwnPost()) {
-		ui->authorName->setStyleSheet("QLabel { color : blue; }");
-	}
+    updateAuthorNameColor(ui->authorName, post.isOwnPost(), palette());
 
 	messageContent = new MessageContentWidget(this);
 	const int messageIndex = ui->verticalLayout->indexOf(ui->message);
@@ -543,6 +565,7 @@ void PostWidget::changeEvent(QEvent* event)
     }
 
     updateAuthorAvatar();
+    updateAuthorNameColor(ui->authorName, post.isOwnPost(), palette());
     updateHoverActionsPalette();
     updateTimestampPalette();
     update();
@@ -1232,9 +1255,7 @@ void PostWidget::setAuthor(Backend& backendInstance, const BackendUser* user)
 
 	post.author = user;
 	ui->authorName->setText(post.getDisplayAuthorName());
-	if (post.isOwnPost()) {
-		ui->authorName->setStyleSheet("QLabel { color : blue; }");
-	}
+    updateAuthorNameColor(ui->authorName, post.isOwnPost(), palette());
 
 	connect(user, &BackendUser::onAvatarChanged,
 	        this, &PostWidget::updateAuthorAvatar, Qt::UniqueConnection);
