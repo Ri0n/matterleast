@@ -5,6 +5,7 @@
 
 #include <QList>
 #include <QObject>
+#include <QString>
 #include <QStringList>
 
 class QAction;
@@ -13,6 +14,15 @@ namespace Mattermost {
 
 class Backend;
 class PluginHost;
+
+struct PluginInfo
+{
+    QString id;
+    QString name;
+    QString version;
+    QString filePath;
+    bool enabled = false;
+};
 
 class PluginManager final : public QObject
 {
@@ -26,6 +36,8 @@ public:
         const QString& conversationId,
         const QString& threadRootId);
 
+    QList<PluginInfo> pluginInfos() const;
+    bool setPluginEnabled(const QString& pluginId, bool enabled);
     QStringList loadedPluginIds() const;
     QStringList pluginSearchPaths() const;
 

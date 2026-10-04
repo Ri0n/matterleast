@@ -14,7 +14,7 @@
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
+ * along with Mattermost-QT. If not, see https://www.gnu.org/licenses/.
  */
 
 #pragma once
@@ -23,6 +23,7 @@
 #include <QString>
 
 class QCheckBox;
+class QShowEvent;
 class QSpinBox;
 
 namespace Ui {
@@ -43,6 +44,7 @@ public:
 
 protected:
     void reject() override;
+    void showEvent(QShowEvent* event) override;
 
 private:
     Ui::SettingsWindow *ui;
@@ -62,6 +64,7 @@ private:
     QSpinBox* memoryTargetMB = nullptr;
     QSpinBox* memoryPostTtlMinutes = nullptr;
     QSpinBox* memorySweepSeconds = nullptr;
+    bool pluginsPageAdded = false;
 };
 
 } /* namespace Mattermost */
