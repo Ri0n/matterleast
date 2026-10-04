@@ -24,6 +24,8 @@
 
 #include "ChannelItem.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QMenu>
 
 #include "ChannelIcons.h"
@@ -33,7 +35,9 @@
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
+#include "backend/types/BackendUser.h"
 #include "navigation/AppNavigationService.h"
+#include "navigation/ConversationReference.h"
 
 namespace Mattermost {
 
@@ -140,6 +144,13 @@ void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& chann
     menu.addAction(QStringLiteral("Open in new tab"), [this, &channel] {
         AppNavigationService::instance(backend).openChannelInTab(channel.id);
     });
+
+    const QString reference = ConversationReference::copyText(backend, channel);
+    if (!reference.isEmpty()) {
+        menu.addAction(QStringLiteral("Copy reference"), [reference] {
+            QApplication::clipboard()->setText(reference);
+        });
+    }
     menu.addSeparator();
 
     auto& sidebar = SidebarService::instance(backend);

@@ -84,9 +84,17 @@ Ordinary semantic navigation also reuses existing tabs. Once a navigation target
 has resolved to its canonical `channelId + rootId` destination,
 `AppNavigationService` asks the navigation UI to activate an existing matching
 tab before continuing the normal semantic navigation pipeline. For channel,
-DM and GM tabs, the pin button in the chat header marks the current semantic tab
-as non-reusable. This control remains available when there is only one tab and
-the tab bar itself is hidden.
+DM and GM tabs, the **Pin tab** action in the ChatArea header menu marks the current
+semantic tab as non-reusable. This action remains available when there is only one
+tab and the tab bar itself is hidden. The header menu itself belongs to ChatArea so
+it is shared by ordinary chats and every thread presentation; navigation-specific
+actions such as Pin tab are injected/synchronized by NavigationUiController rather
+than making ChatArea mutate the tab model directly.
+
+The same header menu exposes contextual message search. It opens the ordinary
+transient Search collection with a prefilled Mattermost `in:` modifier for the
+conversation. Threads use their parent channel/DM/GM scope because Mattermost's
+message-search syntax has no thread-root modifier.
 
 A tab bookmark is passive revisit state and must never stand in for an explicit
 post target. Explicit post/permalink navigation, including `openPostInTab()`,

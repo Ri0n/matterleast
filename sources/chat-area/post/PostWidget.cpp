@@ -1341,7 +1341,10 @@ void PostWidget::connectMessageLinks()
 			continue;
 		}
 
-        UserMentionLinkifier::linkify(*browser->document(), groupMentionIds);
+        const QString teamName = parentChatArea && parentChatArea->channel.team
+            ? parentChatArea->channel.team->name : QString();
+        UserMentionLinkifier::linkify(
+            *browser->document(), groupMentionIds, teamName);
 
 		browser->setOpenLinks(false);
 		browser->setOpenExternalLinks(false);

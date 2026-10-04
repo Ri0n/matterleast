@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QIcon>
@@ -55,6 +56,7 @@
 #include "channel-tree-dialogs/ViewChannelMembersListDialog.h"
 #include "log.h"
 #include "navigation/AppNavigationService.h"
+#include "navigation/ConversationReference.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
 #include "ui/ThemeIconWidgets.h"
@@ -250,7 +252,15 @@ ChatArea::ChatArea(Backend& backend,
         threadFollowButton->setProperty("following", false);
         threadFollowButton->setToolTip(tr("Follow thread"));
         threadFollowButton->setAccessibleName(tr("Follow thread"));
-        ui->propertieslLayout->addWidget(threadFollowButton, 0, Qt::AlignVCenter);
+        const int actionsIndex = chatActionsButton
+            ? ui->propertieslLayout->indexOf(chatActionsButton) : -1;
+        if (actionsIndex >= 0) {
+            ui->propertieslLayout->insertWidget(actionsIndex, threadFollowButton,
+                                                0, Qt::AlignVCenter);
+        } else {
+            ui->propertieslLayout->addWidget(threadFollowButton,
+                                             0, Qt::AlignVCenter);
+        }
         refreshHeaderActionIcons();
 
         QPointer<ChatArea> areaGuard(this);
@@ -353,6 +363,57 @@ void ChatArea::setupHeaderUi()
     configureCountButton(*ui->pinnedPostsButton);
     ui->pinnedPostsButton->setCheckable(true);
 
+    chatActionsMenu = new QMenu(this);
+    chatActionsMenu->setObjectName(QStringLiteral("chatActionsMenu"));
+
+    QAction* searchAction = chatActionsMenu->addAction(tr("Search in conversation"));
+    searchAction->setObjectName(QStringLiteral("searchConversationAction"));
+    connect(searchAction, &QAction::triggered, this, [this] {
+        emit searchInConversationRequested(channel.id);
+    });
+
+    chatActionsMenu->addSeparator();
+    QAction* copyReferenceAction = chatActionsMenu->addAction(tr("Copy reference"));
+    copyReferenceAction->setObjectName(QStringLiteral("copyConversationReferenceAction"));
+    QAction* copyLinkAction = chatActionsMenu->addAction(tr("Copy link to chat"));
+    copyLinkAction->setObjectName(QStringLiteral("copyConversationLinkAction"));
+
+    auto refreshClipboardActions = [this, copyReferenceAction, copyLinkAction] {
+        const QString reference = ConversationReference::copyText(backend, channel);
+        copyReferenceAction->setVisible(!reference.isEmpty());
+        copyReferenceAction->setEnabled(!reference.isEmpty());
+        copyLinkAction->setEnabled(!channelWebUrl(backend, channel).isEmpty());
+    };
+    connect(chatActionsMenu, &QMenu::aboutToShow, this, refreshClipboardActions);
+    connect(copyReferenceAction, &QAction::triggered, this, [this] {
+        const QString reference = ConversationReference::copyText(backend, channel);
+        if (!reference.isEmpty()) {
+            QApplication::clipboard()->setText(reference);
+        }
+    });
+    connect(copyLinkAction, &QAction::triggered, this, [this] {
+        const QString link = channelWebUrl(backend, channel);
+        if (!link.isEmpty()) {
+            QApplication::clipboard()->setText(link);
+        }
+    });
+    refreshClipboardActions();
+
+    chatActionsButton = new QToolButton(this);
+    chatActionsButton->setObjectName(QStringLiteral("chatActionsButton"));
+    chatActionsButton->setAutoRaise(true);
+    chatActionsButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    chatActionsButton->setIconSize(QSize(HeaderActionIconExtent,
+                                         HeaderActionIconExtent));
+    chatActionsButton->setCursor(Qt::PointingHandCursor);
+    chatActionsButton->setPopupMode(QToolButton::InstantPopup);
+    chatActionsButton->setMenu(chatActionsMenu);
+    chatActionsButton->setToolTip(tr("Conversation actions"));
+    chatActionsButton->setAccessibleName(tr("Conversation actions"));
+    ui->propertieslLayout->addWidget(chatActionsButton, 0, Qt::AlignVCenter);
+
+    // Preserve the existing quick right-click affordance on the title as well;
+    // the visible header menu is now the discoverable home for the same action.
     ui->titleLabel->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui->titleLabel, &QWidget::customContextMenuRequested,
             this, [this](const QPoint& pos) {
@@ -428,6 +489,10 @@ void ChatArea::refreshHeaderActionIcons()
     if (ui->pinnedPostsButton) {
         ui->pinnedPostsButton->setIcon(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/pin")));
+    }
+    if (chatActionsButton) {
+        chatActionsButton->setIcon(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/burger")));
     }
     if (threadFollowButton) {
         const bool following = threadFollowButton->property("following").toBool();

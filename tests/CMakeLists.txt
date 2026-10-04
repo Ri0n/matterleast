@@ -109,6 +109,24 @@ target_link_libraries(message-formatter-test
 add_test(NAME message-formatter-test COMMAND message-formatter-test)
 set_tests_properties(message-formatter-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(user-mention-linkifier-test
+    UserMentionLinkifierTest.cpp
+)
+
+target_include_directories(user-mention-linkifier-test
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+)
+
+target_link_libraries(user-mention-linkifier-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Widgets
+)
+
+add_test(NAME user-mention-linkifier-test COMMAND user-mention-linkifier-test)
+set_tests_properties(user-mention-linkifier-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(message-content-widget-test
     MessageContentWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/post/MessageContentWidget.cpp"

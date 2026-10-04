@@ -104,8 +104,8 @@ private:
     void goBack();
     void goForward();
 
-    void ensureTabPinButton(ChatArea* area);
-    void updateTabPinButton(ChatArea* area);
+    void ensureTabPinAction(ChatArea* area);
+    void updateTabPinAction(ChatArea* area);
     void ensureThreadButton(ChatArea* area);
     void attachThread(ChatArea* area);
     void detachThread(ChatArea* area);
