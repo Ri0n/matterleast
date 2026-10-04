@@ -150,6 +150,7 @@ if(BUILD_MULTIMEDIA)
 endif()
 
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
+add_subdirectory(plugins)
 add_subdirectory(third_party/QSourceHighlite)
 
 if(ANDROID)
@@ -180,7 +181,8 @@ else()
   add_library(matterleast-core OBJECT ${SOURCES})
   target_link_libraries(matterleast-core PUBLIC
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
-    Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite)
+    Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite
+    matterleast-plugin-api)
   if(BUILD_MULTIMEDIA)
     # matterleast-core compiles the multimedia-aware production sources. Keep
     # those Qt modules in its public link interface so integration tests that
@@ -232,6 +234,7 @@ add_subdirectory (tools)
 
 if(BUILD_TESTING)
 	add_subdirectory(tests)
+	add_subdirectory(tests/plugins)
 endif()
 
 target_link_libraries (${APPID} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite)
@@ -243,7 +246,9 @@ endif()
 
 if(NOT ANDROID)
 	include(GNUInstallDirs)
-	install(TARGETS "${APPID}" RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+	install(TARGETS "${APPID}"
+		RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+		COMPONENT Runtime)
 endif()
 
 # Qt's deployment API runs windeployqt at install/package time and copies the
@@ -257,27 +262,30 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 		NO_TRANSLATIONS
 		NO_UNSUPPORTED_PLATFORM_ERROR
 	)
-	install(SCRIPT "${qt_deploy_script}")
+	install(SCRIPT "${qt_deploy_script}" COMPONENT Runtime)
 endif()
 
 if(UNIX)
 	install(FILES "img/MatterLeast.svg"
 		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps"
-		RENAME "${DESKTOP_ID}.svg")
+		RENAME "${DESKTOP_ID}.svg"
+		COMPONENT Runtime)
 
 	configure_file(
 		"resources/matterleast.desktop.in"
 		"${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.desktop"
 		@ONLY)
 	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.desktop"
-		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
+		COMPONENT Runtime)
 
 	configure_file(
 		"resources/matterleast.appdata.xml.in"
 		"${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.appdata.xml"
 		@ONLY)
 	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_ID}.appdata.xml"
-		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo")
+		DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/metainfo"
+		COMPONENT Runtime)
 endif()
 
 if(BUILD_MULTIMEDIA)
