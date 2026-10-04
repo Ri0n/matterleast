@@ -23,7 +23,10 @@
 
 #include <QEvent>
 #include <QFont>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QMenu>
+#include <QPointer>
 #include <QPushButton>
 #include <QSet>
 #include <QTimer>
@@ -50,6 +53,7 @@ constexpr int ActionButtonExtent = 30;
 constexpr int ActionIconExtent = 24;
 constexpr int MentionSearchLimit = 25;
 constexpr int MentionGroupSearchLimit = 60;
+constexpr int ChannelReferenceSearchLimit = 25;
 
 class MentionSearchState : public QObject
 {
@@ -63,6 +67,25 @@ public:
     QVector<UserAutocompleteProfile> remoteInChannel;
     QVector<UserAutocompleteProfile> remoteOutOfChannel;
     QVector<MentionGroup> remoteGroups;
+    quint64 generation = 0;
+};
+
+struct ChannelReferenceResult {
+    QString name;
+    QString displayName;
+    QString purpose;
+};
+
+class ChannelReferenceSearchState : public QObject
+{
+public:
+    explicit ChannelReferenceSearchState(QObject* parent)
+        : QObject(parent)
+    {
+    }
+
+    QString query;
+    QVector<ChannelReferenceResult> remoteChannels;
     quint64 generation = 0;
 };
 
@@ -390,7 +413,154 @@ void ChatArea::setupComposerUi()
 
         return candidates;
     };
-    ui->outgoingPostCreator->setCompletionRules({std::move(mentionRule)});
+
+    auto* channelSearch = new ChannelReferenceSearchState(ui->outgoingPostCreator);
+    QPointer<ChannelReferenceSearchState> channelSearchGuard(channelSearch);
+    QPointer<OutgoingPostCreator> channelEditorGuard(ui->outgoingPostCreator);
+    InteractiveTextEdit::CompletionRule channelRule;
+    channelRule.prefix = QStringLiteral("~");
+    channelRule.queryChanged =
+        [this, channelSearchGuard, channelEditorGuard](const QString& query) {
+        if (!channelSearchGuard || !channelEditorGuard) {
+            return;
+        }
+
+        ++channelSearchGuard->generation;
+        channelSearchGuard->query = query;
+        channelSearchGuard->remoteChannels.clear();
+
+        // Bare '~' can be answered immediately from the joined channels. Once
+        // the user types a prefix, also search the server-side public directory
+        // so unjoined public channels can be referenced without opening Browse
+        // Channels first.
+        if (query.isEmpty()) {
+            return;
+        }
+
+        const QString teamId = channel.team
+            ? channel.team->id : backend.getCurrentTeamContextId();
+        if (teamId.isEmpty()) {
+            return;
+        }
+
+        const quint64 generation = channelSearchGuard->generation;
+        backend.searchTeamPublicChannels(
+            teamId, query,
+            [channelSearchGuard, channelEditorGuard,
+             query, generation](QJsonArray channels) {
+                if (!channelSearchGuard || !channelEditorGuard
+                    || generation != channelSearchGuard->generation
+                    || query != channelSearchGuard->query) {
+                    return;
+                }
+
+                QVector<ChannelReferenceResult> results;
+                results.reserve(channels.size());
+                for (const auto& value : channels) {
+                    const QJsonObject object = value.toObject();
+                    const QString name = object.value(QStringLiteral("name")).toString();
+                    if (name.isEmpty()) {
+                        continue;
+                    }
+                    ChannelReferenceResult result;
+                    result.name = name;
+                    result.displayName = object.value(
+                        QStringLiteral("display_name")).toString();
+                    result.purpose = object.value(
+                        QStringLiteral("purpose")).toString();
+                    results.push_back(std::move(result));
+                    if (results.size() >= ChannelReferenceSearchLimit) {
+                        break;
+                    }
+                }
+                channelSearchGuard->remoteChannels = std::move(results);
+                channelEditorGuard->refreshCompletions();
+            });
+    };
+    channelRule.provider = [this, channelSearchGuard] {
+        using Candidate = InteractiveTextEdit::CompletionCandidate;
+        QVector<Candidate> candidates;
+        QSet<QString> seen;
+        const QString query = channelSearchGuard
+            ? channelSearchGuard->query : QString();
+
+        const auto appendCandidate = [&candidates, &seen](
+                                         const QString& name,
+                                         const QString& displayName,
+                                         const QString& purpose) {
+            const QString key = name.toCaseFolded();
+            if (key.isEmpty() || seen.contains(key)) {
+                return;
+            }
+            seen.insert(key);
+
+            Candidate candidate;
+            candidate.displayText = displayName.isEmpty()
+                ? QStringLiteral("~") + name : displayName;
+            candidate.insertText = name;
+            candidate.detailText = QStringLiteral("~") + name;
+            candidate.filterKeys.push_back(name);
+            if (!displayName.isEmpty()) {
+                candidate.filterKeys.push_back(displayName);
+            }
+            if (!purpose.isEmpty()) {
+                candidate.filterKeys.push_back(purpose);
+            }
+            candidates.push_back(std::move(candidate));
+        };
+
+        const QString teamId = channel.team
+            ? channel.team->id : backend.getCurrentTeamContextId();
+        const BackendTeam* team = channel.team;
+        if (!team && !teamId.isEmpty()) {
+            team = backend.getStorage().getTeamById(teamId);
+        }
+
+        if (team) {
+            QVector<const BackendChannel*> localChannels;
+            localChannels.reserve(static_cast<int>(team->channels.size()));
+            for (const auto& localChannel : team->channels) {
+                if (!localChannel || localChannel->name.isEmpty()) {
+                    continue;
+                }
+                const bool matches = query.isEmpty()
+                    || localChannel->name.contains(query, Qt::CaseInsensitive)
+                    || localChannel->display_name.contains(query, Qt::CaseInsensitive)
+                    || localChannel->purpose.contains(query, Qt::CaseInsensitive);
+                if (matches) {
+                    localChannels.push_back(localChannel.get());
+                }
+            }
+            std::sort(localChannels.begin(), localChannels.end(),
+                      [](const BackendChannel* lhs, const BackendChannel* rhs) {
+                const QString lhsName = lhs->display_name.isEmpty()
+                    ? lhs->name : lhs->display_name;
+                const QString rhsName = rhs->display_name.isEmpty()
+                    ? rhs->name : rhs->display_name;
+                return QString::localeAwareCompare(lhsName, rhsName) < 0;
+            });
+            if (localChannels.size() > ChannelReferenceSearchLimit) {
+                localChannels.resize(ChannelReferenceSearchLimit);
+            }
+            for (const BackendChannel* localChannel : localChannels) {
+                appendCandidate(localChannel->name,
+                                localChannel->display_name,
+                                localChannel->purpose);
+            }
+        }
+
+        if (channelSearchGuard) {
+            for (const ChannelReferenceResult& remote
+                 : channelSearchGuard->remoteChannels) {
+                appendCandidate(remote.name, remote.displayName, remote.purpose);
+            }
+        }
+
+        return candidates;
+    };
+
+    ui->outgoingPostCreator->setCompletionRules(
+        {std::move(mentionRule), std::move(channelRule)});
 
     const QString teamId = channel.team
         ? channel.team->id : backend.getCurrentTeamContextId();

@@ -31,6 +31,12 @@
 #include <QTextDocument>
 #include <QWidget>
 
+#include "backend/Backend.h"
+#include "backend/Storage.h"
+#include "backend/types/BackendChannel.h"
+#include "backend/types/BackendTeam.h"
+#include "chat-area/ChatArea.h"
+
 namespace Mattermost {
 
 namespace UserMentionLinkifier {
@@ -56,6 +62,28 @@ inline QString channelHref(const QString& teamName, const QString& channelName)
     }
     return QStringLiteral("/") + teamName
         + QStringLiteral("/channels/") + channelName;
+}
+
+inline QString channelReferenceTeamName(const QTextDocument& document)
+{
+    QObject* owner = document.parent();
+    while (owner) {
+        if (auto* area = qobject_cast<ChatArea*>(owner)) {
+            BackendChannel& channel = area->getChannel();
+            if (channel.team && !channel.team->name.isEmpty()) {
+                return channel.team->name;
+            }
+
+            Backend& backend = area->getBackend();
+            const QString teamId = backend.getCurrentTeamContextId();
+            if (const BackendTeam* team = backend.getStorage().getTeamById(teamId)) {
+                return team->name;
+            }
+            return {};
+        }
+        owner = owner->parent();
+    }
+    return {};
 }
 
 inline bool isSpecialMention(const QString& name)
@@ -130,6 +158,9 @@ inline void linkify(QTextDocument& document,
         Kind kind = Kind::User;
     };
 
+    const QString resolvedTeamName = teamName.isEmpty()
+        ? channelReferenceTeamName(document) : teamName;
+
     QList<Replacement> replacements;
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
         QRegularExpressionMatchIterator matches = mentionExpression().globalMatch(block.text());
@@ -154,7 +185,7 @@ inline void linkify(QTextDocument& document,
             replacements.push_back({position, length, name, Kind::User});
         }
 
-        if (!teamName.isEmpty()) {
+        if (!resolvedTeamName.isEmpty()) {
             QRegularExpressionMatchIterator channelMatches =
                 channelExpression().globalMatch(block.text());
             while (channelMatches.hasNext()) {
@@ -195,7 +226,7 @@ inline void linkify(QTextDocument& document,
             break;
         case Kind::Channel:
             cursor.mergeCharFormat(clickableMentionFormat(
-                palette, channelHref(teamName, replacement.value)));
+                palette, channelHref(resolvedTeamName, replacement.value)));
             break;
         }
     }
