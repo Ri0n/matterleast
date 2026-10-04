@@ -6,6 +6,11 @@
 
 #include "chat-area/post/UserMentionLinkifier.h"
 
+// Keep this unit test independent from matterleast-core while exercising the
+// production implementation. The application builds the same .cpp normally via
+// the recursive production source set.
+#include "chat-area/post/UserMentionLinkifier.cpp"
+
 using namespace Mattermost;
 
 class UserMentionLinkifierTest final : public QObject
