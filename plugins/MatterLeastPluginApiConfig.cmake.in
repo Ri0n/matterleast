@@ -1,0 +1,9 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Qt@QT_VERSION_MAJOR@ REQUIRED COMPONENTS Core)
+
+include("${CMAKE_CURRENT_LIST_DIR}/MatterLeastPluginApiTargets.cmake")
+
+set(MatterLeastPluginApi_API_VERSION "@MATTERLEAST_PLUGIN_API_VERSION@")
+check_required_components(MatterLeastPluginApi)

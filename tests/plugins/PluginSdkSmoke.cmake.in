@@ -1,0 +1,33 @@
+set(prefix "@CMAKE_BINARY_DIR@/plugin-sdk-smoke-prefix")
+set(build_dir "@CMAKE_BINARY_DIR@/plugin-sdk-smoke-build")
+
+file(REMOVE_RECURSE "${prefix}" "${build_dir}")
+
+execute_process(
+    COMMAND "@CMAKE_COMMAND@" --install "@CMAKE_BINARY_DIR@"
+            --prefix "${prefix}" --component Development
+    RESULT_VARIABLE install_result
+)
+if(NOT install_result EQUAL 0)
+    message(FATAL_ERROR "Failed to install MatterLeast plugin SDK")
+endif()
+
+execute_process(
+    COMMAND "@CMAKE_COMMAND@"
+        -S "@CMAKE_SOURCE_DIR@/tests/plugin-sdk-smoke"
+        -B "${build_dir}"
+        "-DCMAKE_PREFIX_PATH=${prefix}"
+        "-DQt@QT_VERSION_MAJOR@_DIR=@MATTERLEAST_PLUGIN_SMOKE_QT_DIR@"
+    RESULT_VARIABLE configure_result
+)
+if(NOT configure_result EQUAL 0)
+    message(FATAL_ERROR "External plugin SDK configure failed")
+endif()
+
+execute_process(
+    COMMAND "@CMAKE_COMMAND@" --build "${build_dir}" --parallel 2
+    RESULT_VARIABLE build_result
+)
+if(NOT build_result EQUAL 0)
+    message(FATAL_ERROR "External plugin SDK build failed")
+endif()
