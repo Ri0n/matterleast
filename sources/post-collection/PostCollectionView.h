@@ -57,7 +57,8 @@ public:
     void activateSaved();
     void activateDrafts();
     void activateRecentMentions();
-    void activateSearch(const QString& preferredTeamId = QString());
+    void activateSearch(const QString& preferredTeamId = QString(),
+                        const QString& presetTerms = QString());
     void activatePinned(BackendChannel& channel);
 
     // Feed the logged-in user's realtime flagged_post preference changes into

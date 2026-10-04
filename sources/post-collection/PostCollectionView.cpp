@@ -13,6 +13,7 @@
 #include <QPalette>
 #include <QPointer>
 #include <QPushButton>
+#include <QTextCursor>
 #include <QTimer>
 #include <QToolButton>
 #include <QVariant>
@@ -424,16 +425,33 @@ void PostCollectionView::refreshDrafts()
     updateStatus();
 }
 
-void PostCollectionView::activateSearch(const QString& preferredTeamId)
+void PostCollectionView::activateSearch(const QString& preferredTeamId,
+                                        const QString& presetTerms)
 {
     if (mode != Mode::Search) {
         return;
     }
     rebuildSearchScopes(preferredTeamId);
-    if (searchEdit) {
-        searchEdit->setFocus(Qt::ShortcutFocusReason);
-        searchEdit->selectAll();
+    if (!searchEdit) {
+        return;
     }
+
+    searchEdit->setFocus(Qt::ShortcutFocusReason);
+    if (presetTerms.isEmpty()) {
+        searchEdit->selectAll();
+        return;
+    }
+
+    // A contextual search opens the ordinary Search surface, but it should not
+    // leave stale results from a previous query under a newly scoped input.
+    ++generation;
+    activeTerms.clear();
+    activeTeamId.clear();
+    resetCollection();
+    searchEdit->setPlainText(presetTerms);
+    QTextCursor cursor = searchEdit->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    searchEdit->setTextCursor(cursor);
 }
 
 void PostCollectionView::activatePinned(BackendChannel& channel)

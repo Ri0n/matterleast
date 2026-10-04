@@ -41,6 +41,7 @@ class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
+class QMenu;
 class QResizeEvent;
 class QShowEvent;
 class QStackedWidget;
@@ -68,6 +69,7 @@ public:
 	Ui::ChatArea* getUi ();
 	Backend& getBackend ();
 	BackendChannel& getChannel ();
+    QMenu* headerActionsMenu() const { return chatActionsMenu; }
     ChatArea* parentChatArea() const { return parentArea.data(); }
     /** Last semantic centre captured when an inactive channel view was detached. */
     QString storedNavigationBookmark() const { return storedViewportPostId; }
@@ -129,6 +131,9 @@ public:
 	/** Re-evaluate read progress from the current concrete timeline viewport. */
 	void refreshReadState ();
 
+signals:
+    void searchInConversationRequested(const QString& channelId);
+
 private slots:
     void on_userAvatar_clicked();
 
@@ -167,6 +172,8 @@ private:
 	AbstractPostSource* postSource = nullptr; // QObject child; owned by ChatArea
 	QTimer* loadingDelayTimer = nullptr;
 	ThemeIconButton* threadFollowButton = nullptr;
+    QToolButton* chatActionsButton = nullptr;
+    QMenu* chatActionsMenu = nullptr;
 	QStackedWidget* contentStack = nullptr;
 	PostCollectionView* pinnedPostsView = nullptr;
 	int pendingMessageLoads = 0;

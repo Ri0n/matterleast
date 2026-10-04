@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <QAction>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QEvent>
@@ -9,6 +10,7 @@
 #include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
@@ -945,8 +947,15 @@ void NavigationUiController::recordArea(ChatArea* area)
         return;
     }
     trackSessionArea(area);
+    if (!area->property("headerNavigationConnected").toBool()) {
+        connect(area, &ChatArea::searchInConversationRequested, this,
+                [this](const QString& channelId) {
+            window.openMessageSearchInChannel(channelId);
+        });
+        area->setProperty("headerNavigationConnected", true);
+    }
     if (!area->isThread) {
-        ensureTabPinButton(area);
+        ensureTabPinAction(area);
     }
     scheduleSessionSave();
 
@@ -1003,7 +1012,7 @@ void NavigationUiController::recordArea(ChatArea* area)
                     navigationSurfaceStack->setCurrentWidget(mainStack);
                 }
             }
-            updateTabPinButton(area);
+            updateTabPinAction(area);
         }
         refreshTabBarVisibility();
     }
@@ -1164,30 +1173,38 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
     return nullptr;
 }
 
-void NavigationUiController::ensureTabPinButton(ChatArea* area)
+void NavigationUiController::ensureTabPinAction(ChatArea* area)
 {
     if (!area || area->isThread) {
         return;
     }
 
-    auto* layout = area->findChild<QHBoxLayout*>(QStringLiteral("propertieslLayout"));
-    if (!layout) {
+    QMenu* menu = area->headerActionsMenu();
+    if (!menu) {
         return;
     }
 
-    auto* button = area->findChild<QToolButton*>(QStringLiteral("tabPinButton"));
-    if (!button) {
-        button = new QToolButton(area);
-        button->setObjectName(QStringLiteral("tabPinButton"));
-        button->setAutoRaise(true);
-        button->setCheckable(true);
-        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        button->setIconSize(QSize(16, 16));
-        button->setCursor(Qt::PointingHandCursor);
-        button->installEventFilter(this);
-        layout->addWidget(button, 0, Qt::AlignVCenter);
+    auto* action = area->findChild<QAction*>(QStringLiteral("tabPinAction"));
+    if (!action) {
+        action = new QAction(area);
+        action->setObjectName(QStringLiteral("tabPinAction"));
+        action->setCheckable(true);
 
-        connect(button, &QToolButton::clicked, this,
+        QAction* before = nullptr;
+        for (QAction* candidate : menu->actions()) {
+            if (candidate
+                && candidate->objectName() == QStringLiteral("searchConversationAction")) {
+                before = candidate;
+                break;
+            }
+        }
+        if (before) {
+            menu->insertAction(before, action);
+        } else {
+            menu->addAction(action);
+        }
+
+        connect(action, &QAction::triggered, this,
                 [this, area](bool checked) {
             const int index = tabModel.findDestination(
                 area->getChannel().id, QString());
@@ -1195,21 +1212,21 @@ void NavigationUiController::ensureTabPinButton(ChatArea* area)
                 tabModel.setPinned(index, checked);
                 scheduleSessionSave();
             }
-            updateTabPinButton(area);
+            updateTabPinAction(area);
         });
     }
 
-    updateTabPinButton(area);
+    updateTabPinAction(area);
 }
 
-void NavigationUiController::updateTabPinButton(ChatArea* area)
+void NavigationUiController::updateTabPinAction(ChatArea* area)
 {
     if (!area || area->isThread) {
         return;
     }
 
-    auto* button = area->findChild<QToolButton*>(QStringLiteral("tabPinButton"));
-    if (!button) {
+    auto* action = area->findChild<QAction*>(QStringLiteral("tabPinAction"));
+    if (!action) {
         return;
     }
 
@@ -1218,21 +1235,11 @@ void NavigationUiController::updateTabPinButton(ChatArea* area)
     const bool available = entry && entry->rootId.isEmpty();
     const bool pinned = available && entry->pinned;
 
-    QSignalBlocker blocker(button);
-    button->setVisible(available);
-    button->setEnabled(available);
-    button->setChecked(pinned);
-
-    auto iconColor = button->palette().color(QPalette::ButtonText);
-    if (!pinned) {
-        iconColor.setAlpha(150);
-    }
-    button->setIcon(IconUtils::tintedSymbolicIcon(
-        QStringLiteral(":/icons/tab-pin"), iconColor));
-
-    const QString label = pinned ? tr("Unpin tab") : tr("Pin tab");
-    button->setToolTip(label);
-    button->setAccessibleName(label);
+    QSignalBlocker blocker(action);
+    action->setVisible(available);
+    action->setEnabled(available);
+    action->setChecked(pinned);
+    action->setText(pinned ? tr("Unpin tab") : tr("Pin tab"));
 }
 
 void NavigationUiController::ensureThreadButton(ChatArea* area)
@@ -1247,6 +1254,17 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         return;
     }
 
+    auto addHeaderButton = [area, layout](QToolButton* button) {
+        auto* actionsButton = area->findChild<QToolButton*>(
+            QStringLiteral("chatActionsButton"));
+        const int actionsIndex = actionsButton ? layout->indexOf(actionsButton) : -1;
+        if (actionsIndex >= 0) {
+            layout->insertWidget(actionsIndex, button, 0, Qt::AlignVCenter);
+        } else {
+            layout->addWidget(button, 0, Qt::AlignVCenter);
+        }
+    };
+
     auto* tabButton = area->findChild<QToolButton*>(
         QStringLiteral("threadTabButton"));
     if (!tabButton) {
@@ -1256,7 +1274,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         tabButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
         tabButton->setIconSize(QSize(16, 16));
         tabButton->setCursor(Qt::PointingHandCursor);
-        layout->addWidget(tabButton, 0, Qt::AlignVCenter);
+        addHeaderButton(tabButton);
 
         connect(tabButton, &QToolButton::clicked, this, [this, area] {
             QPointer<ChatArea> guard(area);
@@ -1285,7 +1303,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         presentationButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
         presentationButton->setIconSize(QSize(16, 16));
         presentationButton->setCursor(Qt::PointingHandCursor);
-        layout->addWidget(presentationButton, 0, Qt::AlignVCenter);
+        addHeaderButton(presentationButton);
 
         connect(presentationButton, &QToolButton::clicked, this, [this, area] {
             QPointer<ChatArea> guard(area);
@@ -1314,7 +1332,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
         const QString label = tr("Close thread");
         closeButton->setToolTip(label);
         closeButton->setAccessibleName(label);
-        layout->addWidget(closeButton, 0, Qt::AlignVCenter);
+        addHeaderButton(closeButton);
 
         connect(closeButton, &QToolButton::clicked, this, [this, area] {
             if (!area) {
@@ -1548,15 +1566,6 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
-    if (event && event->type() == QEvent::PaletteChange
-        && watched && watched->objectName() == QStringLiteral("tabPinButton")) {
-        if (auto* button = qobject_cast<QToolButton*>(watched)) {
-            if (auto* area = qobject_cast<ChatArea*>(button->parentWidget())) {
-                updateTabPinButton(area);
-            }
-        }
-    }
-
     if (event && (event->type() == QEvent::Move || event->type() == QEvent::Resize)) {
         auto* area = qobject_cast<ChatArea*>(watched);
         if (area && area->property("sessionTracked").toBool()

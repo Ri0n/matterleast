@@ -46,6 +46,7 @@
 #include "backend/Backend.h"
 #include "backend/PendingPostService.h"
 #include "navigation/NavigationUiController.h"
+#include "navigation/ConversationReference.h"
 #include "backend/SidebarService.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -669,15 +670,28 @@ void MainWindow::openDrafts(const QString& teamId)
 
 void MainWindow::openMessageSearch()
 {
+    openMessageSearchInChannel(QString());
+}
+
+void MainWindow::openMessageSearchInChannel(const QString& channelId)
+{
     if (!searchMessagesPage) {
         searchMessagesPage = new PostCollectionView(
             backend, PostCollectionView::Mode::Search, ui->chatAreaStackedWidget);
     }
 
+    const bool scopedSearch = !channelId.isEmpty();
+    BackendChannel* channel = scopedSearch
+        ? backend.getStorage().getChannelById(channelId)
+        : backend.getCurrentChannel();
+
     QString preferredTeamId;
-    if (BackendChannel* channel = backend.getCurrentChannel()) {
-        if (channel->team) {
-            preferredTeamId = channel->team->id;
+    QString presetTerms;
+    if (channel) {
+        preferredTeamId = channel->team
+            ? channel->team->id : backend.getCurrentTeamContextId();
+        if (scopedSearch) {
+            presetTerms = ConversationReference::searchTerms(*channel);
         }
     }
 
@@ -686,7 +700,7 @@ void MainWindow::openMessageSearch()
     // back even though its tree row did not otherwise change.
     ui->channelList->setCurrentItem(nullptr);
     showCollectionPage(searchMessagesPage);
-    searchMessagesPage->activateSearch(preferredTeamId);
+    searchMessagesPage->activateSearch(preferredTeamId, presetTerms);
 }
 
 void MainWindow::openDirectMessageSearch()

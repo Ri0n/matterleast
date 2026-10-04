@@ -42,6 +42,22 @@ inline const QRegularExpression& mentionExpression()
     return expression;
 }
 
+inline const QRegularExpression& channelExpression()
+{
+    static const QRegularExpression expression(
+        QStringLiteral(R"((?<![A-Za-z0-9_-])~([A-Za-z0-9][A-Za-z0-9_-]*))"));
+    return expression;
+}
+
+inline QString channelHref(const QString& teamName, const QString& channelName)
+{
+    if (teamName.isEmpty() || channelName.isEmpty()) {
+        return {};
+    }
+    return QStringLiteral("/") + teamName
+        + QStringLiteral("/channels/") + channelName;
+}
+
 inline bool isSpecialMention(const QString& name)
 {
     return name.compare(QStringLiteral("all"), Qt::CaseInsensitive) == 0
@@ -103,9 +119,10 @@ inline QTextCharFormat specialMentionFormat(const QPalette& palette)
 }
 
 inline void linkify(QTextDocument& document,
-                    const QHash<QString, QString>& groupMentionIds = {})
+                    const QHash<QString, QString>& groupMentionIds = {},
+                    const QString& teamName = QString())
 {
-    enum class Kind { User, Group, Special };
+    enum class Kind { User, Group, Special, Channel };
     struct Replacement {
         int position = 0;
         int length = 0;
@@ -136,6 +153,21 @@ inline void linkify(QTextDocument& document,
             }
             replacements.push_back({position, length, name, Kind::User});
         }
+
+        if (!teamName.isEmpty()) {
+            QRegularExpressionMatchIterator channelMatches =
+                channelExpression().globalMatch(block.text());
+            while (channelMatches.hasNext()) {
+                const QRegularExpressionMatch match = channelMatches.next();
+                const QString name = match.captured(1);
+                const int position = block.position()
+                    + static_cast<int>(match.capturedStart(0));
+                const int length = static_cast<int>(match.capturedLength(0));
+                if (!rangeAlreadyLinkedOrCode(document, position, length)) {
+                    replacements.push_back({position, length, name, Kind::Channel});
+                }
+            }
+        }
     }
 
     std::sort(replacements.begin(), replacements.end(),
@@ -160,6 +192,10 @@ inline void linkify(QTextDocument& document,
         case Kind::User:
             cursor.mergeCharFormat(clickableMentionFormat(
                 palette, userMentionHref(replacement.value)));
+            break;
+        case Kind::Channel:
+            cursor.mergeCharFormat(clickableMentionFormat(
+                palette, channelHref(teamName, replacement.value)));
             break;
         }
     }

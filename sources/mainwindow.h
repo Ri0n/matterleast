@@ -67,6 +67,7 @@ public:
 	                     bool reachedOldest = false,
 	                     bool reachedNewest = false,
                          bool preserveIfOpen = false);
+    void openMessageSearchInChannel(const QString& channelId);
 
 	void changeEvent (QEvent* event) override;
 	void closeEvent(QCloseEvent *event) override;
