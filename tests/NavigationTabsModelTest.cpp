@@ -186,6 +186,20 @@ private slots:
         QVERIFY(chat.sameDestination(sameChat));
         QVERIFY(!chat.sameDestination(search));
     }
+
+    void chatHistoryLocationKeepsLegacyConstructionShape()
+    {
+        NavigationUiController::Location chat{
+            QStringLiteral("channel-a"),
+            QStringLiteral("root-a"),
+            QStringLiteral("post-a")};
+
+        QVERIFY(chat.isChat());
+        QVERIFY(chat.isValid());
+        QCOMPARE(chat.channelId, QStringLiteral("channel-a"));
+        QCOMPARE(chat.rootId, QStringLiteral("root-a"));
+        QCOMPARE(chat.postId, QStringLiteral("post-a"));
+    }
 };
 
 QTEST_APPLESS_MAIN(NavigationTabsModelTest)
