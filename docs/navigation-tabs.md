@@ -76,6 +76,24 @@ ordinary left-click path remains `openPost()`. Permalinks still pass through
 `AppNavigationService` so cold-post
 resolution and reply-root loading happen before the tab is presented.
 
+### Mattermost web URLs
+
+Ordinary HTTP(S) links in message text are offered to `AppNavigationService`
+before any browser fallback. A web URL is considered local only when its scheme,
+host and effective port exactly match the configured Mattermost server and its
+path is inside the configured server base path on a path-segment boundary. Host
+substring matches, a different scheme/port, and lookalike base-path prefixes are
+external. Keep this classification centralized; link widgets must not duplicate
+origin checks.
+
+Canonical `/<team>/channels/<target>`, `/<team>/messages/<user>` and
+`/<team>/pl/<post-id>` routes are semantic navigation targets. Channel targets may
+be either the Mattermost channel name or channel ID because server-generated URLs
+can use either form. Left-click keeps the ordinary navigation path, while
+middle-click uses the corresponding `open*InTab()` path. A same-origin URL whose
+route is not recognized still falls back to the browser instead of inventing a
+new client-side meaning.
+
 Direct thread-row activation may present a tab before its root body is resident; it does not run the
 left-click unread-resume query as a loading prerequisite. The ordinary thread source must bootstrap
 that cold identity itself, as described in [Thread source](post-sources/channel-and-thread.md#thread-source).

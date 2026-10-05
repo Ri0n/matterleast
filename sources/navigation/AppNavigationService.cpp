@@ -22,6 +22,7 @@
 #include "backend/types/BackendTeam.h"
 #include "backend/types/BackendUser.h"
 #include "mainwindow.h"
+#include "navigation/MattermostUrlRouter.h"
 #include "navigation/NavigationUiController.h"
 
 namespace Mattermost {
@@ -345,26 +346,12 @@ bool AppNavigationService::activateExistingDestination(
     return false;
 }
 
-bool AppNavigationService::isLocalUrl(const QUrl& url) const
-{
-    if (url.isRelative() || url.host().isEmpty()) {
-        return true;
-    }
-
-    const QUrl serverUrl(NetworkRequest::host());
-    if (!serverUrl.isValid() || serverUrl.host().isEmpty()) {
-        return false;
-    }
-
-    return QString::compare(url.host(), serverUrl.host(), Qt::CaseInsensitive) == 0
-        && url.port(-1) == serverUrl.port(-1);
-}
-
 BackendChannel* AppNavigationService::findChannel(const QString& teamName,
                                                    const QString& channelName) const
 {
     for (BackendChannel* channel : backend.getStorage().channels) {
-        if (!channel || channel->name != channelName) {
+        if (!channel
+            || (channel->name != channelName && channel->id != channelName)) {
             continue;
         }
         if (teamName.isEmpty()
@@ -470,15 +457,12 @@ void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
         return;
     }
 
-    if (!isLocalUrl(url)) {
-        beginNavigation();
-        QDesktopServices::openUrl(url);
-        return;
-    }
+    const QUrl serverUrl(NetworkRequest::host());
+    const MattermostUrlRoute route =
+        MattermostUrlRouter::classify(url, serverUrl);
 
-    const QStringList path = url.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
-    if (path.size() >= 3 && path.at(1) == QStringLiteral("channels")) {
-        if (BackendChannel* channel = findChannel(path.at(0), path.at(2))) {
+    if (route.kind == MattermostUrlRoute::Kind::Channel) {
+        if (BackendChannel* channel = findChannel(route.teamName, route.target)) {
             if (inTab) {
                 openChannelInTab(channel->id);
             } else {
@@ -486,10 +470,8 @@ void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
             }
             return;
         }
-    }
-
-    if (path.size() >= 3 && path.at(1) == QStringLiteral("messages")) {
-        QString username = path.at(2);
+    } else if (route.kind == MattermostUrlRoute::Kind::DirectMessage) {
+        QString username = route.target;
         if (username.startsWith(QLatin1Char('@'))) {
             username.remove(0, 1);
         }
@@ -498,7 +480,8 @@ void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
             if (QString::compare(user.username, username, Qt::CaseInsensitive) != 0) {
                 continue;
             }
-            if (BackendChannel* channel = backend.getStorage().getDirectChannelByUserId(user.id)) {
+            if (BackendChannel* channel =
+                    backend.getStorage().getDirectChannelByUserId(user.id)) {
                 if (inTab) {
                     openChannelInTab(channel->id);
                 } else {
@@ -508,20 +491,31 @@ void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
             }
             break;
         }
-    }
-
-    if (path.size() >= 3 && path.at(1) == QStringLiteral("pl")) {
+    } else if (route.kind == MattermostUrlRoute::Kind::GroupMessage) {
+        for (BackendChannel* channel : backend.getStorage().channels) {
+            if (!channel || channel->type != BackendChannel::groupChannel
+                || channel->name != route.target) {
+                continue;
+            }
+            if (inTab) {
+                openChannelInTab(channel->id);
+            } else {
+                openChannel(channel->id);
+            }
+            return;
+        }
+    } else if (route.kind == MattermostUrlRoute::Kind::Post) {
         if (inTab) {
-            openPostInTab(path.at(2));
+            openPostInTab(route.target);
         } else {
-            openPost(path.at(2));
+            openPost(route.target);
         }
         return;
     }
 
-    const QUrl browserUrl = url.isRelative()
-        ? QUrl(NetworkRequest::host()).resolved(url)
-        : url;
+    const QUrl browserUrl = route.kind == MattermostUrlRoute::Kind::LocalOther
+        ? route.resolvedUrl
+        : (url.isRelative() ? serverUrl.resolved(url) : url);
     beginNavigation();
     QDesktopServices::openUrl(browserUrl);
 }
