@@ -9,6 +9,7 @@
 
 #include <QDateTime>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 
 #include "backend/DirectConversationSidebarPolicy.h"
@@ -60,9 +61,9 @@ void SidebarService::resurfaceDirectConversation(BackendChannel& channel, uint64
 
         const bool visible = directChannelVisibility.value(peerUserId, false);
 
-        // Mattermost stores direct_channel_show by the peer user id. Keep the
-        // legacy channel-name alias populated as well because older MatterLeast
-        // sessions used that key when filtering the already loaded category.
+        // Mattermost stores direct_channel_show by the peer user id. The
+        // existing loaded-category filter still uses the channel-name lookup,
+        // so keep a local alias while persisting only the canonical key.
         directChannelVisibility.insert(peerUserId, true);
         directChannelVisibility.insert(channel.name, true);
 
