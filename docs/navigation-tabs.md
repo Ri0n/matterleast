@@ -122,6 +122,26 @@ prepare/lock/highlight path used outside tabs. Ordinary tab switching continues
 to restore bookmarks silently, without a highlight animation. Explicit
 `open*InTab()` requests remain idempotent for the same canonical destination.
 
+## Transient collection history
+
+Saved, Drafts, Recent Mentions (when exposed), and Search remain singleton
+transient central surfaces. They are browser-history destinations, not navigation
+tabs. Showing one records its semantic collection kind in the process-local
+Back/Forward history while the normal chat tab bar stays hidden.
+
+Revisiting a collection through Back/Forward reveals the retained
+`PostCollectionView` instance without calling its activation method again. This
+is especially important for Search: returning from a result preserves the
+current query and result set instead of issuing a new search. Reopening the same
+collection while it is already current updates the current history position
+rather than adding consecutive duplicate entries. Pinned messages are excluded
+because that collection is embedded in a specific `ChatArea`, not a standalone
+central destination.
+
+Collection history must remain orthogonal to tab pinning and session restoration.
+A transient collection never consumes or replaces a pinned chat tab, never enters
+`NavigationTabsModel`, and is not written to the restart snapshot.
+
 ## Restart restoration
 
 `NavigationUiController` saves a versioned semantic session through `MLOptions`,
@@ -157,13 +177,12 @@ leave the chat usable at its normal initial position.
 
 ## Extension point
 
-Other central destinations (for example Saved, Drafts or search result
-surfaces) should join the same semantic-tab layer rather than adding another
-top-level tab widget or duplicating backend state. Until those collection
-surfaces get their own tab target kind, opening one keeps its established
-transient behavior: the normal central surface is revealed and the chat tab bar
-is temporarily hidden, so an active tabbed thread can never cover Saved, Drafts
-or Search.
+A future collection feature should first decide whether it is a retained
+transient destination or a true tab target. Retained transient destinations join
+the typed Back/Forward history described above. A genuine tab target requires a
+new `NavigationTabsModel` destination kind and explicit pin/reuse/session rules;
+do not smuggle collection widgets into channel-tab entries or add another
+top-level tab widget.
 
 Navigation services are owned and discovered through their live Backend/MainWindow QObject children.
 A process-static map keyed by raw owner addresses must not retain services after owner destruction:

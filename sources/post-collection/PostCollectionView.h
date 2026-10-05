@@ -54,6 +54,8 @@ public:
     explicit PostCollectionView(Backend& backend, Mode mode, QWidget* parent = nullptr);
     ~PostCollectionView() override;
 
+    Mode viewMode() const { return mode; }
+
     void activateSaved();
     void activateDrafts();
     void activateRecentMentions();

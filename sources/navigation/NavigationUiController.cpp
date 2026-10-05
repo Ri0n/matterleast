@@ -39,6 +39,7 @@
 #include "options/MLOptions.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ThreadPaneLayout.h"
+#include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
 #include "ui/ThinSplitter.h"
 
@@ -153,6 +154,9 @@ void NavigationUiController::setupMainWindow()
             QWidget* page = mainStack->widget(index);
             const bool chatSurface = qobject_cast<ChatArea*>(page) != nullptr;
             if (!chatSurface) {
+                if (auto* collection = qobject_cast<PostCollectionView*>(page)) {
+                    recordCollection(collection);
+                }
                 // Saved/Drafts/Search are central surfaces just like channels.
                 // They replace only the central tab surface; a docked thread on
                 // the right remains an independent presentation pane.
@@ -436,6 +440,48 @@ NavigationUiController::captureLocation(ChatArea* area) const
     return location;
 }
 
+NavigationUiController::Location
+NavigationUiController::captureCollection(PostCollectionView* page) const
+{
+    Location location;
+    if (!page) {
+        return location;
+    }
+
+    switch (page->viewMode()) {
+    case PostCollectionView::Mode::Saved:
+        location.kind = Location::Kind::Saved;
+        break;
+    case PostCollectionView::Mode::Drafts:
+        location.kind = Location::Kind::Drafts;
+        break;
+    case PostCollectionView::Mode::RecentMentions:
+        location.kind = Location::Kind::RecentMentions;
+        break;
+    case PostCollectionView::Mode::Search:
+        location.kind = Location::Kind::Search;
+        break;
+    case PostCollectionView::Mode::Pinned:
+        break;
+    }
+    return location;
+}
+
+PostCollectionView* NavigationUiController::findCollection(Location::Kind kind) const
+{
+    if (!mainStack || kind == Location::Kind::Chat) {
+        return nullptr;
+    }
+
+    for (int index = 0; index < mainStack->count(); ++index) {
+        auto* page = qobject_cast<PostCollectionView*>(mainStack->widget(index));
+        if (page && captureCollection(page).kind == kind) {
+            return page;
+        }
+    }
+    return nullptr;
+}
+
 NavigationTabsModel::Entry
 NavigationUiController::tabEntry(const Location& location) const
 {
@@ -481,7 +527,7 @@ QString NavigationUiController::tabTitle(const Location& location) const
 
 int NavigationUiController::appendNavigationTab(const Location& location)
 {
-    if (!navigationTabs || !location.isValid()) {
+    if (!navigationTabs || !location.isChat() || !location.isValid()) {
         return -1;
     }
 
@@ -601,7 +647,7 @@ void NavigationUiController::refreshTabBarVisibility()
 
 void NavigationUiController::updateTab(int index, const Location& location)
 {
-    if (!navigationTabs || !location.isValid()
+    if (!navigationTabs || !location.isChat() || !location.isValid()
         || !tabModel.replace(index, tabEntry(location))) {
         return;
     }
@@ -1017,6 +1063,24 @@ void NavigationUiController::recordArea(ChatArea* area)
         refreshTabBarVisibility();
     }
 
+    recordLocation(next, area);
+}
+
+void NavigationUiController::recordCollection(PostCollectionView* page)
+{
+    const Location next = captureCollection(page);
+    if (!next.isValid() || next.isChat()) {
+        return;
+    }
+    recordLocation(next, nullptr);
+}
+
+void NavigationUiController::recordLocation(const Location& next, ChatArea* area)
+{
+    if (!next.isValid()) {
+        return;
+    }
+
     if (!currentLocation.isValid()) {
         currentLocation = next;
         activeArea = area;
@@ -1031,9 +1095,9 @@ void NavigationUiController::recordArea(ChatArea* area)
         return;
     }
 
-    if (activeArea) {
+    if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
-        if (latest.isValid()) {
+        if (latest.isValid() && currentLocation.sameDestination(latest)) {
             currentLocation = latest;
         }
     }
@@ -1065,7 +1129,7 @@ void NavigationUiController::goBack()
         return;
     }
 
-    if (activeArea) {
+    if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
         if (latest.isValid()) {
             currentLocation = latest;
@@ -1089,7 +1153,7 @@ void NavigationUiController::goForward()
         return;
     }
 
-    if (activeArea) {
+    if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
         if (latest.isValid()) {
             currentLocation = latest;
@@ -1109,8 +1173,27 @@ void NavigationUiController::goForward()
 
 void NavigationUiController::navigateTo(const Location& location)
 {
+    if (!location.isValid()) {
+        return;
+    }
+
+    if (!location.isChat()) {
+        PostCollectionView* page = findCollection(location.kind);
+        if (!page || !mainStack) {
+            return;
+        }
+        if (navigationSurfaceStack) {
+            navigationSurfaceStack->setCurrentWidget(mainStack);
+        }
+        mainStack->setCurrentWidget(page);
+        mainStack->show();
+        currentLocation = location;
+        activeArea = nullptr;
+        return;
+    }
+
     Backend* sourceBackend = backend();
-    if (!sourceBackend || !channelTree || !location.isValid()) {
+    if (!sourceBackend || !channelTree) {
         return;
     }
 

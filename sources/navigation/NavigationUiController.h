@@ -22,6 +22,7 @@ class Backend;
 class ChatArea;
 class ChannelTree;
 class MainWindow;
+class PostCollectionView;
 
 /**
  * Main-window presentation state that is orthogonal to Mattermost transport:
@@ -34,13 +35,39 @@ class NavigationUiController final : public QObject
     Q_OBJECT
 public:
     struct Location {
+        enum class Kind {
+            Chat,
+            Saved,
+            Drafts,
+            RecentMentions,
+            Search,
+        };
+
+        Location() = default;
+        Location(const QString& channel,
+                 const QString& root = QString(),
+                 const QString& post = QString())
+            : channelId(channel)
+            , rootId(root)
+            , postId(post)
+        {
+        }
+
+        Kind kind = Kind::Chat;
         QString channelId;
         QString rootId;
         QString postId;
 
-        bool isValid() const { return !channelId.isEmpty(); }
+        bool isChat() const { return kind == Kind::Chat; }
+        bool isValid() const { return !isChat() || !channelId.isEmpty(); }
         bool sameDestination(const Location& other) const
         {
+            if (kind != other.kind) {
+                return false;
+            }
+            if (!isChat()) {
+                return true;
+            }
             return channelId == other.channelId && rootId == other.rootId;
         }
     };
@@ -80,8 +107,12 @@ private:
     void updateHistoryButtons();
 
     Location captureLocation(ChatArea* area) const;
+    Location captureCollection(PostCollectionView* page) const;
     void recordArea(ChatArea* area);
+    void recordCollection(PostCollectionView* page);
+    void recordLocation(const Location& location, ChatArea* area);
     void navigateTo(const Location& location);
+    PostCollectionView* findCollection(Location::Kind kind) const;
 
     NavigationTabsModel::Entry tabEntry(const Location& location) const;
     Location tabLocation(const NavigationTabsModel::Entry& entry) const;
