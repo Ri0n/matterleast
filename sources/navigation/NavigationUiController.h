@@ -43,6 +43,16 @@ public:
             Search,
         };
 
+        Location() = default;
+        Location(const QString& channel,
+                 const QString& root = QString(),
+                 const QString& post = QString())
+            : channelId(channel)
+            , rootId(root)
+            , postId(post)
+        {
+        }
+
         Kind kind = Kind::Chat;
         QString channelId;
         QString rootId;
