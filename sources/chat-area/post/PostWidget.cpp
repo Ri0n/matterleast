@@ -1346,9 +1346,10 @@ void PostWidget::connectMessageLinks()
         QString teamName = parentChatArea && parentChatArea->channel.team
             ? parentChatArea->channel.team->name : QString();
         if (teamName.isEmpty()) {
-            const QString teamId = backend_.getCurrentTeamContextId();
-            if (!teamId.isEmpty()) {
-                if (const BackendTeam* team = backend_.getStorage().getTeamById(teamId)) {
+            const QString currentTeamId = backend_.getCurrentTeamContextId();
+            if (!currentTeamId.isEmpty()) {
+                if (const BackendTeam* team =
+                        backend_.getStorage().getTeamById(currentTeamId)) {
                     teamName = team->name;
                 }
             }
