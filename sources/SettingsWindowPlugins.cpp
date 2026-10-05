@@ -40,7 +40,7 @@ void SettingsWindow::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
 
-    if (pluginsPageAdded) {
+    if (pluginsPageAdded_) {
         return;
     }
 
@@ -50,7 +50,7 @@ void SettingsWindow::showEvent(QShowEvent* event)
         return;
     }
 
-    pluginsPageAdded = true;
+    pluginsPageAdded_ = true;
     auto& manager = PluginManager::instance(mainWindow->backendInstance());
 
     auto* page = new QWidget(tabs);
