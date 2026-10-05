@@ -232,9 +232,17 @@ bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
         return true;
     }
 
-    const bool ok = enabled ? host.loadAndEnable() : host.disableAndUnload();
-    if (!ok) {
+    const bool lifecycleOk = enabled ? host.loadAndEnable() : host.disableAndUnload();
+    if (!lifecycleOk && host.isEnabled() != enabled) {
         return false;
+    }
+    if (!lifecycleOk) {
+        // disable() has already succeeded, but the operating system may keep
+        // the library resident (for example because some external reference is
+        // still alive). The plugin is nevertheless logically disabled, so keep
+        // the UI and persisted preference aligned with the actual host state.
+        qWarning() << "Plugin disabled but its library could not be unloaded:"
+                   << pluginId;
     }
 
     MLOptions::instance()->setValue<bool>(pluginEnabledOption(pluginId), enabled);
