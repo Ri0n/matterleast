@@ -1,8 +1,10 @@
 #include <QtTest>
 
 #include "navigation/NavigationTabsModel.h"
+#include "navigation/NavigationUiController.h"
 
 using Mattermost::NavigationTabsModel;
+using Mattermost::NavigationUiController;
 
 class NavigationTabsModelTest : public QObject
 {
@@ -153,6 +155,36 @@ private slots:
         QCOMPARE(model.at(0)->channelId, QStringLiteral("b"));
         QCOMPARE(model.at(1)->channelId, QStringLiteral("c"));
         QCOMPARE(model.at(2)->channelId, QStringLiteral("a"));
+    }
+
+    void collectionHistoryLocationsUseSemanticIdentity()
+    {
+        using Kind = NavigationUiController::Location::Kind;
+
+        NavigationUiController::Location search;
+        search.kind = Kind::Search;
+        QVERIFY(search.isValid());
+        QVERIFY(!search.isChat());
+
+        NavigationUiController::Location sameSearch = search;
+        QVERIFY(search.sameDestination(sameSearch));
+
+        NavigationUiController::Location saved;
+        saved.kind = Kind::Saved;
+        QVERIFY(saved.isValid());
+        QVERIFY(!search.sameDestination(saved));
+
+        NavigationUiController::Location chat;
+        QVERIFY(!chat.isValid());
+        chat.channelId = QStringLiteral("channel-a");
+        chat.rootId = QStringLiteral("root-a");
+        QVERIFY(chat.isValid());
+        QVERIFY(chat.isChat());
+
+        NavigationUiController::Location sameChat = chat;
+        sameChat.postId = QStringLiteral("reply-a");
+        QVERIFY(chat.sameDestination(sameChat));
+        QVERIFY(!chat.sameDestination(search));
     }
 };
 
