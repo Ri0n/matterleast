@@ -4,12 +4,13 @@
  *
  * Copyright 2026 Sergei Ilinykh
  *
- * This file is part of Mattermost-QT.
+ * This file is part of MatterLeast.
  */
 
 #include "ChannelTree.h"
 
 #include "backend/Backend.h"
+#include "backend/DirectConversationSidebarPolicy.h"
 #include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
 #include "channel-tree/team-item/TeamItem.h"
@@ -26,22 +27,37 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
 
     auto& sidebar = SidebarService::instance(*backendForSidebar);
 
-    // Direct/group conversations are global Mattermost conversations but the
-    // sidebar exposes them through each team's server-backed Direct Messages
-    // category. A direct_added event can make the BackendChannel available
-    // before that category is refreshed, so materialize the row locally and
-    // let the next authoritative category response reconcile ordering/state.
+    // Direct/group conversations are global Mattermost conversations. A
+    // direct_added or posted event may refer to one that has fallen outside the
+    // visible Direct Messages limit. Preserve existing category placement and
+    // manual ordering; only conversations absent from every server category are
+    // admitted into Direct Messages locally. Recent sorting is driven by the
+    // channel's updated last_post_at during the normal reconciliation below.
     for (auto teamIt = teamToItemMap.begin(); teamIt != teamToItemMap.end(); ++teamIt) {
         TeamItem* teamItem = teamIt.value();
         SidebarTeamState* state = sidebar.teamState(teamIt.key());
-        SidebarCategory* category = state
-            ? state->categoryByType(QStringLiteral("direct_messages")) : nullptr;
-        if (!teamItem || !category) {
+        if (!teamItem || !state) {
             continue;
         }
 
-        if (!category->channelIds.contains(channel.id)) {
-            category->channelIds.prepend(channel.id);
+        bool presentInAnyCategory = false;
+        for (auto categoryIt = state->categories.cbegin();
+             categoryIt != state->categories.cend(); ++categoryIt) {
+            if (categoryIt->channelIds.contains(channel.id)) {
+                presentInAnyCategory = true;
+                break;
+            }
+        }
+
+        if (!presentInAnyCategory) {
+            SidebarCategory* directCategory = state->categoryByType(
+                QStringLiteral("direct_messages"));
+            if (!directCategory) {
+                // No loaded category can represent the new conversation yet.
+                // The next authoritative sidebar response will admit it.
+                continue;
+            }
+            promoteSidebarConversation(directCategory->channelIds, channel.id);
         }
 
         if (sidebarDragActive) {
@@ -49,33 +65,7 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
             continue;
         }
 
-        QTreeWidgetItem* categoryItem = nullptr;
-        for (int index = 0; index < teamItem->childCount(); ++index) {
-            QTreeWidgetItem* candidate = teamItem->child(index);
-            if (candidate
-                && candidate->data(0, ItemKindRole).toInt() == CategoryItemKind
-                && candidate->data(0, ItemIdRole).toString() == category->id) {
-                categoryItem = candidate;
-                break;
-            }
-        }
-        if (!categoryItem) {
-            continue;
-        }
-
-        bool alreadyMaterialized = false;
-        for (int index = 0; index < categoryItem->childCount(); ++index) {
-            QTreeWidgetItem* row = categoryItem->child(index);
-            if (row
-                && row->data(0, ItemKindRole).toInt() == ChannelItemKind
-                && row->data(0, ItemIdRole).toString() == channel.id) {
-                alreadyMaterialized = true;
-                break;
-            }
-        }
-        if (!alreadyMaterialized) {
-            createChannelItem(*backendForSidebar, *teamItem, *categoryItem, channel);
-        }
+        reconcileTeamSidebar(*backendForSidebar, *teamItem, *state);
     }
 }
 

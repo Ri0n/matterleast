@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include "backend/DirectConversationSidebarPolicy.h"
 #include "channel-tree/SidebarChannelMovePolicy.h"
 
 using namespace Mattermost;
@@ -90,6 +91,38 @@ private slots:
         QVERIFY(moveSidebarChannel(source, target, QStringLiteral("a")));
         QCOMPARE(source, QStringList({QStringLiteral("b")}));
         QCOMPARE(target, QStringList({QStringLiteral("c"), QStringLiteral("d"), QStringLiteral("a")}));
+    }
+
+    void extractsDirectPeerPreferenceKey()
+    {
+        QCOMPARE(directConversationPeerUserId(QStringLiteral("me"),
+                                              QStringLiteral("me__peer")),
+                 QStringLiteral("peer"));
+        QCOMPARE(directConversationPeerUserId(QStringLiteral("me"),
+                                              QStringLiteral("peer__me")),
+                 QStringLiteral("peer"));
+        QCOMPARE(directConversationPeerUserId(QStringLiteral("me"),
+                                              QStringLiteral("me__me")),
+                 QStringLiteral("me"));
+        QVERIFY(directConversationPeerUserId(QStringLiteral("me"),
+                                             QStringLiteral("other__peer")).isEmpty());
+        QVERIFY(directConversationPeerUserId(QStringLiteral("me"),
+                                             QStringLiteral("malformed")).isEmpty());
+    }
+
+    void promotesRealtimeConversationWithoutDuplicates()
+    {
+        QStringList ids {QStringLiteral("old"), QStringLiteral("active"),
+                         QStringLiteral("older"), QStringLiteral("active")};
+        QVERIFY(promoteSidebarConversation(ids, QStringLiteral("active")));
+        QCOMPARE(ids, QStringList({QStringLiteral("active"), QStringLiteral("old"),
+                                  QStringLiteral("older")}));
+        QVERIFY(!promoteSidebarConversation(ids, QStringLiteral("active")));
+
+        QVERIFY(promoteSidebarConversation(ids, QStringLiteral("new")));
+        QCOMPARE(ids, QStringList({QStringLiteral("new"), QStringLiteral("active"),
+                                  QStringLiteral("old"), QStringLiteral("older")}));
+        QVERIFY(!promoteSidebarConversation(ids, QString()));
     }
 };
 

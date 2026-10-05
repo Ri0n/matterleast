@@ -82,6 +82,8 @@ public:
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
     void markPostUnread(const QString& postId, std::function<void(bool)> callback = {});
     void synchronizeChannelActivity();
+    /** Mirror webapp loadNewDM/GMIfNeeded for a realtime posted event. */
+    void resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt);
 
     void retrieveChannelMemberships(std::function<void()> callback = {});
     void retrieveChannelPreferences(std::function<void()> callback = {});

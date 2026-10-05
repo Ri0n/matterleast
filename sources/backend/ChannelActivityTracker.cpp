@@ -25,9 +25,23 @@ void ChannelActivityTracker::setMembership(const QString& channelId, uint64_t la
     }
 
     Entry& entry = entries[channelId];
-    entry.lastViewedAt = std::max(entry.lastViewedAt, lastViewedAt);
-
+    const uint64_t previousLastViewedAt = entry.lastViewedAt;
     const uint64_t previousReadMessageCount = entry.readMessageCount;
+    const uint64_t previousReadRootMessageCount = entry.readRootMessageCount;
+
+    // The all-channel membership request is asynchronous and can complete after
+    // a newer local/server read acknowledgement. Read counters were already
+    // monotonic, but blindly copying mention_count from that older snapshot
+    // could resurrect an already-read channel/DM/GM. Treat mention metadata as
+    // part of the same read watermark: an older watermark may fill no state in.
+    const bool staleMembership = entry.membershipInitialized
+        && (lastViewedAt < previousLastViewedAt
+            || readMessageCount < previousReadMessageCount
+            || (hasReadRootMessageCount && entry.rootMembershipInitialized
+                && readRootMessageCount < previousReadRootMessageCount));
+
+    entry.lastViewedAt = std::max(previousLastViewedAt, lastViewedAt);
+
     if (entry.membershipInitialized
         && readMessageCount > previousReadMessageCount
         && entry.pendingOwnMessageCount > 0) {
@@ -38,7 +52,6 @@ void ChannelActivityTracker::setMembership(const QString& channelId, uint64_t la
     entry.membershipInitialized = true;
 
     if (hasReadRootMessageCount) {
-        const uint64_t previousReadRootMessageCount = entry.readRootMessageCount;
         if (entry.rootMembershipInitialized
             && readRootMessageCount > previousReadRootMessageCount
             && entry.pendingOwnRootMessageCount > 0) {
@@ -52,9 +65,11 @@ void ChannelActivityTracker::setMembership(const QString& channelId, uint64_t la
         entry.rootMembershipInitialized = true;
     }
 
-    entry.mentionCount = mentionCount;
-    entry.rootMentionCount = rootMentionCount;
-    entry.hasRootMentionCount = hasRootMentionCount;
+    if (!staleMembership) {
+        entry.mentionCount = mentionCount;
+        entry.rootMentionCount = rootMentionCount;
+        entry.hasRootMentionCount = hasRootMentionCount;
+    }
     entry.muted = muted;
     entry.tracked = true;
 }
