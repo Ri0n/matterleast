@@ -13,10 +13,12 @@
 
 #include "backend/Backend.h"
 #include "backend/ServerUiService.h"
+#include "backend/SidebarService.h"
 #include "backend/Storage.h"
 #include "backend/WebappPluginService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendDirectChannelsTeam.h"
+#include "backend/types/BackendPost.h"
 #include "channel-tree/AttentionList.h"
 #include "channel-tree/ChannelQuickList.h"
 #include "channel-tree/ChannelTree.h"
@@ -136,6 +138,24 @@ void MainWindow::installRealtimeUiSync()
     };
     connectConversationSource(backend.getStorage().directChannels);
     connectConversationSource(backend.getStorage().groupChannels);
+
+    // Mattermost's webapp runs loadNewDMIfNeeded/loadNewGMIfNeeded for every
+    // posted websocket event. An old conversation may no longer be present in
+    // the limited Direct Messages category, so restore its preference state and
+    // locally admit it immediately instead of leaving it visible only in
+    // Attention until the next full sidebar refresh.
+    connect(&backend, &Backend::onNewPost,
+            this, [this](BackendChannel& channel, const BackendPost& post) {
+        if (channel.type != BackendChannel::directChannel
+            && channel.type != BackendChannel::groupChannel) {
+            return;
+        }
+
+        SidebarService::instance(backend).resurfaceDirectConversation(
+            channel, post.create_at);
+        ui->channelList->admitStoredConversation(channel);
+        refreshSidebarViews();
+    });
 
     // Mattermost synchronizes flagged_post through preference websocket
     // events. Feed them into the collection only when it has been opened; its
