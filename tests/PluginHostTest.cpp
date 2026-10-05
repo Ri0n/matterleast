@@ -86,6 +86,12 @@ private slots:
         QVERIFY(host.disableAndUnload());
         QVERIFY(!host.isEnabled());
         QVERIFY(host.instance() == nullptr);
+
+        QVERIFY(host.loadAndEnable());
+        QVERIFY(host.isEnabled());
+        QVERIFY(host.instance() != nullptr);
+        QVERIFY(host.disableAndUnload());
+        QVERIFY(!host.isEnabled());
     }
 };
 
