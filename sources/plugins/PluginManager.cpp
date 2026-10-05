@@ -310,18 +310,36 @@ QList<QAction*> PluginManager::createConversationMenuActions(
                     descriptor.value(QStringLiteral("checked"), false).toBool());
             }
 
-            const QPointer<QObject> pluginObject(object);
+            const QPointer<PluginManager> manager(this);
+            const QString pluginId = host->id();
             connect(action, &QAction::triggered, action,
-                    [pluginObject, actionId, conversationId, threadRootId](bool checked) {
-                if (!pluginObject) {
+                    [manager, pluginId, actionId, conversationId,
+                     threadRootId](bool checked) {
+                if (!manager) {
                     return;
                 }
-                if (auto* current = qobject_cast<
-                        MatterLeast::PluginApi::ConversationMenuInterface*>(
-                            pluginObject.data())) {
-                    current->conversationMenuActionTriggered(
-                        actionId, conversationId, threadRootId, checked);
+
+                const auto currentHost = std::find_if(
+                    manager->plugins_.cbegin(), manager->plugins_.cend(),
+                    [&pluginId](const std::unique_ptr<PluginHost>& candidate) {
+                        return candidate && candidate->id() == pluginId
+                            && candidate->isEnabled();
+                    });
+                if (currentHost == manager->plugins_.cend()) {
+                    return;
                 }
+
+                QObject* currentObject = (*currentHost)->instance();
+                auto* current = currentObject
+                    ? qobject_cast<
+                        MatterLeast::PluginApi::ConversationMenuInterface*>(
+                            currentObject)
+                    : nullptr;
+                if (!current) {
+                    return;
+                }
+                current->conversationMenuActionTriggered(
+                    actionId, conversationId, threadRootId, checked);
             });
             result.push_back(action);
         }
