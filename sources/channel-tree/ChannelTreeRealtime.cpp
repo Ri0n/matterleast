@@ -29,9 +29,10 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
 
     // Direct/group conversations are global Mattermost conversations. A
     // direct_added or posted event may refer to one that has fallen outside the
-    // visible Direct Messages limit. Preserve any explicit Favorites/custom
-    // category placement; only conversations absent from every server category
-    // are admitted into Direct Messages locally.
+    // visible Direct Messages limit. Preserve existing category placement and
+    // manual ordering; only conversations absent from every server category are
+    // admitted into Direct Messages locally. Recent sorting is driven by the
+    // channel's updated last_post_at during the normal reconciliation below.
     for (auto teamIt = teamToItemMap.begin(); teamIt != teamToItemMap.end(); ++teamIt) {
         TeamItem* teamItem = teamIt.value();
         SidebarTeamState* state = sidebar.teamState(teamIt.key());
@@ -39,27 +40,24 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
             continue;
         }
 
-        SidebarCategory* directCategory = state->categoryByType(
-            QStringLiteral("direct_messages"));
         bool presentInAnyCategory = false;
-        bool presentInDirectCategory = false;
         for (auto categoryIt = state->categories.cbegin();
              categoryIt != state->categories.cend(); ++categoryIt) {
-            if (!categoryIt->channelIds.contains(channel.id)) {
-                continue;
-            }
-            presentInAnyCategory = true;
-            if (categoryIt->type == QStringLiteral("direct_messages")) {
-                presentInDirectCategory = true;
+            if (categoryIt->channelIds.contains(channel.id)) {
+                presentInAnyCategory = true;
+                break;
             }
         }
 
-        if (directCategory && (!presentInAnyCategory || presentInDirectCategory)) {
+        if (!presentInAnyCategory) {
+            SidebarCategory* directCategory = state->categoryByType(
+                QStringLiteral("direct_messages"));
+            if (!directCategory) {
+                // No loaded category can represent the new conversation yet.
+                // The next authoritative sidebar response will admit it.
+                continue;
+            }
             promoteSidebarConversation(directCategory->channelIds, channel.id);
-        } else if (!presentInAnyCategory) {
-            // No loaded category can represent the new conversation yet. The
-            // next authoritative sidebar response will admit it.
-            continue;
         }
 
         if (sidebarDragActive) {
