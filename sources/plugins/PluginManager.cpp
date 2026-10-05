@@ -17,6 +17,7 @@
 #include "backend/types/BackendChannel.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ConversationReference.h"
+#include "options/MLOptions.h"
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/ConversationMenuInterface.h"
 
@@ -26,6 +27,11 @@ namespace {
 const QString ManagerObjectName = QStringLiteral("matterleastPluginManager");
 const char PluginActionProperty[] = "matterleastPluginAction";
 const char PluginIdProperty[] = "matterleastPluginId";
+
+QString pluginEnabledOption(const QString& pluginId)
+{
+    return QStringLiteral("plugins/") + pluginId + QStringLiteral("/enabled");
+}
 
 } // namespace
 
@@ -117,9 +123,6 @@ PluginManager::~PluginManager()
 
 void PluginManager::shutdown()
 {
-    // Unwind in reverse load order. This is already the safest order for the
-    // future dependency layer and, crucially, aboutToQuit runs while Backend is
-    // still fully alive, so plugin disable() may use its injected hosts.
     while (!plugins_.empty()) {
         plugins_.pop_back();
     }
@@ -179,13 +182,70 @@ bool PluginManager::loadPluginFile(const QString& filePath)
         return false;
     }
 
-    if (!host->loadAndEnable()) {
+    const bool shouldEnable = MLOptions::instance()->value<bool>(
+        pluginEnabledOption(pluginId), true);
+    if (shouldEnable && !host->loadAndEnable()) {
+        qWarning() << "Discovered MatterLeast plugin but could not enable"
+                   << pluginId << "from" << filePath;
+    } else if (host->isEnabled()) {
+        qInfo() << "Loaded MatterLeast plugin" << host->id()
+                << host->version() << "from" << filePath;
+    }
+
+    plugins_.push_back(std::move(host));
+    return true;
+}
+
+QList<PluginInfo> PluginManager::pluginInfos() const
+{
+    QList<PluginInfo> infos;
+    infos.reserve(static_cast<int>(plugins_.size()));
+    for (const auto& host : plugins_) {
+        if (!host) {
+            continue;
+        }
+        PluginInfo info;
+        info.id = host->id();
+        info.name = host->name();
+        info.version = host->version();
+        info.filePath = host->filePath();
+        info.enabled = host->isEnabled();
+        infos.push_back(std::move(info));
+    }
+    return infos;
+}
+
+bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
+{
+    const auto it = std::find_if(
+        plugins_.begin(), plugins_.end(),
+        [&pluginId](const std::unique_ptr<PluginHost>& host) {
+            return host && host->id() == pluginId;
+        });
+    if (it == plugins_.end()) {
         return false;
     }
 
-    qInfo() << "Loaded MatterLeast plugin" << host->id()
-            << host->version() << "from" << filePath;
-    plugins_.push_back(std::move(host));
+    PluginHost& host = **it;
+    if (host.isEnabled() == enabled) {
+        MLOptions::instance()->setValue<bool>(pluginEnabledOption(pluginId), enabled);
+        return true;
+    }
+
+    const bool lifecycleOk = enabled ? host.loadAndEnable() : host.disableAndUnload();
+    if (!lifecycleOk && host.isEnabled() != enabled) {
+        return false;
+    }
+    if (!lifecycleOk) {
+        // disable() has already succeeded, but the operating system may keep
+        // the library resident (for example because some external reference is
+        // still alive). The plugin is nevertheless logically disabled, so keep
+        // the UI and persisted preference aligned with the actual host state.
+        qWarning() << "Plugin disabled but its library could not be unloaded:"
+                   << pluginId;
+    }
+
+    MLOptions::instance()->setValue<bool>(pluginEnabledOption(pluginId), enabled);
     return true;
 }
 
@@ -250,18 +310,36 @@ QList<QAction*> PluginManager::createConversationMenuActions(
                     descriptor.value(QStringLiteral("checked"), false).toBool());
             }
 
-            const QPointer<QObject> pluginObject(object);
+            const QPointer<PluginManager> manager(this);
+            const QString pluginId = host->id();
             connect(action, &QAction::triggered, action,
-                    [pluginObject, actionId, conversationId, threadRootId](bool checked) {
-                if (!pluginObject) {
+                    [manager, pluginId, actionId, conversationId,
+                     threadRootId](bool checked) {
+                if (!manager) {
                     return;
                 }
-                if (auto* current = qobject_cast<
-                        MatterLeast::PluginApi::ConversationMenuInterface*>(
-                            pluginObject.data())) {
-                    current->conversationMenuActionTriggered(
-                        actionId, conversationId, threadRootId, checked);
+
+                const auto currentHost = std::find_if(
+                    manager->plugins_.cbegin(), manager->plugins_.cend(),
+                    [&pluginId](const std::unique_ptr<PluginHost>& candidate) {
+                        return candidate && candidate->id() == pluginId
+                            && candidate->isEnabled();
+                    });
+                if (currentHost == manager->plugins_.cend()) {
+                    return;
                 }
+
+                QObject* currentObject = (*currentHost)->instance();
+                auto* current = currentObject
+                    ? qobject_cast<
+                        MatterLeast::PluginApi::ConversationMenuInterface*>(
+                            currentObject)
+                    : nullptr;
+                if (!current) {
+                    return;
+                }
+                current->conversationMenuActionTriggered(
+                    actionId, conversationId, threadRootId, checked);
             });
             result.push_back(action);
         }

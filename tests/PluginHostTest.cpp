@@ -47,7 +47,7 @@ class PluginHostTest final : public QObject
     Q_OBJECT
 
 private slots:
-    void injectsHostsBeforeEnableAndInvokesExtension()
+    void supportsEnableDisableAndReenableLifecycle()
     {
         const QString pluginPath = qEnvironmentVariable("MATTERLEAST_TEST_PLUGIN_PATH");
         QVERIFY2(!pluginPath.isEmpty(), "MATTERLEAST_TEST_PLUGIN_PATH is not set");
@@ -86,6 +86,12 @@ private slots:
         QVERIFY(host.disableAndUnload());
         QVERIFY(!host.isEnabled());
         QVERIFY(host.instance() == nullptr);
+
+        QVERIFY(host.loadAndEnable());
+        QVERIFY(host.isEnabled());
+        QVERIFY(host.instance() != nullptr);
+        QVERIFY(host.disableAndUnload());
+        QVERIFY(!host.isEnabled());
     }
 };
 

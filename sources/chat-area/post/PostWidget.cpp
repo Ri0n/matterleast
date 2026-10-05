@@ -67,10 +67,12 @@
 #include "backend/MentionGroupService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
+#include "backend/Storage.h"
 #include "backend/UserProfileService.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistryNotifier.h"
 #include "backend/types/BackendPost.h"
+#include "backend/types/BackendTeam.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
 #include "chat-area/QuotedPostPreview.h"
@@ -1341,8 +1343,17 @@ void PostWidget::connectMessageLinks()
 			continue;
 		}
 
-        const QString teamName = parentChatArea && parentChatArea->channel.team
+        QString teamName = parentChatArea && parentChatArea->channel.team
             ? parentChatArea->channel.team->name : QString();
+        if (teamName.isEmpty()) {
+            const QString currentTeamId = backend_.getCurrentTeamContextId();
+            if (!currentTeamId.isEmpty()) {
+                if (const BackendTeam* team =
+                        backend_.getStorage().getTeamById(currentTeamId)) {
+                    teamName = team->name;
+                }
+            }
+        }
         UserMentionLinkifier::linkify(
             *browser->document(), groupMentionIds, teamName);
 

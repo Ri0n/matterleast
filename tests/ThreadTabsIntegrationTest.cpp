@@ -309,7 +309,7 @@ private slots:
         const int index = log->source()->indexOfPost(replyId(205, 365));
         QVERIFY(index >= 0);
         QTRY_VERIFY(log->itemWidget(index));
-        QVERIFY(log->visibleRange().first <= index && index <= log->visibleRange().last);
+        QTRY_VERIFY(log->visibleRange().first <= index && index <= log->visibleRange().last);
         QVERIFY(server.returnedReplies < 100);
         // Explicit navigation cancels pending passive state immediately.
         area->setProperty("sessionBookmark", replyId(205, 100));
