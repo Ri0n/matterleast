@@ -158,6 +158,45 @@ private slots:
         QCOMPARE(tracker.activityTime(QStringLiteral("channel")), uint64_t(3000));
     }
 
+    void staleMembershipCannotRegressReadState()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 5, 5);
+        synchronize(tracker, 1000, 5, 5, true, false);
+
+        // A newer local/websocket acknowledgement wins before an older REST
+        // membership request completes.
+        tracker.recordViewed(QStringLiteral("channel"), 5000, 12, 12, true);
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+
+        // The stale response carries both older counters and an old mention.
+        // Neither may resurrect unread state after the newer read watermark.
+        setMembership(tracker, 2000, 7, 7, true, 3, 3, true, false);
+        synchronize(tracker, 5000, 12, 12, true, false);
+
+        QCOMPARE(tracker.lastViewedTime(QStringLiteral("channel")), uint64_t(5000));
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+    }
+
+    void staleMembershipCountsAreRejectedAtEqualWatermark()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 5, 5);
+        synchronize(tracker, 1000, 5, 5, true, false);
+        tracker.recordViewed(QStringLiteral("channel"), 5000, 12, 12, true);
+
+        // Timestamp equality is insufficient to establish freshness. A lower
+        // read counter proves that this snapshot predates the acknowledged read.
+        setMembership(tracker, 5000, 8, 8, true, 2, 2, true, false);
+        synchronize(tracker, 5000, 12, 12, true, false);
+
+        QCOMPARE(tracker.lastViewedTime(QStringLiteral("channel")), uint64_t(5000));
+        QVERIFY(!tracker.isUnread(QStringLiteral("channel")));
+        QVERIFY(!tracker.hasMention(QStringLiteral("channel")));
+    }
+
     void viewingChannelClearsServerAndRuntimeUnread()
     {
         ChannelActivityTracker tracker;
