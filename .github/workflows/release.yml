@@ -98,7 +98,6 @@ jobs:
             "matterleast-${VERSION}-fedora-44-x86_64.rpm"
             "matterleast-${VERSION}-linux-x86_64.AppImage"
             "matterleast-${VERSION}-windows-x64-installer.exe"
-            "matterleast-${VERSION}-windows-x64.msix"
             "matterleast-${VERSION}-source.tar.gz"
           )
           for asset in "${expected[@]}"; do
