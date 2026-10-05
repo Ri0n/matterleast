@@ -61,7 +61,6 @@ private:
 
     quint64 beginNavigation();
     void ensureMainWindowConnection();
-    bool isLocalUrl(const QUrl& url) const;
     void openUrlImpl(const QUrl& url, bool inTab);
     void openPostImpl(const QString& postId, bool inTab);
     bool activateExistingDestination(const QString& channelId,

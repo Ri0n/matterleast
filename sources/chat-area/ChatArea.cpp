@@ -57,6 +57,7 @@
 #include "log.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ConversationReference.h"
+#include "navigation/MattermostUrlRouter.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
 #include "ui/ThemeIconWidgets.h"
@@ -81,7 +82,35 @@ QString channelWebUrl(Backend& backend, const BackendChannel& channel)
         teamName = team->name;
     }
 
-    if (teamName.isEmpty() || channel.name.isEmpty()) {
+    if (teamName.isEmpty()) {
+        return QString();
+    }
+
+    MattermostUrlRoute::Kind routeKind = MattermostUrlRoute::Kind::LocalOther;
+    QString target;
+    switch (channel.type) {
+    case BackendChannel::publicChannel:
+    case BackendChannel::privateChannel:
+        routeKind = MattermostUrlRoute::Kind::Channel;
+        target = channel.name;
+        break;
+    case BackendChannel::directChannel:
+        routeKind = MattermostUrlRoute::Kind::DirectMessage;
+        if (const BackendUser* user = backend.getStorage().getUserById(channel.name)) {
+            target = user->username;
+        }
+        break;
+    case BackendChannel::groupChannel:
+        routeKind = MattermostUrlRoute::Kind::GroupMessage;
+        target = channel.name;
+        break;
+    default:
+        return QString();
+    }
+
+    const QString routePath =
+        MattermostUrlRouter::conversationPath(routeKind, teamName, target);
+    if (routePath.isEmpty()) {
         return QString();
     }
 
@@ -89,10 +118,10 @@ QString channelWebUrl(Backend& backend, const BackendChannel& channel)
     if (base.isEmpty()) {
         return QString();
     }
-    if (!base.endsWith(QLatin1Char('/'))) {
-        base += QLatin1Char('/');
+    while (base.endsWith(QLatin1Char('/'))) {
+        base.chop(1);
     }
-    return base + teamName + QStringLiteral("/channels/") + channel.name;
+    return base + routePath;
 }
 
 } // namespace
