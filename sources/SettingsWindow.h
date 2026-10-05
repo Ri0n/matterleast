@@ -64,7 +64,7 @@ private:
     QSpinBox* memoryTargetMB = nullptr;
     QSpinBox* memoryPostTtlMinutes = nullptr;
     QSpinBox* memorySweepSeconds = nullptr;
-    bool pluginsPageAdded = false;
+    bool pluginsPageAdded_ = false;
 };
 
 } /* namespace Mattermost */
