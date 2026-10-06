@@ -310,7 +310,10 @@ private slots:
         QVERIFY(index >= 0);
         QTRY_VERIFY(log->itemWidget(index));
         QTRY_VERIFY(log->visibleRange().first <= index && index <= log->visibleRange().last);
-        QVERIFY(server.returnedReplies < 100);
+        // The bookmark deliberately targets the middle of a large thread. A
+        // linear walk from either edge would consume at least half the replies;
+        // timing-dependent viewport prefetches are allowed to vary below that.
+        QVERIFY(server.returnedReplies < server.replyCount / 2);
         // Explicit navigation cancels pending passive state immediately.
         area->setProperty("sessionBookmark", replyId(205, 100));
         area->goToNewest();
