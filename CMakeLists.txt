@@ -102,9 +102,6 @@ set(APPID "matterleast")
 set(PRODUCT_NAME "MatterLeast")
 set(PRODUCT_VENDOR "MatterLeast contributors")
 set(DESKTOP_ID "io.github.Ri0n.MatterLeast")
-set(MATTERLEAST_MSIX_IDENTITY_NAME "SergeiIlinykh.Matterleast" CACHE STRING "Microsoft Store package identity")
-set(MATTERLEAST_MSIX_PUBLISHER "CN=A752CCD7-6C4F-48CE-87D8-B22E3AD2713D" CACHE STRING "Microsoft Store publisher identity")
-set(MATTERLEAST_MSIX_PUBLISHER_DISPLAY_NAME "Sergei Ilinykh" CACHE STRING "Microsoft Store publisher display name")
 
 option(QT_6 "Prefer Qt6" ON)
 
@@ -121,7 +118,7 @@ endif()
 
 #if(ANDROID)
 #    set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
-#    if (ANDROID_ABI STREQUAL "armeabi-v7a")
+#    if(ANDROID_ABI STREQUAL "armeabi-v7a")
 #        set(ANDROID_EXTRA_LIBS
 #            ${CMAKE_CURRENT_SOURCE_DIR}/path/to/libcrypto.so
 #            ${CMAKE_CURRENT_SOURCE_DIR}/path/to/libssl.so)
@@ -216,14 +213,8 @@ else()
       resources/matterleast.rc
       "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc"
       @ONLY)
-    # Store packages use four numeric components; the fourth is reserved by
-    # Microsoft Store and must remain zero.
-    set(MATTERLEAST_MSIX_VERSION
+    set(MATTERLEAST_WINDOWS_FILE_VERSION
       "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${MATTERLEAST_VERSION_PATCH}.0")
-    configure_file(
-      resources/msix/AppxManifest.xml.in
-      "${CMAKE_CURRENT_BINARY_DIR}/AppxManifest.xml"
-      @ONLY)
     target_sources(${APPID} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc")
     set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
   endif()
@@ -337,19 +328,19 @@ if(WIN32)
 	set(CPACK_NSIS_BRANDING_TEXT "${PRODUCT_NAME} ${PROJECT_VERSION}")
 	set(CPACK_NSIS_MANIFEST_DPI_AWARE ON)
 
-	# CPack's stock NSIS template does not add a VERSIONINFO resource to the
-	# installer executable. Keep the installer identifiable in Explorer and
-	# security/reputation tooling using the same canonical metadata as the app.
-	# NSIS requires four numeric fields for the fixed version while the string
-	# version remains the user-facing MatterLeast version (for example 1.0).
-	string(APPEND CPACK_NSIS_DEFINES
-		"\nVIProductVersion ${MATTERLEAST_MSIX_VERSION}"
-		"\nVIFileVersion ${MATTERLEAST_MSIX_VERSION}"
-		"\nVIAddVersionKey /LANG=1033 \\\"ProductName\\\" \\\"${PRODUCT_NAME}\\\""
-		"\nVIAddVersionKey /LANG=1033 \\\"ProductVersion\\\" \\\"${PROJECT_VERSION}\\\""
-		"\nVIAddVersionKey /LANG=1033 \\\"CompanyName\\\" \\\"${PRODUCT_VENDOR}\\\""
-		"\nVIAddVersionKey /LANG=1033 \\\"FileDescription\\\" \\\"${PRODUCT_NAME} Installer\\\""
-		"\nVIAddVersionKey /LANG=1033 \\\"FileVersion\\\" \\\"${PROJECT_VERSION}\\\""
+	# Component-aware CPack NSIS packaging replaces CPACK_NSIS_DEFINES with
+	# generated component macros. Keep installer VERSIONINFO in a template slot
+	# that cmCPackNSISGenerator only fills when the project has not supplied it.
+	# This preserves metadata when Runtime/Development install components exist.
+	string(CONCAT CPACK_NSIS_BRANDING_TEXT_CODE
+		"BrandingText /TRIMLEFT \"${PRODUCT_NAME} ${PROJECT_VERSION}\"\n"
+		"VIProductVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"
+		"VIFileVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"
+		"VIAddVersionKey /LANG=1033 \"ProductName\" \"${PRODUCT_NAME}\"\n"
+		"VIAddVersionKey /LANG=1033 \"ProductVersion\" \"${PROJECT_VERSION}\"\n"
+		"VIAddVersionKey /LANG=1033 \"CompanyName\" \"${PRODUCT_VENDOR}\"\n"
+		"VIAddVersionKey /LANG=1033 \"FileDescription\" \"${PRODUCT_NAME} Installer\"\n"
+		"VIAddVersionKey /LANG=1033 \"FileVersion\" \"${PROJECT_VERSION}\"\n"
 	)
 endif()
 
