@@ -403,6 +403,41 @@ private slots:
         QSKIP("Qt Markdown renderer is enabled starting with Qt 6.10");
 #endif
     }
+
+    void manyCustomEmojiDoNotRemapSkinVariadicEmoji()
+    {
+        const EmojiID beforeId = EmojiInfo::findByName(QStringLiteral("+1"));
+        QVERIFY(beforeId);
+        QCOMPARE(EmojiInfo::getEmoji(beforeId).unicodeString,
+                 QString::fromUtf8("👍"));
+
+        QString formerCollisionName;
+        for (int i = 0; i < 600; ++i) {
+            const QString name = QStringLiteral("emoji_id_range_test_%1").arg(i);
+            EmojiInfo::addCustomEmoji(
+                name,
+                QStringLiteral("/tmp/custom-emoji/emoji-id-range-test.gif"));
+            if (i == 537) {
+                formerCollisionName = name;
+            }
+        }
+
+        const EmojiID afterId = EmojiInfo::findByName(QStringLiteral("+1"));
+        QVERIFY(afterId);
+        QCOMPARE(afterId.seq, beforeId.seq);
+        QCOMPARE(EmojiInfo::getEmoji(afterId).unicodeString,
+                 QString::fromUtf8("👍"));
+
+        const EmojiID aliasId = EmojiInfo::findByName(QStringLiteral("thumbsup"));
+        QVERIFY(aliasId);
+        QCOMPARE(aliasId.seq, beforeId.seq);
+        QCOMPARE(EmojiInfo::getEmoji(aliasId).unicodeString,
+                 QString::fromUtf8("👍"));
+
+        const EmojiID customId = EmojiInfo::findByName(formerCollisionName);
+        QVERIFY(customId);
+        QCOMPARE(EmojiInfo::getEmoji(customId).name, formerCollisionName);
+    }
 };
 
 QTEST_MAIN(MessageFormatterTest)
