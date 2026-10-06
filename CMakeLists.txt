@@ -331,16 +331,18 @@ if(WIN32)
 	# Component-aware CPack NSIS packaging replaces CPACK_NSIS_DEFINES with
 	# generated component macros. Keep installer VERSIONINFO in a template slot
 	# that cmCPackNSISGenerator only fills when the project has not supplied it.
-	# This preserves metadata when Runtime/Development install components exist.
+	# CPack serializes this value through CPackConfig.cmake before substituting it
+	# into project.nsi, so quotes required by NSIS need to survive one extra layer.
+	string(ASCII 92 34 MATTERLEAST_NSIS_QUOTE)
 	string(CONCAT CPACK_NSIS_BRANDING_TEXT_CODE
-		"BrandingText /TRIMLEFT \"${PRODUCT_NAME} ${PROJECT_VERSION}\"\n"
+		"BrandingText /TRIMLEFT ${MATTERLEAST_NSIS_QUOTE}${PRODUCT_NAME} ${PROJECT_VERSION}${MATTERLEAST_NSIS_QUOTE}\n"
 		"VIProductVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"
 		"VIFileVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"
-		"VIAddVersionKey /LANG=1033 \"ProductName\" \"${PRODUCT_NAME}\"\n"
-		"VIAddVersionKey /LANG=1033 \"ProductVersion\" \"${PROJECT_VERSION}\"\n"
-		"VIAddVersionKey /LANG=1033 \"CompanyName\" \"${PRODUCT_VENDOR}\"\n"
-		"VIAddVersionKey /LANG=1033 \"FileDescription\" \"${PRODUCT_NAME} Installer\"\n"
-		"VIAddVersionKey /LANG=1033 \"FileVersion\" \"${PROJECT_VERSION}\"\n"
+		"VIAddVersionKey /LANG=1033 ${MATTERLEAST_NSIS_QUOTE}ProductName${MATTERLEAST_NSIS_QUOTE} ${MATTERLEAST_NSIS_QUOTE}${PRODUCT_NAME}${MATTERLEAST_NSIS_QUOTE}\n"
+		"VIAddVersionKey /LANG=1033 ${MATTERLEAST_NSIS_QUOTE}ProductVersion${MATTERLEAST_NSIS_QUOTE} ${MATTERLEAST_NSIS_QUOTE}${PROJECT_VERSION}${MATTERLEAST_NSIS_QUOTE}\n"
+		"VIAddVersionKey /LANG=1033 ${MATTERLEAST_NSIS_QUOTE}CompanyName${MATTERLEAST_NSIS_QUOTE} ${MATTERLEAST_NSIS_QUOTE}${PRODUCT_VENDOR}${MATTERLEAST_NSIS_QUOTE}\n"
+		"VIAddVersionKey /LANG=1033 ${MATTERLEAST_NSIS_QUOTE}FileDescription${MATTERLEAST_NSIS_QUOTE} ${MATTERLEAST_NSIS_QUOTE}${PRODUCT_NAME} Installer${MATTERLEAST_NSIS_QUOTE}\n"
+		"VIAddVersionKey /LANG=1033 ${MATTERLEAST_NSIS_QUOTE}FileVersion${MATTERLEAST_NSIS_QUOTE} ${MATTERLEAST_NSIS_QUOTE}${PROJECT_VERSION}${MATTERLEAST_NSIS_QUOTE}\n"
 	)
 endif()
 
