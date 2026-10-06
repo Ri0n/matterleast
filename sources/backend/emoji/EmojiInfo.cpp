@@ -38,11 +38,27 @@ extern uint32_t lastCategorySeq[EmojiCategory::COUNT];
 extern QVector<Emoji> emojiVecNoSkinVariadic[EmojiCategory::COUNT];
 extern QVector<SkinVariadicEmoji> emojiVecSkinVariadic;
 extern QMap<QString, EmojiSeq> emojiMap;
-extern uint32_t nextEmojiSeq;
 
 namespace {
 
+// Generated built-in EmojiSeq values use the low half of uint16_t. Dynamic
+// custom emoji used to continue the generated non-skin sequence (1530, 1531,
+// ...), which eventually crossed SKINVARIADIC_START_INDEX (2048). Once enough
+// custom emoji had been resolved in one process, built-in skin-variadic names
+// such as +1/thumbsup were therefore decoded as unrelated custom images.
+//
+// Keep runtime-only custom IDs in a tagged, disjoint namespace. EmojiID is an
+// in-process presentation handle, so these values are never serialized or sent
+// to Mattermost.
+constexpr EmojiSeq DynamicCustomEmojiFlag = 0x8000u;
+constexpr EmojiSeq DynamicCustomEmojiIndexMask = DynamicCustomEmojiFlag - 1u;
+
 QSet<QString> customEmojiPaths;
+
+bool isDynamicCustomEmojiSeq(EmojiSeq seq)
+{
+    return (seq & DynamicCustomEmojiFlag) != 0;
+}
 
 bool isValidCustomEmojiName(const QString& name)
 {
@@ -147,12 +163,29 @@ static int getEmojiCategory (uint16_t emojiSeq)
 	return EmojiCategory::COUNT;
 }
 
+static bool isCustomEmojiSeq(EmojiSeq emojiSeq)
+{
+    return isDynamicCustomEmojiSeq(emojiSeq)
+        || getEmojiCategory(emojiSeq) == EmojiCategory::custom;
+}
+
 Emoji EmojiInfo::getEmoji (const EmojiID& emojiID)
 {
 	if (!emojiID) {
 		qDebug () << "No emoji with seq " << emojiID.seq << " found";
 		return Emoji {"",""};
 	}
+
+    if (isDynamicCustomEmojiSeq(emojiID.seq)) {
+        const int emojiIndex = static_cast<int>(
+            emojiID.seq & DynamicCustomEmojiIndexMask);
+        const auto& customEmojis = emojiVecNoSkinVariadic[EmojiCategory::custom];
+        if (emojiIndex < customEmojis.size()) {
+            return customEmojis[emojiIndex];
+        }
+        qDebug () << "No custom emoji with seq " << emojiID.seq << " found";
+        return Emoji {"",""};
+    }
 
 	int category = getEmojiCategory (emojiID.seq);
 
@@ -201,11 +234,17 @@ void EmojiInfo::addCustomEmoji (const QString& emojiName, const QString& emojiPa
 {
     const QString normalizedPath = normalizedCustomEmojiPath(emojiPath);
     const auto existing = emojiMap.constFind(emojiName);
-    if (existing != emojiMap.cend()
-        && getEmojiCategory(existing.value()) == EmojiCategory::custom) {
+    if (existing != emojiMap.cend() && isCustomEmojiSeq(existing.value())) {
         if (!normalizedPath.isEmpty()) {
             customEmojiPaths.insert(normalizedPath);
         }
+        return;
+    }
+
+    auto& customEmojis = emojiVecNoSkinVariadic[EmojiCategory::custom];
+    const int emojiIndex = static_cast<int>(customEmojis.size());
+    if (emojiIndex > static_cast<int>(DynamicCustomEmojiIndexMask)) {
+        qWarning() << "Too many dynamic custom emoji to register" << emojiName;
         return;
     }
 
@@ -213,13 +252,12 @@ void EmojiInfo::addCustomEmoji (const QString& emojiName, const QString& emojiPa
     // MessageFormatter uses explicit image dimensions to distinguish generated
     // custom emoji from user Markdown images while serializing the document;
     // every actual renderer replaces this 1px box through EmojiPresentation.
-	emojiVecNoSkinVariadic[EmojiCategory::custom].push_back (
+	customEmojis.push_back (
         Emoji {emojiName,
                QStringLiteral(" <img src=\"%1\" width=1 height=1> ")
                    .arg(emojiPath.toHtmlEscaped())});
-	emojiMap[emojiName] = nextEmojiSeq;
-	++nextEmojiSeq;
-	++lastCategorySeq[EmojiCategory::custom];
+    emojiMap[emojiName] = static_cast<EmojiSeq>(
+        DynamicCustomEmojiFlag | static_cast<EmojiSeq>(emojiIndex));
     if (!normalizedPath.isEmpty()) {
         customEmojiPaths.insert(normalizedPath);
     }
