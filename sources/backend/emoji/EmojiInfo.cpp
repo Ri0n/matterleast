@@ -1,6 +1,6 @@
 /**
  * @file EmojiInfo.cpp
- * @brief Contains functions for getting emoji by ID and adding custom emojis
+ * @brief Immutable generated built-in emoji lookup
  * @author Lyubomir Filipov
  * @date Dec 30, 2022
  *
