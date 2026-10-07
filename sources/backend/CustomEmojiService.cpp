@@ -37,6 +37,7 @@ namespace Mattermost {
 namespace {
 
 constexpr int MaxNamesPerBatch = 200;
+constexpr int MaxRememberedMissingNames = 2048;
 constexpr qint64 MaxCustomEmojiDiskCacheBytes =
     128LL * 1024 * 1024;
 
@@ -175,6 +176,7 @@ CustomEmojiService& CustomEmojiService::instance(Backend& backend)
 CustomEmojiService::CustomEmojiService(Backend& backend)
     : QObject(&backend)
     , _backend(backend)
+    , _missingNames(MaxRememberedMissingNames)
 {
     removeLegacyUnscopedEmojiCache();
     pruneCustomEmojiDiskCache();
@@ -392,7 +394,7 @@ void CustomEmojiService::flushPendingNames()
                     continue;
                 }
                 _inFlightNames.remove(name);
-                _missingNames.insert(name);
+                _missingNames.insert(name, new char(0));
             }
         }));
 }
@@ -408,7 +410,7 @@ void CustomEmojiService::lookupNamesIndividually(const QSet<QString>& names)
                         QNetworkRequest::HttpStatusCodeAttribute).toInt();
                     _inFlightNames.remove(requestedName);
                     if (httpStatus == 404) {
-                        _missingNames.insert(requestedName);
+                        _missingNames.insert(requestedName, new char(0));
                     }
                     return;
                 }
