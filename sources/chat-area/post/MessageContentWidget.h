@@ -16,6 +16,8 @@ class QVBoxLayout;
 
 namespace Mattermost {
 
+class EmojiRegistry;
+
 class MessageContentWidget : public QWidget
 {
     Q_OBJECT
@@ -29,6 +31,7 @@ public:
 
     explicit MessageContentWidget(QWidget* parent = nullptr);
 
+    void setEmojiRegistry(EmojiRegistry* registry);
     void setInlineAttachmentContext(const QSet<QString>& imageFileIds,
                                     InlineImageLoader imageLoader);
     QSet<QString> inlineAttachmentFileIds() const;
@@ -72,6 +75,8 @@ private:
     InlineImageLoader _inlineImageLoader;
     QSet<QString> _inlineImageCandidates;
     QSet<QString> _inlineAttachmentFileIds;
+    EmojiRegistry* _emojiRegistry = nullptr;
+    QMetaObject::Connection _emojiAddedConnection;
 };
 
 } // namespace Mattermost
