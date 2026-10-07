@@ -73,16 +73,20 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
     // such as :not_an_emoji: may resolve to HTTP 404 and must remain silent.
     // Clear negative/transient state on reconnect so new server-side emoji and
     // cancelled requests become eligible for lookup again.
-    connect(&_backend, &Backend::onWebSocketConnect, this, [this] {
-        _httpConnector.reset();
-        _pendingNames.clear();
-        _inFlightNames.clear();
-        _missingNames.clear();
-        _searchesInFlight.clear();
-        _flushScheduled = false;
-        _batchLookupSupported = true;
-        _browsePageRequested = false;
-    });
+    connect(&_backend, &Backend::onWebSocketConnect,
+            this, &CustomEmojiService::resetSession);
+}
+
+void CustomEmojiService::resetSession()
+{
+    _httpConnector.reset();
+    _pendingNames.clear();
+    _inFlightNames.clear();
+    _missingNames.clear();
+    _searchesInFlight.clear();
+    _flushScheduled = false;
+    _batchLookupSupported = true;
+    _browsePageRequested = false;
 }
 
 bool CustomEmojiService::isValidCustomEmojiName(const QString& name)
