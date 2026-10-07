@@ -83,6 +83,7 @@ Backend::Backend(QObject *parent)
 {
 	connect (&webSocketConnector, &WebSocketConnector::onConnect,
 	         [this] (bool isReconnect, bool needsHttpResync) {
+        CustomEmojiService::instance(*this).resetSession();
 		if (isReconnect) {
 			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
 
