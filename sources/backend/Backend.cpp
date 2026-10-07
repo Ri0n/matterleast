@@ -57,7 +57,6 @@
 #include "RealtimeFallbackService.h"
 #include "types/BackendPoll.h"
 #include "types/BackendNewPollData.h"
-#include "emoji/EmojiInfo.h"
 #include "reactions/ReactionUsageTracker.h"
 #include "log.h"
 
