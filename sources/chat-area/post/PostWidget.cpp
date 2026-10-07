@@ -69,7 +69,6 @@
 #include "backend/PostRepository.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
-#include "backend/emoji/EmojiInfo.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
 #include "chat-area/ChatArea.h"
