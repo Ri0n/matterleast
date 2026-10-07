@@ -1,11 +1,12 @@
 #include "EmojiPickerWidget.h"
 
 #include <algorithm>
+#include <functional>
+#include <utility>
 
 #include <QAbstractButton>
+#include <QApplication>
 #include <QButtonGroup>
-#include <QComboBox>
-#include <QDebug>
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -13,20 +14,24 @@
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QScreen>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 
 #include "EmojiDialogSupport.h"
+#include "Settings.h"
+#include "backend/Backend.h"
 #include "backend/CustomEmojiService.h"
 #include "backend/emoji/EmojiInfo.h"
-#include "backend/emoji/EmojiRegistryNotifier.h"
+#include "options/MLOptions.h"
 #include "ui/FlowLayout.h"
 #include "ui/OverlayScrollBarManager.h"
 
@@ -39,6 +44,7 @@ constexpr int EmojiTabGlyphPointSize = 15;
 constexpr int MaxSearchResults = 180;
 constexpr char EmojiNameProperty[] = "mattermostEmojiName";
 constexpr char EmojiValueProperty[] = "mattermostEmojiValue";
+constexpr char EmojiBaseNameProperty[] = "mattermostEmojiBaseName";
 
 class EmojiFlowHost final : public QWidget
 {
@@ -144,6 +150,71 @@ private:
     QIcon tabIcon_;
 };
 
+class EmojiButton final : public QPushButton
+{
+public:
+    explicit EmojiButton(QWidget* parent = nullptr)
+        : QPushButton(parent)
+    {
+        _longPressTimer.setSingleShot(true);
+        _longPressTimer.setInterval(QApplication::startDragTime());
+        QObject::connect(&_longPressTimer, &QTimer::timeout, this, [this] {
+            if (!_longPressHandler) {
+                return;
+            }
+            _longPressTriggered = true;
+            setDown(false);
+            releaseMouse();
+            _longPressHandler();
+        });
+    }
+
+    void setLongPressHandler(std::function<void()> handler)
+    {
+        _longPressHandler = std::move(handler);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        _longPressTriggered = false;
+        if (event && event->button() == Qt::LeftButton && _longPressHandler) {
+            _pressPosition = event->pos();
+            _longPressTimer.start();
+        }
+        QPushButton::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        if (_longPressTimer.isActive() && event
+            && (event->pos() - _pressPosition).manhattanLength()
+                > QApplication::startDragDistance()) {
+            _longPressTimer.stop();
+        }
+        QPushButton::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        _longPressTimer.stop();
+        if (_longPressTriggered && event
+            && event->button() == Qt::LeftButton) {
+            _longPressTriggered = false;
+            setDown(false);
+            event->accept();
+            return;
+        }
+        QPushButton::mouseReleaseEvent(event);
+    }
+
+private:
+    QTimer _longPressTimer;
+    QPoint _pressPosition;
+    bool _longPressTriggered = false;
+    std::function<void()> _longPressHandler;
+};
+
 int tabIndexForCategory(uint32_t categoryIdx)
 {
     int tabIndex = 0;
@@ -215,6 +286,26 @@ EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
 {
     useBaseBackground(*this);
 
+    auto* skinToneOption = MLOptions::instance()->optionObject<int>(
+        EMOJI_DEFAULT_SKIN_TONE,
+        EMOJI_DEFAULT_SKIN_TONE_DEFAULT);
+    defaultSkinTone_ = qBound(
+        0,
+        skinToneOption->value().toInt(),
+        static_cast<int>(EmojiSkinTone::COUNT) - 1);
+    connect(skinToneOption, &MLOptionObject::changed,
+            this, [this](const QVariant& value) {
+        const int tone = qBound(
+            0,
+            value.toInt(),
+            static_cast<int>(EmojiSkinTone::COUNT) - 1);
+        if (tone == defaultSkinTone_) {
+            return;
+        }
+        defaultSkinTone_ = tone;
+        refreshDefaultSkinToneButtons();
+    });
+
     auto* rootLayout = new QVBoxLayout(this);
     rootLayout->setSpacing(4);
     rootLayout->setContentsMargins(4, 4, 4, 4);
@@ -282,8 +373,8 @@ EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
             updateSearchResults(searchEdit_->text());
         }
     });
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
+    connect(&backend_.emojiRegistry(),
+            &EmojiRegistry::customEmojiAdded,
             this, [this](const QString&) {
         customEmojiRefreshTimer_->start();
     });
@@ -334,10 +425,6 @@ QLayout* EmojiPickerWidget::createTab(uint32_t categoryIdx, int tabIndex)
     contentLayout->setSpacing(4);
     contentLayout->setContentsMargins(0, 8, 0, 0);
 
-    if (categoryIdx == EmojiCategory::people) {
-        addSkinToneComboBox(content, contentLayout, categoryIdx);
-    }
-
     auto* flowHost = new EmojiFlowHost(content);
     auto* flowLayout = flowHost->emojiLayout();
     contentLayout->addWidget(flowHost, 0);
@@ -375,7 +462,7 @@ void EmojiPickerWidget::createEmojiTabs()
         }
 
         const QVector<Emoji> emojis =
-            EmojiInfo::getAllEmojis(categoryIdx, 0);
+            backend_.emojiRegistry().getAllEmojis(categoryIdx, 0);
         createTabForCategory(
             categoryIdx,
             tabIndex,
@@ -386,7 +473,7 @@ void EmojiPickerWidget::createEmojiTabs()
 
     rebuildSearchableEmojis();
     renderedCustomEmojiCount_ =
-        EmojiInfo::getAllEmojis(EmojiCategory::custom, 0).size();
+        backend_.emojiRegistry().getAllEmojis(EmojiCategory::custom, 0).size();
 
     if (stackWidget_->count() > 0
         && stackWidget_->currentIndex() < 0) {
@@ -404,7 +491,7 @@ void EmojiPickerWidget::rebuildSearchableEmojis()
         if (categoryIdx == EmojiCategory::component) {
             continue;
         }
-        searchableEmojis_ += EmojiInfo::getAllEmojis(categoryIdx, 0);
+        searchableEmojis_ += backend_.emojiRegistry().getAllEmojis(categoryIdx, 0);
     }
 }
 
@@ -413,7 +500,7 @@ void EmojiPickerWidget::refreshCustomEmojiCatalog()
     rebuildSearchableEmojis();
 
     const QVector<Emoji> customEmojis =
-        EmojiInfo::getAllEmojis(EmojiCategory::custom, 0);
+        backend_.emojiRegistry().getAllEmojis(EmojiCategory::custom, 0);
     if (stackWidget_->count() < 1
         || customEmojis.size() == renderedCustomEmojiCount_) {
         return;
@@ -436,50 +523,14 @@ void EmojiPickerWidget::createTabForCategory(
     QLayout* flowLayout = createTab(categoryIndex, tabIndex);
     QIcon categoryIcon;
 
-    if (categoryIndex == EmojiCategory::people) {
-        peopleEmojiButtons_.clear();
-        peopleEmojiButtons_.reserve(emojis.size());
-    }
-
     for (const Emoji& emoji : emojis) {
-        auto* pushButton = new QPushButton(flowLayout->parentWidget());
-        pushButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        pushButton->setFixedSize(QSize(EmojiButtonExtent, EmojiButtonExtent));
-        pushButton->setText(emoji.unicodeString);
-        pushButton->setToolTip(emoji.name);
-        pushButton->setFont(
-            EmojiDialogSupport::emojiButtonFont(QFont()));
-        pushButton->setFlat(true);
-        pushButton->setProperty(EmojiNameProperty, emoji.name);
-        pushButton->setProperty(EmojiValueProperty, emoji.unicodeString);
-
-        const QString imagePath =
-            customEmojiImagePath(emoji.unicodeString);
-        if (!imagePath.isEmpty()) {
-            const QIcon icon(QPixmap::fromImage(QImage(imagePath)));
-            pushButton->setText(QString());
-            pushButton->setIcon(icon);
-            pushButton->setIconSize(QSize(24, 24));
-
-            if (categoryIndex == EmojiCategory::custom
-                && emoji.name == QStringLiteral("mattermost")) {
-                categoryIcon = icon;
-            }
-        }
-
-        connect(pushButton, &QPushButton::clicked,
-                this, [this, pushButton] {
-            Emoji emoji;
-            emoji.name =
-                pushButton->property(EmojiNameProperty).toString();
-            emoji.unicodeString =
-                pushButton->property(EmojiValueProperty).toString();
-            emit emojiChosen(emoji);
-        });
-
+        QPushButton* pushButton = createEmojiButton(
+            emoji, flowLayout->parentWidget());
         flowLayout->addWidget(pushButton);
-        if (categoryIndex == EmojiCategory::people) {
-            peopleEmojiButtons_.push_back(pushButton);
+
+        if (categoryIndex == EmojiCategory::custom
+            && emoji.name == QStringLiteral("mattermost")) {
+            categoryIcon = pushButton->icon();
         }
     }
 
@@ -629,31 +680,7 @@ void EmojiPickerWidget::updateSearchResults(const QString& text)
         auto* flowLayout = flowHost->emojiLayout();
 
         for (const Emoji& emoji : matches) {
-            auto* pushButton = new QPushButton(flowHost);
-            pushButton->setSizePolicy(
-                QSizePolicy::Fixed, QSizePolicy::Fixed);
-            pushButton->setFixedSize(
-                QSize(EmojiButtonExtent, EmojiButtonExtent));
-            pushButton->setText(emoji.unicodeString);
-            pushButton->setToolTip(emoji.name);
-            pushButton->setFont(
-                EmojiDialogSupport::emojiButtonFont(QFont()));
-            pushButton->setFlat(true);
-
-            const QString imagePath =
-                customEmojiImagePath(emoji.unicodeString);
-            if (!imagePath.isEmpty()) {
-                pushButton->setText(QString());
-                pushButton->setIcon(
-                    QIcon(QPixmap::fromImage(QImage(imagePath))));
-                pushButton->setIconSize(QSize(24, 24));
-            }
-
-            connect(pushButton, &QPushButton::clicked,
-                    this, [this, emoji] {
-                emit emojiChosen(emoji);
-            });
-            flowLayout->addWidget(pushButton);
+            flowLayout->addWidget(createEmojiButton(emoji, flowHost));
         }
 
         contentLayout->addWidget(flowHost, 0);
@@ -695,56 +722,153 @@ void EmojiPickerWidget::removeSearchTab()
     searchReturnTabIndex_ = -1;
 }
 
-void EmojiPickerWidget::addSkinToneComboBox(
-    QWidget* tab,
-    QVBoxLayout* layout,
-    uint32_t categoryIdx)
+int EmojiPickerWidget::defaultSkinTone() const
 {
-    auto* controls = new QHBoxLayout;
-    controls->setContentsMargins(0, 0, 0, 0);
+    return defaultSkinTone_;
+}
 
-    auto* label = new QLabel(tr("Skin Tone:"), tab);
-    controls->addWidget(label);
-
-    skinToneComboBox_ = new QComboBox(tab);
-    skinToneComboBox_->setToolTip(
-        tr("Emojis from this category have a skin tone property."));
-    for (int i = 0; i < EmojiSkinTone::COUNT; ++i) {
-        skinToneComboBox_->addItem(
-            EmojiSkinTone::descriptionString[i], i);
+void EmojiPickerWidget::updateSkinToneButton(
+    QPushButton* button, const QString& baseName)
+{
+    if (!button || baseName.isEmpty()) {
+        return;
     }
-    controls->addWidget(skinToneComboBox_);
-    controls->addStretch(1);
-    layout->addLayout(controls);
 
-    connect(
-        skinToneComboBox_,
-        qOverload<int>(&QComboBox::currentIndexChanged),
-        this,
-        [this, categoryIdx](int index) {
-        qDebug() << "Set skin tone " << index;
-        const QVector<Emoji> emojis =
-            EmojiInfo::getAllEmojis(categoryIdx, index);
+    const QVector<Emoji> variants =
+        EmojiInfo::skinToneVariantsByName(baseName);
+    if (variants.isEmpty()) {
+        return;
+    }
 
-        for (int i = 0; i < emojis.size(); ++i) {
-            if (i >= peopleEmojiButtons_.size()) {
-                qDebug() << "Emoji index " << i
-                         << " exceeds peopleEmojiButtons count"
-                         << peopleEmojiButtons_.size();
-                return;
-            }
+    const Emoji& selected = variants.at(std::min(
+        defaultSkinTone(),
+        static_cast<int>(variants.size()) - 1));
+    button->setText(selected.unicodeString);
+    button->setToolTip(
+        selected.name + QLatin1Char('\n')
+        + tr("Hold to choose skin tone"));
+    button->setProperty(EmojiNameProperty, selected.name);
+    button->setProperty(EmojiValueProperty, selected.unicodeString);
+}
 
-            QPushButton* button = peopleEmojiButtons_.at(i);
-            const QString name =
-                emojis.at(i).name + EmojiSkinTone::nameString[index];
-            button->setToolTip(name);
-            button->setText(emojis.at(i).unicodeString);
-            button->setProperty(EmojiNameProperty, name);
-            button->setProperty(
-                EmojiValueProperty,
-                emojis.at(i).unicodeString);
+void EmojiPickerWidget::refreshDefaultSkinToneButtons()
+{
+    const auto buttons = findChildren<QPushButton*>();
+    for (QPushButton* button : buttons) {
+        const QString baseName =
+            button->property(EmojiBaseNameProperty).toString();
+        if (!baseName.isEmpty()) {
+            updateSkinToneButton(button, baseName);
         }
+    }
+}
+
+QPushButton* EmojiPickerWidget::createEmojiButton(
+    const Emoji& emoji, QWidget* parent)
+{
+    auto* button = new EmojiButton(parent);
+    button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    button->setFixedSize(QSize(EmojiButtonExtent, EmojiButtonExtent));
+    button->setFont(EmojiDialogSupport::emojiButtonFont(QFont()));
+    button->setFlat(true);
+
+    const QVector<Emoji> variants =
+        EmojiInfo::skinToneVariantsByName(emoji.name);
+    Emoji selected = emoji;
+    if (!variants.isEmpty()) {
+        button->setProperty(EmojiBaseNameProperty, emoji.name);
+        button->setLongPressHandler([this, button, baseName = emoji.name] {
+            showSkinTonePopup(button, baseName);
+        });
+        updateSkinToneButton(button, emoji.name);
+        selected.name = button->property(EmojiNameProperty).toString();
+        selected.unicodeString =
+            button->property(EmojiValueProperty).toString();
+    } else {
+        button->setText(selected.unicodeString);
+        button->setToolTip(selected.name);
+        button->setProperty(EmojiNameProperty, selected.name);
+        button->setProperty(EmojiValueProperty, selected.unicodeString);
+    }
+
+    const QString imagePath = customEmojiImagePath(selected.unicodeString);
+    if (!imagePath.isEmpty()) {
+        button->setText(QString());
+        button->setIcon(QIcon(QPixmap::fromImage(QImage(imagePath))));
+        button->setIconSize(QSize(24, 24));
+    }
+
+    connect(button, &QPushButton::clicked, this, [this, button] {
+        Emoji chosen;
+        chosen.name = button->property(EmojiNameProperty).toString();
+        chosen.unicodeString =
+            button->property(EmojiValueProperty).toString();
+        emit emojiChosen(chosen);
     });
+    return button;
+}
+
+void EmojiPickerWidget::showSkinTonePopup(
+    QPushButton* sourceButton, const QString& baseName)
+{
+    if (!sourceButton) {
+        return;
+    }
+
+    const QVector<Emoji> variants =
+        EmojiInfo::skinToneVariantsByName(baseName);
+    if (variants.isEmpty()) {
+        return;
+    }
+
+    auto* popup = new QFrame(nullptr, Qt::Popup | Qt::FramelessWindowHint);
+    popup->setObjectName(QStringLiteral("emojiSkinTonePopup"));
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setFrameShape(QFrame::StyledPanel);
+
+    auto* layout = new QHBoxLayout(popup);
+    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setSpacing(2);
+
+    const int variantCount = static_cast<int>(variants.size());
+    for (int tone = 0; tone < variantCount; ++tone) {
+        const Emoji variant = variants.at(tone);
+        auto* option = new QPushButton(variant.unicodeString, popup);
+        option->setObjectName(QStringLiteral("emojiSkinToneOption"));
+        option->setFixedSize(EmojiButtonExtent, EmojiButtonExtent);
+        option->setFlat(true);
+        option->setFont(EmojiDialogSupport::emojiButtonFont(QFont()));
+        option->setToolTip(EmojiSkinTone::descriptionString[tone]);
+        connect(option, &QPushButton::clicked, popup,
+                [this, popup, variant] {
+            emit emojiChosen(variant);
+            popup->close();
+        });
+        layout->addWidget(option);
+    }
+
+    popup->adjustSize();
+    const QPoint sourceTop = sourceButton->mapToGlobal(QPoint(
+        sourceButton->width() / 2, 0));
+    QPoint position(
+        sourceTop.x() - popup->width() / 2,
+        sourceTop.y() - popup->height() - 4);
+
+    if (QScreen* screen = QApplication::screenAt(sourceTop)) {
+        const QRect available = screen->availableGeometry();
+        position.setX(qBound(
+            available.left(),
+            position.x(),
+            available.right() - popup->width() + 1));
+        if (position.y() < available.top()) {
+            position.setY(sourceButton->mapToGlobal(
+                QPoint(0, sourceButton->height() + 4)).y());
+        }
+    }
+
+    popup->move(position);
+    popup->show();
+    popup->raise();
 }
 
 } // namespace Mattermost

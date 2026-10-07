@@ -32,6 +32,7 @@ class QScrollArea;
 
 namespace Mattermost {
 
+class EmojiRegistry;
 class MessageContentWidget;
 
 /**
@@ -83,6 +84,7 @@ private:
     void hidePopoverImmediately();
     void updateCollapsedHeight();
     void openLink(const QUrl& url);
+    void ensureEmojiRegistry();
 
     QString sourceText;
     QString formattedText;
@@ -95,6 +97,8 @@ private:
     LinkHandler linkHandler;
     bool presenceRoutingEnabled = true;
     bool hideAfterAnimation = false;
+    EmojiRegistry* _emojiRegistry = nullptr;
+    QMetaObject::Connection _emojiAddedConnection;
 };
 
 } // namespace Mattermost

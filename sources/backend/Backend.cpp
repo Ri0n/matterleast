@@ -57,7 +57,6 @@
 #include "RealtimeFallbackService.h"
 #include "types/BackendPoll.h"
 #include "types/BackendNewPollData.h"
-#include "emoji/EmojiInfo.h"
 #include "reactions/ReactionUsageTracker.h"
 #include "log.h"
 
@@ -72,6 +71,7 @@ enum type {
 
 Backend::Backend(QObject *parent)
 :QObject (parent)
+,_emojiRegistry()
 ,serverDialogsMap (*this)
 ,webSocketEventHandler (*this)
 ,webSocketConnector (webSocketEventHandler)
@@ -83,6 +83,7 @@ Backend::Backend(QObject *parent)
 {
 	connect (&webSocketConnector, &WebSocketConnector::onConnect,
 	         [this] (bool isReconnect, bool needsHttpResync) {
+        CustomEmojiService::instance(*this).resetSession();
 		if (isReconnect) {
 			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
 
@@ -139,9 +140,8 @@ Backend::Backend(QObject *parent)
 
 	attachmentsCache.setCacheDirectory (QDir (QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("attachments"));
 	attachmentsCache.setMaximumCacheSize (300 * 1024 * 1024);
-    // EmojiInfo can discover an unknown custom name while parsing any post,
-    // including a reaction. Keep the backend-scoped lazy resolver connected
-    // before login/post loading so that request can never be lost.
+    // Keep the backend-scoped lazy custom resolver connected before
+    // login/post loading so registry misses can never be lost.
     (void)CustomEmojiService::instance(*this);
 	(void)RealtimeFallbackService::instance(*this);
 }
@@ -321,7 +321,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     // cache. Do not enumerate/download the server's custom-emoji catalog.
     for (const QString& emojiName :
          ReactionUsageTracker::instance().topNames(10)) {
-        (void)EmojiInfo::findByName(emojiName);
+        (void)_emojiRegistry.resolveByName(emojiName);
     }
 
 	//retrieveAllPublicTeams ();
@@ -331,6 +331,8 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
 void Backend::reset ()
 {
 	isLoggedIn = false;
+    CustomEmojiService::instance(*this).resetSession();
+    _emojiRegistry.clearCustomEmojis();
 
 	/*
 	 * This is important. Disconnect all signals. Added lambda functions are not removed when

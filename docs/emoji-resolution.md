@@ -1,52 +1,112 @@
 # Emoji resolution and picker search
 
-MatterLeast has one shared emoji registry in `EmojiInfo`. Built-in emoji are static. Custom emoji become registry entries only after their image is available in the local disk cache.
+MatterLeast deliberately separates semantic emoji identity from presentation
+storage.
 
-The registry stores names and presentation paths, not a permanent in-memory copy of every server image.
+Mattermost `emoji_name` is the application/wire identity. Generated built-ins
+are immutable process-wide data in `EmojiInfo`; runtime custom emoji are
+backend-scoped cache entries in `EmojiRegistry`. There is no numeric runtime
+emoji identity.
 
 ## Lazy custom emoji sources
 
-MatterLeast does not enumerate or eagerly download the server custom-emoji catalog at startup.
+MatterLeast does not enumerate or eagerly download the server custom-emoji
+catalog at startup. A custom emoji is resolved only when there is a concrete
+reason to need it:
 
-A custom emoji is resolved only when there is a concrete reason to need it:
+1. **Reaction ranking prewarm.** After authenticated login, the small persisted
+   reaction ranking is resolved by name. Built-ins stay local; unknown custom
+   names use the lazy resolver.
+2. **Message/reaction rendering.** An unknown valid `:name:` resolved through
+   the backend's `EmojiRegistry` emits `customEmojiRequested`.
+   `CustomEmojiService` resolves it through the batch/per-name Mattermost API
+   and caches its image.
+3. **Picker search.** The picker filters already-known emoji immediately and
+   also calls `POST /emoji/search` after its debounce. Matching custom emoji
+   use the same backend-scoped registry and disk cache.
+4. **Explicit Custom-tab browsing.** Opening the Custom category loads only the
+   first browse page on demand.
 
-1. **Reaction ranking prewarm.** After authenticated login, the small persisted reaction ranking is resolved by name. Built-ins stay local; unknown custom names use the lazy resolver.
-2. **Message/reaction rendering.** If parsing encounters an unknown valid `:name:`, `EmojiInfo::findByName()` emits `customEmojiRequested`. `CustomEmojiService` resolves the name through the batch/per-name Mattermost API and caches its image.
-3. **Picker search.** The emoji picker filters already-known emoji immediately and also calls `POST /emoji/search` after its debounce. Matching custom emoji are routed through `CustomEmojiService` and the same disk cache before they enter `EmojiInfo`.
-4. **Explicit Custom-tab browsing.** Opening the Custom category loads only the first browse page on demand. This preserves ordinary browsing without turning login into a catalog preload.
+The picker cache is a working set, not an exhaustive copy of the server's custom
+emoji catalog.
 
-Do not treat the picker's current Custom tab, the local registry, or any previous search result as an exhaustive server catalog.
+## Ownership and synchronization
 
-## Cache ownership
+Each `Backend` owns one `EmojiRegistry`, and `CustomEmojiService` is a direct
+child of the same backend. A registry miss emits
+`EmojiRegistry::customEmojiRequested` only to that backend's resolver.
+Completion emits `customEmojiAdded` only to UI bound to the same backend.
 
-`CustomEmojiService` owns custom-image resolution and disk caching. UI code must not create a second custom-emoji cache.
+Consumers that retain presentation/search state refresh on
+`EmojiRegistry::customEmojiAdded`. The picker updates its searchable/custom
+views and post widgets re-render matching unresolved reaction names.
 
-The cache lives under the application cache directory in `custom-emoji/`. Registry entries point at those cached files.
+Resetting a backend clears runtime registry and resolver state. Generated
+built-ins remain immutable and shared.
 
-A `QPixmap`/icon may of course exist while a concrete reaction chip, quick-bar button or picker button is on screen, but there is no startup policy that loads the entire custom catalog into RAM.
+Reaction identity is never owned by presentation storage. `BackendPost` keeps
+the exact Mattermost `emoji_name` received from REST/WebSocket state, including
+aliases and unresolved custom names. Presentation lookup cannot rewrite the
+name later used by tooltips, add/remove actions, or reaction events.
 
-## Synchronization
+## Registry storage and resource bounds
 
-`EmojiRegistryNotifier::customEmojiAdded` is emitted after a custom emoji image has become usable and `EmojiInfo` has registered the name.
+Generated built-ins use an immutable hash lookup from name/alias to compact
+presentation coordinates (`kind + category + index`) in generated category
+vectors. Categories own their emoji; no category is reconstructed from a global
+sequence number.
 
-Consumers that cache presentation/search state must refresh from `EmojiInfo` on this signal.
+Runtime custom emoji never enter generated maps or vectors. `EmojiRegistry`
+stores only a bounded LRU working set of up to 1024 `name -> cached image path`
+entries per backend. Presentation HTML is constructed on demand, so the registry
+does not retain one HTML string or decoded image per custom emoji.
 
-The picker uses it to refresh:
+Eviction is safe because the Mattermost name remains the identity. A later
+lookup of an evicted name simply becomes a lazy resolver miss and can be
+restored from the server metadata/local disk cache. No stale numeric handle can
+point at a different emoji.
 
-- its local searchable set;
-- the Custom tab if the newly registered emoji changes that tab;
-- the active search result view.
+Custom-image classification is intentionally independent of the LRU entry
+itself. The registry records the dedicated custom-emoji cache directories, so a
+QTextDocument that already contains a custom `<img>` remains recognizable even
+if that name's metadata entry has since been evicted.
 
-Post widgets use the same signal to re-render a matching named reaction after
-its custom image becomes available.
+The persistent image cache is server-scoped. Cached files live below a hash of
+the normalized server identity under the application `custom-emoji/` cache, so
+identical Mattermost emoji IDs from different servers cannot alias the same
+file. The disk cache targets 128 MiB. Pruning is batched after 4 MiB of newly
+downloaded data instead of rescanning the whole cache after every image; older
+files are removed by last-use/download timestamp. If pruning removes a file
+still named in the runtime metadata LRU, that stale metadata is dropped so the
+next lookup can resolve it again.
 
-Reaction identity is never owned by the registry. `BackendPost` stores every
-reaction by the exact Mattermost `emoji_name` received from REST/WebSocket
-state, including built-in aliases and unresolved custom names. `EmojiInfo` is
-consulted only when rendering that name. This prevents a registry alias or a
-transient custom-emoji resolution state from changing the name later used by
-tooltips, add/remove actions, or reaction events.
+Negative custom-name lookups are also bounded: the resolver remembers at most
+2048 recent missing names, preventing arbitrary valid `:name:` literals from
+growing a session-long negative cache without limit.
 
+A `QPixmap` or icon may exist while a concrete reaction chip, quick-bar button
+or picker button is on screen, but neither startup nor the registry decodes the
+whole custom catalog into RAM.
+
+## Original failure and invariants
+
+The old design gave generated built-ins and runtime custom emoji one numeric
+`EmojiSeq` namespace. Runtime registration extended the generated custom range
+until it overlapped the skin-variadic range. A correct name such as `+1` /
+`thumbsup` could therefore keep the correct tooltip/action identity while
+rendering an unrelated custom image; restart temporarily hid the problem by
+rebuilding a smaller registry.
+
+The current design makes that class of corruption structurally impossible.
+Future changes must preserve these invariants:
+
+- wire-level/application identity is always the Mattermost emoji name;
+- generated lookup coordinates describe immutable built-in storage only;
+- runtime custom emoji are backend-scoped, bounded, and resolved by name;
+- loading runtime custom emoji never mutates generated maps or vectors;
+- aliases may share generated storage coordinates but are not persistent
+  application identity;
+- no process-global runtime custom registry or notification bus is introduced.
 
 ## Picker theme propagation
 
@@ -113,3 +173,19 @@ Therefore:
 - opening the Custom picker category may load its bounded first browse page;
 - the catalog is not downloaded just because the user logged in;
 - adding more custom emoji on the server must not linearly increase MatterLeast startup memory or network traffic.
+## Skin-tone selection
+
+Skin tone is a presentation preference, not a separate registry identity.
+
+- `emoji/defaultSkinTone` stores the default tone used by the picker.
+- Only generated entries marked `skinVariadic` expose tone variants; belonging
+  to the People category alone is not sufficient.
+- A normal picker click emits the Mattermost name with the configured tone
+  suffix when the emoji supports tones.
+- Holding the left mouse button on a skin-variadic emoji opens a small popup
+  above the button with all six variants. Choosing one is a one-shot override
+  and does not change the stored default.
+- The picker caches the current preference and listens for option changes rather
+  than reading persistent settings for every emoji button.
+
+

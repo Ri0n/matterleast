@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QAbstractTextDocumentLayout>
+#include <QFile>
 #include <QFontMetrics>
 #include <QImage>
 #include <QTextBlock>
@@ -8,8 +9,9 @@
 #include <QTextFragment>
 #include <QTextLayout>
 #include <QTextList>
+#include <QTemporaryDir>
 
-#include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "chat-area/post/MessageFormatter.h"
 
 using namespace Mattermost;
@@ -313,10 +315,16 @@ private slots:
     {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
         const QString name = QStringLiteral("message_formatter_test_custom");
-        EmojiInfo::addCustomEmoji(name, QStringLiteral("/tmp/custom-emoji/message-formatter-test.gif"));
+        EmojiRegistry registry;
+        registry.addCustomEmoji(
+            name,
+            QStringLiteral("/tmp/custom-emoji/message-formatter-test.gif"));
 
         QTextDocument document;
-        MessageFormatter::buildMarkdownDocument(document, QStringLiteral("before :") + name + QStringLiteral(": after"));
+        MessageFormatter::buildMarkdownDocument(
+            document,
+            QStringLiteral("before :") + name + QStringLiteral(": after"),
+            &registry);
 
         QCOMPARE(document.blockCount(), 1);
         QVERIFY(blockHasText(document.firstBlock()));
@@ -402,6 +410,123 @@ private slots:
 #else
         QSKIP("Qt Markdown renderer is enabled starting with Qt 6.10");
 #endif
+    }
+
+    void runtimeCustomEmojiRegistryIsScopedAndResettable()
+    {
+        EmojiRegistry first;
+        EmojiRegistry second;
+        const QString name = QStringLiteral("registry_scope_test");
+        const QString path =
+            QStringLiteral("/tmp/custom-emoji/registry-scope-test.gif");
+
+        first.addCustomEmoji(name, path);
+
+        const auto firstEmoji = first.resolveByName(name);
+        QVERIFY(firstEmoji);
+        QCOMPARE(firstEmoji->name, name);
+        QVERIFY(first.isCustomEmojiPath(path));
+
+        QVERIFY(!second.resolveByName(name));
+        QVERIFY(!second.isCustomEmojiPath(path));
+
+        first.clearCustomEmojis();
+        QVERIFY(!first.resolveByName(name));
+        QVERIFY(!first.isCustomEmojiPath(path));
+
+        const auto builtIn = first.resolveByName(QStringLiteral("+1"));
+        QVERIFY(builtIn);
+        QCOMPARE(builtIn->unicodeString, QString::fromUtf8("👍"));
+    }
+
+    void prunedCustomEmojiMetadataBecomesLazyMiss()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        const QString name = QStringLiteral("pruned_custom_emoji_test");
+        const QString path = directory.filePath(QStringLiteral("emoji.gif"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("gif") > 0);
+        file.close();
+
+        EmojiRegistry registry;
+        QSignalSpy requested(
+            &registry, &EmojiRegistry::customEmojiRequested);
+        registry.addCustomEmoji(name, path);
+        QVERIFY(registry.resolveByName(name));
+
+        QVERIFY(QFile::remove(path));
+        registry.dropMissingCustomEmojiFiles();
+
+        QVERIFY(!registry.resolveByName(name));
+        QCOMPARE(requested.count(), 1);
+        QVERIFY(registry.isCustomEmojiPath(path));
+    }
+
+    void runtimeCustomEmojiMetadataCacheIsBounded()
+    {
+        EmojiRegistry registry;
+        QSignalSpy requested(
+            &registry, &EmojiRegistry::customEmojiRequested);
+
+        for (int i = 0; i < 1100; ++i) {
+            registry.addCustomEmoji(
+                QStringLiteral("emoji_lru_test_%1").arg(i),
+                QStringLiteral("/tmp/custom-emoji/lru/%1.gif").arg(i));
+        }
+
+        // The generated built-in custom entry (:mattermost:) is added to the
+        // runtime cache result separately, so 1024 runtime entries yield at
+        // most 1025 items in the Custom picker category.
+        QVERIFY(registry.getAllEmojis(EmojiCategory::custom, 0).size() <= 1025);
+
+        const auto newest =
+            registry.resolveByName(QStringLiteral("emoji_lru_test_1099"));
+        QVERIFY(newest);
+
+        // QCache evicts least-recently-used runtime metadata. Identity remains
+        // the Mattermost name, so an evicted entry safely becomes a lazy
+        // resolver miss rather than a stale numeric handle.
+        QVERIFY(!registry.resolveByName(QStringLiteral("emoji_lru_test_0")));
+        QCOMPARE(requested.count(), 1);
+
+        // Classification is directory-based, not tied to the LRU entry, so an
+        // already-rendered QTextDocument remains recognizable after eviction.
+        QVERIFY(registry.isCustomEmojiPath(
+            QStringLiteral("/tmp/custom-emoji/lru/0.gif")));
+    }
+
+    void manyCustomEmojiDoNotRemapSkinVariadicEmoji()
+    {
+        EmojiRegistry registry;
+        const auto before = registry.resolveByName(QStringLiteral("+1"));
+        QVERIFY(before);
+        QCOMPARE(before->unicodeString, QString::fromUtf8("👍"));
+
+        QString formerCollisionName;
+        for (int i = 0; i < 600; ++i) {
+            const QString name = QStringLiteral("emoji_id_range_test_%1").arg(i);
+            registry.addCustomEmoji(
+                name,
+                QStringLiteral("/tmp/custom-emoji/emoji-id-range-test.gif"));
+            if (i == 537) {
+                formerCollisionName = name;
+            }
+        }
+
+        const auto after = registry.resolveByName(QStringLiteral("+1"));
+        QVERIFY(after);
+        QCOMPARE(after->unicodeString, QString::fromUtf8("👍"));
+
+        const auto alias = registry.resolveByName(QStringLiteral("thumbsup"));
+        QVERIFY(alias);
+        QCOMPARE(alias->unicodeString, QString::fromUtf8("👍"));
+
+        const auto custom = registry.resolveByName(formerCollisionName);
+        QVERIFY(custom);
+        QCOMPARE(custom->name, formerCollisionName);
     }
 };
 

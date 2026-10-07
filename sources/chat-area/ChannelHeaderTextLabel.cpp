@@ -44,7 +44,8 @@
 
 #include "ChatArea.h"
 #include "backend/emoji/EmojiInfo.h"
-#include "backend/emoji/EmojiRegistryNotifier.h"
+#include "backend/Backend.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "navigation/AppNavigationService.h"
 #include "post/MessageContentWidget.h"
 #include "post/MessageFormatter.h"
@@ -72,7 +73,7 @@ const QSet<QString>& unicodeEmojiStrings()
                 ? EmojiSkinTone::COUNT
                 : 1;
             for (int skinTone = 0; skinTone < skinToneCount; ++skinTone) {
-                const QVector<Emoji> emojis = EmojiInfo::getAllEmojis(category, skinTone);
+                const QVector<Emoji> emojis = EmojiInfo::getAllBuiltInEmojis(category, skinTone);
                 for (const Emoji& emoji : emojis) {
                     const QString glyph = emoji.unicodeString.trimmed();
                     if (!glyph.isEmpty() && !glyph.contains(QStringLiteral("<img"))) {
@@ -88,12 +89,14 @@ const QSet<QString>& unicodeEmojiStrings()
     return emojiStrings;
 }
 
-QString formatCollapsedTopic(const QString& text, const QFont& font)
+QString formatCollapsedTopic(const QString& text, const QFont& font,
+                             EmojiRegistry* registry)
 {
     const QString html = EmojiPresentation::normalizeHtml(
-        MessageFormatter::formatMessageText(text),
+        MessageFormatter::formatMessageText(text, registry),
         font,
-        EmojiPresentation::Mode::Inline);
+        EmojiPresentation::Mode::Inline,
+        registry);
 
     QTextDocument document;
     document.setDefaultFont(font);
@@ -155,20 +158,6 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
     connect(this, &QLabel::linkActivated, this, [this](const QString& href) {
         openLink(QUrl(href));
     });
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
-            this,
-            [this](const QString& name) {
-        const QString token = QLatin1Char(':') + name + QLatin1Char(':');
-        if (!sourceText.contains(token)) {
-            return;
-        }
-        // Topics are often rendered before the asynchronous custom-emoji
-        // download finishes. Reformat the original source once the referenced
-        // emoji enters EmojiInfo rather than leaving the literal :name: text.
-        setText(sourceText);
-    });
-
     hideTimer.setSingleShot(true);
     hideTimer.setInterval(120);
     connect(&hideTimer, &QTimer::timeout, this, &ChannelHeaderTextLabel::hidePopover);
@@ -178,6 +167,7 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
 
 void ChannelHeaderTextLabel::setText(const QString& text)
 {
+    ensureEmojiRegistry();
     // A direct-message presence is presentation state, not channel header text.
     // Route it to the avatar badge so we use the same AvatarUtils visual as the
     // timeline and never depend on rich-text foreground palette propagation.
@@ -222,7 +212,7 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     }
 
     show();
-    formattedText = formatCollapsedTopic(text, font());
+    formattedText = formatCollapsedTopic(text, font(), _emojiRegistry);
     QLabel::setText(formattedText);
     updateCollapsedHeight();
 
@@ -337,6 +327,7 @@ void ChannelHeaderTextLabel::ensurePopover()
     layout->setContentsMargins(0, 0, 0, 0);
 
     auto* content = new MessageContentWidget;
+    content->setEmojiRegistry(_emojiRegistry);
     content->setObjectName(QStringLiteral("channelHeaderTextPopoverContent"));
     content->setMinimumWidth(0);
     content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -648,6 +639,35 @@ void ChannelHeaderTextLabel::hidePopoverImmediately()
     }
     if (popover) {
         popover->hide();
+    }
+}
+
+void ChannelHeaderTextLabel::ensureEmojiRegistry()
+{
+    if (_emojiRegistry) {
+        return;
+    }
+
+    for (QWidget* host = parentWidget(); host; host = host->parentWidget()) {
+        auto* area = qobject_cast<ChatArea*>(host);
+        if (!area) {
+            continue;
+        }
+
+        _emojiRegistry = &area->getBackend().emojiRegistry();
+        _emojiAddedConnection = connect(
+            _emojiRegistry, &EmojiRegistry::customEmojiAdded,
+            this, [this](const QString& name) {
+                const QString token =
+                    QLatin1Char(':') + name + QLatin1Char(':');
+                if (sourceText.contains(token)) {
+                    setText(sourceText);
+                }
+            });
+        if (popoverContent) {
+            popoverContent->setEmojiRegistry(_emojiRegistry);
+        }
+        return;
     }
 }
 

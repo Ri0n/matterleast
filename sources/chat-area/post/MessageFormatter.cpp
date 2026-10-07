@@ -8,6 +8,7 @@
 #include <QTextFormat>
 
 #include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistry.h"
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 #include <QRegularExpression>
@@ -18,7 +19,7 @@ namespace Mattermost {
 namespace MessageFormatter {
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
-static void replaceEmojis(QString& text)
+static void replaceEmojis(QString& text, EmojiRegistry* registry)
 {
     int emojiStart = 0;
     int emojiEnd = 0;
@@ -41,17 +42,16 @@ static void replaceEmojis(QString& text)
 
         const int emojiNameSize = emojiEnd - emojiStart - 1;
         const QString emojiName = text.mid(emojiStart + 1, emojiNameSize);
-        const EmojiID emojiID = EmojiInfo::findByName(emojiName);
-
-        if (!emojiID) {
+        const auto emoji = registry
+            ? registry->resolveByName(emojiName)
+            : EmojiInfo::resolveBuiltInByName(emojiName);
+        if (!emoji) {
             ++emojiEnd;
             continue;
         }
 
-        const Emoji emoji = EmojiInfo::getEmoji(emojiID);
-        text.replace(emojiStart, emojiNameSize + 2, emoji.unicodeString);
-
-        emojiEnd = emojiStart + emoji.unicodeString.size();
+        text.replace(emojiStart, emojiNameSize + 2, emoji->unicodeString);
+        emojiEnd = emojiStart + emoji->unicodeString.size();
     } while (emojiStart != -1);
 }
 #endif
@@ -516,7 +516,7 @@ bool customEmojiImageFormat(const Emoji& emoji, QTextImageFormat& imageFormat)
     return true;
 }
 
-void replaceEmojisInDocument(QTextDocument& document)
+void replaceEmojisInDocument(QTextDocument& document, EmojiRegistry* registry)
 {
     static const QRegularExpression emojiExpression(QStringLiteral(R"(:([^:\s]+):)"));
     QList<EmojiReplacement> replacements;
@@ -526,15 +526,17 @@ void replaceEmojisInDocument(QTextDocument& document)
         QRegularExpressionMatchIterator matches = emojiExpression.globalMatch(blockText);
         while (matches.hasNext()) {
             const QRegularExpressionMatch match = matches.next();
-            const EmojiID emojiID = EmojiInfo::findByName(match.captured(1));
-            if (!emojiID) {
+            const auto emoji = registry
+                ? registry->resolveByName(match.captured(1))
+                : EmojiInfo::resolveBuiltInByName(match.captured(1));
+            if (!emoji) {
                 continue;
             }
 
             replacements.push_back(EmojiReplacement {
                 block.position() + static_cast<int>(match.capturedStart(0)),
                 static_cast<int>(match.capturedLength(0)),
-                EmojiInfo::getEmoji(emojiID),
+                *emoji,
             });
         }
     }
@@ -659,7 +661,8 @@ void separateLargeImages(QTextDocument& document)
 
 } // namespace
 
-void buildMarkdownDocument(QTextDocument& document, const QString& text)
+void buildMarkdownDocument(QTextDocument& document, const QString& text,
+                           EmojiRegistry* registry)
 {
     // QTextDocument::clear() is allowed to reset document-level state. Preserve
     // the caller's base font explicitly because Markdown heading sizes are
@@ -685,16 +688,16 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text)
 
     // Emoji are applied after Markdown parsing. Custom emoji are inserted as
     // QTextImageFormat objects, so enabling raw user HTML is unnecessary.
-    replaceEmojisInDocument(document);
+    replaceEmojisInDocument(document, registry);
     separateLargeImages(document);
 }
 #endif
 
-QString formatMessageText(const QString& text)
+QString formatMessageText(const QString& text, EmojiRegistry* registry)
 {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     QTextDocument document;
-    buildMarkdownDocument(document, text);
+    buildMarkdownDocument(document, text, registry);
     return document.toHtml();
 #else
     QString result(text.toHtmlEscaped());
@@ -703,7 +706,7 @@ QString formatMessageText(const QString& text)
     int linkStart = 0;
     int linkEnd = 0;
 
-    replaceEmojis(result);
+    replaceEmojis(result, registry);
 
     do {
         QLatin1String lookups[2] = { QLatin1String("http://"), QLatin1String("https://") };

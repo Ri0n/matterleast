@@ -227,6 +227,7 @@ private:
 
         const QStringList quickNames =
             RankedEmojiPresentation::renderableNames(
+                post.getBackend().emojiRegistry(),
                 ReactionUsageTracker::instance().topNames(10)).mid(0, 8);
         if (quickNames.isEmpty()) {
             clearQuickBar();
@@ -269,7 +270,8 @@ private:
             reaction->setFlat(true);
             reaction->setFixedSize(28, 28);
             reaction->setCursor(Qt::PointingHandCursor);
-            if (!RankedEmojiPresentation::configureButton(*reaction, name)) {
+            if (!RankedEmojiPresentation::configureButton(
+                    post.getBackend().emojiRegistry(), *reaction, name)) {
                 delete reaction;
                 continue;
             }

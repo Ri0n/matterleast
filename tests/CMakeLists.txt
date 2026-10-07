@@ -92,7 +92,7 @@ add_executable(message-formatter-test
     "${CMAKE_SOURCE_DIR}/sources/chat-area/post/MessageFormatter.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiInfo.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiMap.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiRegistryNotifier.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiRegistry.cpp"
 )
 
 target_include_directories(message-formatter-test
@@ -134,7 +134,7 @@ add_executable(message-content-widget-test
     "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiInfo.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiMap.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiRegistryNotifier.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiRegistry.cpp"
 )
 
 target_include_directories(message-content-widget-test
@@ -568,6 +568,13 @@ if(TARGET matterleast-core)
     target_link_libraries(post-reaction-interaction-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-reaction-interaction-test COMMAND post-reaction-interaction-test)
     set_tests_properties(post-reaction-interaction-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
+    add_executable(emoji-picker-widget-test EmojiPickerWidgetTest.cpp)
+    target_link_libraries(emoji-picker-widget-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME emoji-picker-widget-test COMMAND emoji-picker-widget-test)
+    set_tests_properties(emoji-picker-widget-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 if(TARGET matterleast-core)

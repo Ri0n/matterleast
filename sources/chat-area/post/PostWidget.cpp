@@ -69,8 +69,6 @@
 #include "backend/PostRepository.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
-#include "backend/emoji/EmojiInfo.h"
-#include "backend/emoji/EmojiRegistryNotifier.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
 #include "chat-area/ChatArea.h"
@@ -183,8 +181,8 @@ PostWidget::PostWidget(Backend& backend,
         CHAT_FONT, font().toString());
     applyChatFont(chatFontOption->value().toString(), false);
 
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
+    connect(&backend_.emojiRegistry(),
+            &EmojiRegistry::customEmojiAdded,
             this, [this](const QString& name) {
         // Reaction identity is already complete in BackendPost. Registry changes
         // affect presentation only, so repaint a matching named reaction without
@@ -375,6 +373,7 @@ PostWidget::PostWidget(Backend& backend,
     updateAuthorNameColor(ui->authorName, post.isOwnPost(), palette());
 
 	messageContent = new MessageContentWidget(this);
+    messageContent->setEmojiRegistry(&backend_.emojiRegistry());
 	const int messageIndex = ui->verticalLayout->indexOf(ui->message);
 	ui->verticalLayout->removeWidget(ui->message);
 	ui->message->hide();
@@ -1576,11 +1575,11 @@ void PostWidget::createReactionList()
     }
 
     for (const auto& [emojiName, users] : post.reactions) {
-        const EmojiID emojiId = EmojiInfo::findByName(emojiName);
-        if (!emojiId) {
+        const auto presentation = backend_.emojiRegistry().resolveByName(emojiName);
+        if (!presentation) {
             // Keep the exact wire identity visible while CustomEmojiService
-            // resolves only its presentation. findByName() above schedules that
-            // lazy lookup for valid custom names.
+            // resolves only its presentation. resolveByName() above schedules
+            // that lazy lookup for valid custom names.
             reactions->addReaction(
                 emojiName,
                 QStringLiteral(":") + emojiName + QLatin1Char(':'),
@@ -1588,9 +1587,8 @@ void PostWidget::createReactionList()
             continue;
         }
 
-        const Emoji presentation = EmojiInfo::getEmoji(emojiId);
         reactions->addReaction(
-            emojiName, presentation.unicodeString, users);
+            emojiName, presentation->unicodeString, users);
     }
 
     connectReactionActions();
@@ -1753,9 +1751,9 @@ QString PostWidget::getSelectedText()
 	return messageContent->selectedText();
 }
 
-QString PostWidget::formatMessageText(const QString& str)
+QString PostWidget::formatMessageText(const QString& str) const
 {
-	return MessageFormatter::formatMessageText(str);
+	return MessageFormatter::formatMessageText(str, &backend_.emojiRegistry());
 }
 
 QString PostWidget::getMessageTimeString(uint64_t timestamp) const

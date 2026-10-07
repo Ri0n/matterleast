@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <QCache>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -29,6 +30,7 @@ public:
     static CustomEmojiService& instance(Backend& backend);
 
     void ensureEmoji(const QString& name);
+    void resetSession();
     /** Search the server-side custom-emoji catalog and cache matching images. */
     void searchEmojis(const QString& term);
 
@@ -50,11 +52,12 @@ private:
     HTTPConnector _httpConnector;
     QSet<QString> _pendingNames;
     QSet<QString> _inFlightNames;
-    QSet<QString> _missingNames;
+    QCache<QString, char> _missingNames;
     QSet<QString> _searchesInFlight;
     bool _flushScheduled = false;
     bool _batchLookupSupported = true;
     bool _browsePageRequested = false;
+    qint64 _bytesSinceDiskPrune = 0;
 };
 
 } // namespace Mattermost

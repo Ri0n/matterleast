@@ -11,29 +11,157 @@
 
 #include "CustomEmojiService.h"
 
+#include <algorithm>
+
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
-#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
-#include <QPointer>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QUrl>
+#include <QVector>
 
 #include "Backend.h"
 #include "NetworkRequest.h"
 #include "QByteArrayCreator.h"
-#include "emoji/EmojiInfo.h"
-#include "emoji/EmojiRegistryNotifier.h"
 
 namespace Mattermost {
 namespace {
 
 constexpr int MaxNamesPerBatch = 200;
+constexpr int MaxRememberedMissingNames = 2048;
+constexpr qint64 MaxCustomEmojiDiskCacheBytes =
+    128LL * 1024 * 1024;
+constexpr qint64 DiskPruneGranularityBytes =
+    4LL * 1024 * 1024;
+
+QString normalizedServerCacheIdentity(const Backend& backend)
+{
+    QString identity = backend.serverDomain().trimmed();
+    if (identity.isEmpty()) {
+        return {};
+    }
+
+    QUrl url(identity);
+    if (url.isValid() && !url.host().isEmpty()) {
+        url.setScheme(url.scheme().toLower());
+        url.setHost(url.host().toLower());
+        url.setQuery(QString());
+        url.setFragment(QString());
+        identity = url.toString(QUrl::FullyEncoded);
+    }
+    while (identity.endsWith(QLatin1Char('/'))) {
+        identity.chop(1);
+    }
+    return identity;
+}
+
+QString customEmojiCacheRootPath()
+{
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation))
+        .filePath(QStringLiteral("custom-emoji"));
+}
+
+QString customEmojiServerCachePath(const Backend& backend)
+{
+    const QString identity = normalizedServerCacheIdentity(backend);
+    if (identity.isEmpty()) {
+        return {};
+    }
+
+    const QByteArray digest = QCryptographicHash::hash(
+        identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(32);
+    return QDir(customEmojiCacheRootPath())
+        .filePath(QString::fromLatin1(digest));
+}
+
+void touchCustomEmojiCacheFile(const QString& path)
+{
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly)) {
+        file.setFileTime(
+            QDateTime::currentDateTimeUtc(),
+            QFileDevice::FileModificationTime);
+    }
+}
+
+void removeLegacyUnscopedEmojiCache()
+{
+    QDir root(customEmojiCacheRootPath());
+    if (!root.exists()) {
+        return;
+    }
+
+    const QFileInfoList legacyFiles =
+        root.entryInfoList(QDir::Files | QDir::NoSymLinks);
+    for (const QFileInfo& file : legacyFiles) {
+        QFile::remove(file.absoluteFilePath());
+    }
+}
+
+bool pruneCustomEmojiDiskCache()
+{
+    const QString rootPath = customEmojiCacheRootPath();
+    QDir root(rootPath);
+    if (!root.exists()) {
+        return false;
+    }
+
+    struct CacheFile {
+        QString path;
+        qint64 size = 0;
+        QDateTime lastUsed;
+    };
+
+    QVector<CacheFile> files;
+    qint64 totalBytes = 0;
+    QDirIterator it(
+        rootPath,
+        QDir::Files | QDir::NoSymLinks,
+        QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        const QFileInfo info(path);
+        if (!info.isFile()) {
+            continue;
+        }
+        files.push_back(CacheFile {
+            path,
+            info.size(),
+            info.lastModified(),
+        });
+        totalBytes += info.size();
+    }
+
+    if (totalBytes <= MaxCustomEmojiDiskCacheBytes) {
+        return false;
+    }
+
+    bool removedAny = false;
+
+    std::sort(files.begin(), files.end(),
+              [](const CacheFile& left, const CacheFile& right) {
+        return left.lastUsed < right.lastUsed;
+    });
+    for (const CacheFile& file : files) {
+        if (totalBytes <= MaxCustomEmojiDiskCacheBytes) {
+            break;
+        }
+        if (QFile::remove(file.path)) {
+            totalBytes -= file.size;
+            removedAny = true;
+        }
+    }
+    return removedAny;
+}
 
 bool isUnsupportedBatchStatus(int status)
 {
@@ -44,23 +172,25 @@ bool isUnsupportedBatchStatus(int status)
 
 CustomEmojiService& CustomEmojiService::instance(Backend& backend)
 {
-    static QHash<Backend*, QPointer<CustomEmojiService>> instances;
-    QPointer<CustomEmojiService>& service = instances[&backend];
-    if (!service) {
-        service = new CustomEmojiService(backend);
+    if (auto* service = backend.findChild<CustomEmojiService*>(
+            QString(), Qt::FindDirectChildrenOnly)) {
+        return *service;
     }
-    return *service;
+    return *new CustomEmojiService(backend);
 }
 
 CustomEmojiService::CustomEmojiService(Backend& backend)
     : QObject(&backend)
     , _backend(backend)
+    , _missingNames(MaxRememberedMissingNames)
 {
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiRequested,
+    removeLegacyUnscopedEmojiCache();
+    pruneCustomEmojiDiskCache();
+    connect(&_backend.emojiRegistry(),
+            &EmojiRegistry::customEmojiRequested,
             this, &CustomEmojiService::ensureEmoji);
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
+    connect(&_backend.emojiRegistry(),
+            &EmojiRegistry::customEmojiAdded,
             this, [this](const QString& name) {
         // Search, on-demand browsing and lazy per-name resolution can race.
         // Once any path registers the image, suppress stale queued work and
@@ -75,16 +205,19 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
     // such as :not_an_emoji: may resolve to HTTP 404 and must remain silent.
     // Clear negative/transient state on reconnect so new server-side emoji and
     // cancelled requests become eligible for lookup again.
-    connect(&_backend, &Backend::onWebSocketConnect, this, [this] {
-        _httpConnector.reset();
-        _pendingNames.clear();
-        _inFlightNames.clear();
-        _missingNames.clear();
-        _searchesInFlight.clear();
-        _flushScheduled = false;
-        _batchLookupSupported = true;
-        _browsePageRequested = false;
-    });
+}
+
+void CustomEmojiService::resetSession()
+{
+    _httpConnector.reset();
+    _pendingNames.clear();
+    _inFlightNames.clear();
+    _missingNames.clear();
+    _searchesInFlight.clear();
+    _flushScheduled = false;
+    _batchLookupSupported = true;
+    _browsePageRequested = false;
+    _bytesSinceDiskPrune = 0;
 }
 
 bool CustomEmojiService::isValidCustomEmojiName(const QString& name)
@@ -96,7 +229,7 @@ bool CustomEmojiService::isValidCustomEmojiName(const QString& name)
 
 void CustomEmojiService::ensureEmoji(const QString& name)
 {
-    // EmojiInfo emits customEmojiRequested only after its local lookup misses,
+    // EmojiRegistry emits customEmojiRequested only after its local lookup misses,
     // so looking it up again here would recurse back into this slot.
     if (!isValidCustomEmojiName(name)
         || _pendingNames.contains(name)
@@ -259,7 +392,7 @@ void CustomEmojiService::flushPendingNames()
 
                 found.insert(name);
                 // Keep the name in-flight until its cached or downloaded image
-                // has actually been registered in EmojiInfo.
+                // has actually been registered in the backend emoji registry.
                 ensureImage(id, name);
             }
 
@@ -268,7 +401,7 @@ void CustomEmojiService::flushPendingNames()
                     continue;
                 }
                 _inFlightNames.remove(name);
-                _missingNames.insert(name);
+                _missingNames.insert(name, new char(0));
             }
         }));
 }
@@ -284,7 +417,7 @@ void CustomEmojiService::lookupNamesIndividually(const QSet<QString>& names)
                         QNetworkRequest::HttpStatusCodeAttribute).toInt();
                     _inFlightNames.remove(requestedName);
                     if (httpStatus == 404) {
-                        _missingNames.insert(requestedName);
+                        _missingNames.insert(requestedName, new char(0));
                     }
                     return;
                 }
@@ -304,19 +437,26 @@ void CustomEmojiService::lookupNamesIndividually(const QSet<QString>& names)
 
 void CustomEmojiService::ensureImage(const QString& id, const QString& name)
 {
-    QDir cacheDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
-    QDir emojiDir(cacheDir.filePath(QStringLiteral("custom-emoji")));
+    const QString serverCachePath = customEmojiServerCachePath(_backend);
+    if (serverCachePath.isEmpty()) {
+        _inFlightNames.remove(name);
+        return;
+    }
+
+    QDir emojiDir(serverCachePath);
     if (!emojiDir.exists() && !emojiDir.mkpath(QStringLiteral("."))) {
         _inFlightNames.remove(name);
         return;
     }
 
-    // Keep the existing cache layout. The .gif suffix is historical; Qt image
-    // readers identify PNG/JPEG/GIF data by content when QTextDocument loads it.
+    // The .gif suffix is historical; Qt image readers identify PNG/JPEG/GIF
+    // data by content. The server hash prevents identical Mattermost emoji IDs
+    // from colliding across backends.
     const QString filePath = emojiDir.filePath(id + QStringLiteral(".gif"));
     const QFileInfo cached(filePath);
     if (cached.exists() && cached.isFile() && cached.size() > 0) {
-        EmojiInfo::addCustomEmoji(name, filePath);
+        touchCustomEmojiCacheFile(filePath);
+        _backend.emojiRegistry().addCustomEmoji(name, filePath);
         _inFlightNames.remove(name);
         return;
     }
@@ -327,7 +467,8 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
 
     _httpConnector.get(request, HttpResponseCallback(
         [this, name, filePath](QVariant status, QByteArray data) {
-            if (status.toInt() != QNetworkReply::NoError || data.isEmpty()) {
+            if (status.toInt() != QNetworkReply::NoError || data.isEmpty()
+                || data.size() > MaxCustomEmojiDiskCacheBytes) {
                 _inFlightNames.remove(name);
                 return;
             }
@@ -345,7 +486,16 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
             }
             file.close();
 
-            EmojiInfo::addCustomEmoji(name, filePath);
+            _bytesSinceDiskPrune += data.size();
+            if (_bytesSinceDiskPrune >= DiskPruneGranularityBytes) {
+                _bytesSinceDiskPrune = 0;
+                if (pruneCustomEmojiDiskCache()) {
+                    _backend.emojiRegistry().dropMissingCustomEmojiFiles();
+                }
+            }
+            if (QFileInfo::exists(filePath)) {
+                _backend.emojiRegistry().addCustomEmoji(name, filePath);
+            }
             _inFlightNames.remove(name);
         }));
 }

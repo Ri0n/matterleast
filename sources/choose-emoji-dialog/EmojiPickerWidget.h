@@ -14,7 +14,6 @@
 
 class QAbstractButton;
 class QButtonGroup;
-class QComboBox;
 class QHBoxLayout;
 class QLayout;
 class QLineEdit;
@@ -56,9 +55,13 @@ private:
     QLayout* createTab(uint32_t categoryIdx, int tabIndex);
     void updateSearchResults(const QString& text);
     void removeSearchTab();
-    void addSkinToneComboBox(QWidget* tab,
-                             QVBoxLayout* layout,
-                             uint32_t categoryIdx);
+    QPushButton* createEmojiButton(const Emoji& emoji, QWidget* parent);
+    void showSkinTonePopup(QPushButton* sourceButton,
+                           const QString& baseName);
+    void updateSkinToneButton(QPushButton* button,
+                              const QString& baseName);
+    void refreshDefaultSkinToneButtons();
+    int defaultSkinTone() const;
     void setTabPresentation(int index,
                             const QString& glyph,
                             const QString& toolTip,
@@ -73,14 +76,13 @@ private:
     QHBoxLayout* categoryBarLayout_ = nullptr;
     QButtonGroup* categoryButtonGroup_ = nullptr;
     QVector<QAbstractButton*> categoryButtons_;
-    QComboBox* skinToneComboBox_ = nullptr;
-    QVector<QPushButton*> peopleEmojiButtons_;
     QVector<Emoji> searchableEmojis_;
     QWidget* searchTab_ = nullptr;
     QTimer* searchTimer_ = nullptr;
     QTimer* customEmojiRefreshTimer_ = nullptr;
     int searchReturnTabIndex_ = -1;
     int renderedCustomEmojiCount_ = -1;
+    int defaultSkinTone_ = EmojiSkinTone::none;
 };
 
 } // namespace Mattermost

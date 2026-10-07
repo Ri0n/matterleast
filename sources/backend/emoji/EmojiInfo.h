@@ -1,6 +1,6 @@
 /**
  * @file EmojiInfo.h
- * @brief Contains functions for getting emoji by ID and adding custom emojis
+ * @brief Immutable generated built-in emoji lookup
  * @author Lyubomir Filipov
  * @date Dec 30, 2022
  *
@@ -25,44 +25,34 @@
 #pragma once
 
 #include <QVector>
+
+#include <optional>
 #include "EmojiDefs.h"
 
 namespace Mattermost {
 
 class EmojiInfo {
 public:
-	EmojiInfo ();
-	virtual ~EmojiInfo ();
-public:
+    EmojiInfo() = delete;
 
-	/**
-	 * Find emoji by name
-	 * @param emojiName emoji name. Emoji names are used to identify emojis in packets from/to Mattermost server
-	 * @return EmojiID
-	 */
-	static EmojiID findByName (const QString& emojiName);
+    /**
+     * Resolve an emoji presentation by its Mattermost name.
+     *
+     * Runtime custom emoji deliberately live outside this immutable registry.
+     */
+    static std::optional<Emoji> resolveBuiltInByName(const QString& emojiName);
 
-	/**
-	 * Get emoji by EmojiID
-	 * @param emojiID emoji ID (can be obtained using findByName())
-	 * @return Emoji
-	 */
-	static Emoji getEmoji (const EmojiID& emojiID);
+    static QVector<Emoji> getAllBuiltInEmojis(
+        uint32_t category, uint32_t skinTone);
 
-	static QVector<Emoji> getAllEmojis (uint32_t category, uint32_t skinTone);
-
-	/**
-	 * Add a custom emoji.
-	 * Custom emojis use image instead of unicode codepoints.
-	 * However, images can be represented as <img> tags in Qt's QLabel rich text.
-	 * This allows custom emojis also to use strings as values
-	 * @param emojiName emoji name
-	 * @param emojiPath path to the emoji image
-	 */
-	static void addCustomEmoji (const QString& emojiName, const QString& emojiPath);
-
-    /** Return whether an image resource belongs to the custom-emoji registry. */
-    static bool isCustomEmojiPath(const QString& emojiPath);
+    /**
+     * Return all selectable skin-tone variants for a skin-variadic built-in.
+     *
+     * Names use the requested Mattermost base name plus the wire suffix, so the
+     * returned Emoji can be emitted directly by the picker without introducing
+     * another identity layer. Non-variadic emoji return an empty vector.
+     */
+    static QVector<Emoji> skinToneVariantsByName(const QString& emojiName);
 };
 
 } /* namespace Mattermost */

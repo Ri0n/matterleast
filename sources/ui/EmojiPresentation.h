@@ -14,7 +14,7 @@
 #include <QUrl>
 
 #include "EmojiFont.h"
-#include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistry.h"
 
 namespace Mattermost::EmojiPresentation {
 
@@ -103,9 +103,10 @@ inline QSize imageSize(const QString& source, const QFont& font, Mode mode)
     return imageSize(source, extent(font, mode), mode == Mode::Jumbo);
 }
 
-inline void apply(QTextImageFormat& imageFormat, const QFont& font, Mode mode)
+inline void apply(QTextImageFormat& imageFormat, const QFont& font, Mode mode,
+                  const EmojiRegistry* registry = nullptr)
 {
-    if (!EmojiInfo::isCustomEmojiPath(imageFormat.name())) {
+    if (!registry || !registry->isCustomEmojiPath(imageFormat.name())) {
         return;
     }
 
@@ -115,7 +116,8 @@ inline void apply(QTextImageFormat& imageFormat, const QFont& font, Mode mode)
     imageFormat.setVerticalAlignment(QTextCharFormat::AlignMiddle);
 }
 
-inline void apply(QTextDocument& document, Mode mode)
+inline void apply(QTextDocument& document, Mode mode,
+                  const EmojiRegistry* registry = nullptr)
 {
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
         for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
@@ -125,11 +127,11 @@ inline void apply(QTextDocument& document, Mode mode)
             }
 
             QTextImageFormat imageFormat = fragment.charFormat().toImageFormat();
-            if (!EmojiInfo::isCustomEmojiPath(imageFormat.name())) {
+            if (!registry || !registry->isCustomEmojiPath(imageFormat.name())) {
                 continue;
             }
 
-            apply(imageFormat, document.defaultFont(), mode);
+            apply(imageFormat, document.defaultFont(), mode, registry);
             QTextCursor cursor(&document);
             cursor.setPosition(fragment.position());
             cursor.setPosition(fragment.position() + fragment.length(), QTextCursor::KeepAnchor);
@@ -138,7 +140,8 @@ inline void apply(QTextDocument& document, Mode mode)
     }
 }
 
-inline QString normalizeHtml(const QString& html, const QFont& font, Mode mode)
+inline QString normalizeHtml(const QString& html, const QFont& font, Mode mode,
+                             const EmojiRegistry* registry = nullptr)
 {
     static const QRegularExpression imageExpression(
         QStringLiteral(R"(<img\b[^>]*>)"),
@@ -169,7 +172,8 @@ inline QString normalizeHtml(const QString& html, const QFont& font, Mode mode)
 
         QString tag = match.captured();
         const QRegularExpressionMatch sourceMatch = sourceExpression.match(tag);
-        if (sourceMatch.hasMatch() && EmojiInfo::isCustomEmojiPath(sourceMatch.captured(1))) {
+        if (sourceMatch.hasMatch() && registry
+            && registry->isCustomEmojiPath(sourceMatch.captured(1))) {
             const QSize size = imageSize(sourceMatch.captured(1), font, mode);
             const QString width = QStringLiteral("width=\"%1\"").arg(size.width());
             const QString height = QStringLiteral("height=\"%1\"").arg(size.height());

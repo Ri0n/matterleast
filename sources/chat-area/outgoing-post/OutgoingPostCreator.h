@@ -178,6 +178,7 @@ private:
 
 private:
 	Backend*							backend = nullptr;
+    QMetaObject::Connection              _emojiAddedConnection;
 	BackendChannel*						channel = nullptr;
 	ChatLogWidget*						chatLogWidget = nullptr;
 	QLabel*								statusLabel = nullptr;

@@ -23,7 +23,7 @@
 #include <QTextOption>
 
 #include "Settings.h"
-#include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "chat-area/post/MessageContentWidget.h"
 #include "options/MLOptions.h"
 
@@ -507,9 +507,13 @@ private slots:
     void inlineCustomEmojiUsesFontRelativeSizeAndMiddleAlignment()
     {
         const QString name = QStringLiteral("mattermost_qt_inline_custom_test");
-        EmojiInfo::addCustomEmoji(name, QStringLiteral("/nonexistent/mattermost-qt-inline-test.png"));
+        EmojiRegistry registry;
+        registry.addCustomEmoji(
+            name,
+            QStringLiteral("/nonexistent/mattermost-qt-inline-test.png"));
 
         MessageContentWidget widget;
+        widget.setEmojiRegistry(&registry);
         widget.setMessage(QStringLiteral("A :") + name + QStringLiteral(": B"));
         showAndSettle(widget);
 
@@ -552,15 +556,20 @@ private slots:
     void emojiOnlyCustomEmojiUsesJumboImage()
     {
         const QString name = QStringLiteral("mattermost_qt_jumbo_test");
-        EmojiInfo::addCustomEmoji(name, QStringLiteral("/nonexistent/mattermost-qt-jumbo-test.png"));
+        EmojiRegistry registry;
+        registry.addCustomEmoji(
+            name,
+            QStringLiteral("/nonexistent/mattermost-qt-jumbo-test.png"));
 
         MessageContentWidget inlineWidget;
+        inlineWidget.setEmojiRegistry(&registry);
         inlineWidget.setMessage(QStringLiteral("A :") + name + QStringLiteral(": B"));
         showAndSettle(inlineWidget);
         auto* inlineText = inlineWidget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
         QVERIFY(inlineText != nullptr);
 
         MessageContentWidget jumboWidget;
+        jumboWidget.setEmojiRegistry(&registry);
         jumboWidget.setMessage(QStringLiteral("  :") + name + QStringLiteral(":  "));
         showAndSettle(jumboWidget);
         auto* jumboText = jumboWidget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
@@ -584,9 +593,11 @@ private slots:
         QVERIFY(image.save(path));
 
         const QString name = QStringLiteral("mattermost_qt_native_cap_test");
-        EmojiInfo::addCustomEmoji(name, path);
+        EmojiRegistry registry;
+        registry.addCustomEmoji(name, path);
 
         MessageContentWidget widget;
+        widget.setEmojiRegistry(&registry);
         widget.setMessage(QLatin1Char(':') + name + QLatin1Char(':'));
         showAndSettle(widget);
 
