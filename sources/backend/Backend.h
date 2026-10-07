@@ -246,6 +246,7 @@ public:
 
     EmojiRegistry& emojiRegistry() { return _emojiRegistry; }
     const EmojiRegistry& emojiRegistry() const { return _emojiRegistry; }
+    const QString& serverDomain() const { return loginData.domain; }
 
 	ServerDialogsMap& getServerDialogsMap ();
 
