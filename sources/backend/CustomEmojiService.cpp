@@ -27,8 +27,6 @@
 #include "Backend.h"
 #include "NetworkRequest.h"
 #include "QByteArrayCreator.h"
-#include "emoji/EmojiInfo.h"
-#include "emoji/EmojiRegistryNotifier.h"
 
 namespace Mattermost {
 namespace {
@@ -56,11 +54,11 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
     : QObject(&backend)
     , _backend(backend)
 {
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiRequested,
+    connect(&_backend.emojiRegistry(),
+            &EmojiRegistry::customEmojiRequested,
             this, &CustomEmojiService::ensureEmoji);
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
+    connect(&_backend.emojiRegistry(),
+            &EmojiRegistry::customEmojiAdded,
             this, [this](const QString& name) {
         // Search, on-demand browsing and lazy per-name resolution can race.
         // Once any path registers the image, suppress stale queued work and
@@ -96,7 +94,7 @@ bool CustomEmojiService::isValidCustomEmojiName(const QString& name)
 
 void CustomEmojiService::ensureEmoji(const QString& name)
 {
-    // EmojiInfo emits customEmojiRequested only after its local lookup misses,
+    // EmojiRegistry emits customEmojiRequested only after its local lookup misses,
     // so looking it up again here would recurse back into this slot.
     if (!isValidCustomEmojiName(name)
         || _pendingNames.contains(name)
@@ -259,7 +257,7 @@ void CustomEmojiService::flushPendingNames()
 
                 found.insert(name);
                 // Keep the name in-flight until its cached or downloaded image
-                // has actually been registered in EmojiInfo.
+                // has actually been registered in the backend emoji registry.
                 ensureImage(id, name);
             }
 
@@ -316,7 +314,7 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
     const QString filePath = emojiDir.filePath(id + QStringLiteral(".gif"));
     const QFileInfo cached(filePath);
     if (cached.exists() && cached.isFile() && cached.size() > 0) {
-        EmojiInfo::addCustomEmoji(name, filePath);
+        _backend.emojiRegistry().addCustomEmoji(name, filePath);
         _inFlightNames.remove(name);
         return;
     }
@@ -345,7 +343,7 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
             }
             file.close();
 
-            EmojiInfo::addCustomEmoji(name, filePath);
+            _backend.emojiRegistry().addCustomEmoji(name, filePath);
             _inFlightNames.remove(name);
         }));
 }
