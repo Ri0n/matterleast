@@ -41,6 +41,10 @@ static constexpr bool COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT = true;
 
 static constexpr const char* CHAT_FONT = "chat/font";
 
+static constexpr const char* EMOJI_DEFAULT_SKIN_TONE =
+    "emoji/defaultSkinTone";
+static constexpr int EMOJI_DEFAULT_SKIN_TONE_DEFAULT = 0;
+
 // Unread-mode presentation policy. "Channels only" keeps the Following tab
 // available while the sidebar's unread filter is active. Text filtering may
 // temporarily suspend the unread gate so a known read channel can still be
