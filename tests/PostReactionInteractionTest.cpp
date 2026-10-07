@@ -123,11 +123,11 @@ private slots:
         // presentation as "+1". That makes this a deterministic regression for
         // reaction identity being replaced by EmojiInfo's canonical name.
         const QString wireName = QStringLiteral("thumbsup");
-        const EmojiID aliasId = EmojiInfo::findByName(wireName);
-        QVERIFY(aliasId);
-        const Emoji presentation = EmojiInfo::getEmoji(aliasId);
-        QCOMPARE(presentation.name, QStringLiteral("+1"));
-        QVERIFY(presentation.name != wireName);
+        const auto presentation =
+            backend.emojiRegistry().resolveByName(wireName);
+        QVERIFY(presentation);
+        QCOMPARE(presentation->name, QStringLiteral("+1"));
+        QVERIFY(presentation->name != wireName);
 
         BackendPost post(
             QJsonObject {
@@ -184,7 +184,7 @@ private slots:
 
         const QString customName =
             QStringLiteral("matterleast_pending_reaction_regression");
-        QVERIFY(!EmojiInfo::findByName(customName));
+        QVERIFY(!backend.emojiRegistry().resolveByName(customName));
 
         QJsonArray reactionArray {
             QJsonObject {
@@ -248,10 +248,9 @@ private slots:
 
         // Registration can happen later through either the eager /emoji load or
         // CustomEmojiService. The existing post/widget must adopt it in place.
-        EmojiInfo::addCustomEmoji(customName, imagePath);
+        backend.emojiRegistry().addCustomEmoji(customName, imagePath);
 
-        const EmojiID customId = EmojiInfo::findByName(customName);
-        QVERIFY(customId);
+        QVERIFY(backend.emojiRegistry().resolveByName(customName));
         customReaction = post.reactions.find(customName);
         QVERIFY(customReaction != post.reactions.end());
         QCOMPARE(customReaction->second, BackendPostReaction {userId});
@@ -284,7 +283,7 @@ private slots:
         const QString userId = QStringLiteral("gggggggggggggggggggggggggg");
         const QString customName =
             QStringLiteral("matterleast_pending_reaction_remove_test");
-        QVERIFY(!EmojiInfo::findByName(customName));
+        QVERIFY(!EmojiInfo::resolveBuiltInByName(customName));
 
         BackendPost post(
             QJsonObject {
