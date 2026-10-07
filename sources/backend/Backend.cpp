@@ -72,7 +72,7 @@ enum type {
 
 Backend::Backend(QObject *parent)
 :QObject (parent)
-,_emojiRegistry(this)
+,_emojiRegistry()
 ,serverDialogsMap (*this)
 ,webSocketEventHandler (*this)
 ,webSocketConnector (webSocketEventHandler)
