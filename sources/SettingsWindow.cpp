@@ -20,6 +20,7 @@
 #include "SettingsWindow.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -38,6 +39,7 @@
 #include <QVBoxLayout>
 
 #include "Settings.h"
+#include "backend/emoji/EmojiDefs.h"
 #include "options/MLOptions.h"
 #include "ui_SettingsWindow.h"
 
@@ -234,6 +236,27 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
         appearancePage,
         tr("Font changes are previewed immediately in materialized chat messages. "
            "Cancel restores the previous font.")));
+    auto* emojiGroup = new QGroupBox(tr("Emoji"), appearancePage);
+    auto* emojiForm = new QFormLayout(emojiGroup);
+    emojiDefaultSkinTone = new QComboBox(emojiGroup);
+    for (int tone = 0; tone < EmojiSkinTone::COUNT; ++tone) {
+        emojiDefaultSkinTone->addItem(
+            EmojiSkinTone::descriptionString[tone], tone);
+    }
+    const int storedSkinTone = qBound(
+        0,
+        options->optionObject<int>(
+            EMOJI_DEFAULT_SKIN_TONE,
+            EMOJI_DEFAULT_SKIN_TONE_DEFAULT)
+            ->value().toInt(),
+        static_cast<int>(EmojiSkinTone::COUNT) - 1);
+    emojiDefaultSkinTone->setCurrentIndex(storedSkinTone);
+    emojiDefaultSkinTone->setToolTip(
+        tr("Used by default for emoji that support skin tones. "
+           "Hold an emoji in the picker to choose a different tone once."));
+    emojiForm->addRow(tr("Default skin tone:"), emojiDefaultSkinTone);
+    appearanceLayout->addWidget(emojiGroup);
+
     appearanceLayout->addStretch(1);
     tabs->addTab(appearancePage, tr("Appearance"));
 
@@ -412,6 +435,11 @@ void SettingsWindow::applyNewSettings ()
         UNREAD_MODE_IGNORE_WHILE_FILTERING,
         UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT)
         ->setValue(unreadModeIgnoreWhileFiltering->isChecked());
+
+    options->optionObject<int>(
+        EMOJI_DEFAULT_SKIN_TONE,
+        EMOJI_DEFAULT_SKIN_TONE_DEFAULT)
+        ->setValue(emojiDefaultSkinTone->currentData().toInt());
 
     options->optionObject<int>(CACHE_SIZE_MB, CACHE_SIZE_MB_DEFAULT)
         ->setValue(attachmentCacheSizeMB->value());
