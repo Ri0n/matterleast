@@ -36,7 +36,7 @@
 namespace Mattermost {
 
 static const QString emojiSourceFileStart =
-R"(/ **
+R"(/**
  * @file EmojiMap.cpp
  * @brief Auto-generated file, containing emoji-name to emoji-string map
  * @author Lyubomir Filipov
