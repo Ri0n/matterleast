@@ -82,12 +82,8 @@ std::optional<Emoji> resolveBuiltinEmoji(const EmojiMapEntry& entry, uint16_t sk
         return std::nullopt;
     }
 
-    QString emojiName = variadicEmoji.name;
-    if (skinTone != EmojiSkinTone::none) {
-        emojiName += QStringLiteral(" (skin tone: %1)")
-                         .arg(skinTonelookup[skinTone]);
-    }
-
+    const QString emojiName =
+        variadicEmoji.name + EmojiSkinTone::nameString[skinTone];
     return Emoji {emojiName, variadicEmoji.unicodeString[skinTone]};
 }
 
@@ -101,9 +97,8 @@ std::optional<Emoji> EmojiInfo::resolveBuiltInByName(const QString& emojiName)
         const QString suffix = QStringLiteral("_")
             + skinTonelookup[i]
             + QStringLiteral("_skin_tone");
-        const int found = lookupName.indexOf(suffix);
-        if (found != -1) {
-            lookupName.remove(found, suffix.size());
+        if (lookupName.endsWith(suffix)) {
+            lookupName.chop(suffix.size());
             skinTone = skinToneLookupMap[i];
             break;
         }
@@ -121,7 +116,9 @@ QVector<Emoji> EmojiInfo::skinToneVariantsByName(const QString& emojiName)
 {
     QString lookupName = emojiName;
     for (uint16_t i = 1; i < EmojiSkinTone::COUNT; ++i) {
-        const QString suffix = EmojiSkinTone::nameString[i];
+        const QString suffix = QStringLiteral("_")
+            + skinTonelookup[i]
+            + QStringLiteral("_skin_tone");
         if (lookupName.endsWith(suffix)) {
             lookupName.chop(suffix.size());
             break;
@@ -142,7 +139,7 @@ QVector<Emoji> EmojiInfo::skinToneVariantsByName(const QString& emojiName)
     const SkinVariadicEmoji& variadicEmoji = emojiVecSkinVariadic[index];
     const int count = std::min(
         static_cast<int>(EmojiSkinTone::COUNT),
-        variadicEmoji.unicodeString.size());
+        static_cast<int>(variadicEmoji.unicodeString.size()));
 
     QVector<Emoji> variants;
     variants.reserve(count);
