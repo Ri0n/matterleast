@@ -24,6 +24,8 @@
 
 #include "EmojiInfo.h"
 
+#include <algorithm>
+
 #include <QDebug>
 #include <QHash>
 
@@ -55,7 +57,8 @@ namespace {
 std::optional<Emoji> resolveBuiltinEmoji(const EmojiMapEntry& entry, uint16_t skinTone)
 {
     if (entry.kind == EmojiMapEntry::Kind::nonSkinVariadic) {
-        if (entry.category >= EmojiCategory::COUNT) {
+        if (skinTone != EmojiSkinTone::none
+            || entry.category >= EmojiCategory::COUNT) {
             return std::nullopt;
         }
 
@@ -112,6 +115,44 @@ std::optional<Emoji> EmojiInfo::resolveBuiltInByName(const QString& emojiName)
     }
 
     return resolveBuiltinEmoji(it.value(), skinTone);
+}
+
+QVector<Emoji> EmojiInfo::skinToneVariantsByName(const QString& emojiName)
+{
+    QString lookupName = emojiName;
+    for (uint16_t i = 1; i < EmojiSkinTone::COUNT; ++i) {
+        const QString suffix = EmojiSkinTone::nameString[i];
+        if (lookupName.endsWith(suffix)) {
+            lookupName.chop(suffix.size());
+            break;
+        }
+    }
+
+    const auto it = emojiMap.constFind(lookupName);
+    if (it == emojiMap.cend()
+        || it.value().kind != EmojiMapEntry::Kind::skinVariadic) {
+        return {};
+    }
+
+    const int index = static_cast<int>(it.value().index);
+    if (index < 0 || index >= emojiVecSkinVariadic.size()) {
+        return {};
+    }
+
+    const SkinVariadicEmoji& variadicEmoji = emojiVecSkinVariadic[index];
+    const int count = std::min(
+        static_cast<int>(EmojiSkinTone::COUNT),
+        variadicEmoji.unicodeString.size());
+
+    QVector<Emoji> variants;
+    variants.reserve(count);
+    for (int tone = 0; tone < count; ++tone) {
+        variants.push_back(Emoji {
+            lookupName + EmojiSkinTone::nameString[tone],
+            variadicEmoji.unicodeString[tone],
+        });
+    }
+    return variants;
 }
 
 QVector<Emoji> EmojiInfo::getAllBuiltInEmojis(uint32_t category, uint32_t skinTone)
