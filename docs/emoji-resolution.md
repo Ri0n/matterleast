@@ -68,6 +68,13 @@ resolver for the same backend; completion emits `customEmojiAdded` only to UI
 bound to that backend. Destroying the backend therefore releases the runtime
 registry and prevents custom names or image paths from leaking across servers.
 
+The persistent image cache is also server-scoped. Cached files live below a
+hash of the normalized server identity rather than directly below
+`custom-emoji/`, so identical Mattermost emoji IDs from different servers
+cannot alias the same file. The complete custom-emoji disk cache is capped at
+128 MiB and prunes least-recently-used files based on session hits/download
+timestamps, preventing unbounded disk growth.
+
 This separation fixes the original quick-reaction corruption structurally. The
 old single numeric sequence let runtime custom entries grow into the generated
 skin-variadic range, so a correct name such as `+1` / `thumbsup` could keep
