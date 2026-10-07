@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QtTest>
 
 #include "Settings.h"
@@ -33,6 +34,12 @@ private slots:
         picker.resize(560, 420);
         picker.show();
         QVERIFY(QTest::qWaitForWindowExposed(&picker));
+        QApplication::processEvents();
+
+        auto* stack = picker.findChild<QStackedWidget*>();
+        QVERIFY(stack);
+        // People is the second visible emoji category (Component has no tab).
+        stack->setCurrentIndex(1);
         QApplication::processEvents();
 
         const auto variants =
