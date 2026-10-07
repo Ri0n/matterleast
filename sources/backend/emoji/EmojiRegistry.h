@@ -29,6 +29,7 @@ public:
     QVector<Emoji> getAllEmojis(uint32_t category, uint32_t skinTone) const;
 
     void addCustomEmoji(const QString& emojiName, const QString& emojiPath);
+    void clearCustomEmojis();
     bool isCustomEmojiPath(const QString& emojiPath) const;
 
 signals:
@@ -43,6 +44,7 @@ private:
 
     QHash<QString, QString> _customEmojiPathsByName;
     QSet<QString> _customEmojiPaths;
+    QSet<QString> _builtInCustomEmojiPaths;
 };
 
 } // namespace Mattermost
