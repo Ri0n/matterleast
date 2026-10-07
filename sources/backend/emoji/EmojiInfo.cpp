@@ -25,13 +25,13 @@
 #include "EmojiInfo.h"
 
 #include <QDebug>
-#include <QMap>
+#include <QHash>
 
 namespace Mattermost {
 
 extern QVector<Emoji> emojiVecNoSkinVariadic[EmojiCategory::COUNT];
 extern QVector<SkinVariadicEmoji> emojiVecSkinVariadic;
-extern QMap<QString, EmojiMapEntry> emojiMap;
+extern QHash<QString, EmojiMapEntry> emojiMap;
 
 /**
  * Search for a skin tone string in the emoji name. Remove it, when performing lookup,
