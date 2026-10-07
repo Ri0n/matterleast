@@ -286,6 +286,26 @@ EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
 {
     useBaseBackground(*this);
 
+    auto* skinToneOption = MLOptions::instance()->optionObject<int>(
+        EMOJI_DEFAULT_SKIN_TONE,
+        EMOJI_DEFAULT_SKIN_TONE_DEFAULT);
+    defaultSkinTone_ = qBound(
+        0,
+        skinToneOption->value().toInt(),
+        static_cast<int>(EmojiSkinTone::COUNT) - 1);
+    connect(skinToneOption, &MLOptionObject::changed,
+            this, [this](const QVariant& value) {
+        const int tone = qBound(
+            0,
+            value.toInt(),
+            static_cast<int>(EmojiSkinTone::COUNT) - 1);
+        if (tone == defaultSkinTone_) {
+            return;
+        }
+        defaultSkinTone_ = tone;
+        refreshDefaultSkinToneButtons();
+    });
+
     auto* rootLayout = new QVBoxLayout(this);
     rootLayout->setSpacing(4);
     rootLayout->setContentsMargins(4, 4, 4, 4);
@@ -704,12 +724,43 @@ void EmojiPickerWidget::removeSearchTab()
 
 int EmojiPickerWidget::defaultSkinTone() const
 {
-    return qBound(
-        0,
-        MLOptions::instance()->value<int>(
-            EMOJI_DEFAULT_SKIN_TONE,
-            EMOJI_DEFAULT_SKIN_TONE_DEFAULT),
-        static_cast<int>(EmojiSkinTone::COUNT) - 1);
+    return defaultSkinTone_;
+}
+
+void EmojiPickerWidget::updateSkinToneButton(
+    QPushButton* button, const QString& baseName)
+{
+    if (!button || baseName.isEmpty()) {
+        return;
+    }
+
+    const QVector<Emoji> variants =
+        EmojiInfo::skinToneVariantsByName(baseName);
+    if (variants.isEmpty()) {
+        return;
+    }
+
+    const Emoji& selected = variants.at(std::min(
+        defaultSkinTone(),
+        static_cast<int>(variants.size()) - 1));
+    button->setText(selected.unicodeString);
+    button->setToolTip(
+        selected.name + QLatin1Char('\n')
+        + tr("Hold to choose skin tone"));
+    button->setProperty(EmojiNameProperty, selected.name);
+    button->setProperty(EmojiValueProperty, selected.unicodeString);
+}
+
+void EmojiPickerWidget::refreshDefaultSkinToneButtons()
+{
+    const auto buttons = findChildren<QPushButton*>();
+    for (QPushButton* button : buttons) {
+        const QString baseName =
+            button->property(EmojiBaseNameProperty).toString();
+        if (!baseName.isEmpty()) {
+            updateSkinToneButton(button, baseName);
+        }
+    }
 }
 
 QPushButton* EmojiPickerWidget::createEmojiButton(
@@ -725,23 +776,20 @@ QPushButton* EmojiPickerWidget::createEmojiButton(
         EmojiInfo::skinToneVariantsByName(emoji.name);
     Emoji selected = emoji;
     if (!variants.isEmpty()) {
-        selected = variants.at(std::min(
-            defaultSkinTone(),
-            static_cast<int>(variants.size()) - 1));
         button->setProperty(EmojiBaseNameProperty, emoji.name);
         button->setLongPressHandler([this, button, baseName = emoji.name] {
             showSkinTonePopup(button, baseName);
         });
+        updateSkinToneButton(button, emoji.name);
+        selected.name = button->property(EmojiNameProperty).toString();
+        selected.unicodeString =
+            button->property(EmojiValueProperty).toString();
+    } else {
+        button->setText(selected.unicodeString);
+        button->setToolTip(selected.name);
+        button->setProperty(EmojiNameProperty, selected.name);
+        button->setProperty(EmojiValueProperty, selected.unicodeString);
     }
-
-    button->setText(selected.unicodeString);
-    button->setToolTip(
-        variants.isEmpty()
-            ? selected.name
-            : selected.name + QLatin1Char('\n')
-                + tr("Hold to choose skin tone"));
-    button->setProperty(EmojiNameProperty, selected.name);
-    button->setProperty(EmojiValueProperty, selected.unicodeString);
 
     const QString imagePath = customEmojiImagePath(selected.unicodeString);
     if (!imagePath.isEmpty()) {
