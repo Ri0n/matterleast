@@ -30,15 +30,14 @@ QString pixmapPath(QString source)
 
 bool isRenderable(const QString& name)
 {
-    const EmojiID id = EmojiInfo::findByName(name);
-    if (!id) {
+    const auto emoji = EmojiInfo::resolveByName(name);
+    if (!emoji) {
         return false;
     }
 
-    const Emoji emoji = EmojiInfo::getEmoji(id);
-    const QString source = customEmojiSource(emoji.unicodeString);
+    const QString source = customEmojiSource(emoji->unicodeString);
     if (source.isEmpty()) {
-        return !emoji.unicodeString.trimmed().isEmpty();
+        return !emoji->unicodeString.trimmed().isEmpty();
     }
     return !QPixmap(pixmapPath(source)).isNull();
 }
@@ -59,13 +58,12 @@ QStringList renderableNames(const QStringList& names)
 
 bool configureButton(QPushButton& button, const QString& name)
 {
-    const EmojiID id = EmojiInfo::findByName(name);
-    if (!id) {
+    const auto emoji = EmojiInfo::resolveByName(name);
+    if (!emoji) {
         return false;
     }
 
-    const Emoji emoji = EmojiInfo::getEmoji(id);
-    const QString source = customEmojiSource(emoji.unicodeString);
+    const QString source = customEmojiSource(emoji->unicodeString);
     if (!source.isEmpty()) {
         const QPixmap pixmap(pixmapPath(source));
         if (pixmap.isNull()) {
@@ -74,7 +72,7 @@ bool configureButton(QPushButton& button, const QString& name)
         button.setIcon(QIcon(pixmap));
         button.setIconSize(QSize(20, 20));
     } else {
-        const QString text = emoji.unicodeString.trimmed();
+        const QString text = emoji->unicodeString.trimmed();
         if (text.isEmpty()) {
             return false;
         }
