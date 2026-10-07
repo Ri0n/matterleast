@@ -36,7 +36,7 @@
 namespace Mattermost {
 
 static const QString emojiSourceFileStart =
-R"(/**
+R"(/ **
  * @file EmojiMap.cpp
  * @brief Auto-generated file, containing emoji-name to emoji-string map
  * @author Lyubomir Filipov
@@ -60,7 +60,7 @@ R"(/**
  * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
  */
 
-#include <QMap>
+#include <QHash>
 #include <QVector>
 #include "EmojiDefs.h"
 
@@ -385,7 +385,7 @@ int main (int argc, char** argv)
 	}
 	outStream << "};\n\n";
 
-	outStream << "QMap<QString, EmojiMapEntry> emojiMap {\n";
+	outStream << "QHash<QString, EmojiMapEntry> emojiMap {\n";
 	for (const auto& it : emojiNameToLocationMap) {
 		const char* kind = it.second.kind == EmojiMapEntry::Kind::skinVariadic
 			? "skinVariadic"
