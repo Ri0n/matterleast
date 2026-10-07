@@ -58,6 +58,9 @@ private:
     QPushButton* createEmojiButton(const Emoji& emoji, QWidget* parent);
     void showSkinTonePopup(QPushButton* sourceButton,
                            const QString& baseName);
+    void updateSkinToneButton(QPushButton* button,
+                              const QString& baseName);
+    void refreshDefaultSkinToneButtons();
     int defaultSkinTone() const;
     void setTabPresentation(int index,
                             const QString& glyph,
@@ -79,6 +82,7 @@ private:
     QTimer* customEmojiRefreshTimer_ = nullptr;
     int searchReturnTabIndex_ = -1;
     int renderedCustomEmojiCount_ = -1;
+    int defaultSkinTone_ = EmojiSkinTone::none;
 };
 
 } // namespace Mattermost
