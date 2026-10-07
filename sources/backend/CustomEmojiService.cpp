@@ -11,6 +11,8 @@
 
 #include "CustomEmojiService.h"
 
+#include <algorithm>
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
