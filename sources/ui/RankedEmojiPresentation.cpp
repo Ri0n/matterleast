@@ -5,7 +5,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 
-#include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "ui/EmojiPresentation.h"
 
 namespace Mattermost::RankedEmojiPresentation {
@@ -28,9 +28,9 @@ QString pixmapPath(QString source)
     return EmojiPresentation::imagePath(source);
 }
 
-bool isRenderable(const QString& name)
+bool isRenderable(EmojiRegistry& registry, const QString& name)
 {
-    const auto emoji = EmojiInfo::resolveByName(name);
+    const auto emoji = registry.resolveByName(name);
     if (!emoji) {
         return false;
     }
@@ -44,21 +44,22 @@ bool isRenderable(const QString& name)
 
 } // namespace
 
-QStringList renderableNames(const QStringList& names)
+QStringList renderableNames(EmojiRegistry& registry, const QStringList& names)
 {
     QStringList result;
     result.reserve(names.size());
     for (const QString& name : names) {
-        if (isRenderable(name)) {
+        if (isRenderable(registry, name)) {
             result.push_back(name);
         }
     }
     return result;
 }
 
-bool configureButton(QPushButton& button, const QString& name)
+bool configureButton(EmojiRegistry& registry, QPushButton& button,
+                     const QString& name)
 {
-    const auto emoji = EmojiInfo::resolveByName(name);
+    const auto emoji = registry.resolveByName(name);
     if (!emoji) {
         return false;
     }
