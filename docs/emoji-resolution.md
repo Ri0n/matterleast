@@ -47,34 +47,34 @@ consulted only when rendering that name. This prevents a registry alias or a
 transient custom-emoji resolution state from changing the name later used by
 tooltips, add/remove actions, or reaction events.
 
-## Registry ID namespaces
+## Registry storage separation
 
-`EmojiID` is an in-process presentation handle. It is never serialized or sent
-to Mattermost, so its numeric ranges are implementation details that must remain
-disjoint.
+Mattermost emoji identity is the original `emoji_name`. The presentation registry
+does not expose or assign a second numeric identity.
 
-The generated registry uses low IDs for non-skin built-ins and starts
-skin-variadic emoji at `SKINVARIADIC_START_INDEX` (2048). Runtime custom emoji
-must **not** extend the generated category sequence into that range. Dynamic
-custom entries use the high bit of `EmojiSeq` as a tag and the remaining bits as
-the index in the custom presentation vector.
+Generated built-ins use `EmojiMapEntry` only as storage coordinates:
+`kind + category + index`. Those coordinates point into the generated
+non-skin or skin-variadic vectors and are never serialized, persisted, or used
+for reactions.
 
-This separation is important even though Mattermost identity is stored by name.
-If runtime custom IDs overlap the generated skin-variadic range, a perfectly
-correct name such as `+1`/`thumbsup` can keep its correct tooltip and action
-identity while `EmojiInfo::getEmoji()` returns an unrelated custom image. The
-failure is session-length dependent because it appears only after enough custom
-emoji have been resolved; restarting the process temporarily hides it by
-rebuilding the in-memory registry.
+Runtime custom emoji live in a separate name-keyed registry and a separate
+presentation vector. Loading a custom emoji therefore cannot change generated
+lookup coordinates or category boundaries. This is important because the old
+single numeric sequence allowed a long-running session to extend the custom
+range into the skin-variadic range. A name such as `+1`/ `thumbsup` could
+then keep the correct tooltip and reaction action while resolving to an
+unrelated custom image; restarting temporarily hid the problem by rebuilding a
+smaller registry.
 
 Future registry changes must preserve these invariants:
 
-- generated built-in and runtime custom `EmojiSeq` namespaces do not overlap;
-- adding a runtime custom emoji does not advance `lastCategorySeq[custom]`;
-- custom presentation lookup indexes the same custom vector entry used when the
-  tagged ID was assigned;
-- wire-level reaction identity continues to use the original Mattermost name,
-  never an `EmojiID`.
+- wire-level reaction identity is always the Mattermost emoji name;
+- generated lookup coordinates describe built-in storage only;
+- runtime custom emoji are resolved by name and never inserted into the
+  generated lookup map or vectors;
+- aliases may share generated storage coordinates, but they do not become a
+  persistent application identity;
+- adding any number of runtime custom emoji cannot alter built-in resolution.
 
 ## Picker theme propagation
 
