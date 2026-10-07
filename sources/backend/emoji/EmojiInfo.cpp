@@ -25,67 +25,13 @@
 #include "EmojiInfo.h"
 
 #include <QDebug>
-#include <QDir>
 #include <QMap>
-#include <QSet>
-#include <QUrl>
-
-#include "EmojiRegistryNotifier.h"
 
 namespace Mattermost {
 
 extern QVector<Emoji> emojiVecNoSkinVariadic[EmojiCategory::COUNT];
 extern QVector<SkinVariadicEmoji> emojiVecSkinVariadic;
 extern QMap<QString, EmojiMapEntry> emojiMap;
-
-namespace {
-
-QSet<QString> customEmojiPaths;
-QVector<Emoji> dynamicCustomEmojis;
-QMap<QString, int> dynamicCustomEmojiIndexes;
-
-bool isValidCustomEmojiName(const QString& name)
-{
-    if (name.isEmpty()) {
-        return false;
-    }
-
-    for (const QChar character : name) {
-        const ushort value = character.unicode();
-        const bool asciiLetter = (value >= 'A' && value <= 'Z')
-            || (value >= 'a' && value <= 'z');
-        const bool asciiDigit = value >= '0' && value <= '9';
-        if (!asciiLetter && !asciiDigit
-            && character != QLatin1Char('_')
-            && character != QLatin1Char('-')
-            && character != QLatin1Char('+')) {
-            return false;
-        }
-    }
-    return true;
-}
-
-void requestCustomEmoji(const QString& name)
-{
-    if (isValidCustomEmojiName(name)) {
-        emit EmojiRegistryNotifier::instance().customEmojiRequested(name);
-    }
-}
-
-QString normalizedCustomEmojiPath(QString path)
-{
-    if (path.isEmpty()) {
-        return {};
-    }
-
-    const QUrl url(path);
-    if (url.isLocalFile()) {
-        path = url.toLocalFile();
-    }
-    return QDir::cleanPath(QDir::fromNativeSeparators(path));
-}
-
-} // namespace
 
 /**
  * Search for a skin tone string in the emoji name. Remove it, when performing lookup,
@@ -144,17 +90,8 @@ std::optional<Emoji> resolveBuiltinEmoji(const EmojiMapEntry& entry, uint16_t sk
 
 } // namespace
 
-std::optional<Emoji> EmojiInfo::resolveByName(const QString& emojiName)
+std::optional<Emoji> EmojiInfo::resolveBuiltInByName(const QString& emojiName)
 {
-    const auto customIt = dynamicCustomEmojiIndexes.constFind(emojiName);
-    if (customIt != dynamicCustomEmojiIndexes.cend()) {
-        const int index = customIt.value();
-        if (index >= 0 && index < dynamicCustomEmojis.size()) {
-            return dynamicCustomEmojis[index];
-        }
-        return std::nullopt;
-    }
-
     QString lookupName = emojiName;
     uint16_t skinTone = EmojiSkinTone::none;
     for (uint16_t i = 1; i < EmojiSkinTone::COUNT; ++i) {
@@ -171,14 +108,13 @@ std::optional<Emoji> EmojiInfo::resolveByName(const QString& emojiName)
 
     const auto it = emojiMap.constFind(lookupName);
     if (it == emojiMap.cend()) {
-        requestCustomEmoji(emojiName);
         return std::nullopt;
     }
 
     return resolveBuiltinEmoji(it.value(), skinTone);
 }
 
-QVector<Emoji> EmojiInfo::getAllEmojis(uint32_t category, uint32_t skinTone)
+QVector<Emoji> EmojiInfo::getAllBuiltInEmojis(uint32_t category, uint32_t skinTone)
 {
     if (category >= EmojiCategory::COUNT || skinTone >= EmojiSkinTone::COUNT) {
         return {};
@@ -192,58 +128,9 @@ QVector<Emoji> EmojiInfo::getAllEmojis(uint32_t category, uint32_t skinTone)
                 result.push_back(Emoji {emoji.name, emoji.unicodeString[skinTone]});
             }
         }
-    } else if (category == EmojiCategory::custom) {
-        result += dynamicCustomEmojis;
     }
 
     return result;
-}
-
-void EmojiInfo::addCustomEmoji(const QString& emojiName, const QString& emojiPath)
-{
-    const QString normalizedPath = normalizedCustomEmojiPath(emojiPath);
-
-    const auto dynamicIt = dynamicCustomEmojiIndexes.constFind(emojiName);
-    if (dynamicIt != dynamicCustomEmojiIndexes.cend()) {
-        if (!normalizedPath.isEmpty()) {
-            customEmojiPaths.insert(normalizedPath);
-        }
-        return;
-    }
-
-    // The built-in "mattermost" image lives in the generated custom category.
-    // Keep it authoritative instead of shadowing it with a runtime entry.
-    const auto builtinIt = emojiMap.constFind(emojiName);
-    if (builtinIt != emojiMap.cend()
-        && builtinIt.value().kind == EmojiMapEntry::Kind::nonSkinVariadic
-        && builtinIt.value().category == EmojiCategory::custom) {
-        if (!normalizedPath.isEmpty()) {
-            customEmojiPaths.insert(normalizedPath);
-        }
-        return;
-    }
-
-    const Emoji emoji {
-        emojiName,
-        QStringLiteral(" <img src=\"%1\" width=1 height=1> ")
-            .arg(emojiPath.toHtmlEscaped())
-    };
-
-    const int index = dynamicCustomEmojis.size();
-    dynamicCustomEmojis.push_back(emoji);
-    dynamicCustomEmojiIndexes.insert(emojiName, index);
-
-    if (!normalizedPath.isEmpty()) {
-        customEmojiPaths.insert(normalizedPath);
-    }
-
-    emit EmojiRegistryNotifier::instance().customEmojiAdded(emojiName);
-}
-
-bool EmojiInfo::isCustomEmojiPath(const QString& emojiPath)
-{
-    const QString normalizedPath = normalizedCustomEmojiPath(emojiPath);
-    return !normalizedPath.isEmpty() && customEmojiPaths.contains(normalizedPath);
 }
 
 } /* namespace Mattermost */
