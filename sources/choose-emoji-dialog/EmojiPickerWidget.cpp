@@ -24,6 +24,7 @@
 #include <QVBoxLayout>
 
 #include "EmojiDialogSupport.h"
+#include "backend/Backend.h"
 #include "backend/CustomEmojiService.h"
 #include "ui/FlowLayout.h"
 #include "ui/OverlayScrollBarManager.h"
