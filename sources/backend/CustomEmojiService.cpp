@@ -97,7 +97,7 @@ void removeLegacyUnscopedEmojiCache()
 {
     QDir root(customEmojiCacheRootPath());
     if (!root.exists()) {
-        return false;
+        return;
     }
 
     const QFileInfoList legacyFiles =
@@ -112,7 +112,7 @@ bool pruneCustomEmojiDiskCache()
     const QString rootPath = customEmojiCacheRootPath();
     QDir root(rootPath);
     if (!root.exists()) {
-        return;
+        return false;
     }
 
     struct CacheFile {
