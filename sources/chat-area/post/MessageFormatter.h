@@ -6,12 +6,15 @@
 class QTextDocument;
 
 namespace Mattermost {
+
+class EmojiRegistry;
 namespace MessageFormatter {
 
-QString formatMessageText(const QString& text);
+QString formatMessageText(const QString& text, EmojiRegistry* registry = nullptr);
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-void buildMarkdownDocument(QTextDocument& document, const QString& text);
+void buildMarkdownDocument(QTextDocument& document, const QString& text,
+                           EmojiRegistry* registry = nullptr);
 #endif
 
 } // namespace MessageFormatter
