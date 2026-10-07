@@ -321,7 +321,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     // cache. Do not enumerate/download the server's custom-emoji catalog.
     for (const QString& emojiName :
          ReactionUsageTracker::instance().topNames(10)) {
-        (void)EmojiInfo::findByName(emojiName);
+        (void)EmojiInfo::resolveByName(emojiName);
     }
 
 	//retrieveAllPublicTeams ();
