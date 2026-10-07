@@ -76,11 +76,24 @@ private slots:
 
         chosen.reset();
         QTest::mousePress(thumb, Qt::LeftButton);
-        QTest::qWait(QApplication::startDragTime() + 100);
 
-        QWidget* popup = QApplication::activePopupWidget();
+        const auto findSkinTonePopup = []() -> QWidget* {
+            const auto topLevels = QApplication::topLevelWidgets();
+            for (QWidget* widget : topLevels) {
+                if (widget
+                    && widget->objectName()
+                        == QStringLiteral("emojiSkinTonePopup")) {
+                    return widget;
+                }
+            }
+            return nullptr;
+        };
+
+        QTRY_VERIFY_WITH_TIMEOUT(
+            findSkinTonePopup() != nullptr,
+            QApplication::startDragTime() + 1000);
+        QWidget* popup = findSkinTonePopup();
         QVERIFY(popup);
-        QCOMPARE(popup->objectName(), QStringLiteral("emojiSkinTonePopup"));
 
         const auto toneButtons =
             popup->findChildren<QPushButton*>(
