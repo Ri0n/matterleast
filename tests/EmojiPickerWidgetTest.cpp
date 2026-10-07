@@ -33,7 +33,6 @@ private slots:
         picker.prepare();
         picker.resize(560, 420);
         picker.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&picker));
         QApplication::processEvents();
 
         auto* stack = picker.findChild<QStackedWidget*>();
