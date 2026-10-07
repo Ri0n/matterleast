@@ -9,7 +9,7 @@
 #include <QTextLayout>
 #include <QTextList>
 
-#include "backend/emoji/EmojiInfo.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "chat-area/post/MessageFormatter.h"
 
 using namespace Mattermost;
@@ -313,10 +313,16 @@ private slots:
     {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
         const QString name = QStringLiteral("message_formatter_test_custom");
-        EmojiInfo::addCustomEmoji(name, QStringLiteral("/tmp/custom-emoji/message-formatter-test.gif"));
+        EmojiRegistry registry;
+        registry.addCustomEmoji(
+            name,
+            QStringLiteral("/tmp/custom-emoji/message-formatter-test.gif"));
 
         QTextDocument document;
-        MessageFormatter::buildMarkdownDocument(document, QStringLiteral("before :") + name + QStringLiteral(": after"));
+        MessageFormatter::buildMarkdownDocument(
+            document,
+            QStringLiteral("before :") + name + QStringLiteral(": after"),
+            &registry);
 
         QCOMPARE(document.blockCount(), 1);
         QVERIFY(blockHasText(document.firstBlock()));
@@ -406,14 +412,15 @@ private slots:
 
     void manyCustomEmojiDoNotRemapSkinVariadicEmoji()
     {
-        const auto before = EmojiInfo::resolveByName(QStringLiteral("+1"));
+        EmojiRegistry registry;
+        const auto before = registry.resolveByName(QStringLiteral("+1"));
         QVERIFY(before);
         QCOMPARE(before->unicodeString, QString::fromUtf8("👍"));
 
         QString formerCollisionName;
         for (int i = 0; i < 600; ++i) {
             const QString name = QStringLiteral("emoji_id_range_test_%1").arg(i);
-            EmojiInfo::addCustomEmoji(
+            registry.addCustomEmoji(
                 name,
                 QStringLiteral("/tmp/custom-emoji/emoji-id-range-test.gif"));
             if (i == 537) {
@@ -421,15 +428,15 @@ private slots:
             }
         }
 
-        const auto after = EmojiInfo::resolveByName(QStringLiteral("+1"));
+        const auto after = registry.resolveByName(QStringLiteral("+1"));
         QVERIFY(after);
         QCOMPARE(after->unicodeString, QString::fromUtf8("👍"));
 
-        const auto alias = EmojiInfo::resolveByName(QStringLiteral("thumbsup"));
+        const auto alias = registry.resolveByName(QStringLiteral("thumbsup"));
         QVERIFY(alias);
         QCOMPARE(alias->unicodeString, QString::fromUtf8("👍"));
 
-        const auto custom = EmojiInfo::resolveByName(formerCollisionName);
+        const auto custom = registry.resolveByName(formerCollisionName);
         QVERIFY(custom);
         QCOMPARE(custom->name, formerCollisionName);
     }
