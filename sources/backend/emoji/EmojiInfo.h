@@ -1,6 +1,6 @@
 /**
  * @file EmojiInfo.h
- * @brief Contains functions for getting emoji by ID and adding custom emojis
+ * @brief Immutable generated built-in emoji lookup
  * @author Lyubomir Filipov
  * @date Dec 30, 2022
  *
@@ -33,15 +33,12 @@ namespace Mattermost {
 
 class EmojiInfo {
 public:
-	EmojiInfo ();
-	virtual ~EmojiInfo ();
-public:
+    EmojiInfo() = delete;
 
     /**
      * Resolve an emoji presentation by its Mattermost name.
      *
-     * Runtime custom emoji are resolved by name and never receive a numeric ID.
-     * Missing valid names trigger the lazy custom-emoji resolver.
+     * Runtime custom emoji deliberately live outside this immutable registry.
      */
     static std::optional<Emoji> resolveBuiltInByName(const QString& emojiName);
 
