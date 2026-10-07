@@ -153,7 +153,7 @@ private slots:
         QVERIFY(reaction != post.reactions.end());
         QCOMPARE(reaction->second, BackendPostReaction {userId});
         QVERIFY(post.hasReaction(userId, wireName));
-        QVERIFY(!post.hasReaction(userId, presentation.name));
+        QVERIFY(!post.hasReaction(userId, presentation->name));
 
         PostWidget widget(backend, post, nullptr, nullptr, nullptr);
         auto* chip = widget.findChild<PostReaction*>();
