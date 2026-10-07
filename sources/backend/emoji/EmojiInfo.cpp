@@ -114,19 +114,21 @@ std::optional<Emoji> resolveBuiltinEmoji(const EmojiMapEntry& entry, uint16_t sk
         }
 
         const auto& emojis = emojiVecNoSkinVariadic[entry.category];
-        if (entry.index >= emojis.size()) {
+        const int index = static_cast<int>(entry.index);
+        if (index >= emojis.size()) {
             return std::nullopt;
         }
-        return emojis[entry.index];
+        return emojis[index];
     }
 
+    const int index = static_cast<int>(entry.index);
     if (entry.kind != EmojiMapEntry::Kind::skinVariadic
-        || entry.index >= emojiVecSkinVariadic.size()
+        || index >= emojiVecSkinVariadic.size()
         || skinTone >= EmojiSkinTone::COUNT) {
         return std::nullopt;
     }
 
-    const SkinVariadicEmoji& variadicEmoji = emojiVecSkinVariadic[entry.index];
+    const SkinVariadicEmoji& variadicEmoji = emojiVecSkinVariadic[index];
     if (skinTone >= variadicEmoji.unicodeString.size()) {
         return std::nullopt;
     }
