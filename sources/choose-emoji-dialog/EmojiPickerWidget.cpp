@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <utility>
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -724,7 +725,9 @@ QPushButton* EmojiPickerWidget::createEmojiButton(
         EmojiInfo::skinToneVariantsByName(emoji.name);
     Emoji selected = emoji;
     if (!variants.isEmpty()) {
-        selected = variants.at(qMin(defaultSkinTone(), variants.size() - 1));
+        selected = variants.at(std::min(
+            defaultSkinTone(),
+            static_cast<int>(variants.size()) - 1));
         button->setProperty(EmojiBaseNameProperty, emoji.name);
         button->setLongPressHandler([this, button, baseName = emoji.name] {
             showSkinTonePopup(button, baseName);
@@ -779,7 +782,8 @@ void EmojiPickerWidget::showSkinTonePopup(
     layout->setContentsMargins(4, 4, 4, 4);
     layout->setSpacing(2);
 
-    for (int tone = 0; tone < variants.size(); ++tone) {
+    const int variantCount = static_cast<int>(variants.size());
+    for (int tone = 0; tone < variantCount; ++tone) {
         const Emoji variant = variants.at(tone);
         auto* option = new QPushButton(variant.unicodeString, popup);
         option->setObjectName(QStringLiteral("emojiSkinToneOption"));
