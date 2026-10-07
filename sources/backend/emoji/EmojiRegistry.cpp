@@ -132,6 +132,17 @@ void EmojiRegistry::clearCustomEmojis()
     _customEmojiDirectories.clear();
 }
 
+void EmojiRegistry::dropMissingCustomEmojiFiles()
+{
+    const QStringList names = _customEmojiPathsByName.keys();
+    for (const QString& name : names) {
+        const QString* path = _customEmojiPathsByName.object(name);
+        if (path && !QFileInfo::exists(*path)) {
+            _customEmojiPathsByName.remove(name);
+        }
+    }
+}
+
 bool EmojiRegistry::isCustomEmojiPath(const QString& emojiPath) const
 {
     const QString normalizedPath = normalizedCustomEmojiPath(emojiPath);
