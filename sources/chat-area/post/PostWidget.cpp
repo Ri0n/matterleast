@@ -1751,7 +1751,7 @@ QString PostWidget::getSelectedText()
 	return messageContent->selectedText();
 }
 
-QString PostWidget::formatMessageText(const QString& str)
+QString PostWidget::formatMessageText(const QString& str) const
 {
 	return MessageFormatter::formatMessageText(str, &backend_.emojiRegistry());
 }
