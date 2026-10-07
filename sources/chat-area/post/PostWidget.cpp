@@ -1576,11 +1576,11 @@ void PostWidget::createReactionList()
     }
 
     for (const auto& [emojiName, users] : post.reactions) {
-        const EmojiID emojiId = EmojiInfo::findByName(emojiName);
-        if (!emojiId) {
+        const auto presentation = EmojiInfo::resolveByName(emojiName);
+        if (!presentation) {
             // Keep the exact wire identity visible while CustomEmojiService
-            // resolves only its presentation. findByName() above schedules that
-            // lazy lookup for valid custom names.
+            // resolves only its presentation. resolveByName() above schedules
+            // that lazy lookup for valid custom names.
             reactions->addReaction(
                 emojiName,
                 QStringLiteral(":") + emojiName + QLatin1Char(':'),
@@ -1588,9 +1588,8 @@ void PostWidget::createReactionList()
             continue;
         }
 
-        const Emoji presentation = EmojiInfo::getEmoji(emojiId);
         reactions->addReaction(
-            emojiName, presentation.unicodeString, users);
+            emojiName, presentation->unicodeString, users);
     }
 
     connectReactionActions();
