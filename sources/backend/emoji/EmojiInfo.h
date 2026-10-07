@@ -43,22 +43,10 @@ public:
      * Runtime custom emoji are resolved by name and never receive a numeric ID.
      * Missing valid names trigger the lazy custom-emoji resolver.
      */
-    static std::optional<Emoji> resolveByName(const QString& emojiName);
+    static std::optional<Emoji> resolveBuiltInByName(const QString& emojiName);
 
-	static QVector<Emoji> getAllEmojis (uint32_t category, uint32_t skinTone);
-
-	/**
-	 * Add a custom emoji.
-	 * Custom emojis use image instead of unicode codepoints.
-	 * However, images can be represented as <img> tags in Qt's QLabel rich text.
-	 * This allows custom emojis also to use strings as values
-	 * @param emojiName emoji name
-	 * @param emojiPath path to the emoji image
-	 */
-	static void addCustomEmoji (const QString& emojiName, const QString& emojiPath);
-
-    /** Return whether an image resource belongs to the custom-emoji registry. */
-    static bool isCustomEmojiPath(const QString& emojiPath);
+    static QVector<Emoji> getAllBuiltInEmojis(
+        uint32_t category, uint32_t skinTone);
 };
 
 } /* namespace Mattermost */
