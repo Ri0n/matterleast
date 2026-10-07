@@ -29,6 +29,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
+#include <QVector>
 
 #include "Backend.h"
 #include "NetworkRequest.h"
@@ -88,6 +89,20 @@ void touchCustomEmojiCacheFile(const QString& path)
         file.setFileTime(
             QDateTime::currentDateTimeUtc(),
             QFileDevice::FileModificationTime);
+    }
+}
+
+void removeLegacyUnscopedEmojiCache()
+{
+    QDir root(customEmojiCacheRootPath());
+    if (!root.exists()) {
+        return;
+    }
+
+    const QFileInfoList legacyFiles =
+        root.entryInfoList(QDir::Files | QDir::NoSymLinks);
+    for (const QFileInfo& file : legacyFiles) {
+        QFile::remove(file.absoluteFilePath());
     }
 }
 
@@ -177,6 +192,8 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
     : QObject(&backend)
     , _backend(backend)
 {
+    removeLegacyUnscopedEmojiCache();
+    pruneCustomEmojiDiskCache();
     connect(&_backend.emojiRegistry(),
             &EmojiRegistry::customEmojiRequested,
             this, &CustomEmojiService::ensureEmoji);
