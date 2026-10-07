@@ -40,6 +40,8 @@ constexpr int MaxNamesPerBatch = 200;
 constexpr int MaxRememberedMissingNames = 2048;
 constexpr qint64 MaxCustomEmojiDiskCacheBytes =
     128LL * 1024 * 1024;
+constexpr qint64 DiskPruneGranularityBytes =
+    4LL * 1024 * 1024;
 
 QString normalizedServerCacheIdentity(const Backend& backend)
 {
@@ -95,7 +97,7 @@ void removeLegacyUnscopedEmojiCache()
 {
     QDir root(customEmojiCacheRootPath());
     if (!root.exists()) {
-        return;
+        return false;
     }
 
     const QFileInfoList legacyFiles =
@@ -105,7 +107,7 @@ void removeLegacyUnscopedEmojiCache()
     }
 }
 
-void pruneCustomEmojiDiskCache()
+bool pruneCustomEmojiDiskCache()
 {
     const QString rootPath = customEmojiCacheRootPath();
     QDir root(rootPath);
@@ -140,8 +142,10 @@ void pruneCustomEmojiDiskCache()
     }
 
     if (totalBytes <= MaxCustomEmojiDiskCacheBytes) {
-        return;
+        return false;
     }
+
+    bool removedAny = false;
 
     std::sort(files.begin(), files.end(),
               [](const CacheFile& left, const CacheFile& right) {
@@ -153,8 +157,10 @@ void pruneCustomEmojiDiskCache()
         }
         if (QFile::remove(file.path)) {
             totalBytes -= file.size;
+            removedAny = true;
         }
     }
+    return removedAny;
 }
 
 bool isUnsupportedBatchStatus(int status)
@@ -211,6 +217,7 @@ void CustomEmojiService::resetSession()
     _flushScheduled = false;
     _batchLookupSupported = true;
     _browsePageRequested = false;
+    _bytesSinceDiskPrune = 0;
 }
 
 bool CustomEmojiService::isValidCustomEmojiName(const QString& name)
@@ -479,7 +486,13 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
             }
             file.close();
 
-            pruneCustomEmojiDiskCache();
+            _bytesSinceDiskPrune += data.size();
+            if (_bytesSinceDiskPrune >= DiskPruneGranularityBytes) {
+                _bytesSinceDiskPrune = 0;
+                if (pruneCustomEmojiDiskCache()) {
+                    _backend.emojiRegistry().dropMissingCustomEmojiFiles();
+                }
+            }
             if (QFileInfo::exists(filePath)) {
                 _backend.emojiRegistry().addCustomEmoji(name, filePath);
             }
