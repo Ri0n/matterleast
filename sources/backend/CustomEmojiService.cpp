@@ -33,6 +33,15 @@ namespace {
 
 constexpr int MaxNamesPerBatch = 200;
 
+using CustomEmojiServiceMap =
+    QHash<Backend*, QPointer<CustomEmojiService>>;
+
+CustomEmojiServiceMap& customEmojiServiceInstances()
+{
+    static CustomEmojiServiceMap instances;
+    return instances;
+}
+
 bool isUnsupportedBatchStatus(int status)
 {
     return status == 404 || status == 405 || status == 501;
@@ -42,10 +51,14 @@ bool isUnsupportedBatchStatus(int status)
 
 CustomEmojiService& CustomEmojiService::instance(Backend& backend)
 {
-    static QHash<Backend*, QPointer<CustomEmojiService>> instances;
+    auto& instances = customEmojiServiceInstances();
     QPointer<CustomEmojiService>& service = instances[&backend];
     if (!service) {
         service = new CustomEmojiService(backend);
+        Backend* const backendKey = &backend;
+        connect(&backend, &QObject::destroyed, [backendKey] {
+            customEmojiServiceInstances().remove(backendKey);
+        });
     }
     return *service;
 }
