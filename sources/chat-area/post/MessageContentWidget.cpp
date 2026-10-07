@@ -1271,7 +1271,7 @@ void MessageContentWidget::addRichTextFragment(const QTextDocumentFragment& frag
     }
 
     auto* richText = new WrappedRichText(
-        [this] { scheduleDimensionsChanged(); }, this);
+        [this] { scheduleDimensionsChanged(); }, _emojiRegistry, this);
     richText->setLinkDragHandler([this](const QString& link) {
         emit linkDragRequested(link);
     });
