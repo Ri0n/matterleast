@@ -22,7 +22,7 @@
  * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
  */
 
-#include <QMap>
+#include <QHash>
 #include <QVector>
 #include "EmojiDefs.h"
 
@@ -1867,7 +1867,7 @@ QVector<SkinVariadicEmoji> emojiVecSkinVariadic {
 	{"two_men_holding_hands",{"👬","👬🏻","👬🏼","👬🏽","👬🏾","👬🏿","","","","","","","","","","","","","","","","","","","","",}},
 };
 
-QMap<QString, EmojiMapEntry> emojiMap {
+QHash<QString, EmojiMapEntry> emojiMap {
 	{"+1", {EmojiMapEntry::Kind::skinVariadic, 1, 19}},
 	{"-1", {EmojiMapEntry::Kind::skinVariadic, 1, 20}},
 	{"100", {EmojiMapEntry::Kind::nonSkinVariadic, 0, 137}},
