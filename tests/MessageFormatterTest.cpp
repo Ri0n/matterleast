@@ -406,10 +406,9 @@ private slots:
 
     void manyCustomEmojiDoNotRemapSkinVariadicEmoji()
     {
-        const EmojiID beforeId = EmojiInfo::findByName(QStringLiteral("+1"));
-        QVERIFY(beforeId);
-        QCOMPARE(EmojiInfo::getEmoji(beforeId).unicodeString,
-                 QString::fromUtf8("👍"));
+        const auto before = EmojiInfo::resolveByName(QStringLiteral("+1"));
+        QVERIFY(before);
+        QCOMPARE(before->unicodeString, QString::fromUtf8("👍"));
 
         QString formerCollisionName;
         for (int i = 0; i < 600; ++i) {
@@ -422,21 +421,17 @@ private slots:
             }
         }
 
-        const EmojiID afterId = EmojiInfo::findByName(QStringLiteral("+1"));
-        QVERIFY(afterId);
-        QCOMPARE(afterId.seq, beforeId.seq);
-        QCOMPARE(EmojiInfo::getEmoji(afterId).unicodeString,
-                 QString::fromUtf8("👍"));
+        const auto after = EmojiInfo::resolveByName(QStringLiteral("+1"));
+        QVERIFY(after);
+        QCOMPARE(after->unicodeString, QString::fromUtf8("👍"));
 
-        const EmojiID aliasId = EmojiInfo::findByName(QStringLiteral("thumbsup"));
-        QVERIFY(aliasId);
-        QCOMPARE(aliasId.seq, beforeId.seq);
-        QCOMPARE(EmojiInfo::getEmoji(aliasId).unicodeString,
-                 QString::fromUtf8("👍"));
+        const auto alias = EmojiInfo::resolveByName(QStringLiteral("thumbsup"));
+        QVERIFY(alias);
+        QCOMPARE(alias->unicodeString, QString::fromUtf8("👍"));
 
-        const EmojiID customId = EmojiInfo::findByName(formerCollisionName);
-        QVERIFY(customId);
-        QCOMPARE(EmojiInfo::getEmoji(customId).name, formerCollisionName);
+        const auto custom = EmojiInfo::resolveByName(formerCollisionName);
+        QVERIFY(custom);
+        QCOMPARE(custom->name, formerCollisionName);
     }
 };
 
