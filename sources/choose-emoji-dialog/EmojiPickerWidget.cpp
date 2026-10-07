@@ -25,8 +25,6 @@
 
 #include "EmojiDialogSupport.h"
 #include "backend/CustomEmojiService.h"
-#include "backend/emoji/EmojiInfo.h"
-#include "backend/emoji/EmojiRegistryNotifier.h"
 #include "ui/FlowLayout.h"
 #include "ui/OverlayScrollBarManager.h"
 
@@ -282,8 +280,8 @@ EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
             updateSearchResults(searchEdit_->text());
         }
     });
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
+    connect(&backend_.emojiRegistry(),
+            &EmojiRegistry::customEmojiAdded,
             this, [this](const QString&) {
         customEmojiRefreshTimer_->start();
     });
@@ -375,7 +373,7 @@ void EmojiPickerWidget::createEmojiTabs()
         }
 
         const QVector<Emoji> emojis =
-            EmojiInfo::getAllEmojis(categoryIdx, 0);
+            backend_.emojiRegistry().getAllEmojis(categoryIdx, 0);
         createTabForCategory(
             categoryIdx,
             tabIndex,
@@ -386,7 +384,7 @@ void EmojiPickerWidget::createEmojiTabs()
 
     rebuildSearchableEmojis();
     renderedCustomEmojiCount_ =
-        EmojiInfo::getAllEmojis(EmojiCategory::custom, 0).size();
+        backend_.emojiRegistry().getAllEmojis(EmojiCategory::custom, 0).size();
 
     if (stackWidget_->count() > 0
         && stackWidget_->currentIndex() < 0) {
@@ -404,7 +402,7 @@ void EmojiPickerWidget::rebuildSearchableEmojis()
         if (categoryIdx == EmojiCategory::component) {
             continue;
         }
-        searchableEmojis_ += EmojiInfo::getAllEmojis(categoryIdx, 0);
+        searchableEmojis_ += backend_.emojiRegistry().getAllEmojis(categoryIdx, 0);
     }
 }
 
@@ -413,7 +411,7 @@ void EmojiPickerWidget::refreshCustomEmojiCatalog()
     rebuildSearchableEmojis();
 
     const QVector<Emoji> customEmojis =
-        EmojiInfo::getAllEmojis(EmojiCategory::custom, 0);
+        backend_.emojiRegistry().getAllEmojis(EmojiCategory::custom, 0);
     if (stackWidget_->count() < 1
         || customEmojis.size() == renderedCustomEmojiCount_) {
         return;
@@ -724,7 +722,7 @@ void EmojiPickerWidget::addSkinToneComboBox(
         [this, categoryIdx](int index) {
         qDebug() << "Set skin tone " << index;
         const QVector<Emoji> emojis =
-            EmojiInfo::getAllEmojis(categoryIdx, index);
+            backend_.emojiRegistry().getAllEmojis(categoryIdx, index);
 
         for (int i = 0; i < emojis.size(); ++i) {
             if (i >= peopleEmojiButtons_.size()) {
