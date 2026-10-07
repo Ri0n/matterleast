@@ -96,37 +96,20 @@ const QString descriptionString[] {
 }
 
 /**
- * EmojiSeq - sequence number of emoji - uniquely identifies emoji, ignoring skin-tone. Used by the emoji map
- * EmojiID - combination of EmojiSeq and skin-tone - uniquely identifies any emoji. Used to get an emoji by name
+ * Generated lookup coordinates for a built-in emoji.
+ *
+ * This is storage metadata, not an emoji identity: Mattermost identifies emoji
+ * by name, and runtime custom emoji are intentionally kept outside this map.
  */
+struct EmojiMapEntry {
+    enum class Kind : uint8_t {
+        nonSkinVariadic,
+        skinVariadic,
+    };
 
-using EmojiSeq = uint16_t;
-
-/**
- * Unique identifier for each emoji
- */
-struct EmojiID {
-
-	explicit operator bool () const
-	{
-		return seq != 0;
-	}
-
-	bool operator ! () const
-	{
-		return !seq;
-	}
-
-	bool operator< (const EmojiID& other) const
-	{
-		if (seq != other.seq) {
-			return seq < other.seq;
-		}
-
-		return skinTone < other.skinTone;
-	}
-	uint16_t	skinTone;
-	EmojiSeq	seq;
+    Kind kind;
+    uint16_t category;
+    uint16_t index;
 };
 
 /**
@@ -150,8 +133,6 @@ struct NonSkinVariadicEmoji {
 
 
 using Emoji = NonSkinVariadicEmoji;
-
-static constexpr int SKINVARIADIC_START_INDEX = 2048;
 
 } /* namespace Mattermost */
 
