@@ -25,6 +25,8 @@
 #pragma once
 
 #include <QVector>
+
+#include <optional>
 #include "EmojiDefs.h"
 
 namespace Mattermost {
@@ -35,19 +37,13 @@ public:
 	virtual ~EmojiInfo ();
 public:
 
-	/**
-	 * Find emoji by name
-	 * @param emojiName emoji name. Emoji names are used to identify emojis in packets from/to Mattermost server
-	 * @return EmojiID
-	 */
-	static EmojiID findByName (const QString& emojiName);
-
-	/**
-	 * Get emoji by EmojiID
-	 * @param emojiID emoji ID (can be obtained using findByName())
-	 * @return Emoji
-	 */
-	static Emoji getEmoji (const EmojiID& emojiID);
+    /**
+     * Resolve an emoji presentation by its Mattermost name.
+     *
+     * Runtime custom emoji are resolved by name and never receive a numeric ID.
+     * Missing valid names trigger the lazy custom-emoji resolver.
+     */
+    static std::optional<Emoji> resolveByName(const QString& emojiName);
 
 	static QVector<Emoji> getAllEmojis (uint32_t category, uint32_t skinTone);
 
