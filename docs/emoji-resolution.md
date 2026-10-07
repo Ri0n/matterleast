@@ -63,10 +63,12 @@ recognize custom image resources in O(1). Presentation HTML is constructed on
 demand instead of being retained per entry.
 
 `CustomEmojiService` is backend-scoped as well and talks directly to that
-registry. A miss emits `EmojiRegistry::customEmojiRequested` only to the
-resolver for the same backend; completion emits `customEmojiAdded` only to UI
-bound to that backend. Destroying the backend therefore releases the runtime
-registry and prevents custom names or image paths from leaking across servers.
+registry. It is owned as a direct QObject child of `Backend`, with no
+process-global instance table. A miss emits
+`EmojiRegistry::customEmojiRequested` only to the resolver for the same
+backend; completion emits `customEmojiAdded` only to UI bound to that backend.
+Destroying or resetting the backend therefore releases or clears the runtime
+state and prevents custom names or image paths from leaking across servers.
 
 The persistent image cache is also server-scoped. Cached files live below a
 hash of the normalized server identity rather than directly below
