@@ -43,7 +43,7 @@
 #include "MessageFormatter.h"
 #include "Settings.h"
 #include "backend/emoji/EmojiInfo.h"
-#include "backend/emoji/EmojiRegistryNotifier.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "options/MLOptions.h"
 #include "ui/EmojiFont.h"
 #include "ui/EmojiPresentation.h"
@@ -69,7 +69,7 @@ const QSet<QString>& unicodeEmojiStrings()
                 ? EmojiSkinTone::COUNT
                 : 1;
             for (int skinTone = 0; skinTone < skinToneCount; ++skinTone) {
-                const QVector<Emoji> emojis = EmojiInfo::getAllEmojis(category, skinTone);
+                const QVector<Emoji> emojis = EmojiInfo::getAllBuiltInEmojis(category, skinTone);
                 for (const Emoji& emoji : emojis) {
                     const QString glyph = emoji.unicodeString.trimmed();
                     if (!glyph.isEmpty() && !glyph.contains(QStringLiteral("<img"))) {
@@ -85,7 +85,7 @@ const QSet<QString>& unicodeEmojiStrings()
     return emojiStrings;
 }
 
-bool isEmojiOnlyMessage(const QString& message)
+bool isEmojiOnlyMessage(const QString& message, EmojiRegistry* registry)
 {
     if (message.trimmed().isEmpty()) {
         return false;
@@ -106,7 +106,10 @@ bool isEmojiOnlyMessage(const QString& message)
             const int end = message.indexOf(QLatin1Char(':'), position + 1);
             if (end > position + 1) {
                 const QString name = message.mid(position + 1, end - position - 1);
-                if (EmojiInfo::resolveByName(name)) {
+                const auto emoji = registry
+                    ? registry->resolveByName(name)
+                    : EmojiInfo::resolveBuiltInByName(name);
+                if (emoji) {
                     foundEmoji = true;
                     position = end + 1;
                     continue;
@@ -130,7 +133,8 @@ bool isEmojiOnlyMessage(const QString& message)
     return foundEmoji;
 }
 
-void applyEmojiPresentation(QTextDocument& document, bool jumbo)
+void applyEmojiPresentation(QTextDocument& document, bool jumbo,
+                            const EmojiRegistry* registry)
 {
     const QString text = document.toPlainText();
     if (text.isEmpty()) {
@@ -181,7 +185,7 @@ void applyEmojiPresentation(QTextDocument& document, bool jumbo)
         start = end;
     }
 
-    EmojiPresentation::apply(document, mode);
+    EmojiPresentation::apply(document, mode, registry);
 }
 
 bool isDraggableMessageLink(const QString& link)
@@ -292,9 +296,11 @@ class WrappedRichText final : public QTextBrowser
 {
 public:
     explicit WrappedRichText(std::function<void()> heightChanged,
+                             EmojiRegistry* emojiRegistry,
                              QWidget* parent = nullptr)
         : QTextBrowser(parent)
         , heightChanged(std::move(heightChanged))
+        , _emojiRegistry(emojiRegistry)
     {
         setObjectName(QStringLiteral("messageRichText"));
         setReadOnly(true);
@@ -359,7 +365,8 @@ public:
     {
         QTextDocument* target = document();
         target->setDefaultFont(font());
-        MessageFormatter::buildMarkdownDocument(*target, markdown);
+        MessageFormatter::buildMarkdownDocument(
+            *target, markdown, _emojiRegistry);
         finishContent(jumboEmoji);
     }
 #endif
@@ -433,7 +440,7 @@ private:
     {
         document()->setDefaultFont(font());
         document()->setDocumentMargin(0);
-        applyEmojiPresentation(*document(), jumboEmoji);
+        applyEmojiPresentation(*document(), jumboEmoji, _emojiRegistry);
         applyWrapMode();
         scheduleHeightUpdate();
     }
@@ -477,6 +484,7 @@ private:
     QPoint dragStartPosition;
     bool dragConsumed = false;
     bool updatingHeight = false;
+    EmojiRegistry* _emojiRegistry = nullptr;
 };
 
 class QuoteBar final : public QWidget
@@ -499,6 +507,7 @@ class QuoteBlock final : public QWidget
 public:
     QuoteBlock(const QString& markdown,
                std::function<void()> heightChanged,
+               EmojiRegistry* emojiRegistry,
                QWidget* parent = nullptr)
         : QWidget(parent)
         , heightChanged(std::move(heightChanged))
@@ -519,11 +528,12 @@ public:
             if (this->heightChanged) {
                 this->heightChanged();
             }
-        }, this);
+        }, emojiRegistry, this);
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         text->setContentMarkdown(markdown);
 #else
-        text->setContentHtml(MessageFormatter::formatMessageText(markdown));
+        text->setContentHtml(
+            MessageFormatter::formatMessageText(markdown, emojiRegistry));
 #endif
         layout->addWidget(text, 1);
         updateMutedPalette();
@@ -916,18 +926,35 @@ MessageContentWidget::MessageContentWidget(QWidget* parent)
         applyChatFont(value.toString());
     });
 
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
-            this,
-            [this](const QString& name) {
-        if (_sourceMessage.isEmpty()) {
-            return;
-        }
-        const QString token = QLatin1Char(':') + name + QLatin1Char(':');
-        if (_sourceMessage.contains(token)) {
-            setMessage(_sourceMessage);
-        }
-    });
+}
+
+void MessageContentWidget::setEmojiRegistry(EmojiRegistry* registry)
+{
+    if (_emojiRegistry == registry) {
+        return;
+    }
+
+    if (_emojiAddedConnection) {
+        disconnect(_emojiAddedConnection);
+        _emojiAddedConnection = {};
+    }
+    _emojiRegistry = registry;
+    if (!_emojiRegistry) {
+        return;
+    }
+
+    _emojiAddedConnection = connect(
+        _emojiRegistry, &EmojiRegistry::customEmojiAdded,
+        this, [this](const QString& name) {
+            if (_sourceMessage.isEmpty()) {
+                return;
+            }
+            const QString token =
+                QLatin1Char(':') + name + QLatin1Char(':');
+            if (_sourceMessage.contains(token)) {
+                setMessage(_sourceMessage);
+            }
+        });
 }
 
 void MessageContentWidget::setInlineAttachmentContext(
@@ -975,7 +1002,7 @@ void MessageContentWidget::changeEvent(QEvent* event)
 void MessageContentWidget::setMessage(const QString& message)
 {
     _sourceMessage = message;
-    _jumboEmojiMessage = isEmojiOnlyMessage(message);
+    _jumboEmojiMessage = isEmojiOnlyMessage(message, _emojiRegistry);
     _inlineAttachmentFileIds.clear();
     clearContent();
 
@@ -998,7 +1025,7 @@ void MessageContentWidget::setMessage(const QString& message)
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         addMarkdownContent(segment.text);
 #else
-        addRichText(MessageFormatter::formatMessageText(segment.text));
+        addRichText(MessageFormatter::formatMessageText(segment.text, _emojiRegistry));
 #endif
     }
     scheduleDimensionsChanged();
@@ -1119,7 +1146,10 @@ void MessageContentWidget::addQuote(const QString& markdown)
     }
 
     auto* quote = new QuoteBlock(
-        markdown, [this] { scheduleDimensionsChanged(); }, this);
+        markdown,
+        [this] { scheduleDimensionsChanged(); },
+        _emojiRegistry,
+        this);
     quote->browser()->setLinkDragHandler([this](const QString& link) {
         emit linkDragRequested(link);
     });
@@ -1140,7 +1170,7 @@ void MessageContentWidget::addRichText(const QString& html)
     }
 
     auto* richText = new WrappedRichText(
-        [this] { scheduleDimensionsChanged(); }, this);
+        [this] { scheduleDimensionsChanged(); }, _emojiRegistry, this);
     richText->setLinkDragHandler([this](const QString& link) {
         emit linkDragRequested(link);
     });
@@ -1260,7 +1290,8 @@ void MessageContentWidget::addMarkdownContent(const QString& message)
 {
     QTextDocument document;
     document.setDefaultFont(font());
-    MessageFormatter::buildMarkdownDocument(document, message);
+    MessageFormatter::buildMarkdownDocument(
+        document, message, _emojiRegistry);
 
     int richStart = 0;
     QTextBlock block = document.begin();
