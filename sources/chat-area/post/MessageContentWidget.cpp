@@ -106,7 +106,7 @@ bool isEmojiOnlyMessage(const QString& message)
             const int end = message.indexOf(QLatin1Char(':'), position + 1);
             if (end > position + 1) {
                 const QString name = message.mid(position + 1, end - position - 1);
-                if (EmojiInfo::findByName(name)) {
+                if (EmojiInfo::resolveByName(name)) {
                     foundEmoji = true;
                     position = end + 1;
                     continue;
