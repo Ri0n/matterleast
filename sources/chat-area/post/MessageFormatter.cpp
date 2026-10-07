@@ -41,17 +41,14 @@ static void replaceEmojis(QString& text)
 
         const int emojiNameSize = emojiEnd - emojiStart - 1;
         const QString emojiName = text.mid(emojiStart + 1, emojiNameSize);
-        const EmojiID emojiID = EmojiInfo::findByName(emojiName);
-
-        if (!emojiID) {
+        const auto emoji = EmojiInfo::resolveByName(emojiName);
+        if (!emoji) {
             ++emojiEnd;
             continue;
         }
 
-        const Emoji emoji = EmojiInfo::getEmoji(emojiID);
-        text.replace(emojiStart, emojiNameSize + 2, emoji.unicodeString);
-
-        emojiEnd = emojiStart + emoji.unicodeString.size();
+        text.replace(emojiStart, emojiNameSize + 2, emoji->unicodeString);
+        emojiEnd = emojiStart + emoji->unicodeString.size();
     } while (emojiStart != -1);
 }
 #endif
@@ -526,15 +523,15 @@ void replaceEmojisInDocument(QTextDocument& document)
         QRegularExpressionMatchIterator matches = emojiExpression.globalMatch(blockText);
         while (matches.hasNext()) {
             const QRegularExpressionMatch match = matches.next();
-            const EmojiID emojiID = EmojiInfo::findByName(match.captured(1));
-            if (!emojiID) {
+            const auto emoji = EmojiInfo::resolveByName(match.captured(1));
+            if (!emoji) {
                 continue;
             }
 
             replacements.push_back(EmojiReplacement {
                 block.position() + static_cast<int>(match.capturedStart(0)),
                 static_cast<int>(match.capturedLength(0)),
-                EmojiInfo::getEmoji(emojiID),
+                *emoji,
             });
         }
     }
