@@ -29,6 +29,7 @@ public:
     static CustomEmojiService& instance(Backend& backend);
 
     void ensureEmoji(const QString& name);
+    void resetSession();
     /** Search the server-side custom-emoji catalog and cache matching images. */
     void searchEmojis(const QString& term);
 
