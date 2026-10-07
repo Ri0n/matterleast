@@ -60,7 +60,6 @@
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
 #include "backend/UploadTrace.h"
-#include "backend/emoji/EmojiRegistryNotifier.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatLogWidget.h"
 #include "chat-area/QuotedReplyFormat.h"
@@ -347,25 +346,6 @@ OutgoingPostCreator::OutgoingPostCreator(QWidget* parent)
         }
     });
 
-    connect(&EmojiRegistryNotifier::instance(),
-            &EmojiRegistryNotifier::customEmojiAdded,
-            this,
-            [this](const QString& name) {
-                if (!rankedEmojiPopup || !rankedEmojiPopup->isVisible()
-                    || !ReactionUsageTracker::instance()
-                            .topNames(RankedEmojiCapacity)
-                            .contains(name)) {
-                    return;
-                }
-
-                QTimer::singleShot(0, this, [this] {
-                    if (!rankedEmojiPopup || !rankedEmojiPopup->isVisible()) {
-                        return;
-                    }
-                    rebuildRankedEmojiButtons();
-                    positionRankedEmojiPopup();
-                });
-            });
 }
 
 void OutgoingPostCreator::init(Backend& backendInstance,
@@ -378,6 +358,29 @@ void OutgoingPostCreator::init(Backend& backendInstance,
                                QPushButton& sendButtonInstance)
 {
 	backend = &backendInstance;
+    if (_emojiAddedConnection) {
+        disconnect(_emojiAddedConnection);
+    }
+    _emojiAddedConnection = connect(
+        &backendInstance.emojiRegistry(),
+        &EmojiRegistry::customEmojiAdded,
+        this,
+        [this](const QString& name) {
+            if (!rankedEmojiPopup || !rankedEmojiPopup->isVisible()
+                || !ReactionUsageTracker::instance()
+                        .topNames(RankedEmojiCapacity)
+                        .contains(name)) {
+                return;
+            }
+
+            QTimer::singleShot(0, this, [this] {
+                if (!rankedEmojiPopup || !rankedEmojiPopup->isVisible()) {
+                    return;
+                }
+                rebuildRankedEmojiButtons();
+                positionRankedEmojiPopup();
+            });
+        });
 	channel = &channelInstance;
 	chatLogWidget = &chatLogWidgetInstance;
 
@@ -1426,10 +1429,15 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
         static_cast<RankedEmojiFlowHost*>(rankedEmojiFlowHost.data());
     FlowLayout* layout = flowHost->flowLayout();
 
+    if (!backend) {
+        return;
+    }
+
     const QStringList rankedNames =
         ReactionUsageTracker::instance().topNames(RankedEmojiCapacity);
     const QStringList names =
-        RankedEmojiPresentation::renderableNames(rankedNames)
+        RankedEmojiPresentation::renderableNames(
+            backend->emojiRegistry(), rankedNames)
             .mid(0, RankedEmojiCapacity);
 
     // Custom emoji can become available asynchronously just after startup.
@@ -1461,7 +1469,7 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
         emojiButton->setCursor(Qt::PointingHandCursor);
 
         if (!RankedEmojiPresentation::configureButton(
-                *emojiButton, name)) {
+                backend->emojiRegistry(), *emojiButton, name)) {
             delete emojiButton;
             continue;
         }
