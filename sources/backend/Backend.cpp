@@ -331,6 +331,8 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
 void Backend::reset ()
 {
 	isLoggedIn = false;
+    CustomEmojiService::instance(*this).resetSession();
+    _emojiRegistry.clearCustomEmojis();
 
 	/*
 	 * This is important. Disconnect all signals. Added lambda functions are not removed when
