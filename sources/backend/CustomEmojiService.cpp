@@ -11,7 +11,10 @@
 
 #include "CustomEmojiService.h"
 
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
@@ -23,6 +26,7 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QUrl>
 
 #include "Backend.h"
 #include "NetworkRequest.h"
@@ -32,6 +36,110 @@ namespace Mattermost {
 namespace {
 
 constexpr int MaxNamesPerBatch = 200;
+constexpr qint64 MaxCustomEmojiDiskCacheBytes =
+    128LL * 1024 * 1024;
+
+QString normalizedServerCacheIdentity(const Backend& backend)
+{
+    QString identity = backend.serverDomain().trimmed();
+    if (identity.isEmpty()) {
+        return {};
+    }
+
+    QUrl url(identity);
+    if (url.isValid() && !url.host().isEmpty()) {
+        url.setScheme(url.scheme().toLower());
+        url.setHost(url.host().toLower());
+        url.setQuery(QString());
+        url.setFragment(QString());
+        identity = url.toString(QUrl::FullyEncoded);
+    }
+    while (identity.endsWith(QLatin1Char('/'))) {
+        identity.chop(1);
+    }
+    return identity;
+}
+
+QString customEmojiCacheRootPath()
+{
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation))
+        .filePath(QStringLiteral("custom-emoji"));
+}
+
+QString customEmojiServerCachePath(const Backend& backend)
+{
+    const QString identity = normalizedServerCacheIdentity(backend);
+    if (identity.isEmpty()) {
+        return {};
+    }
+
+    const QByteArray digest = QCryptographicHash::hash(
+        identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(32);
+    return QDir(customEmojiCacheRootPath())
+        .filePath(QString::fromLatin1(digest));
+}
+
+void touchCustomEmojiCacheFile(const QString& path)
+{
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly)) {
+        file.setFileTime(
+            QDateTime::currentDateTimeUtc(),
+            QFileDevice::FileModificationTime);
+    }
+}
+
+void pruneCustomEmojiDiskCache()
+{
+    const QString rootPath = customEmojiCacheRootPath();
+    QDir root(rootPath);
+    if (!root.exists()) {
+        return;
+    }
+
+    struct CacheFile {
+        QString path;
+        qint64 size = 0;
+        QDateTime lastUsed;
+    };
+
+    QVector<CacheFile> files;
+    qint64 totalBytes = 0;
+    QDirIterator it(
+        rootPath,
+        QDir::Files | QDir::NoSymLinks,
+        QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        const QFileInfo info(path);
+        if (!info.isFile()) {
+            continue;
+        }
+        files.push_back(CacheFile {
+            path,
+            info.size(),
+            info.lastModified(),
+        });
+        totalBytes += info.size();
+    }
+
+    if (totalBytes <= MaxCustomEmojiDiskCacheBytes) {
+        return;
+    }
+
+    std::sort(files.begin(), files.end(),
+              [](const CacheFile& left, const CacheFile& right) {
+        return left.lastUsed < right.lastUsed;
+    });
+    for (const CacheFile& file : files) {
+        if (totalBytes <= MaxCustomEmojiDiskCacheBytes) {
+            break;
+        }
+        if (QFile::remove(file.path)) {
+            totalBytes -= file.size;
+        }
+    }
+}
 
 using CustomEmojiServiceMap =
     QHash<Backend*, QPointer<CustomEmojiService>>;
@@ -319,18 +427,25 @@ void CustomEmojiService::lookupNamesIndividually(const QSet<QString>& names)
 
 void CustomEmojiService::ensureImage(const QString& id, const QString& name)
 {
-    QDir cacheDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
-    QDir emojiDir(cacheDir.filePath(QStringLiteral("custom-emoji")));
+    const QString serverCachePath = customEmojiServerCachePath(_backend);
+    if (serverCachePath.isEmpty()) {
+        _inFlightNames.remove(name);
+        return;
+    }
+
+    QDir emojiDir(serverCachePath);
     if (!emojiDir.exists() && !emojiDir.mkpath(QStringLiteral("."))) {
         _inFlightNames.remove(name);
         return;
     }
 
-    // Keep the existing cache layout. The .gif suffix is historical; Qt image
-    // readers identify PNG/JPEG/GIF data by content when QTextDocument loads it.
+    // The .gif suffix is historical; Qt image readers identify PNG/JPEG/GIF
+    // data by content. The server hash prevents identical Mattermost emoji IDs
+    // from colliding across backends.
     const QString filePath = emojiDir.filePath(id + QStringLiteral(".gif"));
     const QFileInfo cached(filePath);
     if (cached.exists() && cached.isFile() && cached.size() > 0) {
+        touchCustomEmojiCacheFile(filePath);
         _backend.emojiRegistry().addCustomEmoji(name, filePath);
         _inFlightNames.remove(name);
         return;
@@ -342,7 +457,8 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
 
     _httpConnector.get(request, HttpResponseCallback(
         [this, name, filePath](QVariant status, QByteArray data) {
-            if (status.toInt() != QNetworkReply::NoError || data.isEmpty()) {
+            if (status.toInt() != QNetworkReply::NoError || data.isEmpty()
+                || data.size() > MaxCustomEmojiDiskCacheBytes) {
                 _inFlightNames.remove(name);
                 return;
             }
@@ -360,7 +476,10 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
             }
             file.close();
 
-            _backend.emojiRegistry().addCustomEmoji(name, filePath);
+            pruneCustomEmojiDiskCache();
+            if (QFileInfo::exists(filePath)) {
+                _backend.emojiRegistry().addCustomEmoji(name, filePath);
+            }
             _inFlightNames.remove(name);
         }));
 }
