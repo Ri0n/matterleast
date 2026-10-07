@@ -19,8 +19,30 @@ class EmojiPickerWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
+    void skinToneModelIsStrict()
+    {
+        const auto variants =
+            EmojiInfo::skinToneVariantsByName(QStringLiteral("+1"));
+        QCOMPARE(static_cast<int>(variants.size()),
+                 static_cast<int>(EmojiSkinTone::COUNT));
+        QCOMPARE(variants.at(EmojiSkinTone::medium).name,
+                 QStringLiteral("+1_medium_skin_tone"));
+        QCOMPARE(variants.at(EmojiSkinTone::medium).unicodeString,
+                 QString::fromUtf8("👍🏽"));
+
+        QVERIFY(EmojiInfo::skinToneVariantsByName(
+                    QStringLiteral("eyes")).isEmpty());
+        QVERIFY(!EmojiInfo::resolveBuiltInByName(
+            QStringLiteral("eyes_medium_skin_tone")));
+    }
+
     void appliesDefaultToneAndOffersLongPressOverride()
     {
+#ifdef Q_OS_WIN
+        if (QGuiApplication::platformName() == QStringLiteral("offscreen")) {
+            QSKIP("Qt Windows offscreen does not reliably synthesize popup mouse interaction");
+        }
+#endif
         auto* options = MLOptions::instance();
         const int previousTone = options->value<int>(
             EMOJI_DEFAULT_SKIN_TONE,
@@ -41,15 +63,6 @@ private slots:
         // People is the second visible emoji category (Component has no tab).
         stack->setCurrentIndex(1);
         QApplication::processEvents();
-
-        const auto variants =
-            EmojiInfo::skinToneVariantsByName(QStringLiteral("+1"));
-        QCOMPARE(static_cast<int>(variants.size()),
-                 static_cast<int>(EmojiSkinTone::COUNT));
-        QVERIFY(EmojiInfo::skinToneVariantsByName(
-                    QStringLiteral("eyes")).isEmpty());
-        QVERIFY(!EmojiInfo::resolveBuiltInByName(
-            QStringLiteral("eyes_medium_skin_tone")));
 
         QPushButton* thumb = nullptr;
         const auto buttons = picker.findChildren<QPushButton*>();
