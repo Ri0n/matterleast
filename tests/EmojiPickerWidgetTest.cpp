@@ -37,7 +37,7 @@ private slots:
 
         const auto variants =
             EmojiInfo::skinToneVariantsByName(QStringLiteral("+1"));
-        QCOMPARE(variants.size(), static_cast<qsizetype>(EmojiSkinTone::COUNT));
+        QCOMPARE(static_cast<int>(variants.size()),\n                 static_cast<int>(EmojiSkinTone::COUNT));
         QVERIFY(EmojiInfo::skinToneVariantsByName(
                     QStringLiteral("eyes")).isEmpty());
         QVERIFY(!EmojiInfo::resolveBuiltInByName(
