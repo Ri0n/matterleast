@@ -57,6 +57,7 @@ private:
     bool _flushScheduled = false;
     bool _batchLookupSupported = true;
     bool _browsePageRequested = false;
+    qint64 _bytesSinceDiskPrune = 0;
 };
 
 } // namespace Mattermost
