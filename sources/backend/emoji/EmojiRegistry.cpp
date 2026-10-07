@@ -31,7 +31,7 @@ EmojiRegistry::EmojiRegistry(QObject* parent)
             normalizedCustomEmojiPath(emoji.unicodeString.mid(
                 pathStart, pathEnd - pathStart));
         if (!normalizedPath.isEmpty()) {
-            _customEmojiPaths.insert(normalizedPath);
+            _builtInCustomEmojiPaths.insert(normalizedPath);
         }
     }
 }
@@ -86,27 +86,47 @@ void EmojiRegistry::addCustomEmoji(
     }
 
     const QString normalizedPath = normalizedCustomEmojiPath(emojiPath);
-    const auto existing = _customEmojiPathsByName.constFind(emojiName);
-    if (existing != _customEmojiPathsByName.cend()
-        && existing.value() == emojiPath) {
-        if (!normalizedPath.isEmpty()) {
-            _customEmojiPaths.insert(normalizedPath);
-        }
+    if (normalizedPath.isEmpty()) {
         return;
     }
 
-    _customEmojiPathsByName.insert(emojiName, emojiPath);
-    if (!normalizedPath.isEmpty()) {
-        _customEmojiPaths.insert(normalizedPath);
+    const auto existing = _customEmojiPathsByName.constFind(emojiName);
+    if (existing != _customEmojiPathsByName.cend()) {
+        if (existing.value() == normalizedPath) {
+            return;
+        }
+
+        const QString oldPath = existing.value();
+        bool oldPathStillUsed = false;
+        for (auto it = _customEmojiPathsByName.cbegin();
+             it != _customEmojiPathsByName.cend(); ++it) {
+            if (it.key() != emojiName && it.value() == oldPath) {
+                oldPathStillUsed = true;
+                break;
+            }
+        }
+        if (!oldPathStillUsed) {
+            _customEmojiPaths.remove(oldPath);
+        }
     }
+
+    _customEmojiPathsByName.insert(emojiName, normalizedPath);
+    _customEmojiPaths.insert(normalizedPath);
     emit customEmojiAdded(emojiName);
+}
+
+void EmojiRegistry::clearCustomEmojis()
+{
+    _customEmojiPathsByName.clear();
+    _customEmojiPaths.clear();
 }
 
 bool EmojiRegistry::isCustomEmojiPath(const QString& emojiPath) const
 {
     const QString normalizedPath = normalizedCustomEmojiPath(emojiPath);
     return !normalizedPath.isEmpty()
-        && _customEmojiPaths.contains(normalizedPath);
+        && (_customEmojiPaths.contains(normalizedPath)
+            || _builtInCustomEmojiPaths.contains(normalizedPath));
 }
 
 bool EmojiRegistry::isValidCustomEmojiName(const QString& name)
