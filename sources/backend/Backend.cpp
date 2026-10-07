@@ -72,6 +72,7 @@ enum type {
 
 Backend::Backend(QObject *parent)
 :QObject (parent)
+,_emojiRegistry(this)
 ,serverDialogsMap (*this)
 ,webSocketEventHandler (*this)
 ,webSocketConnector (webSocketEventHandler)
@@ -139,9 +140,8 @@ Backend::Backend(QObject *parent)
 
 	attachmentsCache.setCacheDirectory (QDir (QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("attachments"));
 	attachmentsCache.setMaximumCacheSize (300 * 1024 * 1024);
-    // EmojiInfo can discover an unknown custom name while parsing any post,
-    // including a reaction. Keep the backend-scoped lazy resolver connected
-    // before login/post loading so that request can never be lost.
+    // Keep the backend-scoped lazy custom resolver connected before
+    // login/post loading so registry misses can never be lost.
     (void)CustomEmojiService::instance(*this);
 	(void)RealtimeFallbackService::instance(*this);
 }
@@ -321,7 +321,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     // cache. Do not enumerate/download the server's custom-emoji catalog.
     for (const QString& emojiName :
          ReactionUsageTracker::instance().topNames(10)) {
-        (void)EmojiInfo::resolveByName(emojiName);
+        (void)_emojiRegistry.resolveByName(emojiName);
     }
 
 	//retrieveAllPublicTeams ();
