@@ -437,6 +437,39 @@ private slots:
         QCOMPARE(builtIn->unicodeString, QString::fromUtf8("👍"));
     }
 
+    void runtimeCustomEmojiMetadataCacheIsBounded()
+    {
+        EmojiRegistry registry;
+        QSignalSpy requested(
+            &registry, &EmojiRegistry::customEmojiRequested);
+
+        for (int i = 0; i < 1100; ++i) {
+            registry.addCustomEmoji(
+                QStringLiteral("emoji_lru_test_%1").arg(i),
+                QStringLiteral("/tmp/custom-emoji/lru/%1.gif").arg(i));
+        }
+
+        // The generated built-in custom entry (:mattermost:) is added to the
+        // runtime cache result separately, so 1024 runtime entries yield at
+        // most 1025 items in the Custom picker category.
+        QVERIFY(registry.getAllEmojis(EmojiCategory::custom, 0).size() <= 1025);
+
+        const auto newest =
+            registry.resolveByName(QStringLiteral("emoji_lru_test_1099"));
+        QVERIFY(newest);
+
+        // QCache evicts least-recently-used runtime metadata. Identity remains
+        // the Mattermost name, so an evicted entry safely becomes a lazy
+        // resolver miss rather than a stale numeric handle.
+        QVERIFY(!registry.resolveByName(QStringLiteral("emoji_lru_test_0")));
+        QCOMPARE(requested.count(), 1);
+
+        // Classification is directory-based, not tied to the LRU entry, so an
+        // already-rendered QTextDocument remains recognizable after eviction.
+        QVERIFY(registry.isCustomEmojiPath(
+            QStringLiteral("/tmp/custom-emoji/lru/0.gif")));
+    }
+
     void manyCustomEmojiDoNotRemapSkinVariadicEmoji()
     {
         EmojiRegistry registry;
