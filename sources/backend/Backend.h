@@ -35,6 +35,7 @@
 
 #include "backend/types/BackendLoginData.h"
 #include "backend/HTTPConnector.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "backend/WebSocketConnector.h"
 #include "backend/WebSocketEventHandler.h"
 #include "backend/Storage.h"
@@ -243,6 +244,9 @@ public:
 
 	Storage& getStorage ();
 
+    EmojiRegistry& emojiRegistry() { return _emojiRegistry; }
+    const EmojiRegistry& emojiRegistry() const { return _emojiRegistry; }
+
 	ServerDialogsMap& getServerDialogsMap ();
 
 	//retrieve list of users that have any relation with logged in user
@@ -294,6 +298,7 @@ private:
     void loginSuccess (const QJsonDocument& data, const QNetworkReply& reply, std::function<void(const QString&)> callback);
 private:
     Storage							storage;
+    EmojiRegistry                   _emojiRegistry;
     ServerDialogsMap				serverDialogsMap;
 
     HTTPConnector 					httpConnector;
