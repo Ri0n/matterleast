@@ -23,6 +23,7 @@
 #include <QString>
 
 class QCheckBox;
+class QComboBox;
 class QShowEvent;
 class QSpinBox;
 
@@ -52,6 +53,7 @@ private:
     QCheckBox* sendWithCtrlEnter = nullptr;
     QCheckBox* unreadModeChannelsOnly = nullptr;
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
+    QComboBox* emojiDefaultSkinTone = nullptr;
     QString originalChatFont;
     QSpinBox* attachmentCacheSizeMB = nullptr;
     QSpinBox* diskChannelIdleHours = nullptr;
