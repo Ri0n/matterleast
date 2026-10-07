@@ -74,8 +74,15 @@ if that name's metadata entry has since been evicted.
 The persistent image cache is server-scoped. Cached files live below a hash of
 the normalized server identity under the application `custom-emoji/` cache, so
 identical Mattermost emoji IDs from different servers cannot alias the same
-file. The complete disk cache is capped at 128 MiB and prunes older files by
-last-use/download timestamp.
+file. The disk cache targets 128 MiB. Pruning is batched after 4 MiB of newly
+downloaded data instead of rescanning the whole cache after every image; older
+files are removed by last-use/download timestamp. If pruning removes a file
+still named in the runtime metadata LRU, that stale metadata is dropped so the
+next lookup can resolve it again.
+
+Negative custom-name lookups are also bounded: the resolver remembers at most
+2048 recent missing names, preventing arbitrary valid `:name:` literals from
+growing a session-long negative cache without limit.
 
 A `QPixmap` or icon may exist while a concrete reaction chip, quick-bar button
 or picker button is on screen, but neither startup nor the registry decodes the
