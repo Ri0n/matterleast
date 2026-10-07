@@ -30,6 +30,7 @@ public:
 
     void addCustomEmoji(const QString& emojiName, const QString& emojiPath);
     void clearCustomEmojis();
+    void dropMissingCustomEmojiFiles();
     bool isCustomEmojiPath(const QString& emojiPath) const;
 
 signals:
