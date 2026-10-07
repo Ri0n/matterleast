@@ -2,7 +2,7 @@
 
 #include <optional>
 
-#include <QHash>
+#include <QCache>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -42,8 +42,8 @@ private:
     static Emoji customEmojiPresentation(const QString& name,
                                          const QString& path);
 
-    QHash<QString, QString> _customEmojiPathsByName;
-    QSet<QString> _customEmojiPaths;
+    QCache<QString, QString> _customEmojiPathsByName;
+    QSet<QString> _customEmojiDirectories;
     QSet<QString> _builtInCustomEmojiPaths;
 };
 
