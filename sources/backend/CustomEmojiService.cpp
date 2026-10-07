@@ -19,12 +19,10 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
-#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
-#include <QPointer>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTimer>
@@ -158,15 +156,6 @@ void pruneCustomEmojiDiskCache()
     }
 }
 
-using CustomEmojiServiceMap =
-    QHash<Backend*, QPointer<CustomEmojiService>>;
-
-CustomEmojiServiceMap& customEmojiServiceInstances()
-{
-    static CustomEmojiServiceMap instances;
-    return instances;
-}
-
 bool isUnsupportedBatchStatus(int status)
 {
     return status == 404 || status == 405 || status == 501;
@@ -176,16 +165,11 @@ bool isUnsupportedBatchStatus(int status)
 
 CustomEmojiService& CustomEmojiService::instance(Backend& backend)
 {
-    auto& instances = customEmojiServiceInstances();
-    QPointer<CustomEmojiService>& service = instances[&backend];
-    if (!service) {
-        service = new CustomEmojiService(backend);
-        Backend* const backendKey = &backend;
-        connect(service, &QObject::destroyed, [backendKey] {
-            customEmojiServiceInstances().remove(backendKey);
-        });
+    if (auto* service = backend.findChild<CustomEmojiService*>(
+            QString(), Qt::FindDirectChildrenOnly)) {
+        return *service;
     }
-    return *service;
+    return *new CustomEmojiService(backend);
 }
 
 CustomEmojiService::CustomEmojiService(Backend& backend)
