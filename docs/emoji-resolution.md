@@ -173,3 +173,19 @@ Therefore:
 - opening the Custom picker category may load its bounded first browse page;
 - the catalog is not downloaded just because the user logged in;
 - adding more custom emoji on the server must not linearly increase MatterLeast startup memory or network traffic.
+## Skin-tone selection
+
+Skin tone is a presentation preference, not a separate registry identity.
+
+- `emoji/defaultSkinTone` stores the default tone used by the picker.
+- Only generated entries marked `skinVariadic` expose tone variants; belonging
+  to the People category alone is not sufficient.
+- A normal picker click emits the Mattermost name with the configured tone
+  suffix when the emoji supports tones.
+- Holding the left mouse button on a skin-variadic emoji opens a small popup
+  above the button with all six variants. Choosing one is a one-shot override
+  and does not change the stored default.
+- The picker caches the current preference and listens for option changes rather
+  than reading persistent settings for every emoji button.
+
+
