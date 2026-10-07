@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <QCache>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -51,7 +52,7 @@ private:
     HTTPConnector _httpConnector;
     QSet<QString> _pendingNames;
     QSet<QString> _inFlightNames;
-    QSet<QString> _missingNames;
+    QCache<QString, char> _missingNames;
     QSet<QString> _searchesInFlight;
     bool _flushScheduled = false;
     bool _batchLookupSupported = true;
