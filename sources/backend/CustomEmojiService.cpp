@@ -181,7 +181,7 @@ CustomEmojiService& CustomEmojiService::instance(Backend& backend)
     if (!service) {
         service = new CustomEmojiService(backend);
         Backend* const backendKey = &backend;
-        connect(&backend, &QObject::destroyed, [backendKey] {
+        connect(service, &QObject::destroyed, [backendKey] {
             customEmojiServiceInstances().remove(backendKey);
         });
     }
@@ -213,8 +213,6 @@ CustomEmojiService::CustomEmojiService(Backend& backend)
     // such as :not_an_emoji: may resolve to HTTP 404 and must remain silent.
     // Clear negative/transient state on reconnect so new server-side emoji and
     // cancelled requests become eligible for lookup again.
-    connect(&_backend, &Backend::onWebSocketConnect,
-            this, &CustomEmojiService::resetSession);
 }
 
 void CustomEmojiService::resetSession()
