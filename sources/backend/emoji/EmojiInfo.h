@@ -44,6 +44,15 @@ public:
 
     static QVector<Emoji> getAllBuiltInEmojis(
         uint32_t category, uint32_t skinTone);
+
+    /**
+     * Return all selectable skin-tone variants for a skin-variadic built-in.
+     *
+     * Names use the requested Mattermost base name plus the wire suffix, so the
+     * returned Emoji can be emitted directly by the picker without introducing
+     * another identity layer. Non-variadic emoji return an empty vector.
+     */
+    static QVector<Emoji> skinToneVariantsByName(const QString& emojiName);
 };
 
 } /* namespace Mattermost */
