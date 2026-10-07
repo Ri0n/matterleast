@@ -49,32 +49,40 @@ tooltips, add/remove actions, or reaction events.
 
 ## Registry storage separation
 
-Mattermost emoji identity is the original `emoji_name`. The presentation registry
-does not expose or assign a second numeric identity.
+Mattermost emoji identity is the original `emoji_name`. The client does not
+assign a second numeric identity to reactions or runtime custom emoji.
 
-Generated built-ins use `EmojiMapEntry` only as storage coordinates:
-`kind + category + index`. Those coordinates point into the generated
-non-skin or skin-variadic vectors and are never serialized, persisted, or used
-for reactions.
+Generated built-ins are immutable process-wide data. Their lookup map stores
+only presentation coordinates (`kind + category + index`) into generated
+vectors. Runtime custom emoji never enter those vectors or the generated map.
 
-Runtime custom emoji live in a separate name-keyed registry and a separate
-presentation vector. Loading a custom emoji therefore cannot change generated
-lookup coordinates or category boundaries. This is important because the old
-single numeric sequence allowed a long-running session to extend the custom
-range into the skin-variadic range. A name such as `+1`/ `thumbsup` could
-then keep the correct tooltip and reaction action while resolving to an
-unrelated custom image; restarting temporarily hid the problem by rebuilding a
-smaller registry.
+Each `Backend` owns its own `EmojiRegistry`. That registry stores only the
+minimum runtime metadata needed for already resolved custom emoji: the
+Mattermost name mapped to its cached image path, plus a path set used to
+recognize custom image resources in O(1). Presentation HTML is constructed on
+demand instead of being retained per entry.
+
+`CustomEmojiService` is backend-scoped as well and talks directly to that
+registry. A miss emits `EmojiRegistry::customEmojiRequested` only to the
+resolver for the same backend; completion emits `customEmojiAdded` only to UI
+bound to that backend. Destroying the backend therefore releases the runtime
+registry and prevents custom names or image paths from leaking across servers.
+
+This separation fixes the original quick-reaction corruption structurally. The
+old single numeric sequence let runtime custom entries grow into the generated
+skin-variadic range, so a correct name such as `+1` / `thumbsup` could keep
+its tooltip and action identity while resolving to an unrelated custom image.
+There is no shared numeric range to collide now.
 
 Future registry changes must preserve these invariants:
 
 - wire-level reaction identity is always the Mattermost emoji name;
-- generated lookup coordinates describe built-in storage only;
-- runtime custom emoji are resolved by name and never inserted into the
-  generated lookup map or vectors;
-- aliases may share generated storage coordinates, but they do not become a
-  persistent application identity;
-- adding any number of runtime custom emoji cannot alter built-in resolution.
+- generated lookup coordinates describe immutable built-in storage only;
+- runtime custom emoji are backend-scoped and resolved by name;
+- loading runtime custom emoji never mutates generated maps or vectors;
+- aliases may share generated storage coordinates but are not persistent
+  application identity;
+- no process-global runtime custom registry or notification bus is introduced.
 
 ## Picker theme propagation
 
