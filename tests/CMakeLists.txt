@@ -571,6 +571,13 @@ if(TARGET matterleast-core)
 endif()
 
 if(TARGET matterleast-core)
+    add_executable(emoji-picker-widget-test EmojiPickerWidgetTest.cpp)
+    target_link_libraries(emoji-picker-widget-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME emoji-picker-widget-test COMMAND emoji-picker-widget-test)
+    set_tests_properties(emoji-picker-widget-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
     add_executable(manual-unread-read-state-test ManualUnreadReadStateTest.cpp)
     target_link_libraries(manual-unread-read-state-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME manual-unread-read-state-test COMMAND manual-unread-read-state-test)
