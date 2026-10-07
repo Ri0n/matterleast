@@ -26,6 +26,8 @@
 
 #include <QVector>
 
+#include <cstdint>
+
 namespace Mattermost {
 
 namespace EmojiCategory {
