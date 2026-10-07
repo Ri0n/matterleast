@@ -143,7 +143,8 @@ void PostReaction::applyPresentationFont()
     QFont imageSizingFont = font();
     imageSizingFont.setPixelSize(extent);
     emojiValue_ = EmojiPresentation::normalizeHtml(
-        emojiSource_, imageSizingFont, EmojiPresentation::Mode::Reaction);
+        emojiSource_, imageSizingFont, EmojiPresentation::Mode::Reaction,
+        &backend_.emojiRegistry());
     ui_->emoji->setText(emojiValue_);
 
     ui_->count->setFont(ReactionChipStyle::countFont(font()));
