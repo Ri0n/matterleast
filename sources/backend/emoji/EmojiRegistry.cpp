@@ -3,14 +3,30 @@
 #include <algorithm>
 
 #include <QDir>
+#include <QFileInfo>
 #include <QUrl>
 
 #include "EmojiInfo.h"
 
 namespace Mattermost {
+namespace {
+
+constexpr int MaxRuntimeCustomEmojiEntries = 1024;
+
+QString customEmojiDirectory(const QString& path)
+{
+    if (path.isEmpty()) {
+        return {};
+    }
+    return QDir::cleanPath(
+        QDir::fromNativeSeparators(QFileInfo(path).absolutePath()));
+}
+
+} // namespace
 
 EmojiRegistry::EmojiRegistry(QObject* parent)
     : QObject(parent)
+    , _customEmojiPathsByName(MaxRuntimeCustomEmojiEntries)
 {
     // Register generated image-backed built-ins (currently :mattermost:) as
     // custom presentation paths too, so sizing code does not need special cases.
@@ -42,9 +58,8 @@ std::optional<Emoji> EmojiRegistry::resolveByName(const QString& emojiName)
         return builtIn;
     }
 
-    const auto customIt = _customEmojiPathsByName.constFind(emojiName);
-    if (customIt != _customEmojiPathsByName.cend()) {
-        return customEmojiPresentation(emojiName, customIt.value());
+    if (const QString* customPath = _customEmojiPathsByName.object(emojiName)) {
+        return customEmojiPresentation(emojiName, *customPath);
     }
 
     if (isValidCustomEmojiName(emojiName)) {
@@ -66,8 +81,9 @@ QVector<Emoji> EmojiRegistry::getAllEmojis(
     std::sort(names.begin(), names.end());
     result.reserve(result.size() + names.size());
     for (const QString& name : names) {
-        result.push_back(
-            customEmojiPresentation(name, _customEmojiPathsByName.value(name)));
+        if (const QString* path = _customEmojiPathsByName.object(name)) {
+            result.push_back(customEmojiPresentation(name, *path));
+        }
     }
     return result;
 }
@@ -90,43 +106,44 @@ void EmojiRegistry::addCustomEmoji(
         return;
     }
 
-    const auto existing = _customEmojiPathsByName.constFind(emojiName);
-    if (existing != _customEmojiPathsByName.cend()) {
-        if (existing.value() == normalizedPath) {
+    if (const QString* existing = _customEmojiPathsByName.object(emojiName)) {
+        if (*existing == normalizedPath) {
             return;
-        }
-
-        const QString oldPath = existing.value();
-        bool oldPathStillUsed = false;
-        for (auto it = _customEmojiPathsByName.cbegin();
-             it != _customEmojiPathsByName.cend(); ++it) {
-            if (it.key() != emojiName && it.value() == oldPath) {
-                oldPathStillUsed = true;
-                break;
-            }
-        }
-        if (!oldPathStillUsed) {
-            _customEmojiPaths.remove(oldPath);
         }
     }
 
-    _customEmojiPathsByName.insert(emojiName, normalizedPath);
-    _customEmojiPaths.insert(normalizedPath);
+    const QString directory = customEmojiDirectory(normalizedPath);
+    if (!directory.isEmpty()) {
+        // CustomEmojiService stores one backend/session under a dedicated
+        // directory. Tracking directories instead of every cached file keeps
+        // presentation classification valid even after the name->path LRU
+        // evicts an entry that an already-rendered QTextDocument still uses.
+        _customEmojiDirectories.insert(directory);
+    }
+
+    _customEmojiPathsByName.insert(
+        emojiName, new QString(normalizedPath));
     emit customEmojiAdded(emojiName);
 }
 
 void EmojiRegistry::clearCustomEmojis()
 {
     _customEmojiPathsByName.clear();
-    _customEmojiPaths.clear();
+    _customEmojiDirectories.clear();
 }
 
 bool EmojiRegistry::isCustomEmojiPath(const QString& emojiPath) const
 {
     const QString normalizedPath = normalizedCustomEmojiPath(emojiPath);
-    return !normalizedPath.isEmpty()
-        && (_customEmojiPaths.contains(normalizedPath)
-            || _builtInCustomEmojiPaths.contains(normalizedPath));
+    if (normalizedPath.isEmpty()) {
+        return false;
+    }
+    if (_builtInCustomEmojiPaths.contains(normalizedPath)) {
+        return true;
+    }
+    const QString directory = customEmojiDirectory(normalizedPath);
+    return !directory.isEmpty()
+        && _customEmojiDirectories.contains(directory);
 }
 
 bool EmojiRegistry::isValidCustomEmojiName(const QString& name)
