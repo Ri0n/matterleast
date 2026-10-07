@@ -410,6 +410,33 @@ private slots:
 #endif
     }
 
+    void runtimeCustomEmojiRegistryIsScopedAndResettable()
+    {
+        EmojiRegistry first;
+        EmojiRegistry second;
+        const QString name = QStringLiteral("registry_scope_test");
+        const QString path =
+            QStringLiteral("/tmp/custom-emoji/registry-scope-test.gif");
+
+        first.addCustomEmoji(name, path);
+
+        const auto firstEmoji = first.resolveByName(name);
+        QVERIFY(firstEmoji);
+        QCOMPARE(firstEmoji->name, name);
+        QVERIFY(first.isCustomEmojiPath(path));
+
+        QVERIFY(!second.resolveByName(name));
+        QVERIFY(!second.isCustomEmojiPath(path));
+
+        first.clearCustomEmojis();
+        QVERIFY(!first.resolveByName(name));
+        QVERIFY(!first.isCustomEmojiPath(path));
+
+        const auto builtIn = first.resolveByName(QStringLiteral("+1"));
+        QVERIFY(builtIn);
+        QCOMPARE(builtIn->unicodeString, QString::fromUtf8("👍"));
+    }
+
     void manyCustomEmojiDoNotRemapSkinVariadicEmoji()
     {
         EmojiRegistry registry;
