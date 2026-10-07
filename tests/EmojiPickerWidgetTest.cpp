@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QtTest>
 
@@ -68,10 +69,24 @@ private slots:
             chosen = emoji;
         });
 
-        QTest::mouseClick(thumb, Qt::LeftButton);
+        thumb->click();
         QVERIFY(chosen);
         QCOMPARE(chosen->name, QStringLiteral("+1_medium_skin_tone"));
         QCOMPARE(chosen->unicodeString, QString::fromUtf8("👍🏽"));
+
+        QScrollArea* peopleScroll = nullptr;
+        const auto scrollAreas = picker.findChildren<QScrollArea*>();
+        for (QScrollArea* area : scrollAreas) {
+            if (area && area->widget()
+                && area->widget()->isAncestorOf(thumb)) {
+                peopleScroll = area;
+                break;
+            }
+        }
+        QVERIFY(peopleScroll);
+        peopleScroll->ensureWidgetVisible(thumb, 0, 0);
+        QApplication::processEvents();
+        QVERIFY(thumb->isVisible());
 
         chosen.reset();
         QTest::mousePress(thumb, Qt::LeftButton);
