@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QAbstractTextDocumentLayout>
+#include <QFile>
 #include <QFontMetrics>
 #include <QImage>
 #include <QTextBlock>
@@ -8,6 +9,7 @@
 #include <QTextFragment>
 #include <QTextLayout>
 #include <QTextList>
+#include <QTemporaryDir>
 
 #include "backend/emoji/EmojiRegistry.h"
 #include "chat-area/post/MessageFormatter.h"
@@ -435,6 +437,32 @@ private slots:
         const auto builtIn = first.resolveByName(QStringLiteral("+1"));
         QVERIFY(builtIn);
         QCOMPARE(builtIn->unicodeString, QString::fromUtf8("👍"));
+    }
+
+    void prunedCustomEmojiMetadataBecomesLazyMiss()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        const QString name = QStringLiteral("pruned_custom_emoji_test");
+        const QString path = directory.filePath(QStringLiteral("emoji.gif"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("gif") > 0);
+        file.close();
+
+        EmojiRegistry registry;
+        QSignalSpy requested(
+            &registry, &EmojiRegistry::customEmojiRequested);
+        registry.addCustomEmoji(name, path);
+        QVERIFY(registry.resolveByName(name));
+
+        QVERIFY(QFile::remove(path));
+        registry.dropMissingCustomEmojiFiles();
+
+        QVERIFY(!registry.resolveByName(name));
+        QCOMPARE(requested.count(), 1);
+        QVERIFY(registry.isCustomEmojiPath(path));
     }
 
     void runtimeCustomEmojiMetadataCacheIsBounded()
