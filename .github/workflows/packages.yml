@@ -556,6 +556,32 @@ jobs:
             }
           }
 
+      - name: Package portable Windows ZIP
+        id: portable
+        run: |
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          $stage = Join-Path $env:GITHUB_WORKSPACE "stage"
+          $portable = Join-Path $env:RUNNER_TEMP "MatterLeast"
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          # Preserve the windeployqt-generated bin/plugins layout; a portable
+          # distribution must include all DLLs and Qt platform plugins.
+          Copy-Item (Join-Path $stage "*") $portable -Recurse -Force
+          if (-not (Test-Path (Join-Path $portable "bin/matterleast.exe"))) {
+            throw "Portable archive lacks matterleast.exe"
+          }
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          $output = Join-Path $env:GITHUB_WORKSPACE "package/matterleast-$version-windows-x64-portable.zip"
+          Compress-Archive -Path $portable -DestinationPath $output -CompressionLevel Optimal
+          "path=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload portable Windows ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: matterleast-windows-x64-portable
+          path: ${{ steps.portable.outputs.path }}
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Build NSIS installer
         id: package
         run: |
