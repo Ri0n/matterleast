@@ -1011,9 +1011,9 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
                 [this, contextImageId] {
             QPointer<PostWidget> owner(this);
             AttachmentService::instance(backend_).retrieveFile(
-                contextImageId, [owner](const QByteArray& data) {
-                    if (!owner || data.isEmpty()) return;
-                    const QImage image = QImage::fromData(data);
+                contextImageId, [owner](const QByteArray& imageBytes) {
+                    if (!owner || imageBytes.isEmpty()) return;
+                    const QImage image = QImage::fromData(imageBytes);
                     if (!image.isNull())
                         QApplication::clipboard()->setImage(image);
                 });
