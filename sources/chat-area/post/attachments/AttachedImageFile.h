@@ -53,6 +53,7 @@ public:
                                          const QString& fileId,
                                          const QImage& fallback);
 private:
+    void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void setPreviewPixmap(QPixmap pixmap);
     void showPreviewFallback();
@@ -70,6 +71,7 @@ private:
     QString                     fileExtension;
     QPixmap                     sourcePixmap;
     bool                        fullPreviewDecodePending = false;
+    QPoint                      _pressPosition;
     Backend&		backend;
 };
 

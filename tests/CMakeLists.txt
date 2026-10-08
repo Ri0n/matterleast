@@ -584,6 +584,13 @@ if(TARGET matterleast-core)
 endif()
 
 if(TARGET matterleast-core)
+    add_executable(post-image-drag-selection-test PostImageDragSelectionTest.cpp)
+    target_link_libraries(post-image-drag-selection-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME post-image-drag-selection-test COMMAND post-image-drag-selection-test)
+    set_tests_properties(post-image-drag-selection-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
     add_executable(post-reaction-interaction-test PostReactionInteractionTest.cpp)
     target_link_libraries(post-reaction-interaction-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-reaction-interaction-test COMMAND post-reaction-interaction-test)

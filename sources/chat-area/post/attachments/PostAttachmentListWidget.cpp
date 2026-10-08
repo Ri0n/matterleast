@@ -24,6 +24,8 @@
 
 #include <algorithm>
 
+#include <QMouseEvent>
+
 #include "PostAttachmentListWidget.h"
 
 namespace Mattermost {
@@ -52,6 +54,26 @@ QSize PostAttachmentListWidget::sizeHint () const
 
     const int frame = 2 * frameWidth();
     return QSize(width + frame, height + frame);
+}
+
+void PostAttachmentListWidget::mousePressEvent (QMouseEvent* event)
+{
+    event->ignore();
+}
+
+void PostAttachmentListWidget::mouseMoveEvent (QMouseEvent* event)
+{
+    event->ignore();
+}
+
+void PostAttachmentListWidget::mouseReleaseEvent (QMouseEvent* event)
+{
+    event->ignore();
+}
+
+void PostAttachmentListWidget::mouseDoubleClickEvent (QMouseEvent* event)
+{
+    event->ignore();
 }
 
 } /* namespace Mattermost */

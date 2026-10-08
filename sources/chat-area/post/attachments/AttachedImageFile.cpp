@@ -24,6 +24,7 @@
 #include <functional>
 #include <utility>
 
+#include <QApplication>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QClipboard>
@@ -379,10 +380,21 @@ void AttachedImageFile::updatePreviewPixmap()
     emit dimensionsChanged();
 }
 
+void AttachedImageFile::mousePressEvent(QMouseEvent* event)
+{
+    _pressPosition = event->pos();
+    // Let PostWidget see the press too, so a drag can select messages.
+    event->ignore();
+}
+
 void AttachedImageFile::mouseReleaseEvent(QMouseEvent* event)
 {
-    // Windows delivers ContextMenu after the right-button release.
-    if (!event || event->button() != Qt::LeftButton) {
+    // Windows delivers ContextMenu after the right-button release, and a drag
+    // belongs to PostWidget's message selection rather than to the preview.
+    if (event->button() != Qt::LeftButton
+        || (event->pos() - _pressPosition).manhattanLength()
+            >= QApplication::startDragDistance()) {
+        event->ignore();
         return;
     }
 
