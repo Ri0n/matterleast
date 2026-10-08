@@ -134,6 +134,15 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
 
     setToolTip(file.name);
     ui->imagePreview->setToolTip(file.name);
+    // QLabel owns the pointer hit area; a context-menu event on it does not
+    // reliably reach the parent QWidget's CustomContextMenu handler.
+    ui->imagePreview->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->imagePreview, &QWidget::customContextMenuRequested,
+            this, [this](const QPoint& pos) {
+        emit customContextMenuRequested(
+            mapFromGlobal(ui->imagePreview->mapToGlobal(pos)));
+    });
+
     ui->imagePreview->clear();
     ui->imagePreview->hide();
 
