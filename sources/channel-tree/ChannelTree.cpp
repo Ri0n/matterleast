@@ -637,6 +637,22 @@ void ChannelTree::activateChannelItem(QTreeWidgetItem* item)
         }
     }
 
+    // A search hit may not belong to any current sidebar category. Once
+    // opened, promote it to Direct Messages so clearing the filter retains
+    // the conversation like an ordinary recently activated DM/GM.
+    if (backendForSidebar) {
+        auto& sidebar = SidebarService::instance(*backendForSidebar);
+        if (sidebar.conversationSearchActive()) {
+            if (BackendChannel* selected = backendForSidebar->getStorage().getChannelById(
+                    item->data(0, ItemIdRole).toString())) {
+                if (selected->type == BackendChannel::directChannel
+                    || selected->type == BackendChannel::groupChannel) {
+                    admitStoredConversation(*selected);
+                }
+            }
+        }
+    }
+
     ChatArea* newPage = ensureChatArea(item);
     if (!newPage) {
         return;
