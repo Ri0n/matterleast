@@ -51,6 +51,9 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextImageFormat>
+#include <QImage>
+#include "backend/AttachmentService.h"
 #include <QTextBrowser>
 #include <QTimer>
 #include <QUrl>
@@ -998,6 +1001,25 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
 
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
+    // Inline Markdown images are rendered inside QTextBrowser rather than
+    // AttachedImageFile; still expose a real pixel-copy action for them.
+    const QString contextImageId = property("_contextImageFileId").toString();
+    if (!contextImageId.isEmpty()) {
+        QAction* copyImage = menu.addAction(
+            icon(QStringLiteral(":/icons/copy")), tr("Copy image"));
+        connect(copyImage, &QAction::triggered, this,
+                [this, contextImageId] {
+            QPointer<PostWidget> owner(this);
+            AttachmentService::instance(backend_).retrieveFile(
+                contextImageId, [owner](const QByteArray& data) {
+                    if (!owner || data.isEmpty()) return;
+                    const QImage image = QImage::fromData(data);
+                    if (!image.isNull())
+                        QApplication::clipboard()->setImage(image);
+                });
+        });
+        menu.addSeparator();
+    }
 
     if (presentationMode_ != PresentationMode::Interactive) {
         if (!hoveredLink.isEmpty()) {
@@ -1461,7 +1483,20 @@ void PostWidget::connectMessageLinks()
 		});
         connect(browser, &QWidget::customContextMenuRequested, this,
                 [this, browser](const QPoint& pos) {
+            const QTextCursor cursor = browser->cursorForPosition(pos);
+            QString imageId;
+            if (cursor.charFormat().isImageFormat()) {
+                const QString source = cursor.charFormat().toImageFormat().name();
+                const QString prefix = QStringLiteral("/api/v4/files/");
+                const QString path = QUrl(source).path();
+                if (path.startsWith(prefix)) {
+                    imageId = path.mid(prefix.size());
+                    if (imageId.contains(QLatin1Char('/'))) imageId.clear();
+                }
+            }
+            setProperty("_contextImageFileId", imageId);
             showPostContextMenu(browser->viewport()->mapToGlobal(pos));
+            setProperty("_contextImageFileId", QVariant());
         });
 	}
 
