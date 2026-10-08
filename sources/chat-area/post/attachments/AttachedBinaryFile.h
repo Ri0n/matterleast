@@ -21,8 +21,10 @@
 
 #include <QWidget>
 #include <QTemporaryFile>
+#include <QPointer>
 
 class QPaintEvent;
+class QNetworkReply;
 
 namespace Ui {
 class AttachedBinaryFile;
@@ -49,6 +51,7 @@ private:
     Ui::AttachedBinaryFile 	*ui;
     QTemporaryFile			tempFile;
     QString					downloadedPath;
+    QPointer<QNetworkReply> _downloadReply;
 };
 
 } /* namespace Mattermost */
