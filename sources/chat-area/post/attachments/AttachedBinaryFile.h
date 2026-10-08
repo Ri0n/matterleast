@@ -49,7 +49,7 @@ protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    void setFileMimeIcon (const QString& filename);
+    void setFileMetadata(const BackendFile& file);
 private:
     Ui::AttachedBinaryFile 	*ui;
     QTemporaryFile			tempFile;
