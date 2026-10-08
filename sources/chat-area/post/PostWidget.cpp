@@ -678,46 +678,6 @@ ChatLogWidget* PostWidget::chatLog() const
     return qobject_cast<ChatLogWidget*>(parentWidget() ? parentWidget()->parentWidget() : nullptr);
 }
 
-void PostWidget::mousePressEvent(QMouseEvent* event)
-{
-    rowSelectionDragPending_ = event && event->button() == Qt::LeftButton;
-    if (rowSelectionDragPending_) {
-        selectionPressPos_ = event->pos();
-    }
-    QWidget::mousePressEvent(event);
-}
-
-void PostWidget::mouseMoveEvent(QMouseEvent* event)
-{
-    if (rowSelectionDragPending_ && event
-        && (event->buttons() & Qt::LeftButton)
-        && (event->pos() - selectionPressPos_).manhattanLength()
-            >= QApplication::startDragDistance()) {
-        rowSelectionDragPending_ = false;
-        if (chatLog()) {
-            chatLog()->beginMessageSelectionDrag(post.id, post.id);
-        }
-    }
-    if (chatLog()
-        && chatLog()->isMessageSelectionMode() && event) {
-        const QPoint viewportPos = mapTo(parentWidget(), event->pos());
-        const int index = chatLog()->indexAtViewportPosition(viewportPos.y());
-        if (auto* target = qobject_cast<PostWidget*>(chatLog()->itemWidget(index))) {
-            chatLog()->updateMessageSelectionDrag(target->post.id);
-        }
-    }
-    QWidget::mouseMoveEvent(event);
-}
-
-void PostWidget::mouseReleaseEvent(QMouseEvent* event)
-{
-    rowSelectionDragPending_ = false;
-    if (chatLog()) {
-        chatLog()->finishMessageSelectionDrag();
-    }
-    QWidget::mouseReleaseEvent(event);
-}
-
 void PostWidget::moveEvent(QMoveEvent* event)
 {
     QWidget::moveEvent(event);
