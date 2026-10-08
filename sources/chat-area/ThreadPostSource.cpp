@@ -138,6 +138,21 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
         if (rootPost.id != rootId) {
             return;
         }
+
+        // The protected effective count intentionally preserves confirmed rows
+        // against stale metadata. A real server-side deletion is different:
+        // the raw reported count shrinks and, when an unresolved slot exists
+        // immediately before a confirmed newest-boundary suffix, we can safely
+        // express that deletion as an interior structural removal.
+        const int reportedCount = reportedLogicalCount();
+        if (reportedCount < static_cast<int>(postIds.size())
+            && reanchorConfirmedTailForCountShrink(reportedCount)) {
+            qCDebug(lcThreadTimelineTrace).nospace()
+                << "THREAD_SLOTS source=" << static_cast<const void*>(this)
+                << ' ' << slotSummary(postIds);
+            return;
+        }
+
         const int count = currentLogicalCount();
         if (count == static_cast<int>(postIds.size())) {
             return;
@@ -147,12 +162,10 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
             << "THREAD_COUNT_CHANGE source=" << static_cast<const void*>(this)
             << " old=" << postIds.size()
             << " new=" << count
+            << " reported=" << reportedCount
             << " replyCount=" << rootPost.reply_count;
-        if (!(count < static_cast<int>(postIds.size())
-              && reanchorConfirmedTailForCountShrink(count))) {
-            resizeLogicalTail(count);
-            pruneProvisionalPostIds();
-        }
+        resizeLogicalTail(count);
+        pruneProvisionalPostIds();
         qCDebug(lcThreadTimelineTrace).nospace()
             << "THREAD_SLOTS source=" << static_cast<const void*>(this)
             << ' ' << slotSummary(postIds);
@@ -889,7 +902,7 @@ BackendPost* ThreadPostSource::rootPost() const
     return channel.postIdToPost.value(rootId, nullptr);
 }
 
-int ThreadPostSource::currentLogicalCount() const
+int ThreadPostSource::reportedLogicalCount() const
 {
     BackendPost* root = rootPost();
     if (!root) {
@@ -916,12 +929,18 @@ int ThreadPostSource::currentLogicalCount() const
         }
     }
 
-    int count = threadLogicalItemCount(
+    return threadLogicalItemCount(
         root->reply_count, mappedDeletedReplyTombstones);
+}
 
-    // reply_count is metadata, not authority to destroy an identity that this
-    // source has already mapped. Preserve the furthest confirmed row even if a
-    // normal live body is later evicted from the residency cache.
+int ThreadPostSource::currentLogicalCount() const
+{
+    int count = reportedLogicalCount();
+
+    // reply_count is metadata, not authority by itself to destroy an identity
+    // that this source has already mapped. Preserve the furthest confirmed row
+    // unless syncLogicalCount can prove an interior deletion immediately before
+    // a newest-boundary suffix and reanchor that suffix structurally.
     for (int index = static_cast<int>(postIds.size()) - 1; index >= count; --index) {
         if (!postIds.at(index).isEmpty() && !provisionalPostIds.contains(postIds.at(index))) {
             count = index + 1;
