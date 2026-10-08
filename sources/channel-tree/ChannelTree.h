@@ -93,6 +93,9 @@ public:
 
 	void addTeam (Backend& backend, BackendTeam& team);
 	void populateSidebars(Backend& backend);
+    // Reconcile a temporary, non-persistent view of older conversations while
+    // the sidebar search field is populated.
+    void setConversationSearchTerm(const QString& term);
 
 	// Kept for source compatibility; the server-backed sidebar no longer uses
 	// separate global DM/GM lists.
