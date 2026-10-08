@@ -1,6 +1,11 @@
 #include <QtTest>
 
 #include <QListWidgetItem>
+#include <QLayout>
+#include <QLabel>
+#include <QFontMetrics>
+
+#include "ui_AttachedBinaryFile.h"
 #include <QWidget>
 
 #include "chat-area/post/attachments/PostAttachmentListWidget.h"
@@ -23,6 +28,40 @@ class PostAttachmentListWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
+    void attachmentMetadataUsesConsistentTextLayout()
+    {
+        QWidget card;
+        Ui::AttachedBinaryFile ui;
+        ui.setupUi(&card);
+
+        ui.metadataLabel->setTextFormat(Qt::PlainText);
+        ui.metadataLabel->setText(
+            QStringLiteral("File: tl_tools_installer.sh\\n"
+                           "Type: application/x-shellscript\\n"
+                           "Size: 158.32 kB"));
+        ui.downloadedLabel->setText(
+            QStringLiteral("/home/silinykh/Downloads/tl_tools_installer.sh"));
+        card.show();
+        settleEvents();
+
+        // One text layout owns all three baselines; three independent labels
+        // used to inherit different heights after width-dependent reflow.
+        QCOMPARE(ui.metadataLabel->text().count(QLatin1Char('\\n')), 2);
+        const int wide = ui.metadataLabel->heightForWidth(600);
+        const int narrow = ui.metadataLabel->heightForWidth(130);
+        QVERIFY2(wide > 0, "Metadata must advertise height-for-width");
+        QVERIFY2(narrow > wide, "Wrapping at narrow post width must increase height");
+        const int lineHeight = ui.metadataLabel->fontMetrics().lineSpacing();
+        QVERIFY2(wide <= 3 * lineHeight + 12,
+                 qPrintable(QStringLiteral("Unexpected empty line in metadata: height=%1 line=%2")
+                              .arg(wide).arg(lineHeight)));
+
+        QVERIFY2(card.layout()->hasHeightForWidth(),
+                 "Attachment card must propagate height-for-width to the list");
+        QVERIFY(card.layout()->heightForWidth(250)
+                > card.layout()->heightForWidth(700));
+    }
+
     void singleItemSizeHintIncludesOuterSpacing()
     {
         PostAttachmentListWidget list;
