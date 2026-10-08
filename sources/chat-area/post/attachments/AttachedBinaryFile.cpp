@@ -27,6 +27,7 @@
 #include <QPaintEvent>
 #include <QPointer>
 #include <QStandardPaths>
+#include <QSaveFile>
 
 #include "Settings.h"
 #include "AttachedBinaryFile.h"
@@ -120,14 +121,19 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
         ui->downloadedLabel->show();
 
         QPointer<AttachedBinaryFile> self(this);
-        AttachmentService::instance(backend).retrieveFile(
+        AttachmentService::instance(backend).downloadFile(
             fileId,
-            [self, fileDestination](const QByteArray& fileData) {
+            [self, fileDestination](const QByteArray& fileData, const QString& error) {
                 if (!self) {
                     return;
                 }
 
-                QFile destFile(fileDestination);
+                if (!error.isEmpty()) {
+                    self->ui->downloadedLabel->setText(tr("Download failed: %1").arg(error));
+                    return;
+                }
+
+                QSaveFile destFile(fileDestination);
                 if (!destFile.open(QIODevice::WriteOnly)) {
                     self->ui->downloadedLabel->setText(
                         "Failed to save file: " + destFile.errorString());
@@ -135,8 +141,11 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
                     return;
                 }
 
-                destFile.write(fileData);
-                destFile.close();
+                if (destFile.write(fileData) != fileData.size() || !destFile.commit()) {
+                    self->ui->downloadedLabel->setText(
+                        tr("Failed to save file: %1").arg(destFile.errorString()));
+                    return;
+                }
                 self->ui->downloadedLabel->setText(
                     "File downloaded to '"
                     + QFileInfo(fileDestination).absolutePath() + "'");
@@ -153,8 +162,13 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
         }
 
         QPointer<AttachedBinaryFile> self(this);
-        AttachmentService::instance(backend).retrieveFile(fileId, [self, fileName](const QByteArray& fileData) {
+        AttachmentService::instance(backend).downloadFile(fileId, [self, fileName](const QByteArray& fileData, const QString& error) {
             if (!self) {
+                return;
+            }
+
+            if (!error.isEmpty()) {
+                QMessageBox::warning(self, tr("Download failed"), error);
                 return;
             }
 
