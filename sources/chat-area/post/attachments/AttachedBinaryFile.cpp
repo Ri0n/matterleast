@@ -84,7 +84,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     revealButton->setEnabled(false);
     ui->horizontalLayout_3->insertWidget(2, revealButton);
     connect(revealButton, &QToolButton::clicked, this, [this] {
-        if (downloadedPath.isEmpty()) return;
+        if (downloadedPath.isEmpty() || !QFileInfo::exists(downloadedPath)) return;
         const QString absolutePath = QFileInfo(downloadedPath).absoluteFilePath();
 #ifdef Q_OS_WIN
         if (QProcess::startDetached(QStringLiteral("explorer.exe"),
@@ -128,6 +128,24 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     const QString fileId = file.id;
     const QString fileName = file.name;
     const uint64_t fileSize = file.size;
+    const auto detectExistingDownload = [this, fileName, fileSize, revealButton] {
+        const QString defaultDir =
+            QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        const QString configuredDir = MLOptions::instance()
+            ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDir)->value().toString();
+        const QFileInfo candidate(QDir(configuredDir).filePath(fileName));
+        if (!candidate.isFile()
+            || static_cast<uint64_t>(candidate.size()) != fileSize) {
+            return;
+        }
+        downloadedPath = candidate.absoluteFilePath();
+        ui->downloadedLabel->setText(downloadedPath);
+        ui->downloadedLabel->setToolTip(tr("Select and copy the saved file path"));
+        ui->downloadedLabel->show();
+        revealButton->setEnabled(true);
+        emit dimensionsChanged();
+    };
+    detectExistingDownload();
 
     connect(ui->downloadButton, &QPushButton::clicked, this,
             [this, &backend, fileId, fileName, fileSize, cancelButton, revealButton] {
@@ -222,8 +240,11 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     connect(ui->openButton, &QPushButton::clicked, this,
             [this, &backend, fileId, fileName, cancelButton] {
         if (!downloadedPath.isEmpty()) {
-            QDesktopServices::openUrl(QUrl::fromLocalFile(downloadedPath));
-            return;
+            if (QFileInfo::exists(downloadedPath)) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(downloadedPath));
+                return;
+            }
+            downloadedPath.clear();
         }
 
         if (_downloadReply) return;
