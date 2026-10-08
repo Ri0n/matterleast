@@ -56,14 +56,14 @@ void ChannelReferenceService::resolve(
     NetworkRequest request(endpoint);
     QPointer<ChannelReferenceService> guard(this);
     _http.get(request, HttpResponseCallback(
-        [guard, key](QVariant, QByteArray, const QNetworkReply& reply) {
+        [guard, key](QVariant, QByteArray data, const QNetworkReply& reply) {
             if (!guard) return;
             QString displayName;
             const int status = reply.attribute(
                 QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (reply.error() == QNetworkReply::NoError
                 && status >= 200 && status < 300) {
-                const QJsonDocument doc = QJsonDocument::fromJson(reply.readAll());
+                const QJsonDocument doc = QJsonDocument::fromJson(data);
                 if (doc.isObject())
                     displayName = doc.object()
                         .value(QStringLiteral("display_name")).toString();
