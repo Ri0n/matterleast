@@ -973,6 +973,43 @@ QSet<QString> MessageContentWidget::inlineAttachmentFileIds() const
     return _inlineAttachmentFileIds;
 }
 
+MessageContentWidget::InlineImage
+MessageContentWidget::inlineImageAt(const QPoint& globalPos) const
+{
+    for (QTextBrowser* browser : findChildren<QTextBrowser*>()) {
+        QWidget* viewport = browser->viewport();
+        if (!browser->isVisible()) {
+            continue;
+        }
+        const QPoint local = viewport->mapFromGlobal(globalPos);
+        if (!viewport->rect().contains(local)) {
+            continue;
+        }
+
+        const QPointF documentPos(
+            local.x() + browser->horizontalScrollBar()->value(),
+            local.y() + browser->verticalScrollBar()->value());
+        QTextDocument* document = browser->document();
+        const QString source = document->documentLayout()->imageAt(documentPos);
+        if (source.isEmpty()) {
+            return {};
+        }
+
+        InlineImage image;
+        const QVariant resource =
+            document->resource(QTextDocument::ImageResource, QUrl(source));
+        if (resource.canConvert<QImage>()) {
+            image.rendered = resource.value<QImage>();
+        }
+        const QString fileId = mattermostFileIdForImageSource(source);
+        if (_inlineAttachmentFileIds.contains(fileId)) {
+            image.fileId = fileId;
+        }
+        return image;
+    }
+    return {};
+}
+
 void MessageContentWidget::changeEvent(QEvent* event)
 {
     QWidget::changeEvent(event);

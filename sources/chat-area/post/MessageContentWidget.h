@@ -3,12 +3,14 @@
 #include <functional>
 
 #include <QByteArray>
+#include <QImage>
 #include <QSet>
 #include <QString>
 #include <QtGlobal>
 #include <QWidget>
 
 class QEvent;
+class QPoint;
 class QTextBrowser;
 class QTextDocumentFragment;
 class QUrl;
@@ -29,12 +31,19 @@ public:
         bool thumbnail,
         InlineImageDataCallback callback)>;
 
+    struct InlineImage {
+        QString fileId;
+        QImage rendered;
+        bool isNull() const { return fileId.isEmpty() && rendered.isNull(); }
+    };
+
     explicit MessageContentWidget(QWidget* parent = nullptr);
 
     void setEmojiRegistry(EmojiRegistry* registry);
     void setInlineAttachmentContext(const QSet<QString>& imageFileIds,
                                     InlineImageLoader imageLoader);
     QSet<QString> inlineAttachmentFileIds() const;
+    InlineImage inlineImageAt(const QPoint& globalPos) const;
     void setMessage(const QString& message);
     void clear();
     QString selectedText() const;

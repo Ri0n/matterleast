@@ -34,7 +34,7 @@
 #include <QFileDialog>
 #include <QImage>
 #include <QLayout>
-#include <QMenu>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -134,14 +134,6 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
 
     setToolTip(file.name);
     ui->imagePreview->setToolTip(file.name);
-    // QLabel owns the pointer hit area; a context-menu event on it does not
-    // reliably reach the parent QWidget's CustomContextMenu handler.
-    ui->imagePreview->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(ui->imagePreview, &QWidget::customContextMenuRequested,
-            this, [this](const QPoint& pos) {
-        emit customContextMenuRequested(
-            mapFromGlobal(ui->imagePreview->mapToGlobal(pos)));
-    });
 
     ui->imagePreview->clear();
     ui->imagePreview->hide();
@@ -160,7 +152,6 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
     // item's initial size while the image is still being downloaded.
     setFixedSize(1, 1);
 
-    const QString attachmentFileName = file.name;
     QPointer<AttachedImageFile> self(this);
 
     const bool isSvg =
@@ -234,56 +225,72 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
             });
     }
 
-    connect(this, &QWidget::customContextMenuRequested, this,
-            [this, attachmentFileName](const QPoint& pos) {
-        QMenu menu(this);
-
-        menu.addAction(tr("Copy image"), this, [this] {
-            QPointer<AttachedImageFile> self(this);
-            AttachmentService::instance(this->backend).retrieveFile(
-                fileId, [self](const QByteArray& contents) {
-                    if (!self || contents.isEmpty()) return;
-                    // Put actual pixels on the clipboard rather than the
-                    // Mattermost URL (unavailable to external applications).
-                    decodeImageAsync(contents, [self](QImage image) {
-                        if (!self || image.isNull()) return;
-                        QGuiApplication::clipboard()->setImage(image);
-                    });
-                });
-        });
-        menu.addAction("Save image", this, [this, attachmentFileName] {
-            const QString defaultDownloadDir =
-                QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-            const QDir downloadDir(
-                MLOptions::instance()
-                    ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDownloadDir)
-                    ->value().toString());
-            const QString saveFileDestination = QFileDialog::getSaveFileName(
-                this, "Save image as... - Mattermost", downloadDir.filePath(attachmentFileName));
-
-            if (saveFileDestination.isEmpty()) {
-                return;
-            }
-
-            AttachmentService::instance(this->backend).retrieveFile(fileId, [saveFileDestination](const QByteArray& fileContents) {
-                QFile destFile(saveFileDestination);
-                if (!destFile.open(QIODevice::WriteOnly)) {
-                    qWarning() << "Cannot save image to" << saveFileDestination << ":" << destFile.errorString();
-                    return;
-                }
-                destFile.write(fileContents);
-                destFile.close();
-            });
-        });
-
-        menu.exec(mapToGlobal(pos) + QPoint(10, 0));
-    });
 }
 
 AttachedImageFile::~AttachedImageFile()
 {
     currentlyOpenFiles.erase(this);
     delete ui;
+}
+
+QImage AttachedImageFile::displayedImage() const
+{
+    return sourcePixmap.toImage();
+}
+
+void AttachedImageFile::copyFileImageToClipboard(Backend& backend,
+                                                 const QString& fileId,
+                                                 const QImage& fallback)
+{
+    const auto copyFallback = [fallback] {
+        if (!fallback.isNull()) {
+            QGuiApplication::clipboard()->setImage(fallback);
+        }
+    };
+    if (fileId.isEmpty()) {
+        copyFallback();
+        return;
+    }
+
+    AttachmentService::instance(backend).retrieveFile(
+        fileId, [copyFallback](const QByteArray& contents) {
+            if (contents.isEmpty()) {
+                copyFallback();
+                return;
+            }
+            decodeImageAsync(contents, [copyFallback](QImage image) {
+                if (image.isNull()) {
+                    copyFallback();
+                    return;
+                }
+                QGuiApplication::clipboard()->setImage(image);
+            });
+        });
+}
+
+void AttachedImageFile::saveImageAs()
+{
+    const QString defaultDownloadDir =
+        QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    const QDir downloadDir(
+        MLOptions::instance()
+            ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDownloadDir)
+            ->value().toString());
+    const QString saveFileDestination = QFileDialog::getSaveFileName(
+        this, tr("Save image as... - Mattermost"), downloadDir.filePath(fileName));
+    if (saveFileDestination.isEmpty()) {
+        return;
+    }
+
+    AttachmentService::instance(backend).retrieveFile(
+        fileId, [saveFileDestination](const QByteArray& fileContents) {
+        QFile destFile(saveFileDestination);
+        if (!destFile.open(QIODevice::WriteOnly)) {
+            qWarning() << "Cannot save image to" << saveFileDestination << ":" << destFile.errorString();
+            return;
+        }
+        destFile.write(fileContents);
+    });
 }
 
 void AttachedImageFile::setPreviewPixmap(QPixmap pixmap)
@@ -372,8 +379,13 @@ void AttachedImageFile::updatePreviewPixmap()
     emit dimensionsChanged();
 }
 
-void AttachedImageFile::mouseReleaseEvent(QMouseEvent*)
+void AttachedImageFile::mouseReleaseEvent(QMouseEvent* event)
 {
+    // Windows delivers ContextMenu after the right-button release.
+    if (!event || event->button() != Qt::LeftButton) {
+        return;
+    }
+
     const QWidget* const key = this;
     auto openFile = currentlyOpenFiles.find(key);
     if (openFile != currentlyOpenFiles.end()) {

@@ -17,6 +17,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | central navigation tabs, docked/tabbed/detached thread presentation | [Central navigation tabs](navigation-tabs.md) | changing tab ownership, semantic destinations or thread reparenting |
 | channel discovery, channel creation, DM/GM picker and sidebar category actions | [Channel and conversation discovery](channel-discovery.md) | changing public-channel browsing, participant matching, or sidebar + actions |
 | native plugin ABI, loading, host/accessor services or extension points | [Plugin architecture](plugins.md) | changing plugin lifecycle, ABI versioning, discovery, or adding a new host/accessor/extension interface |
+| post right-click menu, per-target items (images, links) | [Post context menu](post-context-menu.md) | adding an item that depends on what was clicked inside a post |
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |
 | composer @mentions and user-group suggestions | [Mention autocomplete](mention-autocomplete.md) | changing user/group lookup, DM/GM mention scope, or completion merging |
 | user-group browser, creation, membership and editing | [User groups](user-groups.md) | changing custom-group CRUD, membership mutations, or sidebar entry points |

@@ -22,10 +22,8 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QContextMenuEvent>
-#include <QTextFragment>
 #include <QTextBlock>
 #include <QTextDocument>
-#include <QPixmap>
 #include <QSignalBlocker>
 #include <QPropertyAnimation>
 #include <QPainter>
@@ -55,9 +53,6 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
-#include <QTextImageFormat>
-#include <QImage>
-#include "backend/AttachmentService.h"
 #include <QTextBrowser>
 #include <QTimer>
 #include <QUrl>
@@ -72,6 +67,7 @@
 #include "ReactionChipStyle.h"
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
+#include "attachments/AttachedImageFile.h"
 #include "attachments/PostAttachmentList.h"
 #include "attachments/PostPoll.h"
 #include "backend/Backend.h"
@@ -623,43 +619,6 @@ bool PostWidget::eventFilter(QObject* watched, QEvent* event)
         }
     }
 
-    if (event && event->type() == QEvent::ContextMenu) {
-        auto* viewport = qobject_cast<QWidget*>(watched);
-        auto* browser = viewport
-            ? qobject_cast<QTextBrowser*>(viewport->parentWidget()) : nullptr;
-        if (browser && browser->viewport() == viewport) {
-            auto* context = static_cast<QContextMenuEvent*>(event);
-            const int insertion = browser->cursorForPosition(context->pos()).position();
-            QImage image;
-            QTextDocument* document = browser->document();
-            // Find the actual rendered QTextFragment. QTextCursor::charFormat()
-            // at an insertion boundary often describes neighbouring text.
-            for (QTextBlock block = document->begin();
-                 block.isValid() && image.isNull(); block = block.next()) {
-                for (auto it = block.begin(); !it.atEnd(); ++it) {
-                    const QTextFragment fragment = it.fragment();
-                    if (!fragment.isValid() || !fragment.charFormat().isImageFormat())
-                        continue;
-                    if (insertion < fragment.position() - 1
-                        || insertion > fragment.position() + fragment.length())
-                        continue;
-                    const QUrl source(fragment.charFormat().toImageFormat().name());
-                    const QVariant resource = document->resource(
-                        QTextDocument::ImageResource, source);
-                    if (resource.canConvert<QImage>())
-                        image = resource.value<QImage>();
-                    else if (resource.canConvert<QPixmap>())
-                        image = resource.value<QPixmap>().toImage();
-                }
-            }
-            setProperty("_contextImagePixels", image);
-            showPostContextMenu(context->globalPos());
-            setProperty("_contextImagePixels", QVariant());
-            event->accept();
-            return true;
-        }
-    }
-
     if (event && event->type() == QEvent::MouseButtonRelease) {
         auto* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::MiddleButton) {
@@ -1042,73 +1001,41 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
 
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
-    // PostWidget can receive the context menu even when its QTextBrowser
-    // viewport did not. Resolve the image at the ORIGINAL global click point
-    // here, rather than relying on a child widget's ContextMenu signal.
-    QImage contextImage = property("_contextImagePixels").value<QImage>();
-    QString contextImageFileId;
-    if (contextImage.isNull() && messageContent) {
-        for (QTextBrowser* browser : messageContent->findChildren<QTextBrowser*>()) {
-            if (!browser || !browser->viewport()
-                || !browser->viewport()->isVisible()) continue;
-            const QPoint local = browser->viewport()->mapFromGlobal(globalPos);
-            if (!browser->viewport()->rect().contains(local)) continue;
-            QTextDocument* document = browser->document();
-            const int insertion = browser->cursorForPosition(local).position();
-            for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
-                for (auto it = block.begin(); !it.atEnd(); ++it) {
-                    const QTextFragment fragment = it.fragment();
-                    if (!fragment.isValid() || !fragment.charFormat().isImageFormat())
-                        continue;
-                    const int start = fragment.position();
-                    const int length = fragment.length();
-                    if (insertion < start - 1 || insertion > start + length + 1)
-                        continue;
-                    QTextCursor first(document);
-                    first.setPosition(start);
-                    QTextCursor last(document);
-                    last.setPosition(start + length);
-                    const QRect firstRect = browser->cursorRect(first);
-                    const QRect lastRect = browser->cursorRect(last);
-                    const QRect imageArea = firstRect.united(lastRect);
-                    if (!imageArea.adjusted(-3, -3, 3, 3).contains(local))
-                        continue;
-                    const QUrl source(fragment.charFormat().toImageFormat().name());
-                    const QVariant resource = document->resource(
-                        QTextDocument::ImageResource, source);
-                    if (resource.canConvert<QImage>())
-                        contextImage = resource.value<QImage>();
-                    else if (resource.canConvert<QPixmap>())
-                        contextImage = resource.value<QPixmap>().toImage();
-                    const QString prefix = QStringLiteral("/api/v4/files/");
-                    const QString urlPath = source.path();
-                    if (urlPath.startsWith(prefix)) {
-                        contextImageFileId = urlPath.mid(prefix.size());
-                        if (contextImageFileId.contains(QLatin1Char('/')))
-                            contextImageFileId.clear();
-                    }
-                    break;
-                }
-                if (!contextImage.isNull() || !contextImageFileId.isEmpty()) break;
-            }
-            if (!contextImage.isNull() || !contextImageFileId.isEmpty()) break;
+    // PostContextMenuRouter delivers every descendant's ContextMenu here, so
+    // image targets are resolved from the original click point.
+    QWidget* hit = childAt(mapFromGlobal(globalPos));
+    AttachedImageFile* attachedImage = nullptr;
+    for (QWidget* current = hit; current && current != this;
+         current = current->parentWidget()) {
+        if ((attachedImage = qobject_cast<AttachedImageFile*>(current))) {
+            break;
         }
     }
-    if (!contextImage.isNull() || !contextImageFileId.isEmpty()) {
+    const MessageContentWidget::InlineImage inlineImage =
+        !attachedImage && messageContent && hit && messageContent->isAncestorOf(hit)
+            ? messageContent->inlineImageAt(globalPos)
+            : MessageContentWidget::InlineImage {};
+    if (attachedImage) {
+        QPointer<AttachedImageFile> target(attachedImage);
         menu.addAction(icon(QStringLiteral(":/icons/copy")), tr("Copy image"),
-                       this, [this, contextImage, contextImageFileId] {
-            if (!contextImageFileId.isEmpty()) {
-                QPointer<PostWidget> guard(this);
-                AttachmentService::instance(backend_).retrieveFile(
-                    contextImageFileId, [guard](const QByteArray& bytes) {
-                    if (!guard) return;
-                    const QImage original = QImage::fromData(bytes);
-                    if (!original.isNull())
-                        QApplication::clipboard()->setImage(original);
-                });
-            } else {
-                QApplication::clipboard()->setImage(contextImage);
+                       this, [this, target] {
+            if (target) {
+                AttachedImageFile::copyFileImageToClipboard(
+                    backend_, target->imageFileId(), target->displayedImage());
             }
+        });
+        menu.addAction(tr("Save image as..."),
+                       this, [target] {
+            if (target) {
+                target->saveImageAs();
+            }
+        });
+        menu.addSeparator();
+    } else if (!inlineImage.isNull()) {
+        menu.addAction(icon(QStringLiteral(":/icons/copy")), tr("Copy image"),
+                       this, [this, inlineImage] {
+            AttachedImageFile::copyFileImageToClipboard(
+                backend_, inlineImage.fileId, inlineImage.rendered);
         });
         menu.addSeparator();
     }
@@ -1553,10 +1480,6 @@ void PostWidget::connectMessageLinks()
 		browser->setOpenLinks(false);
 		browser->setOpenExternalLinks(false);
         browser->setContextMenuPolicy(Qt::CustomContextMenu);
-        // The actual mouse target is QTextBrowser's viewport, not the
-        // QTextBrowser widget. Route right-clicks from that exact surface,
-        // like link hit-testing via anchorAt(viewport coordinates).
-        browser->viewport()->setContextMenuPolicy(Qt::CustomContextMenu);
         browser->viewport()->installEventFilter(this);
         QObject::disconnect(browser, nullptr, this, nullptr);
 		connect(browser, &QTextBrowser::anchorClicked, this,
