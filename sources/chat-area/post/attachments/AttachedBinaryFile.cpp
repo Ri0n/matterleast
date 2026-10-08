@@ -35,6 +35,7 @@
 #include <QHBoxLayout>
 #include <QUrl>
 #include <QSaveFile>
+#include <QNetworkReply>
 
 #include "Settings.h"
 #include "AttachedBinaryFile.h"
@@ -104,8 +105,15 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
 #endif
         QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(absolutePath).absolutePath()));
     });
-    connect(ui->downloadButton, &QPushButton::clicked, revealButton,
-            [this, revealButton] { revealButton->setEnabled(!downloadedPath.isEmpty()); });
+    auto* cancelButton = new QToolButton(this);
+    cancelButton->setIcon(style()->standardIcon(QStyle::SP_DialogCancelButton));
+    cancelButton->setToolTip(tr("Cancel download"));
+    cancelButton->setFixedSize(30, 30);
+    cancelButton->hide();
+    ui->horizontalLayout_3->insertWidget(3, cancelButton);
+    connect(cancelButton, &QToolButton::clicked, this, [this] {
+        if (_downloadReply) _downloadReply->abort();
+    });
 
 
     static QLocale locale = QLocale::system();
@@ -119,7 +127,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     const uint64_t fileSize = file.size;
 
     connect(ui->downloadButton, &QPushButton::clicked, this,
-            [this, &backend, fileId, fileName, fileSize] {
+            [this, &backend, fileId, fileName, fileSize, cancelButton, revealButton] {
         auto* options = MLOptions::instance();
         const QString defaultDownloadDir =
             QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
@@ -172,40 +180,36 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
             }
         }
 
+        if (_downloadReply) return;
+        ui->downloadButton->setDisabled(true);
         ui->openButton->setDisabled(true);
-        ui->downloadedLabel->setText("Downloading...");
+        cancelButton->show();
+        ui->downloadedLabel->setText(tr("Downloading…"));
         ui->downloadedLabel->show();
-
         QPointer<AttachedBinaryFile> self(this);
-        AttachmentService::instance(backend).downloadFile(
-            fileId,
-            [self, fileDestination, revealButton](const QByteArray& fileData, const QString& error) {
-                if (!self) {
-                    return;
-                }
-
+        _downloadReply = AttachmentService::instance(backend).downloadToFile(
+            fileId, fileDestination,
+            [self](qint64 received, qint64 total) {
+                if (!self) return;
+                if (total > 0)
+                    self->ui->downloadedLabel->setText(
+                        self->tr("Downloading: %1 / %2")
+                            .arg(QLocale::system().formattedDataSize(received))
+                            .arg(QLocale::system().formattedDataSize(total)));
+            },
+            [self, fileDestination, cancelButton, revealButton](const QString& error) {
+                if (!self) return;
+                self->_downloadReply = nullptr;
+                self->ui->downloadButton->setEnabled(true);
+                self->ui->openButton->setEnabled(true);
+                cancelButton->hide();
                 if (!error.isEmpty()) {
-                    self->ui->downloadedLabel->setText(tr("Download failed: %1").arg(error));
+                    self->ui->downloadedLabel->setText(self->tr("Download failed: %1").arg(error));
                     return;
                 }
-
-                QSaveFile destFile(fileDestination);
-                if (!destFile.open(QIODevice::WriteOnly)) {
-                    self->ui->downloadedLabel->setText(
-                        "Failed to save file: " + destFile.errorString());
-                    self->ui->openButton->setDisabled(false);
-                    return;
-                }
-
-                if (destFile.write(fileData) != fileData.size() || !destFile.commit()) {
-                    self->ui->downloadedLabel->setText(
-                        tr("Failed to save file: %1").arg(destFile.errorString()));
-                    return;
-                }
-                self->ui->downloadedLabel->setText(QFileInfo(fileDestination).absoluteFilePath());
-                self->ui->downloadedLabel->setToolTip(tr("Select and copy the saved file path"));
-                self->downloadedPath = fileDestination;
-                self->ui->openButton->setDisabled(false);
+                self->downloadedPath = QFileInfo(fileDestination).absoluteFilePath();
+                self->ui->downloadedLabel->setText(self->downloadedPath);
+                self->ui->downloadedLabel->setToolTip(self->tr("Select and copy the saved file path"));
                 revealButton->setEnabled(true);
             });
     });
@@ -217,39 +221,47 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
             return;
         }
 
+        if (_downloadReply) return;
+        QString tmpName(fileName);
+        const int dot = tmpName.lastIndexOf(QLatin1Char('.'));
+        tmpName.insert(dot < 0 ? tmpName.size() : dot, QStringLiteral("XXXXXX"));
+        tempFile.setFileTemplate(Config::tempDirectory().filePath(tmpName));
+        if (!tempFile.open()) {
+            QMessageBox::warning(this, tr("Open failed"), tempFile.errorString());
+            return;
+        }
+        tempFile.close();
+        ui->openButton->setEnabled(false);
+        cancelButton->show();
+        ui->downloadedLabel->show();
         QPointer<AttachedBinaryFile> self(this);
-        AttachmentService::instance(backend).downloadFile(fileId, [self, fileName](const QByteArray& fileData, const QString& error) {
-            if (!self) {
-                return;
-            }
-
-            if (!error.isEmpty()) {
-                QMessageBox::warning(self, tr("Download failed"), error);
-                return;
-            }
-
-            QString tmpName(fileName);
-            int dot = tmpName.lastIndexOf(QLatin1Char('.'));
-            if (dot < 0) {
-                dot = tmpName.size();
-            }
-            tmpName.insert(dot, QStringLiteral("XXXXXX"));
-
-            self->tempFile.setFileTemplate(Config::tempDirectory().filePath(tmpName));
-            if (!self->tempFile.open()) {
-                qDebug() << self->tempFile.errorString();
-                return;
-            }
-
-            self->tempFile.write(fileData);
-            self->tempFile.close();
-            QDesktopServices::openUrl(QUrl::fromLocalFile(self->tempFile.fileName()));
-        });
+        _downloadReply = AttachmentService::instance(backend).downloadToFile(
+            fileId, tempFile.fileName(),
+            [self](qint64 received, qint64 total) {
+                if (self && total > 0)
+                    self->ui->downloadedLabel->setText(
+                        self->tr("Downloading: %1 / %2")
+                            .arg(QLocale::system().formattedDataSize(received))
+                            .arg(QLocale::system().formattedDataSize(total)));
+            },
+            [self, cancelButton](const QString& error) {
+                if (!self) return;
+                self->_downloadReply = nullptr;
+                self->ui->openButton->setEnabled(true);
+                cancelButton->hide();
+                if (!error.isEmpty()) {
+                    self->ui->downloadedLabel->setText(self->tr("Download failed: %1").arg(error));
+                    return;
+                }
+                self->ui->downloadedLabel->hide();
+                QDesktopServices::openUrl(QUrl::fromLocalFile(self->tempFile.fileName()));
+            });
     });
 }
 
 AttachedBinaryFile::~AttachedBinaryFile()
 {
+    if (_downloadReply) _downloadReply->abort();
     delete ui;
 }
 
