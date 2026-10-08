@@ -220,7 +220,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     });
 
     connect(ui->openButton, &QPushButton::clicked, this,
-            [this, &backend, fileId, fileName] {
+            [this, &backend, fileId, fileName, cancelButton] {
         if (!downloadedPath.isEmpty()) {
             QDesktopServices::openUrl(QUrl::fromLocalFile(downloadedPath));
             return;
