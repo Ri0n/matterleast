@@ -1,3 +1,12 @@
+add_executable(root-notification-policy-test
+    RootNotificationPolicyTest.cpp
+)
+target_include_directories(root-notification-policy-test
+    PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(root-notification-policy-test
+    PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME root-notification-policy-test COMMAND root-notification-policy-test)
+
 add_executable(sidebar-conversation-search-policy-test
     SidebarConversationSearchPolicyTest.cpp
 )
