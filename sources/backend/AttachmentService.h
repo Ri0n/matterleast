@@ -5,6 +5,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QObject>
+#include <QNetworkAccessManager>
 #include <QPointer>
 #include <QVector>
 
@@ -13,6 +14,7 @@
 namespace Mattermost {
 
 class Backend;
+class QNetworkReply;
 
 class AttachmentService : public QObject
 {
@@ -25,6 +27,12 @@ public:
 
     void retrieveFile(const QString& fileId, Callback callback);
     void downloadFile(const QString& fileId, DownloadCallback callback);
+    using ProgressCallback = std::function<void(qint64, qint64)>;
+    using CompletionCallback = std::function<void(const QString&)>;
+    // Streams successful responses to an atomic destination file. The reply
+    // may be aborted by the caller; destruction belongs to this service.
+    QNetworkReply* downloadToFile(const QString& fileId, const QString& path,
+                                  ProgressCallback progress, CompletionCallback completed);
     void retrievePreview(const QString& fileId, Callback callback);
     void retrieveThumbnail(const QString& fileId, Callback callback);
 
@@ -35,6 +43,7 @@ private:
 
     Backend& backend;
     HTTPConnector httpConnector;
+    QNetworkAccessManager downloadManager;
     QHash<QString, QVector<Callback>> pendingCallbacks;
 };
 
