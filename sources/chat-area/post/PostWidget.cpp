@@ -1485,13 +1485,28 @@ void PostWidget::connectMessageLinks()
                 [this, browser](const QPoint& pos) {
             const QTextCursor cursor = browser->cursorForPosition(pos);
             QString imageId;
-            if (cursor.charFormat().isImageFormat()) {
-                const QString source = cursor.charFormat().toImageFormat().name();
+            // QTextBrowser::cursorForPosition() returns an insertion point,
+            // usually *after* an inline image. Its charFormat() then belongs
+            // to the following character, not to the image being clicked.
+            // Inspect the actual image character on both sides of the caret.
+            const int position = cursor.position();
+            for (const int candidate : {position, position - 1}) {
+                if (candidate < 0 || candidate >= browser->document()->characterCount())
+                    continue;
+                QTextCursor imageCursor(browser->document());
+                imageCursor.setPosition(candidate);
+                imageCursor.movePosition(QTextCursor::NextCharacter,
+                                         QTextCursor::KeepAnchor);
+                const QTextCharFormat format = imageCursor.charFormat();
+                if (!format.isImageFormat()) continue;
+                const QString path = QUrl(format.toImageFormat().name()).path();
                 const QString prefix = QStringLiteral("/api/v4/files/");
-                const QString path = QUrl(source).path();
                 if (path.startsWith(prefix)) {
-                    imageId = path.mid(prefix.size());
-                    if (imageId.contains(QLatin1Char('/'))) imageId.clear();
+                    const QString id = path.mid(prefix.size());
+                    if (!id.isEmpty() && !id.contains(QLatin1Char('/'))) {
+                        imageId = id;
+                        break;
+                    }
                 }
             }
             setProperty("_contextImageFileId", imageId);
