@@ -56,6 +56,7 @@ private:
 
     BackendPost* rootPost() const;
     int currentLogicalCount() const;
+    bool reanchorConfirmedTailForCountShrink(int count);
     int nearestEmptyIndex(int preferred) const;
     void seedCachedPosts();
     void hydrateCachedTail();
