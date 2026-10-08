@@ -14,8 +14,6 @@
 namespace Mattermost {
 
 class Backend;
-class QNetworkReply;
-
 class AttachmentService : public QObject
 {
     Q_OBJECT
