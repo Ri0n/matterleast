@@ -148,8 +148,11 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
             << " old=" << postIds.size()
             << " new=" << count
             << " replyCount=" << rootPost.reply_count;
-        resizeLogicalTail(count);
-        pruneProvisionalPostIds();
+        if (!(count < static_cast<int>(postIds.size())
+              && reanchorConfirmedTailForCountShrink(count))) {
+            resizeLogicalTail(count);
+            pruneProvisionalPostIds();
+        }
         qCDebug(lcThreadTimelineTrace).nospace()
             << "THREAD_SLOTS source=" << static_cast<const void*>(this)
             << ' ' << slotSummary(postIds);
@@ -786,14 +789,23 @@ void ThreadPostSource::continueDemand(const std::shared_ptr<Demand>& demand)
             guard->failDemand(demand, QStringLiteral("Thread page transport failed"));
             return;
         }
-        if (!tail && (!guard->isAuthoritativeIndex(anchorIndex)
-                      || guard->postIds.value(anchorIndex) != anchorId)) {
-            guard->failDemand(demand, QStringLiteral("Thread cursor changed during retrieval"));
-            return;
+        int effectiveAnchorIndex = anchorIndex;
+        if (!tail) {
+            // The response is tied to anchorId, not to the numeric rank that
+            // anchor had when the request was dispatched. A concurrent
+            // reply-count shrink can legitimately move a confirmed tail left.
+            // Keep using the same semantic cursor at its current authoritative
+            // rank instead of rejecting an otherwise valid page.
+            effectiveAnchorIndex = guard->indexOfPost(anchorId);
+            if (!guard->isAuthoritativeIndex(effectiveAnchorIndex)) {
+                guard->failDemand(demand, QStringLiteral("Thread cursor changed during retrieval"));
+                return;
+            }
         }
         const int count = result.postIds.size();
         const int pageFirst = tail ? guard->itemCount() - count
-                             : backward ? anchorIndex - count : anchorIndex + 1;
+                             : backward ? effectiveAnchorIndex - count
+                                        : effectiveAnchorIndex + 1;
         // Pagination exhaustion is not a count proof. In particular an empty
         // response (or omitted has_next) must not erase already known replies.
         // Root-summary ingestion owns count updates; validate this page before
@@ -940,6 +952,61 @@ void ThreadPostSource::retainMappedTombstone(const QString& postId)
 
     leasedTombstoneIds.insert(postId);
     tombstoneResidencyLeases.push_back(std::move(lease));
+}
+
+bool ThreadPostSource::reanchorConfirmedTailForCountShrink(int count)
+{
+    const int oldCount = static_cast<int>(postIds.size());
+    const int removeCount = oldCount - count;
+    if (removeCount <= 0 || count <= 0 || oldCount <= 1) {
+        return false;
+    }
+
+    // A contiguous authoritative suffix that reaches the current logical end
+    // is connected to the server's newest boundary. If reply_count shrinks
+    // because an unmapped reply was deleted, those surviving newest replies
+    // move left; truncating the vector would instead discard the newest
+    // identity and leave every surviving tail rank stale.
+    int suffixFirst = oldCount;
+    while (suffixFirst > 1 && isAuthoritativeIndex(suffixFirst - 1)) {
+        --suffixFirst;
+    }
+    if (suffixFirst == oldCount) {
+        return false;
+    }
+
+    const int removeFirst = suffixFirst - removeCount;
+    if (removeFirst < 1) {
+        return false;
+    }
+    for (int index = removeFirst; index < suffixFirst; ++index) {
+        if (!postIds.at(index).isEmpty()) {
+            return false;
+        }
+    }
+
+    qCDebug(lcThreadTimelineTrace).nospace()
+        << "THREAD_COUNT_SHRINK_REANCHOR source=" << static_cast<const void*>(this)
+        << " old=" << oldCount
+        << " new=" << count
+        << " remove=[" << removeFirst << ',' << (suffixFirst - 1) << ']'
+        << " suffix=[" << suffixFirst << ',' << (oldCount - 1) << ']';
+
+    eraseLogicalSlots(removeFirst, removeCount);
+
+    // Structural slot removal shifts any surviving provisional island as well.
+    // Keep its stored origin aligned with the identity mapping rather than
+    // leaving a stale numeric estimate behind.
+    for (Island& island : islands) {
+        const int targetOffset = static_cast<int>(island.ids.indexOf(island.targetId));
+        const int targetIndex = indexOfPost(island.targetId);
+        if (targetOffset >= 0 && targetIndex >= 0) {
+            island.first = targetIndex - targetOffset;
+        }
+    }
+    ++islandEpoch;
+    pruneProvisionalPostIds();
+    return true;
 }
 
 int ThreadPostSource::nearestEmptyIndex(int preferred) const
