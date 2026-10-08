@@ -28,6 +28,7 @@
 #include <QNetworkCookie>
 #include <QObject>
 #include <QList>
+#include <QSet>
 #include <QNetworkDiskCache>
 #include <QAtomicInteger>
 #include <QTimer>
@@ -72,6 +73,7 @@ public:
 
 	//get user's preferences (/users/{user_id}/preferences)
 	void retrieveUserPreferences ();
+    bool isPostFlagged(const QString& postId) const { return _flaggedPostIds.contains(postId); }
 
 	void updateUserPreferences (const BackendUserPreferences& preferences);
 	void deleteUserPreferences (const BackendUserPreferences& preferences);
@@ -310,6 +312,7 @@ private:
     RequestTracker					requestTracker;
     BackendChannel*					currentChannel;
     QString                             currentTeamContextId;
+    QSet<QString> _flaggedPostIds;
     QTimer 							timeoutTimer;
     bool							isLoggedIn;
     bool							autoLoginEnabledFlag;
