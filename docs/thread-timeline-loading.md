@@ -61,6 +61,15 @@ the source so ordinary body eviction cannot turn a visible deleted row into a pe
 Closing and reopening a thread may therefore drop old tombstones that are no longer present in the
 server thread response; this is preferable to manufacturing false adjacency or an unfillable tail.
 
+If `reply_count` shrinks while the source has an authoritative newest-boundary suffix and the
+deleted reply was never mapped by this source, the surviving suffix must move left with the logical
+count. Truncating only the vector tail would discard the newest identity while leaving every surviving
+tail reply one rank too high; the next cursor page would then collide with those stale confirmed
+ranks and leave a permanent viewport gap. When the intervening slots are still unresolved, remove
+those empty logical slots before the confirmed suffix so the suffix remains anchored to the newest
+boundary. A cursor response remains tied to its semantic `fromPost` identity if that anchor shifts
+during the request; its current authoritative rank is used when the response arrives.
+
 ## Cursor demand convergence
 
 `ThreadPostSource` owns one demand across as many transport pages as necessary. It selects the
