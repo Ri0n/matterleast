@@ -208,12 +208,14 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
                 cancelButton->hide();
                 if (!error.isEmpty()) {
                     self->ui->downloadedLabel->setText(self->tr("Download failed: %1").arg(error));
+                    emit self->dimensionsChanged();
                     return;
                 }
                 self->downloadedPath = QFileInfo(fileDestination).absoluteFilePath();
                 self->ui->downloadedLabel->setText(self->downloadedPath);
                 self->ui->downloadedLabel->setToolTip(self->tr("Select and copy the saved file path"));
                 revealButton->setEnabled(true);
+                emit self->dimensionsChanged();
             });
     });
 
@@ -254,6 +256,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
                 cancelButton->hide();
                 if (!error.isEmpty()) {
                     self->ui->downloadedLabel->setText(self->tr("Download failed: %1").arg(error));
+                    emit self->dimensionsChanged();
                     return;
                 }
                 self->ui->downloadedLabel->hide();
