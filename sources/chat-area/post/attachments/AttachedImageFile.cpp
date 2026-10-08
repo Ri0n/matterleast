@@ -231,7 +231,7 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
 
         menu.addAction(tr("Copy image"), this, [this] {
             QPointer<AttachedImageFile> self(this);
-            AttachmentService::instance(backend).retrieveFile(
+            AttachmentService::instance(this->backend).retrieveFile(
                 fileId, [self](const QByteArray& contents) {
                     if (!self || contents.isEmpty()) return;
                     // Put actual pixels on the clipboard rather than the
