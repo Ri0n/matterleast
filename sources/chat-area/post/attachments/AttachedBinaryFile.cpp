@@ -53,24 +53,14 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     , ui(new Ui::AttachedBinaryFile)
 {
     ui->setupUi(this);
-    // Keep metadata labels at their natural line height. Otherwise the
-    // horizontal layout can stretch the first label while the following
-    // labels retain their old 20px designer constraints.
-    ui->verticalLayout_2->setAlignment(Qt::AlignTop);
     ui->verticalLayout->setContentsMargins(0, 0, 0, 0);
-    ui->fileNameLabel->setMaximumHeight(QWIDGETSIZE_MAX);
-    ui->fileTypeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
-    ui->fileTypeLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    ui->fileSizeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
-    ui->fileSizeLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    ui->fileNameLabel->setText("File: " + file.name);
+    ui->verticalLayout_2->setAlignment(Qt::AlignTop);
+    ui->metadataLabel->setTextFormat(Qt::PlainText);
+    ui->metadataLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    ui->metadataLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    ui->metadataLabel->setWordWrap(true);
     ui->downloadedLabel->clear();
     ui->downloadedLabel->hide();
-    ui->fileNameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    ui->fileNameLabel->setWordWrap(true);
-    ui->fileNameLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    ui->fileTypeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    ui->fileSizeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->downloadedLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->downloadedLabel->setWordWrap(true);
     ui->downloadedLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -126,11 +116,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     });
 
 
-    static QLocale locale = QLocale::system();
-    ui->fileSizeLabel->setText(
-        "Size: " + locale.formattedDataSize(file.size, 2, QLocale::DataSizeTraditionalFormat));
-
-    setFileMimeIcon(file.name);
+    setFileMetadata(file);
 
     const QString fileId = file.id;
     const QString fileName = file.name;
@@ -308,10 +294,15 @@ void AttachedBinaryFile::paintEvent(QPaintEvent* event)
                      palette().color(QPalette::Highlight));
 }
 
-void AttachedBinaryFile::setFileMimeIcon(const QString& filename)
+void AttachedBinaryFile::setFileMetadata(const BackendFile& file)
 {
-    const auto presentation = AttachmentPresentation::describeFile(filename);
-    ui->fileTypeLabel->setText("Type: " + presentation.mimeTypeName);
+    const auto presentation = AttachmentPresentation::describeFile(file.name);
+    const QString displaySize = QLocale::system().formattedDataSize(
+        file.size, 2, QLocale::DataSizeTraditionalFormat);
+    // A single label owns all metadata lines, so the font metrics and
+    // inter-line spacing are identical regardless of the post's width.
+    ui->metadataLabel->setText(tr("File: %1\nType: %2\nSize: %3")
+                                  .arg(file.name, presentation.mimeTypeName, displaySize));
 
     if (!presentation.icon.isNull()) {
         const QPixmap pixmap = presentation.icon.pixmap(QSize(64, 64));
