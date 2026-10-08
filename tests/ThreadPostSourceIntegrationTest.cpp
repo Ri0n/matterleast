@@ -493,6 +493,71 @@ private slots:
         }
     }
 
+    void unmappedDeletedReplyReanchorsConfirmedTail()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 40;
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(),
+            QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert(QStringLiteral("reply_count"), 40);
+        root.insert(QStringLiteral("last_reply_at"), timestamp(40));
+        BackendPost* rootPost = channel.addPost(root);
+        QVERIFY(rootPost);
+
+        // Keep reply 20 resident in BackendChannel so a realtime deletion can
+        // update the root summary, but create the source with only partial
+        // cache provenance. The source must not assign reply 20 a rank.
+        BackendPost* cachedMiddle = channel.addPost(post(20));
+        QVERIFY(cachedMiddle);
+        rootPost->reply_count = 40;
+        rootPost->last_reply_at = timestamp(40);
+
+        ThreadPostSource source(backend, channel, id(0));
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failures(&source, &ThreadPostSource::rangeRequestFailed);
+
+        // Prove both sides of a large gap.
+        source.requestRange(
+            1, 10, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        source.requestRange(
+            31, 40, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 2);
+        QCOMPARE(source.indexOfPost(id(10)), 10);
+        QCOMPARE(source.indexOfPost(id(31)), 31);
+        QCOMPARE(source.indexOfPost(id(40)), 40);
+
+        // Mattermost removes deleted replies from reply_count and /thread. The
+        // deleted reply was never ranked by this source, so every confirmed
+        // reply after it must move left instead of truncating the newest row.
+        server.deletedReplies.insert(20);
+        channel.deletePost(id(20));
+
+        QCOMPARE(source.itemCount(), 40);
+        QCOMPARE(source.indexOfPost(id(31)), 30);
+        QCOMPARE(source.indexOfPost(id(40)), 39);
+
+        finished.clear();
+        source.requestRange(
+            11, 29, AbstractPostSource::RequestReason::Scroll, 1);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failures.size(), 0);
+
+        for (int reply = 1; reply <= 19; ++reply) {
+            QCOMPARE(source.indexOfPost(id(reply)), reply);
+        }
+        for (int reply = 21; reply <= 40; ++reply) {
+            QCOMPARE(source.indexOfPost(id(reply)), reply - 1);
+        }
+    }
+
     void mappedDeletedReplyKeepsItsVisibleSlot()
     {
         ThreadServer server;
