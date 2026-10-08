@@ -42,6 +42,9 @@ public:
     explicit AttachedBinaryFile (Backend& backend, const BackendFile& file, QWidget *parent = nullptr);
     ~AttachedBinaryFile();
 
+signals:
+    void dimensionsChanged();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
