@@ -23,6 +23,10 @@
 
 #include <QEvent>
 #include <QFont>
+#include <QApplication>
+#include <QTextDocument>
+#include "Settings.h"
+#include "options/MLOptions.h"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QMenu>
@@ -162,12 +166,29 @@ void ChatArea::setupComposerUi()
     // stylesheet merely to suppress Breeze's hover frame: QStyleSheetStyle was
     // also the source of stale inherited palette roles during theme changes.
 
+    // Incoming post text and the composer share CHAT_FONT. Do not rely on
+    // the designer's fixed editor font or on the application-wide default.
+    auto* chatFontOption = MLOptions::instance()->optionObject<QString>(
+        CHAT_FONT, QApplication::font().toString());
+    const auto applyEditorFont = [this](const QString& serialized) {
+        QFont selected;
+        if (serialized.isEmpty() || !selected.fromString(serialized))
+            selected = QApplication::font();
+        ui->outgoingPostCreator->setFont(selected);
+        ui->outgoingPostCreator->document()->setDefaultFont(selected);
+        const int padding = std::max(
+            2, QFontMetrics(selected).lineSpacing() * 2 / 5);
+        ui->composerLayout->setContentsMargins(0, padding, 0, padding);
+        ui->outgoingPostCreator->updateGeometry();
+    };
+    applyEditorFont(chatFontOption->value().toString());
+    connect(chatFontOption, &MLOptionObject::changed, this,
+            [applyEditorFont](const QVariant& value) {
+        applyEditorFont(value.toString());
+    });
+
     // The editor is the only vertically growing child. The other controls are
     // bottom-aligned in ChatArea.ui, so new lines grow upward from the action row.
-    const int verticalPadding = std::max(
-        2, ui->outgoingPostCreator->fontMetrics().lineSpacing() * 2 / 5);
-    ui->composerLayout->setContentsMargins(0, verticalPadding, 0, verticalPadding);
-
     auto* mentionSearch = new MentionSearchState(ui->outgoingPostCreator);
     QPointer<MentionSearchState> mentionSearchGuard(mentionSearch);
     QPointer<OutgoingPostCreator> mentionEditorGuard(ui->outgoingPostCreator);
