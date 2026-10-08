@@ -78,6 +78,7 @@ public:
         return activityTracker.openTime(channelId);
     }
     QStringList visibleChannelIds(const SidebarCategory& category) const;
+    void setConversationSearchTerm(const QString& term) { _conversationSearchTerm = term.trimmed(); }
     void markChannelViewedLocally(const BackendChannel& channel);
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
     void markPostUnread(const QString& postId, std::function<void(bool)> callback = {});
@@ -139,6 +140,7 @@ private:
     Backend& backend;
     HTTPConnector httpConnector;
     QSet<QString> mutedChannelIds;
+    QString _conversationSearchTerm;
     QMap<QString, SidebarTeamState> sidebarByTeam;
     ChannelActivityTracker activityTracker;
 
