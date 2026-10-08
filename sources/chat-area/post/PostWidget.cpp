@@ -1461,6 +1461,10 @@ void PostWidget::connectMessageLinks()
 		browser->setOpenLinks(false);
 		browser->setOpenExternalLinks(false);
         browser->setContextMenuPolicy(Qt::CustomContextMenu);
+        // The actual mouse target is QTextBrowser's viewport, not the
+        // QTextBrowser widget. Route right-clicks from that exact surface,
+        // like link hit-testing via anchorAt(viewport coordinates).
+        browser->viewport()->setContextMenuPolicy(Qt::CustomContextMenu);
         browser->viewport()->installEventFilter(this);
         QObject::disconnect(browser, nullptr, this, nullptr);
 		connect(browser, &QTextBrowser::anchorClicked, this,
@@ -1481,7 +1485,7 @@ void PostWidget::connectMessageLinks()
             }
 			AppNavigationService::instance(backend_).openUrl(url);
 		});
-        connect(browser, &QWidget::customContextMenuRequested, this,
+        connect(browser->viewport(), &QWidget::customContextMenuRequested, this,
                 [this, browser](const QPoint& pos) {
             const QTextCursor cursor = browser->cursorForPosition(pos);
             QString imageId;
