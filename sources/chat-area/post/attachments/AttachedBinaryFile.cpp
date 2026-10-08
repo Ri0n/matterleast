@@ -53,15 +53,19 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     , ui(new Ui::AttachedBinaryFile)
 {
     ui->setupUi(this);
+    // Keep metadata labels at their natural line height. Otherwise the
+    // horizontal layout can stretch the first label while the following
+    // labels retain their old 20px designer constraints.
+    ui->verticalLayout_2->setAlignment(Qt::AlignTop);
     ui->fileNameLabel->setMaximumHeight(QWIDGETSIZE_MAX);
-    ui->fileTypeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
-    ui->fileSizeLabel->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->fileTypeLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    ui->fileSizeLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     ui->fileNameLabel->setText("File: " + file.name);
     ui->downloadedLabel->clear();
     ui->downloadedLabel->hide();
     ui->fileNameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->fileNameLabel->setWordWrap(true);
-    ui->fileNameLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    ui->fileNameLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Maximum);
     ui->fileTypeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->fileSizeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->downloadedLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
