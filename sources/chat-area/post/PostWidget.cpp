@@ -22,6 +22,10 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QContextMenuEvent>
+#include <QTextFragment>
+#include <QTextBlock>
+#include <QTextDocument>
+#include <QPixmap>
 #include <QSignalBlocker>
 #include <QPropertyAnimation>
 #include <QPainter>
@@ -619,6 +623,43 @@ bool PostWidget::eventFilter(QObject* watched, QEvent* event)
         }
     }
 
+    if (event && event->type() == QEvent::ContextMenu) {
+        auto* viewport = qobject_cast<QWidget*>(watched);
+        auto* browser = viewport
+            ? qobject_cast<QTextBrowser*>(viewport->parentWidget()) : nullptr;
+        if (browser && browser->viewport() == viewport) {
+            auto* context = static_cast<QContextMenuEvent*>(event);
+            const int insertion = browser->cursorForPosition(context->pos()).position();
+            QImage image;
+            QTextDocument* document = browser->document();
+            // Find the actual rendered QTextFragment. QTextCursor::charFormat()
+            // at an insertion boundary often describes neighbouring text.
+            for (QTextBlock block = document->begin();
+                 block.isValid() && image.isNull(); block = block.next()) {
+                for (auto it = block.begin(); !it.atEnd(); ++it) {
+                    const QTextFragment fragment = it.fragment();
+                    if (!fragment.isValid() || !fragment.charFormat().isImageFormat())
+                        continue;
+                    if (insertion < fragment.position() - 1
+                        || insertion > fragment.position() + fragment.length())
+                        continue;
+                    const QUrl source(fragment.charFormat().toImageFormat().name());
+                    const QVariant resource = document->resource(
+                        QTextDocument::ImageResource, source);
+                    if (resource.canConvert<QImage>())
+                        image = resource.value<QImage>();
+                    else if (resource.canConvert<QPixmap>())
+                        image = resource.value<QPixmap>().toImage();
+                }
+            }
+            setProperty("_contextImagePixels", image);
+            showPostContextMenu(context->globalPos());
+            setProperty("_contextImagePixels", QVariant());
+            event->accept();
+            return true;
+        }
+    }
+
     if (event && event->type() == QEvent::MouseButtonRelease) {
         auto* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::MiddleButton) {
@@ -1001,22 +1042,13 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
 
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
-    // Inline Markdown images are rendered inside QTextBrowser rather than
-    // AttachedImageFile; still expose a real pixel-copy action for them.
-    const QString contextImageId = property("_contextImageFileId").toString();
-    if (!contextImageId.isEmpty()) {
-        QAction* copyImage = menu.addAction(
-            icon(QStringLiteral(":/icons/copy")), tr("Copy image"));
-        connect(copyImage, &QAction::triggered, this,
-                [this, contextImageId] {
-            QPointer<PostWidget> owner(this);
-            AttachmentService::instance(backend_).retrieveFile(
-                contextImageId, [owner](const QByteArray& imageBytes) {
-                    if (!owner || imageBytes.isEmpty()) return;
-                    const QImage image = QImage::fromData(imageBytes);
-                    if (!image.isNull())
-                        QApplication::clipboard()->setImage(image);
-                });
+    // Copy the image that QTextBrowser actually rendered. This also works
+    // for external Markdown images without a Mattermost attachment file ID.
+    const QImage contextImage = property("_contextImagePixels").value<QImage>();
+    if (!contextImage.isNull()) {
+        menu.addAction(icon(QStringLiteral(":/icons/copy")), tr("Copy image"),
+                       this, [contextImage] {
+            QApplication::clipboard()->setImage(contextImage);
         });
         menu.addSeparator();
     }
@@ -1485,38 +1517,7 @@ void PostWidget::connectMessageLinks()
             }
 			AppNavigationService::instance(backend_).openUrl(url);
 		});
-        connect(browser->viewport(), &QWidget::customContextMenuRequested, this,
-                [this, browser](const QPoint& pos) {
-            const QTextCursor cursor = browser->cursorForPosition(pos);
-            QString imageId;
-            // QTextBrowser::cursorForPosition() returns an insertion point,
-            // usually *after* an inline image. Its charFormat() then belongs
-            // to the following character, not to the image being clicked.
-            // Inspect the actual image character on both sides of the caret.
-            const int position = cursor.position();
-            for (const int candidate : {position, position - 1}) {
-                if (candidate < 0 || candidate >= browser->document()->characterCount())
-                    continue;
-                QTextCursor imageCursor(browser->document());
-                imageCursor.setPosition(candidate);
-                imageCursor.movePosition(QTextCursor::NextCharacter,
-                                         QTextCursor::KeepAnchor);
-                const QTextCharFormat format = imageCursor.charFormat();
-                if (!format.isImageFormat()) continue;
-                const QString path = QUrl(format.toImageFormat().name()).path();
-                const QString prefix = QStringLiteral("/api/v4/files/");
-                if (path.startsWith(prefix)) {
-                    const QString id = path.mid(prefix.size());
-                    if (!id.isEmpty() && !id.contains(QLatin1Char('/'))) {
-                        imageId = id;
-                        break;
-                    }
-                }
-            }
-            setProperty("_contextImageFileId", imageId);
-            showPostContextMenu(browser->viewport()->mapToGlobal(pos));
-            setProperty("_contextImageFileId", QVariant());
-        });
+
 	}
 
     const auto codeEditors = messageContent->findChildren<QPlainTextEdit*>();
