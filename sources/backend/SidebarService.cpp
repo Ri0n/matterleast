@@ -4,6 +4,7 @@
  */
 
 #include "SidebarService.h"
+#include "SidebarConversationSearchPolicy.h"
 
 #include <algorithm>
 #include <memory>
@@ -373,16 +374,13 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
         const QString term = _conversationSearchTerm;
         const auto matches = [&](const BackendChannel* channel) {
             if (!channel) return false;
-            if (channel->display_name.contains(term, Qt::CaseInsensitive))
-                return true;
-            if (channel->type == BackendChannel::directChannel) {
-                const BackendUser* user = backend.getStorage().getUserById(channel->name);
-                return user
-                    && (user->getDisplayName().contains(term, Qt::CaseInsensitive)
-                        || user->username.contains(term, Qt::CaseInsensitive)
-                        || user->email.contains(term, Qt::CaseInsensitive));
-            }
-            return false;
+            const BackendUser* user = channel->type == BackendChannel::directChannel
+                ? backend.getStorage().getUserById(channel->name) : nullptr;
+            return matchesConversationSearch(
+                term, channel->display_name,
+                user ? user->getDisplayName() : QString(),
+                user ? user->username : QString(),
+                user ? user->email : QString());
         };
         QSet<QString> seen;
         for (const QString& id : result) seen.insert(id);
