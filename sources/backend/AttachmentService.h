@@ -19,16 +19,19 @@ class AttachmentService : public QObject
     Q_OBJECT
 public:
     using Callback = std::function<void(const QByteArray&)>;
+    using DownloadCallback = std::function<void(const QByteArray&, const QString&)>;
 
     static AttachmentService& instance(Backend& backend);
 
     void retrieveFile(const QString& fileId, Callback callback);
+    void downloadFile(const QString& fileId, DownloadCallback callback);
     void retrievePreview(const QString& fileId, Callback callback);
     void retrieveThumbnail(const QString& fileId, Callback callback);
 
 private:
     explicit AttachmentService(Backend& backend);
     void retrieve(const QString& requestPath, Callback callback);
+    void retrieveChecked(const QString& requestPath, DownloadCallback callback);
 
     Backend& backend;
     HTTPConnector httpConnector;
