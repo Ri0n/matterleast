@@ -289,10 +289,22 @@ PostWidget::PostWidget(Backend& backend,
 
         saveAffordance_ = makeActionButton(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/bookmark")),
-            QString(), tr("Save message"));
+            QString(), backend_.isPostFlagged(post.id)
+                ? tr("Remove from saved") : tr("Save message"));
         connect(saveAffordance_, &QPushButton::clicked, this, [this] {
-            backend_.updateUserPreferences(BackendUserPreferences {
-                QStringLiteral("flagged_post"), this->post.id, QStringLiteral("true")});
+            const BackendUserPreferences pref {
+                QStringLiteral("flagged_post"), post.id, QStringLiteral("true")};
+            if (backend_.isPostFlagged(post.id)) {
+                backend_.deleteUserPreferences(pref);
+            } else {
+                backend_.updateUserPreferences(pref);
+            }
+        });
+        connect(&backend_, &Backend::onFlaggedPostChanged, this,
+                [this](const QString& postId, bool flagged) {
+            if (postId == post.id && saveAffordance_)
+                saveAffordance_->setToolTip(
+                    flagged ? tr("Remove from saved") : tr("Save message"));
         });
 
         moreAffordance_ = makeActionButton(
@@ -1104,11 +1116,15 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
         emit markUnreadRequested(post.id);
     });
 
-    QAction* saveAction = menu.addAction(icon(QStringLiteral(":/icons/bookmark")),
-                                         tr("Save message"));
-    connect(saveAction, &QAction::triggered, this, [this] {
-        backend_.updateUserPreferences(BackendUserPreferences {
-            QStringLiteral("flagged_post"), post.id, QStringLiteral("true")});
+    const bool saved = backend_.isPostFlagged(post.id);
+    QAction* saveAction = menu.addAction(
+        icon(QStringLiteral(":/icons/bookmark")),
+        saved ? tr("Remove from saved") : tr("Save message"));
+    connect(saveAction, &QAction::triggered, this, [this, saved] {
+        const BackendUserPreferences pref {
+            QStringLiteral("flagged_post"), post.id, QStringLiteral("true")};
+        if (saved) backend_.deleteUserPreferences(pref);
+        else backend_.updateUserPreferences(pref);
     });
 
     const bool pinned = post.is_pinned;
