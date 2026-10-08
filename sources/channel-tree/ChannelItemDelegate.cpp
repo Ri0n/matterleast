@@ -145,7 +145,22 @@ void ChannelItemDelegate::paint(QPainter* painter,
     }
 
     const qreal collapse = collapseProgress(index);
-    const QStyleOptionViewItem content = contentOption(option, index);
+    QStyleOptionViewItem content = contentOption(option, index);
+#ifdef Q_OS_WIN
+    // Native Windows highlight brushes sometimes produce white selected text
+    // over a light gray selection. Use contrast-safe pairs while keeping
+    // separate light/dark desktop palettes.
+    if (content.state.testFlag(QStyle::State_Selected)
+        && isConversationRow(index)) {
+        const bool dark = content.palette.color(QPalette::Window).lightness() < 128;
+        const QColor selectedBackground = dark ? QColor(58, 79, 105)
+                                               : QColor(211, 227, 245);
+        const QColor selectedText = dark ? QColor(250, 250, 252)
+                                         : QColor(24, 40, 62);
+        content.palette.setColor(QPalette::Highlight, selectedBackground);
+        content.palette.setColor(QPalette::HighlightedText, selectedText);
+    }
+#endif
     if (content.rect.height() <= 0) {
         return;
     }
