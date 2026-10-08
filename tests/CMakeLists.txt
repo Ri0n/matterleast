@@ -1,3 +1,13 @@
+add_executable(sidebar-conversation-search-policy-test
+    SidebarConversationSearchPolicyTest.cpp
+)
+target_include_directories(sidebar-conversation-search-policy-test
+    PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(sidebar-conversation-search-policy-test
+    PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME sidebar-conversation-search-policy-test
+    COMMAND sidebar-conversation-search-policy-test)
+
 add_executable(long-list-widget-test
     LongListWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/widgets/LongListWidget.cpp"
@@ -564,6 +574,20 @@ if(TARGET matterleast-core)
     target_link_libraries(post-author-grouping-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-author-grouping-test COMMAND post-author-grouping-test)
     set_tests_properties(post-author-grouping-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
+    add_executable(post-image-context-menu-test PostImageContextMenuTest.cpp)
+    target_link_libraries(post-image-context-menu-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME post-image-context-menu-test COMMAND post-image-context-menu-test)
+    set_tests_properties(post-image-context-menu-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
+    add_executable(post-drag-selection-test PostDragSelectionTest.cpp)
+    target_link_libraries(post-drag-selection-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME post-drag-selection-test COMMAND post-drag-selection-test)
+    set_tests_properties(post-drag-selection-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 if(TARGET matterleast-core)

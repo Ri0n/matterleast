@@ -222,6 +222,20 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 	backend.retrieveOwnChannelMembershipsForTeam (team, [] (BackendChannel&) {});
 }
 
+void ChannelTree::setConversationSearchTerm(const QString& term)
+{
+    if (!backendForSidebar) return;
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    sidebar.setConversationSearchTerm(term);
+    for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
+        TeamItem* team = it.value();
+        const SidebarTeamState* state = sidebar.teamState(it.key());
+        if (team && state) {
+            reconcileTeamSidebar(*backendForSidebar, *team, *state);
+        }
+    }
+}
+
 void ChannelTree::populateSidebars(Backend& backend)
 {
     backendForSidebar = &backend;
@@ -619,6 +633,22 @@ void ChannelTree::activateChannelItem(QTreeWidgetItem* item)
                     item->data(0, ItemTeamIdRole).toString())) {
                 setCurrentItem(alias);
                 return;
+            }
+        }
+    }
+
+    // A search hit may not belong to any current sidebar category. Once
+    // opened, promote it to Direct Messages so clearing the filter retains
+    // the conversation like an ordinary recently activated DM/GM.
+    if (backendForSidebar) {
+        auto& sidebar = SidebarService::instance(*backendForSidebar);
+        if (sidebar.conversationSearchActive()) {
+            if (BackendChannel* selected = backendForSidebar->getStorage().getChannelById(
+                    item->data(0, ItemIdRole).toString())) {
+                if (selected->type == BackendChannel::directChannel
+                    || selected->type == BackendChannel::groupChannel) {
+                    admitStoredConversation(*selected);
+                }
             }
         }
     }

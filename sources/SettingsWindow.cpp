@@ -124,6 +124,14 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     ui->label_3->hide();
     ui->label_4->hide();
     ui->cacheSizeMBValue->hide();
+    // The legacy designer form has no stretch at its end. Once placed in a
+    // full-height tab, QVBoxLayout distributes excess height between every
+    // row, leaving enormous gaps between labels and controls.
+    ui->verticalLayout_2->setSpacing(12);
+    ui->verticalLayout_2->setAlignment(Qt::AlignTop);
+    ui->verticalLayout_2->addStretch(1);
+    ui->downloads->setFrameShape(QFrame::NoFrame);
+
 
     ui->verticalLayout->removeWidget(ui->downloads);
     ui->verticalLayout->removeItem(ui->verticalSpacer);

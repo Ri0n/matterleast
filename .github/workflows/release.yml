@@ -95,9 +95,11 @@ jobs:
             "matterleast-${VERSION}-ubuntu-22.04-amd64.deb"
             "matterleast-${VERSION}-ubuntu-24.04-amd64.deb"
             "matterleast-${VERSION}-ubuntu-26.04-amd64.deb"
+            "matterleast-${VERSION}-debian-13-amd64.deb"
             "matterleast-${VERSION}-fedora-44-x86_64.rpm"
             "matterleast-${VERSION}-linux-x86_64.AppImage"
             "matterleast-${VERSION}-windows-x64-installer.exe"
+            "matterleast-${VERSION}-windows-x64-portable.zip"
             "matterleast-${VERSION}-source.tar.gz"
           )
           for asset in "${expected[@]}"; do

@@ -15,6 +15,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  debian13:
+    name: Qt 6.8.2 / Debian 13 — DEB
+    runs-on: ubuntu-24.04
+    container:
+      image: debian:13
+    steps:
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates cmake ninja-build build-essential dpkg-dev fakeroot file \
+            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ""
+
+      - name: Build, test and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(qmake6 -query QT_VERSION)" = 6.8.2
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DQT_6=ON -DBUILD_TESTING=ON \
+            -DWARNINGS_AS_ERRORS=ON \
+            "-DMATTERLEAST_DEBIAN_EXTRA_DEPENDS=libqt6svg6, qt6-svg-plugins"
+          cmake --build build --parallel 4
+          ctest --test-dir build --output-on-failure
+          cpack --config build/CPackConfig.cmake -G DEB -B package
+          version=$(tr -d '[:space:]' < build/matterleast-version.txt)
+          deb=$(find package -maxdepth 1 -name '*.deb' -print -quit)
+          test -n "$deb"
+          test "$(dpkg-deb -f "$deb" Version)" = "$version"
+          mv "$deb" "package/matterleast-${version}-debian-13-amd64.deb"
+
+      - name: Upload Debian 13 test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterleast-debian-13-amd64
+          path: package/matterleast-*-debian-13-amd64.deb
+          if-no-files-found: error
+
   ubuntu-2404:
     name: Qt 6.4.2 + Multimedia / Ubuntu 24.04
     runs-on: ubuntu-24.04
@@ -145,3 +193,25 @@ jobs:
         # the Actions log as it runs, so the last active Qt test/function is
         # still visible even for hangs or abrupt failures.
         run: ctest --test-dir build --verbose --output-on-failure
+
+      - name: Build portable Windows ZIP for PR testing
+        shell: pwsh
+        run: |
+          cmake --install build --prefix stage
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path stage/bin/matterleast.exe)) {
+            throw "Qt deploy tree is missing matterleast.exe"
+          }
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          New-Item -ItemType Directory -Force package | Out-Null
+          Compress-Archive -Path stage -DestinationPath "package/matterleast-$version-windows-x64-portable.zip"
+          if (-not (Test-Path "package/matterleast-$version-windows-x64-portable.zip")) {
+            throw "Portable archive not created"
+          }
+
+      - name: Upload portable ZIP for PR testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterleast-windows-x64-portable
+          path: package/matterleast-*-windows-x64-portable.zip
+          if-no-files-found: error

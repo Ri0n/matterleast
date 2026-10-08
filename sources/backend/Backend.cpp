@@ -114,6 +114,12 @@ Backend::Backend(QObject *parent)
 		}
 	});
 
+    connect(this, &Backend::onFlaggedPostChanged, this,
+            [this](const QString& postId, bool flagged) {
+                if (flagged) _flaggedPostIds.insert(postId);
+                else _flaggedPostIds.remove(postId);
+            });
+
 	//these signals are proxied
 	connect (&webSocketConnector, &WebSocketConnector::onDisconnect, this, &Backend::onWebSocketDisconnect);
     connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,
@@ -339,6 +345,15 @@ void Backend::reset ()
 	 * objects are destroyed
 	 */
 	disconnect ();
+    _flaggedPostIds.clear();
+    // Backend::reset() deliberately disconnects every connection, including
+    // the internal flagged-preference cache observer. Reinstall that observer
+    // for a subsequent login in the same process.
+    connect(this, &Backend::onFlaggedPostChanged, this,
+            [this](const QString& postId, bool flagged) {
+                if (flagged) _flaggedPostIds.insert(postId);
+                else _flaggedPostIds.remove(postId);
+            });
 	NetworkRequest::clearToken ();
 
 	//reinit all network connectors
@@ -404,8 +419,26 @@ void Backend::retrieveUserPreferences ()
 
 		LOG_DEBUG ("retrieveUserPreferences reply");
 
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		//LOG_DEBUG ("retrieveUserPreferences reply: " << jsonString);
+        if (!doc.isArray()) return;
+        QSet<QString> known;
+        for (const QJsonValue& entry : doc.array()) {
+            const QJsonObject pref = entry.toObject();
+            if (pref.value(QStringLiteral("category")).toString()
+                == QLatin1String("flagged_post")
+                && pref.value(QStringLiteral("value")).toString()
+                    .compare(QLatin1String("true"), Qt::CaseInsensitive) == 0) {
+                const QString id = pref.value(QStringLiteral("name")).toString();
+                if (!id.isEmpty()) known.insert(id);
+            }
+        }
+        const QSet<QString> previous = _flaggedPostIds;
+        _flaggedPostIds = known;
+        for (const QString& id : known) {
+            if (!previous.contains(id)) emit onFlaggedPostChanged(id, true);
+        }
+        for (const QString& id : previous) {
+            if (!known.contains(id)) emit onFlaggedPostChanged(id, false);
+        }
 	}));
 }
 
@@ -421,10 +454,11 @@ void Backend::updateUserPreferences (const BackendUserPreferences& preferences)
 		{"value", preferences.value},
 	});
 
-	httpConnector.put (request, jsonArr, HttpResponseCallback ([this](const QJsonDocument& doc) {
-
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-	}));
+    httpConnector.put(request, jsonArr, HttpResponseCallback(
+        [](const QJsonDocument&) {}));
+    if (preferences.category == QLatin1String("flagged_post"))
+        emit onFlaggedPostChanged(preferences.name,
+                                 preferences.value == QLatin1String("true"));
 }
 
 void Backend::deleteUserPreferences (const BackendUserPreferences& preferences)
@@ -440,6 +474,8 @@ void Backend::deleteUserPreferences (const BackendUserPreferences& preferences)
     });
 
     httpConnector.post(request, jsonArr, HttpResponseCallback([](const QJsonDocument&) {}));
+    if (preferences.category == QLatin1String("flagged_post"))
+        emit onFlaggedPostChanged(preferences.name, false);
 }
 
 void Backend::retrieveMultipleUsersStatus (const QVector<QString> & userIDs, std::function<void()> callback)

@@ -78,11 +78,13 @@ protected:
             if (mouse->button() == Qt::LeftButton) {
                 PostWidget* post = enclosingPost(widget);
                 ChatLogWidget* log = post ? enclosingLog(post) : nullptr;
+                // An ignored press propagates past the post to the list
+                // viewport; that step must not forget the origin post.
                 if (post && log && !log->isMessageSelectionMode()) {
                     dragOrigin_ = post;
                     dragLog_ = log;
                     wholePostDrag_ = false;
-                } else {
+                } else if (post) {
                     clearDrag();
                 }
             }
@@ -96,25 +98,27 @@ protected:
                 return QObject::eventFilter(watched, event);
             }
 
-            const QPoint viewportPos = dragLog_->viewport()->mapFromGlobal(globalMousePosition(mouse));
+            // Inside the first post the press keeps its ordinary meaning (text
+            // selection, links). Leaving it switches to message selection no
+            // matter which child received the press.
+            const QPoint globalPos = globalMousePosition(mouse);
+            if (!wholePostDrag_
+                && dragOrigin_->rect().contains(dragOrigin_->mapFromGlobal(globalPos))) {
+                return QObject::eventFilter(watched, event);
+            }
+
+            const QPoint viewportPos = dragLog_->viewport()->mapFromGlobal(globalPos);
             const int index = dragLog_->indexAtViewportPosition(viewportPos.y());
             auto* current = index >= 0
                 ? qobject_cast<PostWidget*>(dragLog_->itemWidget(index)) : nullptr;
-            if (!current) {
-                return wholePostDrag_ ? true : QObject::eventFilter(watched, event);
-            }
-
             if (!wholePostDrag_) {
-                if (current == dragOrigin_ || dragOrigin_->getSelectedText().isEmpty()) {
-                    return QObject::eventFilter(watched, event);
-                }
                 wholePostDrag_ = true;
                 dragOrigin_->clearTextSelection();
-                dragLog_->beginMessageSelectionDrag(dragOrigin_->post.id, current->post.id);
-                return true;
+                dragLog_->beginMessageSelectionDrag(
+                    dragOrigin_->post.id, current ? current->post.id : dragOrigin_->post.id);
+            } else if (current) {
+                dragLog_->updateMessageSelectionDrag(current->post.id);
             }
-
-            dragLog_->updateMessageSelectionDrag(current->post.id);
             return true;
         }
 

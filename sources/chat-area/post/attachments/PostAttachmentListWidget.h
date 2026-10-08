@@ -32,6 +32,14 @@ class PostAttachmentListWidget: public QListWidget {
 public:
 	using QListWidget::QListWidget;
 	QSize sizeHint () const	override;
+
+protected:
+	// The list is only a layout container. Leave mouse input to the enclosing
+	// PostWidget so a drag that starts beside an attachment selects messages.
+	void mousePressEvent (QMouseEvent* event) override;
+	void mouseMoveEvent (QMouseEvent* event) override;
+	void mouseReleaseEvent (QMouseEvent* event) override;
+	void mouseDoubleClickEvent (QMouseEvent* event) override;
 private:
 };
 

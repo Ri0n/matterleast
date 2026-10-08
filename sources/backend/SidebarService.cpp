@@ -4,6 +4,7 @@
  */
 
 #include "SidebarService.h"
+#include "SidebarConversationSearchPolicy.h"
 
 #include <algorithm>
 #include <memory>
@@ -151,6 +152,7 @@ void SidebarService::clear()
 {
     httpConnector.reset();
     mutedChannelIds.clear();
+    _conversationSearchTerm.clear();
     sidebarByTeam.clear();
     activityTracker.clear();
     directChannelVisibility.clear();
@@ -362,6 +364,50 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
     result.reserve(candidates.size());
     for (const Candidate& candidate : candidates) {
         result.push_back(candidate.id);
+    }
+
+    // Sidebar categories deliberately cap DM/GM history to recent items.
+    // Searching must instead consult the complete cached conversation directory
+    // used by the + Direct messages picker, without modifying server categories.
+    if (category.type == QLatin1String("direct_messages")
+        && !_conversationSearchTerm.isEmpty()) {
+        const QString term = _conversationSearchTerm;
+        const auto matches = [&](const BackendChannel* channel) {
+            if (!channel) return false;
+            const BackendUser* user = channel->type == BackendChannel::directChannel
+                ? backend.getStorage().getUserById(channel->name) : nullptr;
+            return matchesConversationSearch(
+                term, channel->display_name,
+                user ? user->getDisplayName() : QString(),
+                user ? user->username : QString(),
+                user ? user->email : QString());
+        };
+        QSet<QString> seen;
+        for (const QString& id : result) seen.insert(id);
+        QVector<BackendChannel*> matchesOutsideSidebar;
+        for (auto it = backend.getStorage().directChannelsByUser.cbegin();
+             it != backend.getStorage().directChannelsByUser.cend(); ++it) {
+            BackendChannel* channel = it.value();
+            if (channel && channel->name != backend.getLoginUser().id
+                && !seen.contains(channel->id) && matches(channel)) {
+                matchesOutsideSidebar.push_back(channel);
+                seen.insert(channel->id);
+            }
+        }
+        for (const auto& owned : backend.getStorage().groupChannels.channels) {
+            BackendChannel* channel = owned.get();
+            if (channel && !seen.contains(channel->id) && matches(channel)) {
+                matchesOutsideSidebar.push_back(channel);
+                seen.insert(channel->id);
+            }
+        }
+        std::stable_sort(matchesOutsideSidebar.begin(), matchesOutsideSidebar.end(),
+                         [](const BackendChannel* a, const BackendChannel* b) {
+            return std::max(a->last_post_at, a->create_at)
+                 > std::max(b->last_post_at, b->create_at);
+        });
+        for (const BackendChannel* channel : matchesOutsideSidebar)
+            result.push_back(channel->id);
     }
     return result;
 }

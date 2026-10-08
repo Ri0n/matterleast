@@ -22,6 +22,8 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QContextMenuEvent>
+#include <QTextBlock>
+#include <QTextDocument>
 #include <QSignalBlocker>
 #include <QPropertyAnimation>
 #include <QPainter>
@@ -47,6 +49,10 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QRegularExpression>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTextBrowser>
 #include <QTimer>
 #include <QUrl>
@@ -61,9 +67,11 @@
 #include "ReactionChipStyle.h"
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
+#include "attachments/AttachedImageFile.h"
 #include "attachments/PostAttachmentList.h"
 #include "attachments/PostPoll.h"
 #include "backend/Backend.h"
+#include "backend/ChannelReferenceService.h"
 #include "backend/MentionGroupService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
@@ -289,10 +297,22 @@ PostWidget::PostWidget(Backend& backend,
 
         saveAffordance_ = makeActionButton(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/bookmark")),
-            QString(), tr("Save message"));
+            QString(), backend_.isPostFlagged(post.id)
+                ? tr("Remove from saved") : tr("Save message"));
         connect(saveAffordance_, &QPushButton::clicked, this, [this] {
-            backend_.updateUserPreferences(BackendUserPreferences {
-                QStringLiteral("flagged_post"), this->post.id, QStringLiteral("true")});
+            const BackendUserPreferences pref {
+                QStringLiteral("flagged_post"), this->post.id, QStringLiteral("true")};
+            if (backend_.isPostFlagged(this->post.id)) {
+                backend_.deleteUserPreferences(pref);
+            } else {
+                backend_.updateUserPreferences(pref);
+            }
+        });
+        connect(&backend_, &Backend::onFlaggedPostChanged, this,
+                [this](const QString& postId, bool flagged) {
+            if (postId == this->post.id && saveAffordance_)
+                saveAffordance_->setToolTip(
+                    flagged ? tr("Remove from saved") : tr("Save message"));
         });
 
         moreAffordance_ = makeActionButton(
@@ -658,46 +678,6 @@ ChatLogWidget* PostWidget::chatLog() const
     return qobject_cast<ChatLogWidget*>(parentWidget() ? parentWidget()->parentWidget() : nullptr);
 }
 
-void PostWidget::mousePressEvent(QMouseEvent* event)
-{
-    rowSelectionDragPending_ = event && event->button() == Qt::LeftButton;
-    if (rowSelectionDragPending_) {
-        selectionPressPos_ = event->pos();
-    }
-    QWidget::mousePressEvent(event);
-}
-
-void PostWidget::mouseMoveEvent(QMouseEvent* event)
-{
-    if (rowSelectionDragPending_ && event
-        && (event->buttons() & Qt::LeftButton)
-        && (event->pos() - selectionPressPos_).manhattanLength()
-            >= QApplication::startDragDistance()) {
-        rowSelectionDragPending_ = false;
-        if (chatLog()) {
-            chatLog()->beginMessageSelectionDrag(post.id, post.id);
-        }
-    }
-    if (chatLog()
-        && chatLog()->isMessageSelectionMode() && event) {
-        const QPoint viewportPos = mapTo(parentWidget(), event->pos());
-        const int index = chatLog()->indexAtViewportPosition(viewportPos.y());
-        if (auto* target = qobject_cast<PostWidget*>(chatLog()->itemWidget(index))) {
-            chatLog()->updateMessageSelectionDrag(target->post.id);
-        }
-    }
-    QWidget::mouseMoveEvent(event);
-}
-
-void PostWidget::mouseReleaseEvent(QMouseEvent* event)
-{
-    rowSelectionDragPending_ = false;
-    if (chatLog()) {
-        chatLog()->finishMessageSelectionDrag();
-    }
-    QWidget::mouseReleaseEvent(event);
-}
-
 void PostWidget::moveEvent(QMoveEvent* event)
 {
     QWidget::moveEvent(event);
@@ -981,6 +961,44 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
 
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
+    // PostContextMenuRouter delivers every descendant's ContextMenu here, so
+    // image targets are resolved from the original click point.
+    QWidget* hit = childAt(mapFromGlobal(globalPos));
+    AttachedImageFile* attachedImage = nullptr;
+    for (QWidget* current = hit; current && current != this;
+         current = current->parentWidget()) {
+        if ((attachedImage = qobject_cast<AttachedImageFile*>(current))) {
+            break;
+        }
+    }
+    const MessageContentWidget::InlineImage inlineImage =
+        !attachedImage && messageContent && hit && messageContent->isAncestorOf(hit)
+            ? messageContent->inlineImageAt(globalPos)
+            : MessageContentWidget::InlineImage {};
+    if (attachedImage) {
+        QPointer<AttachedImageFile> target(attachedImage);
+        menu.addAction(icon(QStringLiteral(":/icons/copy")), tr("Copy image"),
+                       this, [this, target] {
+            if (target) {
+                AttachedImageFile::copyFileImageToClipboard(
+                    backend_, target->imageFileId(), target->displayedImage());
+            }
+        });
+        menu.addAction(tr("Save image as..."),
+                       this, [target] {
+            if (target) {
+                target->saveImageAs();
+            }
+        });
+        menu.addSeparator();
+    } else if (!inlineImage.isNull()) {
+        menu.addAction(icon(QStringLiteral(":/icons/copy")), tr("Copy image"),
+                       this, [this, inlineImage] {
+            AttachedImageFile::copyFileImageToClipboard(
+                backend_, inlineImage.fileId, inlineImage.rendered);
+        });
+        menu.addSeparator();
+    }
 
     if (presentationMode_ != PresentationMode::Interactive) {
         if (!hoveredLink.isEmpty()) {
@@ -1104,11 +1122,15 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
         emit markUnreadRequested(post.id);
     });
 
-    QAction* saveAction = menu.addAction(icon(QStringLiteral(":/icons/bookmark")),
-                                         tr("Save message"));
-    connect(saveAction, &QAction::triggered, this, [this] {
-        backend_.updateUserPreferences(BackendUserPreferences {
-            QStringLiteral("flagged_post"), post.id, QStringLiteral("true")});
+    const bool saved = backend_.isPostFlagged(post.id);
+    QAction* saveAction = menu.addAction(
+        icon(QStringLiteral(":/icons/bookmark")),
+        saved ? tr("Remove from saved") : tr("Save message"));
+    connect(saveAction, &QAction::triggered, this, [this, saved] {
+        const BackendUserPreferences pref {
+            QStringLiteral("flagged_post"), post.id, QStringLiteral("true")};
+        if (saved) backend_.deleteUserPreferences(pref);
+        else backend_.updateUserPreferences(pref);
     });
 
     const bool pinned = post.is_pinned;
@@ -1356,6 +1378,65 @@ void PostWidget::connectMessageLinks()
         UserMentionLinkifier::linkify(
             *browser->document(), groupMentionIds, teamName);
 
+        // Inline ~channel-slug links can refer to public channels absent from
+        // the current sidebar. Resolve their display names asynchronously;
+        // preserve each anchor's original href for navigation.
+        if (!teamName.isEmpty()) {
+            static const QRegularExpression channelRef(
+                QStringLiteral(R"((?<![A-Za-z0-9_-])~([A-Za-z0-9][A-Za-z0-9_-]*))"));
+            QSet<QString> references;
+            for (QTextBlock block = browser->document()->begin();
+                 block.isValid(); block = block.next()) {
+                auto matches = channelRef.globalMatch(block.text());
+                while (matches.hasNext()) {
+                    const auto match = matches.next();
+                    QTextCursor cursor(browser->document());
+                    const int position = block.position() + match.capturedStart(0);
+                    cursor.setPosition(position);
+                    cursor.setPosition(position + match.capturedLength(0),
+                                       QTextCursor::KeepAnchor);
+                    if (cursor.charFormat().isAnchor()) {
+                        references.insert(match.captured(1));
+                    }
+                }
+            }
+            QPointer<PostWidget> owner(this);
+            QPointer<QTextBrowser> textBrowser(browser);
+            for (const QString& slug : references) {
+                ChannelReferenceService::instance(backend_).resolve(
+                    teamName, slug,
+                    [owner, textBrowser, slug](const QString& displayName) {
+                        if (!owner || !textBrowser || displayName.isEmpty()
+                            || displayName == slug) return;
+                        QTextDocument* document = textBrowser->document();
+                        static const QRegularExpression expression(
+                            QStringLiteral(R"((?<![A-Za-z0-9_-])~([A-Za-z0-9][A-Za-z0-9_-]*))"));
+                        QList<QPair<int, int>> positions;
+                        for (QTextBlock block = document->begin();
+                             block.isValid(); block = block.next()) {
+                            auto it = expression.globalMatch(block.text());
+                            while (it.hasNext()) {
+                                const auto match = it.next();
+                                if (match.captured(1) == slug)
+                                    positions.push_back({
+                                        block.position() + match.capturedStart(0),
+                                        match.capturedLength(0)});
+                            }
+                        }
+                        for (auto it = positions.crbegin(); it != positions.crend(); ++it) {
+                            QTextCursor cursor(document);
+                            cursor.setPosition(it->first);
+                            cursor.setPosition(it->first + it->second,
+                                               QTextCursor::KeepAnchor);
+                            const QTextCharFormat format = cursor.charFormat();
+                            if (format.isAnchor())
+                                cursor.insertText(QLatin1Char('~') + displayName, format);
+                        }
+                        emit owner->dimensionsChanged();
+                    });
+            }
+        }
+
 		browser->setOpenLinks(false);
 		browser->setOpenExternalLinks(false);
         browser->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1379,10 +1460,7 @@ void PostWidget::connectMessageLinks()
             }
 			AppNavigationService::instance(backend_).openUrl(url);
 		});
-        connect(browser, &QWidget::customContextMenuRequested, this,
-                [this, browser](const QPoint& pos) {
-            showPostContextMenu(browser->viewport()->mapToGlobal(pos));
-        });
+
 	}
 
     const auto codeEditors = messageContent->findChildren<QPlainTextEdit*>();
