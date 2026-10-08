@@ -165,6 +165,15 @@ QRect inlineImageRect(QTextBrowser* browser)
     return {};
 }
 
+bool hasPixmap(const QLabel* label)
+{
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    return label && !label->pixmap(Qt::ReturnByValue).isNull();
+#else
+    return label && !label->pixmap().isNull();
+#endif
+}
+
 } // namespace
 
 class PostImageContextMenuTest : public QObject
@@ -201,7 +210,7 @@ private slots:
         QVERIFY(attachment);
         auto* preview = attachment->findChild<QLabel*>(QStringLiteral("imagePreview"));
         QVERIFY(preview);
-        QTRY_VERIFY(!preview->pixmap().isNull() && preview->isVisible());
+        QTRY_VERIFY(hasPixmap(preview) && preview->isVisible());
         QTRY_VERIFY(preview->mapTo(&widget, QPoint()).y() > 0);
 
         const QStringList actions = rightClickMenu(
@@ -232,7 +241,7 @@ private slots:
         auto* attachment = widget.findChild<AttachedImageFile*>();
         QVERIFY(attachment);
         auto* preview = attachment->findChild<QLabel*>(QStringLiteral("imagePreview"));
-        QTRY_VERIFY(preview && !preview->pixmap().isNull());
+        QTRY_VERIFY(hasPixmap(preview));
 
         auto* browser = widget.findChild<QTextBrowser*>(QStringLiteral("messageRichText"));
         QVERIFY(browser);
