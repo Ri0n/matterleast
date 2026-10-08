@@ -20,6 +20,8 @@
 #include "PostAttachmentList.h"
 #include "ui_PostAttachmentList.h"
 
+#include <algorithm>
+
 #include <QDebug>
 #include <QEvent>
 #include <QLabel>
