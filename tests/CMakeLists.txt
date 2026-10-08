@@ -1,3 +1,13 @@
+add_executable(sidebar-conversation-search-policy-test
+    SidebarConversationSearchPolicyTest.cpp
+)
+target_include_directories(sidebar-conversation-search-policy-test
+    PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(sidebar-conversation-search-policy-test
+    PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME sidebar-conversation-search-policy-test
+    COMMAND sidebar-conversation-search-policy-test)
+
 add_executable(long-list-widget-test
     LongListWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/widgets/LongListWidget.cpp"
