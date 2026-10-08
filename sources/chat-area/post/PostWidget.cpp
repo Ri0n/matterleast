@@ -1042,13 +1042,73 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
 
     QMenu menu(this);
     const auto icon = [](const QString& path) { return IconUtils::symbolicIcon(path); };
-    // Copy the image that QTextBrowser actually rendered. This also works
-    // for external Markdown images without a Mattermost attachment file ID.
-    const QImage contextImage = property("_contextImagePixels").value<QImage>();
-    if (!contextImage.isNull()) {
+    // PostWidget can receive the context menu even when its QTextBrowser
+    // viewport did not. Resolve the image at the ORIGINAL global click point
+    // here, rather than relying on a child widget's ContextMenu signal.
+    QImage contextImage = property("_contextImagePixels").value<QImage>();
+    QString contextImageFileId;
+    if (contextImage.isNull() && messageContent) {
+        for (QTextBrowser* browser : messageContent->findChildren<QTextBrowser*>()) {
+            if (!browser || !browser->viewport()
+                || !browser->viewport()->isVisible()) continue;
+            const QPoint local = browser->viewport()->mapFromGlobal(globalPos);
+            if (!browser->viewport()->rect().contains(local)) continue;
+            QTextDocument* document = browser->document();
+            const int insertion = browser->cursorForPosition(local).position();
+            for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+                for (auto it = block.begin(); !it.atEnd(); ++it) {
+                    const QTextFragment fragment = it.fragment();
+                    if (!fragment.isValid() || !fragment.charFormat().isImageFormat())
+                        continue;
+                    const int start = fragment.position();
+                    const int length = fragment.length();
+                    if (insertion < start - 1 || insertion > start + length + 1)
+                        continue;
+                    QTextCursor first(document);
+                    first.setPosition(start);
+                    QTextCursor last(document);
+                    last.setPosition(start + length);
+                    const QRect firstRect = browser->cursorRect(first);
+                    const QRect lastRect = browser->cursorRect(last);
+                    const QRect imageArea = firstRect.united(lastRect);
+                    if (!imageArea.adjusted(-3, -3, 3, 3).contains(local))
+                        continue;
+                    const QUrl source(fragment.charFormat().toImageFormat().name());
+                    const QVariant resource = document->resource(
+                        QTextDocument::ImageResource, source);
+                    if (resource.canConvert<QImage>())
+                        contextImage = resource.value<QImage>();
+                    else if (resource.canConvert<QPixmap>())
+                        contextImage = resource.value<QPixmap>().toImage();
+                    const QString prefix = QStringLiteral("/api/v4/files/");
+                    const QString urlPath = source.path();
+                    if (urlPath.startsWith(prefix)) {
+                        contextImageFileId = urlPath.mid(prefix.size());
+                        if (contextImageFileId.contains(QLatin1Char('/')))
+                            contextImageFileId.clear();
+                    }
+                    break;
+                }
+                if (!contextImage.isNull() || !contextImageFileId.isEmpty()) break;
+            }
+            if (!contextImage.isNull() || !contextImageFileId.isEmpty()) break;
+        }
+    }
+    if (!contextImage.isNull() || !contextImageFileId.isEmpty()) {
         menu.addAction(icon(QStringLiteral(":/icons/copy")), tr("Copy image"),
-                       this, [contextImage] {
-            QApplication::clipboard()->setImage(contextImage);
+                       this, [this, contextImage, contextImageFileId] {
+            if (!contextImageFileId.isEmpty()) {
+                QPointer<PostWidget> guard(this);
+                AttachmentService::instance(backend_).retrieveFile(
+                    contextImageFileId, [guard](const QByteArray& bytes) {
+                    if (!guard) return;
+                    const QImage original = QImage::fromData(bytes);
+                    if (!original.isNull())
+                        QApplication::clipboard()->setImage(original);
+                });
+            } else {
+                QApplication::clipboard()->setImage(contextImage);
+            }
         });
         menu.addSeparator();
     }
