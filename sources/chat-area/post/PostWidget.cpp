@@ -517,7 +517,7 @@ PostWidget::PostWidget(Backend& backend,
 		attachments = std::make_unique<PostAttachmentList>(backend, this);
 		connect(attachments.get(), &PostAttachmentList::dimensionsChanged,
 		        this, &PostWidget::dimensionsChanged);
-		ui->verticalLayout->addWidget(attachments.get(), 0, Qt::AlignLeft);
+		ui->verticalLayout->addWidget(attachments.get());
 		for (const BackendFile& file : post.files) {
 			attachments->addFile(file, post.getDisplayAuthorName());
 		}
