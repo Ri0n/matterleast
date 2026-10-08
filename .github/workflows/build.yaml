@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            git ca-certificates cmake ninja-build build-essential dpkg-dev fakeroot \
+            git ca-certificates cmake ninja-build build-essential dpkg-dev fakeroot file \
             qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins
 
       - name: Checkout
