@@ -27,6 +27,13 @@
 #include <QPaintEvent>
 #include <QPointer>
 #include <QStandardPaths>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QProcess>
+#include <QStyle>
+#include <QToolButton>
+#include <QHBoxLayout>
+#include <QUrl>
 #include <QSaveFile>
 
 #include "Settings.h"
@@ -51,6 +58,55 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     ui->fileNameLabel->setText("File: " + file.name);
     ui->downloadedLabel->clear();
     ui->downloadedLabel->hide();
+    ui->fileNameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    ui->fileTypeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    ui->fileSizeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    ui->downloadedLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    ui->downloadedLabel->setWordWrap(true);
+    ui->downloadedLabel->setTextFormat(Qt::PlainText);
+    ui->downloadButton->setText({});
+    ui->downloadButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    ui->downloadButton->setToolTip(tr("Download file"));
+    ui->downloadButton->setFixedSize(30, 30);
+    ui->openButton->setText({});
+    ui->openButton->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
+    ui->openButton->setToolTip(tr("Open file"));
+    ui->openButton->setFixedSize(30, 30);
+
+    auto* revealButton = new QToolButton(this);
+    revealButton->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
+    revealButton->setToolTip(tr("Show in file manager"));
+    revealButton->setFixedSize(30, 30);
+    revealButton->setEnabled(false);
+    ui->horizontalLayout_3->insertWidget(2, revealButton);
+    connect(revealButton, &QToolButton::clicked, this, [this] {
+        if (downloadedPath.isEmpty()) return;
+        const QString absolutePath = QFileInfo(downloadedPath).absoluteFilePath();
+#ifdef Q_OS_WIN
+        if (QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                    {QStringLiteral("/select,") + QDir::toNativeSeparators(absolutePath)}))
+            return;
+#elif defined(Q_OS_MACOS)
+        if (QProcess::startDetached(QStringLiteral("open"),
+                                    {QStringLiteral("-R"), absolutePath}))
+            return;
+#else
+        // Freedesktop FileManager1 asks the desktop file manager to highlight the file.
+        const QString fileUri = QUrl::fromLocalFile(absolutePath).toString(QUrl::FullyEncoded);
+        if (QProcess::startDetached(QStringLiteral("dbus-send"),
+                {QStringLiteral("--session"), QStringLiteral("--dest=org.freedesktop.FileManager1"),
+                 QStringLiteral("--type=method_call"),
+                 QStringLiteral("/org/freedesktop/FileManager1"),
+                 QStringLiteral("org.freedesktop.FileManager1.ShowItems"),
+                 QStringLiteral("array:string:") + fileUri,
+                 QStringLiteral("string:")}))
+            return;
+#endif
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(absolutePath).absolutePath()));
+    });
+    connect(ui->downloadButton, &QPushButton::clicked, revealButton,
+            [this, revealButton] { revealButton->setEnabled(!downloadedPath.isEmpty()); });
+
 
     static QLocale locale = QLocale::system();
     ui->fileSizeLabel->setText(
@@ -123,7 +179,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
         QPointer<AttachedBinaryFile> self(this);
         AttachmentService::instance(backend).downloadFile(
             fileId,
-            [self, fileDestination](const QByteArray& fileData, const QString& error) {
+            [self, fileDestination, revealButton](const QByteArray& fileData, const QString& error) {
                 if (!self) {
                     return;
                 }
@@ -146,11 +202,11 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
                         tr("Failed to save file: %1").arg(destFile.errorString()));
                     return;
                 }
-                self->ui->downloadedLabel->setText(
-                    "File downloaded to '"
-                    + QFileInfo(fileDestination).absolutePath() + "'");
+                self->ui->downloadedLabel->setText(QFileInfo(fileDestination).absoluteFilePath());
+                self->ui->downloadedLabel->setToolTip(tr("Select and copy the saved file path"));
                 self->downloadedPath = fileDestination;
                 self->ui->openButton->setDisabled(false);
+                revealButton->setEnabled(true);
             });
     });
 
