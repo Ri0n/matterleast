@@ -13,6 +13,7 @@
 
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
+#include "backend/PostTimelineService.h"
 #include "backend/types/BackendChannel.h"
 #include "chat-area/ThreadPostSource.h"
 #include "widgets/LongListWidget.h"
@@ -516,6 +517,9 @@ private slots:
         // cache provenance. The source must not assign reply 20 a rank.
         BackendPost* cachedMiddle = channel.addPost(post(20));
         QVERIFY(cachedMiddle);
+        PostResidencyLease cachedMiddleLease =
+            PostTimelineService::instance(backend).leasePost(*cachedMiddle);
+        QVERIFY(cachedMiddleLease);
         rootPost->reply_count = 40;
         rootPost->last_reply_at = timestamp(40);
 
@@ -575,7 +579,11 @@ private slots:
         root.insert(QStringLiteral("last_reply_at"), timestamp(40));
         BackendPost* rootPost = channel.addPost(root);
         QVERIFY(rootPost);
-        QVERIFY(channel.addPost(post(20)));
+        BackendPost* cachedMiddle = channel.addPost(post(20));
+        QVERIFY(cachedMiddle);
+        PostResidencyLease cachedMiddleLease =
+            PostTimelineService::instance(backend).leasePost(*cachedMiddle);
+        QVERIFY(cachedMiddleLease);
         rootPost->reply_count = 40;
         rootPost->last_reply_at = timestamp(40);
 
