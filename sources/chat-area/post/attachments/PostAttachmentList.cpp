@@ -41,7 +41,9 @@ PostAttachmentList::PostAttachmentList (Backend& backend, QWidget *parent)
     ui->setupUi(this);
     ui->verticalLayout->setContentsMargins(0, 0, 0, 0);
     ui->listWidget->viewport()->setAutoFillBackground(false);
-    ui->listWidget->setSpacing(10);
+    // QListView spacing also adds a gutter before the first and after the last
+    // item. Keep it compact; the previous 10px produced an empty bottom strip.
+    ui->listWidget->setSpacing(4);
     ui->listWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ui->listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
