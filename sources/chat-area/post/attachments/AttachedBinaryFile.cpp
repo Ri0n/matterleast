@@ -55,7 +55,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     ui->setupUi(this);
     ui->verticalLayout->setContentsMargins(0, 0, 0, 0);
     ui->verticalLayout_2->setAlignment(Qt::AlignTop);
-    ui->metadataLabel->setTextFormat(Qt::PlainText);
+    ui->metadataLabel->setTextFormat(Qt::RichText);
     ui->metadataLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->metadataLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     ui->metadataLabel->setWordWrap(true);
@@ -301,8 +301,11 @@ void AttachedBinaryFile::setFileMetadata(const BackendFile& file)
         file.size, 2, QLocale::DataSizeTraditionalFormat);
     // A single label owns all metadata lines, so the font metrics and
     // inter-line spacing are identical regardless of the post's width.
-    ui->metadataLabel->setText(tr("File: %1\nType: %2\nSize: %3")
-                                  .arg(file.name, presentation.mimeTypeName, displaySize));
+    ui->metadataLabel->setText(
+        tr("<b>File:</b> %1<br/><b>Type:</b> %2<br/><b>Size:</b> %3")
+            .arg(file.name.toHtmlEscaped(),
+                 presentation.mimeTypeName.toHtmlEscaped(),
+                 displaySize.toHtmlEscaped()));
 
     if (!presentation.icon.isNull()) {
         const QPixmap pixmap = presentation.icon.pixmap(QSize(64, 64));
