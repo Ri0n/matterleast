@@ -79,6 +79,7 @@ public:
     }
     QStringList visibleChannelIds(const SidebarCategory& category) const;
     void setConversationSearchTerm(const QString& term) { _conversationSearchTerm = term.trimmed(); }
+    bool conversationSearchActive() const { return !_conversationSearchTerm.isEmpty(); }
     void markChannelViewedLocally(const BackendChannel& channel);
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
     void markPostUnread(const QString& postId, std::function<void(bool)> callback = {});
