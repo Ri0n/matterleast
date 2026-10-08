@@ -837,8 +837,34 @@ void ThreadPostSource::continueDemand(const std::shared_ptr<Demand>& demand)
             const QString& id = result.postIds.at(offset);
             const int existing = guard->indexOfPost(id);
             const int target = pageFirst + offset;
-            if ((existing >= 0 && guard->isAuthoritativeIndex(existing) && existing != target)
-                || (guard->isAuthoritativeIndex(target) && guard->postIds.at(target) != id)) {
+            const bool identityConflict = existing >= 0
+                && guard->isAuthoritativeIndex(existing) && existing != target;
+            const bool rankConflict = guard->isAuthoritativeIndex(target)
+                && guard->postIds.at(target) != id;
+            if (identityConflict || rankConflict) {
+                // Keep conflicting identities visible even without debug logging.
+                // Never change authoritative mappings merely to silence a conflict.
+                const BackendPost* root = guard->rootPost();
+                qCWarning(lcThreadTimelineTrace).nospace()
+                    << "THREAD_RANK_CONFLICT root=" << shortId(guard->rootId)
+                    << " requested=[" << demand->first << ',' << demand->last << ']'
+                    << " anchorIndex=" << anchorIndex
+                    << " anchor=" << shortId(anchorId)
+                    << " direction=" << (backward ? "up" : "down")
+                    << " tail=" << tail
+                    << " pageFirst=" << pageFirst
+                    << " pageCount=" << count
+                    << " offset=" << offset
+                    << " incoming=" << shortId(id)
+                    << " existingIndex=" << existing
+                    << " targetIndex=" << target
+                    << " targetId=" << shortId(guard->postIds.at(target))
+                    << " identityConflict=" << identityConflict
+                    << " rankConflict=" << rankConflict
+                    << " logicalCount=" << guard->itemCount()
+                    << " replyCount=" << (root ? root->reply_count : -1)
+                    << " hasNextKnown=" << result.hasNextKnown
+                    << " hasNext=" << result.hasNext;
                 guard->failDemand(demand, QStringLiteral("Thread cursor conflicts with confirmed ranks"));
                 return;
             }
