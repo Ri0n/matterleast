@@ -357,6 +357,8 @@ void MainWindow::setupChannelTabs()
 	ui->gridLayout_2->setColumnStretch(0, 1);
 
 	connect(sidebarFilterEdit, &QLineEdit::textChanged,
+            ui->channelList, &ChannelTree::setConversationSearchTerm);
+	connect(sidebarFilterEdit, &QLineEdit::textChanged,
 	        this, &MainWindow::refreshSidebarViews);
 	connect(unreadFilterButton, &QToolButton::toggled, this, [this] {
 		refreshUnreadFilterIcon();
