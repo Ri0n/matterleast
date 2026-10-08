@@ -29,6 +29,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QGuiApplication>
+#include <QClipboard>
 #include <QMenu>
 #include <QResizeEvent>
 #include <QScreen>
@@ -160,11 +161,19 @@ void FilePreview::resizeEvent(QResizeEvent* event)
 
 void FilePreview::showContextMenu(const QPoint& pos)
 {
-    if (!saveCallback || !ui || !ui->fileContents) {
+    if (!ui || !ui->fileContents) {
         return;
     }
 
     QMenu menu(this);
+    QAction* copyAction = menu.addAction(tr("Copy image"), this, [this] {
+        if (!sourcePixmap.isNull()) {
+            // Copy original pixels, never the screen-scaled preview.
+            QGuiApplication::clipboard()->setImage(sourcePixmap.toImage());
+        }
+    });
+    copyAction->setEnabled(!sourcePixmap.isNull());
+    if (saveCallback) {
     menu.addAction(tr("Save As…"), this, [this] {
         const QString downloadDir =
             QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
@@ -178,6 +187,7 @@ void FilePreview::showContextMenu(const QPoint& pos)
             saveCallback(destination);
         }
     });
+    }
     menu.exec(ui->fileContents->mapToGlobal(pos));
 }
 
