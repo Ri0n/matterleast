@@ -39,6 +39,13 @@ static constexpr const char* COMPOSER_FORMATTING_TOOLBAR_VISIBLE =
     "composer/formattingToolbarVisible";
 static constexpr bool COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT = true;
 
+// Desktop notifications for new root posts in public/private channels.
+// 0: mentions only; 1: mentions or favorites; 2: all unmuted channels.
+// Direct/group conversations and thread reply rules are independent.
+static constexpr const char* CHANNEL_ROOT_NOTIFICATION_MODE =
+    "notifications/channelRootMode";
+static constexpr int CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT = 1;
+
 static constexpr const char* CHAT_FONT = "chat/font";
 
 static constexpr const char* EMOJI_DEFAULT_SKIN_TONE =

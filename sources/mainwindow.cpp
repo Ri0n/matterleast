@@ -64,6 +64,7 @@
 #include "chat-area/ChatArea.h"
 #include "log.h"
 #include "notifications/NotificationManager.h"
+#include "notifications/RootNotificationPolicy.h"
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
@@ -898,12 +899,18 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 	const bool directConversation = channel.type == BackendChannel::directChannel
 		|| channel.type == BackendChannel::groupChannel;
 	if (post.root_id.isEmpty()) {
-		// Ordinary activity in public/private channels belongs in unread state,
-		// not in desktop attention. Only mentions and direct/group messages are
-		// actionable enough to flash the taskbar or show a desktop notification.
-		if (!directConversation && !post.currentUserMentioned) {
-			return;
-		}
+        // The user preference controls only public/private channel ROOT
+        // messages. Muting and active-channel suppression remain outside
+        // this policy. Direct/group messages keep their existing behavior.
+        const auto mode = channelRootNotificationModeFromSetting(
+            MLOptions::instance()->value<int>(
+                CHANNEL_ROOT_NOTIFICATION_MODE,
+                CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT));
+        if (!shouldNotifyRootPost(
+                directConversation, post.currentUserMentioned,
+                sidebar.isChannelFavorite(channel), mode)) {
+            return;
+        }
 	} else if (!post.currentUserMentioned) {
 		// Until full followed-thread desktop notification preferences are modeled,
 		// keep thread notifications mention-driven just as before.

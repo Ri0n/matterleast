@@ -41,6 +41,7 @@
 #include "Settings.h"
 #include "backend/emoji/EmojiDefs.h"
 #include "options/MLOptions.h"
+#include "notifications/RootNotificationPolicy.h"
 #include "ui_SettingsWindow.h"
 
 namespace Mattermost {
@@ -195,6 +196,47 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     sidebarLayout->addWidget(unreadModeGroup);
     sidebarLayout->addStretch(1);
     tabs->addTab(sidebarPage, tr("Sidebar"));
+
+    auto* notificationsPage = new QWidget(tabs);
+    auto* notificationsLayout = new QVBoxLayout(notificationsPage);
+    notificationsLayout->setContentsMargins(12, 12, 12, 12);
+    notificationsLayout->setSpacing(8);
+
+    auto* channelNotificationsGroup = new QGroupBox(
+        tr("Channel message notifications"), notificationsPage);
+    auto* channelNotificationsLayout = new QVBoxLayout(channelNotificationsGroup);
+    channelNotificationsLayout->setSpacing(8);
+    channelNotificationsLayout->addWidget(new QLabel(
+        tr("Notify about messages in channels:"), channelNotificationsGroup));
+    _channelRootNotificationMode = new QComboBox(channelNotificationsGroup);
+    _channelRootNotificationMode->setObjectName(
+        QStringLiteral("channelRootNotificationMode"));
+    _channelRootNotificationMode->addItem(
+        tr("Only when I'm explicitly mentioned"),
+        static_cast<int>(ChannelRootNotificationMode::MentionsOnly));
+    _channelRootNotificationMode->addItem(
+        tr("When I'm mentioned or for all messages in favorite channels"),
+        static_cast<int>(ChannelRootNotificationMode::MentionsOrFavorites));
+    _channelRootNotificationMode->addItem(
+        tr("For all messages in unmuted channels"),
+        static_cast<int>(ChannelRootNotificationMode::AllUnmuted));
+    const int storedNotificationMode = options->optionObject<int>(
+        CHANNEL_ROOT_NOTIFICATION_MODE, CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT)
+        ->value().toInt();
+    const auto selectedMode = channelRootNotificationModeFromSetting(
+        storedNotificationMode);
+    _channelRootNotificationMode->setCurrentIndex(
+        _channelRootNotificationMode->findData(static_cast<int>(selectedMode)));
+    channelNotificationsLayout->addWidget(_channelRootNotificationMode);
+    channelNotificationsLayout->addWidget(makeDescription(
+        channelNotificationsGroup,
+        tr("Applies to new top-level messages in public and private channels. "
+           "Muted channels remain silent. Direct/group messages and thread "
+           "replies continue to use their existing notification rules.")));
+    notificationsLayout->addWidget(channelNotificationsGroup);
+    notificationsLayout->addStretch(1);
+    tabs->addTab(notificationsPage, tr("Notifications"));
+
 
     auto* appearancePage = new QWidget(tabs);
     auto* appearanceLayout = new QVBoxLayout(appearancePage);
@@ -443,6 +485,9 @@ void SettingsWindow::applyNewSettings ()
         UNREAD_MODE_IGNORE_WHILE_FILTERING,
         UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT)
         ->setValue(unreadModeIgnoreWhileFiltering->isChecked());
+    options->optionObject<int>(
+        CHANNEL_ROOT_NOTIFICATION_MODE, CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT)
+        ->setValue(_channelRootNotificationMode->currentData().toInt());
 
     options->optionObject<int>(
         EMOJI_DEFAULT_SKIN_TONE,

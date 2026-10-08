@@ -53,6 +53,7 @@ private:
     QCheckBox* sendWithCtrlEnter = nullptr;
     QCheckBox* unreadModeChannelsOnly = nullptr;
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
+    QComboBox* _channelRootNotificationMode = nullptr;
     QComboBox* emojiDefaultSkinTone_ = nullptr;
     QString originalChatFont;
     QSpinBox* attachmentCacheSizeMB = nullptr;
