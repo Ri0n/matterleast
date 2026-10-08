@@ -899,12 +899,16 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 	const bool directConversation = channel.type == BackendChannel::directChannel
 		|| channel.type == BackendChannel::groupChannel;
 	if (post.root_id.isEmpty()) {
-		// Besides mentions and direct/group activity, favorite public/private
-        // channels notify for root posts. Replies keep the existing
-        // mention-only path regardless of favorite membership.
-		if (!shouldNotifyRootPost(
+        // The user preference controls only public/private channel ROOT
+        // messages. Muting and active-channel suppression remain outside
+        // this policy. Direct/group messages keep their existing behavior.
+        const auto mode = channelRootNotificationModeFromSetting(
+            MLOptions::instance()->value<int>(
+                CHANNEL_ROOT_NOTIFICATION_MODE,
+                CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT));
+        if (!shouldNotifyRootPost(
                 directConversation, post.currentUserMentioned,
-                sidebar.isChannelFavorite(channel))) {
+                sidebar.isChannelFavorite(channel), mode)) {
             return;
         }
 	} else if (!post.currentUserMentioned) {
