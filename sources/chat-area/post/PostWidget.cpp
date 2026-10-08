@@ -301,8 +301,8 @@ PostWidget::PostWidget(Backend& backend,
                 ? tr("Remove from saved") : tr("Save message"));
         connect(saveAffordance_, &QPushButton::clicked, this, [this] {
             const BackendUserPreferences pref {
-                QStringLiteral("flagged_post"), post.id, QStringLiteral("true")};
-            if (backend_.isPostFlagged(post.id)) {
+                QStringLiteral("flagged_post"), this->post.id, QStringLiteral("true")};
+            if (backend_.isPostFlagged(this->post.id)) {
                 backend_.deleteUserPreferences(pref);
             } else {
                 backend_.updateUserPreferences(pref);
@@ -310,7 +310,7 @@ PostWidget::PostWidget(Backend& backend,
         });
         connect(&backend_, &Backend::onFlaggedPostChanged, this,
                 [this](const QString& postId, bool flagged) {
-            if (postId == post.id && saveAffordance_)
+            if (postId == this->post.id && saveAffordance_)
                 saveAffordance_->setToolTip(
                     flagged ? tr("Remove from saved") : tr("Save message"));
         });
