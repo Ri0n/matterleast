@@ -21,8 +21,10 @@
 
 #include <QWidget>
 #include <QTemporaryFile>
+#include <QPointer>
 
 class QPaintEvent;
+class QNetworkReply;
 
 namespace Ui {
 class AttachedBinaryFile;
@@ -40,15 +42,19 @@ public:
     explicit AttachedBinaryFile (Backend& backend, const BackendFile& file, QWidget *parent = nullptr);
     ~AttachedBinaryFile();
 
+signals:
+    void dimensionsChanged();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    void setFileMimeIcon (const QString& filename);
+    void setFileMetadata(const BackendFile& file);
 private:
     Ui::AttachedBinaryFile 	*ui;
     QTemporaryFile			tempFile;
     QString					downloadedPath;
+    QPointer<QNetworkReply> _downloadReply;
 };
 
 } /* namespace Mattermost */

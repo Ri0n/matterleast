@@ -50,9 +50,11 @@ signals:
 
 protected:
     void changeEvent(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void refreshItemSizeHints();
+    int _lastMeasuredViewportWidth = -1;
     Backend& 						backend;
     Ui::PostAttachmentList*			ui;
 };

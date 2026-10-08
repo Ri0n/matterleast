@@ -20,10 +20,14 @@
 #include "PostAttachmentList.h"
 #include "ui_PostAttachmentList.h"
 
+#include <algorithm>
+
 #include <QDebug>
 #include <QEvent>
 #include <QLabel>
 #include <QListWidgetItem>
+#include <QLayout>
+#include <QSizePolicy>
 #include <QTimer>
 #include "AttachedBinaryFile.h"
 #include "AttachedImageFile.h"
@@ -41,10 +45,13 @@ PostAttachmentList::PostAttachmentList (Backend& backend, QWidget *parent)
     ui->setupUi(this);
     ui->verticalLayout->setContentsMargins(0, 0, 0, 0);
     ui->listWidget->viewport()->setAutoFillBackground(false);
-    ui->listWidget->setSpacing(10);
+    ui->listWidget->viewport()->installEventFilter(this);
+    // QListView spacing also adds a gutter before the first and after the last
+    // item. Keep it compact; the previous 10px produced an empty bottom strip.
+    ui->listWidget->setSpacing(4);
     ui->listWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ui->listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     // PostWidget creates the list before it enumerates its files. Keep the
     // shell out of layout geometry until addFile() finds at least one file that
@@ -78,7 +85,13 @@ void PostAttachmentList::addFile (const BackendFile& file, const QString& author
     } else
 #endif
     if (!file.mimeType.startsWith("image")) {
-        fileWidget = new AttachedBinaryFile (backend, file, this);
+        auto* binaryWidget = new AttachedBinaryFile(backend, file, this);
+        fileWidget = binaryWidget;
+        connect(binaryWidget, &AttachedBinaryFile::dimensionsChanged, this,
+                [this] {
+            refreshItemSizeHints();
+            updateDimensions();
+        });
     } else {
         auto* imageWidget = new AttachedImageFile (backend, file, authorName, this);
         fileWidget = imageWidget;
@@ -93,8 +106,7 @@ void PostAttachmentList::addFile (const BackendFile& file, const QString& author
     ui->listWidget->setItemWidget(newItem, fileWidget);
     setVisible(true);
 
-    fileWidget->adjustSize();
-    newItem->setSizeHint(fileWidget->sizeHint().expandedTo(fileWidget->minimumSizeHint()));
+    refreshItemSizeHints();
     updateDimensions();
 }
 
@@ -113,8 +125,28 @@ void PostAttachmentList::changeEvent(QEvent* event)
     });
 }
 
+bool PostAttachmentList::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == ui->listWidget->viewport() && event
+        && event->type() == QEvent::Resize) {
+        const int width = ui->listWidget->viewport()->width();
+        if (width != _lastMeasuredViewportWidth) {
+            _lastMeasuredViewportWidth = width;
+            // Let the QListWidget viewport finish its resize before computing
+            // the height-for-width of wrapping attachment text.
+            QTimer::singleShot(0, this, [this] {
+                refreshItemSizeHints();
+                updateDimensions();
+            });
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
 void PostAttachmentList::refreshItemSizeHints()
 {
+    const int availableWidth = std::max(1, ui->listWidget->viewport()->width()
+                                             - 2 * ui->listWidget->spacing());
     for (int i = 0; i < ui->listWidget->count(); ++i) {
         QListWidgetItem* item = ui->listWidget->item(i);
         QWidget* widget = item ? ui->listWidget->itemWidget(item) : nullptr;
@@ -122,25 +154,39 @@ void PostAttachmentList::refreshItemSizeHints()
             continue;
         }
 
-        widget->adjustSize();
-        const QSize size = widget->sizeHint().expandedTo(widget->minimumSizeHint());
-        widget->resize(size);
-        item->setSizeHint(size);
+        QSize size;
+        if (qobject_cast<AttachedBinaryFile*>(widget)) {
+            // QListWidgetItem caches a size hint, while wrapping QLabel has
+            // height-for-width. A height calculated before the post grows
+            // would otherwise keep phantom lines and a blank bottom strip.
+            int height = -1;
+            if (QLayout* content = widget->layout()) {
+                if (content->hasHeightForWidth()) {
+                    height = content->heightForWidth(availableWidth);
+                }
+            }
+            if (height < 0) {
+                height = widget->sizeHint().height();
+            }
+            size = QSize(availableWidth, std::max(height, widget->minimumHeight()));
+        } else {
+            widget->adjustSize();
+            size = widget->sizeHint().expandedTo(widget->minimumSizeHint());
+        }
+        if (item->sizeHint() != size) {
+            item->setSizeHint(size);
+        }
     }
 }
 
 void PostAttachmentList::updateDimensions()
 {
     const QSize listSize = ui->listWidget->sizeHint().expandedTo(QSize(1, 1));
-    ui->listWidget->setFixedSize(listSize);
-
-    if (layout()) {
-        layout()->activate();
-        setFixedSize(layout()->sizeHint());
-    } else {
-        setFixedSize(listSize);
-    }
-
+    // The surrounding post layout owns horizontal geometry. Only the
+    // attachments' content height is intrinsic; fixed width truncated paths.
+    ui->listWidget->setFixedHeight(listSize.height());
+    ui->listWidget->setMinimumWidth(0);
+    setMinimumWidth(0);
     updateGeometry();
     emit dimensionsChanged();
 }

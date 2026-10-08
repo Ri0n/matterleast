@@ -155,7 +155,10 @@ set_tests_properties(message-content-widget-test PROPERTIES ENVIRONMENT "QT_QPA_
 add_executable(post-attachment-list-widget-test
     PostAttachmentListWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/post/attachments/PostAttachmentListWidget.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/chat-area/post/attachments/AttachedBinaryFile.ui"
 )
+set_property(TARGET post-attachment-list-widget-test PROPERTY
+    AUTOUIC_SEARCH_PATHS "${CMAKE_SOURCE_DIR}/sources/chat-area/post/attachments")
 
 target_include_directories(post-attachment-list-widget-test
     PRIVATE
