@@ -78,7 +78,14 @@ void PostAttachmentList::addFile (const BackendFile& file, const QString& author
     } else
 #endif
     if (!file.mimeType.startsWith("image")) {
-        fileWidget = new AttachedBinaryFile (backend, file, this);
+        auto* binaryWidget = new AttachedBinaryFile(backend, file, this);
+        fileWidget = binaryWidget;
+        connect(binaryWidget, &AttachedBinaryFile::dimensionsChanged, this,
+                [this, newItem, fileWidget] {
+            fileWidget->adjustSize();
+            newItem->setSizeHint(fileWidget->sizeHint().expandedTo(fileWidget->minimumSizeHint()));
+            updateDimensions();
+        });
     } else {
         auto* imageWidget = new AttachedImageFile (backend, file, authorName, this);
         fileWidget = imageWidget;
