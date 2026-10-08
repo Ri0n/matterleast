@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
+#include <QRegularExpression>
 #include <QUrl>
 
 #include "Backend.h"
@@ -55,25 +56,48 @@ void ChannelReferenceService::resolve(
         + QString::fromLatin1(QUrl::toPercentEncoding(slug));
     NetworkRequest request(endpoint);
     QPointer<ChannelReferenceService> guard(this);
+    const auto complete = [guard, key](const QString& displayName, bool definitiveMiss) {
+        if (!guard) return;
+        // Cache 403/404 misses too: an unknown/private channel mention must not
+        // repeatedly trigger identical HTTP requests when posts rematerialize.
+        if (!displayName.isEmpty() || definitiveMiss)
+            guard->_resolved.insert(key, displayName);
+        const auto callbacks = guard->_pending.take(key);
+        for (const Callback& current : callbacks)
+            if (current) current(displayName);
+    };
     _http.get(request, HttpResponseCallback(
-        [guard, key](QVariant, QByteArray data, const QNetworkReply& reply) {
+        [guard, slug, complete](QVariant, QByteArray data, const QNetworkReply& reply) {
             if (!guard) return;
-            QString displayName;
             const int status = reply.attribute(
                 QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            QString displayName;
             if (reply.error() == QNetworkReply::NoError
                 && status >= 200 && status < 300) {
-                const QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (doc.isObject())
-                    displayName = doc.object()
-                        .value(QStringLiteral("display_name")).toString();
+                displayName = QJsonDocument::fromJson(data).object()
+                    .value(QStringLiteral("display_name")).toString();
             }
-
-            if (!displayName.isEmpty())
-                guard->_resolved.insert(key, displayName);
-            const auto callbacks = guard->_pending.take(key);
-            for (const Callback& current : callbacks)
-                if (current) current(displayName);
+            // Mattermost channel IDs have 26 alphanumeric characters. A
+            // permalink can use that identity rather than the team-local slug.
+            static const QRegularExpression channelIdExpression(
+                QStringLiteral("^[a-z0-9]{26}$"));
+            if (status == 404
+                && channelIdExpression.match(slug).hasMatch()) {
+                NetworkRequest byId(QStringLiteral("channels/") + slug);
+                guard->_http.get(byId, HttpResponseCallback(
+                    [complete](QVariant, QByteArray data, const QNetworkReply& fallback) {
+                        const int resultStatus = fallback.attribute(
+                            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                        QString name;
+                        if (fallback.error() == QNetworkReply::NoError
+                            && resultStatus >= 200 && resultStatus < 300)
+                            name = QJsonDocument::fromJson(data).object()
+                                .value(QStringLiteral("display_name")).toString();
+                        complete(name, resultStatus == 403 || resultStatus == 404);
+                    }));
+                return;
+            }
+            complete(displayName, status == 403 || status == 404);
         }));
 }
 
