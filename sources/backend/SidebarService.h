@@ -59,6 +59,7 @@ public:
     void clear();
 
     bool isChannelMuted(const BackendChannel& channel) const;
+    bool isChannelFavorite(const BackendChannel& channel) const;
     bool isChannelMuted(const QString& channelId) const;
     bool hasUnreadMention(const QString& channelId) const;
     void setChannelMentioned(const QString& channelId, bool mentioned);
