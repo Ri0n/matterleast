@@ -558,6 +558,60 @@ private slots:
         }
     }
 
+    void inFlightCursorFollowsAnchorAcrossCountShrink()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 40;
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(),
+            QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert(QStringLiteral("reply_count"), 40);
+        root.insert(QStringLiteral("last_reply_at"), timestamp(40));
+        BackendPost* rootPost = channel.addPost(root);
+        QVERIFY(rootPost);
+        QVERIFY(channel.addPost(post(20)));
+        rootPost->reply_count = 40;
+        rootPost->last_reply_at = timestamp(40);
+
+        ThreadPostSource source(backend, channel, id(0));
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failures(&source, &ThreadPostSource::rangeRequestFailed);
+        source.requestRange(
+            1, 10, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        source.requestRange(
+            31, 40, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 2);
+
+        // Dispatch a page relative to post31 while its old rank is still 31.
+        // The server already reflects deletion of an unmapped middle reply, but
+        // delay delivery so the local websocket-style deletion can move the
+        // anchor to rank 30 before the cursor response is consumed.
+        server.deletedReplies.insert(20);
+        server.responseDelayMs = 200;
+        const int requestCount = server.requests.size();
+        finished.clear();
+        source.requestRange(
+            21, 29, AbstractPostSource::RequestReason::Scroll, 1);
+        QTRY_COMPARE(server.requests.size(), requestCount + 1);
+
+        channel.deletePost(id(20));
+        QCOMPARE(source.indexOfPost(id(31)), 30);
+
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failures.size(), 0);
+        for (int reply = 21; reply <= 30; ++reply) {
+            QCOMPARE(source.indexOfPost(id(reply)), reply - 1);
+        }
+        QCOMPARE(source.indexOfPost(id(31)), 30);
+    }
+
     void mappedDeletedReplyKeepsItsVisibleSlot()
     {
         ThreadServer server;
