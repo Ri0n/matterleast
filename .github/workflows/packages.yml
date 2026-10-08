@@ -159,7 +159,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot \
-            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6
+            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -181,7 +181,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DQT_6=ON -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
-            -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6"
+            -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6, qt6-svg-plugins"
 
       - name: Build and test
         shell: bash
@@ -201,7 +201,7 @@ jobs:
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           depends=$(dpkg-deb -f "$deb" Depends)
-          for dep in libqt6sql6-sqlite libqt6svg6; do
+          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins; do
             [[ "$depends" == *"$dep"* ]] || {
               echo "::error::Missing Debian 13 dependency: $dep"
               exit 1
