@@ -44,7 +44,7 @@ PostAttachmentList::PostAttachmentList (Backend& backend, QWidget *parent)
     ui->listWidget->setSpacing(10);
     ui->listWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ui->listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     // PostWidget creates the list before it enumerates its files. Keep the
     // shell out of layout geometry until addFile() finds at least one file that
@@ -132,15 +132,11 @@ void PostAttachmentList::refreshItemSizeHints()
 void PostAttachmentList::updateDimensions()
 {
     const QSize listSize = ui->listWidget->sizeHint().expandedTo(QSize(1, 1));
-    ui->listWidget->setFixedSize(listSize);
-
-    if (layout()) {
-        layout()->activate();
-        setFixedSize(layout()->sizeHint());
-    } else {
-        setFixedSize(listSize);
-    }
-
+    // The surrounding post layout owns horizontal geometry. Only the
+    // attachments' content height is intrinsic; fixed width truncated paths.
+    ui->listWidget->setFixedHeight(listSize.height());
+    ui->listWidget->setMinimumWidth(0);
+    setMinimumWidth(0);
     updateGeometry();
     emit dimensionsChanged();
 }
