@@ -21,6 +21,12 @@
 #include <QApplication>
 #include <QMenu>
 #include <QSystemTrayIcon>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QLocalServer>
+#include <QLocalSocket>
+#include <QLockFile>
+#include <QStandardPaths>
 
 #include "login/LoginDialog.h"
 #include "mainwindow.h"
@@ -127,7 +133,54 @@ int main( int argc, char *argv[])
 	QCoreApplication::setApplicationName("MatterLeast");
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 
-	Mattermost::MattermostApplication app (argc, argv);
-	app.openLoginWindow ();
-	return app.exec();
+    Mattermost::MattermostApplication app(argc, argv);
+
+    // Lock ownership is per OS user, not per working directory or binary
+    // installation. Unlike QSingleApplication, QLockFile checks the PID and
+    // can recover after an abnormal process termination.
+    const QString stateDir = QStandardPaths::writableLocation(
+        QStandardPaths::AppLocalDataLocation);
+    if (!QDir().mkpath(stateDir)) {
+        qCritical() << "Cannot initialize single-instance state directory" << stateDir;
+        return 1;
+    }
+    QLockFile instanceLock(QDir(stateDir).filePath(QStringLiteral("instance.lock")));
+    const QString endpoint = QStringLiteral("matterleast-")
+        + QString::fromLatin1(QCryptographicHash::hash(
+            QDir(stateDir).absolutePath().toUtf8(), QCryptographicHash::Sha256).toHex().left(24));
+    if (!instanceLock.tryLock(200)) {
+        // An existing process owns the application; ask it to raise its window.
+        QLocalSocket socket;
+        socket.connectToServer(endpoint);
+        if (socket.waitForConnected(500)) {
+            socket.write("activate");
+            socket.waitForBytesWritten(500);
+            socket.disconnectFromServer();
+        }
+        return 0;
+    }
+
+    QLocalServer server;
+    // Only the lock owner may remove a leftover endpoint from a crashed
+    // predecessor. Never unlink a socket owned by a live instance.
+    QLocalServer::removeServer(endpoint);
+    if (!server.listen(endpoint)) {
+        qCritical() << "Cannot listen on the single-instance endpoint:"
+                    << server.errorString();
+        return 1;
+    }
+    QObject::connect(&server, &QLocalServer::newConnection, &app, [&] {
+        while (QLocalSocket* peer = server.nextPendingConnection()) {
+            QObject::connect(peer, &QLocalSocket::readyRead, &app, [peer, &app] {
+                if (peer->readAll().contains("activate")) {
+                    app.showWindow();
+                }
+            });
+            QObject::connect(peer, &QLocalSocket::disconnected,
+                             peer, &QLocalSocket::deleteLater);
+        }
+    });
+
+    app.openLoginWindow();
+    return app.exec();
 }
