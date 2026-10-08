@@ -345,6 +345,15 @@ void Backend::reset ()
 	 * objects are destroyed
 	 */
 	disconnect ();
+    _flaggedPostIds.clear();
+    // Backend::reset() deliberately disconnects every connection, including
+    // the internal flagged-preference cache observer. Reinstall that observer
+    // for a subsequent login in the same process.
+    connect(this, &Backend::onFlaggedPostChanged, this,
+            [this](const QString& postId, bool flagged) {
+                if (flagged) _flaggedPostIds.insert(postId);
+                else _flaggedPostIds.remove(postId);
+            });
 	NetworkRequest::clearToken ();
 
 	//reinit all network connectors
