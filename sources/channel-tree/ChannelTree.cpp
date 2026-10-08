@@ -222,6 +222,20 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 	backend.retrieveOwnChannelMembershipsForTeam (team, [] (BackendChannel&) {});
 }
 
+void ChannelTree::setConversationSearchTerm(const QString& term)
+{
+    if (!backendForSidebar) return;
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    sidebar.setConversationSearchTerm(term);
+    for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
+        TeamItem* team = it.value();
+        const SidebarTeamState* state = sidebar.teamState(it.key());
+        if (team && state) {
+            reconcileTeamSidebar(*backendForSidebar, *team, *state);
+        }
+    }
+}
+
 void ChannelTree::populateSidebars(Backend& backend)
 {
     backendForSidebar = &backend;
