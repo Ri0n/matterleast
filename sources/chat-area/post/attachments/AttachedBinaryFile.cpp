@@ -60,10 +60,13 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     ui->downloadedLabel->clear();
     ui->downloadedLabel->hide();
     ui->fileNameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    ui->fileNameLabel->setWordWrap(true);
+    ui->fileNameLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     ui->fileTypeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->fileSizeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->downloadedLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->downloadedLabel->setWordWrap(true);
+    ui->downloadedLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     ui->downloadedLabel->setTextFormat(Qt::PlainText);
     ui->downloadButton->setText({});
     ui->downloadButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
