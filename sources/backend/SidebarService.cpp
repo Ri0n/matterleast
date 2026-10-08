@@ -182,6 +182,15 @@ QString SidebarService::categoriesPath(const QString& teamId) const
         + QStringLiteral("/channels/categories");
 }
 
+bool SidebarService::isChannelFavorite(const BackendChannel& channel) const
+{
+    if (!channel.team) return false;
+    const SidebarTeamState* state = teamState(channel.team->id);
+    const SidebarCategory* favorites = state
+        ? state->categoryByType(QStringLiteral("favorites")) : nullptr;
+    return favorites && favorites->channelIds.contains(channel.id);
+}
+
 bool SidebarService::isChannelMuted(const BackendChannel& channel) const
 {
     return isChannelMuted(channel.id);
