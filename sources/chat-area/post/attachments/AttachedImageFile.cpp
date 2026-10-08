@@ -25,6 +25,9 @@
 #include <utility>
 
 #include <QCoreApplication>
+#include <QGuiApplication>
+#include <QClipboard>
+#include <QPointer>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -226,6 +229,19 @@ AttachedImageFile::AttachedImageFile(Backend& backend,
             [this, attachmentFileName](const QPoint& pos) {
         QMenu menu(this);
 
+        menu.addAction(tr("Copy image"), this, [this] {
+            QPointer<AttachedImageFile> self(this);
+            AttachmentService::instance(backend).retrieveFile(
+                fileId, [self](const QByteArray& contents) {
+                    if (!self || contents.isEmpty()) return;
+                    // Put actual pixels on the clipboard rather than the
+                    // Mattermost URL (unavailable to external applications).
+                    decodeImageAsync(contents, [self](QImage image) {
+                        if (!self || image.isNull()) return;
+                        QGuiApplication::clipboard()->setImage(image);
+                    });
+                });
+        });
         menu.addAction("Save image", this, [this, attachmentFileName] {
             const QString defaultDownloadDir =
                 QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
