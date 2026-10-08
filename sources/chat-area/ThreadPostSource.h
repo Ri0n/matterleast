@@ -55,6 +55,7 @@ private:
     static constexpr int ServerBlockSize = 10;
 
     BackendPost* rootPost() const;
+    int reportedLogicalCount() const;
     int currentLogicalCount() const;
     bool reanchorConfirmedTailForCountShrink(int count);
     int nearestEmptyIndex(int preferred) const;
