@@ -992,19 +992,16 @@ bool ThreadPostSource::reanchorConfirmedTailForCountShrink(int count)
         << " remove=[" << removeFirst << ',' << (suffixFirst - 1) << ']'
         << " suffix=[" << suffixFirst << ',' << (oldCount - 1) << ']';
 
-    eraseLogicalSlots(removeFirst, removeCount);
-
-    // Structural slot removal shifts any surviving provisional island as well.
-    // Keep its stored origin aligned with the identity mapping rather than
-    // leaving a stale numeric estimate behind.
+    // eraseLogicalSlots() publishes synchronously. Adjust source-owned
+    // semantic island origins before that signal so a reentrant viewport
+    // request never observes shifted postIds with stale island coordinates.
     for (Island& island : islands) {
-        const int targetOffset = static_cast<int>(island.ids.indexOf(island.targetId));
-        const int targetIndex = indexOfPost(island.targetId);
-        if (targetOffset >= 0 && targetIndex >= 0) {
-            island.first = targetIndex - targetOffset;
+        if (island.first >= suffixFirst) {
+            island.first -= removeCount;
         }
     }
     ++islandEpoch;
+    eraseLogicalSlots(removeFirst, removeCount);
     pruneProvisionalPostIds();
     return true;
 }
