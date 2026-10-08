@@ -27,6 +27,7 @@
 #include <QLocalSocket>
 #include <QLockFile>
 #include <QStandardPaths>
+#include <QTimer>
 
 #include "login/LoginDialog.h"
 #include "mainwindow.h"
@@ -105,11 +106,13 @@ void MattermostApplication::openLoginWindow ()
 	});
 }
 
-inline void MattermostApplication::showWindow ()
+inline void MattermostApplication::showWindow()
 {
-	if (currentWindow && !currentWindow->isVisible()) {
-		currentWindow->show ();
-	}
+    if (!currentWindow) return;
+    if (currentWindow->isMinimized()) currentWindow->showNormal();
+    else if (!currentWindow->isVisible()) currentWindow->show();
+    currentWindow->raise();
+    currentWindow->activateWindow();
 }
 
 inline void MattermostApplication::toggleShowWindow ()
@@ -149,6 +152,10 @@ int main( int argc, char *argv[])
         + QString::fromLatin1(QCryptographicHash::hash(
             QDir(stateDir).absolutePath().toUtf8(), QCryptographicHash::Sha256).toHex().left(24));
     if (!instanceLock.tryLock(200)) {
+        if (instanceLock.error() != QLockFile::LockFailedError) {
+            qCritical() << "Cannot acquire instance lock:" << instanceLock.error();
+            return 1;
+        }
         // An existing process owns the application; ask it to raise its window.
         QLocalSocket socket;
         socket.connectToServer(endpoint);
@@ -175,6 +182,12 @@ int main( int argc, char *argv[])
                 if (peer->readAll().contains("activate")) {
                     app.showWindow();
                 }
+            });
+            // A client can have sent its entire command before newConnection
+            // is delivered, so also inspect already-buffered bytes.
+            QTimer::singleShot(0, peer, [peer, &app] {
+                if (peer->bytesAvailable() && peer->readAll().contains("activate"))
+                    app.showWindow();
             });
             QObject::connect(peer, &QLocalSocket::disconnected,
                              peer, &QLocalSocket::deleteLater);
