@@ -21,6 +21,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | post right-click menu, per-target items (images, links), drag-selecting messages | [Post context menu and message selection drag](post-context-menu.md) | adding an item that depends on what was clicked inside a post, or changing how a drag turns into message selection |
 | quoted replies | [Quoted replies](quoted-replies.md) | changing wire fallback or thread interaction |
 | composer @mentions and user-group suggestions | [Mention autocomplete](mention-autocomplete.md) | changing user/group lookup, DM/GM mention scope, or completion merging |
+| lazy author profiles and missing avatars in already-rendered posts | [User profile resolution](user-profile-resolution.md) | changing `/users/ids` batching, late profile rebinding, image retries or account-reset fences |
 | user-group browser, creation, membership and editing | [User groups](user-groups.md) | changing custom-group CRUD, membership mutations, or sidebar entry points |
 | reaction quick bar/ranking | [Reaction quick bar](reaction-quick-bar.md) | changing ranking, cooling, persistence or custom emoji behavior |
 | emoji picker, custom emoji lookup/search, live theme propagation | [Emoji resolution and picker search](emoji-resolution.md) | changing custom emoji discovery, caching, registry synchronization or picker palette behavior |

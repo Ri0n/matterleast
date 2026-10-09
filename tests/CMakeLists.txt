@@ -579,6 +579,15 @@ target_link_libraries(post-unread-request-test PRIVATE Qt${QT_VERSION_MAJOR}::Te
 add_test(NAME post-unread-request-test COMMAND post-unread-request-test)
 
 if(TARGET matterleast-core)
+    add_executable(user-profile-recovery-test UserProfileRecoveryTest.cpp)
+    target_link_libraries(user-profile-recovery-test
+        PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME user-profile-recovery-test COMMAND user-profile-recovery-test)
+    set_tests_properties(user-profile-recovery-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
     add_executable(post-author-grouping-test PostAuthorGroupingTest.cpp)
     target_link_libraries(post-author-grouping-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-author-grouping-test COMMAND post-author-grouping-test)

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <functional>
 
 #include <QMap>
@@ -99,11 +100,17 @@ public:
     void ensureGroupChannelMembers(BackendChannel& channel,
                                    std::function<void()> callback = {});
 
+signals:
+    // A profile may arrive after the first lookup of an already-visible post.
+    void profileResolved(const QString& userId);
+
 private:
     explicit UserProfileService(Backend& backend);
 
     void scheduleFlush();
     void flushProfiles();
+    void requestProfileBatch(const QStringList& userIds, int attempt);
+    void requestAvatar(const QString& userId, uint64_t pictureVersion, int attempt);
     void finishProfile(const QString& userId, const BackendUser* user);
     void resolveReferences(BackendUser& user);
     void finishMemberProfiles(const QStringList& userIds,
@@ -116,6 +123,7 @@ private:
     QSet<QString> queuedUserIds;
     QSet<QString> inFlightUserIds;
     QSet<QString> inFlightAvatarKeys;
+    quint64 _profileGeneration = 0;
     QMap<QString, QVector<std::function<void(const BackendUser*)>>> waiters;
     qint64 disconnectedAt = 0;
     bool flushScheduled = false;
