@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QFrame>
+#include <QHBoxLayout>
 #include <QGraphicsOpacityEffect>
 #include <QLabel>
 #include <QLocale>
@@ -158,6 +159,47 @@ private slots:
             author, late + 1000);
         deleted.isDeleted = true;
         QVERIFY(!PostAuthorRunPolicy::continues(base, deleted));
+    }
+
+    void pendingContinuationSpinnerDoesNotChangeRowHeight()
+    {
+        Backend backend;
+        auto post = makePost(
+            backend.getStorage(),
+            QStringLiteral("pppppppppppppppppppppppppp"),
+            QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
+            localMs(QDate(2026, 9, 29), QTime(12, 5)));
+
+        PostWidget pending(backend, post, nullptr, nullptr, nullptr,
+                           PostWidget::PresentationMode::Pending);
+        PostWidget delivered(backend, post, nullptr, nullptr, nullptr);
+        auto* indicator = pending.findChild<QWidget*>(
+            QStringLiteral("pendingDeliveryIndicator"));
+        auto* header = pending.findChild<QHBoxLayout*>(
+            QStringLiteral("horizontalLayout"));
+        QVERIFY(indicator);
+        QVERIFY(header);
+        QVERIFY(header->indexOf(indicator) >= 0);
+
+        pending.setAuthorRunContinuation(true);
+        delivered.setAuthorRunContinuation(true);
+        pending.resize(560, 150);
+        delivered.resize(560, 150);
+        pending.show();
+        delivered.show();
+        for (int i = 0; i < 4; ++i) {
+            QApplication::processEvents();
+        }
+        QVERIFY(indicator->isVisible());
+        QCOMPARE(indicator->parentWidget(), &pending);
+        QCOMPARE(header->indexOf(indicator), -1);
+        QCOMPARE(pending.sizeHint().height(), delivered.sizeHint().height());
+
+        // If the source removes a preceding post, the same pending widget
+        // must restore its ordinary author-header indicator without recreation.
+        pending.setAuthorRunContinuation(false);
+        QVERIFY(header->indexOf(indicator) >= 0);
+        QVERIFY(indicator->isVisible());
     }
 
     void widgetCanMutateBetweenHeadAndContinuation()
