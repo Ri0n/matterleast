@@ -158,7 +158,7 @@ private slots:
         const QString expected = QFontDatabase::systemFont(
             QFontDatabase::FixedFont).family();
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        QVERIFY(code.charFormat().fontFamilies().contains(expected));
+        QVERIFY(code.charFormat().fontFamilies().toStringList().contains(expected));
 #else
         QCOMPARE(code.charFormat().fontFamily(), expected);
 #endif
