@@ -466,6 +466,91 @@ void forceInlineCodeFont(QTextDocument& document)
     }
 }
 
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+void restoreQt5InlineCodeFont(QTextDocument& document, const QString& markdown)
+{
+    // Qt 5.15's Markdown parser removes inline backticks but loses the code
+    // character format on some builds. Restore it from Markdown's delimiters,
+    // never interpreting HTML and never modifying the rendered text itself.
+    const QString plain = document.toPlainText();
+    const QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QTextCharFormat codeFont;
+    codeFont.setFontFamily(fixedFont.family());
+    codeFont.setFontFixedPitch(true);
+
+    int searchFrom = 0;
+    for (int i = 0; i < markdown.size();) {
+        if (markdown.at(i) == QLatin1Char('\\')
+            && i + 1 < markdown.size()) {
+            i += 2;
+            continue;
+        }
+        if (markdown.at(i) != QLatin1Char('`')) {
+            ++i;
+            continue;
+        }
+        const int opening = i;
+        while (i < markdown.size() && markdown.at(i) == QLatin1Char('`')) {
+            ++i;
+        }
+        const int tickCount = i - opening;
+        // Fenced blocks are handled by CodeBlockEdit; do not mistake a fence
+        // or a multiline block's delimiters for inline code.
+        if (tickCount >= 3) {
+            continue;
+        }
+
+        int closing = -1;
+        for (int j = i; j < markdown.size();) {
+            if (markdown.at(j) == QLatin1Char('\\')
+                && j + 1 < markdown.size()) {
+                j += 2;
+                continue;
+            }
+            if (markdown.at(j) != QLatin1Char('`')) {
+                ++j;
+                continue;
+            }
+            const int runStart = j;
+            while (j < markdown.size() && markdown.at(j) == QLatin1Char('`')) {
+                ++j;
+            }
+            if (j - runStart == tickCount) {
+                closing = runStart;
+                break;
+            }
+        }
+        if (closing < 0) {
+            continue;
+        }
+
+        QString content = markdown.mid(i, closing - i);
+        content.replace(QLatin1Char('\n'), QLatin1Char(' '));
+        // CommonMark collapses a single boundary space when both ends are
+        // padded (unless the entire code span consists of spaces).
+        if (content.size() >= 2
+            && content.front() == QLatin1Char(' ')
+            && content.back() == QLatin1Char(' ')
+            && !content.trimmed().isEmpty()) {
+            content = content.mid(1, content.size() - 2);
+        }
+        if (!content.isEmpty()) {
+            const int start = plain.indexOf(content, searchFrom);
+            if (start >= 0) {
+                QTextCursor cursor(&document);
+                cursor.setPosition(start);
+                cursor.setPosition(start + content.size(), QTextCursor::KeepAnchor);
+                // Do not overwrite background/foreground or other formatting.
+                cursor.mergeCharFormat(codeFont);
+                searchFrom = start + content.size();
+            }
+        }
+        i = closing + tickCount;
+    }
+}
+#endif
+
 bool rangeAlreadyFormattedAsLinkOrCode(QTextDocument& document, int position, int length)
 {
     QTextCursor cursor(&document);
@@ -728,6 +813,9 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text,
     const QString markdown = promoteMultilineCodeSpans(text);
     document.setMarkdown(preserveUserLineBreaks(markdown), features);
     forceInlineCodeFont(document);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    restoreQt5InlineCodeFont(document, markdown);
+#endif
 
     // Qt's GFM autolinker still misses some valid long percent-encoded URLs.
     // Complete only bare http(s) links after Markdown parsing so explicit links
