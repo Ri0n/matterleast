@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QLayout>
 #include <QMetaObject>
 #include <QPlainTextEdit>
@@ -38,11 +39,46 @@ class ChannelHeaderTextLabelTest : public QObject
     Q_OBJECT
 
 private slots:
+    void hoverOpensOnlyAfterTooltipDwell();
     void popoverIsAnimatedAndCapped();
     void popoverReverseKeepsRenderedChildren();
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
 };
+
+void ChannelHeaderTextLabelTest::hoverOpensOnlyAfterTooltipDwell()
+{
+    QWidget host;
+    host.resize(640, 300);
+    ChannelHeaderTextLabel label(&host);
+    label.setGeometry(20, 20, 400, label.sizeHint().height());
+    label.setText(QStringLiteral("Topic opening line\\nLong expanded topic details"));
+    host.show();
+    QTest::qWait(10);
+
+    // Cancel any platform-generated hover before testing the actual sequence.
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(&label, &leave);
+    QEvent enter(QEvent::Enter);
+    QApplication::sendEvent(&label, &enter);
+    QTest::qWait(60);
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    // Brief accidental pointer crossing must not show the expanded topic.
+    QApplication::sendEvent(&label, &leave);
+    QTest::qWait(800);
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    QApplication::sendEvent(&label, &enter);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        host.findChild<QScrollArea*>(
+            QStringLiteral("channelHeaderTextPopover")) != nullptr,
+        1200);
+    QVERIFY(host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover"))->isVisible());
+}
 
 void ChannelHeaderTextLabelTest::popoverIsAnimatedAndCapped()
 {
