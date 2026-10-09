@@ -622,6 +622,18 @@ void ChannelHeaderTextLabel::showPopover()
     });
 }
 
+void ChannelHeaderTextLabel::schedulePopoverShow()
+{
+    if (isOverflowing()) {
+        _showTimer.start();
+    }
+}
+
+void ChannelHeaderTextLabel::cancelPopoverShow()
+{
+    _showTimer.stop();
+}
+
 void ChannelHeaderTextLabel::hidePopoverSoon()
 {
     hideTimer.start();
@@ -716,8 +728,8 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
                 if (popover && popover->isVisible()) {
                     // Returning while collapsing should revive it immediately.
                     showPopover();
-                } else if (isOverflowing()) {
-                    _showTimer.start();
+                } else {
+                    schedulePopoverShow();
                 }
             } else if (isPopover && hideAfterAnimation) {
                 showPopover();
@@ -725,7 +737,7 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
             break;
         case QEvent::Leave:
             if (isLabel) {
-                _showTimer.stop();
+                cancelPopoverShow();
             }
             hidePopoverSoon();
             break;
