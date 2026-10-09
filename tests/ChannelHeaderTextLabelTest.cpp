@@ -57,22 +57,26 @@ void ChannelHeaderTextLabelTest::hoverOpensOnlyAfterTooltipDwell()
     host.show();
     QTest::qWait(10);
 
-    // Cancel any platform-generated hover before testing the actual sequence.
-    QEvent leave(QEvent::Leave);
-    QApplication::sendEvent(&label, &leave);
-    QEvent enter(QEvent::Enter);
-    QApplication::sendEvent(&label, &enter);
+    // Exercise the exact Enter/Leave transition methods without fabricating
+    // QEvent::Enter: on Qt 6 QLabel expects a QEnterEvent carrying positions
+    // and crashes if a bare QEvent is injected.
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "cancelPopoverShow", Qt::DirectConnection));
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "schedulePopoverShow", Qt::DirectConnection));
     QTest::qWait(60);
     QVERIFY(!host.findChild<QScrollArea*>(
         QStringLiteral("channelHeaderTextPopover")));
 
     // Brief accidental pointer crossing must not show the expanded topic.
-    QApplication::sendEvent(&label, &leave);
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "cancelPopoverShow", Qt::DirectConnection));
     QTest::qWait(800);
     QVERIFY(!host.findChild<QScrollArea*>(
         QStringLiteral("channelHeaderTextPopover")));
 
-    QApplication::sendEvent(&label, &enter);
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "schedulePopoverShow", Qt::DirectConnection));
     QTRY_VERIFY_WITH_TIMEOUT(
         host.findChild<QScrollArea*>(
             QStringLiteral("channelHeaderTextPopover")) != nullptr,
