@@ -106,6 +106,26 @@ included in every response and normalizes replies to oldest-to-newest order. Cur
 in source metadata, independently of evictable `BackendPost` bodies. Requested bodies have residency
 leases across the constituent pages; off-target bodies may be evicted immediately.
 
+### Small scroll gaps at the newest edge
+
+A normal `Scroll` demand in the last `ServerBlockSize` logical slots must not
+prefer a nearby *provisional navigation island* over the server's authoritative
+newest boundary. An island was estimated from a timestamp and can require
+unknown guard slots on either side; at the end of the thread those slots may
+not exist. Trying to extend it can fail with `Cannot place navigation island
+without false adjacency` while an actual small scroll gap remains visible.
+
+When such a request overlaps an island, route it through the normal exact
+cursor path instead. `loadThreadTail` (direction=up, no cursor) gives the
+newest rank, and `placeExactWindow` can reconcile overlapping provisional
+identities. This special case applies only to ordinary scrolling near the
+newest boundary; `EnsureVisible` and `Seek` still follow the semantic
+navigation target. Never turn timestamp adjacency into confirmed rank.
+
+`ThreadPostSourceIntegrationTest::nearTailScrollPrefersExactCursorOverNavigationIsland`
+covers the case of a timestamp-estimated permalink near the last few replies
+and asserts a real unanchored tail request and authoritative placement.
+
 ### Permalink islands and numeric seek
 
 A timestamp does not prove an ordinal position. A distant scrollbar seek estimates time between
