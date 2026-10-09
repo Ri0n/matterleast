@@ -446,7 +446,7 @@ void forceInlineCodeFont(QTextDocument& document)
             }
             const QTextCharFormat format = fragment.charFormat();
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-            const QString family = format.fontFamilies().join(QLatin1Char(' '));
+            const QString family = format.fontFamilies().toStringList().join(QLatin1Char(' '));
 #else
             const QString family = format.fontFamily();
 #endif
