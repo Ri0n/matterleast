@@ -430,7 +430,11 @@ void forceInlineCodeFont(QTextDocument& document)
     // code span's size, background, or other formatting.
     const QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     QTextCharFormat codeFormat;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    codeFormat.setFontFamilies(QStringList {fixedFont.family()});
+#else
     codeFormat.setFontFamily(fixedFont.family());
+#endif
     codeFormat.setFontFixedPitch(true);
 
     QVector<QPair<int, int>> spans;
@@ -441,7 +445,11 @@ void forceInlineCodeFont(QTextDocument& document)
                 continue;
             }
             const QTextCharFormat format = fragment.charFormat();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QString family = format.fontFamilies().join(QLatin1Char(' '));
+#else
             const QString family = format.fontFamily();
+#endif
             if (format.fontFixedPitch()
                 || family.contains(QStringLiteral("mono"), Qt::CaseInsensitive)
                 || family.contains(QStringLiteral("courier"), Qt::CaseInsensitive)) {
