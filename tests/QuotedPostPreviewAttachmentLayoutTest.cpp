@@ -50,8 +50,15 @@ private slots:
 
         QTRY_VERIFY_WITH_TIMEOUT(list->width() >= 500, 2000);
         QTRY_VERIFY_WITH_TIMEOUT(metadata->width() >= 260, 2000);
-        QVERIFY2(card->height() < 190,
-                 "Binary file metadata must not wrap into a tall, one-letter column");
+        // Qt 5 and Qt 6 may assign different heights to QListWidget's
+        // containing item widget. What matters for the original regression
+        // is the width-dependent wrapping of the metadata itself, not the
+        // outer card's total allocated height.
+        const int metadataTextHeight = metadata->heightForWidth(metadata->width());
+        QVERIFY2(metadataTextHeight > 0
+                     && metadataTextHeight <= 6 * metadata->fontMetrics().lineSpacing(),
+                 qPrintable(QStringLiteral("Metadata wraps too deeply: width=%1 textHeight=%2")
+                                .arg(metadata->width()).arg(metadataTextHeight)));
         QVERIFY2(download->geometry().right() < open->geometry().left()
                      || download->mapToGlobal(download->rect().topRight()).x()
                             < open->mapToGlobal(open->rect().topLeft()).x(),
@@ -64,7 +71,11 @@ private slots:
         preview.resize(460, 300);
         QTRY_VERIFY_WITH_TIMEOUT(list->width() >= 350, 2000);
         QTRY_VERIFY_WITH_TIMEOUT(metadata->width() >= 170, 2000);
-        QVERIFY(card->height() < 190);
+        const int resizedTextHeight = metadata->heightForWidth(metadata->width());
+        QVERIFY2(resizedTextHeight > 0
+                     && resizedTextHeight <= 7 * metadata->fontMetrics().lineSpacing(),
+                 qPrintable(QStringLiteral("Metadata wraps too deeply after resize: width=%1 textHeight=%2")
+                                .arg(metadata->width()).arg(resizedTextHeight)));
     }
 };
 
