@@ -56,6 +56,7 @@ private:
 
     BackendPost* rootPost() const;
     int currentLogicalCount() const;
+    bool reconcileNewestBoundaryOverlap(const QStringList& pageIds);
     int nearestEmptyIndex(int preferred) const;
     void seedCachedPosts();
     void hydrateCachedTail();
@@ -103,6 +104,9 @@ private:
     QHash<QString, uint64_t> cursorCreateAtById;
     QSet<QString> provisionalPostIds;
     ThreadNavigationPlacement navigationPlacement;
+    // A confirmed newest-boundary overlap may prove that reply_count includes
+    // unavailable replies. Preserve that proven delta across later root updates.
+    int _unavailableReplyCount = 0;
     quint64 latestGeneration = 0;
     std::vector<std::weak_ptr<Demand>> activeDemands;
 };
