@@ -93,6 +93,7 @@ private:
     QPointer<QWidget> popoverContainer;
     QPointer<MessageContentWidget> popoverContent;
     QPointer<QPropertyAnimation> popoverAnimation;
+    QTimer _showTimer;
     QTimer hideTimer;
     LinkHandler linkHandler;
     bool presenceRoutingEnabled = true;
