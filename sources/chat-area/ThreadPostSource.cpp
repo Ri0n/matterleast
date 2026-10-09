@@ -791,6 +791,14 @@ void ThreadPostSource::continueDemand(const std::shared_ptr<Demand>& demand)
             guard->failDemand(demand, QStringLiteral("Thread cursor changed during retrieval"));
             return;
         }
+        // A newest-boundary page is ordinal evidence independent of
+        // reply_count. When it overlaps already confirmed IDs at consistent
+        // ranks, the server may be returning fewer visible replies than the
+        // metadata claims (e.g. inaccessible/deleted history). Remove only
+        // still-empty phantom slots beyond that proven newest identity.
+        if (tail) {
+            guard->reconcileNewestBoundaryOverlap(result.postIds);
+        }
         const int count = result.postIds.size();
         const int pageFirst = tail ? guard->itemCount() - count
                              : backward ? anchorIndex - count : anchorIndex + 1;
@@ -931,8 +939,8 @@ int ThreadPostSource::currentLogicalCount() const
         }
     }
 
-    int count = threadLogicalItemCount(
-        root->reply_count, mappedDeletedReplyTombstones);
+    int count = std::max(1, threadLogicalItemCount(
+        root->reply_count, mappedDeletedReplyTombstones) - _unavailableReplyCount);
 
     // reply_count is metadata, not authority to destroy an identity that this
     // source has already mapped. Preserve the furthest confirmed row even if a
@@ -944,6 +952,76 @@ int ThreadPostSource::currentLogicalCount() const
         }
     }
     return count;
+}
+
+bool ThreadPostSource::reconcileNewestBoundaryOverlap(const QStringList& pageIds)
+{
+    if (pageIds.isEmpty() || postIds.size() <= 1) {
+        return false;
+    }
+
+    // A page obtained without fromPost/fromCreateAt and direction=up is
+    // pinned to the server's newest boundary. Its IDs prove relative order,
+    // but one overlap is needed to locate it in our confirmed ordinal space.
+    int confirmedFirst = -1;
+    for (int offset = 0; offset < pageIds.size(); ++offset) {
+        const int existing = indexOfPost(pageIds.at(offset));
+        if (!isAuthoritativeIndex(existing)) {
+            continue;
+        }
+        const int origin = existing - offset;
+        if (confirmedFirst >= 0 && confirmedFirst != origin) {
+            return false; // Two known identities disagree: not a safe trim.
+        }
+        confirmedFirst = origin;
+    }
+    if (confirmedFirst < 1) {
+        return false;
+    }
+
+    const int correctedCount = confirmedFirst + static_cast<int>(pageIds.size());
+    const int oldCount = itemCount();
+    if (correctedCount >= oldCount) {
+        return false;
+    }
+
+    // Never erase an authoritative row, cached provisional island or estimated
+    // permalink. Only unknown trailing slots can be removed without losing
+    // identity/provenance information.
+    for (int index = correctedCount; index < oldCount; ++index) {
+        if (!postIds.at(index).isEmpty()) {
+            return false;
+        }
+    }
+    for (int offset = 0; offset < pageIds.size(); ++offset) {
+        const int target = confirmedFirst + offset;
+        if (target < 1 || target >= correctedCount) {
+            return false;
+        }
+        const QString& mapped = postIds.at(target);
+        if (!mapped.isEmpty() && mapped != pageIds.at(offset)) {
+            return false;
+        }
+        const int existing = indexOfPost(pageIds.at(offset));
+        if (isAuthoritativeIndex(existing) && existing != target) {
+            return false;
+        }
+    }
+
+    const int extra = oldCount - correctedCount;
+    // Set the bias *before* publishing the item-count change: a synchronous
+    // viewport/root update must not recreate the disproved empty tail.
+    _unavailableReplyCount += extra;
+    qCWarning(lcThreadTimelineTrace).nospace()
+        << "THREAD_TAIL_OVERLAP_REANCHOR root=" << shortId(rootId)
+        << " first=" << confirmedFirst
+        << " pageCount=" << pageIds.size()
+        << " oldCount=" << oldCount
+        << " newCount=" << correctedCount
+        << " metadataBias=" << _unavailableReplyCount;
+    resizeLogicalTail(correctedCount);
+    pruneProvisionalPostIds();
+    return true;
 }
 
 void ThreadPostSource::retainMappedTombstone(const QString& postId)
