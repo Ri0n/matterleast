@@ -841,6 +841,8 @@ public:
         setMinimumWidth(0);
         setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         QFont codeFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        codeFont.setStyleHint(QFont::TypeWriter);
+        codeFont.setFixedPitch(true);
         qreal pointSize = font().pointSizeF();
         if (pointSize <= 0.0) {
             pointSize = fontInfo().pointSizeF();
