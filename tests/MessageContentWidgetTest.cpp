@@ -158,6 +158,12 @@ private slots:
         // trailing boundary. Inspect inside the code span, not the following
         // prose character's format.
         code.setPosition(code.selectionStart() + 1);
+        qInfo() << "INLINE_CODE_DIAGNOSTICS" << "text" << browser->toPlainText()
+                << "family" << code.charFormat().font().family()
+                << "fixedPitch" << code.charFormat().fontFixedPitch()
+                << "hint" << code.charFormat().font().styleHint()
+                << "format" << code.charFormat().properties()
+                << "html" << browser->document()->toHtml();
         QCOMPARE(code.charFormat().fontFixedPitch(), true);
         const QString expected = QFontDatabase::systemFont(
             QFontDatabase::FixedFont).family();
