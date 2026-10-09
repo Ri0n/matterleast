@@ -372,6 +372,7 @@ PostWidget::PostWidget(Backend& backend,
 
     if (presentationMode_ == PresentationMode::Pending) {
         pendingDeliveryIndicator_ = new BusyIndicatorWidget(this);
+        pendingDeliveryIndicator_->setObjectName(QStringLiteral("pendingDeliveryIndicator"));
         pendingDeliveryIndicator_->setFixedSize(
             12, ReactionChipStyle::chipHeight(chatFont_));
         pendingDeliveryIndicator_->setToolTip(tr("Sending"));
