@@ -117,7 +117,11 @@ private slots:
         QCOMPARE(label->text(), QStringLiteral("Resolved Author"));
         auto* avatar = widget.findChild<QLabel*>(QStringLiteral("authorAvatar"));
         QVERIFY(avatar);
-        QVERIFY(!avatar->pixmap()->isNull());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QVERIFY(!avatar->pixmap().isNull());
+#else
+        QVERIFY(avatar->pixmap() && !avatar->pixmap()->isNull());
+#endif
 
         // The same widget must also update if a later profile refresh renames
         // an already known user (without changing the post identity).
