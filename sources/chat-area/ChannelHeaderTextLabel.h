@@ -70,6 +70,8 @@ private slots:
     // tests without synthesizing platform mouse events under the offscreen QPA.
     void showPopover();
     void hidePopover();
+    void schedulePopoverShow();
+    void cancelPopoverShow();
 
 private:
     bool isOverflowing() const;
