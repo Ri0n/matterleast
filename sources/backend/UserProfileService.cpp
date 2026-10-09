@@ -95,6 +95,7 @@ UserProfileService::UserProfileService(Backend& backend)
 
 void UserProfileService::clear()
 {
+    ++_profileGeneration;
     httpConnector.reset();
     queuedUserIds.clear();
     inFlightUserIds.clear();
@@ -241,44 +242,66 @@ void UserProfileService::ensureAvatar(const BackendUser& user)
         return;
     }
 
-    const QString pictureVersionString = QString::number(
-        static_cast<qulonglong>(pictureVersion));
-    const QString requestKey = storedUser->id + QLatin1Char(':') + pictureVersionString;
-    if (inFlightAvatarKeys.contains(requestKey)) {
+    const QString key = storedUser->id + QLatin1Char(':')
+        + QString::number(static_cast<qulonglong>(pictureVersion));
+    if (inFlightAvatarKeys.contains(key)) {
         return;
     }
-    inFlightAvatarKeys.insert(requestKey);
+    inFlightAvatarKeys.insert(key);
+    requestAvatar(storedUser->id, pictureVersion, 0);
+}
 
-    // Mattermost itself uses last_picture_update both as the profile image
-    // ETag and as a cache-busting URL parameter in the web client. Keep the
-    // same URL identity so an unchanged avatar can be served directly by
-    // QNetworkDiskCache while a changed avatar necessarily gets a new key.
+void UserProfileService::requestAvatar(const QString& userId,
+                                      uint64_t pictureVersion, int attempt)
+{
+    const QString pictureVersionString = QString::number(
+        static_cast<qulonglong>(pictureVersion));
+    const QString key = userId + QLatin1Char(':') + pictureVersionString;
+    const quint64 generation = _profileGeneration;
+
     NetworkRequest request(
-        QStringLiteral("users/") + storedUser->id + QStringLiteral("/image?_=")
+        QStringLiteral("users/") + userId + QStringLiteral("/image?_=")
             + pictureVersionString,
         true);
     request.setPriority(QNetworkRequest::LowPriority);
     request.setAttribute(QNetworkRequest::BackgroundRequestAttribute, true);
-    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                         QNetworkRequest::PreferCache);
 
-    const QString userId = storedUser->id;
     httpConnector.get(request, HttpResponseCallback(
-        [this, requestKey, userId, pictureVersion](QVariant, QByteArray data) {
-            inFlightAvatarKeys.remove(requestKey);
-
+        [this, key, userId, pictureVersion, attempt, generation](
+            QVariant status, QByteArray data) {
+            if (generation != _profileGeneration) {
+                return;
+            }
             BackendUser* currentUser = backend.getStorage().getUserById(userId);
             if (!currentUser || currentUser->last_picture_update != pictureVersion) {
+                inFlightAvatarKeys.remove(key);
                 return;
             }
 
-            QPixmap pixmap = decodeAvatarImage(data);
+            const QPixmap pixmap = status.toInt() == QNetworkReply::NoError
+                ? decodeAvatarImage(data) : QPixmap();
             if (pixmap.isNull()) {
+                // One transient image request used to leave a blank avatar
+                // indefinitely. Keep a single in-flight key across bounded
+                // backoff so multiple visible posts cannot start retry storms.
+                if (attempt < 2) {
+                    QTimer::singleShot(1000 * (attempt + 1), this,
+                        [this, key, userId, pictureVersion, attempt, generation] {
+                            if (generation == _profileGeneration
+                                && inFlightAvatarKeys.contains(key)) {
+                                requestAvatar(userId, pictureVersion, attempt + 1);
+                            }
+                        });
+                } else {
+                    inFlightAvatarKeys.remove(key);
+                }
                 return;
             }
 
-            // BackendUser owns the original pixels. Small chat/sidebar avatars
-            // are scaled at their presentation sites; profile dialogs need 128px.
-            currentUser->avatar = std::move(pixmap);
+            inFlightAvatarKeys.remove(key);
+            currentUser->avatar = pixmap;
             currentUser->avatar_picture_update = pictureVersion;
             emit currentUser->onAvatarChanged();
         }));
@@ -544,19 +567,26 @@ void UserProfileService::requestProfileBatch(const QStringList& userIds, int att
         payload.push_back(userId);
     }
 
+    const quint64 generation = _profileGeneration;
     NetworkRequest request(QStringLiteral("users/ids"));
     httpConnector.post(request, QByteArrayCreator(payload),
                        HttpResponseCallback(
-        [this, userIds, attempt](QVariant status, const QJsonDocument& doc) {
+        [this, userIds, attempt, generation](QVariant status, const QJsonDocument& doc) {
+            if (generation != _profileGeneration) {
+                return;
+            }
             if (status.toInt() != QNetworkReply::NoError || !doc.isArray()) {
                 // A transient HTTP/network error used to permanently resolve
                 // every waiting post author to nullptr. Keep callbacks pending
                 // across a few bounded, shared retries instead.
                 if (attempt < 3) {
                     const int delayMs = 500 * (1 << attempt);
-                    QTimer::singleShot(delayMs, this, [this, userIds, attempt] {
-                        requestProfileBatch(userIds, attempt + 1);
-                    });
+                    QTimer::singleShot(delayMs, this,
+                        [this, userIds, attempt, generation] {
+                            if (generation == _profileGeneration) {
+                                requestProfileBatch(userIds, attempt + 1);
+                            }
+                        });
                     return;
                 }
                 for (const QString& userId : userIds) {
