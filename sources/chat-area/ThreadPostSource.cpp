@@ -593,6 +593,23 @@ void ThreadPostSource::requestRange(int first, int last, RequestReason reason, q
             break;
         }
     }
+    // A provisional permalink island is navigation metadata, not an exact
+    // timeline boundary. In the final few slots, ordinary scrolling can use
+    // the server's unbounded newest-page cursor to establish authoritative
+    // ranks instead of growing an island that may not fit between confirmed
+    // rows and the end of the logical array. Keep EnsureVisible/Seek semantics
+    // unchanged: they must continue to follow the requested post identity.
+    if (interestedIsland && reason == RequestReason::Scroll
+        && first >= itemCount() - ServerBlockSize) {
+        qCDebug(lcThreadTimelineTrace).nospace()
+            << "THREAD_SCROLL_TAIL_BYPASS_ISLAND source="
+            << static_cast<const void*>(this)
+            << " requested=[" << first << ',' << last << ']'
+            << " island=" << shortId(interestedIsland->targetId)
+            << " itemCount=" << itemCount();
+        interestedIsland = nullptr;
+    }
+
     const bool islandInterest = interestedIsland != nullptr;
     const bool canMerge = reason != RequestReason::Seek && !islandInterest
         && !(reason == RequestReason::EnsureVisible && navigationPlacement.isActive());
