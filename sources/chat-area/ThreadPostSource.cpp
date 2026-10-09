@@ -1012,6 +1012,7 @@ bool ThreadPostSource::reconcileNewestBoundaryOverlap(const QStringList& pageIds
     // Set the bias *before* publishing the item-count change: a synchronous
     // viewport/root update must not recreate the disproved empty tail.
     _unavailableReplyCount += extra;
+    ++islandEpoch;
     qCWarning(lcThreadTimelineTrace).nospace()
         << "THREAD_TAIL_OVERLAP_REANCHOR root=" << shortId(rootId)
         << " first=" << confirmedFirst
