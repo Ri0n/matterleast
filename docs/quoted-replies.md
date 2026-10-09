@@ -66,3 +66,19 @@ The property is Mattermost-Qt-specific metadata, while the Markdown prefix is th
 Posts created by early Mattermost-Qt builds that contain `mattermost_qt_reply_to_post_id` but no Markdown fallback still render correctly in Mattermost-Qt, but other clients have no quote representation for those already-stored historical posts.
 
 Do not rename or repurpose this property or the generated fallback grammar without a migration strategy: posts already stored on the server may depend on them for restoring the quote after restart, history reload or cross-client display.
+
+## Permalink embedded post previews
+
+`PostWidget::refreshPermalinkPreviews()` also uses `QuotedPostPreview` for
+Mattermost server-supplied `permalink` embeds. If the embedded post metadata
+contains files, the preview includes an interactive `PostAttachmentList`
+with the normal download/open controls rather than reducing it to an icon.
+
+The nested attachment list **must stretch to the available preview width**.
+Do not add it to the content layout with `Qt::AlignLeft`: that disables
+horizontal expansion and causes a feedback loop where an initial narrow
+`QListWidget` viewport generates narrow item size hints, wraps binary file
+metadata into one-character columns and clips its action buttons.
+`PostAttachmentList` handles width-dependent height updates itself on
+viewport resize. A Qt widget regression test
+(`QuotedPostPreviewAttachmentLayoutTest`) covers a permalink file card.
