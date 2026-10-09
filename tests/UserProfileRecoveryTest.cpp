@@ -120,7 +120,7 @@ private slots:
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         QVERIFY(!avatar->pixmap().isNull());
 #else
-        QVERIFY(avatar->pixmap() && !avatar->pixmap()->isNull());
+        QVERIFY(!avatar->pixmap(Qt::ReturnByValue).isNull());
 #endif
 
         // The same widget must also update if a later profile refresh renames
