@@ -588,6 +588,17 @@ if(TARGET matterleast-core)
 endif()
 
 if(TARGET matterleast-core)
+    add_executable(quoted-post-preview-attachment-layout-test
+        QuotedPostPreviewAttachmentLayoutTest.cpp)
+    target_link_libraries(quoted-post-preview-attachment-layout-test
+        PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME quoted-post-preview-attachment-layout-test
+        COMMAND quoted-post-preview-attachment-layout-test)
+    set_tests_properties(quoted-post-preview-attachment-layout-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
     add_executable(post-author-grouping-test PostAuthorGroupingTest.cpp)
     target_link_libraries(post-author-grouping-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-author-grouping-test COMMAND post-author-grouping-test)

@@ -151,7 +151,12 @@ void QuotedPostPreview::setInteractiveAttachments(
         attachmentList->addFile(file, authorName);
     }
 
-    contentLayout->addWidget(attachmentList, 0, Qt::AlignLeft);
+    // Qt::AlignLeft suppresses horizontal expansion: PostAttachmentList's
+    // initial size hint comes from a very narrow, not-yet-laid-out viewport.
+    // Its QText labels then wrap almost character by character, and the
+    // download/open controls overlap. Let the parent preview give the list
+    // its full available width; the list handles height-for-width itself.
+    contentLayout->addWidget(attachmentList);
     updateGeometry();
     emit dimensionsChanged();
 }
