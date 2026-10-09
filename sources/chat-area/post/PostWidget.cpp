@@ -476,15 +476,15 @@ PostWidget::PostWidget(Backend& backend,
     auto& profileService = UserProfileService::instance(backend);
     connect(&profileService, &UserProfileService::profileResolved, this,
             [this](const QString& userId) {
-        if (userId != post.user_id) {
+        if (userId != this->post.user_id) {
             return;
         }
         const BackendUser* author = backend_.getStorage().getUserById(userId);
         if (!author) {
             return;
         }
-        if (post.author == author
-            && ui->authorName->text() == post.getDisplayAuthorName()) {
+        if (this->post.author == author
+            && ui->authorName->text() == this->post.getDisplayAuthorName()) {
             return;
         }
         setAuthor(backend_, author);
