@@ -8,6 +8,8 @@
 #include <QPushButton>
 #include <QSizePolicy>
 
+#include "Settings.h"
+#include "options/MLOptions.h"
 #include "backend/Backend.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendPost.h"
@@ -158,6 +160,29 @@ private slots:
             author, late + 1000);
         deleted.isDeleted = true;
         QVERIFY(!PostAuthorRunPolicy::continues(base, deleted));
+    }
+
+    void authorUsesSameSizeAsConfiguredChatFont()
+    {
+        Backend backend;
+        auto post = makePost(
+            backend.getStorage(),
+            QStringLiteral("pppppppppppppppppppppppppp"),
+            QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
+            localMs(QDate(2026, 9, 29), QTime(12, 0)));
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        auto* author = widget.findChild<QLabel*>(QStringLiteral("authorName"));
+        QVERIFY(author);
+
+        const QString configured = MLOptions::instance()->optionObject<QString>(
+            CHAT_FONT, QApplication::font().toString())->value().toString();
+        QFont expected;
+        if (configured.isEmpty() || !expected.fromString(configured)) {
+            expected = QApplication::font();
+        }
+        QCOMPARE(author->font().pointSizeF(), expected.pointSizeF());
+        QVERIFY(author->font().bold());
+        QVERIFY(author->maximumHeight() > author->fontMetrics().height());
     }
 
     void widgetCanMutateBetweenHeadAndContinuation()
