@@ -307,6 +307,57 @@ private slots:
         QTRY_COMPARE(finished.size(), 4);
         QVERIFY(source.isAvailable(270));
     }
+    void nearTailScrollPrefersExactCursorOverNavigationIsland()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 669;
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert("reply_count", 669);
+        root.insert("last_reply_at", timestamp(669));
+        channel.addPost(root);
+
+        // A permalink first supplies the post body, but not an exact rank.
+        // The uneven timestamp distribution places it several slots before
+        // its actual ordinal, near the newest boundary of this 670-item thread.
+        channel.mergePostContext(
+            QJsonArray {id(667)}, QJsonObject {{id(667), post(667)}});
+        ThreadPostSource source(backend, channel, id(0));
+        const int estimate = source.ensurePostIndex(id(667));
+        QVERIFY(estimate >= source.itemCount() - 10);
+        QVERIFY(estimate != 667);
+        QVERIFY(!source.isPostPositionAuthoritative(id(667)));
+        QSignalSpy completed(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failed(&source, &ThreadPostSource::rangeRequestFailed);
+
+        // For a Scroll demand, fetching an island before/after the semantic
+        // target can require guard slots that do not exist at the server tail.
+        // Instead, one newest-boundary page gives exact rank information.
+        source.requestRange(
+            estimate, estimate, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(failed.size(), 0);
+        QVERIFY(!server.requests.isEmpty());
+        QCOMPARE(server.requests.size(), 1);
+        const QUrlQuery query(server.requests.first());
+        QCOMPARE(query.queryItemValue("direction"), QStringLiteral("up"));
+        QVERIFY(!query.hasQueryItem("fromPost"));
+        QVERIFY(!query.hasQueryItem("fromCreateAt"));
+        QCOMPARE(source.indexOfPost(id(667)), 667);
+        QVERIFY(source.isPostPositionAuthoritative(id(667)));
+        for (int i = 660; i <= 669; ++i) {
+            QCOMPARE(source.postIdAt(i), id(i));
+            QVERIFY(source.isPostPositionAuthoritative(id(i)));
+        }
+        QCOMPARE(source.itemCount(), 670);
+    }
+
     void permalinkCreatesBoundedIsland_data()
     {
         QTest::addColumn<int>("replies");
