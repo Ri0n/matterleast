@@ -157,7 +157,11 @@ private slots:
         QCOMPARE(code.charFormat().fontFixedPitch(), true);
         const QString expected = QFontDatabase::systemFont(
             QFontDatabase::FixedFont).family();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QVERIFY(code.charFormat().fontFamilies().contains(expected));
+#else
         QCOMPARE(code.charFormat().fontFamily(), expected);
+#endif
 #else
         QSKIP("Markdown code spans need Qt 5.14 or newer");
 #endif
