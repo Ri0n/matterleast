@@ -53,6 +53,8 @@ public:
     bool failNext = false;
     bool emptyNext = false;
     int replyCount = 731;
+    // Simulate Mattermost root metadata including replies absent from /thread.
+    int reportedReplyCount = -1;
     QSet<int> deletedReplies;
     bool omitHasNext = false;
     bool omitLastReplyAt = false;
@@ -94,7 +96,8 @@ public:
                     selected = selected.mid(0, limit);
                     if (emptyNext || emptyAtBoundary) { selected.clear(); emptyNext = false; }
                     QJsonObject root = post(0);
-                    root.insert("reply_count", liveReplyCount);
+                    root.insert("reply_count", reportedReplyCount >= 0
+                        ? reportedReplyCount : liveReplyCount);
                     root.insert("last_reply_at",
                                 latestLiveReply > 0 ? timestamp(latestLiveReply) : 0);
                     if (omitLastReplyAt) root.remove("last_reply_at");
@@ -557,6 +560,64 @@ private slots:
         QCOMPARE(source.indexOfPost(id(500)), 500);
         QCOMPARE(failures.size(), 0);
     }
+    void newestBoundaryOverlapRemovesInflatedPhantomTail()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 541;
+        server.reportedReplyCount = 569; // 28 replies are not in /thread
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert("reply_count", 569);
+        root.insert("last_reply_at", timestamp(541));
+        channel.addPost(root);
+
+        ThreadPostSource source(backend, channel, id(0));
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failures(&source, &ThreadPostSource::rangeRequestFailed);
+        QCOMPARE(source.itemCount(), 570);
+
+        // Anchor a prefix from the oldest boundary. Confirmed ranks must never
+        // move just to accommodate a contradictory tail count.
+        source.requestRange(1, 541,
+            AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(source.indexOfPost(id(529)), 529);
+        QCOMPARE(source.indexOfPost(id(532)), 532);
+        QCOMPARE(source.indexOfPost(id(541)), 541);
+        QCOMPARE(source.itemCount(), 570);
+
+        // The real server tail [532..541] is returned against logical ranks
+        // [560..569]. Before recovery this generated the repeated
+        // THREAD_RANK_CONFLICT delta=28 seen in production.
+        source.requestRange(560, 569,
+            AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 2);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(source.itemCount(), 542);
+        QCOMPARE(source.indexOfPost(id(529)), 529);
+        QCOMPARE(source.indexOfPost(id(532)), 532);
+        QCOMPARE(source.indexOfPost(id(541)), 541);
+        const QUrlQuery query(server.requests.last());
+        QCOMPARE(query.queryItemValue("direction"), QStringLiteral("up"));
+        QVERIFY(!query.hasQueryItem("fromPost"));
+
+        // Future root snapshots with the same inflated reply_count must not
+        // recreate the 28 phantom slots. Incoming live replies still append.
+        QJsonObject next = post(542);
+        BackendPost* live = channel.addPost(next);
+        QVERIFY(live);
+        emit channel.onNewPost(*live);
+        QCOMPARE(source.itemCount(), 543);
+        QCOMPARE(source.indexOfPost(id(542)), 542);
+    }
+
     void tailBootstrapWithoutReliableSummary_data()
     {
         QTest::addColumn<bool>("missingTimestamp");
