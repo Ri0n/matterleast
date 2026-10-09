@@ -38,6 +38,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 #include <QVector>
 
 #include "MessageFormatter.h"
@@ -326,6 +327,22 @@ public:
         linkDragHandler = std::move(handler);
     }
 
+    void setQuoteExcerptMode()
+    {
+        setObjectName(QStringLiteral("messageQuoteRichText"));
+        _maxVisibleLines = 4;
+        // QTextBrowser may still scroll its document with hidden scrollbars.
+        // Force the excerpt to its beginning even after document reflow or
+        // selection, and let wheel events reach the parent chat timeline.
+        connect(verticalScrollBar(), &QScrollBar::valueChanged,
+                this, [this](int value) {
+            if (value != 0) {
+                verticalScrollBar()->setValue(0);
+            }
+        });
+        scheduleHeightUpdate();
+    }
+
     void setContentHtml(const QString& html, bool jumboEmoji = false)
     {
         document()->setDefaultFont(font());
@@ -382,6 +399,16 @@ public:
     }
 
 protected:
+    void wheelEvent(QWheelEvent* event) override
+    {
+        if (_maxVisibleLines > 0) {
+            verticalScrollBar()->setValue(0);
+            event->ignore();
+            return;
+        }
+        QTextBrowser::wheelEvent(event);
+    }
+
     void mousePressEvent(QMouseEvent* event) override
     {
         dragLink.clear();
@@ -467,13 +494,21 @@ private:
         document()->setTextWidth(viewport()->width());
         const int documentHeight =
             static_cast<int>(std::ceil(document()->size().height()));
-        const int wantedHeight = std::max(
+        int wantedHeight = std::max(
             fontMetrics().height(), documentHeight + 2 * frameWidth());
+        if (_maxVisibleLines > 0) {
+            wantedHeight = std::min(
+                wantedHeight, _maxVisibleLines * fontMetrics().lineSpacing()
+                                  + 2 * frameWidth());
+        }
         if (height() != wantedHeight) {
             setFixedHeight(wantedHeight);
             if (heightChanged) {
                 heightChanged();
             }
+        }
+        if (_maxVisibleLines > 0) {
+            verticalScrollBar()->setValue(0);
         }
         updatingHeight = false;
     }
@@ -484,6 +519,7 @@ private:
     QPoint dragStartPosition;
     bool dragConsumed = false;
     bool updatingHeight = false;
+    int _maxVisibleLines = 0;
     EmojiRegistry* _emojiRegistry = nullptr;
 };
 
@@ -529,6 +565,7 @@ public:
                 this->heightChanged();
             }
         }, emojiRegistry, this);
+        text->setQuoteExcerptMode();
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         text->setContentMarkdown(markdown);
 #else
