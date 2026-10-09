@@ -151,9 +151,13 @@ private slots:
         auto* browser = widget.findChild<QTextBrowser*>(
             QStringLiteral("messageRichText"));
         QVERIFY(browser);
-        const QTextCursor code = browser->document()->find(
+        QTextCursor code = browser->document()->find(
             QStringLiteral("int value = 42;"));
         QVERIFY(!code.isNull());
+        // QTextDocument::find returns a selection whose cursor is at its
+        // trailing boundary. Inspect inside the code span, not the following
+        // prose character's format.
+        code.setPosition(code.selectionStart() + 1);
         QCOMPARE(code.charFormat().fontFixedPitch(), true);
         const QString expected = QFontDatabase::systemFont(
             QFontDatabase::FixedFont).family();
