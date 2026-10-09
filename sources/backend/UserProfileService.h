@@ -99,11 +99,16 @@ public:
     void ensureGroupChannelMembers(BackendChannel& channel,
                                    std::function<void()> callback = {});
 
+signals:
+    // A profile may arrive after the first lookup of an already-visible post.
+    void profileResolved(const QString& userId);
+
 private:
     explicit UserProfileService(Backend& backend);
 
     void scheduleFlush();
     void flushProfiles();
+    void requestProfileBatch(const QStringList& userIds, int attempt);
     void finishProfile(const QString& userId, const BackendUser* user);
     void resolveReferences(BackendUser& user);
     void finishMemberProfiles(const QStringList& userIds,
