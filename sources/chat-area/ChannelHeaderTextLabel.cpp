@@ -31,6 +31,7 @@
 #include <QPalette>
 #include <QPropertyAnimation>
 #include <QScrollArea>
+#include <QStyle>
 #include <QSet>
 #include <QSizePolicy>
 #include <QTextBlock>
@@ -158,6 +159,13 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
     connect(this, &QLabel::linkActivated, this, [this](const QString& href) {
         openLink(QUrl(href));
     });
+    _showTimer.setSingleShot(true);
+    _showTimer.setInterval(std::clamp(
+        style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay, nullptr, this),
+        250, 700));
+    connect(&_showTimer, &QTimer::timeout, this,
+            &ChannelHeaderTextLabel::showPopover);
+
     hideTimer.setSingleShot(true);
     hideTimer.setInterval(120);
     connect(&hideTimer, &QTimer::timeout, this, &ChannelHeaderTextLabel::hidePopover);
@@ -561,6 +569,7 @@ void ChannelHeaderTextLabel::schedulePopoverHide()
 
 void ChannelHeaderTextLabel::showPopover()
 {
+    _showTimer.stop();
     hideTimer.stop();
     if (!isOverflowing()) {
         return;
@@ -613,6 +622,18 @@ void ChannelHeaderTextLabel::showPopover()
     });
 }
 
+void ChannelHeaderTextLabel::schedulePopoverShow()
+{
+    if (isOverflowing()) {
+        _showTimer.start();
+    }
+}
+
+void ChannelHeaderTextLabel::cancelPopoverShow()
+{
+    _showTimer.stop();
+}
+
 void ChannelHeaderTextLabel::hidePopoverSoon()
 {
     hideTimer.start();
@@ -632,6 +653,7 @@ void ChannelHeaderTextLabel::hidePopover()
 
 void ChannelHeaderTextLabel::hidePopoverImmediately()
 {
+    _showTimer.stop();
     hideTimer.stop();
     hideAfterAnimation = false;
     if (popoverAnimation) {
@@ -702,11 +724,21 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
         switch (event->type()) {
         case QEvent::Enter:
             hideTimer.stop();
-            if (isLabel || (isPopover && hideAfterAnimation)) {
+            if (isLabel) {
+                if (popover && popover->isVisible()) {
+                    // Returning while collapsing should revive it immediately.
+                    showPopover();
+                } else {
+                    schedulePopoverShow();
+                }
+            } else if (isPopover && hideAfterAnimation) {
                 showPopover();
             }
             break;
         case QEvent::Leave:
+            if (isLabel) {
+                cancelPopoverShow();
+            }
             hidePopoverSoon();
             break;
         case QEvent::Resize:

@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QLayout>
 #include <QMetaObject>
 #include <QPlainTextEdit>
@@ -38,11 +39,51 @@ class ChannelHeaderTextLabelTest : public QObject
     Q_OBJECT
 
 private slots:
+    void hoverOpensOnlyAfterTooltipDwell();
     void popoverIsAnimatedAndCapped();
     void popoverReverseKeepsRenderedChildren();
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
 };
+
+void ChannelHeaderTextLabelTest::hoverOpensOnlyAfterTooltipDwell()
+{
+    QWidget host;
+    host.resize(640, 300);
+    ChannelHeaderTextLabel label(&host);
+    label.setGeometry(20, 20, 400, label.sizeHint().height());
+    label.setText(QStringLiteral("Topic opening line") + QLatin1Char(10)
+                  + QStringLiteral("Long expanded topic details"));
+    host.show();
+    QTest::qWait(10);
+
+    // Exercise the exact Enter/Leave transition methods without fabricating
+    // QEvent::Enter: on Qt 6 QLabel expects a QEnterEvent carrying positions
+    // and crashes if a bare QEvent is injected.
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "cancelPopoverShow", Qt::DirectConnection));
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "schedulePopoverShow", Qt::DirectConnection));
+    QTest::qWait(60);
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    // Brief accidental pointer crossing must not show the expanded topic.
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "cancelPopoverShow", Qt::DirectConnection));
+    QTest::qWait(800);
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "schedulePopoverShow", Qt::DirectConnection));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        host.findChild<QScrollArea*>(
+            QStringLiteral("channelHeaderTextPopover")) != nullptr,
+        1200);
+    QVERIFY(host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover"))->isVisible());
+}
 
 void ChannelHeaderTextLabelTest::popoverIsAnimatedAndCapped()
 {
