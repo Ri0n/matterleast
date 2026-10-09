@@ -372,6 +372,7 @@ PostWidget::PostWidget(Backend& backend,
 
     if (presentationMode_ == PresentationMode::Pending) {
         pendingDeliveryIndicator_ = new BusyIndicatorWidget(this);
+        pendingDeliveryIndicator_->setObjectName(QStringLiteral("pendingDeliveryIndicator"));
         pendingDeliveryIndicator_->setFixedSize(
             12, ReactionChipStyle::chipHeight(chatFont_));
         pendingDeliveryIndicator_->setToolTip(tr("Sending"));
@@ -783,6 +784,24 @@ void PostWidget::setAuthorRunContinuation(bool continuation)
 
     authorRunContinuation_ = continuation;
 
+    if (pendingDeliveryIndicator_) {
+        // A continuation has no author header, but the sending spinner used
+        // to keep that header layout one chip-height tall. On confirmation
+        // the authoritative continuation has no spinner and text jumped up.
+        // Keep the pending indicator visible as an overlay, not a layout row.
+        if (continuation && !_pendingIndicatorOverlay) {
+            ui->horizontalLayout->removeWidget(pendingDeliveryIndicator_);
+            pendingDeliveryIndicator_->setParent(this);
+            _pendingIndicatorOverlay = true;
+            pendingDeliveryIndicator_->show();
+        } else if (!continuation && _pendingIndicatorOverlay) {
+            ui->horizontalLayout->insertWidget(
+                2, pendingDeliveryIndicator_, 0, Qt::AlignVCenter);
+            _pendingIndicatorOverlay = false;
+            pendingDeliveryIndicator_->show();
+        }
+    }
+
     // Keep the avatar gutter width stable so body text never jumps horizontally,
     // but collapse all repeated author-header height for continuation rows.
     ui->authorAvatar->setFixedHeight(continuation ? 0 : 48);
@@ -950,6 +969,16 @@ void PostWidget::positionHoverActions()
 {
     if (continuationTime_) {
         continuationTime_->move(normalRowMargins_.left(), 0);
+    }
+
+    if (_pendingIndicatorOverlay && pendingDeliveryIndicator_) {
+        // Overlay geometry does not participate in the continuation's
+        // sizeHint; its status and animation remain visible during delivery.
+        pendingDeliveryIndicator_->move(
+            std::max(0, width() - normalRowMargins_.right()
+                            - pendingDeliveryIndicator_->width()),
+            0);
+        pendingDeliveryIndicator_->raise();
     }
 
     if (!hoverActions_ || !hoverActions_->parentWidget()) {

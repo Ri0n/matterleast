@@ -688,3 +688,19 @@ Changes to this subsystem should cover the relevant items below.
 When this design evolves, update this document with the architectural invariant and update concrete source/delivery documents only with their adapter-specific behavior.
 
 Do not duplicate the full outbox design into channel, thread or widget documentation. Those documents should link here and retain only the invariants they own.
+
+## Pending author-run continuation geometry
+
+`ChatLogWidget` classifies both optimistic and confirmed posts using the
+same `PostAuthorRunPolicy`. A pending continuation hides its avatar, author
+name and timestamp, just like a confirmed continuation. Its shared animated
+busy indicator must **not** remain inside that hidden author-row layout:
+otherwise the indicator supplies a positive minimum header height, and the
+text jumps upward only once the confirmed post replaces it.
+
+For pending continuation rows, `PostWidget` places the indicator as a
+top-level overlay near the right edge of the row. It stays visible and
+animated without participating in `sizeHint` or LongList geometry. If the
+author-run grouping later changes, restore the same indicator to the normal
+header layout without recreating the post widget. Regression coverage lives
+in `PostAuthorGroupingTest::pendingContinuationSpinnerDoesNotChangeRowHeight`.
