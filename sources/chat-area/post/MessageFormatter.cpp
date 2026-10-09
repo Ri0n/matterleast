@@ -2,6 +2,9 @@
 
 #include <algorithm>
 
+#include <QFontDatabase>
+#include <QVector>
+
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -419,6 +422,42 @@ QString promoteMultilineCodeSpans(const QString& text)
     return result;
 }
 
+void forceInlineCodeFont(QTextDocument& document)
+{
+    // Qt's Markdown parser marks code spans as fixed-pitch, but on Qt 5 it
+    // can retain the generic "monospace" family without resolving the actual
+    // installed typewriter font. Resolve it ourselves without changing the
+    // code span's size, background, or other formatting.
+    const QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QTextCharFormat codeFormat;
+    codeFormat.setFontFamily(fixedFont.family());
+    codeFormat.setFontFixedPitch(true);
+
+    QVector<QPair<int, int>> spans;
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid()) {
+                continue;
+            }
+            const QTextCharFormat format = fragment.charFormat();
+            const QString family = format.fontFamily();
+            if (format.fontFixedPitch()
+                || family.contains(QStringLiteral("mono"), Qt::CaseInsensitive)
+                || family.contains(QStringLiteral("courier"), Qt::CaseInsensitive)) {
+                spans.push_back(qMakePair(fragment.position(), fragment.length()));
+            }
+        }
+    }
+
+    for (const auto& span : spans) {
+        QTextCursor cursor(&document);
+        cursor.setPosition(span.first);
+        cursor.setPosition(span.first + span.second, QTextCursor::KeepAnchor);
+        cursor.mergeCharFormat(codeFormat);
+    }
+}
+
 bool rangeAlreadyFormattedAsLinkOrCode(QTextDocument& document, int position, int length)
 {
     QTextCursor cursor(&document);
@@ -680,6 +719,7 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text,
     features.setFlag(QTextDocument::MarkdownNoHTML);
     const QString markdown = promoteMultilineCodeSpans(text);
     document.setMarkdown(preserveUserLineBreaks(markdown), features);
+    forceInlineCodeFont(document);
 
     // Qt's GFM autolinker still misses some valid long percent-encoded URLs.
     // Complete only bare http(s) links after Markdown parsing so explicit links
