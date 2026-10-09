@@ -470,6 +470,26 @@ PostWidget::PostWidget(Backend& backend,
         groupService.ensureTeamGroups(teamId);
     }
 
+    // Profile requests are lazy and may finish after a post widget has already
+    // rendered an unresolved user ID. Rebind on every successful profile
+    // arrival, including a later request from another view or a reconnect.
+    auto& profileService = UserProfileService::instance(backend);
+    connect(&profileService, &UserProfileService::profileResolved, this,
+            [this](const QString& userId) {
+        if (userId != post.user_id) {
+            return;
+        }
+        const BackendUser* author = backend_.getStorage().getUserById(userId);
+        if (!author) {
+            return;
+        }
+        if (post.author == author
+            && ui->authorName->text() == post.getDisplayAuthorName()) {
+            return;
+        }
+        setAuthor(backend_, author);
+    });
+
 	if (post.author) {
 		setAuthor(backend, post.author);
 	} else if (!post.user_id.isEmpty()) {
