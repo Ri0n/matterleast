@@ -52,7 +52,8 @@ void ChannelHeaderTextLabelTest::hoverOpensOnlyAfterTooltipDwell()
     host.resize(640, 300);
     ChannelHeaderTextLabel label(&host);
     label.setGeometry(20, 20, 400, label.sizeHint().height());
-    label.setText(QStringLiteral("Topic opening line\\nLong expanded topic details"));
+    label.setText(QStringLiteral("Topic opening line") + QLatin1Char(10)
+                  + QStringLiteral("Long expanded topic details"));
     host.show();
     QTest::qWait(10);
 
