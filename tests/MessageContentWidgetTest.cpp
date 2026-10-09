@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QAbstractTextDocumentLayout>
 #include <QFontMetrics>
+#include <QFontDatabase>
 #include <QImage>
 #include <QLayout>
 #include <QMouseEvent>
@@ -21,6 +22,7 @@
 #include <QTextImageFormat>
 #include <QTextLayout>
 #include <QTextOption>
+#include <QWheelEvent>
 
 #include "Settings.h"
 #include "backend/emoji/EmojiRegistry.h"
@@ -112,6 +114,55 @@ class MessageContentWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
+    void longQuoteClipsToFourLinesWithoutCapturingWheel()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("> ") + QString(1800, QLatin1Char('x'))
+                          + QStringLiteral("\n\nText after quote"));
+        showAndSettle(widget, QSize(320, 240));
+
+        auto* quote = widget.findChild<QTextBrowser*>(
+            QStringLiteral("messageQuoteRichText"));
+        QVERIFY(quote);
+        QVERIFY(quote->document()->toPlainText().size() >= 1800);
+        QTRY_VERIFY(quote->viewport()->width() > 100);
+        QTRY_VERIFY(quote->height() <= 4 * quote->fontMetrics().lineSpacing() + 2);
+        QVERIFY(quote->verticalScrollBar()->maximum() > 0);
+        QCOMPARE(quote->verticalScrollBar()->value(), 0);
+
+        QWheelEvent wheel(
+            QPointF(10, 10),
+            QPointF(quote->viewport()->mapToGlobal(QPoint(10, 10))),
+            QPoint(), QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+            Qt::ScrollUpdate, false);
+        QApplication::sendEvent(quote->viewport(), &wheel);
+        QCOMPARE(quote->verticalScrollBar()->value(), 0);
+
+        quote->verticalScrollBar()->setValue(quote->verticalScrollBar()->maximum());
+        QCOMPARE(quote->verticalScrollBar()->value(), 0);
+    }
+
+    void inlineCodeRequestsInstalledFixedPitchFont()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("Prose and `int value = 42;` code"));
+        showAndSettle(widget, QSize(420, 120));
+        auto* browser = widget.findChild<QTextBrowser*>(
+            QStringLiteral("messageRichText"));
+        QVERIFY(browser);
+        const QTextCursor code = browser->document()->find(
+            QStringLiteral("int value = 42;"));
+        QVERIFY(!code.isNull());
+        QCOMPARE(code.charFormat().fontFixedPitch(), true);
+        const QString expected = QFontDatabase::systemFont(
+            QFontDatabase::FixedFont).family();
+        QCOMPARE(code.charFormat().fontFamily(), expected);
+#else
+        QSKIP("Markdown code spans need Qt 5.14 or newer");
+#endif
+    }
+
     void longPlainTokenWrapsAnywhere()
     {
         MessageContentWidget widget;
