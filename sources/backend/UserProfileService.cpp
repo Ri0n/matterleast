@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkRequest>
+#include <QNetworkReply>
 #include <QPixmap>
 #include <QPointer>
 #include <QTimer>
@@ -533,35 +534,61 @@ void UserProfileService::flushProfiles()
         batch.push_back(userId);
     }
 
+    requestProfileBatch(batch, 0);
+}
+
+void UserProfileService::requestProfileBatch(const QStringList& userIds, int attempt)
+{
     QJsonArray payload;
-    for (const QString& userId : batch) {
+    for (const QString& userId : userIds) {
         payload.push_back(userId);
     }
 
     NetworkRequest request(QStringLiteral("users/ids"));
     httpConnector.post(request, QByteArrayCreator(payload),
-                       HttpResponseCallback([this, batch](const QJsonDocument& doc) {
-        QSet<QString> returnedIds;
-        for (const auto& value : doc.array()) {
-            BackendUser* user = backend.getStorage().addUser(value.toObject());
-            if (!user) {
-                continue;
+                       HttpResponseCallback(
+        [this, userIds, attempt](QVariant status, const QJsonDocument& doc) {
+            if (status.toInt() != QNetworkReply::NoError || !doc.isArray()) {
+                // A transient HTTP/network error used to permanently resolve
+                // every waiting post author to nullptr. Keep callbacks pending
+                // across a few bounded, shared retries instead.
+                if (attempt < 3) {
+                    const int delayMs = 500 * (1 << attempt);
+                    QTimer::singleShot(delayMs, this, [this, userIds, attempt] {
+                        requestProfileBatch(userIds, attempt + 1);
+                    });
+                    return;
+                }
+                for (const QString& userId : userIds) {
+                    finishProfile(userId, nullptr);
+                }
+            } else {
+                QSet<QString> returnedIds;
+                for (const auto& value : doc.array()) {
+                    const QJsonObject data = value.toObject();
+                    if (data.value(QStringLiteral("id")).toString().isEmpty()) {
+                        continue;
+                    }
+                    BackendUser* user = backend.getStorage().addUser(data);
+                    if (!user) {
+                        continue;
+                    }
+                    returnedIds.insert(user->id);
+                    resolveReferences(*user);
+                    finishProfile(user->id, user);
+                }
+                for (const QString& userId : userIds) {
+                    if (!returnedIds.contains(userId)) {
+                        finishProfile(userId, nullptr);
+                    }
+                }
             }
-            returnedIds.insert(user->id);
-            resolveReferences(*user);
-            finishProfile(user->id, user);
-        }
 
-        for (const QString& userId : batch) {
-            if (!returnedIds.contains(userId)) {
-                finishProfile(userId, nullptr);
+            if (!queuedUserIds.isEmpty()) {
+                scheduleFlush();
             }
-        }
+        }));
 
-        if (!queuedUserIds.isEmpty()) {
-            scheduleFlush();
-        }
-    }));
 }
 
 void UserProfileService::refreshKnownUsersSince(qint64 since)
@@ -674,6 +701,8 @@ void UserProfileService::resolveReferences(BackendUser& user)
             }
         }
     }
+
+    emit profileResolved(user.id);
 }
 
 } // namespace Mattermost
