@@ -33,6 +33,7 @@ private slots:
         } restore {settings, key, previous};
         settings->setValue(key, QStringLiteral("team-alpha"));
 
+        qWarning() << "TEAM_TEST_STAGE" << "before backend";
         Backend backend;
         QWidget window;
         auto* layout = new QVBoxLayout(&window);
@@ -45,6 +46,7 @@ private slots:
         layout->addWidget(toolbar);
         layout->addWidget(tree);
         tree->populateSidebars(backend);
+        qWarning() << "TEAM_TEST_STAGE" << "after populate call";
 
         auto addRoot = [&](const QString& id, const QString& display) {
             BackendTeam* team = backend.getStorage().addTeam(QJsonObject {
@@ -61,9 +63,11 @@ private slots:
         addRoot(QStringLiteral("team-beta"), QStringLiteral("Beta team"));
         window.resize(320, 420);
         window.show();
+        qWarning() << "TEAM_TEST_STAGE" << "after window.show";
         QTRY_COMPARE(toolbar->findChildren<QToolButton*>(
             QStringLiteral("teamToolbarTeamButton")).size(), 2);
         QCOMPARE(selector->activeTeamId(), QStringLiteral("team-alpha"));
+        qWarning() << "TEAM_TEST_STAGE" << "after first QTRY";
 
         QToolButton* beta = nullptr;
         for (QToolButton* button : toolbar->findChildren<QToolButton*>(
@@ -86,13 +90,16 @@ private slots:
             QStringLiteral("teamToolbarSeparator")));
 
         QTest::mouseClick(beta, Qt::LeftButton);
+        qWarning() << "TEAM_TEST_STAGE" << "before beta click";
         QCOMPARE(selector->activeTeamId(), QStringLiteral("team-beta"));
+        qWarning() << "TEAM_TEST_STAGE" << "after beta click";
         QCOMPARE(settings->value<QString>(key), QStringLiteral("team-beta"));
         QCOMPARE(tree->rootIndex().data(ChannelTree::ItemTeamIdRole).toString(),
                  QStringLiteral("team-beta"));
         QTRY_COMPARE(toolbar->findChildren<QToolButton*>(
             QStringLiteral("teamToolbarTeamButton")).size(), 2);
         bool betaChecked = false;
+        qWarning() << "TEAM_TEST_STAGE" << "after second QTRY";
         for (QToolButton* button : toolbar->findChildren<QToolButton*>(
                  QStringLiteral("teamToolbarTeamButton"))) {
             if (button->property("teamId").toString() == QLatin1String("team-beta")) {
@@ -100,6 +107,7 @@ private slots:
             }
         }
         QVERIFY(betaChecked);
+        qWarning() << "TEAM_TEST_STAGE" << "end of test";
     }
 };
 
