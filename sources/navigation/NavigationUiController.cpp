@@ -693,6 +693,10 @@ void NavigationUiController::saveActiveTabLocation()
                     {bookmark.postId,
                      bookmark.point == LongListWidget::SemanticAnchorPoint::ItemBottom,
                      bookmark.fraction});
+            } else {
+                // A prior live-edge bookmark cannot stand in for a newer,
+                // not-yet-measurable scrolled viewport.
+                tabModel.clearViewportAnchor(activeTabIndex);
             }
         }
     }
