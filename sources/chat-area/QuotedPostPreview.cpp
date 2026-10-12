@@ -6,6 +6,7 @@
 #include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QListWidget>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QScrollBar>
@@ -180,6 +181,12 @@ void QuotedPostPreview::setInteractiveAttachments(
     for (const BackendFile& file : files) {
         attachmentList->addFile(file, authorName);
     }
+    // Embedded file cards should stay clickable, but their inner list is not
+    // a second scrollable timeline. Ignore wheels over its viewport so the
+    // surrounding chat continues to scroll, including over download cards.
+    if (auto* list = attachmentList->findChild<QListWidget*>()) {
+        list->viewport()->installEventFilter(this);
+    }
 
     // Qt::AlignLeft suppresses horizontal expansion: PostAttachmentList's
     // initial size hint comes from a very narrow, not-yet-laid-out viewport.
@@ -209,6 +216,14 @@ void QuotedPostPreview::setLinkActivatedCallback(
 
 bool QuotedPostPreview::eventFilter(QObject* watched, QEvent* event)
 {
+    if (event && event->type() == QEvent::Wheel && attachmentList) {
+        if (auto* list = attachmentList->findChild<QListWidget*>()) {
+            if (watched == list->viewport()) {
+                event->ignore();
+                return true;
+            }
+        }
+    }
     if (messageBrowser && watched == messageBrowser->viewport() && event
         && event->type() == QEvent::MouseButtonPress) {
         auto* mouseEvent = static_cast<QMouseEvent*>(event);

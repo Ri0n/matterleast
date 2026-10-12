@@ -83,6 +83,10 @@ without preserving those protections. The
 `QuotedPostPreviewAttachmentLayoutTest` also exercises the long-text wheel
 and scroll-offset regression.
 
+The nested attachment list must also let wheel events pass through to the
+outer timeline (only for permalink previews). Its interactive file controls
+remain clickable; do not make the entire viewport mouse-transparent.
+
 The nested attachment list **must stretch to the available preview width**.
 Do not add it to the content layout with `Qt::AlignLeft`: that disables
 horizontal expansion and causes a feedback loop where an initial narrow

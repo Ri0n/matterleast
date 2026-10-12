@@ -2,6 +2,7 @@
 
 #include <QJsonObject>
 #include <QLabel>
+#include <QListWidget>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
@@ -76,9 +77,21 @@ private slots:
         preview.show();
 
         auto* list = preview.findChild<PostAttachmentList*>();
+        auto* innerList = list ? list->findChild<QListWidget*>() : nullptr;
         auto* card = preview.findChild<AttachedBinaryFile*>();
         QVERIFY(list);
+        QVERIFY(innerList);
         QVERIFY(card);
+        // A permalink card's attachment list must also let wheel scrolling
+        // reach the outer timeline while preserving clickable file controls.
+        const QPoint wheelPos = innerList->viewport()->rect().center();
+        const QPoint wheelGlobal = innerList->viewport()->mapToGlobal(wheelPos);
+        QWheelEvent fileWheel(QPointF(wheelPos), QPointF(wheelGlobal), QPoint(),
+                              QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                              Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(innerList->viewport(), &fileWheel);
+        QVERIFY2(!fileWheel.isAccepted(),
+                 "Attachment cards in a permalink preview must not steal wheel events");
         auto* metadata = card->findChild<QLabel*>(QStringLiteral("metadataLabel"));
         auto* download = card->findChild<QPushButton*>(
             QStringLiteral("downloadButton"));
