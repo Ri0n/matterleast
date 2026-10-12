@@ -312,6 +312,30 @@ void TeamSelectorLabel::rebuildTeamToolbar()
     _teamButtonsHost->adjustSize();
 }
 
+void TeamSelectorLabel::updateTeamToolbarSelection()
+{
+    if (!_teamButtonsHost) return;
+    QToolButton* selected = nullptr;
+    for (auto* button : _teamButtonsHost->findChildren<QToolButton*>(
+             QStringLiteral("teamToolbarTeamButton"))) {
+        const bool active = button->property("teamId").toString() == activeTeamId_;
+        if (button->isChecked() != active) {
+            button->setChecked(active);
+        }
+        button->update();
+        if (active) selected = button;
+    }
+    if (!selected || !_teamToolbar) return;
+    if (auto* scroll = _teamToolbar->findChild<QScrollArea*>(
+            QStringLiteral("teamButtonScrollArea"))) {
+        QPointer<QToolButton> safeButton(selected);
+        QPointer<QScrollArea> safeScroll(scroll);
+        QTimer::singleShot(0, scroll, [safeButton, safeScroll] {
+            if (safeButton && safeScroll) safeScroll->ensureWidgetVisible(safeButton);
+        });
+    }
+}
+
 void TeamSelectorLabel::showEvent(QShowEvent* event)
 {
     QToolButton::showEvent(event);
@@ -373,7 +397,10 @@ void TeamSelectorLabel::attachTree()
     tree_ = tree;
 
     auto refreshLater = [this] {
-        QTimer::singleShot(0, this, [this] { refreshTeams(); });
+        QTimer::singleShot(0, this, [this] {
+            refreshTeams();
+            rebuildTeamToolbar();
+        });
     };
     connect(tree_->model(), &QAbstractItemModel::rowsInserted,
             this, [refreshLater] { refreshLater(); });
@@ -513,7 +540,7 @@ bool TeamSelectorLabel::setActiveTeam(const QString& teamId, bool persist)
             QString::fromLatin1(ActiveTeamSetting), activeTeamId_);
     }
     tree_->viewport()->update();
-    rebuildTeamToolbar();
+    updateTeamToolbarSelection();
     return true;
 }
 

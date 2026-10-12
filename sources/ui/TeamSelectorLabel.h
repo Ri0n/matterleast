@@ -47,6 +47,7 @@ private:
     void attachTree();
     void refreshTeams();
     void rebuildTeamToolbar();
+    void updateTeamToolbarSelection();
     bool setActiveTeam(const QString& teamId, bool persist);
     bool hasTeamRoot(const QString& teamId) const;
     void showPublicChannels();
