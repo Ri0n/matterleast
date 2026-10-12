@@ -315,7 +315,8 @@ bool ChatLogWidget::captureViewportBookmark(QString& postId,
             return false;
         }
         qreal fraction = 0;
-        if (topFraction && !captureItemTopFraction(index, fraction)) {
+        if (topFraction && !captureSemanticAnchorFraction(
+                index, SemanticAnchorPoint::ItemCenter, fraction)) {
             return false;
         }
         postId = post->id;
