@@ -1505,7 +1505,15 @@ void NavigationUiController::attachThread(ChatArea* area)
 
     if (auto* previous = qobject_cast<ChatArea*>(threadStack->currentWidget());
         previous && previous != area) {
+        // Stacked widgets historically kept every previously opened dock
+        // alive, causing hundreds of hidden timelines to be saved/restored.
+        // Only the currently visible dock is a presentation; persist the
+        // previous draft, then release its message list and residency leases.
+        previous->onDeactivate();
         previous->setSplitterEdgeGutters(false, false);
+        previous->hide();
+        threadStack->removeWidget(previous);
+        previous->close(); // WA_DeleteOnClose; safe while signals unwind
     }
 
     area->hide();
