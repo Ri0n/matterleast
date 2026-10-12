@@ -68,6 +68,7 @@
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
+#include "ui/EmojiPresentation.h"
 #include "ui/TeamSelectorLabel.h"
 #include "ui/ThinSplitter.h"
 
@@ -211,10 +212,43 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 			restoreNavigationSessionWhenReady();
 		});
 
-	connect(&currentUser, &BackendUser::onStatusChanged, [this, &currentUser] {
-		ui->statusLabel->setText(currentUser.status);
-	});
-	ui->statusLabel->setText(currentUser.status);
+    const auto refreshProfileStatus = [this, &currentUser] {
+        ui->usericon_label->setStatus(currentUser.status);
+        const auto& custom = currentUser.props.customStatus;
+        // Rich-text emoji glyphs/images otherwise start almost flush against
+        // the 48px avatar. Reserve an 8px character-sized visual gutter only
+        // while an emoji status is present.
+        ui->statusLabel->setContentsMargins(
+            custom.emoji.isEmpty() ? 0 : 8, 0, 0, 0);
+        if (custom.emoji.isEmpty()) {
+            ui->statusLabel->setText(
+                custom.text.isEmpty() ? currentUser.status : custom.text);
+            return;
+        }
+
+        const auto presentation = backend.emojiRegistry().resolveByName(custom.emoji);
+        QString icon = presentation
+            ? presentation->unicodeString
+            : QStringLiteral(":%1:").arg(custom.emoji.toHtmlEscaped());
+        if (icon.contains(QStringLiteral("<img"), Qt::CaseInsensitive)) {
+            icon = EmojiPresentation::normalizeHtml(
+                icon, ui->statusLabel->font(), EmojiPresentation::Mode::Reaction,
+                &backend.emojiRegistry());
+        } else {
+            icon = icon.toHtmlEscaped();
+        }
+        const QString message = custom.text.isEmpty()
+            ? QString()
+            : QStringLiteral(" ") + custom.text.toHtmlEscaped();
+        ui->statusLabel->setText(QStringLiteral("<span>%1%2</span>").arg(icon, message));
+    };
+    connect(&currentUser, &BackendUser::onStatusChanged,
+            this, refreshProfileStatus);
+    connect(&backend, &Backend::onOwnCustomStatusChanged,
+            this, refreshProfileStatus);
+    connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
+            this, refreshProfileStatus);
+    refreshProfileStatus();
 	ui->usernameLabel->setText(currentUser.username);
 
 	connect(&currentUser, &BackendUser::onAvatarChanged, [this, &currentUser] {

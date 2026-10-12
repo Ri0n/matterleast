@@ -502,6 +502,11 @@ add_test(NAME emoji-dialog-support-test COMMAND emoji-dialog-support-test)
 set_tests_properties(emoji-dialog-support-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 if(TARGET matterleast-core)
+    add_executable(own-status-test OwnStatusTest.cpp)
+    target_link_libraries(own-status-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME own-status-test COMMAND own-status-test)
+    set_tests_properties(own-status-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(team-toolbar-test TeamToolbarTest.cpp)
     target_link_libraries(team-toolbar-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME team-toolbar-test COMMAND team-toolbar-test)
