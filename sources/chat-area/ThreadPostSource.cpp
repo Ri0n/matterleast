@@ -815,6 +815,13 @@ void ThreadPostSource::continueDemand(const std::shared_ptr<Demand>& demand)
         // still-empty phantom slots beyond that proven newest identity.
         if (tail) {
             guard->reconcileNewestBoundaryOverlap(result.postIds);
+        } else if (!backward && result.hasNextKnown && !result.hasNext) {
+            // A complete forward cursor page can also prove the actual tail.
+            // This covers a live reply placed at an inflated metadata rank:
+            // it is already authoritative, but overlaps the server's shorter
+            // suffix at a different exact index.
+            guard->rememberCursorCreateAt(result.createAtById);
+            guard->reconcileNewestCursorOverlap(anchorIndex, result.postIds);
         }
         const int count = result.postIds.size();
         const int pageFirst = tail ? guard->itemCount() - count
@@ -969,6 +976,63 @@ int ThreadPostSource::currentLogicalCount() const
         }
     }
     return count;
+}
+
+
+bool ThreadPostSource::reconcileNewestCursorOverlap(int anchorIndex, const QStringList& pageIds)
+{
+    // A forward page with has_next=false proves the *entire* suffix after an
+    // exact anchor. Root reply_count may still reserve ghost rows, especially
+    // when a live reply was appended at that inflated logical tail.
+    const int oldCount = itemCount();
+    const int first = anchorIndex + 1;
+    const int correctedCount = first + static_cast<int>(pageIds.size());
+    if (anchorIndex < 0 || pageIds.isEmpty() || correctedCount >= oldCount) {
+        return false;
+    }
+
+    // Never discard a confirmed identity, tombstone or navigation island.
+    // All mapped suffix identities must occur on the server's complete page
+    // in their existing relative order. An unrelated newer live reply might
+    // have arrived while the request was in flight: then defer reconciliation.
+    int previousOffset = -1;
+    int lastConfirmed = -1;
+    for (int index = first; index < oldCount; ++index) {
+        const QString& mapped = postIds.at(index);
+        if (mapped.isEmpty()) continue;
+        const int offset = static_cast<int>(pageIds.indexOf(mapped));
+        if (offset < 0 || offset <= previousOffset) return false;
+        previousOffset = offset;
+        if (isAuthoritativeIndex(index)) lastConfirmed = index;
+    }
+    // Require identity overlap with the already confirmed newest reply.
+    // Without it, a short response is not proof that the metadata is wrong.
+    if (lastConfirmed < correctedCount
+        || postIds.at(lastConfirmed) != pageIds.last()) {
+        return false;
+    }
+    for (const QString& id : pageIds) {
+        const int existing = indexOfPost(id);
+        if (existing >= 0 && existing < first) return false;
+    }
+
+    // Relocate the known latest reply into the server-proven ordinal window
+    // *before* dropping the now-empty phantom slots. Keep the bias across
+    // subsequent unchanged root-summary updates and invalidate stale islands.
+    if (!placeExactWindow(first, pageIds)) return false;
+    const int extra = oldCount - correctedCount;
+    _unavailableReplyCount += extra;
+    ++islandEpoch;
+    qCWarning(lcThreadTimelineTrace).nospace()
+        << "THREAD_CURSOR_TAIL_REANCHOR root=" << shortId(rootId)
+        << " anchorIndex=" << anchorIndex
+        << " pageCount=" << pageIds.size()
+        << " oldCount=" << oldCount
+        << " newCount=" << correctedCount
+        << " metadataBias=" << _unavailableReplyCount;
+    resizeLogicalTail(correctedCount);
+    pruneProvisionalPostIds();
+    return true;
 }
 
 bool ThreadPostSource::reconcileNewestBoundaryOverlap(const QStringList& pageIds)

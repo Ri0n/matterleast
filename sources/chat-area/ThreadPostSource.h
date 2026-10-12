@@ -57,6 +57,7 @@ private:
     BackendPost* rootPost() const;
     int currentLogicalCount() const;
     bool reconcileNewestBoundaryOverlap(const QStringList& pageIds);
+    bool reconcileNewestCursorOverlap(int anchorIndex, const QStringList& pageIds);
     int nearestEmptyIndex(int preferred) const;
     void seedCachedPosts();
     void hydrateCachedTail();
