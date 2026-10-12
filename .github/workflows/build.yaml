@@ -206,8 +206,11 @@ jobs:
               Select-Object -Last 65
           }
           $env:QT_QPA_PLATFORM = 'offscreen'
-          & ./build/tests/team-toolbar-test.exe '-o' '-,txt'
+          & ./build/tests/team-toolbar-test.exe '-o' 'team-toolbar-result.txt,txt'
           Write-Host "Standalone exit code: $LASTEXITCODE"
+          if (Test-Path team-toolbar-result.txt) {
+            Get-Content team-toolbar-result.txt
+          }
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
