@@ -453,6 +453,47 @@ private slots:
     }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    void codeFontFamilyChangesMaterializedFences()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        auto* option = MLOptions::instance()->optionObject<QString>(
+            CODE_FONT_FAMILY, QString());
+        const QString original = option->value().toString();
+        struct Restore {
+            MLOptionObject* option;
+            QString value;
+            ~Restore() { option->setValue(value); }
+        } restore { option, original };
+
+        const QString platformFixed = QFontDatabase::systemFont(
+            QFontDatabase::FixedFont).family();
+        // Use a distinct declared family so the test exercises the full
+        // option -> MessageContentWidget -> QPlainTextEdit pipeline.
+        const QString overrideFamily = QStringLiteral("MatterLeast Test Mono");
+        option->setValue(overrideFamily);
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("before\\n\\n\x60\x60\x60cpp\\nint i;\\n\x60\x60\x60"));
+        widget.resize(480, 240);
+        widget.show();
+
+        auto* block = widget.findChild<QPlainTextEdit*>(
+            QStringLiteral("messageCodeBlock"));
+        QVERIFY(block);
+        QCOMPARE(block->font().family(), overrideFamily);
+        QCOMPARE(block->document()->defaultFont().family(), overrideFamily);
+        const qreal size = block->font().pointSizeF();
+
+        option->setValue(platformFixed);
+        QTRY_VERIFY(widget.findChild<QPlainTextEdit*>(
+            QStringLiteral("messageCodeBlock"))->font().family() == platformFixed);
+        auto* updated = widget.findChild<QPlainTextEdit*>(
+            QStringLiteral("messageCodeBlock"));
+        QCOMPARE(updated->font().pointSizeF(), size);
+#else
+        QSKIP("Fenced code blocks require Qt 5.14 or newer");
+#endif
+    }
+
     void markdownHeadingAndCodeScaleWithChatText()
     {
         auto* fontOption = MLOptions::instance()->optionObject<QString>(

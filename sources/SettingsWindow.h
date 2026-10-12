@@ -56,6 +56,7 @@ private:
     QComboBox* _channelRootNotificationMode = nullptr;
     QComboBox* emojiDefaultSkinTone_ = nullptr;
     QString originalChatFont;
+    QString _originalCodeFontFamily;
     QSpinBox* attachmentCacheSizeMB = nullptr;
     QSpinBox* diskChannelIdleHours = nullptr;
     QSpinBox* diskMaxMB = nullptr;

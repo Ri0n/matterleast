@@ -47,6 +47,9 @@ static constexpr const char* CHANNEL_ROOT_NOTIFICATION_MODE =
 static constexpr int CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT = 1;
 
 static constexpr const char* CHAT_FONT = "chat/font";
+// Family only. Empty uses the platform's installed system fixed font;
+// code point size continues to track the configured chat font.
+static constexpr const char* CODE_FONT_FAMILY = "chat/codeFontFamily";
 
 static constexpr const char* EMOJI_DEFAULT_SKIN_TONE =
     "emoji/defaultSkinTone";
