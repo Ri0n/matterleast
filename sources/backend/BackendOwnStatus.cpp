@@ -6,6 +6,7 @@
 #include <QPointer>
 
 #include "QByteArrayCreator.h"
+#include "CustomStatusValidation.h"
 #include "NetworkRequest.h"
 #include "types/BackendUser.h"
 
@@ -64,15 +65,20 @@ void Backend::setOwnCustomStatus(const QString& emoji, const QString& text,
         if (callback) callback(false, tr("Not logged in"));
         return;
     }
-    if (text.trimmed().isEmpty() || text.size() > 100) {
-        if (callback) callback(false, tr("Status text must be 1–100 characters"));
+    if (!hasCustomStatusContent(emoji, text)) {
+        if (callback) callback(false, tr("Choose an emoji or enter a status message"));
+        return;
+    }
+    if (text.size() > 100) {
+        if (callback) callback(false, tr("Status text must not exceed 100 characters"));
         return;
     }
     const QString id = storage.loginUser->id;
     NetworkRequest request(QStringLiteral("users/") + id + QStringLiteral("/status/custom"));
-    QJsonObject payload {{QStringLiteral("emoji"), emoji.isEmpty()
-                                       ? QStringLiteral("speech_balloon") : emoji},
-                         {QStringLiteral("text"), text}};
+    const QString trimmedEmoji = emoji.trimmed();
+    QJsonObject payload {{QStringLiteral("emoji"), trimmedEmoji.isEmpty()
+                                       ? QStringLiteral("speech_balloon") : trimmedEmoji},
+                         {QStringLiteral("text"), text.trimmed()}};
     if (!duration.isEmpty()) payload.insert(QStringLiteral("duration"), duration);
     if (!expiresAt.isEmpty()) payload.insert(QStringLiteral("expires_at"), expiresAt);
     QPointer<Backend> guard(this);

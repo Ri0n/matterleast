@@ -16,3 +16,13 @@ the custom status message appears under the account name.
 
 These actions are independent of team selection, which is rendered only
 inside the Channels tab.
+
+## Empty editor semantics
+
+**OK always commits the user's intent.** Emoji-only sends `PUT` with a
+non-empty emoji and empty text. Text-only also remains valid. When both
+fields are empty, OK closes the dialog and issues `DELETE` to clear the
+custom status. Cancel leaves the previous status untouched. The separate
+Clear custom status menu action stays available, including for emoji-only
+statuses. The menu/header recognize a status as active when either emoji
+or text is set. The existing emoji registry renders it in the header.

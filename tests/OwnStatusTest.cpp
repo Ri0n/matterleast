@@ -7,6 +7,7 @@
 #include <QTcpSocket>
 
 #include "backend/Backend.h"
+#include "backend/CustomStatusValidation.h"
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendUser.h"
@@ -17,6 +18,15 @@ class OwnStatusTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void emojiOnlyAndEmptyStatusContent()
+    {
+        QVERIFY(hasCustomStatusContent(QStringLiteral("coffee"), QString()));
+        QVERIFY(hasCustomStatusContent(QString(), QStringLiteral("Working")));
+        QVERIFY(hasCustomStatusContent(QStringLiteral("coffee"), QStringLiteral("Working")));
+        QVERIFY(!hasCustomStatusContent(QString(), QString()));
+        QVERIFY(!hasCustomStatusContent(QStringLiteral("  "), QStringLiteral("  ")));
+    }
+
     void statusEndpointsAndFailedUpdate()
     {
         QTcpServer server;
@@ -97,6 +107,23 @@ private slots:
         QCOMPARE(user->props.customStatus.text, QStringLiteral("Concentrating"));
         QCOMPARE(customSignal.size(), 1);
 
+        // Mattermost allows a status with just an emoji and no text.
+        finished = false;
+        backend.setOwnCustomStatus(QStringLiteral("coffee"), QString(),
+            QStringLiteral("one_hour"), {},
+            [&](bool ok, const QString&) { succeeded = ok; finished = true; });
+        QTRY_VERIFY(finished);
+        QVERIFY(succeeded);
+        QCOMPARE(lastMethod, QByteArray("PUT"));
+        QCOMPARE(QJsonDocument::fromJson(lastBody).object()
+                     .value(QStringLiteral("emoji")).toString(),
+                 QStringLiteral("coffee"));
+        QCOMPARE(QJsonDocument::fromJson(lastBody).object()
+                     .value(QStringLiteral("text")).toString(), QString());
+        QCOMPARE(user->props.customStatus.emoji, QStringLiteral("coffee"));
+        QVERIFY(user->props.customStatus.text.isEmpty());
+        QCOMPARE(customSignal.size(), 2);
+
         statusCode = 500;
         finished = false;
         backend.setOwnAvailability(QStringLiteral("dnd"),
@@ -115,7 +142,8 @@ private slots:
         QCOMPARE(lastMethod, QByteArray("DELETE"));
         QVERIFY(lastPath.endsWith("/users/user-1/status/custom"));
         QVERIFY(user->props.customStatus.text.isEmpty());
-        QCOMPARE(customSignal.size(), 2);
+        QCOMPARE(customSignal.size(), 3);
+        QVERIFY(user->props.customStatus.emoji.isEmpty());
     }
 };
 

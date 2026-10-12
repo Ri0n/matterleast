@@ -18,6 +18,7 @@
 
 #include "ui_mainwindow.h"
 #include "backend/Backend.h"
+#include "backend/CustomStatusValidation.h"
 #include "backend/types/BackendUser.h"
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 #include "info-dialogs/UserProfileDialog.h"
@@ -70,9 +71,12 @@ void MainWindow::on_usericon_label_clicked()
 
     menu.addSeparator();
     const QString currentCustom = user.props.customStatus.text;
-    if (!currentCustom.isEmpty()) {
-        QAction* current = menu.addAction(
-            tr("Custom: %1").arg(currentCustom));
+    const QString currentEmoji = user.props.customStatus.emoji;
+    const bool hasCustomStatus = hasCustomStatusContent(currentEmoji, currentCustom);
+    if (hasCustomStatus) {
+        const QString summary = currentCustom.isEmpty()
+            ? tr(":%1:").arg(currentEmoji) : currentCustom;
+        QAction* current = menu.addAction(tr("Custom: %1").arg(summary));
         current->setEnabled(false);
     }
 
@@ -137,9 +141,10 @@ void MainWindow::on_usericon_label_clicked()
 
         auto* buttons = new QDialogButtonBox(
             QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &editor);
-        connect(buttons, &QDialogButtonBox::accepted, &editor, [&editor, textEdit] {
-            if (!textEdit->text().trimmed().isEmpty()) editor.accept();
-        });
+        // OK with an emoji only saves that emoji. OK with both fields empty
+        // explicitly clears the previous custom status; neither may leave
+        // the dialog unresponsive.
+        connect(buttons, &QDialogButtonBox::accepted, &editor, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, &editor, &QDialog::reject);
         form->addRow(buttons);
 
@@ -148,16 +153,20 @@ void MainWindow::on_usericon_label_clicked()
         const QString expiresAt = durationValue == QLatin1String("date_and_time")
             ? expiration->dateTime().toUTC().toString(Qt::ISODate) : QString();
         QPointer<MainWindow> guard(this);
-        backend.setOwnCustomStatus(
-            emojiName->text().trimmed(), textEdit->text().trimmed(),
-            durationValue, expiresAt,
-            [guard](bool ok, const QString& error) {
-                reportStatusResult(guard, ok, error);
-            });
+        const QString emoji = emojiName->text().trimmed();
+        const QString message = textEdit->text().trimmed();
+        auto finished = [guard](bool ok, const QString& error) {
+            reportStatusResult(guard, ok, error);
+        };
+        if (!hasCustomStatusContent(emoji, message)) {
+            backend.clearOwnCustomStatus(finished);
+        } else {
+            backend.setOwnCustomStatus(emoji, message, durationValue, expiresAt, finished);
+        }
     });
 
     QAction* clear = menu.addAction(tr("Clear custom status"));
-    clear->setEnabled(!currentCustom.isEmpty());
+    clear->setEnabled(hasCustomStatus);
     connect(clear, &QAction::triggered, this, [this] {
         QPointer<MainWindow> guard(this);
         backend.clearOwnCustomStatus([guard](bool ok, const QString& error) {
