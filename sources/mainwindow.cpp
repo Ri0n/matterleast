@@ -306,6 +306,8 @@ void MainWindow::setupChannelTabs()
 	auto* channelsLayout = new QVBoxLayout(channelsPage);
 	channelsLayout->setContentsMargins(0, 0, 0, 0);
 	channelsLayout->setSpacing(0);
+	ui->teamSelectorLabel->hide();
+	channelsLayout->addWidget(ui->teamSelectorLabel->createTeamToolbar(channelsPage));
 	channelsLayout->addWidget(ui->channelList, 1);
 
 	recentChannels = new ChannelQuickList(channelTabs);
@@ -321,11 +323,6 @@ void MainWindow::setupChannelTabs()
 	leftLayout->setContentsMargins(0, 0, 0, 0);
 	leftLayout->setSpacing(0);
 	leftLayout->addWidget(ui->lefttop_frame);
-	// Keep the team context controller, but replace its profile dropdown with
-	// a persistent one-click team strip above the channel filter.
-	ui->teamSelectorLabel->hide();
-	leftLayout->addWidget(ui->teamSelectorLabel->createTeamToolbar(leftSidebar));
-
 	auto* sidebarFilterRow = new QWidget(leftSidebar);
 	auto* sidebarFilterLayout = new QHBoxLayout(sidebarFilterRow);
 	sidebarFilterLayout->setContentsMargins(0, 0, 3, 0);
