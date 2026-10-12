@@ -685,16 +685,6 @@ void NavigationUiController::saveActiveTabLocation()
     const Location expected = tabLocation(*entry);
     if (location.isValid() && location.sameDestination(expected)) {
         updateTab(activeTabIndex, location);
-        if (auto* log = area->findChild<ChatLogWidget*>(
-                QStringLiteral("listWidget")); log && log->source()) {
-            ChatLogWidget::SemanticViewportBookmark bookmark;
-            if (log->captureSemanticViewportBookmark(bookmark)) {
-                tabModel.setViewportAnchor(activeTabIndex,
-                    {bookmark.postId,
-                     bookmark.point == LongListWidget::SemanticAnchorPoint::ItemBottom,
-                     bookmark.fraction});
-            }
-        }
     }
 }
 
@@ -750,28 +740,10 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
 
     if (activeTabIndex != index) {
         saveActiveTabLocation();
-
-        // The previous tab now exists only as an in-memory semantic entry.
-        // A hidden thread must not retain its timeline or issue new requests.
-        const auto* outgoing = tabModel.at(activeTabIndex);
-        ChatArea* old = outgoing && !outgoing->rootId.isEmpty()
-            ? findThread(outgoing->channelId, outgoing->rootId) : nullptr;
-        if (old && old->property("threadTabbed").toBool()) {
-            old->onDeactivate();
-            old->hide();
-            if (navigationSurfaceStack && navigationSurfaceStack->indexOf(old) >= 0)
-                navigationSurfaceStack->removeWidget(old);
-            old->setProperty("threadTabbed", false);
-            old->setProperty("inactiveTabClosing", true);
-            old->close(); // WA_DeleteOnClose; the tab entry owns the bookmark
-        }
     }
 
-    // saveActiveTabLocation() may update the entry's passive viewport anchor.
-    const auto* incoming = tabModel.at(index);
-    const auto anchor = incoming ? incoming->viewportAnchor : std::nullopt;
     Location location = tabLocation(*entry);
-    if (!restoreBookmark || anchor) {
+    if (!restoreBookmark) {
         location.postId.clear();
     }
     activeTabIndex = index;
@@ -804,9 +776,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             tabifyThread(area, index);
             currentLocation = location;
             activeArea = area;
-            if (restoreBookmark && anchor) {
-                restoreSessionBookmark(area, anchor->postId, anchor);
-            } else if (!location.postId.isEmpty()) {
+            if (!location.postId.isEmpty()) {
                 restoreSessionBookmark(area, location.postId);
             }
         }
@@ -816,10 +786,6 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             mainStack->show();
         }
         navigateTo(location);
-        if (restoreBookmark && anchor && channelTree) {
-            restoreSessionBookmark(channelTree->getCurrentPage(),
-                                   anchor->postId, anchor);
-        }
     }
 
     switchingTabs = previousSwitching;
@@ -1280,8 +1246,7 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
     const auto widgets = QApplication::allWidgets();
     for (QWidget* widget : widgets) {
         auto* area = qobject_cast<ChatArea*>(widget);
-        if (!area || !area->isThread || area->root_id != rootId
-            || area->property("inactiveTabClosing").toBool()) {
+        if (!area || !area->isThread || area->root_id != rootId) {
             continue;
         }
         if (area->getChannel().id == channelId) {

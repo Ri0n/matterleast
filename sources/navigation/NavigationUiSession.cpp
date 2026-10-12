@@ -167,13 +167,12 @@ void NavigationUiController::saveSession()
     }
     Location active;
     if (const auto* entry = tabModel.at(activeTabIndex)) active = tabLocation(*entry);
-    auto* central = channelTree ? channelTree->getCurrentPage() : nullptr;
-    auto* dock = threadStack ? qobject_cast<ChatArea*>(threadStack->currentWidget()) : nullptr;
+    auto* dock = visibleDock;
     auto* focused = qobject_cast<ChatArea*>(QApplication::activeWindow());
     QJsonObject state {{"version", 1}, {"tabs", tabs}, {"threads", threads},
-                       {"active_tab", encode(active)}, {"central", encode(locationOf(central))},
+                       {"active_tab", encode(active)},
                        {"active_dock", encode(locationOf(dock))},
-                       {"dock_visible", threadStack && !threadStack->isHidden()},
+                       {"dock_visible", visibleDock != nullptr},
                        {"focused_window", focused && focused->property("threadDetached").toBool()
                             ? encode(locationOf(focused)) : QJsonObject()}};
     MLOptions::instance()->setValue(key, QJsonDocument(state).toJson(QJsonDocument::Compact));
@@ -194,8 +193,6 @@ void NavigationUiController::restoreSession()
     auto valid = [this](const Location& location) {
         return location.isValid() && backend()->getStorage().getChannelById(location.channelId);
     };
-    const Location central = decode(state.value("central").toObject());
-    if (valid(central)) navigateTo(central);
     {
         QSignalBlocker blocker(navigationTabs);
         while (navigationTabs->count()) navigationTabs->removeTab(0);
@@ -246,9 +243,6 @@ void NavigationUiController::restoreSession()
         // Session restore reopens the destination at its ordinary newest
         // position. In-process viewport anchors are never serialized.
         activateTab(index, false);
-    } else if (valid(central)) {
-        navigateTo({central.channelId, {}, {}});
-        // No persisted scroll position on session startup.
     }
     if (auto* area = findThread(dock.channelId, dock.rootId);
         area && threadStack->indexOf(area) >= 0) threadStack->setCurrentWidget(area);

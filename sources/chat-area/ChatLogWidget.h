@@ -1,7 +1,5 @@
 #pragma once
 
-#include <optional>
-
 #include <cstdint>
 
 #include <QHash>
@@ -40,26 +38,11 @@ public:
 
     PostWidget* findPost(const QString& postId) const;
 
-    struct SemanticViewportBookmark {
-        QString postId;
-        SemanticAnchorPoint point = SemanticAnchorPoint::ItemCenter;
-        qreal fraction = 0;
-
-        bool isValid() const { return !postId.isEmpty(); }
-    };
-
-    // Runtime-only per-tab bookmark. At the live edge, anchor the bottom-most
-    // post by its bottom. Else keep a concrete post's center relative to the
-    // viewport center (including signed offsets for very long messages).
-    bool captureSemanticViewportBookmark(SemanticViewportBookmark& bookmark) const;
-    bool restoreSemanticViewportBookmark(const SemanticViewportBookmark& bookmark);
-
     /** Capture a semantic post near the viewport centre for inactive-page restore. */
-    bool captureViewportBookmark(QString& postId, qreal* topFraction = nullptr) const;
+    bool captureViewportBookmark(QString& postId) const;
 
     /** Restore an inactive-page bookmark without the navigation highlight animation. */
-    bool restoreViewportBookmark(const QString& postId,
-                                 std::optional<qreal> topFraction = std::nullopt);
+    bool restoreViewportBookmark(const QString& postId);
 
     bool ensurePostVisible(const QString& postId,
                            Alignment alignment = Alignment::EnsureVisible);
@@ -83,8 +66,7 @@ public:
      */
     bool lockNavigationToPost(const QString& postId,
                               Alignment alignment = Alignment::Center,
-                              int quietPeriodMs = 2000,
-                              std::optional<qreal> topFraction = std::nullopt);
+                              int quietPeriodMs = 2000);
     void clearNavigationLock();
 
     /** Composer up-arrow action; no QListWidgetItem leaks through this API. */
@@ -147,7 +129,6 @@ private:
     QString pendingHighlightPostId;
     int navigationLogicalIndex = -1;
     Alignment navigationAlignment = Alignment::Center;
-    std::optional<SemanticViewportBookmark> _navigationSemanticBookmark;
     int navigationQuietPeriodMs = 2000;
     bool navigationLockPending = false;
     bool navigationRecenterPending = false;
