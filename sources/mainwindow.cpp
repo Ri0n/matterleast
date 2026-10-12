@@ -214,6 +214,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	connect(&currentUser, &BackendUser::onStatusChanged, [this, &currentUser] {
 		ui->statusLabel->setText(currentUser.status);
 	});
+	ui->statusLabel->setText(currentUser.status);
 	ui->usernameLabel->setText(currentUser.username);
 
 	connect(&currentUser, &BackendUser::onAvatarChanged, [this, &currentUser] {
