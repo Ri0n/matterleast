@@ -27,6 +27,7 @@
 #include <QFrame>
 #include <QFontComboBox>
 #include <QFontInfo>
+#include <QFontDatabase>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QIntValidator>
@@ -282,6 +283,27 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     chatFontForm->addRow(tr("Size:"), chatTextSizeEditor);
 
     appearanceLayout->addWidget(chatFontGroup);
+
+    auto* codeFontGroup = new QGroupBox(tr("Code blocks"), appearancePage);
+    auto* codeFontForm = new QFormLayout(codeFontGroup);
+    auto* codeFontOption = options->optionObject<QString>(
+        CODE_FONT_FAMILY, QString());
+    _originalCodeFontFamily = codeFontOption->value().toString();
+    auto* codeFontFamily = new QFontComboBox(codeFontGroup);
+    codeFontFamily->setObjectName(QStringLiteral("codeFontFamily"));
+    codeFontFamily->setFontFilters(QFontComboBox::MonospacedFonts);
+    QFont initialCodeFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    if (!_originalCodeFontFamily.isEmpty()) {
+        initialCodeFont.setFamily(_originalCodeFontFamily);
+    }
+    codeFontFamily->setCurrentFont(initialCodeFont);
+    codeFontForm->addRow(tr("Font:"), codeFontFamily);
+    appearanceLayout->addWidget(codeFontGroup);
+    connect(codeFontFamily, &QFontComboBox::currentFontChanged, this,
+            [codeFontOption](const QFont& selectedFont) {
+        codeFontOption->setValue(selectedFont.family());
+    });
+
     appearanceLayout->addWidget(makeDescription(
         appearancePage,
         tr("Font changes are previewed immediately in materialized chat messages. "
@@ -455,6 +477,9 @@ void SettingsWindow::reject()
     MLOptions::instance()
         ->optionObject<QString>(CHAT_FONT, font().toString())
         ->setValue(originalChatFont);
+    MLOptions::instance()
+        ->optionObject<QString>(CODE_FONT_FAMILY, QString())
+        ->setValue(_originalCodeFontFamily);
     QDialog::reject();
 }
 
