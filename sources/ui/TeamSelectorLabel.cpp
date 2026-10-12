@@ -6,6 +6,7 @@
 #include <QAbstractItemModel>
 #include <QAction>
 #include <QFrame>
+#include <QEvent>
 #include <QHBoxLayout>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -265,6 +266,18 @@ void TeamSelectorLabel::showEvent(QShowEvent* event)
 {
     QToolButton::showEvent(event);
     attachTree();
+}
+
+void TeamSelectorLabel::changeEvent(QEvent* event)
+{
+    QToolButton::changeEvent(event);
+    if (event && (event->type() == QEvent::PaletteChange
+                  || event->type() == QEvent::ApplicationPaletteChange
+                  || event->type() == QEvent::StyleChange)) {
+        // The toolbar is detached from this hidden controller's own layout.
+        // Rebuild after Qt finishes propagating the new application palette.
+        QTimer::singleShot(0, this, [this] { rebuildTeamToolbar(); });
+    }
 }
 
 void TeamSelectorLabel::paintEvent(QPaintEvent* event)

@@ -4,6 +4,7 @@
 #include <QString>
 #include <QPointer>
 
+class QEvent;
 class QPaintEvent;
 class QShowEvent;
 class QHBoxLayout;
@@ -40,6 +41,7 @@ public:
 protected:
     void showEvent(QShowEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
 private:
     void attachTree();
