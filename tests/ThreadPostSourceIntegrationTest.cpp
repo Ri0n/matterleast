@@ -669,6 +669,85 @@ private slots:
         QCOMPARE(source.indexOfPost(id(542)), 542);
     }
 
+
+    void liveReplyAtInflatedTailReanchorsFromCompleteForwardCursor()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 267;
+        server.reportedReplyCount = 269; // two unavailable/phantom replies
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert("reply_count", 269);
+        root.insert("last_reply_at", timestamp(267));
+        channel.addPost(root);
+
+        ThreadPostSource source(backend, channel, id(0));
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failures(&source, &ThreadPostSource::rangeRequestFailed);
+        QCOMPARE(source.itemCount(), 270);
+
+        // Materialize a confirmed prefix with its final known reply at 266,
+        // leaving the real 267th reply and two phantom slots unresolved.
+        source.requestRange(1, 266, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(source.indexOfPost(id(266)), 266);
+
+        // New realtime reply: summary grows from 269 to 270; the source
+        // places it at 270 despite its actual server ordinal being 268.
+        server.replyCount = 268;
+        server.reportedReplyCount = 270;
+        BackendPost* live = channel.addPost(post(268));
+        QVERIFY(live);
+        emit channel.onNewPost(*live);
+        QCOMPARE(source.itemCount(), 271);
+        QCOMPARE(source.indexOfPost(id(268)), 270);
+        QCOMPARE(source.postIdAt(267), QString());
+
+        // Without explicit has_next authority the conflicting cursor MUST
+        // NOT silently move the known live reply or shrink the thread.
+        server.omitHasNext = true;
+        source.requestRange(267, 269, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 2);
+        QCOMPARE(failures.size(), 1);
+        QCOMPARE(source.itemCount(), 271);
+        QCOMPARE(source.indexOfPost(id(268)), 270);
+
+        // The same server suffix [267,268] with has_next=false now proves
+        // that 269 and 270 were ghost slots. Preserve every known identity.
+        server.omitHasNext = false;
+        source.requestRange(267, 269, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 3);
+        QCOMPARE(failures.size(), 1);
+        QCOMPARE(source.itemCount(), 269);
+        QCOMPARE(source.indexOfPost(id(266)), 266);
+        QCOMPARE(source.indexOfPost(id(267)), 267);
+        QCOMPARE(source.indexOfPost(id(268)), 268);
+        QCOMPARE(source.postIdAt(268), id(268));
+        const QUrlQuery query(server.requests.last());
+        QCOMPARE(query.queryItemValue("direction"), QStringLiteral("down"));
+        QCOMPARE(query.queryItemValue("fromPost"), id(266));
+
+        // The root can keep reporting the inflated reply_count; a later
+        // real-time reply must append directly after the corrected last row.
+        server.replyCount = 269;
+        server.reportedReplyCount = 271;
+        live = channel.addPost(post(269));
+        QVERIFY(live);
+        emit channel.onNewPost(*live);
+        QCOMPARE(source.itemCount(), 270);
+        QCOMPARE(source.indexOfPost(id(269)), 269);
+        for (int index = 266; index < source.itemCount(); ++index) {
+            QCOMPARE(source.postIdAt(index), id(index));
+        }
+    }
+
     void tailBootstrapWithoutReliableSummary_data()
     {
         QTest::addColumn<bool>("missingTimestamp");
