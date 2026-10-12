@@ -70,6 +70,8 @@ private slots:
     // tests without synthesizing platform mouse events under the offscreen QPA.
     void showPopover();
     void hidePopover();
+    void schedulePopoverShow();
+    void cancelPopoverShow();
 
 private:
     bool isOverflowing() const;
@@ -93,6 +95,7 @@ private:
     QPointer<QWidget> popoverContainer;
     QPointer<MessageContentWidget> popoverContent;
     QPointer<QPropertyAnimation> popoverAnimation;
+    QTimer _showTimer;
     QTimer hideTimer;
     LinkHandler linkHandler;
     bool presenceRoutingEnabled = true;
