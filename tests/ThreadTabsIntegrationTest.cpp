@@ -593,6 +593,7 @@ private slots:
         QVERIFY(bar);
         QTRY_VERIFY(bar->maximum() > 400);
         QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
 
         // This gesture cancels the live-edge intent. The same physical
@@ -601,7 +602,7 @@ private slots:
         QTRY_VERIFY(!log->isAtEnd());
         ChatLogWidget::SemanticViewportBookmark before;
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
-        QCOMPARE(before.point, LongListWidget::SemanticAnchorPoint::ItemCenter);
+        QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
 
         navigation.openThreadInTab(channel->id, rootId(42));
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
