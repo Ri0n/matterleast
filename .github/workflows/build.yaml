@@ -19,7 +19,9 @@ jobs:
     name: Qt 6.8.2 / Debian 13 — DEB
     runs-on: ubuntu-24.04
     container:
-      image: debian:13
+      # ECR Public mirrors the Docker Official Images and avoids GitHub runner
+      # anonymous Docker Hub pull quota / auth endpoint failures.
+      image: public.ecr.aws/docker/library/debian:13
     steps:
       - name: Install build dependencies
         shell: bash

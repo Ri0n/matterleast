@@ -2,6 +2,9 @@
 
 #include <algorithm>
 
+#include <QFontDatabase>
+#include <QVector>
+
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -419,6 +422,135 @@ QString promoteMultilineCodeSpans(const QString& text)
     return result;
 }
 
+void forceInlineCodeFont(QTextDocument& document)
+{
+    // Qt's Markdown parser marks code spans as fixed-pitch, but on Qt 5 it
+    // can retain the generic "monospace" family without resolving the actual
+    // installed typewriter font. Resolve it ourselves without changing the
+    // code span's size, background, or other formatting.
+    const QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QTextCharFormat codeFormat;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    codeFormat.setFontFamilies(QStringList {fixedFont.family()});
+#else
+    codeFormat.setFontFamily(fixedFont.family());
+#endif
+    codeFormat.setFontFixedPitch(true);
+
+    QVector<QPair<int, int>> spans;
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid()) {
+                continue;
+            }
+            const QTextCharFormat format = fragment.charFormat();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QString family = format.fontFamilies().toStringList().join(QLatin1Char(' '));
+#else
+            const QString family = format.fontFamily();
+#endif
+            if (format.fontFixedPitch()
+                || family.contains(QStringLiteral("mono"), Qt::CaseInsensitive)
+                || family.contains(QStringLiteral("courier"), Qt::CaseInsensitive)) {
+                spans.push_back(qMakePair(fragment.position(), fragment.length()));
+            }
+        }
+    }
+
+    for (const auto& span : spans) {
+        QTextCursor cursor(&document);
+        cursor.setPosition(span.first);
+        cursor.setPosition(span.first + span.second, QTextCursor::KeepAnchor);
+        cursor.mergeCharFormat(codeFormat);
+    }
+}
+
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+void restoreQt5InlineCodeFont(QTextDocument& document, const QString& markdown)
+{
+    // Qt 5.15's Markdown parser removes inline backticks but loses the code
+    // character format on some builds. Restore it from Markdown's delimiters,
+    // never interpreting HTML and never modifying the rendered text itself.
+    const QString plain = document.toPlainText();
+    const QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QTextCharFormat codeFont;
+    codeFont.setFontFamily(fixedFont.family());
+    codeFont.setFontFixedPitch(true);
+
+    int searchFrom = 0;
+    for (int i = 0; i < markdown.size();) {
+        if (markdown.at(i) == QLatin1Char('\\')
+            && i + 1 < markdown.size()) {
+            i += 2;
+            continue;
+        }
+        if (markdown.at(i) != QLatin1Char('`')) {
+            ++i;
+            continue;
+        }
+        const int opening = i;
+        while (i < markdown.size() && markdown.at(i) == QLatin1Char('`')) {
+            ++i;
+        }
+        const int tickCount = i - opening;
+        // Fenced blocks are handled by CodeBlockEdit; do not mistake a fence
+        // or a multiline block's delimiters for inline code.
+        if (tickCount >= 3) {
+            continue;
+        }
+
+        int closing = -1;
+        for (int j = i; j < markdown.size();) {
+            if (markdown.at(j) == QLatin1Char('\\')
+                && j + 1 < markdown.size()) {
+                j += 2;
+                continue;
+            }
+            if (markdown.at(j) != QLatin1Char('`')) {
+                ++j;
+                continue;
+            }
+            const int runStart = j;
+            while (j < markdown.size() && markdown.at(j) == QLatin1Char('`')) {
+                ++j;
+            }
+            if (j - runStart == tickCount) {
+                closing = runStart;
+                break;
+            }
+        }
+        if (closing < 0) {
+            continue;
+        }
+
+        QString content = markdown.mid(i, closing - i);
+        content.replace(QLatin1Char('\n'), QLatin1Char(' '));
+        // CommonMark collapses a single boundary space when both ends are
+        // padded (unless the entire code span consists of spaces).
+        if (content.size() >= 2
+            && content.front() == QLatin1Char(' ')
+            && content.back() == QLatin1Char(' ')
+            && !content.trimmed().isEmpty()) {
+            content = content.mid(1, content.size() - 2);
+        }
+        if (!content.isEmpty()) {
+            const int start = plain.indexOf(content, searchFrom);
+            if (start >= 0) {
+                QTextCursor cursor(&document);
+                cursor.setPosition(start);
+                cursor.setPosition(start + content.size(), QTextCursor::KeepAnchor);
+                // Do not overwrite background/foreground or other formatting.
+                cursor.mergeCharFormat(codeFont);
+                searchFrom = start + content.size();
+            }
+        }
+        i = closing + tickCount;
+    }
+}
+#endif
+
 bool rangeAlreadyFormattedAsLinkOrCode(QTextDocument& document, int position, int length)
 {
     QTextCursor cursor(&document);
@@ -680,6 +812,10 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text,
     features.setFlag(QTextDocument::MarkdownNoHTML);
     const QString markdown = promoteMultilineCodeSpans(text);
     document.setMarkdown(preserveUserLineBreaks(markdown), features);
+    forceInlineCodeFont(document);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    restoreQt5InlineCodeFont(document, markdown);
+#endif
 
     // Qt's GFM autolinker still misses some valid long percent-encoded URLs.
     // Complete only bare http(s) links after Markdown parsing so explicit links

@@ -1519,6 +1519,13 @@ void PostWidget::applyChatFont(const QString& serializedFont,
 
     chatFont_ = nextFont;
 
+    // The designer's legacy 8 pt / 16 px author label truncated larger chat
+    // fonts. The nickname uses the same body size, only with bold weight.
+    QFont authorFont = chatFont_;
+    authorFont.setBold(true);
+    ui->authorName->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->authorName->setFont(authorFont);
+
     // Timestamp belongs to author chrome, not message-body typography.
     // Both the normal post time and continuation hover time use the same
     // compact font relative to the author header.
