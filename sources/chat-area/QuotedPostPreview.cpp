@@ -14,6 +14,7 @@
 #include <QTextDocument>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 #include "QuotedReplyFormat.h"
 #include "QuotedAttachmentSummary.h"
@@ -22,6 +23,26 @@
 #include "post/attachments/PostAttachmentList.h"
 
 namespace Mattermost {
+
+namespace {
+
+// QTextBrowser still scrolls its document when both scrollbars are hidden.
+// A quoted excerpt is a non-scrolling part of the surrounding chat timeline.
+class FixedExcerptBrowser final : public QTextBrowser
+{
+public:
+    using QTextBrowser::QTextBrowser;
+
+protected:
+    void wheelEvent(QWheelEvent* event) override
+    {
+        verticalScrollBar()->setValue(0);
+        // Do not consume the wheel: let the enclosing chat viewport scroll.
+        event->ignore();
+    }
+};
+
+} // namespace
 
 QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     : QFrame(parent)
@@ -54,7 +75,8 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     authorLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     authorLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
 
-    messageBrowser = new QTextBrowser(this);
+    messageBrowser = new FixedExcerptBrowser(this);
+    messageBrowser->setObjectName(QStringLiteral("quotedPostExcerpt"));
     messageBrowser->setReadOnly(true);
     messageBrowser->setOpenLinks(false);
     messageBrowser->setOpenExternalLinks(false);
@@ -71,6 +93,14 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     messageBrowser->document()->setDocumentMargin(0);
     messageBrowser->viewport()->setAutoFillBackground(false);
     messageBrowser->viewport()->installEventFilter(this);
+    // Selection changes, document reflow and Qt's hidden scrollbar handling
+    // can move the visible excerpt even without a visible scrollbar.
+    connect(messageBrowser->verticalScrollBar(), &QScrollBar::valueChanged,
+            messageBrowser, [this](int value) {
+                if (value != 0) {
+                    messageBrowser->verticalScrollBar()->setValue(0);
+                }
+            });
 
     attachmentSummary = new QuotedAttachmentSummary(this);
 
@@ -283,6 +313,7 @@ void QuotedPostPreview::refreshText()
     messageBrowser->setHtml(MessageFormatter::formatMessageText(fullText));
 #endif
     messageBrowser->document()->setDocumentMargin(0);
+    messageBrowser->verticalScrollBar()->setValue(0);
 }
 
 } // namespace Mattermost

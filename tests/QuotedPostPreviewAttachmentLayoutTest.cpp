@@ -3,6 +3,9 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QTextBrowser>
+#include <QWheelEvent>
 
 #include "backend/Backend.h"
 #include "backend/types/BackendFile.h"
@@ -17,6 +20,42 @@ class QuotedPostPreviewAttachmentLayoutTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void permalinkExcerptDoesNotScrollInternally()
+    {
+        QuotedPostPreview preview(nullptr, 4);
+        QStringList paragraphs;
+        for (int i = 0; i < 25; ++i) {
+            paragraphs.push_back(QStringLiteral("Paragraph %1: quoted permalink content").arg(i));
+        }
+        preview.setPreview(QStringLiteral("Sender · Channel"),
+                           paragraphs.join(QStringLiteral("\\n\\n")));
+        preview.resize(460, 150);
+        preview.show();
+
+        auto* browser = preview.findChild<QTextBrowser*>(
+            QStringLiteral("quotedPostExcerpt"));
+        QVERIFY(browser);
+        QScrollBar* scrollbar = browser->verticalScrollBar();
+        QVERIFY(scrollbar);
+
+        // The document remains full-size for formatting/link interaction,
+        // but a four-line excerpt must always display its first lines.
+        QTRY_VERIFY(scrollbar->maximum() > 0);
+        QCOMPARE(scrollbar->value(), 0);
+        scrollbar->setValue(scrollbar->maximum());
+        QCOMPARE(scrollbar->value(), 0);
+
+        const QPoint local = browser->viewport()->rect().center();
+        const QPoint global = browser->viewport()->mapToGlobal(local);
+        QWheelEvent wheel(QPointF(local), QPointF(global), QPoint(),
+                          QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(browser->viewport(), &wheel);
+        QCOMPARE(scrollbar->value(), 0);
+        QVERIFY2(!wheel.isAccepted(),
+                 "The excerpt must not steal wheel events from the chat timeline");
+    }
+
     void permalinkBinaryFileUsesPreviewWidth()
     {
         Backend backend;
