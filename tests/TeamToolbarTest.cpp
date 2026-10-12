@@ -76,11 +76,14 @@ private slots:
         QVERIFY(!beta->isChecked());
         QVERIFY(toolbar->findChild<QToolButton*>(
             QStringLiteral("teamToolbarAdd")));
-        auto* actions = toolbar->findChild<QToolButton*>(
-            QStringLiteral("teamToolbarActions"));
-        QVERIFY(actions);
-        QVERIFY(actions->menu());
-        QVERIFY(!actions->menu()->actions().isEmpty());
+        auto* browse = toolbar->findChild<QToolButton*>(
+            QStringLiteral("teamToolbarBrowse"));
+        QVERIFY(browse);
+        QVERIFY(!browse->icon().isNull());
+        QVERIFY(!beta->text().isEmpty());
+        QCOMPARE(beta->text(), QStringLiteral("Beta team"));
+        QVERIFY(toolbar->findChild<QWidget*>(
+            QStringLiteral("teamToolbarSeparator")));
 
         QTest::mouseClick(beta, Qt::LeftButton);
         QCOMPARE(selector->activeTeamId(), QStringLiteral("team-beta"));
