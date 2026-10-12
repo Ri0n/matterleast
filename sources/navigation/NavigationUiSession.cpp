@@ -60,8 +60,8 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
     area->setProperty("sessionTracked", true);
     connect(area, &QObject::destroyed, this, [this] { scheduleSessionSave(); });
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
-        connect(log, &LongListWidget::visibleRangeChanged, this,
-                [this](int, int) { scheduleSessionSave(); });
+        // Scroll position lives only in memory; viewport updates must not
+        // serialize the account session or create disk-write storms.
         connect(log, &LongListWidget::userScrollStarted, area, [area] {
             area->setProperty("sessionBookmark", QString());
         });
