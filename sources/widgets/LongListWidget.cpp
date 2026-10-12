@@ -1036,12 +1036,20 @@ int LongListWidget::viewportCenterIndex() const
         : -1;
 }
 
-bool LongListWidget::captureItemTopFraction(int index, qreal& fraction) const
+bool LongListWidget::captureSemanticAnchorFraction(int index,
+                                                    SemanticAnchorPoint point,
+                                                    qreal& fraction) const
 {
     if (index < 0 || index >= logicalCount || viewport()->height() <= 0) {
         return false;
     }
-    fraction = static_cast<qreal>(heights.prefixHeight(index) - contentOffset())
+    const qint64 h = heights.value(index);
+    const qint64 itemAnchor = heights.prefixHeight(index)
+        + (point == SemanticAnchorPoint::ItemCenter ? h / 2 : h);
+    const qint64 viewportAnchor = contentOffset()
+        + (point == SemanticAnchorPoint::ItemCenter
+            ? viewport()->height() / 2 : viewport()->height());
+    fraction = static_cast<qreal>(itemAnchor - viewportAnchor)
         / static_cast<qreal>(viewport()->height());
     return true;
 }
@@ -1208,16 +1216,21 @@ bool LongListWidget::lockViewportToItem(int index,
     return true;
 }
 
-bool LongListWidget::lockViewportToItemTopFraction(int index,
-                                                    qreal fraction,
-                                                    int quietPeriodMs)
+bool LongListWidget::lockViewportToSemanticAnchor(int index,
+                                                   SemanticAnchorPoint point,
+                                                   qreal fraction,
+                                                   int quietPeriodMs)
 {
     if (!std::isfinite(static_cast<double>(fraction))
-        || !lockViewportToItem(index, Alignment::Top, quietPeriodMs)) {
+        || !lockViewportToItem(index,
+                              point == SemanticAnchorPoint::ItemBottom
+                                  ? Alignment::Bottom : Alignment::Center,
+                              quietPeriodMs)) {
         return false;
     }
-    viewportLock.explicitTopFraction = true;
-    viewportLock.itemTopFraction = static_cast<long double>(fraction);
+    viewportLock.explicitSemanticAnchor = true;
+    viewportLock.semanticPoint = point;
+    viewportLock.semanticFraction = static_cast<long double>(fraction);
     QSignalBlocker blocker(verticalScrollBar());
     restoreViewportLock();
     layoutMaterialized();
@@ -1906,7 +1919,7 @@ void LongListWidget::restoreViewportLock()
 
     const int currentItemHeight = heights.value(viewportLock.index);
     if (currentItemHeight != viewportLock.itemHeight
-        && !viewportLock.explicitTopFraction) {
+        && !viewportLock.explicitSemanticAnchor) {
         // The target itself reflowed. Keeping its old top Y would make a row
         // that grew after navigation spill out of the viewport, even though it
         // could be centred with the now-authoritative height. Re-apply the
@@ -1919,9 +1932,19 @@ void LongListWidget::restoreViewportLock()
     }
 
     viewportLock.itemHeight = currentItemHeight;
-    const long double desiredViewportY = viewportLock.itemTopFraction
-        * static_cast<long double>(std::max(1, viewport()->height()));
-    const qint64 targetOffset = heights.prefixHeight(viewportLock.index)
+    const int viewHeight = std::max(1, viewport()->height());
+    const long double desiredViewportY = viewportLock.explicitSemanticAnchor
+        ? ((viewportLock.semanticPoint == SemanticAnchorPoint::ItemBottom
+                ? static_cast<long double>(viewHeight)
+                : static_cast<long double>(viewHeight) / 2)
+            + viewportLock.semanticFraction * viewHeight)
+        : (viewportLock.itemTopFraction * viewHeight);
+    const qint64 itemAnchor = heights.prefixHeight(viewportLock.index)
+        + (viewportLock.explicitSemanticAnchor
+            ? (viewportLock.semanticPoint == SemanticAnchorPoint::ItemBottom
+                ? currentItemHeight : currentItemHeight / 2)
+            : 0);
+    const qint64 targetOffset = itemAnchor
         - static_cast<qint64>(std::llround(desiredViewportY));
     verticalScrollBar()->setValue(scrollValueForContentOffset(targetOffset));
 }
