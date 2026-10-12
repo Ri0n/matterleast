@@ -556,7 +556,7 @@ private slots:
         QCOMPARE(surfaceStack->currentWidget(), static_cast<QWidget*>(tabbed));
     }
 
-    void coldThreadsOpenInSuccessiveTabs()
+    void inactiveTabsKeepOnlySemanticState()
     {
         Server server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
@@ -587,29 +587,34 @@ private slots:
             QVERIFY(area->isVisible());
             QVERIFY(area->property("threadTabbed").toBool());
             for (int previous = 1; previous < thread; ++previous) {
-                auto* existing = ui.findThread(channel->id, rootId(previous));
-                QVERIFY(existing);
-                QVERIFY(!existing->isVisible());
+                QTRY_VERIFY(!ui.findThread(channel->id, rootId(previous)));
             }
         }
         QCOMPARE(server.postLookups.size(), 7);
         QVERIFY(!server.postLookups.contains(rootId(1)));
 
-        // Tab presentation must not cancel other sources' bootstrap when the
-        // user opens several Following entries before any HTTP reply arrives.
+        // Tab changes may begin in-flight HTTP requests, but no inactive tab
+        // retains a live ChatArea or starts *additional* presentation requests.
         server.delayMs = 50;
         for (int thread = 21; thread <= 28; ++thread) {
             navigation.openThreadInTab(channel->id, rootId(thread));
             QVERIFY(ui.findThread(channel->id, rootId(thread)));
         }
-        for (int thread = 21; thread <= 28; ++thread) {
-            auto* area = ui.findThread(channel->id, rootId(thread));
-            auto* list = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-            QTRY_COMPARE(list->itemCount(), 4);
-            QTRY_VERIFY(list->findPost(replyId(thread, 3)));
-            QCOMPARE(area->isVisible(), thread == 28);
+        for (int thread = 21; thread < 28; ++thread) {
+            QTRY_VERIFY(!ui.findThread(channel->id, rootId(thread)));
         }
-        QCOMPARE(server.postLookups.size(), 15);
+        auto* current = ui.findThread(channel->id, rootId(28));
+        QVERIFY(current);
+        auto* list = current->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QTRY_COMPARE(list->itemCount(), 4);
+        QTRY_VERIFY(list->findPost(replyId(28, 3)));
+        QVERIFY(current->isVisible());
+        // Revisiting an inactive tab rematerializes only that tab.
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        tabs->setCurrentIndex(0);
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(1)));
+        QTRY_VERIFY(!ui.findThread(channel->id, rootId(28)));
     }
 
     void missingRootFailureCanBeRetried()
