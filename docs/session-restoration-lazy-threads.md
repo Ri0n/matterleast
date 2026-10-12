@@ -21,3 +21,15 @@ Regression: `ThreadTabsIntegrationTest::startupOnlyMaterializesSelectedTabAndVis
 When another right-hand thread replaces the visible dock, the previous
 ChatArea flushes its draft and is closed (deferred deletion). This stops
 retaining sources, post widgets, and leases for every thread ever visited.
+
+## Restart vs. in-process navigation
+
+The persisted session intentionally stores **only** tab destinations (with
+order/pinned flags), the currently visible dock, and visible detached thread
+windows and their geometry. It stores **no post, scroll offset, or viewport
+bookmark**, even when an old session contains a legacy `post` field.
+On restart every view follows the normal initial/newest positioning.
+
+While the process runs, the tab model may retain an in-memory semantic viewport
+anchor for restoring the user's scroll position on tab switches. That state
+must not be serialized to account settings.
