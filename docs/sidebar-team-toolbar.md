@@ -1,18 +1,17 @@
-# One-click team toolbar
+# Channels-only team toolbar
 
-The sidebar renders a fixed horizontal row of team buttons directly below
-the user header (name/presence) and above the channel filter. Teams with
-actual ChannelTree roots are displayed in alphabetical order, with elided
-names and full-name tooltips. The selected team uses a native checked/sunken
-QToolButton whose Button palette matches the sidebar background. The \`+\`
-button invokes the existing team-join path; \`…\` retains access to Browse
-public channels for the selected team.
+TeamSelectorLabel stays alive as the hidden controller for team context,
+ChannelTree root-index switching, restoring and persisting team selection.
+Its horizontal team strip lives inside channelsPage, immediately beneath
+the Channels tab and above ChannelTree. The Following and Attention tabs
+have no toolbar and retain their full available height.
 
-The hidden legacy TeamSelectorLabel stays alive to own the active team ID,
-persistence in \`sidebar/active_team_id\`, and ChannelTree root-index
-switching. Do not replicate this state elsewhere. Changes from navigation
-or joining teams must update the strip, and root removal must not leave
-stale buttons. Widgets removed during a click are released via
-\`deleteLater()\` to avoid deleting their own signal emitter.
+Team names are always shown on clickable buttons. The active team has a
+rounded inset/pressed background. Delicate gray dotted separators sit between
+names, which are shortened only when exceptionally long (full name in tooltip).
+A scroll area with ‹/› controls handles more teams than fit the width.
+The right-hand hashtag icon opens Browse public channels directly;
+the 20px symbolic plus is identical to the sidebar category plus and joins a
+new team. No team dropdown or overflow action menu is present.
 
-The button strip scrolls horizontally when teams exceed its viewport.
+A separate avatar menu manages user availability and custom status.
