@@ -72,6 +72,10 @@ public:
         Center,
         Bottom,
     };
+    enum class SemanticAnchorPoint {
+        ItemCenter,
+        ItemBottom,
+    };
     Q_ENUM(Alignment)
 
     enum class InsertViewportPolicy {
@@ -203,6 +207,11 @@ public:
     qint64 contentHeight() const;
     int indexAtViewportPosition(int viewportY) const;
     int viewportCenterIndex() const;
+    // Relative to the viewport's same reference point, normalized by height.
+    // May be negative, notably when the item's centre lies above the viewport.
+    bool captureSemanticAnchorFraction(int index,
+                                      SemanticAnchorPoint point,
+                                      qreal& fraction) const;
     ItemVisibilities itemVisibility(int index) const;
     bool isAtEnd() const
     {
@@ -224,6 +233,12 @@ public:
     bool lockViewportToItem(int index,
                             Alignment alignment = Alignment::Center,
                             int quietPeriodMs = 2000);
+    // Restore a specific item center relative to viewport center, or item
+    // bottom relative to viewport bottom, even across changes in item height.
+    bool lockViewportToSemanticAnchor(int index,
+                                      SemanticAnchorPoint point,
+                                      qreal fraction,
+                                      int quietPeriodMs = 0);
 
     /**
      * Change the logical index represented by an active viewport lock without
@@ -352,6 +367,9 @@ private:
         long double itemTopFraction = 0.0L;
         int itemHeight = 0;
         Alignment alignment = Alignment::EnsureVisible;
+        bool explicitSemanticAnchor = false;
+        SemanticAnchorPoint semanticPoint = SemanticAnchorPoint::ItemCenter;
+        long double semanticFraction = 0.0L;
         int quietPeriodMs = 0;
     };
 

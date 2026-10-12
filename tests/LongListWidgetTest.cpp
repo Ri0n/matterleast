@@ -134,6 +134,73 @@ class LongListWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
+    void semanticBottomAnchorDoesNotFollowNewReplies()
+    {
+        TestLongListWidget list;
+        list.resize(460, 320);
+        list.setDefaultItemHeight(80);
+        list.setItemCount(100);
+        list.setRangeAvailable(0, 99);
+        list.show();
+        list.scrollToEnd();
+        settleEvents();
+
+        qreal bottomFraction = 999;
+        QVERIFY(list.captureSemanticAnchorFraction(
+            99, Mattermost::LongListWidget::SemanticAnchorPoint::ItemBottom,
+            bottomFraction));
+        QVERIFY(qAbs(bottomFraction) < 0.04);
+
+        QVERIFY(list.lockViewportToSemanticAnchor(
+            99, Mattermost::LongListWidget::SemanticAnchorPoint::ItemBottom,
+            bottomFraction, 0));
+        list.setItemCount(101);
+        list.setRangeAvailable(100, 100);
+        settleEvents();
+
+        qreal restoredFraction = 999;
+        QVERIFY(list.captureSemanticAnchorFraction(
+            99, Mattermost::LongListWidget::SemanticAnchorPoint::ItemBottom,
+            restoredFraction));
+        QVERIFY(qAbs(restoredFraction - bottomFraction) < 0.04);
+        QVERIFY(!list.isAtEnd()); // New message is below the old bottom post.
+    }
+
+    void semanticCentreAnchorPreservesSignedOffsetWhenTallRowChanges()
+    {
+        TestLongListWidget list;
+        list.resize(460, 320);
+        list.setDefaultItemHeight(100);
+        list.setFactoryHeight(10, 900);
+        list.setItemCount(30);
+        list.setRangeAvailable(0, 29);
+        list.show();
+        settleEvents();
+        list.scrollToIndex(10, Mattermost::LongListWidget::Alignment::Top);
+        settleEvents();
+        list.verticalScrollBar()->setValue(
+            list.verticalScrollBar()->value() + 650);
+        settleEvents();
+
+        qreal centerFraction = 999;
+        QVERIFY(list.captureSemanticAnchorFraction(
+            10, Mattermost::LongListWidget::SemanticAnchorPoint::ItemCenter,
+            centerFraction));
+        QVERIFY(centerFraction < 0); // The tall post's centre is above viewport centre.
+
+        QVERIFY(list.lockViewportToSemanticAnchor(
+            10, Mattermost::LongListWidget::SemanticAnchorPoint::ItemCenter,
+            centerFraction, 0));
+        list.setSyntheticHeight(10, 1100);
+        settleEvents();
+
+        qreal afterGrowth = 999;
+        QVERIFY(list.captureSemanticAnchorFraction(
+            10, Mattermost::LongListWidget::SemanticAnchorPoint::ItemCenter,
+            afterGrowth));
+        QVERIFY(qAbs(afterGrowth - centerFraction) < 0.04);
+    }
+
     void uniformGeometryMapsMiddleToMiddle()
     {
         TestLongListWidget list;
