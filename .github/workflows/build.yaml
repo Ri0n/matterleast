@@ -140,6 +140,14 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
+      # Temporary crash diagnostics for the newly added team toolbar widget.
+      - name: Debug team toolbar test crash
+        if: failure()
+        run: |
+          sudo apt-get install -y gdb
+          QT_QPA_PLATFORM=offscreen gdb -batch -ex run -ex "thread apply all bt 35" \
+            --args build/tests/team-toolbar-test || true
+
   windows:
     name: Qt 6.11.2 / Windows 2025
     runs-on: windows-2025
