@@ -243,29 +243,66 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent)
 
 void TeamSelectorLabel::rebuildTeamToolbar()
 {
-    if (!_teamButtonsHost || !_teamButtonsLayout) {
+    if (!_teamButtonsHost || !_teamButtonsLayout) return;
+
+    std::vector<BackendTeam*> teams;
+    if (tree_ && tree_->backendInstance()) {
+        for (auto& entry : tree_->backendInstance()->getStorage().teams) {
+            if (hasTeamRoot(entry.first)) teams.push_back(&entry.second);
+        }
+        std::sort(teams.begin(), teams.end(),
+                  [](const BackendTeam* a, const BackendTeam* b) {
+            return teamLabel(*a).compare(teamLabel(*b), Qt::CaseInsensitive) < 0;
+        });
+    }
+
+    // Model rowsInserted can schedule several refreshes for a single team
+    // admission. Preserve live buttons whenever membership/order is unchanged:
+    // pending callbacks must never invalidate a button awaiting a mouse click.
+    QStringList existingIds, desiredIds;
+    for (int i = 0; i < _teamButtonsLayout->count(); ++i) {
+        QWidget* widget = _teamButtonsLayout->itemAt(i)->widget();
+        if (widget && !widget->property("teamId").toString().isEmpty()) {
+            existingIds.push_back(widget->property("teamId").toString());
+        }
+    }
+    for (const BackendTeam* team : teams) desiredIds.push_back(team->id);
+    if (existingIds == desiredIds) {
+        int minimumWidth = 0;
+        for (int i = 0; i < _teamButtonsLayout->count(); ++i) {
+            QWidget* widget = _teamButtonsLayout->itemAt(i)->widget();
+            if (!widget) continue;
+            minimumWidth += widget->width() + _teamButtonsLayout->spacing();
+            if (auto* button = qobject_cast<QToolButton*>(widget)) {
+                const QString id = button->property("teamId").toString();
+                for (const BackendTeam* team : teams) {
+                    if (team->id != id) continue;
+                    const QString label = teamLabel(*team);
+                    const QString title = button->fontMetrics().elidedText(
+                        label, Qt::ElideRight, 175);
+                    button->setText(title);
+                    button->setToolTip(label);
+                    button->setAccessibleName(label);
+                    button->setFixedWidth(std::max(
+                        40, button->fontMetrics().horizontalAdvance(title) + 20));
+                    break;
+                }
+            }
+        }
+        _teamButtonsHost->setMinimumWidth(std::max(1, minimumWidth));
+        updateTeamToolbarSelection();
         return;
     }
+
+    // Roots were genuinely added/removed. Retire old widgets after the current
+    // event turn; ordinary selection never comes through this branch.
     while (QLayoutItem* item = _teamButtonsLayout->takeAt(0)) {
         if (QWidget* widget = item->widget()) {
             widget->hide();
-            widget->deleteLater(); // an active click may be on this widget
+            widget->deleteLater();
         }
         delete item;
     }
-    if (!tree_ || !tree_->backendInstance()) {
-        _teamButtonsHost->adjustSize();
-        return;
-    }
-    std::vector<BackendTeam*> teams;
-    for (auto& entry : tree_->backendInstance()->getStorage().teams) {
-        if (hasTeamRoot(entry.first)) {
-            teams.push_back(&entry.second);
-        }
-    }
-    std::sort(teams.begin(), teams.end(), [](const BackendTeam* a, const BackendTeam* b) {
-        return teamLabel(*a).compare(teamLabel(*b), Qt::CaseInsensitive) < 0;
-    });
     int totalWidth = 0;
     for (BackendTeam* team : teams) {
         if (totalWidth) {
