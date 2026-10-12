@@ -71,11 +71,18 @@ public:
 	 * @return true when observable post state changed.
 	 */
 	bool refreshFromJson (const QJsonObject& jsonObject, const Storage& storage);
+	// The last reply timestamp from an actual server snapshot, never from
+	// local WebSocket increments. A newly observed reply may already be
+	// included in that snapshot's reply_count despite an uncached body.
+	bool serverThreadSummaryIncludesReplyAt(uint64_t createAt) const;
 	void addReaction(QString userId, QString emojiName);
 	void removeReaction(QString userId, QString emojiName);
     bool hasReaction(const QString& userId, const QString& emojiName) const;
 private:
 	QString getAuthorName () const;
+	// A local live reply can advance last_reply_at without advancing the
+	// server snapshot watermark. Keep the two independent.
+	uint64_t _serverThreadLastReplyAt = 0;
 public:
 	QString						id;
 	uint64_t					create_at;

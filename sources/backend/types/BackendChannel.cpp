@@ -141,7 +141,13 @@ BackendPost* BackendChannel::addPost (const QJsonObject& postObject)
 			qDebug() << rootPost->id <<  rootPost->message;
 			bool rootChanged = !rootPost->has_thread;
 			rootPost->has_thread = true;
-			if (!knownReplyIdentity) {
+			if (!knownReplyIdentity
+				&& !rootPost->serverThreadSummaryIncludesReplyAt(newPost->create_at)) {
+				// Root metadata from REST may already include this reply,
+				// even though its body reaches us later via WebSocket.
+				// Only count replies newer than the *server* snapshot;
+				// last_reply_at is also advanced locally and cannot serve
+				// as the deduplication watermark for reordered events.
 				++rootPost->reply_count;
 				rootChanged = true;
 			}

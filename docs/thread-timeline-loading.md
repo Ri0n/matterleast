@@ -6,6 +6,9 @@ logical ID-slot bookkeeping and source-side request attachment are documented in
 `post-source-architecture.md`; this document covers only thread-specific topology and transport
 authority.
 
+For the distinction between server-proven root thread counts and locally
+observed WebSocket replies, see [thread reply-count provenance](thread-reply-count-provenance.md).
+
 ## Prefetch before a logical gap
 
 `LongListWidget` owns the decision that more logical items are needed. A post source must not inspect

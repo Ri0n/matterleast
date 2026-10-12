@@ -66,6 +66,12 @@ BackendPost::BackendPost (const QJsonObject& jsonObject, const Storage& storage)
 	// downloading the complete thread.
 	reply_count = jsonObject.value("reply_count").toVariant().toLongLong();
 	last_reply_at = jsonObject.value("last_reply_at").toVariant().toULongLong();
+	// Only a root with both server thread metadata fields supplies a valid
+	// boundary. Older/partial payloads must not suppress a new live reply.
+	if (root_id.isEmpty() && jsonObject.contains("reply_count")
+		&& jsonObject.contains("last_reply_at")) {
+		_serverThreadLastReplyAt = last_reply_at;
+	}
 	for (const QJsonValue& participantValue : jsonObject.value("participants").toArray()) {
 		const QString participantId = participantValue.isObject()
 			? participantValue.toObject().value(QStringLiteral("id")).toString()
@@ -118,6 +124,12 @@ BackendPost::BackendPost (const QJsonObject& jsonObject, const Storage& storage)
 
 BackendPost::BackendPost (BackendPost&& other) = default;
 BackendPost::~BackendPost () = default;
+
+bool BackendPost::serverThreadSummaryIncludesReplyAt(uint64_t createAt) const
+{
+	return createAt != 0 && _serverThreadLastReplyAt != 0
+		&& createAt <= _serverThreadLastReplyAt;
+}
 
 bool BackendPost::isOwnPost () const
 {
@@ -308,6 +320,10 @@ bool BackendPost::updatePostEdits (BackendPost& editedPost)
 		|| hidden != nextHidden
 		|| static_cast<bool>(poll) != static_cast<bool>(editedPost.poll);
 
+	// A new authoritative post snapshot may match the current visible fields:
+	// the latter may already have been optimistically advanced via WebSocket.
+	// In that case the *provenance* still changes and must be remembered.
+	_serverThreadLastReplyAt = editedPost._serverThreadLastReplyAt;
 	if (!changed) {
 		return false;
 	}
