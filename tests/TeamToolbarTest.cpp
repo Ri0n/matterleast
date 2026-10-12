@@ -10,6 +10,7 @@
 #include "backend/Backend.h"
 #include "backend/Storage.h"
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree/team-item/GroupTeamItem.h"
 #include "options/MLOptions.h"
 #include "ui/TeamSelectorLabel.h"
 
@@ -53,7 +54,9 @@ private slots:
                 {"id", id}, {"name", display}, {"display_name", display}
             });
             QVERIFY(team);
-            auto* root = new QTreeWidgetItem(tree);
+            // The real tree contains TeamItem-derived roots; generic
+            // QTreeWidgetItem stubs violate its navigation assumptions.
+            auto* root = new GroupTeamItem(*tree, backend, display, id);
             root->setText(0, display);
             root->setData(0, ChannelTree::ItemKindRole,
                           ChannelTree::TeamItemKind);
