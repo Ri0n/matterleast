@@ -210,9 +210,17 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 			restoreNavigationSessionWhenReady();
 		});
 
-	connect(&currentUser, &BackendUser::onStatusChanged, [this, &currentUser] {
-		ui->statusLabel->setText(currentUser.status);
-	});
+    const auto refreshProfileStatus = [this, &currentUser] {
+        ui->usericon_label->setStatus(currentUser.status);
+        ui->statusLabel->setText(
+            currentUser.props.customStatus.text.isEmpty()
+                ? currentUser.status : currentUser.props.customStatus.text);
+    };
+    connect(&currentUser, &BackendUser::onStatusChanged,
+            this, refreshProfileStatus);
+    connect(&backend, &Backend::onOwnCustomStatusChanged,
+            this, refreshProfileStatus);
+    refreshProfileStatus();
 	ui->usernameLabel->setText(currentUser.username);
 
 	connect(&currentUser, &BackendUser::onAvatarChanged, [this, &currentUser] {
