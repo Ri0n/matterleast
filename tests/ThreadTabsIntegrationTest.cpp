@@ -557,6 +557,71 @@ private slots:
         QCOMPARE(surfaceStack->currentWidget(), static_cast<QWidget*>(tabbed));
     }
 
+    void scrollingUpFromLiveEdgeRestoresMeasuredPositionAfterTabSwitch()
+    {
+        Server server;
+        server.replyCount = 24;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"},
+                         {"display_name", "Test chat"}});
+        QVERIFY(channel);
+        QJsonObject root = post(41);
+        root.insert("reply_count", server.replyCount);
+        root.insert("last_reply_at", 1000000000000LL + 41000 + server.replyCount);
+        channel->addPost(root);
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
+        auto& ui = NavigationUiController::instance(window);
+        window.resize(1000, 700);
+        window.show();
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openThreadInTab(channel->id, rootId(41));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* first = ui.findThread(channel->id, rootId(41));
+        auto* log = first->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(log);
+        QTRY_COMPARE(log->itemCount(), 25);
+        auto* bar = log->verticalScrollBar();
+        QVERIFY(bar);
+        QTRY_VERIFY(bar->maximum() > 400);
+        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QTRY_VERIFY(log->isAtEnd());
+
+        // This gesture cancels the live-edge intent. The same physical
+        // timeline must now be captured as a post-center anchor.
+        bar->setValue(bar->maximum() - 200);
+        QTRY_VERIFY(!log->isAtEnd());
+        ChatLogWidget::SemanticViewportBookmark before;
+        QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
+        QCOMPARE(before.point, LongListWidget::SemanticAnchorPoint::ItemCenter);
+
+        navigation.openThreadInTab(channel->id, rootId(42));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
+        QTRY_VERIFY(!ui.findThread(channel->id, rootId(41)));
+
+        navigation.openThreadInTab(channel->id, rootId(41));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* reopened = ui.findThread(channel->id, rootId(41));
+        auto* restoredLog = reopened->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(restoredLog);
+        QTRY_VERIFY(restoredLog->findPost(before.postId));
+        QTRY_VERIFY(!restoredLog->isAtEnd());
+
+        ChatLogWidget::SemanticViewportBookmark after;
+        QTRY_VERIFY(restoredLog->captureSemanticViewportBookmark(after)
+            && after.postId == before.postId
+            && after.point == LongListWidget::SemanticAnchorPoint::ItemCenter
+            && qAbs(after.fraction - before.fraction) < 0.06);
+    }
+
     void coldThreadsOpenInSuccessiveTabs()
     {
         Server server;
