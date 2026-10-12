@@ -229,7 +229,9 @@ void NavigationUiController::restoreSession()
     if (index < 0 && !tabModel.isEmpty()) index = 0;
     if (index >= 0) {
         const Location location = tabLocation(*tabModel.at(index));
-        activateTab(index, location.rootId.isEmpty());
+        // For the selected thread, keep the saved semantic post bookmark:
+        // no earlier eager restore pass has positioned inactive thread tabs.
+        activateTab(index, true);
     } else if (valid(central)) {
         navigateTo({central.channelId, {}, {}});
         restoreSessionBookmark(channelTree->getCurrentPage(), central.postId);
