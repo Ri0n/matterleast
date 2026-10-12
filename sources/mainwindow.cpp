@@ -68,6 +68,7 @@
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
+#include "ui/TeamSelectorLabel.h"
 #include "ui/ThinSplitter.h"
 
 namespace Mattermost {
@@ -312,6 +313,8 @@ void MainWindow::setupChannelTabs()
 	auto* channelsLayout = new QVBoxLayout(channelsPage);
 	channelsLayout->setContentsMargins(0, 0, 0, 0);
 	channelsLayout->setSpacing(0);
+	ui->teamSelectorLabel->hide();
+	channelsLayout->addWidget(ui->teamSelectorLabel->createTeamToolbar(channelsPage));
 	channelsLayout->addWidget(ui->channelList, 1);
 
 	recentChannels = new ChannelQuickList(channelTabs);
@@ -327,7 +330,6 @@ void MainWindow::setupChannelTabs()
 	leftLayout->setContentsMargins(0, 0, 0, 0);
 	leftLayout->setSpacing(0);
 	leftLayout->addWidget(ui->lefttop_frame);
-
 	auto* sidebarFilterRow = new QWidget(leftSidebar);
 	auto* sidebarFilterLayout = new QHBoxLayout(sidebarFilterRow);
 	sidebarFilterLayout->setContentsMargins(0, 0, 3, 0);
