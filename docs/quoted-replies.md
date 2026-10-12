@@ -74,6 +74,19 @@ Mattermost server-supplied `permalink` embeds. If the embedded post metadata
 contains files, the preview includes an interactive `PostAttachmentList`
 with the normal download/open controls rather than reducing it to an icon.
 
+The permalink message excerpt is capped at four lines. Hiding the two
+`QTextBrowser` scrollbars does **not** disable internal wheel scrolling: the
+excerpt must ignore wheel input so its surrounding chat log can scroll, and its
+vertical scroll offset is pinned to zero even when the document reflows or
+selection changes. Do not replace this browser with an ordinary `QTextBrowser`
+without preserving those protections. The
+`QuotedPostPreviewAttachmentLayoutTest` also exercises the long-text wheel
+and scroll-offset regression.
+
+The nested attachment list must also let wheel events pass through to the
+outer timeline (only for permalink previews). Its interactive file controls
+remain clickable; do not make the entire viewport mouse-transparent.
+
 The nested attachment list **must stretch to the available preview width**.
 Do not add it to the content layout with `Qt::AlignLeft`: that disables
 horizontal expansion and causes a feedback loop where an initial narrow

@@ -2,7 +2,11 @@
 
 #include <QJsonObject>
 #include <QLabel>
+#include <QListWidget>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QTextBrowser>
+#include <QWheelEvent>
 
 #include "backend/Backend.h"
 #include "backend/types/BackendFile.h"
@@ -17,6 +21,42 @@ class QuotedPostPreviewAttachmentLayoutTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void permalinkExcerptDoesNotScrollInternally()
+    {
+        QuotedPostPreview preview(nullptr, 4);
+        QStringList paragraphs;
+        for (int i = 0; i < 25; ++i) {
+            paragraphs.push_back(QStringLiteral("Paragraph %1: quoted permalink content").arg(i));
+        }
+        preview.setPreview(QStringLiteral("Sender · Channel"),
+                           paragraphs.join(QString(QChar::LineFeed).repeated(2)));
+        preview.resize(460, 150);
+        preview.show();
+
+        auto* browser = preview.findChild<QTextBrowser*>(
+            QStringLiteral("quotedPostExcerpt"));
+        QVERIFY(browser);
+        QScrollBar* scrollbar = browser->verticalScrollBar();
+        QVERIFY(scrollbar);
+
+        // The document remains full-size for formatting/link interaction,
+        // but a four-line excerpt must always display its first lines.
+        QTRY_VERIFY(scrollbar->maximum() > 0);
+        QCOMPARE(scrollbar->value(), 0);
+        scrollbar->setValue(scrollbar->maximum());
+        QCOMPARE(scrollbar->value(), 0);
+
+        const QPoint local = browser->viewport()->rect().center();
+        const QPoint global = browser->viewport()->mapToGlobal(local);
+        QWheelEvent wheel(QPointF(local), QPointF(global), QPoint(),
+                          QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(browser->viewport(), &wheel);
+        QCOMPARE(scrollbar->value(), 0);
+        QVERIFY2(!wheel.isAccepted(),
+                 "The excerpt must not steal wheel events from the chat timeline");
+    }
+
     void permalinkBinaryFileUsesPreviewWidth()
     {
         Backend backend;
@@ -37,9 +77,21 @@ private slots:
         preview.show();
 
         auto* list = preview.findChild<PostAttachmentList*>();
+        auto* innerList = list ? list->findChild<QListWidget*>() : nullptr;
         auto* card = preview.findChild<AttachedBinaryFile*>();
         QVERIFY(list);
+        QVERIFY(innerList);
         QVERIFY(card);
+        // A permalink card's attachment list must also let wheel scrolling
+        // reach the outer timeline while preserving clickable file controls.
+        const QPoint wheelPos = innerList->viewport()->rect().center();
+        const QPoint wheelGlobal = innerList->viewport()->mapToGlobal(wheelPos);
+        QWheelEvent fileWheel(QPointF(wheelPos), QPointF(wheelGlobal), QPoint(),
+                              QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                              Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(innerList->viewport(), &fileWheel);
+        QVERIFY2(!fileWheel.isAccepted(),
+                 "Attachment cards in a permalink preview must not steal wheel events");
         auto* metadata = card->findChild<QLabel*>(QStringLiteral("metadataLabel"));
         auto* download = card->findChild<QPushButton*>(
             QStringLiteral("downloadButton"));
