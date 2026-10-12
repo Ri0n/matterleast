@@ -78,6 +78,13 @@ public:
 	void updateUserPreferences (const BackendUserPreferences& preferences);
 	void deleteUserPreferences (const BackendUserPreferences& preferences);
 
+    using StatusUpdateResult = std::function<void(bool success, const QString& error)>;
+    void setOwnAvailability(const QString& status, StatusUpdateResult callback);
+    void setOwnCustomStatus(const QString& emoji, const QString& text,
+                            const QString& duration, const QString& expiresAt,
+                            StatusUpdateResult callback);
+    void clearOwnCustomStatus(StatusUpdateResult callback);
+
 	//get user's status (/users/status/ids)
 	void retrieveMultipleUsersStatus (const QVector<QString>& userIDs, std::function<void()> callback);
 
@@ -291,6 +298,7 @@ signals:
     /** Emitted when the logged-in user's flagged_post preference changes. */
     void onFlaggedPostChanged (const QString& postId, bool flagged);
 
+    void onOwnCustomStatusChanged();
     void onNetworkError (uint32_t errorNumber, const QString& errorText);
     void onHttpError (uint32_t errorNumber, const QString& errorText);
 
