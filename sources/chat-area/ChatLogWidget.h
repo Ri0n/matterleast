@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <cstdint>
 
 #include <QHash>
@@ -39,10 +41,11 @@ public:
     PostWidget* findPost(const QString& postId) const;
 
     /** Capture a semantic post near the viewport centre for inactive-page restore. */
-    bool captureViewportBookmark(QString& postId) const;
+    bool captureViewportBookmark(QString& postId, qreal* topFraction = nullptr) const;
 
     /** Restore an inactive-page bookmark without the navigation highlight animation. */
-    bool restoreViewportBookmark(const QString& postId);
+    bool restoreViewportBookmark(const QString& postId,
+                                 std::optional<qreal> topFraction = std::nullopt);
 
     bool ensurePostVisible(const QString& postId,
                            Alignment alignment = Alignment::EnsureVisible);
@@ -66,7 +69,8 @@ public:
      */
     bool lockNavigationToPost(const QString& postId,
                               Alignment alignment = Alignment::Center,
-                              int quietPeriodMs = 2000);
+                              int quietPeriodMs = 2000,
+                              std::optional<qreal> topFraction = std::nullopt);
     void clearNavigationLock();
 
     /** Composer up-arrow action; no QListWidgetItem leaks through this API. */
@@ -129,6 +133,7 @@ private:
     QString pendingHighlightPostId;
     int navigationLogicalIndex = -1;
     Alignment navigationAlignment = Alignment::Center;
+    std::optional<qreal> _navigationTopFraction;
     int navigationQuietPeriodMs = 2000;
     bool navigationLockPending = false;
     bool navigationRecenterPending = false;

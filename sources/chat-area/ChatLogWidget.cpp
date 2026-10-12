@@ -238,52 +238,56 @@ PostWidget* ChatLogWidget::findPost(const QString& postId) const
     return index >= 0 ? qobject_cast<PostWidget*>(itemWidget(index)) : nullptr;
 }
 
-bool ChatLogWidget::captureViewportBookmark(QString& postId) const
+bool ChatLogWidget::captureViewportBookmark(QString& postId,
+                                            qreal* topFraction) const
 {
     postId.clear();
     if (!postSource || itemCount() <= 0) {
         return false;
     }
 
-    // Preserve a semantic identity rather than a logical index. LongListWidget
-    // owns the pixel conversion and exposes only the logical centre item.
-    const int centerIndex = viewportCenterIndex();
-    if (centerIndex >= 0 && !isLocalPresentationIndex(centerIndex)) {
-        if (BackendPost* post = postSource->postAt(centerIndex)) {
-            if (!post->id.isEmpty()) {
-                postId = post->id;
-                return true;
-            }
+    auto choose = [this, &postId, topFraction](int index) {
+        if (index < 0 || isLocalPresentationIndex(index)) {
+            return false;
         }
+        BackendPost* post = postSource->postAt(index);
+        if (!post || post->id.isEmpty()) {
+            return false;
+        }
+        qreal fraction = 0;
+        if (topFraction && !captureItemTopFraction(index, fraction)) {
+            return false;
+        }
+        postId = post->id;
+        if (topFraction) *topFraction = fraction;
+        return true;
+    };
+
+    if (choose(viewportCenterIndex())) {
+        return true;
     }
 
-    // A sparse estimated window can have no resident body exactly at centre.
-    // Fall back to the nearest concrete visible post.
+    // A sparse estimated window may have no body at the centre; use the
+    // nearest concrete visible post while retaining its actual viewport Y.
     const Range visible = visibleRange();
     if (!visible.isValid()) {
         return false;
     }
     const int center = (visible.first + visible.last) / 2;
     for (int distance = 0; distance <= visible.count(); ++distance) {
-        const int candidates[] = {center - distance, center + distance};
-        for (int index : candidates) {
-            if (index < visible.first || index > visible.last) {
-                continue;
-            }
-            if (isLocalPresentationIndex(index)) {
-                continue;
-            }
-            BackendPost* post = postSource->postAt(index);
-            if (post && !post->id.isEmpty()) {
-                postId = post->id;
-                return true;
-            }
+        if (center - distance >= visible.first && choose(center - distance)) {
+            return true;
+        }
+        if (distance != 0 && center + distance <= visible.last
+            && choose(center + distance)) {
+            return true;
         }
     }
     return false;
 }
 
-bool ChatLogWidget::restoreViewportBookmark(const QString& postId)
+bool ChatLogWidget::restoreViewportBookmark(const QString& postId,
+                                            std::optional<qreal> topFraction)
 {
     if (!postSource || postId.isEmpty()) {
         return false;
@@ -291,7 +295,7 @@ bool ChatLogWidget::restoreViewportBookmark(const QString& postId)
 
     // Reuse the measured-row semantic navigation path, but deliberately do not
     // request a navigation flash for an ordinary channel revisit.
-    return lockNavigationToPost(postId, Alignment::Center, 0);
+    return lockNavigationToPost(postId, Alignment::Center, 0, topFraction);
 }
 
 bool ChatLogWidget::ensurePostVisible(const QString& postId, Alignment alignment)
@@ -419,7 +423,8 @@ void ChatLogWidget::refreshReadState()
 
 bool ChatLogWidget::lockNavigationToPost(const QString& postId,
                                          Alignment alignment,
-                                         int quietPeriodMs)
+                                         int quietPeriodMs,
+                                         std::optional<qreal> topFraction)
 {
     if (!postSource || postId.isEmpty()) {
         clearNavigationLock();
@@ -438,6 +443,7 @@ bool ChatLogWidget::lockNavigationToPost(const QString& postId,
     navigationPostId = postId;
     navigationLogicalIndex = index;
     navigationAlignment = alignment;
+    _navigationTopFraction = topFraction;
     navigationQuietPeriodMs = std::max(0, quietPeriodMs);
     navigationLockPending = true;
     navigationRecenterPending = false;
@@ -477,7 +483,11 @@ bool ChatLogWidget::finalizeNavigationLock()
     if (navigationLockPending || navigationRecenterPending || !hasViewportLock()) {
         navigationLockPending = false;
         navigationRecenterPending = false;
-        if (!lockViewportToItem(index, navigationAlignment, navigationQuietPeriodMs)) {
+        const bool anchored = _navigationTopFraction
+            ? lockViewportToItemTopFraction(
+                index, *_navigationTopFraction, navigationQuietPeriodMs)
+            : lockViewportToItem(index, navigationAlignment, navigationQuietPeriodMs);
+        if (!anchored) {
             return false;
         }
     }
@@ -843,6 +853,7 @@ void ChatLogWidget::clearNavigationLock()
     navigationLogicalIndex = -1;
     navigationLockPending = false;
     navigationRecenterPending = false;
+    _navigationTopFraction.reset();
     clearViewportLock();
 }
 
