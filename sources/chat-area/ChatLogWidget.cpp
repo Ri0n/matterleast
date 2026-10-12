@@ -238,6 +238,63 @@ PostWidget* ChatLogWidget::findPost(const QString& postId) const
     return index >= 0 ? qobject_cast<PostWidget*>(itemWidget(index)) : nullptr;
 }
 
+bool ChatLogWidget::captureSemanticViewportBookmark(
+    SemanticViewportBookmark& result) const
+{
+    result = {};
+    if (!postSource || itemCount() <= 0) return false;
+
+    const bool atEnd = isAtEnd();
+    const auto point = atEnd ? SemanticAnchorPoint::ItemBottom
+                             : SemanticAnchorPoint::ItemCenter;
+    const Range visible = visibleRange();
+    if (!visible.isValid()) return false;
+
+    auto choose = [this, &result, point](int index) {
+        if (index < 0 || isLocalPresentationIndex(index)) return false;
+        BackendPost* post = postSource->postAt(index);
+        if (!post || post->id.isEmpty()) return false;
+        qreal fraction = 0;
+        if (!captureSemanticAnchorFraction(index, point, fraction)) return false;
+        result.postId = post->id;
+        result.point = point;
+        result.fraction = fraction;
+        return true;
+    };
+
+    if (atEnd) {
+        for (int index = visible.last; index >= visible.first; --index) {
+            if (choose(index)) return true;
+        }
+        return false;
+    }
+    const int center = viewportCenterIndex();
+    if (center >= visible.first && center <= visible.last && choose(center)) {
+        return true;
+    }
+    for (int distance = 1; distance <= visible.count(); ++distance) {
+        if (center - distance >= visible.first && choose(center - distance)) return true;
+        if (center + distance <= visible.last && choose(center + distance)) return true;
+    }
+    return false;
+}
+
+bool ChatLogWidget::restoreSemanticViewportBookmark(
+    const SemanticViewportBookmark& bookmark)
+{
+    if (!postSource || !bookmark.isValid()) return false;
+    const auto alignment = bookmark.point == SemanticAnchorPoint::ItemBottom
+        ? Alignment::Bottom : Alignment::Center;
+    if (!lockNavigationToPost(bookmark.postId, alignment, 0)) return false;
+    _navigationSemanticBookmark = bookmark;
+    // Reapply the saved signed fraction after the current target's materialization.
+    if (itemWidget(navigationLogicalIndex)) {
+        navigationLockPending = true;
+        finalizeNavigationLock();
+    }
+    return true;
+}
+
 bool ChatLogWidget::captureViewportBookmark(QString& postId,
                                             qreal* topFraction) const
 {
@@ -443,7 +500,11 @@ bool ChatLogWidget::lockNavigationToPost(const QString& postId,
     navigationPostId = postId;
     navigationLogicalIndex = index;
     navigationAlignment = alignment;
-    _navigationTopFraction = topFraction;
+    _navigationSemanticBookmark.reset();
+    if (topFraction) {
+        _navigationSemanticBookmark = SemanticViewportBookmark{
+            postId, SemanticAnchorPoint::ItemCenter, *topFraction};
+    }
     navigationQuietPeriodMs = std::max(0, quietPeriodMs);
     navigationLockPending = true;
     navigationRecenterPending = false;
@@ -483,9 +544,10 @@ bool ChatLogWidget::finalizeNavigationLock()
     if (navigationLockPending || navigationRecenterPending || !hasViewportLock()) {
         navigationLockPending = false;
         navigationRecenterPending = false;
-        const bool anchored = _navigationTopFraction
-            ? lockViewportToItemTopFraction(
-                index, *_navigationTopFraction, navigationQuietPeriodMs)
+        const bool anchored = _navigationSemanticBookmark
+            ? lockViewportToSemanticAnchor(
+                index, _navigationSemanticBookmark->point,
+                _navigationSemanticBookmark->fraction, navigationQuietPeriodMs)
             : lockViewportToItem(index, navigationAlignment, navigationQuietPeriodMs);
         if (!anchored) {
             return false;
@@ -853,7 +915,7 @@ void ChatLogWidget::clearNavigationLock()
     navigationLogicalIndex = -1;
     navigationLockPending = false;
     navigationRecenterPending = false;
-    _navigationTopFraction.reset();
+    _navigationSemanticBookmark.reset();
     clearViewportLock();
 }
 
