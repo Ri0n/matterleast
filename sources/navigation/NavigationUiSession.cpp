@@ -26,13 +26,15 @@ using Location = NavigationUiController::Location;
 
 QJsonObject encode(const Location& location)
 {
-    return {{"channel", location.channelId}, {"root", location.rootId}, {"post", location.postId}};
+    // Session persistence is deliberately structural. Scroll positions exist
+    // only during the running process and must never survive a restart.
+    return {{"channel", location.channelId}, {"root", location.rootId}};
 }
 
 Location decode(const QJsonObject& object)
 {
-    return {object.value("channel").toString(), object.value("root").toString(),
-            object.value("post").toString()};
+    // Old snapshots may contain post; never restore a viewport from disk.
+    return {object.value("channel").toString(), object.value("root").toString()};
 }
 }
 
@@ -108,12 +110,12 @@ void NavigationUiController::saveSession()
     const QString key = sessionSettingsKey();
     if (key.isEmpty()) return;
 
-    auto locationOf = [this](ChatArea* area) {
-        Location location = captureLocation(area);
-        auto* log = area ? area->findChild<ChatLogWidget*>(QStringLiteral("listWidget")) : nullptr;
-        if (log && log->source() && log->isAtEnd()
-            && area->property("sessionBookmark").toString().isEmpty())
-            location.postId.clear();
+    auto locationOf = [](ChatArea* area) {
+        Location location;
+        if (area) {
+            location.channelId = area->getChannel().id;
+            if (area->isThread) location.rootId = area->root_id;
+        }
         return location;
     };
     saveActiveTabLocation();
@@ -222,19 +224,19 @@ void NavigationUiController::restoreSession()
         } else {
             attachThread(area);
         }
-        restoreSessionBookmark(area, location.postId);
+        // No persisted scroll position: newly restored views use newest.
     }
     const Location active = decode(state.value("active_tab").toObject());
     int index = tabModel.findDestination(active.channelId, active.rootId);
     if (index < 0 && !tabModel.isEmpty()) index = 0;
     if (index >= 0) {
         const Location location = tabLocation(*tabModel.at(index));
-        // For the selected thread, keep the saved semantic post bookmark:
-        // no earlier eager restore pass has positioned inactive thread tabs.
-        activateTab(index, true);
+        // Session restore reopens the destination at its ordinary newest
+        // position. In-process viewport anchors are never serialized.
+        activateTab(index, false);
     } else if (valid(central)) {
         navigateTo({central.channelId, {}, {}});
-        restoreSessionBookmark(channelTree->getCurrentPage(), central.postId);
+        // No persisted scroll position on session startup.
     }
     if (auto* area = findThread(dock.channelId, dock.rootId);
         area && threadStack->indexOf(area) >= 0) threadStack->setCurrentWidget(area);

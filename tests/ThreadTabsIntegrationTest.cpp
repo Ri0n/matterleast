@@ -365,15 +365,15 @@ private slots:
             MLOptions::instance()->value<QByteArray>(sessionKey())).object();
         QCOMPARE(persisted.value("tabs").toArray().size(), 2);
         QCOMPARE(persisted.value("threads").toArray().size(), 1);
-        QCOMPARE(persisted.value("tabs").toArray().at(0).toObject()
-                     .value("post").toString(), replyId(301, 2));
+        QVERIFY(!persisted.value("tabs").toArray().at(0).toObject().contains("post"));
+        QVERIFY(!persisted.value("threads").toArray().at(0).toObject().contains("post"));
 
         // The dormant tab is constructed only when the user selects it.
         tabs->setCurrentIndex(0);
         QTRY_VERIFY(ui.findThread("channel", rootId(301)));
     }
 
-    void sessionColdBookmarkAndUserNavigation()
+    void sessionDoesNotRestoreLegacyViewportBookmark()
     {
         Server server;
         server.startupChannels = true;
@@ -394,25 +394,14 @@ private slots:
         QTRY_VERIFY(ui.findThread("channel", rootId(205)));
         auto* area = ui.findThread("channel", rootId(205));
         auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-        QTRY_VERIFY(server.postLookups.contains(replyId(205, 365)));
-        QTRY_VERIFY(area->property("sessionBookmark").toString().isEmpty());
-        QTRY_VERIFY(!log->isAtEnd());
-        const int index = log->source()->indexOfPost(replyId(205, 365));
-        QVERIFY(index >= 0);
-        QTRY_VERIFY(log->itemWidget(index));
-        QTRY_VERIFY(log->visibleRange().first <= index && index <= log->visibleRange().last);
-        // The bookmark deliberately targets the middle of a large thread. A
-        // linear walk from either edge would consume at least half the replies;
-        // timing-dependent viewport prefetches are allowed to vary below that.
-        QVERIFY(server.returnedReplies < server.replyCount / 2);
-        // Explicit navigation cancels pending passive state immediately.
-        area->setProperty("sessionBookmark", replyId(205, 100));
-        area->goToNewest();
-        QVERIFY(area->property("sessionBookmark").toString().isEmpty());
+        // A saved legacy post bookmark must not trigger random-seek traffic
+        // or override the newest viewport at application launch.
         QTRY_VERIFY(log->isAtEnd());
+        QVERIFY(!server.postLookups.contains(replyId(205, 365)));
         ui.saveSession();
-        const auto saved = QJsonDocument::fromJson(MLOptions::instance()->value<QByteArray>(sessionKey())).object();
-        QVERIFY(saved.value("tabs").toArray().at(0).toObject().value("post").toString().isEmpty());
+        const auto saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QVERIFY(!saved.value("tabs").toArray().at(0).toObject().contains("post"));
         QVERIFY(!MLOptions::instance()->contains(sessionKey("other-user")));
     }
 
