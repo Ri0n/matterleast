@@ -599,6 +599,16 @@ if(TARGET matterleast-core)
 endif()
 
 if(TARGET matterleast-core)
+    # The icon utility loads :/icons/matterleast. This test executable must
+    # compile the same qrc as the application, not just link matterleast-core.
+    add_executable(tray-badge-test
+        TrayBadgeTest.cpp "${CMAKE_SOURCE_DIR}/resource.qrc")
+    target_link_libraries(tray-badge-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME tray-badge-test COMMAND tray-badge-test)
+    set_tests_properties(tray-badge-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(TARGET matterleast-core)
     add_executable(post-author-grouping-test PostAuthorGroupingTest.cpp)
     target_link_libraries(post-author-grouping-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-author-grouping-test COMMAND post-author-grouping-test)
