@@ -215,6 +215,11 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     const auto refreshProfileStatus = [this, &currentUser] {
         ui->usericon_label->setStatus(currentUser.status);
         const auto& custom = currentUser.props.customStatus;
+        // Rich-text emoji glyphs/images otherwise start almost flush against
+        // the 48px avatar. Reserve an 8px character-sized visual gutter only
+        // while an emoji status is present.
+        ui->statusLabel->setContentsMargins(
+            custom.emoji.isEmpty() ? 0 : 8, 0, 0, 0);
         if (custom.emoji.isEmpty()) {
             ui->statusLabel->setText(
                 custom.text.isEmpty() ? currentUser.status : custom.text);
