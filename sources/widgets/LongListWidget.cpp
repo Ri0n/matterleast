@@ -1036,6 +1036,16 @@ int LongListWidget::viewportCenterIndex() const
         : -1;
 }
 
+bool LongListWidget::captureItemTopFraction(int index, qreal& fraction) const
+{
+    if (index < 0 || index >= logicalCount || viewport()->height() <= 0) {
+        return false;
+    }
+    fraction = static_cast<qreal>(heights.prefixHeight(index) - contentOffset())
+        / static_cast<qreal>(viewport()->height());
+    return true;
+}
+
 LongListWidget::ItemVisibilities LongListWidget::itemVisibility(int index) const
 {
     QWidget* widget = materialized.value(index, nullptr);
@@ -1195,6 +1205,24 @@ bool LongListWidget::lockViewportToItem(int index,
     viewportLock.quietPeriodMs = std::max(0, quietPeriodMs);
     captureViewportLockFraction();
     touchViewportLock();
+    return true;
+}
+
+bool LongListWidget::lockViewportToItemTopFraction(int index,
+                                                    qreal fraction,
+                                                    int quietPeriodMs)
+{
+    if (!std::isfinite(static_cast<double>(fraction))
+        || !lockViewportToItem(index, Alignment::Top, quietPeriodMs)) {
+        return false;
+    }
+    viewportLock.explicitTopFraction = true;
+    viewportLock.itemTopFraction = static_cast<long double>(fraction);
+    QSignalBlocker blocker(verticalScrollBar());
+    restoreViewportLock();
+    layoutMaterialized();
+    viewport()->update();
+    scheduleSync(RequestReason::EnsureVisible);
     return true;
 }
 
@@ -1877,7 +1905,8 @@ void LongListWidget::restoreViewportLock()
     }
 
     const int currentItemHeight = heights.value(viewportLock.index);
-    if (currentItemHeight != viewportLock.itemHeight) {
+    if (currentItemHeight != viewportLock.itemHeight
+        && !viewportLock.explicitTopFraction) {
         // The target itself reflowed. Keeping its old top Y would make a row
         // that grew after navigation spill out of the viewport, even though it
         // could be centred with the now-authoritative height. Re-apply the
@@ -1889,6 +1918,7 @@ void LongListWidget::restoreViewportLock()
         return;
     }
 
+    viewportLock.itemHeight = currentItemHeight;
     const long double desiredViewportY = viewportLock.itemTopFraction
         * static_cast<long double>(std::max(1, viewport()->height()));
     const qint64 targetOffset = heights.prefixHeight(viewportLock.index)

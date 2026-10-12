@@ -203,6 +203,9 @@ public:
     qint64 contentHeight() const;
     int indexAtViewportPosition(int viewportY) const;
     int viewportCenterIndex() const;
+    // Semantic viewport bookmark: the item top in units of viewport height.
+    // Negative values are intentional for tall, partially scrolled posts.
+    bool captureItemTopFraction(int index, qreal& fraction) const;
     ItemVisibilities itemVisibility(int index) const;
     bool isAtEnd() const
     {
@@ -224,6 +227,11 @@ public:
     bool lockViewportToItem(int index,
                             Alignment alignment = Alignment::Center,
                             int quietPeriodMs = 2000);
+    // Keep the exact semantic item top at a saved fractional viewport Y,
+    // including negative values. Unlike Center this survives row reflow.
+    bool lockViewportToItemTopFraction(int index,
+                                       qreal fraction,
+                                       int quietPeriodMs = 0);
 
     /**
      * Change the logical index represented by an active viewport lock without
@@ -352,6 +360,7 @@ private:
         long double itemTopFraction = 0.0L;
         int itemHeight = 0;
         Alignment alignment = Alignment::EnsureVisible;
+        bool explicitTopFraction = false;
         int quietPeriodMs = 0;
     };
 
