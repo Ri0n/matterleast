@@ -748,6 +748,67 @@ private slots:
         }
     }
 
+
+    void navigationIslandNearInflatedLiveTailStillRecovers()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 267;
+        server.reportedReplyCount = 269;
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert("reply_count", 269);
+        root.insert("last_reply_at", timestamp(267));
+        channel.addPost(root);
+        ThreadPostSource source(backend, channel, id(0));
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failures(&source, &ThreadPostSource::rangeRequestFailed);
+
+        source.requestRange(1, 266, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failures.size(), 0);
+        QCOMPARE(source.indexOfPost(id(266)), 266);
+
+        // Navigating to the unseen 267th reply creates a provisional island
+        // near the inflated tail; the confirmed prefix is authoritative.
+        channel.mergePostContext(
+            QJsonArray {id(267)},
+            QJsonObject {{id(267), post(267)}});
+        QCOMPARE(source.ensurePostIndex(id(267)), 269);
+        QVERIFY(!source.isPostPositionAuthoritative(id(267)));
+
+        server.replyCount = 268;
+        server.reportedReplyCount = 270;
+        BackendPost* live = channel.addPost(post(268));
+        QVERIFY(live);
+        emit channel.onNewPost(*live);
+        QCOMPARE(source.indexOfPost(id(268)), 270);
+
+        // Island bootstrap cannot fabricate adjacency to the confirmed
+        // newest reply and should fail rather than move proven mappings.
+        source.requestRange(267, 269, AbstractPostSource::RequestReason::EnsureVisible, 0);
+        QTRY_COMPARE(finished.size(), 2);
+        QCOMPARE(failures.size(), 1);
+        QCOMPARE(source.indexOfPost(id(268)), 270);
+
+        // Scroll bypasses the provisional island at the last page. The
+        // complete cursor from 266 proves both identities and their true
+        // positions, allowing placeExactWindow to promote the island.
+        source.requestRange(267, 269, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 3);
+        QCOMPARE(failures.size(), 1);
+        QCOMPARE(source.itemCount(), 269);
+        QCOMPARE(source.indexOfPost(id(267)), 267);
+        QCOMPARE(source.indexOfPost(id(268)), 268);
+        QVERIFY(source.isPostPositionAuthoritative(id(267)));
+        QVERIFY(source.isPostPositionAuthoritative(id(268)));
+    }
+
     void tailBootstrapWithoutReliableSummary_data()
     {
         QTest::addColumn<bool>("missingTimestamp");
