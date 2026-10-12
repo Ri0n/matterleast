@@ -472,7 +472,11 @@ private slots:
         const QString overrideFamily = QStringLiteral("MatterLeast Test Mono");
         option->setValue(overrideFamily);
         MessageContentWidget widget;
-        widget.setMessage(QStringLiteral("before\\n\\n\x60\x60\x60cpp\\nint i;\\n\x60\x60\x60"));
+        widget.setMessage(QStringLiteral(R"(before
+
+```cpp
+int i;
+```)"));
         widget.resize(480, 240);
         widget.show();
 
