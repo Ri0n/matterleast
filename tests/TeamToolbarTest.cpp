@@ -20,7 +20,14 @@ class TeamToolbarTest final : public QObject
 {
     Q_OBJECT
 private slots:
-    void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
+    void initTestCase()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        // The production application sets identity before MLOptions creates
+        // QSettings. Windows NativeFormat requires an organization name.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatterLeast-Tests"));
+        QCoreApplication::setApplicationName(QStringLiteral("TeamToolbarTest"));
+    }
 
     void teamButtonsSwitchAndPersistThroughExistingController()
     {
@@ -33,6 +40,7 @@ private slots:
             ~Restore() { settings->setValue(key, previous); }
         } restore {settings, key, previous};
         settings->setValue(key, QStringLiteral("team-alpha"));
+        QCOMPARE(settings->value<QString>(key), QStringLiteral("team-alpha"));
 
         Backend backend;
         // SidebarService asynchronously reads current-user preferences.
