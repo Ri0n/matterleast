@@ -237,6 +237,7 @@ private:
     QHBoxLayout*                        engagementLayout_ = nullptr;
     QCheckBox*                         wholeMessageCheck_ = nullptr;
     BusyIndicatorWidget*               pendingDeliveryIndicator_ = nullptr;
+    bool                               _pendingIndicatorOverlay = false;
     QWidget*                           pendingDeliveryRow_ = nullptr;
     QLabel*                            pendingDeliveryLabel_ = nullptr;
     QPushButton*                       pendingRetryButton_ = nullptr;
