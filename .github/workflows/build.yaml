@@ -196,6 +196,19 @@ jobs:
         # still visible even for hangs or abrupt failures.
         run: ctest --test-dir build --verbose --output-on-failure
 
+      - name: Diagnose team toolbar failure on Windows
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path build/Testing/Temporary/LastTest.log) {
+            Get-Content build/Testing/Temporary/LastTest.log |
+              Select-String -Pattern 'team-toolbar-test|TeamToolbarTest|FAIL|Expected|Actual|Loc:|PASS|QWARN' |
+              Select-Object -Last 65
+          }
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          & ./build/tests/team-toolbar-test.exe '-o' '-,txt'
+          Write-Host "Standalone exit code: $LASTEXITCODE"
+
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
         run: |
