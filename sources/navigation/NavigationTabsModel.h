@@ -140,6 +140,13 @@ public:
         return true;
     }
 
+    void clearViewportAnchor(int index)
+    {
+        if (index >= 0 && index < entries_.size()) {
+            entries_[index].viewportAnchor.reset();
+        }
+    }
+
     bool setPinned(int index, bool pinned)
     {
         if (index < 0 || index >= entries_.size()) {
