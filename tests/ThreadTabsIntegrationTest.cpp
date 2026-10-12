@@ -288,6 +288,10 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
                                     .arg(server.serverPort()));
+        // Explicitly establish a blank persisted session for this isolated
+        // fixture. saveSession() otherwise intentionally refuses to write
+        // before the one-time restoreSession() readiness gate has run.
+        MLOptions::instance()->setValue(sessionKey(), QByteArray());
         Backend backend;
         auto& storage = backend.getStorage();
         storage.addUser(
@@ -300,6 +304,7 @@ private slots:
         window.show();
 
         auto& controller = NavigationUiController::instance(window);
+        controller.restoreSession();
         QPointer<ChatArea> old = new ChatArea(backend, *channel, rootId(401), nullptr);
         controller.presentThread(old);
         QVERIFY(old);
