@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <optional>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
@@ -100,7 +101,9 @@ private:
     QString sessionSettingsKey() const;
     void scheduleSessionSave();
     void trackSessionArea(ChatArea* area);
-    void restoreSessionBookmark(ChatArea* area, const QString& postId);
+    void restoreSessionBookmark(
+        ChatArea* area, const QString& postId,
+        std::optional<NavigationTabsModel::ViewportAnchor> anchor = std::nullopt);
     void setupSidebarHeader();
     void setupThreadPane();
     void updateIdentityTooltip();

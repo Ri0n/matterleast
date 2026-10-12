@@ -66,7 +66,9 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
     }
 }
 
-void NavigationUiController::restoreSessionBookmark(ChatArea* area, const QString& postId)
+void NavigationUiController::restoreSessionBookmark(
+    ChatArea* area, const QString& postId,
+    std::optional<NavigationTabsModel::ViewportAnchor> anchor)
 {
     if (!area || postId.isEmpty()) return;
     trackSessionArea(area);
@@ -74,7 +76,17 @@ void NavigationUiController::restoreSessionBookmark(ChatArea* area, const QStrin
     auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
     if (!log) return;
     area->setProperty("sessionBookmark", postId);
-    if (log->restoreViewportBookmark(postId)) {
+    auto position = [anchor, postId](ChatLogWidget* view) {
+        if (!view) return false;
+        if (!anchor) return view->restoreViewportBookmark(postId);
+        const ChatLogWidget::SemanticViewportBookmark semantic {
+            anchor->postId,
+            anchor->bottom ? LongListWidget::SemanticAnchorPoint::ItemBottom
+                           : LongListWidget::SemanticAnchorPoint::ItemCenter,
+            anchor->fraction};
+        return view->restoreSemanticViewportBookmark(semantic);
+    };
+    if (position(log)) {
         area->setProperty("sessionBookmark", QString());
         return;
     }
@@ -82,13 +94,13 @@ void NavigationUiController::restoreSessionBookmark(ChatArea* area, const QStrin
     // Keep the requested identity in subsequent snapshots while cold bodies
     // arrive. User navigation/scrolling cancels the asynchronous positioning.
     QPointer<ChatArea> guard(area);
-    auto loadBookmark = [guard, postId] {
+    auto loadBookmark = [guard, postId, position] {
         if (!guard || guard->property("sessionBookmark").toString() != postId) return;
         PostRepository::instance(guard->getBackend()).loadPost(postId,
-            [guard, postId](const PostRepository::PostResult& result) {
+            [guard, postId, position](const PostRepository::PostResult& result) {
                 if (!guard || guard->property("sessionBookmark").toString() != postId) return;
                 auto* view = guard->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-                const bool positioned = result.success && view && view->restoreViewportBookmark(postId);
+                const bool positioned = result.success && position(view);
                 guard->setProperty("sessionBookmark", QString());
                 if (!positioned) guard->goToNewest();
                 if (view) view->refreshReadState();
