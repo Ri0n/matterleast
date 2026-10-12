@@ -49,7 +49,6 @@ private:
     void rebuildTeamToolbar();
     bool setActiveTeam(const QString& teamId, bool persist);
     bool hasTeamRoot(const QString& teamId) const;
-    void showTeamMenu();
     void showPublicChannels();
     void addAnotherTeam();
 
