@@ -282,6 +282,57 @@ private slots:
         }
     }
 
+    void startupOnlyMaterializesSelectedTabAndVisibleDock()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+        const QJsonObject tab1 {{"channel", "channel"}, {"root", rootId(301)},
+                                {"post", replyId(301, 2)}};
+        const QJsonObject tab2 {{"channel", "channel"}, {"root", rootId(302)}};
+        const QJsonObject oldDock {{"channel", "channel"}, {"root", rootId(303)},
+                                   {"mode", "dock"}};
+        const QJsonObject activeDock {{"channel", "channel"}, {"root", rootId(304)},
+                                      {"mode", "dock"}};
+        const QJsonObject snapshot {{"version", 1},
+            {"tabs", QJsonArray {tab1, tab2}}, {"active_tab", tab2},
+            {"central", QJsonObject {{"channel", "channel"}}},
+            {"threads", QJsonArray {oldDock, activeDock}},
+            {"active_dock", activeDock}, {"dock_visible", true}};
+        MLOptions::instance()->setValue(
+            sessionKey(), QJsonDocument(snapshot).toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        auto& ui = NavigationUiController::instance(window);
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_VERIFY(ui.findThread("channel", rootId(302)));
+        QTRY_VERIFY(ui.findThread("channel", rootId(304)));
+        QCOMPARE(tabs->count(), 2);
+        QCOMPARE(tabs->currentIndex(), 1);
+        QVERIFY(!ui.findThread("channel", rootId(301)));
+        QVERIFY(!ui.findThread("channel", rootId(303)));
+
+        ui.saveSession();
+        const QJsonObject persisted = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QCOMPARE(persisted.value("tabs").toArray().size(), 2);
+        QCOMPARE(persisted.value("threads").toArray().size(), 1);
+        QCOMPARE(persisted.value("tabs").toArray().at(0).toObject()
+                     .value("post").toString(), replyId(301, 2));
+
+        // The dormant tab is constructed only when the user selects it.
+        tabs->setCurrentIndex(0);
+        QTRY_VERIFY(ui.findThread("channel", rootId(301)));
+    }
+
     void sessionColdBookmarkAndUserNavigation()
     {
         Server server;

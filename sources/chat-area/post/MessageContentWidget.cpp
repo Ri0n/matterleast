@@ -841,6 +841,12 @@ public:
         setMinimumWidth(0);
         setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         QFont codeFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        const QString selectedFamily = MLOptions::instance()
+            ->optionObject<QString>(CODE_FONT_FAMILY, QString())
+            ->value().toString();
+        if (!selectedFamily.isEmpty()) {
+            codeFont.setFamily(selectedFamily);
+        }
         codeFont.setStyleHint(QFont::TypeWriter);
         codeFont.setFixedPitch(true);
         qreal pointSize = font().pointSizeF();
@@ -964,7 +970,15 @@ MessageContentWidget::MessageContentWidget(QWidget* parent)
             [this](const QVariant& value) {
         applyChatFont(value.toString());
     });
-
+    auto* codeFontOption = MLOptions::instance()->optionObject<QString>(
+        CODE_FONT_FAMILY, QString());
+    connect(codeFontOption, &MLOptionObject::changed, this, [this] {
+        // Existing fenced blocks own QPlainTextEdit documents, so simply
+        // changing the parent font leaves their explicit font stale.
+        if (!_sourceMessage.isEmpty()) {
+            setMessage(_sourceMessage);
+        }
+    });
 }
 
 void MessageContentWidget::setEmojiRegistry(EmojiRegistry* registry)

@@ -162,8 +162,6 @@ private:
     QVector<Location> backStack;
     QVector<Location> forwardStack;
     NavigationTabsModel tabModel;
-    // Restored inactive tabs are just semantic destinations in tabModel.
-    // Only a selected tab may own a live ChatArea and message list.
     int activeTabIndex = -1;
     bool switchingTabs = false;
     bool replayingHistory = false;
