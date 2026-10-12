@@ -5,6 +5,9 @@
 
 #include <QAbstractItemModel>
 #include <QAction>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QScrollArea>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -92,6 +95,115 @@ bool TeamSelectorLabel::activateTeam(QWidget* context, const QString& teamId)
         ? root->findChild<TeamSelectorLabel*>(QStringLiteral("teamSelectorLabel"))
         : nullptr;
     return selector && selector->setActiveTeam(teamId, true);
+}
+
+
+QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent)
+{
+    if (_teamToolbar) {
+        return _teamToolbar;
+    }
+    auto* bar = new QWidget(parent);
+    bar->setObjectName(QStringLiteral("teamToolbar"));
+    bar->setFixedHeight(34);
+    _teamToolbar = bar;
+    auto* outer = new QHBoxLayout(bar);
+    outer->setContentsMargins(4, 2, 4, 2);
+    outer->setSpacing(3);
+
+    auto* scroll = new QScrollArea(bar);
+    scroll->setObjectName(QStringLiteral("teamButtonScrollArea"));
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(false);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    scroll->setFixedHeight(30);
+    scroll->viewport()->setAutoFillBackground(false);
+    _teamButtonsHost = new QWidget(scroll);
+    _teamButtonsLayout = new QHBoxLayout(_teamButtonsHost);
+    _teamButtonsLayout->setContentsMargins(0, 0, 0, 0);
+    _teamButtonsLayout->setSpacing(3);
+    scroll->setWidget(_teamButtonsHost);
+    outer->addWidget(scroll, 1);
+
+    auto* add = new QToolButton(bar);
+    add->setObjectName(QStringLiteral("teamToolbarAdd"));
+    add->setText(QStringLiteral("+"));
+    add->setAutoRaise(true);
+    add->setFixedSize(26, 26);
+    add->setToolTip(tr("Add another team"));
+    add->setAccessibleName(tr("Add another team"));
+    connect(add, &QToolButton::clicked, this, [this] { addAnotherTeam(); });
+    outer->addWidget(add);
+
+    auto* menuButton = new QToolButton(bar);
+    menuButton->setObjectName(QStringLiteral("teamToolbarActions"));
+    menuButton->setText(QStringLiteral("…"));
+    menuButton->setAutoRaise(true);
+    menuButton->setFixedSize(24, 26);
+    menuButton->setToolTip(tr("Team actions"));
+    auto* menu = new QMenu(menuButton);
+    menu->addAction(ChannelIcons::channel(), tr("Browse public channels…"),
+                    this, [this] { showPublicChannels(); });
+    menuButton->setMenu(menu);
+    menuButton->setPopupMode(QToolButton::InstantPopup);
+    outer->addWidget(menuButton);
+
+    // The legacy header selector is hidden, so its showEvent cannot attach.
+    attachTree();
+    rebuildTeamToolbar();
+    return bar;
+}
+
+void TeamSelectorLabel::rebuildTeamToolbar()
+{
+    if (!_teamButtonsHost || !_teamButtonsLayout) {
+        return;
+    }
+    while (QLayoutItem* item = _teamButtonsLayout->takeAt(0)) {
+        if (QWidget* widget = item->widget()) {
+            widget->hide();
+            widget->deleteLater(); // an active click may be on this widget
+        }
+        delete item;
+    }
+    if (!tree_ || !tree_->backendInstance()) {
+        _teamButtonsHost->adjustSize();
+        return;
+    }
+    std::vector<BackendTeam*> teams;
+    for (auto& entry : tree_->backendInstance()->getStorage().teams) {
+        if (hasTeamRoot(entry.first)) {
+            teams.push_back(&entry.second);
+        }
+    }
+    std::sort(teams.begin(), teams.end(), [](const BackendTeam* a, const BackendTeam* b) {
+        return teamLabel(*a).compare(teamLabel(*b), Qt::CaseInsensitive) < 0;
+    });
+    for (BackendTeam* team : teams) {
+        const QString id = team->id;
+        const QString name = teamLabel(*team);
+        auto* button = new QToolButton(_teamButtonsHost);
+        button->setObjectName(QStringLiteral("teamToolbarTeamButton"));
+        button->setProperty("teamId", id);
+        button->setText(button->fontMetrics().elidedText(name, Qt::ElideRight, 86));
+        button->setToolTip(name);
+        button->setAccessibleName(name);
+        button->setCheckable(true);
+        button->setChecked(id == activeTeamId_);
+        button->setAutoRaise(false); // native checked/sunken presentation
+        button->setFixedHeight(26);
+        button->setMinimumWidth(36);
+        QPalette palette = button->palette();
+        palette.setColor(QPalette::Button,
+                         tree_->viewport()->palette().color(QPalette::Base));
+        button->setPalette(palette);
+        connect(button, &QToolButton::clicked, this,
+                [this, id] { setActiveTeam(id, true); });
+        _teamButtonsLayout->addWidget(button);
+    }
+    _teamButtonsHost->adjustSize();
 }
 
 void TeamSelectorLabel::showEvent(QShowEvent* event)
@@ -204,6 +316,7 @@ void TeamSelectorLabel::refreshTeams()
     if (firstRootId.isEmpty()) {
         tree_->setRootIndex(QModelIndex());
         setText(tr("Team"));
+        rebuildTeamToolbar();
         return;
     }
 
@@ -282,6 +395,7 @@ bool TeamSelectorLabel::setActiveTeam(const QString& teamId, bool persist)
             QString::fromLatin1(ActiveTeamSetting), activeTeamId_);
     }
     tree_->viewport()->update();
+    rebuildTeamToolbar();
     return true;
 }
 

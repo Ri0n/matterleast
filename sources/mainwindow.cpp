@@ -68,6 +68,7 @@
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
+#include "ui/TeamSelectorLabel.h"
 #include "ui/ThinSplitter.h"
 
 namespace Mattermost {
@@ -319,6 +320,10 @@ void MainWindow::setupChannelTabs()
 	leftLayout->setContentsMargins(0, 0, 0, 0);
 	leftLayout->setSpacing(0);
 	leftLayout->addWidget(ui->lefttop_frame);
+	// Keep the team context controller, but replace its profile dropdown with
+	// a persistent one-click team strip above the channel filter.
+	ui->teamSelectorLabel->hide();
+	leftLayout->addWidget(ui->teamSelectorLabel->createTeamToolbar(leftSidebar));
 
 	auto* sidebarFilterRow = new QWidget(leftSidebar);
 	auto* sidebarFilterLayout = new QHBoxLayout(sidebarFilterRow);

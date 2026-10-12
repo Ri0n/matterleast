@@ -2,9 +2,12 @@
 
 #include <QToolButton>
 #include <QString>
+#include <QPointer>
 
 class QPaintEvent;
 class QShowEvent;
+class QHBoxLayout;
+class QWidget;
 
 namespace Mattermost {
 
@@ -29,6 +32,8 @@ public:
 
     QString activeTeamId() const { return activeTeamId_; }
 
+    QWidget* createTeamToolbar(QWidget* parent);
+
     /** Switch the selector belonging to context's window, if one exists. */
     static bool activateTeam(QWidget* context, const QString& teamId);
 
@@ -39,6 +44,7 @@ protected:
 private:
     void attachTree();
     void refreshTeams();
+    void rebuildTeamToolbar();
     bool setActiveTeam(const QString& teamId, bool persist);
     bool hasTeamRoot(const QString& teamId) const;
     void showTeamMenu();
@@ -46,6 +52,9 @@ private:
     void addAnotherTeam();
 
     ChannelTree* tree_ = nullptr;
+    QPointer<QWidget> _teamToolbar;
+    QPointer<QWidget> _teamButtonsHost;
+    QHBoxLayout* _teamButtonsLayout = nullptr;
     QString activeTeamId_;
     QString preferredTeamId_;
     QString pendingJoinedTeamId_;
