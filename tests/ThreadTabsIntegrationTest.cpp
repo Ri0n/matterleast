@@ -282,6 +282,41 @@ private slots:
         }
     }
 
+    void replacingDockDisposesOldThreadView()
+    {
+        Server server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"}});
+        QVERIFY(channel);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+
+        auto& controller = NavigationUiController::instance(window);
+        QPointer<ChatArea> old = new ChatArea(backend, *channel, rootId(401), nullptr);
+        controller.presentThread(old);
+        QVERIFY(old);
+        auto* replacement = new ChatArea(backend, *channel, rootId(402), nullptr);
+        controller.presentThread(replacement);
+        QTRY_VERIFY(old.isNull());
+        QCOMPARE(controller.findThread("channel", rootId(402)), replacement);
+        auto* stack = window.findChild<QStackedWidget*>(
+            QStringLiteral("threadStack"));
+        QVERIFY(stack);
+        QCOMPARE(stack->count(), 1);
+        controller.saveSession();
+        const QJsonObject persisted = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QCOMPARE(persisted.value("threads").toArray().size(), 1);
+    }
+
     void startupOnlyMaterializesSelectedTabAndVisibleDock()
     {
         Server server;
