@@ -251,7 +251,10 @@ bool ChatLogWidget::captureSemanticViewportBookmark(
     if (!visible.isValid()) return false;
 
     auto choose = [this, &result, point](int index) {
-        if (index < 0 || isLocalPresentationIndex(index)) return false;
+        if (index < 0 || isLocalPresentationIndex(index) || !itemWidget(index))
+            return false;
+        // Only a concrete, measured post can supply a trustworthy geometry
+        // anchor. Estimated rows do not count as seen inside the viewport.
         BackendPost* post = postSource->postAt(index);
         if (!post || post->id.isEmpty()) return false;
         qreal fraction = 0;
