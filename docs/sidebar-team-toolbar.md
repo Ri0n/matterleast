@@ -15,3 +15,6 @@ the 20px symbolic plus is identical to the sidebar category plus and joins a
 new team. No team dropdown or overflow action menu is present.
 
 A separate avatar menu manages user availability and custom status.
+
+Team pills and the button row are explicitly left-aligned, so a single team
+starts at the sidebar tree edge instead of floating in the center of the row.

@@ -81,6 +81,14 @@ private slots:
         QTRY_COMPARE(toolbar->findChildren<QToolButton*>(
             QStringLiteral("teamToolbarTeamButton")).size(), 2);
         QCOMPARE(selector->activeTeamId(), QStringLiteral("team-alpha"));
+        // One visible team should start at the channel tree's left edge,
+        // rather than floating in the center of the available strip.
+        const auto buttons = toolbar->findChildren<QToolButton*>(
+            QStringLiteral("teamToolbarTeamButton"));
+        QVERIFY(!buttons.isEmpty());
+        const QPoint firstButtonTopLeft = buttons.first()->mapTo(toolbar, QPoint(0, 0));
+        QVERIFY2(firstButtonTopLeft.x() <= 30,
+                 "Team pills must be left-aligned, not centered in their scroll area");
 
         QToolButton* beta = nullptr;
         for (QToolButton* button : toolbar->findChildren<QToolButton*>(

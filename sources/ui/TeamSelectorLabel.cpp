@@ -126,7 +126,8 @@ protected:
         f.setBold(isChecked());
         p.setFont(f);
         p.setPen(palette().color(QPalette::Text));
-        p.drawText(rect().adjusted(8,0,-8,0), Qt::AlignCenter, text());
+        p.drawText(rect().adjusted(9, 0, -8, 0),
+                   Qt::AlignLeft | Qt::AlignVCenter, text());
     }
 };
 class TeamDivider final : public QWidget {
@@ -160,6 +161,7 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent)
     scroll->setObjectName(QStringLiteral("teamButtonScrollArea"));
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setWidgetResizable(true);
+    scroll->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -179,6 +181,9 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent)
     _teamButtonsLayout = new QHBoxLayout(_teamButtonsHost);
     _teamButtonsLayout->setContentsMargins(0, 0, 0, 0);
     _teamButtonsLayout->setSpacing(3);
+    // Qt may otherwise distribute spare width around the lone team pill.
+    // Keep the team row at the same left edge as the channel list.
+    _teamButtonsLayout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     scroll->setWidget(_teamButtonsHost);
     outer->addWidget(scroll, 1);
 
