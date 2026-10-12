@@ -17,3 +17,7 @@ A future refinement will persist a fractional viewport anchor alongside post
 identity rather than implicitly recentering bookmarked posts.
 
 Regression: `ThreadTabsIntegrationTest::startupOnlyMaterializesSelectedTabAndVisibleDock`.
+
+When another right-hand thread replaces the visible dock, the previous
+ChatArea flushes its draft and is closed (deferred deletion). This stops
+retaining sources, post widgets, and leases for every thread ever visited.
