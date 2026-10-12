@@ -24,7 +24,7 @@ private slots:
     {
         QStandardPaths::setTestModeEnabled(true);
         // The production application sets identity before MLOptions creates
-        // QSettings. Windows NativeFormat requires an organization name.
+        // The Windows native settings store requires an organization name.
         QCoreApplication::setOrganizationName(QStringLiteral("MatterLeast-Tests"));
         QCoreApplication::setApplicationName(QStringLiteral("TeamToolbarTest"));
     }
