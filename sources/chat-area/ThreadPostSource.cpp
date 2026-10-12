@@ -1562,6 +1562,23 @@ void ThreadPostSource::appendLiveReply(BackendPost& post)
         return;
     }
 
+    // This identity may be new to the resident cache but already counted in
+    // a root REST snapshot. Its actual ordinal is unknown: treating it as a
+    // new end-of-thread row would give an older reply the newest index. Leave
+    // the reserved slot unavailable until an exact server cursor proves the
+    // position, then materialize through the regular range-request path.
+    if (BackendPost* root = rootPost()) {
+        if (root->serverThreadSummaryIncludesReplyAt(post.create_at)) {
+            qCDebug(lcThreadTimelineTrace).nospace()
+                << "THREAD_LIVE_SNAPSHOT_COVERED source="
+                << static_cast<const void*>(this)
+                << " post=" << shortId(post.id)
+                << " createAt=" << post.create_at
+                << " count=" << itemCount();
+            return;
+        }
+    }
+
     const int oldCount = static_cast<int>(postIds.size());
     int count = currentLogicalCount();
 

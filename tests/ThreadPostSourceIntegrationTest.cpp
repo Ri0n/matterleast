@@ -670,6 +670,45 @@ private slots:
     }
 
 
+
+    void delayedWebSocketReplyCoveredBySnapshotNeedsExactRank()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 10;
+        server.reportedReplyCount = 10;
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
+        QJsonObject root = post(0);
+        root.insert("reply_count", 10);
+        root.insert("last_reply_at", timestamp(10));
+        channel.addPost(root);
+        ThreadPostSource source(backend, channel, id(0));
+
+        // The root REST snapshot already counted reply 7, but its body
+        // arrives as a newly resident WebSocket post much later.
+        BackendPost* delayed = channel.addPost(post(7));
+        QVERIFY(delayed);
+        emit channel.onNewPost(*delayed);
+        QCOMPARE(source.itemCount(), 11);
+        QCOMPARE(channel.postIdToPost.value(id(0))->reply_count, int64_t(10));
+        QCOMPARE(source.indexOfPost(id(7)), -1); // do not guess newest rank
+
+        QSignalSpy finished(&source, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy failed(&source, &ThreadPostSource::rangeRequestFailed);
+        source.requestRange(7, 10, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(failed.size(), 0);
+        QCOMPARE(source.itemCount(), 11);
+        QCOMPARE(source.indexOfPost(id(7)), 7);
+        QCOMPARE(source.indexOfPost(id(10)), 10);
+        QCOMPARE(source.postIdAt(10), id(10));
+    }
+
     void liveReplyAtInflatedTailReanchorsFromCompleteForwardCursor()
     {
         ThreadServer server;
