@@ -8,6 +8,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -120,12 +121,52 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent)
     scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     scroll->setFixedHeight(30);
     scroll->viewport()->setAutoFillBackground(false);
+
+    auto* previous = new QToolButton(bar);
+    previous->setObjectName(QStringLiteral("teamToolbarPrevious"));
+    previous->setText(QStringLiteral("‹"));
+    previous->setToolTip(tr("Previous teams"));
+    previous->setAutoRaise(true);
+    previous->setFixedSize(17, 26);
+    previous->hide();
+    outer->addWidget(previous);
+
     _teamButtonsHost = new QWidget(scroll);
     _teamButtonsLayout = new QHBoxLayout(_teamButtonsHost);
     _teamButtonsLayout->setContentsMargins(0, 0, 0, 0);
     _teamButtonsLayout->setSpacing(3);
     scroll->setWidget(_teamButtonsHost);
     outer->addWidget(scroll, 1);
+
+    auto* next = new QToolButton(bar);
+    next->setObjectName(QStringLiteral("teamToolbarNext"));
+    next->setText(QStringLiteral("›"));
+    next->setToolTip(tr("More teams"));
+    next->setAutoRaise(true);
+    next->setFixedSize(17, 26);
+    next->hide();
+    outer->addWidget(next);
+
+    QScrollBar* horizontalBar = scroll->horizontalScrollBar();
+    connect(previous, &QToolButton::clicked, horizontalBar,
+            [horizontalBar] {
+        horizontalBar->setValue(horizontalBar->value() - 90);
+    });
+    connect(next, &QToolButton::clicked, horizontalBar,
+            [horizontalBar] {
+        horizontalBar->setValue(horizontalBar->value() + 90);
+    });
+    auto updateArrows = [horizontalBar, previous, next] {
+        const bool overflow = horizontalBar->maximum() > horizontalBar->minimum();
+        previous->setVisible(overflow);
+        next->setVisible(overflow);
+        previous->setEnabled(horizontalBar->value() > horizontalBar->minimum());
+        next->setEnabled(horizontalBar->value() < horizontalBar->maximum());
+    };
+    connect(horizontalBar, &QScrollBar::rangeChanged, bar,
+            [updateArrows](int, int) { updateArrows(); });
+    connect(horizontalBar, &QScrollBar::valueChanged, bar,
+            [updateArrows](int) { updateArrows(); });
 
     auto* add = new QToolButton(bar);
     add->setObjectName(QStringLiteral("teamToolbarAdd"));
@@ -202,6 +243,20 @@ void TeamSelectorLabel::rebuildTeamToolbar()
         connect(button, &QToolButton::clicked, this,
                 [this, id] { setActiveTeam(id, true); });
         _teamButtonsLayout->addWidget(button);
+        if (id == activeTeamId_) {
+            // Rebuilding after a team switch must reveal the selected
+            // button, even if the row extends beyond the viewport.
+            QPointer<QToolButton> selected(button);
+            QPointer<QScrollArea> scroll = _teamToolbar->findChild<QScrollArea*>(
+                QStringLiteral("teamButtonScrollArea"));
+            if (scroll) {
+                QTimer::singleShot(0, scroll, [scroll, selected] {
+                    if (scroll && selected) {
+                        scroll->ensureWidgetVisible(selected);
+                    }
+                });
+            }
+        }
     }
     _teamButtonsHost->adjustSize();
 }
