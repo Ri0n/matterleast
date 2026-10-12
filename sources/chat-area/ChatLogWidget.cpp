@@ -288,14 +288,10 @@ bool ChatLogWidget::restoreSemanticViewportBookmark(
     if (!postSource || !bookmark.isValid()) return false;
     const auto alignment = bookmark.point == SemanticAnchorPoint::ItemBottom
         ? Alignment::Bottom : Alignment::Center;
-    if (!lockNavigationToPost(bookmark.postId, alignment, 0)) return false;
-    _navigationSemanticBookmark = bookmark;
-    // Reapply the saved signed fraction after the current target's materialization.
-    if (itemWidget(navigationLogicalIndex)) {
-        navigationLockPending = true;
-        finalizeNavigationLock();
-    }
-    return true;
+    // The saved identity can initially occupy a provisional (unrenderable)
+    // thread index. Keep its semantic offset while the source requests and
+    // confirms the surrounding server window.
+    return lockNavigationToPost(bookmark.postId, alignment, 0, bookmark);
 }
 
 bool ChatLogWidget::captureViewportBookmark(QString& postId,
@@ -356,7 +352,12 @@ bool ChatLogWidget::restoreViewportBookmark(const QString& postId,
 
     // Reuse the measured-row semantic navigation path, but deliberately do not
     // request a navigation flash for an ordinary channel revisit.
-    return lockNavigationToPost(postId, Alignment::Center, 0, topFraction);
+    if (topFraction) {
+        return lockNavigationToPost(postId, Alignment::Center, 0,
+            SemanticViewportBookmark{postId, SemanticAnchorPoint::ItemCenter,
+                                     *topFraction});
+    }
+    return lockNavigationToPost(postId, Alignment::Center, 0);
 }
 
 bool ChatLogWidget::ensurePostVisible(const QString& postId, Alignment alignment)
@@ -485,7 +486,7 @@ void ChatLogWidget::refreshReadState()
 bool ChatLogWidget::lockNavigationToPost(const QString& postId,
                                          Alignment alignment,
                                          int quietPeriodMs,
-                                         std::optional<qreal> topFraction)
+                                         std::optional<SemanticViewportBookmark> semanticBookmark)
 {
     if (!postSource || postId.isEmpty()) {
         clearNavigationLock();
@@ -493,7 +494,11 @@ bool ChatLogWidget::lockNavigationToPost(const QString& postId,
     }
 
     const int index = postSource->ensurePostIndex(postId);
-    if (index < 0 || !postSource->isAuthoritativeRow(index)) {
+    // Explicit navigation still requires an authoritative position. Reopening
+    // a tab, however, can start from a provisional logical slot whose identity
+    // and measured offset are already known. The source then loads context and
+    // corrects the index before materializing its PostWidget.
+    if (index < 0 || (!semanticBookmark && !postSource->isAuthoritativeRow(index))) {
         clearNavigationLock();
         return false;
     }
@@ -504,11 +509,7 @@ bool ChatLogWidget::lockNavigationToPost(const QString& postId,
     navigationPostId = postId;
     navigationLogicalIndex = index;
     navigationAlignment = alignment;
-    _navigationSemanticBookmark.reset();
-    if (topFraction) {
-        _navigationSemanticBookmark = SemanticViewportBookmark{
-            postId, SemanticAnchorPoint::ItemCenter, *topFraction};
-    }
+    _navigationSemanticBookmark = semanticBookmark;
     navigationQuietPeriodMs = std::max(0, quietPeriodMs);
     navigationLockPending = true;
     navigationRecenterPending = false;
