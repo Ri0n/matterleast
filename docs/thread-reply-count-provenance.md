@@ -24,7 +24,12 @@ advance `last_reply_at`, but must **not** advance that server watermark.
 When a new resident reply has `create_at <= _serverThreadLastReplyAt`, the
 server snapshot already covers its timestamp, so it cannot be counted again.
 When it is newer, count it once, independently of the order of later
-WebSocket arrivals. A subsequent full root snapshot resets this watermark
+WebSocket arrivals. `ThreadPostSource::appendLiveReply()` must likewise
+not place a snapshot-covered, previously unseen reply at the newest index:
+its ordinal is unproven even though its body is now resident. Ordinary
+on-demand cursor paging will place it by identity and exact rank.
+
+A subsequent full root snapshot resets this watermark
 even if its visible values already equal the locally advanced ones.
 
 A root payload without both `reply_count` and `last_reply_at` provides
@@ -40,6 +45,10 @@ The separate cursor recovery logic is documented in
 [thread-tail-overlap-recovery.md](thread-tail-overlap-recovery.md).
 
 ## Tests
+
+`ThreadPostSourceIntegrationTest` additionally confirms that a delayed
+previously counted reply does not steal the newest logical rank and that an
+exact server cursor subsequently places it correctly.
 
 `BackendThreadSummaryTest` covers delayed WebSocket delivery of already
 counted replies, genuinely newer live replies, out-of-order WebSocket events,
