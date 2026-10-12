@@ -33,3 +33,7 @@ On restart every view follows the normal initial/newest positioning.
 While the process runs, the tab model may retain an in-memory semantic viewport
 anchor for restoring the user's scroll position on tab switches. That state
 must not be serialized to account settings.
+
+The JSON no longer stores `central`, which historically captured a potentially
+hidden channel behind a selected thread tab. The active tab already identifies
+the visible central destination. Legacy `central` from old snapshots is ignored.

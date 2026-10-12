@@ -365,6 +365,7 @@ private slots:
             MLOptions::instance()->value<QByteArray>(sessionKey())).object();
         QCOMPARE(persisted.value("tabs").toArray().size(), 2);
         QCOMPARE(persisted.value("threads").toArray().size(), 1);
+        QVERIFY(!persisted.contains("central")); // Hidden channel is not a session surface.
         QVERIFY(!persisted.value("tabs").toArray().at(0).toObject().contains("post"));
         QVERIFY(!persisted.value("threads").toArray().at(0).toObject().contains("post"));
 
