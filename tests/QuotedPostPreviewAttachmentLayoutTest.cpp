@@ -28,7 +28,7 @@ private slots:
             paragraphs.push_back(QStringLiteral("Paragraph %1: quoted permalink content").arg(i));
         }
         preview.setPreview(QStringLiteral("Sender · Channel"),
-                           paragraphs.join(QStringLiteral("\\n\\n")));
+                           paragraphs.join(QString(QChar::LineFeed).repeated(2)));
         preview.resize(460, 150);
         preview.show();
 
