@@ -59,7 +59,7 @@ public:
 
     /** Restore an inactive-page bookmark without the navigation highlight animation. */
     bool restoreViewportBookmark(const QString& postId,
-                                 std::optional<SemanticViewportBookmark> semanticBookmark = std::nullopt);
+                                 std::optional<qreal> topFraction = std::nullopt);
 
     bool ensurePostVisible(const QString& postId,
                            Alignment alignment = Alignment::EnsureVisible);
@@ -84,7 +84,7 @@ public:
     bool lockNavigationToPost(const QString& postId,
                               Alignment alignment = Alignment::Center,
                               int quietPeriodMs = 2000,
-                              std::optional<qreal> topFraction = std::nullopt);
+                              std::optional<SemanticViewportBookmark> semanticBookmark = std::nullopt);
     void clearNavigationLock();
 
     /** Composer up-arrow action; no QListWidgetItem leaks through this API. */
