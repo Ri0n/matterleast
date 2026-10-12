@@ -5,6 +5,7 @@
 #include <QLoggingCategory>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
+#include <QScrollBar>
 #include <QTabBar>
 #include <QStackedWidget>
 #include <QTcpServer>
