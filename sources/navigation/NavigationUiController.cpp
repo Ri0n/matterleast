@@ -1297,24 +1297,28 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
         return nullptr;
     }
 
-    const auto widgets = QApplication::allWidgets();
-    for (QWidget* widget : widgets) {
-        auto* area = qobject_cast<ChatArea*>(widget);
-        if (!area || !area->isThread || area->root_id != rootId) {
-            continue;
+    const auto matches = [&channelId, &rootId](ChatArea* area) {
+        return area && area->isThread && area->root_id == rootId
+            && area->getChannel().id == channelId;
+    };
+
+    // The two stacks own embedded thread presentations. A removed widget
+    // is not an open thread, regardless of whether QObject destruction has
+    // completed in the current event loop.
+    for (QStackedWidget* stack : {navigationSurfaceStack, threadStack}) {
+        if (!stack) continue;
+        for (int i = 0; i < stack->count(); ++i) {
+            auto* area = qobject_cast<ChatArea*>(stack->widget(i));
+            if (matches(area)) return area;
         }
-        // Visibility alone is insufficient: Qt's deferred widget teardown
-        // leaves an orphan QObject alive after removeWidget(). Only a stack
-        // membership or an actual detached window constitutes an open thread.
-        const bool inCentralSurface = navigationSurfaceStack
-            && navigationSurfaceStack->indexOf(area) >= 0;
-        const bool inDock = threadStack && threadStack->indexOf(area) >= 0;
-        const bool detachedWindow = area->property("threadDetached").toBool()
-            && area->isWindow() && area->isVisible();
-        if (!(inCentralSurface || inDock || detachedWindow)) {
-            continue;
-        }
-        if (area->getChannel().id == channelId) {
+    }
+
+    // Detached threads have independent QWidget lifetimes and are the only
+    // valid thread presentations outside those stacks.
+    for (QWidget* window : QApplication::topLevelWidgets()) {
+        auto* area = qobject_cast<ChatArea*>(window);
+        if (matches(area) && area->property("threadDetached").toBool()
+            && area->isVisible()) {
             return area;
         }
     }
