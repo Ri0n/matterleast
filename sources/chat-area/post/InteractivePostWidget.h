@@ -2,6 +2,9 @@
 
 #include "PostWidget.h"
 
+#include <functional>
+#include <vector>
+
 class QPaintEvent;
 class QVariantAnimation;
 
@@ -23,13 +26,14 @@ public:
                           ChatArea* chatArea,
                           BackendPost* lastRootPost);
 
-    void animateNavigationHighlight();
+    void animateNavigationHighlight(std::function<void()> onCompleted = {});
 
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
     QVariantAnimation* navigationAnimation = nullptr;
+    std::vector<std::function<void()>> _navigationHighlightCallbacks;
     int navigationAlpha = 0;
 };
 
