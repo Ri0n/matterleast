@@ -341,6 +341,25 @@ void FollowingModel::noteSyntheticMention(BackendChannel& channel,
     noteAttentionTransition(*existing, wasAttention);
 }
 
+void FollowingModel::acknowledgeVisibleSyntheticMention(
+    const QString& channelId, const QString& postId)
+{
+    if (channelId.isEmpty() || postId.isEmpty()) {
+        return;
+    }
+    // Synthetic root mentions are post-scoped. Marking the whole channel
+    // viewed here would incorrectly consume other mentions outside the
+    // activated window's viewport.
+    for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+        if (it->synthetic && it->isThread()
+            && it->channelId == channelId && it->threadId == postId) {
+            entries_.erase(it);
+            emit changed();
+            return;
+        }
+    }
+}
+
 void FollowingModel::clearSyntheticMentions(const QString& channelId)
 {
     for (auto it = entries_.begin(); it != entries_.end();) {
