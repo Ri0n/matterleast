@@ -88,10 +88,7 @@ void NavigationUiController::restoreSessionBookmark(
             anchor->fraction};
         return view->restoreSemanticViewportBookmark(semantic);
     };
-    const bool positionedImmediately = position(log);
-    qInfo() << "RESTORE_BOOKMARK_ATTEMPT" << area->root_id << postId
-            << (bool)anchor << positionedImmediately;
-    if (positionedImmediately) {
+    if (position(log)) {
         area->setProperty("sessionBookmark", QString());
         return;
     }
@@ -106,8 +103,6 @@ void NavigationUiController::restoreSessionBookmark(
                 if (!guard || guard->property("sessionBookmark").toString() != postId) return;
                 auto* view = guard->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
                 const bool positioned = result.success && position(view);
-                qInfo() << "RESTORE_BOOKMARK_RESOLVED" << postId
-                        << result.success << positioned;
                 guard->setProperty("sessionBookmark", QString());
                 if (!positioned) guard->goToNewest();
                 if (view) view->refreshReadState();
