@@ -906,6 +906,7 @@ void NavigationUiController::removeTab(int index, bool closeThread)
 
     if (thread) {
         if (closeThread) {
+            if (activeArea == thread) activeArea = nullptr;
             thread->close();
             thread = nullptr;
         } else {
@@ -1514,6 +1515,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
                 syncSplitterEdgeGutters();
             }
             area->setSplitterEdgeGutters(false, false);
+            if (wasActive) activeArea = nullptr;
             area->close();
             if (wasActive) {
                 QTimer::singleShot(0, this, [this] {
@@ -1582,6 +1584,7 @@ void NavigationUiController::attachThread(ChatArea* area)
         previous->setSplitterEdgeGutters(false, false);
         previous->hide();
         threadStack->removeWidget(previous);
+        if (activeArea == previous) activeArea = nullptr;
         previous->close(); // WA_DeleteOnClose; safe while signals unwind
     }
 
