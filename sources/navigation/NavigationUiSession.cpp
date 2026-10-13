@@ -95,12 +95,28 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
                 [area, log](int, int) {
             const QString pending = area->property("sessionBookmark").toString();
             if (pending.isEmpty() || !log->findPost(pending)) return;
-            // ChatLogWidget finalizes its persistent semantic viewport lock
-            // in this same event loop. Only then may this provisional pending
-            // identity stop protecting the saved tab anchor.
+            // Both explicit navigation and passive bookmarks end at the same
+            // ChatLogWidget / PostSource positioning path. A post may be
+            // materialized only *after* the first navigation attempt, so
+            // finalize that original semantic anchor once real geometry exists.
             QTimer::singleShot(0, area, [area, log, pending] {
-                if (area->property("sessionBookmark").toString() == pending
-                    && log->findPost(pending)) {
+                if (area->property("sessionBookmark").toString() != pending
+                    || !log->findPost(pending)) return;
+                const QVariantMap data =
+                    area->property("sessionBookmarkAnchor").toMap();
+                bool positioned = false;
+                if (data.value(QStringLiteral("post")).toString() == pending) {
+                    const ChatLogWidget::SemanticViewportBookmark anchor {
+                        pending,
+                        data.value(QStringLiteral("bottom")).toBool()
+                            ? LongListWidget::SemanticAnchorPoint::ItemBottom
+                            : LongListWidget::SemanticAnchorPoint::ItemCenter,
+                        data.value(QStringLiteral("fraction")).toDouble()};
+                    positioned = log->restoreSemanticViewportBookmark(anchor);
+                } else {
+                    positioned = log->restoreViewportBookmark(pending);
+                }
+                if (positioned) {
                     area->setProperty("sessionBookmark", QString());
                     area->setProperty("sessionBookmarkAnchor", QVariant());
                 }
@@ -156,11 +172,17 @@ void NavigationUiController::restoreSessionBookmark(
                 if (!guard || guard->property("sessionBookmark").toString() != postId) return;
                 auto* view = guard->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
                 const bool positioned = result.success && position(view);
-                if (!positioned || (view && view->findPost(postId))) {
+                if (!result.success) {
+                    // A genuinely missing post cannot be restored. A
+                    // successful fetch with a temporarily unavailable row is
+                    // *not* evidence that the semantic destination is invalid.
+                    guard->setProperty("sessionBookmark", QString());
+                    guard->setProperty("sessionBookmarkAnchor", QVariant());
+                    guard->goToNewest();
+                } else if (positioned && view && view->findPost(postId)) {
                     guard->setProperty("sessionBookmark", QString());
                     guard->setProperty("sessionBookmarkAnchor", QVariant());
                 }
-                if (!positioned) guard->goToNewest();
                 if (view) view->refreshReadState();
             });
     };
