@@ -65,6 +65,20 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
         connect(log, &LongListWidget::userScrollStarted, area, [area] {
             area->setProperty("sessionBookmark", QString());
         });
+        connect(log, &LongListWidget::materializedRangeChanged, area,
+                [area, log](int, int) {
+            const QString pending = area->property("sessionBookmark").toString();
+            if (pending.isEmpty() || !log->findPost(pending)) return;
+            // ChatLogWidget finalizes its persistent semantic viewport lock
+            // in this same event loop. Only then may this provisional pending
+            // identity stop protecting the saved tab anchor.
+            QTimer::singleShot(0, area, [area, log, pending] {
+                if (area->property("sessionBookmark").toString() == pending
+                    && log->findPost(pending)) {
+                    area->setProperty("sessionBookmark", QString());
+                }
+            });
+        });
     }
 }
 
@@ -89,7 +103,12 @@ void NavigationUiController::restoreSessionBookmark(
         return view->restoreSemanticViewportBookmark(semantic);
     };
     if (position(log)) {
-        area->setProperty("sessionBookmark", QString());
+        // A provisional thread slot can accept the target long before its
+        // PostWidget exists. Keep the old anchor authoritative during that
+        // interval, including a quick switch to another tab.
+        if (log->findPost(postId)) {
+            area->setProperty("sessionBookmark", QString());
+        }
         return;
     }
 
@@ -103,7 +122,9 @@ void NavigationUiController::restoreSessionBookmark(
                 if (!guard || guard->property("sessionBookmark").toString() != postId) return;
                 auto* view = guard->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
                 const bool positioned = result.success && position(view);
-                guard->setProperty("sessionBookmark", QString());
+                if (!positioned || (view && view->findPost(postId))) {
+                    guard->setProperty("sessionBookmark", QString());
+                }
                 if (!positioned) guard->goToNewest();
                 if (view) view->refreshReadState();
             });
