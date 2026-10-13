@@ -14,6 +14,7 @@
 #include <QTimer>
 
 #include "ChatArea.h"
+#include "channel-tree/AttentionActivationPolicy.h"
 #include "OutboxPostSource.h"
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
@@ -204,6 +205,7 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
         << " newCount=" << (sourceInstance ? sourceInstance->itemCount() : 0);
 
     clearNavigationLock();
+    _flashingAttentionPostIds.clear();
     manualUnreadGate_.clear();
     manualUnreadHighWaterPostId_.clear();
     manualUnreadHighWaterCreateAt_ = 0;
@@ -385,6 +387,81 @@ bool ChatLogWidget::ensurePostVisible(const QString& postId, Alignment alignment
 
     scrollToIndex(index, alignment);
     return true;
+}
+
+void ChatLogWidget::flashVisibleAttention()
+{
+    if (!backend || !chatArea || !postSource || !isVisible()
+        || !chatArea->isActiveWindow()
+        || !chatArea->property("sessionBookmark").toString().isEmpty()) {
+        return;
+    }
+
+    const QString channelId = chatArea->getChannel().id;
+    const QString threadId = chatArea->isThread ? chatArea->root_id : QString();
+    const auto& entries = FollowingModel::instance(*backend).entries();
+    const std::uint64_t channelLastViewed =
+        SidebarService::instance(*backend).channelLastViewedTime(channelId);
+
+    // The virtual list owns the actual visible geometry. Neither Attention nor
+    // this method requests missing posts, changes scroll position or creates a
+    // hidden tab's ChatArea.
+    for (int index : materializedIndices()) {
+        if (isLocalPresentationIndex(index)
+            || !itemVisibility(index).testFlag(ItemVisibility::Body)
+            || !postSource->isAuthoritativeRow(index)) {
+            continue;
+        }
+
+        BackendPost* post = postSource->postAt(index);
+        auto* widget = qobject_cast<InteractivePostWidget*>(itemWidget(index));
+        if (!post || !widget || post->id.isEmpty()
+            || _flashingAttentionPostIds.contains(post->id)) {
+            continue;
+        }
+
+        bool matches = false;
+        for (const FollowingModel::Entry& entry : entries) {
+            if (entry.channelId != channelId) {
+                continue;
+            }
+            const int firstUnreadIndex =
+                entry.firstUnreadPostId.isEmpty()
+                ? -1 : postSource->indexOfPost(entry.firstUnreadPostId);
+            const bool firstUnreadOrLater =
+                firstUnreadIndex >= 0
+                && postSource->isAuthoritativeRow(firstUnreadIndex)
+                && index >= firstUnreadIndex;
+            if (shouldFlashAttentionPost(entry,
+                    AttentionViewportPost {
+                        channelId, threadId, post->id, post->root_id,
+                        post->create_at, channelLastViewed, firstUnreadOrLater
+                    })) {
+                matches = true;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+
+        _flashingAttentionPostIds.insert(post->id);
+        QPointer<ChatLogWidget> guard(this);
+        const QString postId = post->id;
+        widget->animateNavigationHighlight([guard, postId] {
+            if (!guard) {
+                return;
+            }
+            guard->_flashingAttentionPostIds.remove(postId);
+            // A post may have been scrolled away or this window deactivated
+            // during the animation. Read acknowledgement remains a fact about
+            // the currently visible lower edge, never a timer alone.
+            if (guard->isPostLowerEdgeVisible(postId)
+                && guard->chatArea && guard->chatArea->isActiveWindow()) {
+                guard->refreshReadState();
+            }
+        });
+    }
 }
 
 void ChatLogWidget::highlightPost(const QString& postId)
