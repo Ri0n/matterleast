@@ -164,9 +164,38 @@ void NavigationUiController::restoreSessionBookmark(
         return;
     }
 
-    // Keep the requested identity in subsequent snapshots while cold bodies
-    // arrive. User navigation/scrolling cancels the asynchronous positioning.
+    // ChannelPostSource deliberately does not invent an absolute index for a
+    // cached post. It must first adopt a bounded *server* context through the
+    // same PostRepository and ChannelPostSource path as explicit post navigation.
+    // Fetching only the post body (as for a thread's provisional slot) leaves
+    // an ordinary channel bookmark unmapped and its viewport at newest.
     QPointer<ChatArea> guard(area);
+    if (!area->isThread) {
+        PostRepository::instance(area->getBackend()).loadChannelAround(
+            area->getChannel(), postId,
+            [guard, postId, position](const PostRepository::Context& context) {
+                if (!guard || guard->property("sessionBookmark").toString() != postId)
+                    return;
+                if (!context.success) return; // Retain the bookmark for retry.
+
+                guard->ensurePinnedPostVisible(
+                    postId, context.postIds,
+                    context.reachedOldest, context.reachedNewest);
+                auto* view = guard->findChild<ChatLogWidget*>(
+                    QStringLiteral("listWidget"));
+                if (position(view) && view->findPost(postId)) {
+                    guard->setProperty("sessionBookmark", QString());
+                    guard->setProperty("sessionBookmarkAnchor", QVariant());
+                }
+                if (view) view->refreshReadState();
+            },
+            true);
+        return;
+    }
+
+    // ThreadPostSource already supports provisional indices and asynchronous
+    // context reconciliation. Continue through its shared positioning path.
+    // User navigation/scrolling cancels the pending bookmark.
     auto loadBookmark = [guard, postId, position] {
         if (!guard || guard->property("sessionBookmark").toString() != postId) return;
         PostRepository::instance(guard->getBackend()).loadPost(postId,
