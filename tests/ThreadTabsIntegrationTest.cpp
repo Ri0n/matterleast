@@ -617,7 +617,21 @@ private slots:
         QTRY_VERIFY(restoredLog->findPost(before.postId));
         QTRY_VERIFY(!restoredLog->isAtEnd());
 
+        // Report the observed geometry if the asynchronous navigation settles
+        // at the wrong post or offset on any supported Qt version.
+        QTest::qWait(250);
         ChatLogWidget::SemanticViewportBookmark after;
+        const bool measured = restoredLog->captureSemanticViewportBookmark(after);
+        qInfo().noquote() << "TAB_ANCHOR_DIAGNOSTIC"
+            << "expectedPost" << before.postId
+            << "expectedFraction" << before.fraction
+            << "actualCaptured" << measured
+            << "actualPost" << after.postId
+            << "actualFraction" << after.fraction
+            << "actualPoint" << static_cast<int>(after.point)
+            << "atEnd" << restoredLog->isAtEnd()
+            << "scroll" << restoredLog->verticalScrollBar()->value()
+            << "max" << restoredLog->verticalScrollBar()->maximum();
         QTRY_VERIFY(restoredLog->captureSemanticViewportBookmark(after)
             && after.postId == before.postId
             && after.point == LongListWidget::SemanticAnchorPoint::ItemCenter
