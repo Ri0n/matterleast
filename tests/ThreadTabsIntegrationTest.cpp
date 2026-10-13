@@ -437,6 +437,70 @@ private slots:
         QTRY_VERIFY(ui.findThread("channel", rootId(301)));
     }
 
+    void coldChannelSessionRestoresPostRelativeViewport()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.channelRootCount = 48;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        const QString targetId = channelPostId(24);
+        const QJsonObject savedAnchor {
+            {"post", targetId}, {"bottom", false}, {"fraction", 0.0}};
+        const QJsonObject destination {
+            {"channel", "channel"}, {"root", ""},
+            {"anchor", savedAnchor}};
+        MLOptions::instance()->setValue(sessionKey(),
+            QJsonDocument(QJsonObject {
+                {"version", 2}, {"tabs", QJsonArray {destination}},
+                {"active_tab", destination}})
+                .toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1000, 700);
+        window.show();
+
+        auto* tabs = window.findChild<QTabBar*>(
+            QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_COMPARE(tabs->count(), 1);
+        auto* tree = window.findChild<ChannelTree*>(
+            QStringLiteral("channelList"));
+        QVERIFY(tree);
+        QTRY_VERIFY(tree->getCurrentPage()
+            && tree->getCurrentPage()->getChannel().id == "channel");
+        auto* log = tree->getCurrentPage()->findChild<ChatLogWidget*>(
+            QStringLiteral("listWidget"));
+        QVERIFY(log);
+        QTRY_VERIFY(server.channelContextRequests.contains(targetId));
+
+        // A body-only post lookup cannot assign ChannelPostSource an exact
+        // position. The existing server-context adoption must materialize
+        // the saved post at its relative viewport centre.
+        qreal fraction = 0;
+        QTRY_VERIFY(log->findPost(targetId)
+            && log->source()->indexOfPost(targetId) >= 0
+            && log->captureSemanticAnchorFraction(
+                log->source()->indexOfPost(targetId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
+                fraction)
+            && qAbs(fraction) < 0.07);
+        QVERIFY(!log->isAtEnd());
+
+        auto& ui = NavigationUiController::instance(window);
+        ui.saveSession();
+        const QJsonObject saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
+                     .value("anchor").toObject().value("post").toString(), targetId);
+    }
+
     void semanticBookmarksSurviveRestartOnlyForOpenSurfaces()
     {
         Server server;
