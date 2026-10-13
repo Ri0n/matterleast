@@ -212,15 +212,11 @@ void NavigationUiController::setupSidebarHeader()
     auto* header = window.findChild<QWidget*>(QStringLiteral("lefttop_frame"));
     auto* searchButton = window.findChild<QToolButton*>(QStringLiteral("searchButton"));
     auto* username = window.findChild<QLabel*>(QStringLiteral("usernameLabel"));
-    auto* status = window.findChild<QLabel*>(QStringLiteral("statusLabel"));
     if (username) {
         username->hide();
     }
-    if (status) {
-        // PresenceStatusLabel keeps forwarding status changes into the avatar;
-        // hiding the textual compatibility widget does not disable that path.
-        status->hide();
-    }
+    // PresenceStatusLabel already hides plain availability (the avatar has a
+    // badge). Keep custom status visible here, including emoji-only content.
     if (!header || !searchButton) {
         return;
     }
