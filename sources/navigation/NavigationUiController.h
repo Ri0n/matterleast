@@ -58,6 +58,8 @@ public:
         QString channelId;
         QString rootId;
         QString postId;
+        // Shared with tab restoration, strictly in-memory; never serialized.
+        std::optional<NavigationTabsModel::ViewportAnchor> viewportAnchor;
 
         bool isChat() const { return kind == Kind::Chat; }
         bool isValid() const { return !isChat() || !channelId.isEmpty(); }
