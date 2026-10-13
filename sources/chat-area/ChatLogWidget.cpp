@@ -463,6 +463,11 @@ void ChatLogWidget::flashVisibleAttention()
             // the currently visible lower edge, never a timer alone.
             if (guard->isPostLowerEdgeVisible(postId)
                 && guard->chatArea && guard->chatArea->isActiveWindow()) {
+                if (!guard->chatArea->isThread && guard->backend) {
+                    FollowingModel::instance(*guard->backend)
+                        .acknowledgeVisibleSyntheticMention(
+                            guard->chatArea->getChannel().id, postId);
+                }
                 guard->refreshReadState();
             }
         });
