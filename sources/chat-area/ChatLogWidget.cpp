@@ -448,6 +448,11 @@ void ChatLogWidget::flashVisibleAttention()
         _flashingAttentionPostIds.insert(post->id);
         QPointer<ChatLogWidget> guard(this);
         const QString postId = post->id;
+        // A virtualized row can be destroyed before its animation finishes.
+        // Do not retain a stale in-progress flag if it is later materialized.
+        connect(widget, &QObject::destroyed, this, [this, postId] {
+            _flashingAttentionPostIds.remove(postId);
+        });
         widget->animateNavigationHighlight([guard, postId] {
             if (!guard) {
                 return;
