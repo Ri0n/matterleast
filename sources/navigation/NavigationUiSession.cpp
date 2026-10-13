@@ -175,11 +175,6 @@ void NavigationUiController::saveSession()
     for (int i = 0; i < tabModel.count(); ++i) {
         const auto* modelEntry = tabModel.at(i);
         Location location = tabLocation(*modelEntry);
-        ChatArea* area = location.rootId.isEmpty() ? nullptr
-            : findThread(location.channelId, location.rootId);
-        auto* central = channelTree ? channelTree->getCurrentPage() : nullptr;
-        if (location.rootId.isEmpty() && central && central->getChannel().id == location.channelId)
-            area = central;
         // The model already owns the last measured bookmark for inactive
         // tabs. Re-reading a live view here would also overwrite an anchor
         // while its asynchronous restoration is still in progress.
