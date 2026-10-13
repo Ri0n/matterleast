@@ -80,6 +80,7 @@ public:
     int returnedReplies = 0;
     bool failPost = false;
     bool startupChannels = false;
+    bool secondChannel = false;
     Server()
     {
         connect(this, &QTcpServer::newConnection, this, [this] {
@@ -109,9 +110,17 @@ public:
                             info.insert("last_root_post_at",
                                         channelPost(channelRootCount).value("create_at"));
                         }
-                        body = QJsonDocument(QJsonArray {info}).toJson(QJsonDocument::Compact);
+                        QJsonArray channels {info};
+                        if (secondChannel) {
+                            channels.append(QJsonObject {
+                                {"id", "channel_other"}, {"type", "G"},
+                                {"display_name", "Other chat"}});
+                        }
+                        body = QJsonDocument(channels).toJson(QJsonDocument::Compact);
                     } else if (startupChannels && url.path().endsWith("/channels/categories")) {
-                        body = R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
+                        body = secondChannel
+                            ? R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel","channel_other"]}],"order":["dm"]})"
+                            : R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
                     }
                     if (channelRootCount > 0
                         && url.path() == "/api/v4/channels/channel/posts") {
@@ -502,6 +511,76 @@ private slots:
             MLOptions::instance()->value<QByteArray>(sessionKey())).object();
         QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
                      .value("anchor").toObject().value("post").toString(), targetId);
+    }
+
+    void sidebarSwitchAfterScrollingToNewestOverridesRestoredBookmark()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.secondChannel = true;
+        server.channelRootCount = 48;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        const QString targetId = channelPostId(24);
+        const QJsonObject destination {
+            {"channel", "channel"}, {"root", ""},
+            {"anchor", QJsonObject {
+                {"post", targetId}, {"bottom", false}, {"fraction", 0.0}}}};
+        MLOptions::instance()->setValue(sessionKey(),
+            QJsonDocument(QJsonObject {
+                {"version", 2}, {"tabs", QJsonArray {destination}},
+                {"active_tab", destination}})
+                .toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1000, 700);
+        window.show();
+        auto& ui = NavigationUiController::instance(window);
+        auto* tree = window.findChild<ChannelTree*>(
+            QStringLiteral("channelList"));
+        QVERIFY(tree);
+        QTRY_VERIFY(tree->getCurrentPage()
+            && tree->getCurrentPage()->getChannel().id == "channel");
+        auto* firstArea = tree->getCurrentPage();
+        auto* log = firstArea->findChild<ChatLogWidget*>(
+            QStringLiteral("listWidget"));
+        QVERIFY(log);
+
+        qreal fraction = 0;
+        QTRY_VERIFY(log->findPost(targetId)
+            && log->captureSemanticAnchorFraction(
+                log->source()->indexOfPost(targetId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter, fraction)
+            && qAbs(fraction) < 0.07);
+        QVERIFY(!log->isAtEnd());
+
+        // A scrollbar action is user input: it must supersede a stale
+        // restoration intent even if source materialization is still ongoing.
+        log->verticalScrollBar()->triggerAction(
+            QAbstractSlider::SliderToMaximum);
+        QTRY_VERIFY(log->isAtEnd());
+        QVERIFY(firstArea->property("sessionBookmark").toString().isEmpty());
+
+        tree->openChannel(QStringLiteral("channel_other"));
+        QTRY_VERIFY(tree->getCurrentPage()
+            && tree->getCurrentPage()->getChannel().id == "channel_other");
+        tree->openChannel(QStringLiteral("channel"));
+        QTRY_COMPARE(tree->getCurrentPage(), firstArea);
+        QTRY_VERIFY(log->isAtEnd());
+
+        ui.saveSession();
+        const QJsonObject saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        const QJsonObject snapshot = saved.value("active_tab").toObject();
+        QCOMPARE(snapshot.value("channel").toString(), QStringLiteral("channel"));
+        QVERIFY(!snapshot.value("anchor").toObject().value("post").toString().isEmpty());
+        QVERIFY(snapshot.value("anchor").toObject().value("bottom").toBool());
     }
 
     void semanticBookmarksSurviveRestartOnlyForOpenSurfaces()
