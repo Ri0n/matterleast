@@ -1,6 +1,8 @@
 #pragma once
 
 #include <utility>
+#include <optional>
+#include <QtGlobal>
 
 #include <QString>
 #include <QVector>
@@ -19,12 +21,22 @@ namespace Mattermost {
 class NavigationTabsModel final
 {
 public:
+    struct ViewportAnchor {
+        QString postId;
+        bool bottom = false;
+        qreal fraction = 0;
+
+        bool isValid() const { return !postId.isEmpty(); }
+    };
+
     struct Entry {
         QString channelId;
         QString rootId;
         QString postId;
         QString title;
         bool pinned = false;
+        // Runtime-only: excluded from the persisted session JSON.
+        std::optional<ViewportAnchor> viewportAnchor;
 
         bool isValid() const { return !channelId.isEmpty(); }
         bool sameDestination(const Entry& other) const
@@ -114,9 +126,25 @@ public:
 
         if (previous.sameDestination(entry)) {
             entry.pinned = previous.pinned || entry.pinned;
+            entry.viewportAnchor = previous.viewportAnchor;
         }
         entries_[index] = std::move(entry);
         return true;
+    }
+
+    bool setViewportAnchor(int index, const ViewportAnchor& anchor)
+    {
+        if (index < 0 || index >= entries_.size()) return false;
+        if (!anchor.isValid()) return false;
+        entries_[index].viewportAnchor = anchor;
+        return true;
+    }
+
+    void clearViewportAnchor(int index)
+    {
+        if (index >= 0 && index < entries_.size()) {
+            entries_[index].viewportAnchor.reset();
+        }
     }
 
     bool setPinned(int index, bool pinned)

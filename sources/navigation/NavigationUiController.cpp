@@ -1,6 +1,7 @@
 #include "NavigationUiController.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QAction>
 #include <QApplication>
@@ -25,6 +26,7 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolButton>
+#include <QVariant>
 #include <QVBoxLayout>
 
 #include "backend/Backend.h"
@@ -425,10 +427,43 @@ NavigationUiController::captureLocation(ChatArea* area) const
     const QString pendingBookmark = area->property("sessionBookmark").toString();
     if (!pendingBookmark.isEmpty()) {
         location.postId = pendingBookmark;
+        // A detached/docked thread has no tab entry. Its still-pending
+        // bookmark is stored on the presenting ChatArea until materialized.
+        const QVariantMap pending = area->property("sessionBookmarkAnchor").toMap();
+        if (pending.value(QStringLiteral("post")).toString() == pendingBookmark
+            && std::isfinite(pending.value(QStringLiteral("fraction")).toDouble())) {
+            location.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+                pendingBookmark,
+                pending.value(QStringLiteral("bottom")).toBool(),
+                pending.value(QStringLiteral("fraction")).toDouble()};
+            return location;
+        }
+        // The newly constructed ChatArea is not yet a reliable viewport
+        // geometry source. Reuse the saved tab anchor while the post is being
+        // fetched, rather than accidentally replacing it with the initial end.
+        if (const auto* tab = tabModel.at(
+                tabModel.findDestination(location.channelId, location.rootId));
+            tab && tab->viewportAnchor
+                && tab->viewportAnchor->postId == pendingBookmark) {
+            location.viewportAnchor = tab->viewportAnchor;
+        } else if (currentLocation.sameDestination(location)
+                   && currentLocation.viewportAnchor
+                   && currentLocation.viewportAnchor->postId == pendingBookmark) {
+            location.viewportAnchor = currentLocation.viewportAnchor;
+        }
         return location;
     }
 
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
+        ChatLogWidget::SemanticViewportBookmark bookmark;
+        if (log->captureSemanticViewportBookmark(bookmark)) {
+            location.postId = bookmark.postId;
+            location.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+                bookmark.postId,
+                bookmark.point == LongListWidget::SemanticAnchorPoint::ItemBottom,
+                bookmark.fraction};
+            return location;
+        }
         QString postId;
         if (log->captureViewportBookmark(postId)) {
             location.postId = postId;
@@ -489,6 +524,7 @@ NavigationUiController::tabEntry(const Location& location) const
     entry.channelId = location.channelId;
     entry.rootId = location.rootId;
     entry.postId = location.postId;
+    entry.viewportAnchor = location.viewportAnchor;
     entry.title = tabTitle(location);
     return entry;
 }
@@ -500,6 +536,7 @@ NavigationUiController::tabLocation(const NavigationTabsModel::Entry& entry) con
     location.channelId = entry.channelId;
     location.rootId = entry.rootId;
     location.postId = entry.postId;
+    location.viewportAnchor = entry.viewportAnchor;
     return location;
 }
 
@@ -676,15 +713,24 @@ void NavigationUiController::saveActiveTabLocation()
         return;
     }
 
-    Location location = captureLocation(area);
-    if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-        log && log->source() && log->isAtEnd()
-        && area->property("sessionBookmark").toString().isEmpty()) {
-        location.postId.clear();
-    }
+    const Location location = captureLocation(area);
     const Location expected = tabLocation(*entry);
     if (location.isValid() && location.sameDestination(expected)) {
+        // Capture before the outgoing tab's ChatArea is destroyed. History
+        // must not recapture an already hidden or deactivated presentation.
+        if (currentLocation.isChat() && currentLocation.sameDestination(location)) {
+            currentLocation = location;
+        }
         updateTab(activeTabIndex, location);
+        // Both history and tabs use the exact same measured viewport snapshot.
+        // Never resurrect the previous anchor after a new scroll that could
+        // not yet produce a concrete post.
+        if (location.viewportAnchor) {
+            tabModel.setViewportAnchor(activeTabIndex, *location.viewportAnchor);
+        } else if (auto* log = area->findChild<ChatLogWidget*>(
+                       QStringLiteral("listWidget")); log && log->source()) {
+            tabModel.clearViewportAnchor(activeTabIndex);
+        }
     }
 }
 
@@ -740,11 +786,36 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
 
     if (activeTabIndex != index) {
         saveActiveTabLocation();
+
+        // The previous tab now exists only as an in-memory semantic entry.
+        // A hidden thread must not retain its timeline or issue new requests.
+        const auto* outgoing = tabModel.at(activeTabIndex);
+        ChatArea* old = outgoing && !outgoing->rootId.isEmpty()
+            ? findThread(outgoing->channelId, outgoing->rootId) : nullptr;
+        if (old && old->property("threadTabbed").toBool()) {
+            old->onDeactivate();
+            old->hide();
+            if (navigationSurfaceStack && navigationSurfaceStack->indexOf(old) >= 0)
+                navigationSurfaceStack->removeWidget(old);
+            old->setProperty("threadTabbed", false);
+            // Tab state owns only the destination/bookmark. The QWidget is no
+            // longer presented by either stack, so retire the active view
+            // reference before closing it. Qt's WA_DeleteOnClose handles
+            // destruction safely even when this transition originates in
+            // a signal emitted by the thread's own child widget.
+            if (activeArea == old) {
+                activeArea = nullptr;
+            }
+            old->close();
+        }
     }
 
+    // The tab and Back/Forward history carry the same runtime bookmark.
+    // An explicit navigation target supersedes a passive viewport snapshot.
     Location location = tabLocation(*entry);
     if (!restoreBookmark) {
         location.postId.clear();
+        location.viewportAnchor.reset();
     }
     activeTabIndex = index;
 
@@ -777,7 +848,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             currentLocation = location;
             activeArea = area;
             if (!location.postId.isEmpty()) {
-                restoreSessionBookmark(area, location.postId);
+                restoreSessionBookmark(area, location.postId, location.viewportAnchor);
             }
         }
     } else {
@@ -854,6 +925,7 @@ void NavigationUiController::removeTab(int index, bool closeThread)
 
     if (thread) {
         if (closeThread) {
+            if (activeArea == thread) activeArea = nullptr;
             thread->close();
             thread = nullptr;
         } else {
@@ -1095,6 +1167,8 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
         return;
     }
 
+    // The outgoing tab's view reference is cleared at its ownership
+    // transition; history keeps the already captured semantic bookmark.
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
         if (latest.isValid() && currentLocation.sameDestination(latest)) {
@@ -1233,7 +1307,7 @@ void NavigationUiController::navigateTo(const Location& location)
 
     // Passive bookmarks resolve cold bodies without flashing a permalink or
     // changing the current semantic destination.
-    restoreSessionBookmark(area, location.postId);
+    restoreSessionBookmark(area, location.postId, location.viewportAnchor);
 }
 
 ChatArea* NavigationUiController::findThread(const QString& channelId,
@@ -1243,13 +1317,28 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
         return nullptr;
     }
 
-    const auto widgets = QApplication::allWidgets();
-    for (QWidget* widget : widgets) {
-        auto* area = qobject_cast<ChatArea*>(widget);
-        if (!area || !area->isThread || area->root_id != rootId) {
-            continue;
+    const auto matches = [&channelId, &rootId](ChatArea* area) {
+        return area && area->isThread && area->root_id == rootId
+            && area->getChannel().id == channelId;
+    };
+
+    // The two stacks own embedded thread presentations. A removed widget
+    // is not an open thread, regardless of whether QObject destruction has
+    // completed in the current event loop.
+    for (QStackedWidget* stack : {navigationSurfaceStack, threadStack}) {
+        if (!stack) continue;
+        for (int i = 0; i < stack->count(); ++i) {
+            auto* area = qobject_cast<ChatArea*>(stack->widget(i));
+            if (matches(area)) return area;
         }
-        if (area->getChannel().id == channelId) {
+    }
+
+    // Detached threads have independent QWidget lifetimes and are the only
+    // valid thread presentations outside those stacks.
+    for (QWidget* topLevelWidget : QApplication::topLevelWidgets()) {
+        auto* area = qobject_cast<ChatArea*>(topLevelWidget);
+        if (matches(area) && area->property("threadDetached").toBool()
+            && area->isVisible()) {
             return area;
         }
     }
@@ -1445,6 +1534,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
                 syncSplitterEdgeGutters();
             }
             area->setSplitterEdgeGutters(false, false);
+            if (wasActive) activeArea = nullptr;
             area->close();
             if (wasActive) {
                 QTimer::singleShot(0, this, [this] {
@@ -1513,6 +1603,7 @@ void NavigationUiController::attachThread(ChatArea* area)
         previous->setSplitterEdgeGutters(false, false);
         previous->hide();
         threadStack->removeWidget(previous);
+        if (activeArea == previous) activeArea = nullptr;
         previous->close(); // WA_DeleteOnClose; safe while signals unwind
     }
 

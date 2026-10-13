@@ -880,6 +880,9 @@ void ChatArea::onActivate()
 
 void ChatArea::onDeactivate()
 {
+    // Notify navigation before sidebar selection detaches our measured view.
+    emit aboutToDeactivate();
+
     if (ui && ui->outgoingPostCreator) {
         ui->outgoingPostCreator->flushPersistentDraft();
     }
