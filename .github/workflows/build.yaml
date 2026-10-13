@@ -196,6 +196,20 @@ jobs:
         # still visible even for hangs or abrupt failures.
         run: ctest --test-dir build --verbose --output-on-failure
 
+      - name: Diagnose Windows thread-tab test failure
+        if: failure()
+        shell: pwsh
+        run: |
+          # GUI-subsystem QtTest executables can lose their console output on
+          # Windows even with ctest -V. Capture a dedicated QtTest text log.
+          $log = Join-Path $PWD 'thread-tabs-debug.txt'
+          & ./build/tests/thread-tabs-integration-test.exe -o "$log,txt"
+          Write-Host "Thread-tabs diagnostic exit code: $LASTEXITCODE"
+          if (Test-Path $log) {
+            Get-Content $log
+          }
+          exit 0
+
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
         run: |
