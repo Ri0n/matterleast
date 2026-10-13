@@ -312,11 +312,11 @@ changes latency only, never correctness.
 
 This replaces the old controller-level `TimelineSeekState` state machine.
 
-## Semantic tab anchors (runtime only)
+## Semantic navigation history and tab anchors (runtime only)
 
-When leaving a tab at the live edge, store the **identity of the bottom-most
+When leaving a tab or pushing a Back/Forward history entry at the live edge, store the **identity of the bottom-most
 visible post**, together with the signed normalized displacement of its bottom
-edge from the viewport's bottom edge. Returning to that tab restores the same
+edge from the viewport's bottom edge. Returning via that tab or Back/Forward restores the same
 post at the same bottom-relative position, **not** the newest post that may
 have arrived while the tab was inactive.
 
@@ -325,7 +325,10 @@ centre. Persist in process memory its identity and
 
 `(post vertical centre - viewport vertical centre) / viewport height`.
 
-The fraction can be negative when viewing a tall post. Restoring the tab must
+The fraction can be negative when viewing a tall post. Both Back/Forward and tab restoration must
 retain the relative centre through asynchronous font/media reflow. Inactive
-thread tabs drop concrete ChatAreas and post sources. These anchors are NEVER
-stored in the account's disk session; a restart restores only open destinations.
+thread tabs drop concrete ChatAreas and post sources. The `NavigationUiController::Location` used by Back/Forward and the tab entries
+share one `ViewportAnchor` representation; neither creates a second navigation
+resolver. They restore through `restoreSessionBookmark()` and its existing
+asynchronous post lookup. These anchors are NEVER stored in the account's disk
+session; a restart restores only open destinations.
