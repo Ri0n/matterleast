@@ -524,7 +524,7 @@ private slots:
         };
         const QJsonObject active = location(41, 24, false, -0.14);
         const QJsonObject inactive = location(42, 20, true, -0.03);
-        QJsonObject detached = location(43, 12, false, 0.0);
+        QJsonObject detached = location(43, 24, false, 0.0);
         detached.insert("mode", "window");
         detached.insert("geometry", QString());
 
@@ -575,7 +575,9 @@ private slots:
                     activeFraction)) return false;
             return qAbs(activeFraction + 0.14) < 0.07;
         };
-        QTRY_VERIFY_WITH_TIMEOUT(activeAnchored(), 15000);
+        for (int elapsed = 0; elapsed < 15000 && !activeAnchored(); elapsed += 50) {
+            QTest::qWait(50);
+        }
         if (!activeAnchored()) {
             qWarning() << "Active thread anchor mismatch"
                        << "fraction=" << activeFraction
@@ -583,6 +585,7 @@ private slots:
                        << "maximum=" << activeLog->verticalScrollBar()->maximum()
                        << "targetIndex=" << activeLog->source()->indexOfPost(replyId(41, 24));
         }
+        QVERIFY(activeAnchored());
         qreal detachedFraction = 0;
         QTRY_VERIFY(detachedLog->captureSemanticAnchorFraction(
             detachedLog->source()->indexOfPost(replyId(43, 24)),
