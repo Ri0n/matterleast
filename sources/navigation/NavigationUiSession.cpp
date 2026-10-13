@@ -1,6 +1,7 @@
 #include "NavigationUiController.h"
 
 #include <QApplication>
+#include <cmath>
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -26,15 +27,38 @@ using Location = NavigationUiController::Location;
 
 QJsonObject encode(const Location& location)
 {
-    // Session persistence is deliberately structural. Scroll positions exist
-    // only during the running process and must never survive a restart.
-    return {{"channel", location.channelId}, {"root", location.rootId}};
+    QJsonObject result {{"channel", location.channelId}, {"root", location.rootId}};
+    if (location.viewportAnchor && location.viewportAnchor->isValid()
+        && std::isfinite(static_cast<double>(location.viewportAnchor->fraction))) {
+        const auto& anchor = *location.viewportAnchor;
+        result.insert("anchor", QJsonObject {
+            {"post", anchor.postId},
+            {"bottom", anchor.bottom},
+            {"fraction", anchor.fraction}
+        });
+    }
+    return result;
 }
 
-Location decode(const QJsonObject& object)
+Location decode(const QJsonObject& object, bool restoreAnchors)
 {
-    // Old snapshots may contain post; never restore a viewport from disk.
-    return {object.value("channel").toString(), object.value("root").toString()};
+    Location location {object.value("channel").toString(),
+                       object.value("root").toString()};
+    // Version 1 sessions predate measured post-relative anchors. Their legacy
+    // "post" field is not precise enough to restore and must be ignored.
+    if (!restoreAnchors) return location;
+
+    const QJsonObject stored = object.value("anchor").toObject();
+    const QString postId = stored.value("post").toString();
+    const QJsonValue offset = stored.value("fraction");
+    const QJsonValue bottom = stored.value("bottom");
+    if (!postId.isEmpty() && offset.isDouble() && bottom.isBool()
+        && std::isfinite(offset.toDouble())) {
+        location.postId = postId;
+        location.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+            postId, bottom.toBool(), offset.toDouble()};
+    }
+    return location;
 }
 }
 
@@ -143,13 +167,8 @@ void NavigationUiController::saveSession()
     const QString key = sessionSettingsKey();
     if (key.isEmpty()) return;
 
-    auto locationOf = [](ChatArea* area) {
-        Location location;
-        if (area) {
-            location.channelId = area->getChannel().id;
-            if (area->isThread) location.rootId = area->root_id;
-        }
-        return location;
+    auto locationOf = [this](ChatArea* area) {
+        return area ? captureLocation(area) : Location{};
     };
     saveActiveTabLocation();
     QJsonArray tabs;
@@ -161,7 +180,9 @@ void NavigationUiController::saveSession()
         auto* central = channelTree ? channelTree->getCurrentPage() : nullptr;
         if (location.rootId.isEmpty() && central && central->getChannel().id == location.channelId)
             area = central;
-        if (area) location = locationOf(area);
+        // The model already owns the last measured bookmark for inactive
+        // tabs. Re-reading a live view here would also overwrite an anchor
+        // while its asynchronous restoration is still in progress.
         QJsonObject tab = encode(location);
         tab.insert("pinned", modelEntry->pinned);
         tabs.append(tab);
@@ -190,7 +211,7 @@ void NavigationUiController::saveSession()
     if (const auto* entry = tabModel.at(activeTabIndex)) active = tabLocation(*entry);
     auto* dock = visibleDock;
     auto* focused = qobject_cast<ChatArea*>(QApplication::activeWindow());
-    QJsonObject state {{"version", 1}, {"tabs", tabs}, {"threads", threads},
+    QJsonObject state {{"version", 2}, {"tabs", tabs}, {"threads", threads},
                        {"active_tab", encode(active)},
                        {"active_dock", encode(locationOf(dock))},
                        {"dock_visible", visibleDock != nullptr},
@@ -207,7 +228,9 @@ void NavigationUiController::restoreSession()
     const QJsonObject state = QJsonDocument::fromJson(
         MLOptions::instance()->value<QByteArray>(key)).object();
     sessionRestored = true;
-    if (state.value("version").toInt() != 1) return;
+    const int version = state.value("version").toInt();
+    if (version != 1 && version != 2) return;
+    const bool restoreAnchors = version >= 2;
     restoringSession = true;
     const bool wasSwitching = switchingTabs;
     switchingTabs = true;
@@ -221,7 +244,7 @@ void NavigationUiController::restoreSession()
         activeTabIndex = -1;
         for (const QJsonValue& value : state.value("tabs").toArray()) {
             const QJsonObject tab = value.toObject();
-            const Location location = decode(tab);
+            const Location location = decode(tab, restoreAnchors);
             if (!valid(location)) continue;
             const int index = appendNavigationTab(location);
             tabModel.setPinned(index, tab.value("pinned").toBool());
@@ -230,11 +253,11 @@ void NavigationUiController::restoreSession()
             // activateTab() below constructs just the selected destination.
         }
     }
-    const Location dock = decode(state.value("active_dock").toObject());
+    const Location dock = decode(state.value("active_dock").toObject(), restoreAnchors);
     const bool dockVisible = state.value("dock_visible").toBool();
     for (const QJsonValue& value : state.value("threads").toArray()) {
         const QJsonObject object = value.toObject();
-        const Location location = decode(object);
+        const Location location = decode(object, restoreAnchors);
         const QString mode = object.value("mode").toString();
         if (!valid(location) || location.rootId.isEmpty()
             || (mode != "window" && mode != "dock")
@@ -254,16 +277,17 @@ void NavigationUiController::restoreSession()
         } else {
             attachThread(area);
         }
-        // No persisted scroll position: newly restored views use newest.
+        if (location.viewportAnchor) {
+            restoreSessionBookmark(area, location.postId, location.viewportAnchor);
+        }
     }
-    const Location active = decode(state.value("active_tab").toObject());
+    const Location active = decode(state.value("active_tab").toObject(), restoreAnchors);
     int index = tabModel.findDestination(active.channelId, active.rootId);
     if (index < 0 && !tabModel.isEmpty()) index = 0;
     if (index >= 0) {
-        const Location location = tabLocation(*tabModel.at(index));
-        // Session restore reopens the destination at its ordinary newest
-        // position. In-process viewport anchors are never serialized.
-        activateTab(index, false);
+        // Only the selected view is constructed; all other tab anchors stay
+        // as lightweight metadata until the user activates those tabs.
+        activateTab(index, true);
     }
     if (auto* area = findThread(dock.channelId, dock.rootId);
         area && threadStack->indexOf(area) >= 0) threadStack->setCurrentWidget(area);
@@ -275,7 +299,7 @@ void NavigationUiController::restoreSession()
     refreshTabBarVisibility();
     syncSplitterEdgeGutters();
     updateHistoryButtons();
-    const Location focused = decode(state.value("focused_window").toObject());
+    const Location focused = decode(state.value("focused_window").toObject(), restoreAnchors);
     if (auto* area = findThread(focused.channelId, focused.rootId);
         area && area->property("threadDetached").toBool()) {
         area->raise();
