@@ -688,12 +688,11 @@ private slots:
         auto* restored = ui.findThread(channel->id, rootId(41))
                              ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(restored);
-        const int index = restored->source()->ensurePostIndex(before.postId);
-        QVERIFY(index >= 0);
         qreal actualFraction = 0;
         QTRY_VERIFY(restored->findPost(before.postId)
             && restored->captureSemanticAnchorFraction(
-                index, LongListWidget::SemanticAnchorPoint::ItemCenter,
+                restored->source()->indexOfPost(before.postId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
                 actualFraction)
             && qAbs(actualFraction - before.fraction) < 0.06);
         QVERIFY(!restored->isAtEnd());
