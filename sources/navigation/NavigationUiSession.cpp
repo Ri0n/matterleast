@@ -61,6 +61,21 @@ Location decode(const QJsonObject& object, bool restoreAnchors)
     }
     return location;
 }
+
+// One positioning implementation for tab, window, session and Back/Forward
+// bookmarks. Post resolution and sparse thread indexing remain the source's
+// responsibility; this helper only applies the saved semantic geometry.
+bool restorePosition(ChatLogWidget* view, const QString& postId,
+                     std::optional<NavigationTabsModel::ViewportAnchor> anchor)
+{
+    if (!view || postId.isEmpty()) return false;
+    if (!anchor) return view->restoreViewportBookmark(postId);
+    return view->restoreSemanticViewportBookmark({
+        anchor->postId,
+        anchor->bottom ? LongListWidget::SemanticAnchorPoint::ItemBottom
+                       : LongListWidget::SemanticAnchorPoint::ItemCenter,
+        anchor->fraction});
+}
 }
 
 QString NavigationUiController::sessionSettingsKey() const
@@ -94,29 +109,23 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
         connect(log, &LongListWidget::materializedRangeChanged, area,
                 [area, log](int, int) {
             const QString pending = area->property("sessionBookmark").toString();
-            if (pending.isEmpty() || !log->findPost(pending)) return;
-            // Both explicit navigation and passive bookmarks end at the same
-            // ChatLogWidget / PostSource positioning path. A post may be
-            // materialized only *after* the first navigation attempt, so
-            // finalize that original semantic anchor once real geometry exists.
+            if (pending.isEmpty()) return;
+            // A source can receive a target body before it knows the target's
+            // authoritative row. Retry using the *same* post positioning path
+            // when the presentation acquires more concrete geometry.
             QTimer::singleShot(0, area, [area, log, pending] {
-                if (area->property("sessionBookmark").toString() != pending
-                    || !log->findPost(pending)) return;
+                if (area->property("sessionBookmark").toString() != pending) return;
                 const QVariantMap data =
                     area->property("sessionBookmarkAnchor").toMap();
-                bool positioned = false;
+                std::optional<NavigationTabsModel::ViewportAnchor> anchor;
                 if (data.value(QStringLiteral("post")).toString() == pending) {
-                    const ChatLogWidget::SemanticViewportBookmark anchor {
+                    anchor = NavigationTabsModel::ViewportAnchor {
                         pending,
-                        data.value(QStringLiteral("bottom")).toBool()
-                            ? LongListWidget::SemanticAnchorPoint::ItemBottom
-                            : LongListWidget::SemanticAnchorPoint::ItemCenter,
+                        data.value(QStringLiteral("bottom")).toBool(),
                         data.value(QStringLiteral("fraction")).toDouble()};
-                    positioned = log->restoreSemanticViewportBookmark(anchor);
-                } else {
-                    positioned = log->restoreViewportBookmark(pending);
                 }
-                if (positioned) {
+                if (restorePosition(log, pending, anchor)
+                    && log->findPost(pending)) {
                     area->setProperty("sessionBookmark", QString());
                     area->setProperty("sessionBookmarkAnchor", QVariant());
                 }
@@ -142,14 +151,7 @@ void NavigationUiController::restoreSessionBookmark(
             {QStringLiteral("fraction"), anchor->fraction}})
         : QVariant());
     auto position = [anchor, postId](ChatLogWidget* view) {
-        if (!view) return false;
-        if (!anchor) return view->restoreViewportBookmark(postId);
-        const ChatLogWidget::SemanticViewportBookmark semantic {
-            anchor->postId,
-            anchor->bottom ? LongListWidget::SemanticAnchorPoint::ItemBottom
-                           : LongListWidget::SemanticAnchorPoint::ItemCenter,
-            anchor->fraction};
-        return view->restoreSemanticViewportBookmark(semantic);
+        return restorePosition(view, postId, anchor);
     };
     if (position(log)) {
         // A provisional thread slot can accept the target long before its
