@@ -425,10 +425,26 @@ NavigationUiController::captureLocation(ChatArea* area) const
     const QString pendingBookmark = area->property("sessionBookmark").toString();
     if (!pendingBookmark.isEmpty()) {
         location.postId = pendingBookmark;
+        // A cold navigation still resolving its target should retain the
+        // bookmark already associated with that same destination.
+        if (currentLocation.sameDestination(location)
+            && currentLocation.viewportAnchor
+            && currentLocation.viewportAnchor->postId == pendingBookmark) {
+            location.viewportAnchor = currentLocation.viewportAnchor;
+        }
         return location;
     }
 
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
+        ChatLogWidget::SemanticViewportBookmark bookmark;
+        if (log->captureSemanticViewportBookmark(bookmark)) {
+            location.postId = bookmark.postId;
+            location.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+                bookmark.postId,
+                bookmark.point == LongListWidget::SemanticAnchorPoint::ItemBottom,
+                bookmark.fraction};
+            return location;
+        }
         QString postId;
         if (log->captureViewportBookmark(postId)) {
             location.postId = postId;
@@ -489,6 +505,7 @@ NavigationUiController::tabEntry(const Location& location) const
     entry.channelId = location.channelId;
     entry.rootId = location.rootId;
     entry.postId = location.postId;
+    entry.viewportAnchor = location.viewportAnchor;
     entry.title = tabTitle(location);
     return entry;
 }
@@ -500,6 +517,7 @@ NavigationUiController::tabLocation(const NavigationTabsModel::Entry& entry) con
     location.channelId = entry.channelId;
     location.rootId = entry.rootId;
     location.postId = entry.postId;
+    location.viewportAnchor = entry.viewportAnchor;
     return location;
 }
 
@@ -676,28 +694,18 @@ void NavigationUiController::saveActiveTabLocation()
         return;
     }
 
-    Location location = captureLocation(area);
-    if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-        log && log->source() && log->isAtEnd()
-        && area->property("sessionBookmark").toString().isEmpty()) {
-        location.postId.clear();
-    }
+    const Location location = captureLocation(area);
     const Location expected = tabLocation(*entry);
     if (location.isValid() && location.sameDestination(expected)) {
         updateTab(activeTabIndex, location);
-        if (auto* log = area->findChild<ChatLogWidget*>(
-                QStringLiteral("listWidget")); log && log->source()) {
-            ChatLogWidget::SemanticViewportBookmark bookmark;
-            if (log->captureSemanticViewportBookmark(bookmark)) {
-                tabModel.setViewportAnchor(activeTabIndex,
-                    {bookmark.postId,
-                     bookmark.point == LongListWidget::SemanticAnchorPoint::ItemBottom,
-                     bookmark.fraction});
-            } else {
-                // A prior live-edge bookmark cannot stand in for a newer,
-                // not-yet-measurable scrolled viewport.
-                tabModel.clearViewportAnchor(activeTabIndex);
-            }
+        // Both history and tabs use the exact same measured viewport snapshot.
+        // Never resurrect the previous anchor after a new scroll that could
+        // not yet produce a concrete post.
+        if (location.viewportAnchor) {
+            tabModel.setViewportAnchor(activeTabIndex, *location.viewportAnchor);
+        } else if (auto* log = area->findChild<ChatLogWidget*>(
+                       QStringLiteral("listWidget")); log && log->source()) {
+            tabModel.clearViewportAnchor(activeTabIndex);
         }
     }
 }
@@ -771,12 +779,12 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
         }
     }
 
-    // saveActiveTabLocation() may update the entry's passive viewport anchor.
-    const auto* incoming = tabModel.at(index);
-    const auto anchor = incoming ? incoming->viewportAnchor : std::nullopt;
+    // The tab and Back/Forward history carry the same runtime bookmark.
+    // An explicit navigation target supersedes a passive viewport snapshot.
     Location location = tabLocation(*entry);
-    if (!restoreBookmark || anchor) {
+    if (!restoreBookmark) {
         location.postId.clear();
+        location.viewportAnchor.reset();
     }
     activeTabIndex = index;
 
@@ -808,10 +816,8 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             tabifyThread(area, index);
             currentLocation = location;
             activeArea = area;
-            if (restoreBookmark && anchor) {
-                restoreSessionBookmark(area, anchor->postId, anchor);
-            } else if (!location.postId.isEmpty()) {
-                restoreSessionBookmark(area, location.postId);
+            if (!location.postId.isEmpty()) {
+                restoreSessionBookmark(area, location.postId, location.viewportAnchor);
             }
         }
     } else {
@@ -820,10 +826,6 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             mainStack->show();
         }
         navigateTo(location);
-        if (restoreBookmark && anchor && channelTree) {
-            restoreSessionBookmark(channelTree->getCurrentPage(),
-                                   anchor->postId, anchor);
-        }
     }
 
     switchingTabs = previousSwitching;
@@ -1271,7 +1273,7 @@ void NavigationUiController::navigateTo(const Location& location)
 
     // Passive bookmarks resolve cold bodies without flashing a permalink or
     // changing the current semantic destination.
-    restoreSessionBookmark(area, location.postId);
+    restoreSessionBookmark(area, location.postId, location.viewportAnchor);
 }
 
 ChatArea* NavigationUiController::findThread(const QString& channelId,
