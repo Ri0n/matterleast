@@ -620,7 +620,12 @@ private slots:
         QVERIFY(!ui.findThread(channel->id, rootId(41)));
         QTRY_VERIFY(retired.isNull());
 
-        navigation.openThreadInTab(channel->id, rootId(41));
+        // Exercise the user's actual tab-bar click path, not a new semantic
+        // navigation request through AppNavigationService.
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_COMPARE(tabs->count(), 2);
+        tabs->setCurrentIndex(0);
         QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
         auto* reopened = ui.findThread(channel->id, rootId(41));
         auto* restoredLog = reopened->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
