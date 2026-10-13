@@ -779,8 +779,15 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             if (navigationSurfaceStack && navigationSurfaceStack->indexOf(old) >= 0)
                 navigationSurfaceStack->removeWidget(old);
             old->setProperty("threadTabbed", false);
-            old->setProperty("inactiveTabClosing", true);
-            old->close(); // WA_DeleteOnClose; the tab entry owns the bookmark
+            // Tab state owns only the destination/bookmark. The QWidget is no
+            // longer presented by either stack, so retire the active view
+            // reference before closing it. Qt's WA_DeleteOnClose handles
+            // destruction safely even when this transition originates in
+            // a signal emitted by the thread's own child widget.
+            if (activeArea == old) {
+                activeArea = nullptr;
+            }
+            old->close();
         }
     }
 
@@ -1140,10 +1147,9 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
         return;
     }
 
-    // A thread tab was snapshotted before being retired. Its widget may still
-    // exist until deleteLater(), but is no longer a valid geometry source.
-    if (activeArea && currentLocation.isChat()
-        && !activeArea->property("inactiveTabClosing").toBool()) {
+    // The outgoing tab's view reference is cleared at its ownership
+    // transition; history keeps the already captured semantic bookmark.
+    if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
         if (latest.isValid() && currentLocation.sameDestination(latest)) {
             currentLocation = latest;
@@ -1294,8 +1300,18 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
     const auto widgets = QApplication::allWidgets();
     for (QWidget* widget : widgets) {
         auto* area = qobject_cast<ChatArea*>(widget);
-        if (!area || !area->isThread || area->root_id != rootId
-            || area->property("inactiveTabClosing").toBool()) {
+        if (!area || !area->isThread || area->root_id != rootId) {
+            continue;
+        }
+        // Visibility alone is insufficient: Qt's deferred widget teardown
+        // leaves an orphan QObject alive after removeWidget(). Only a stack
+        // membership or an actual detached window constitutes an open thread.
+        const bool inCentralSurface = navigationSurfaceStack
+            && navigationSurfaceStack->indexOf(area) >= 0;
+        const bool inDock = threadStack && threadStack->indexOf(area) >= 0;
+        const bool detachedWindow = area->property("threadDetached").toBool()
+            && area->isWindow() && area->isVisible();
+        if (!(inCentralSurface || inDock || detachedWindow)) {
             continue;
         }
         if (area->getChannel().id == channelId) {
