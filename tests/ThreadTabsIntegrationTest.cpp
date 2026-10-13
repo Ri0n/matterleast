@@ -628,9 +628,20 @@ private slots:
         const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
         QVERIFY(anchorIndex >= 0);
         qreal restoredFraction = 0;
+        QTest::qWait(200);
+        restoredLog->captureSemanticAnchorFraction(
+            restoredLog->source()->indexOfPost(before.postId),
+            LongListWidget::SemanticAnchorPoint::ItemCenter, restoredFraction);
+        qInfo() << "TAB_REVISIT_GEOMETRY" << before.postId
+                << "expected" << before.fraction
+                << "actual" << restoredFraction
+                << "end" << restoredLog->isAtEnd()
+                << "scroll" << restoredLog->verticalScrollBar()->value()
+                << "max" << restoredLog->verticalScrollBar()->maximum();
         QTRY_VERIFY(restoredLog->findPost(before.postId)
             && restoredLog->captureSemanticAnchorFraction(
-                anchorIndex, LongListWidget::SemanticAnchorPoint::ItemCenter,
+                restoredLog->source()->indexOfPost(before.postId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
                 restoredFraction)
             && qAbs(restoredFraction - before.fraction) < 0.06);
     }
