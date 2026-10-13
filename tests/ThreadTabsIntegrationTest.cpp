@@ -376,6 +376,88 @@ private slots:
         QTRY_VERIFY(ui.findThread("channel", rootId(301)));
     }
 
+    void semanticBookmarksSurviveRestartOnlyForOpenSurfaces()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.replyCount = 24;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        auto location = [](int thread, int reply, bool bottom, double fraction) {
+            return QJsonObject {
+                {"channel", "channel"},
+                {"root", rootId(thread)},
+                {"anchor", QJsonObject {
+                    {"post", replyId(thread, reply)},
+                    {"bottom", bottom},
+                    {"fraction", fraction}}}};
+        };
+        const QJsonObject active = location(41, 12, false, -0.14);
+        const QJsonObject inactive = location(42, 9, true, -0.03);
+        QJsonObject detached = location(43, 7, false, 0.09);
+        detached.insert("mode", "window");
+        detached.insert("geometry", QString());
+
+        const QString key = sessionKey();
+        MLOptions::instance()->setValue(key,
+            QJsonDocument(QJsonObject {
+                {"version", 2},
+                {"tabs", QJsonArray {active, inactive}},
+                {"active_tab", active},
+                {"threads", QJsonArray {detached}},
+                {"focused_window", detached}})
+                .toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        auto& ui = NavigationUiController::instance(window);
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_COMPARE(tabs->count(), 2);
+        QTRY_VERIFY(ui.findThread("channel", rootId(41)));
+        QTRY_VERIFY(ui.findThread("channel", rootId(43)));
+        // Inactive tabs are restored as semantic entries, not ChatAreas.
+        QVERIFY(!ui.findThread("channel", rootId(42)));
+        QTRY_VERIFY(server.postLookups.contains(replyId(41, 12)));
+
+        ui.saveSession();
+        QJsonObject saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(key)).object();
+        QCOMPARE(saved.value("version").toInt(), 2);
+        QCOMPARE(saved.value("tabs").toArray().size(), 2);
+        QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
+                     .value("anchor").toObject().value("post").toString(),
+                 replyId(41, 12));
+        QCOMPARE(saved.value("tabs").toArray().at(1).toObject()
+                     .value("anchor").toObject().value("post").toString(),
+                 replyId(42, 9));
+        QCOMPARE(saved.value("threads").toArray().size(), 1);
+        QCOMPARE(saved.value("threads").toArray().at(0).toObject()
+                     .value("anchor").toObject().value("post").toString(),
+                 replyId(43, 7));
+
+        // Closing a tab removes its bookmark too; the snapshot must contain
+        // only still-open presentation surfaces.
+        QTest::mouseClick(tabs, Qt::MiddleButton, Qt::NoModifier,
+                          tabs->tabRect(1).center());
+        QTRY_COMPARE(tabs->count(), 1);
+        ui.saveSession();
+        saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(key)).object();
+        QCOMPARE(saved.value("tabs").toArray().size(), 1);
+        QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
+                     .value("anchor").toObject().value("post").toString(),
+                 replyId(41, 12));
+        if (auto* windowThread = ui.findThread("channel", rootId(43))) {
+            delete windowThread;
+        }
+    }
+
     void sessionDoesNotRestoreLegacyViewportBookmark()
     {
         Server server;
