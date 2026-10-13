@@ -1,6 +1,7 @@
 #include "NavigationUiController.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QAction>
 #include <QApplication>
@@ -25,6 +26,7 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolButton>
+#include <QVariantMap>
 #include <QVBoxLayout>
 
 #include "backend/Backend.h"
@@ -425,6 +427,17 @@ NavigationUiController::captureLocation(ChatArea* area) const
     const QString pendingBookmark = area->property("sessionBookmark").toString();
     if (!pendingBookmark.isEmpty()) {
         location.postId = pendingBookmark;
+        // A detached/docked thread has no tab entry. Its still-pending
+        // bookmark is stored on the presenting ChatArea until materialized.
+        const QVariantMap pending = area->property("sessionBookmarkAnchor").toMap();
+        if (pending.value(QStringLiteral("post")).toString() == pendingBookmark
+            && std::isfinite(pending.value(QStringLiteral("fraction")).toDouble())) {
+            location.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+                pendingBookmark,
+                pending.value(QStringLiteral("bottom")).toBool(),
+                pending.value(QStringLiteral("fraction")).toDouble()};
+            return location;
+        }
         // The newly constructed ChatArea is not yet a reliable viewport
         // geometry source. Reuse the saved tab anchor while the post is being
         // fetched, rather than accidentally replacing it with the initial end.
