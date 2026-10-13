@@ -577,6 +577,11 @@ private slots:
         root.insert("reply_count", server.replyCount);
         root.insert("last_reply_at", 1000000000000LL + 41000 + server.replyCount);
         channel->addPost(root);
+        // This fixture tests geometry restoration, not sparse cursor seek.
+        // Give both presentations the same complete, resident thread.
+        for (int reply = 1; reply <= server.replyCount; ++reply) {
+            channel->addPost(post(41, reply));
+        }
 
         QSystemTrayIcon tray;
         MainWindow window(nullptr, tray, backend);
@@ -601,12 +606,8 @@ private slots:
 
         // This gesture cancels the live-edge intent. The same physical
         // timeline must now be captured as a post-center anchor.
-        // A near-edge scrollbar offset can be remeasured into the first
-        // few posts on different Qt platforms, where the saved centre cannot
-        // physically fit above scroll position zero. Use a concrete middle
-        // post with ample history on both sides.
-        log->scrollToIndex(12, LongListWidget::Alignment::Center);
-        QTRY_VERIFY(log->findPost(replyId(41, 12)));
+        // Read from a stable middle viewport with room on both sides.
+        bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
         ChatLogWidget::SemanticViewportBookmark before;
@@ -665,6 +666,11 @@ private slots:
         root.insert("reply_count", server.replyCount);
         root.insert("last_reply_at", 1000000000000LL + 41000 + server.replyCount);
         channel->addPost(root);
+        // This fixture tests geometry restoration, not sparse cursor seek.
+        // Give both presentations the same complete, resident thread.
+        for (int reply = 1; reply <= server.replyCount; ++reply) {
+            channel->addPost(post(41, reply));
+        }
 
         QSystemTrayIcon tray;
         MainWindow window(nullptr, tray, backend);
@@ -685,12 +691,8 @@ private slots:
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
         auto* bar = log->verticalScrollBar();
-        // A near-edge scrollbar offset can be remeasured into the first
-        // few posts on different Qt platforms, where the saved centre cannot
-        // physically fit above scroll position zero. Use a concrete middle
-        // post with ample history on both sides.
-        log->scrollToIndex(12, LongListWidget::Alignment::Center);
-        QTRY_VERIFY(log->findPost(replyId(41, 12)));
+        // Read from a stable middle viewport with room on both sides.
+        bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
 
