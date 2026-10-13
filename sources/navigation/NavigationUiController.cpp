@@ -1140,7 +1140,10 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
         return;
     }
 
-    if (activeArea && currentLocation.isChat()) {
+    // A thread tab was snapshotted before being retired. Its widget may still
+    // exist until deleteLater(), but is no longer a valid geometry source.
+    if (activeArea && currentLocation.isChat()
+        && !activeArea->property("inactiveTabClosing").toBool()) {
         const Location latest = captureLocation(activeArea);
         if (latest.isValid() && currentLocation.sameDestination(latest)) {
             currentLocation = latest;
