@@ -465,6 +465,9 @@ private slots:
         MainWindow window(nullptr, tray, backend);
         window.resize(1000, 700);
         window.show();
+        // The navigation controller owns the tab bar and is constructed lazily.
+        // Do not inspect it before establishing that owner.
+        auto& ui = NavigationUiController::instance(window);
 
         auto* tabs = window.findChild<QTabBar*>(
             QStringLiteral("navigationTabs"));
@@ -493,7 +496,6 @@ private slots:
             && qAbs(fraction) < 0.07);
         QVERIFY(!log->isAtEnd());
 
-        auto& ui = NavigationUiController::instance(window);
         ui.saveSession();
         const QJsonObject saved = QJsonDocument::fromJson(
             MLOptions::instance()->value<QByteArray>(sessionKey())).object();
