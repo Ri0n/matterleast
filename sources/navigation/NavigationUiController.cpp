@@ -707,6 +707,11 @@ void NavigationUiController::saveActiveTabLocation()
         // Never resurrect the previous anchor after a new scroll that could
         // not yet produce a concrete post.
         if (location.viewportAnchor) {
+            qInfo() << "TAB_SAVED_ANCHOR" << activeTabIndex
+                    << location.channelId << location.rootId
+                    << location.viewportAnchor->postId
+                    << location.viewportAnchor->bottom
+                    << location.viewportAnchor->fraction;
             tabModel.setViewportAnchor(activeTabIndex, *location.viewportAnchor);
         } else if (auto* log = area->findChild<ChatLogWidget*>(
                        QStringLiteral("listWidget")); log && log->source()) {
@@ -828,6 +833,10 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             tabifyThread(area, index);
             currentLocation = location;
             activeArea = area;
+            qInfo() << "TAB_ACTIVATED_ANCHOR" << index
+                    << location.channelId << location.rootId
+                    << location.postId << (bool)location.viewportAnchor
+                    << (location.viewportAnchor ? location.viewportAnchor->fraction : 0.0);
             if (!location.postId.isEmpty()) {
                 restoreSessionBookmark(area, location.postId, location.viewportAnchor);
             }
