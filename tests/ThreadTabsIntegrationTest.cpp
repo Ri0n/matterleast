@@ -601,7 +601,13 @@ private slots:
 
         // This gesture cancels the live-edge intent. The same physical
         // timeline must now be captured as a post-center anchor.
-        bar->setValue(bar->maximum() - 200);
+        // A near-edge scrollbar offset can be remeasured into the first
+        // few posts on different Qt platforms, where the saved centre cannot
+        // physically fit above scroll position zero. Use a concrete middle
+        // post with ample history on both sides.
+        log->scrollToIndex(12, LongListWidget::Alignment::Center);
+        QTRY_VERIFY(log->findPost(replyId(41, 12)));
+        QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
         ChatLogWidget::SemanticViewportBookmark before;
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
@@ -628,16 +634,6 @@ private slots:
         const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
         QVERIFY(anchorIndex >= 0);
         qreal restoredFraction = 0;
-        QTest::qWait(200);
-        restoredLog->captureSemanticAnchorFraction(
-            restoredLog->source()->indexOfPost(before.postId),
-            LongListWidget::SemanticAnchorPoint::ItemCenter, restoredFraction);
-        qInfo() << "TAB_REVISIT_GEOMETRY" << before.postId
-                << "expected" << before.fraction
-                << "actual" << restoredFraction
-                << "end" << restoredLog->isAtEnd()
-                << "scroll" << restoredLog->verticalScrollBar()->value()
-                << "max" << restoredLog->verticalScrollBar()->maximum();
         QTRY_VERIFY(restoredLog->findPost(before.postId)
             && restoredLog->captureSemanticAnchorFraction(
                 restoredLog->source()->indexOfPost(before.postId),
@@ -684,7 +680,13 @@ private slots:
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
         auto* bar = log->verticalScrollBar();
-        bar->setValue(bar->maximum() - 200);
+        // A near-edge scrollbar offset can be remeasured into the first
+        // few posts on different Qt platforms, where the saved centre cannot
+        // physically fit above scroll position zero. Use a concrete middle
+        // post with ample history on both sides.
+        log->scrollToIndex(12, LongListWidget::Alignment::Center);
+        QTRY_VERIFY(log->findPost(replyId(41, 12)));
+        QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
 
         ChatLogWidget::SemanticViewportBookmark before;
