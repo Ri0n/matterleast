@@ -1316,8 +1316,8 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
 
     // Detached threads have independent QWidget lifetimes and are the only
     // valid thread presentations outside those stacks.
-    for (QWidget* window : QApplication::topLevelWidgets()) {
-        auto* area = qobject_cast<ChatArea*>(window);
+    for (QWidget* topLevelWidget : QApplication::topLevelWidgets()) {
+        auto* area = qobject_cast<ChatArea*>(topLevelWidget);
         if (matches(area) && area->property("threadDetached").toBool()
             && area->isVisible()) {
             return area;
