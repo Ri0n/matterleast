@@ -507,7 +507,9 @@ private slots:
     {
         Server server;
         server.startupChannels = true;
-        server.replyCount = 24;
+        // Use enough content above and below the saved target for the center
+        // coordinate to be physically attainable at both Qt5 and Qt6 metrics.
+        server.replyCount = 48;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
@@ -520,8 +522,8 @@ private slots:
                     {"bottom", bottom},
                     {"fraction", fraction}}}};
         };
-        const QJsonObject active = location(41, 12, false, -0.14);
-        const QJsonObject inactive = location(42, 9, true, -0.03);
+        const QJsonObject active = location(41, 24, false, -0.14);
+        const QJsonObject inactive = location(42, 20, true, -0.03);
         QJsonObject detached = location(43, 12, false, 0.0);
         detached.insert("mode", "window");
         detached.insert("geometry", QString());
@@ -550,14 +552,14 @@ private slots:
         QTRY_VERIFY(ui.findThread("channel", rootId(43)));
         // Inactive tabs are restored as semantic entries, not ChatAreas.
         QVERIFY(!ui.findThread("channel", rootId(42)));
-        QTRY_VERIFY(server.postLookups.contains(replyId(41, 12)));
-        QTRY_VERIFY(server.postLookups.contains(replyId(43, 12)));
+        QTRY_VERIFY(server.postLookups.contains(replyId(41, 24)));
+        QTRY_VERIFY(server.postLookups.contains(replyId(43, 24)));
         // Test the persisted measured anchor, not the temporary initial
         // viewport before the detached post has finished materializing.
         auto* detachedLog = ui.findThread("channel", rootId(43))
                                 ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(detachedLog);
-        QTRY_VERIFY(detachedLog->findPost(replyId(43, 12)));
+        QTRY_VERIFY(detachedLog->findPost(replyId(43, 24)));
 
         // Restart must restore the same measured post/geometry rather than
         // merely serializing a plausible-looking JSON bookmark.
@@ -565,15 +567,25 @@ private slots:
                               ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(activeLog);
         qreal activeFraction = 0;
-        QTRY_VERIFY(activeLog->findPost(replyId(41, 12))
-            && activeLog->captureSemanticAnchorFraction(
-                activeLog->source()->indexOfPost(replyId(41, 12)),
-                LongListWidget::SemanticAnchorPoint::ItemCenter,
-                activeFraction)
-            && qAbs(activeFraction + 0.14) < 0.07);
+        const auto activeAnchored = [&] {
+            if (!activeLog->findPost(replyId(41, 24))) return false;
+            if (!activeLog->captureSemanticAnchorFraction(
+                    activeLog->source()->indexOfPost(replyId(41, 24)),
+                    LongListWidget::SemanticAnchorPoint::ItemCenter,
+                    activeFraction)) return false;
+            return qAbs(activeFraction + 0.14) < 0.07;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(activeAnchored(), 15000);
+        if (!activeAnchored()) {
+            qWarning() << "Active thread anchor mismatch"
+                       << "fraction=" << activeFraction
+                       << "scroll=" << activeLog->verticalScrollBar()->value()
+                       << "maximum=" << activeLog->verticalScrollBar()->maximum()
+                       << "targetIndex=" << activeLog->source()->indexOfPost(replyId(41, 24));
+        }
         qreal detachedFraction = 0;
         QTRY_VERIFY(detachedLog->captureSemanticAnchorFraction(
-            detachedLog->source()->indexOfPost(replyId(43, 12)),
+            detachedLog->source()->indexOfPost(replyId(43, 24)),
             LongListWidget::SemanticAnchorPoint::ItemCenter,
             detachedFraction)
             && qAbs(detachedFraction) < 0.07);
@@ -585,14 +597,14 @@ private slots:
         QCOMPARE(saved.value("tabs").toArray().size(), 2);
         QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
                      .value("anchor").toObject().value("post").toString(),
-                 replyId(41, 12));
+                 replyId(41, 24));
         QCOMPARE(saved.value("tabs").toArray().at(1).toObject()
                      .value("anchor").toObject().value("post").toString(),
-                 replyId(42, 9));
+                 replyId(42, 20));
         QCOMPARE(saved.value("threads").toArray().size(), 1);
         QCOMPARE(saved.value("threads").toArray().at(0).toObject()
                      .value("anchor").toObject().value("post").toString(),
-                 replyId(43, 12));
+                 replyId(43, 24));
 
         // Closing a tab removes its bookmark too; the snapshot must contain
         // only still-open presentation surfaces.
@@ -605,7 +617,7 @@ private slots:
         QCOMPARE(saved.value("tabs").toArray().size(), 1);
         QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
                      .value("anchor").toObject().value("post").toString(),
-                 replyId(41, 12));
+                 replyId(41, 24));
         if (auto* windowThread = ui.findThread("channel", rootId(43))) {
             delete windowThread;
         }
