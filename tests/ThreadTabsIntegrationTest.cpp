@@ -282,7 +282,99 @@ private slots:
         }
     }
 
-    void sessionColdBookmarkAndUserNavigation()
+    void replacingDockDisposesOldThreadView()
+    {
+        Server server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+        // Explicitly establish a blank persisted session for this isolated
+        // fixture. saveSession() otherwise intentionally refuses to write
+        // before the one-time restoreSession() readiness gate has run.
+        MLOptions::instance()->setValue(sessionKey(), QByteArray());
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"}});
+        QVERIFY(channel);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+
+        auto& controller = NavigationUiController::instance(window);
+        controller.restoreSession();
+        QPointer<ChatArea> old = new ChatArea(backend, *channel, rootId(401), nullptr);
+        controller.presentThread(old);
+        QVERIFY(old);
+        auto* replacement = new ChatArea(backend, *channel, rootId(402), nullptr);
+        controller.presentThread(replacement);
+        QTRY_VERIFY(old.isNull());
+        QCOMPARE(controller.findThread("channel", rootId(402)), replacement);
+        auto* stack = window.findChild<QStackedWidget*>(
+            QStringLiteral("threadStack"));
+        QVERIFY(stack);
+        QCOMPARE(stack->count(), 1);
+        controller.saveSession();
+        const QJsonObject persisted = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QCOMPARE(persisted.value("threads").toArray().size(), 1);
+    }
+
+    void startupOnlyMaterializesSelectedTabAndVisibleDock()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+        const QJsonObject tab1 {{"channel", "channel"}, {"root", rootId(301)},
+                                {"post", replyId(301, 2)}};
+        const QJsonObject tab2 {{"channel", "channel"}, {"root", rootId(302)}};
+        const QJsonObject oldDock {{"channel", "channel"}, {"root", rootId(303)},
+                                   {"mode", "dock"}};
+        const QJsonObject activeDock {{"channel", "channel"}, {"root", rootId(304)},
+                                      {"mode", "dock"}};
+        const QJsonObject snapshot {{"version", 1},
+            {"tabs", QJsonArray {tab1, tab2}}, {"active_tab", tab2},
+            {"central", QJsonObject {{"channel", "channel"}}},
+            {"threads", QJsonArray {oldDock, activeDock}},
+            {"active_dock", activeDock}, {"dock_visible", true}};
+        MLOptions::instance()->setValue(
+            sessionKey(), QJsonDocument(snapshot).toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        auto& ui = NavigationUiController::instance(window);
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_VERIFY(ui.findThread("channel", rootId(302)));
+        QTRY_VERIFY(ui.findThread("channel", rootId(304)));
+        QCOMPARE(tabs->count(), 2);
+        QCOMPARE(tabs->currentIndex(), 1);
+        QVERIFY(!ui.findThread("channel", rootId(301)));
+        QVERIFY(!ui.findThread("channel", rootId(303)));
+
+        ui.saveSession();
+        const QJsonObject persisted = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QCOMPARE(persisted.value("tabs").toArray().size(), 2);
+        QCOMPARE(persisted.value("threads").toArray().size(), 1);
+        QVERIFY(!persisted.contains("central")); // Hidden channel is not a session surface.
+        QVERIFY(!persisted.value("tabs").toArray().at(0).toObject().contains("post"));
+        QVERIFY(!persisted.value("threads").toArray().at(0).toObject().contains("post"));
+
+        // The dormant tab is constructed only when the user selects it.
+        tabs->setCurrentIndex(0);
+        QTRY_VERIFY(ui.findThread("channel", rootId(301)));
+    }
+
+    void sessionDoesNotRestoreLegacyViewportBookmark()
     {
         Server server;
         server.startupChannels = true;
@@ -303,25 +395,14 @@ private slots:
         QTRY_VERIFY(ui.findThread("channel", rootId(205)));
         auto* area = ui.findThread("channel", rootId(205));
         auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-        QTRY_VERIFY(server.postLookups.contains(replyId(205, 365)));
-        QTRY_VERIFY(area->property("sessionBookmark").toString().isEmpty());
-        QTRY_VERIFY(!log->isAtEnd());
-        const int index = log->source()->indexOfPost(replyId(205, 365));
-        QVERIFY(index >= 0);
-        QTRY_VERIFY(log->itemWidget(index));
-        QTRY_VERIFY(log->visibleRange().first <= index && index <= log->visibleRange().last);
-        // The bookmark deliberately targets the middle of a large thread. A
-        // linear walk from either edge would consume at least half the replies;
-        // timing-dependent viewport prefetches are allowed to vary below that.
-        QVERIFY(server.returnedReplies < server.replyCount / 2);
-        // Explicit navigation cancels pending passive state immediately.
-        area->setProperty("sessionBookmark", replyId(205, 100));
-        area->goToNewest();
-        QVERIFY(area->property("sessionBookmark").toString().isEmpty());
+        // A saved legacy post bookmark must not trigger random-seek traffic
+        // or override the newest viewport at application launch.
         QTRY_VERIFY(log->isAtEnd());
+        QVERIFY(!server.postLookups.contains(replyId(205, 365)));
         ui.saveSession();
-        const auto saved = QJsonDocument::fromJson(MLOptions::instance()->value<QByteArray>(sessionKey())).object();
-        QVERIFY(saved.value("tabs").toArray().at(0).toObject().value("post").toString().isEmpty());
+        const auto saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QVERIFY(!saved.value("tabs").toArray().at(0).toObject().contains("post"));
         QVERIFY(!MLOptions::instance()->contains(sessionKey("other-user")));
     }
 

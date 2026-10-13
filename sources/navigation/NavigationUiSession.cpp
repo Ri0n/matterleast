@@ -26,13 +26,15 @@ using Location = NavigationUiController::Location;
 
 QJsonObject encode(const Location& location)
 {
-    return {{"channel", location.channelId}, {"root", location.rootId}, {"post", location.postId}};
+    // Session persistence is deliberately structural. Scroll positions exist
+    // only during the running process and must never survive a restart.
+    return {{"channel", location.channelId}, {"root", location.rootId}};
 }
 
 Location decode(const QJsonObject& object)
 {
-    return {object.value("channel").toString(), object.value("root").toString(),
-            object.value("post").toString()};
+    // Old snapshots may contain post; never restore a viewport from disk.
+    return {object.value("channel").toString(), object.value("root").toString()};
 }
 }
 
@@ -58,8 +60,8 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
     area->setProperty("sessionTracked", true);
     connect(area, &QObject::destroyed, this, [this] { scheduleSessionSave(); });
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
-        connect(log, &LongListWidget::visibleRangeChanged, this,
-                [this](int, int) { scheduleSessionSave(); });
+        // Scroll position lives only in memory; viewport updates must not
+        // serialize the account session or create disk-write storms.
         connect(log, &LongListWidget::userScrollStarted, area, [area] {
             area->setProperty("sessionBookmark", QString());
         });
@@ -108,12 +110,12 @@ void NavigationUiController::saveSession()
     const QString key = sessionSettingsKey();
     if (key.isEmpty()) return;
 
-    auto locationOf = [this](ChatArea* area) {
-        Location location = captureLocation(area);
-        auto* log = area ? area->findChild<ChatLogWidget*>(QStringLiteral("listWidget")) : nullptr;
-        if (log && log->source() && log->isAtEnd()
-            && area->property("sessionBookmark").toString().isEmpty())
-            location.postId.clear();
+    auto locationOf = [](ChatArea* area) {
+        Location location;
+        if (area) {
+            location.channelId = area->getChannel().id;
+            if (area->isThread) location.rootId = area->root_id;
+        }
         return location;
     };
     saveActiveTabLocation();
@@ -133,12 +135,19 @@ void NavigationUiController::saveSession()
     }
     QJsonArray threads;
     Backend* owner = backend();
+    // A right-hand thread's QStackedWidget retains older children after
+    // switching. Those are historical cached views, not open dock sessions.
+    ChatArea* visibleDock = threadStack && !threadStack->isHidden()
+        ? qobject_cast<ChatArea*>(threadStack->currentWidget()) : nullptr;
     for (QWidget* widget : QApplication::allWidgets()) {
         auto* area = qobject_cast<ChatArea*>(widget);
         if (!area || !area->isThread || &area->getBackend() != owner
             || area->property("threadTabbed").toBool()) continue;
         const bool detached = area->property("threadDetached").toBool();
-        if (!detached && (!threadStack || threadStack->indexOf(area) < 0)) continue;
+        // Detached windows are independent visible surfaces; for the right
+        // pane, persist only the currently selected and visible dock.
+        if (!detached && area != visibleDock) continue;
+        if (detached && !area->isVisible()) continue;
         QJsonObject entry = encode(locationOf(area));
         entry.insert("mode", detached ? "window" : "dock");
         if (detached) entry.insert("geometry", QString::fromLatin1(area->saveGeometry().toBase64()));
@@ -146,13 +155,12 @@ void NavigationUiController::saveSession()
     }
     Location active;
     if (const auto* entry = tabModel.at(activeTabIndex)) active = tabLocation(*entry);
-    auto* central = channelTree ? channelTree->getCurrentPage() : nullptr;
-    auto* dock = threadStack ? qobject_cast<ChatArea*>(threadStack->currentWidget()) : nullptr;
+    auto* dock = visibleDock;
     auto* focused = qobject_cast<ChatArea*>(QApplication::activeWindow());
     QJsonObject state {{"version", 1}, {"tabs", tabs}, {"threads", threads},
-                       {"active_tab", encode(active)}, {"central", encode(locationOf(central))},
+                       {"active_tab", encode(active)},
                        {"active_dock", encode(locationOf(dock))},
-                       {"dock_visible", threadStack && !threadStack->isHidden()},
+                       {"dock_visible", visibleDock != nullptr},
                        {"focused_window", focused && focused->property("threadDetached").toBool()
                             ? encode(locationOf(focused)) : QJsonObject()}};
     MLOptions::instance()->setValue(key, QJsonDocument(state).toJson(QJsonDocument::Compact));
@@ -173,8 +181,6 @@ void NavigationUiController::restoreSession()
     auto valid = [this](const Location& location) {
         return location.isValid() && backend()->getStorage().getChannelById(location.channelId);
     };
-    const Location central = decode(state.value("central").toObject());
-    if (valid(central)) navigateTo(central);
     {
         QSignalBlocker blocker(navigationTabs);
         while (navigationTabs->count()) navigationTabs->removeTab(0);
@@ -186,13 +192,13 @@ void NavigationUiController::restoreSession()
             if (!valid(location)) continue;
             const int index = appendNavigationTab(location);
             tabModel.setPinned(index, tab.value("pinned").toBool());
-            if (!location.rootId.isEmpty()) {
-                activateTab(index, false);
-                if (auto* area = findThread(location.channelId, location.rootId))
-                    restoreSessionBookmark(area, location.postId);
-            }
+            // Inactive tab entries remain semantic metadata only. Creating
+            // ChatArea here eagerly materialized every hidden thread's posts.
+            // activateTab() below constructs just the selected destination.
         }
     }
+    const Location dock = decode(state.value("active_dock").toObject());
+    const bool dockVisible = state.value("dock_visible").toBool();
     for (const QJsonValue& value : state.value("threads").toArray()) {
         const QJsonObject object = value.toObject();
         const Location location = decode(object);
@@ -200,6 +206,10 @@ void NavigationUiController::restoreSession()
         if (!valid(location) || location.rootId.isEmpty()
             || (mode != "window" && mode != "dock")
             || findThread(location.channelId, location.rootId)) continue;
+        // Older session snapshots may contain hundreds of stale cached dock
+        // views. Only the active visible dock represents a user-open surface.
+        if (mode == "dock" &&
+            (!dockVisible || !location.sameDestination(dock))) continue;
         auto* channel = backend()->getStorage().getChannelById(location.channelId);
         auto* area = new ChatArea(*backend(), *channel, location.rootId, nullptr);
         ensureThreadButton(area);
@@ -211,19 +221,17 @@ void NavigationUiController::restoreSession()
         } else {
             attachThread(area);
         }
-        restoreSessionBookmark(area, location.postId);
+        // No persisted scroll position: newly restored views use newest.
     }
     const Location active = decode(state.value("active_tab").toObject());
     int index = tabModel.findDestination(active.channelId, active.rootId);
     if (index < 0 && !tabModel.isEmpty()) index = 0;
     if (index >= 0) {
         const Location location = tabLocation(*tabModel.at(index));
-        activateTab(index, location.rootId.isEmpty());
-    } else if (valid(central)) {
-        navigateTo({central.channelId, {}, {}});
-        restoreSessionBookmark(channelTree->getCurrentPage(), central.postId);
+        // Session restore reopens the destination at its ordinary newest
+        // position. In-process viewport anchors are never serialized.
+        activateTab(index, false);
     }
-    const Location dock = decode(state.value("active_dock").toObject());
     if (auto* area = findThread(dock.channelId, dock.rootId);
         area && threadStack->indexOf(area) >= 0) threadStack->setCurrentWidget(area);
     threadStack->setVisible(state.value("dock_visible").toBool() && threadStack->count() > 0);
