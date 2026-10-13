@@ -598,16 +598,29 @@ private slots:
             MLOptions::instance()->value<QByteArray>(key)).object();
         QCOMPARE(saved.value("version").toInt(), 2);
         QCOMPARE(saved.value("tabs").toArray().size(), 2);
-        QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
-                     .value("anchor").toObject().value("post").toString(),
-                 replyId(41, 24));
+        ChatLogWidget::SemanticViewportBookmark visibleActive;
+        ChatLogWidget::SemanticViewportBookmark visibleDetached;
+        QVERIFY(activeLog->captureSemanticViewportBookmark(visibleActive));
+        QVERIFY(detachedLog->captureSemanticViewportBookmark(visibleDetached));
+        const QJsonObject savedActive = saved.value("tabs").toArray().at(0)
+                                              .toObject().value("anchor").toObject();
+        QCOMPARE(savedActive.value("post").toString(), visibleActive.postId);
+        QCOMPARE(savedActive.value("bottom").toBool(),
+                 visibleActive.point == LongListWidget::SemanticAnchorPoint::ItemBottom);
+        QVERIFY(qAbs(savedActive.value("fraction").toDouble()
+                     - visibleActive.fraction) < 0.02);
+        // Inactive tabs preserve their original semantic bookmark verbatim.
         QCOMPARE(saved.value("tabs").toArray().at(1).toObject()
                      .value("anchor").toObject().value("post").toString(),
                  replyId(42, 20));
         QCOMPARE(saved.value("threads").toArray().size(), 1);
-        QCOMPARE(saved.value("threads").toArray().at(0).toObject()
-                     .value("anchor").toObject().value("post").toString(),
-                 replyId(43, 24));
+        const QJsonObject savedDetached = saved.value("threads").toArray().at(0)
+                                                .toObject().value("anchor").toObject();
+        QCOMPARE(savedDetached.value("post").toString(), visibleDetached.postId);
+        QCOMPARE(savedDetached.value("bottom").toBool(),
+                 visibleDetached.point == LongListWidget::SemanticAnchorPoint::ItemBottom);
+        QVERIFY(qAbs(savedDetached.value("fraction").toDouble()
+                     - visibleDetached.fraction) < 0.02);
 
         // Closing a tab removes its bookmark too; the snapshot must contain
         // only still-open presentation surfaces.
@@ -618,9 +631,10 @@ private slots:
         saved = QJsonDocument::fromJson(
             MLOptions::instance()->value<QByteArray>(key)).object();
         QCOMPARE(saved.value("tabs").toArray().size(), 1);
+        QVERIFY(activeLog->captureSemanticViewportBookmark(visibleActive));
         QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
                      .value("anchor").toObject().value("post").toString(),
-                 replyId(41, 24));
+                 visibleActive.postId);
         if (auto* windowThread = ui.findThread("channel", rootId(43))) {
             delete windowThread;
         }
