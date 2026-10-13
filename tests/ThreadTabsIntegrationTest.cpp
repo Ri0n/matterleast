@@ -395,7 +395,7 @@ private slots:
         };
         const QJsonObject active = location(41, 12, false, -0.14);
         const QJsonObject inactive = location(42, 9, true, -0.03);
-        QJsonObject detached = location(43, 7, false, 0.09);
+        QJsonObject detached = location(43, 12, false, 0.0);
         detached.insert("mode", "window");
         detached.insert("geometry", QString());
 
@@ -424,6 +424,13 @@ private slots:
         // Inactive tabs are restored as semantic entries, not ChatAreas.
         QVERIFY(!ui.findThread("channel", rootId(42)));
         QTRY_VERIFY(server.postLookups.contains(replyId(41, 12)));
+        QTRY_VERIFY(server.postLookups.contains(replyId(43, 12)));
+        // Test the persisted measured anchor, not the temporary initial
+        // viewport before the detached post has finished materializing.
+        auto* detachedLog = ui.findThread("channel", rootId(43))
+                                ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(detachedLog);
+        QTRY_VERIFY(detachedLog->findPost(replyId(43, 12)));
 
         ui.saveSession();
         QJsonObject saved = QJsonDocument::fromJson(
@@ -439,7 +446,7 @@ private slots:
         QCOMPARE(saved.value("threads").toArray().size(), 1);
         QCOMPARE(saved.value("threads").toArray().at(0).toObject()
                      .value("anchor").toObject().value("post").toString(),
-                 replyId(43, 7));
+                 replyId(43, 12));
 
         // Closing a tab removes its bookmark too; the snapshot must contain
         // only still-open presentation surfaces.
@@ -683,12 +690,16 @@ private slots:
         QTRY_VERIFY(bar->maximum() > 400);
         QTRY_VERIFY(log->findPost(replyId(41, 24)));
         QPointer<ChatArea> retired = first;
+        QTest::qWait(120); // Drain initial deferred newest-position timers.
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
 
         // This gesture cancels the live-edge intent. The same physical
         // timeline must now be captured as a post-center anchor.
         // Read from a stable middle viewport with room on both sides.
+        // Explicit scrollbar ownership must win over activation's weak tail
+        // positioning, just as a real user scroll does.
+        bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
@@ -770,10 +781,14 @@ private slots:
         QTRY_COMPARE(log->itemCount(), 25);
         QTRY_VERIFY(log->verticalScrollBar()->maximum() > 400);
         QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QTest::qWait(120); // Drain initial deferred newest-position timers.
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
         auto* bar = log->verticalScrollBar();
         // Read from a stable middle viewport with room on both sides.
+        // Explicit scrollbar ownership must win over activation's weak tail
+        // positioning, just as a real user scroll does.
+        bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
