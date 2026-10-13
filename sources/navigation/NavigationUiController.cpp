@@ -425,11 +425,17 @@ NavigationUiController::captureLocation(ChatArea* area) const
     const QString pendingBookmark = area->property("sessionBookmark").toString();
     if (!pendingBookmark.isEmpty()) {
         location.postId = pendingBookmark;
-        // A cold navigation still resolving its target should retain the
-        // bookmark already associated with that same destination.
-        if (currentLocation.sameDestination(location)
-            && currentLocation.viewportAnchor
-            && currentLocation.viewportAnchor->postId == pendingBookmark) {
+        // The newly constructed ChatArea is not yet a reliable viewport
+        // geometry source. Reuse the saved tab anchor while the post is being
+        // fetched, rather than accidentally replacing it with the initial end.
+        if (const auto* tab = tabModel.at(
+                tabModel.findDestination(location.channelId, location.rootId));
+            tab && tab->viewportAnchor
+                && tab->viewportAnchor->postId == pendingBookmark) {
+            location.viewportAnchor = tab->viewportAnchor;
+        } else if (currentLocation.sameDestination(location)
+                   && currentLocation.viewportAnchor
+                   && currentLocation.viewportAnchor->postId == pendingBookmark) {
             location.viewportAnchor = currentLocation.viewportAnchor;
         }
         return location;
