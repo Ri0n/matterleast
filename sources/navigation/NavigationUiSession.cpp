@@ -99,6 +99,16 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
     if (!area || area->property("sessionTracked").toBool()) return;
     area->setProperty("sessionTracked", true);
     connect(area, &QObject::destroyed, this, [this] { scheduleSessionSave(); });
+    connect(area, &ChatArea::aboutToDeactivate, this, [this, area] {
+        if (area->isThread || restoringSession || switchingTabs) return;
+        const auto* entry = tabModel.at(activeTabIndex);
+        if (entry && entry->rootId.isEmpty()
+            && entry->channelId == area->getChannel().id) {
+            // ChannelTree switches its central stack only after deactivation.
+            // Snapshot the old viewport now, while the source is attached.
+            saveActiveTabLocation();
+        }
+    });
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
         // Snapshot semantics on explicit session saves (not every pixel
         // movement), avoiding disk-write storms during ordinary scrolling.
