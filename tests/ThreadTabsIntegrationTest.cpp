@@ -7,6 +7,7 @@
 #include <QSystemTrayIcon>
 #include <QScrollBar>
 #include <QTabBar>
+#include <QToolButton>
 #include <QStackedWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -628,6 +629,74 @@ private slots:
                 anchorIndex, LongListWidget::SemanticAnchorPoint::ItemCenter,
                 restoredFraction)
             && qAbs(restoredFraction - before.fraction) < 0.06);
+    }
+
+    void backHistoryRestoresMeasuredPostCenter()
+    {
+        Server server;
+        server.replyCount = 24;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"},
+                         {"display_name", "Test chat"}});
+        QVERIFY(channel);
+        QJsonObject root = post(41);
+        root.insert("reply_count", server.replyCount);
+        root.insert("last_reply_at", 1000000000000LL + 41000 + server.replyCount);
+        channel->addPost(root);
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
+        auto& ui = NavigationUiController::instance(window);
+        window.resize(1000, 700);
+        window.show();
+
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openThreadInTab(channel->id, rootId(41));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* log = ui.findThread(channel->id, rootId(41))
+                        ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(log);
+        QTRY_COMPARE(log->itemCount(), 25);
+        QTRY_VERIFY(log->verticalScrollBar()->maximum() > 400);
+        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        log->scrollToEnd();
+        QTRY_VERIFY(log->isAtEnd());
+        auto* bar = log->verticalScrollBar();
+        bar->setValue(bar->maximum() - 200);
+        QTRY_VERIFY(!log->isAtEnd());
+
+        ChatLogWidget::SemanticViewportBookmark before;
+        QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
+        QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+
+        navigation.openThreadInTab(channel->id, rootId(42));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
+        auto* back = window.findChild<QToolButton*>(
+            QStringLiteral("navigationBackButton"));
+        QVERIFY(back);
+        QTRY_VERIFY(back->isEnabled());
+        back->click();
+
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* restored = ui.findThread(channel->id, rootId(41))
+                             ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(restored);
+        const int index = restored->source()->ensurePostIndex(before.postId);
+        QVERIFY(index >= 0);
+        qreal actualFraction = 0;
+        QTRY_VERIFY(restored->findPost(before.postId)
+            && restored->captureSemanticAnchorFraction(
+                index, LongListWidget::SemanticAnchorPoint::ItemCenter,
+                actualFraction)
+            && qAbs(actualFraction - before.fraction) < 0.06);
+        QVERIFY(!restored->isAtEnd());
     }
 
     void coldThreadsOpenInSuccessiveTabs()
