@@ -579,8 +579,13 @@ private slots:
             MLOptions::instance()->value<QByteArray>(sessionKey())).object();
         const QJsonObject snapshot = saved.value("active_tab").toObject();
         QCOMPARE(snapshot.value("channel").toString(), QStringLiteral("channel"));
-        QVERIFY(!snapshot.value("anchor").toObject().value("post").toString().isEmpty());
-        QVERIFY(snapshot.value("anchor").toObject().value("bottom").toBool());
+        const QJsonObject edgeAnchor = snapshot.value("anchor").toObject();
+        // A cold live edge may have no concrete bottommost PostWidget yet.
+        // In that case an absent bookmark means 'reopen newest', not the
+        // stale middle-of-log bookmark from the previous session.
+        QVERIFY(edgeAnchor.isEmpty()
+            || (edgeAnchor.value("bottom").toBool()
+                && edgeAnchor.value("post").toString() != targetId));
     }
 
     void semanticBookmarksSurviveRestartOnlyForOpenSurfaces()
