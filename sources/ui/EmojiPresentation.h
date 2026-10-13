@@ -22,11 +22,13 @@ enum class Mode {
     Inline,
     Jumbo,
     Reaction,
+    StatusJumbo,
 };
 
 constexpr qreal InlineScale = 1.3;
 constexpr qreal JumboScale = 4.0;
 constexpr int ReactionExtent = 16;
+constexpr int StatusJumboExtent = 3 * ReactionExtent;
 
 inline qreal fontScale(Mode mode)
 {
@@ -37,6 +39,8 @@ inline qreal fontScale(Mode mode)
         return InlineScale;
     case Mode::Reaction:
         return 1.0;
+    case Mode::StatusJumbo:
+        return 3.0;
     }
     return InlineScale;
 }
@@ -65,6 +69,9 @@ inline int extent(const QFont& font, Mode mode)
 {
     if (mode == Mode::Reaction) {
         return font.pixelSize() > 0 ? font.pixelSize() : ReactionExtent;
+    }
+    if (mode == Mode::StatusJumbo) {
+        return StatusJumboExtent;
     }
     return std::max(1, qRound(QFontMetricsF(font).ascent() * fontScale(mode)));
 }
