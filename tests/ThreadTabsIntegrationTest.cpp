@@ -595,6 +595,7 @@ private slots:
         QVERIFY(bar);
         QTRY_VERIFY(bar->maximum() > 400);
         QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QPointer<ChatArea> retired = first;
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
 
@@ -608,7 +609,10 @@ private slots:
 
         navigation.openThreadInTab(channel->id, rootId(42));
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
-        QTRY_VERIFY(!ui.findThread(channel->id, rootId(41)));
+        // Removing the widget from its presentation owner must make it
+        // undiscoverable immediately, even if Qt defers destruction.
+        QVERIFY(!ui.findThread(channel->id, rootId(41)));
+        QTRY_VERIFY(retired.isNull());
 
         navigation.openThreadInTab(channel->id, rootId(41));
         QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
