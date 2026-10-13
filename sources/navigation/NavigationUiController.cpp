@@ -697,6 +697,11 @@ void NavigationUiController::saveActiveTabLocation()
     const Location location = captureLocation(area);
     const Location expected = tabLocation(*entry);
     if (location.isValid() && location.sameDestination(expected)) {
+        // Capture before the outgoing tab's ChatArea is destroyed. History
+        // must not recapture an already hidden or deactivated presentation.
+        if (currentLocation.isChat() && currentLocation.sameDestination(location)) {
+            currentLocation = location;
+        }
         updateTab(activeTabIndex, location);
         // Both history and tabs use the exact same measured viewport snapshot.
         // Never resurrect the previous anchor after a new scroll that could
