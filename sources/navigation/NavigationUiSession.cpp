@@ -10,6 +10,7 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTimer>
+#include <QVariantMap>
 
 #include "AppNavigationService.h"
 #include "backend/Backend.h"
@@ -84,10 +85,11 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
     area->setProperty("sessionTracked", true);
     connect(area, &QObject::destroyed, this, [this] { scheduleSessionSave(); });
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
-        // Scroll position lives only in memory; viewport updates must not
-        // serialize the account session or create disk-write storms.
+        // Snapshot semantics on explicit session saves (not every pixel
+        // movement), avoiding disk-write storms during ordinary scrolling.
         connect(log, &LongListWidget::userScrollStarted, area, [area] {
             area->setProperty("sessionBookmark", QString());
+            area->setProperty("sessionBookmarkAnchor", QVariant());
         });
         connect(log, &LongListWidget::materializedRangeChanged, area,
                 [area, log](int, int) {
@@ -100,6 +102,7 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
                 if (area->property("sessionBookmark").toString() == pending
                     && log->findPost(pending)) {
                     area->setProperty("sessionBookmark", QString());
+                    area->setProperty("sessionBookmarkAnchor", QVariant());
                 }
             });
         });
@@ -116,6 +119,12 @@ void NavigationUiController::restoreSessionBookmark(
     auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
     if (!log) return;
     area->setProperty("sessionBookmark", postId);
+    area->setProperty("sessionBookmarkAnchor", anchor
+        ? QVariant(QVariantMap {
+            {QStringLiteral("post"), anchor->postId},
+            {QStringLiteral("bottom"), anchor->bottom},
+            {QStringLiteral("fraction"), anchor->fraction}})
+        : QVariant());
     auto position = [anchor, postId](ChatLogWidget* view) {
         if (!view) return false;
         if (!anchor) return view->restoreViewportBookmark(postId);
@@ -132,6 +141,7 @@ void NavigationUiController::restoreSessionBookmark(
         // interval, including a quick switch to another tab.
         if (log->findPost(postId)) {
             area->setProperty("sessionBookmark", QString());
+            area->setProperty("sessionBookmarkAnchor", QVariant());
         }
         return;
     }
@@ -148,6 +158,7 @@ void NavigationUiController::restoreSessionBookmark(
                 const bool positioned = result.success && position(view);
                 if (!positioned || (view && view->findPost(postId))) {
                     guard->setProperty("sessionBookmark", QString());
+                    guard->setProperty("sessionBookmarkAnchor", QVariant());
                 }
                 if (!positioned) guard->goToNewest();
                 if (view) view->refreshReadState();
