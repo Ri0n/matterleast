@@ -581,9 +581,26 @@ jobs:
           cmake --build build --parallel 4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Thread tabs integration test (captured first run)
+        run: |
+          # This is a Windows GUI-subsystem QtTest executable. CTest cannot
+          # reliably forward its output when the initial run fails. Capture
+          # the actual first run so release failures remain diagnosable.
+          $log = Join-Path $PWD 'thread-tabs-first-run.txt'
+          & ./build/tests/thread-tabs-integration-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce its diagnostic log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
         run: |
-          ctest --test-dir build --output-on-failure
+          # Thread tabs have been run directly with durable QtTest output.
+          ctest --test-dir build --output-on-failure -E "^thread-tabs-integration-test$"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify Windows executable metadata
