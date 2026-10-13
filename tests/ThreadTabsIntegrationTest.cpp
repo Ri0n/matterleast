@@ -34,6 +34,16 @@ using namespace Mattermost;
 namespace {
 QString rootId(int thread) { return QStringLiteral("root%1").arg(thread, 22, 10, QLatin1Char('0')); }
 QString replyId(int thread, int reply) { return QStringLiteral("reply%1_%2").arg(thread).arg(reply); }
+QString channelPostId(int postIndex) { return QStringLiteral("channel_post_%1").arg(postIndex); }
+QJsonObject channelPost(int postIndex)
+{
+    const qint64 time = 1000000000000LL + postIndex * 1000;
+    return QJsonObject {{"id", channelPostId(postIndex)},
+                        {"channel_id", "channel"}, {"user_id", "user"},
+                        {"root_id", ""},
+                        {"message", QStringLiteral("Channel post %1").arg(postIndex)},
+                        {"create_at", time}, {"update_at", time}};
+}
 QString sessionKey(const QString& user = QStringLiteral("user"))
 {
     return QStringLiteral("navigation_session/") + QString::fromLatin1(
@@ -61,6 +71,8 @@ public:
     QStringList postLookups;
     QStringList threadLookups;
     QStringList teamChannelLookups;
+    QStringList channelContextRequests;
+    int channelRootCount = 0;
     int teamChannelResponses = 0;
     int delayMs = 0;
     int replyCount = 3;
@@ -88,9 +100,55 @@ public:
                     if (startupChannels && url.path() == "/api/v4/users/me/teams") {
                         body = R"([{"id":"team","name":"team","display_name":"Team"}])";
                     } else if (startupChannels && url.path() == "/api/v4/users/me/teams/team/channels") {
-                        body = R"([{"id":"channel","type":"G","display_name":"Test chat"}])";
+                        QJsonObject info {{"id", "channel"}, {"type", "G"},
+                                          {"display_name", "Test chat"}};
+                        if (channelRootCount > 0) {
+                            info.insert("total_msg_count_root", channelRootCount);
+                            info.insert("total_msg_count", channelRootCount);
+                            info.insert("last_root_post_at",
+                                        channelPost(channelRootCount).value("create_at"));
+                        }
+                        body = QJsonDocument(QJsonArray {info}).toJson(QJsonDocument::Compact);
                     } else if (startupChannels && url.path().endsWith("/channels/categories")) {
                         body = R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
+                    }
+                    if (channelRootCount > 0
+                        && url.path() == "/api/v4/channels/channel/posts") {
+                        const QUrlQuery query(url);
+                        const QString before = query.queryItemValue("before");
+                        const QString after = query.queryItemValue("after");
+                        if (!before.isEmpty() || !after.isEmpty()) {
+                            channelContextRequests.push_back(before.isEmpty() ? after : before);
+                        }
+                        int first = 1;
+                        int last = channelRootCount;
+                        if (!before.isEmpty()) {
+                            last = std::min(last,
+                                before.mid(QStringLiteral("channel_post_").size()).toInt() - 1);
+                        } else if (!after.isEmpty()) {
+                            first = std::max(first,
+                                after.mid(QStringLiteral("channel_post_").size()).toInt() + 1);
+                        }
+                        const int perPage = std::max(1,
+                            query.queryItemValue("per_page").toInt());
+                        const int page = std::max(0,
+                            query.queryItemValue("page").toInt());
+                        QJsonObject posts;
+                        QJsonArray order;
+                        int skipped = page * perPage;
+                        int returned = 0;
+                        for (int i = last; i >= first && returned < perPage; --i) {
+                            if (skipped-- > 0) continue;
+                            posts.insert(channelPostId(i), channelPost(i));
+                            order.append(channelPostId(i));
+                            ++returned;
+                        }
+                        body = QJsonDocument(QJsonObject {
+                            {"posts", posts}, {"order", order},
+                            {"prev_post_id", first > 1 ? channelPostId(first - 1) : QString()},
+                            {"next_post_id", last < channelRootCount
+                                ? channelPostId(last + 1) : QString()}
+                        }).toJson(QJsonDocument::Compact);
                     }
                     if (parts.size() >= 4 && parts.at(2) == "posts") {
                         const QString root = parts.at(3);
@@ -101,7 +159,10 @@ public:
                         if (parts.size() == 4) {
                             postLookups.push_back(root);
                             failed = failPost;
-                            if (root.startsWith("reply")) {
+                            if (root.startsWith("channel_post_")) {
+                                rootPost = channelPost(
+                                    root.mid(QStringLiteral("channel_post_").size()).toInt());
+                            } else if (root.startsWith("reply")) {
                                 const auto ids = root.mid(5).split('_');
                                 rootPost = post(ids.value(0).toInt(), ids.value(1).toInt());
                             }
