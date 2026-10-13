@@ -11,4 +11,9 @@ inline bool hasCustomStatusContent(const QString& emoji, const QString& text)
     return !emoji.trimmed().isEmpty() || !text.trimmed().isEmpty();
 }
 
+inline bool isEmojiOnlyCustomStatus(const QString& emoji, const QString& text)
+{
+    return !emoji.trimmed().isEmpty() && text.trimmed().isEmpty();
+}
+
 } // namespace Mattermost

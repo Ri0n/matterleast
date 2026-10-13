@@ -44,6 +44,7 @@
 #include "Settings.h"
 #include "SettingsWindow.h"
 #include "backend/Backend.h"
+#include "backend/CustomStatusValidation.h"
 #include "backend/PendingPostService.h"
 #include "navigation/NavigationUiController.h"
 #include "navigation/ConversationReference.h"
@@ -212,9 +213,17 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 			restoreNavigationSessionWhenReady();
 		});
 
-    const auto refreshProfileStatus = [this, &currentUser] {
+    // Always scale from the baseline font: repeated status updates must not
+    // multiply an already enlarged emoji-only font.
+    const QFont defaultStatusFont = ui->statusLabel->font();
+    const auto refreshProfileStatus = [this, &currentUser, defaultStatusFont] {
         ui->usericon_label->setStatus(currentUser.status);
         const auto& custom = currentUser.props.customStatus;
+        const bool emojiOnly = isEmojiOnlyCustomStatus(custom.emoji, custom.text);
+        ui->statusLabel->setFont(emojiOnly
+            ? EmojiPresentation::fontForMode(
+                  defaultStatusFont, EmojiPresentation::Mode::StatusJumbo)
+            : defaultStatusFont);
         // Rich-text emoji glyphs/images otherwise start almost flush against
         // the 48px avatar. Reserve an 8px character-sized visual gutter only
         // while an emoji status is present.
@@ -232,7 +241,9 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
             : QStringLiteral(":%1:").arg(custom.emoji.toHtmlEscaped());
         if (icon.contains(QStringLiteral("<img"), Qt::CaseInsensitive)) {
             icon = EmojiPresentation::normalizeHtml(
-                icon, ui->statusLabel->font(), EmojiPresentation::Mode::Reaction,
+                icon, defaultStatusFont,
+                emojiOnly ? EmojiPresentation::Mode::StatusJumbo
+                          : EmojiPresentation::Mode::Reaction,
                 &backend.emojiRegistry());
         } else {
             icon = icon.toHtmlEscaped();

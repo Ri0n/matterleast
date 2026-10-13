@@ -10,6 +10,7 @@
 #include "backend/CustomStatusValidation.h"
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
+#include "ui/EmojiPresentation.h"
 #include "backend/types/BackendUser.h"
 
 using namespace Mattermost;
@@ -25,6 +26,25 @@ private slots:
         QVERIFY(hasCustomStatusContent(QStringLiteral("coffee"), QStringLiteral("Working")));
         QVERIFY(!hasCustomStatusContent(QString(), QString()));
         QVERIFY(!hasCustomStatusContent(QStringLiteral("  "), QStringLiteral("  ")));
+        QVERIFY(isEmojiOnlyCustomStatus(QStringLiteral("coffee"), QString()));
+        QVERIFY(isEmojiOnlyCustomStatus(QStringLiteral("coffee"), QStringLiteral("  ")));
+        QVERIFY(!isEmojiOnlyCustomStatus(QStringLiteral("coffee"),
+                                         QStringLiteral("Working")));
+        QVERIFY(!isEmojiOnlyCustomStatus(QString(), QStringLiteral("Working")));
+        QVERIFY(!isEmojiOnlyCustomStatus(QStringLiteral("  "), QString()));
+    }
+
+    void emojiOnlyStatusHasTripleSize()
+    {
+        QFont standard;
+        standard.setPointSize(10);
+        const QFont large = EmojiPresentation::fontForMode(
+            standard, EmojiPresentation::Mode::StatusJumbo);
+        QCOMPARE(large.pointSizeF(), 3.0 * standard.pointSizeF());
+        QCOMPARE(EmojiPresentation::extent(
+                     standard, EmojiPresentation::Mode::Reaction), 16);
+        QCOMPARE(EmojiPresentation::extent(
+                     standard, EmojiPresentation::Mode::StatusJumbo), 48);
     }
 
     void statusEndpointsAndFailedUpdate()
