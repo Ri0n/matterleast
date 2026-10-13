@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <optional>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
@@ -57,6 +58,8 @@ public:
         QString channelId;
         QString rootId;
         QString postId;
+        // Shared with tab restoration, strictly in-memory; never serialized.
+        std::optional<NavigationTabsModel::ViewportAnchor> viewportAnchor;
 
         bool isChat() const { return kind == Kind::Chat; }
         bool isValid() const { return !isChat() || !channelId.isEmpty(); }
@@ -100,7 +103,9 @@ private:
     QString sessionSettingsKey() const;
     void scheduleSessionSave();
     void trackSessionArea(ChatArea* area);
-    void restoreSessionBookmark(ChatArea* area, const QString& postId);
+    void restoreSessionBookmark(
+        ChatArea* area, const QString& postId,
+        std::optional<NavigationTabsModel::ViewportAnchor> anchor = std::nullopt);
     void setupSidebarHeader();
     void setupThreadPane();
     void updateIdentityTooltip();

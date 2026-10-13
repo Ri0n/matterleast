@@ -93,6 +93,7 @@ public:
 	{
 		++viewportNavigationGeneration;
 		setProperty("sessionBookmark", QString());
+		setProperty("sessionBookmarkAnchor", QVariant());
 	}
 
 	/** Explicitly navigate to the newest edge, superseding any older post target. */
@@ -132,6 +133,8 @@ public:
 	void refreshReadState ();
 
 signals:
+    /** Emitted before an active channel timeline is detached. */
+    void aboutToDeactivate();
     void searchInConversationRequested(const QString& channelId);
 
 private slots:

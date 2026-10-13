@@ -1,6 +1,7 @@
 #include "NavigationUiController.h"
 
 #include <QApplication>
+#include <cmath>
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -9,6 +10,7 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTimer>
+#include <QVariant>
 
 #include "AppNavigationService.h"
 #include "backend/Backend.h"
@@ -26,15 +28,53 @@ using Location = NavigationUiController::Location;
 
 QJsonObject encode(const Location& location)
 {
-    // Session persistence is deliberately structural. Scroll positions exist
-    // only during the running process and must never survive a restart.
-    return {{"channel", location.channelId}, {"root", location.rootId}};
+    QJsonObject result {{"channel", location.channelId}, {"root", location.rootId}};
+    if (location.viewportAnchor && location.viewportAnchor->isValid()
+        && std::isfinite(static_cast<double>(location.viewportAnchor->fraction))) {
+        const auto& anchor = *location.viewportAnchor;
+        result.insert("anchor", QJsonObject {
+            {"post", anchor.postId},
+            {"bottom", anchor.bottom},
+            {"fraction", anchor.fraction}
+        });
+    }
+    return result;
 }
 
-Location decode(const QJsonObject& object)
+Location decode(const QJsonObject& object, bool restoreAnchors)
 {
-    // Old snapshots may contain post; never restore a viewport from disk.
-    return {object.value("channel").toString(), object.value("root").toString()};
+    Location location {object.value("channel").toString(),
+                       object.value("root").toString()};
+    // Version 1 sessions predate measured post-relative anchors. Their legacy
+    // "post" field is not precise enough to restore and must be ignored.
+    if (!restoreAnchors) return location;
+
+    const QJsonObject stored = object.value("anchor").toObject();
+    const QString postId = stored.value("post").toString();
+    const QJsonValue offset = stored.value("fraction");
+    const QJsonValue bottom = stored.value("bottom");
+    if (!postId.isEmpty() && offset.isDouble() && bottom.isBool()
+        && std::isfinite(offset.toDouble())) {
+        location.postId = postId;
+        location.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+            postId, bottom.toBool(), offset.toDouble()};
+    }
+    return location;
+}
+
+// One positioning implementation for tab, window, session and Back/Forward
+// bookmarks. Post resolution and sparse thread indexing remain the source's
+// responsibility; this helper only applies the saved semantic geometry.
+bool restorePosition(ChatLogWidget* view, const QString& postId,
+                     std::optional<NavigationTabsModel::ViewportAnchor> anchor)
+{
+    if (!view || postId.isEmpty()) return false;
+    if (!anchor) return view->restoreViewportBookmark(postId);
+    return view->restoreSemanticViewportBookmark({
+        anchor->postId,
+        anchor->bottom ? LongListWidget::SemanticAnchorPoint::ItemBottom
+                       : LongListWidget::SemanticAnchorPoint::ItemCenter,
+        anchor->fraction});
 }
 }
 
@@ -59,16 +99,54 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
     if (!area || area->property("sessionTracked").toBool()) return;
     area->setProperty("sessionTracked", true);
     connect(area, &QObject::destroyed, this, [this] { scheduleSessionSave(); });
+    connect(area, &ChatArea::aboutToDeactivate, this, [this, area] {
+        if (area->isThread || restoringSession || switchingTabs) return;
+        const auto* entry = tabModel.at(activeTabIndex);
+        if (entry && entry->rootId.isEmpty()
+            && entry->channelId == area->getChannel().id) {
+            // ChannelTree switches its central stack only after deactivation.
+            // Snapshot the old viewport now, while the source is attached.
+            saveActiveTabLocation();
+        }
+    });
     if (auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))) {
-        // Scroll position lives only in memory; viewport updates must not
-        // serialize the account session or create disk-write storms.
+        // Snapshot semantics on explicit session saves (not every pixel
+        // movement), avoiding disk-write storms during ordinary scrolling.
         connect(log, &LongListWidget::userScrollStarted, area, [area] {
             area->setProperty("sessionBookmark", QString());
+            area->setProperty("sessionBookmarkAnchor", QVariant());
+        });
+        connect(log, &LongListWidget::materializedRangeChanged, area,
+                [area, log](int, int) {
+            const QString pending = area->property("sessionBookmark").toString();
+            if (pending.isEmpty()) return;
+            // A source can receive a target body before it knows the target's
+            // authoritative row. Retry using the *same* post positioning path
+            // when the presentation acquires more concrete geometry.
+            QTimer::singleShot(0, area, [area, log, pending] {
+                if (area->property("sessionBookmark").toString() != pending) return;
+                const QVariantMap data =
+                    area->property("sessionBookmarkAnchor").toMap();
+                std::optional<NavigationTabsModel::ViewportAnchor> anchor;
+                if (data.value(QStringLiteral("post")).toString() == pending) {
+                    anchor = NavigationTabsModel::ViewportAnchor {
+                        pending,
+                        data.value(QStringLiteral("bottom")).toBool(),
+                        data.value(QStringLiteral("fraction")).toDouble()};
+                }
+                if (restorePosition(log, pending, anchor)
+                    && log->findPost(pending)) {
+                    area->setProperty("sessionBookmark", QString());
+                    area->setProperty("sessionBookmarkAnchor", QVariant());
+                }
+            });
         });
     }
 }
 
-void NavigationUiController::restoreSessionBookmark(ChatArea* area, const QString& postId)
+void NavigationUiController::restoreSessionBookmark(
+    ChatArea* area, const QString& postId,
+    std::optional<NavigationTabsModel::ViewportAnchor> anchor)
 {
     if (!area || postId.isEmpty()) return;
     trackSessionArea(area);
@@ -76,23 +154,76 @@ void NavigationUiController::restoreSessionBookmark(ChatArea* area, const QStrin
     auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
     if (!log) return;
     area->setProperty("sessionBookmark", postId);
-    if (log->restoreViewportBookmark(postId)) {
-        area->setProperty("sessionBookmark", QString());
+    area->setProperty("sessionBookmarkAnchor", anchor
+        ? QVariant(QVariantMap {
+            {QStringLiteral("post"), anchor->postId},
+            {QStringLiteral("bottom"), anchor->bottom},
+            {QStringLiteral("fraction"), anchor->fraction}})
+        : QVariant());
+    auto position = [anchor, postId](ChatLogWidget* view) {
+        return restorePosition(view, postId, anchor);
+    };
+    if (position(log)) {
+        // A provisional thread slot can accept the target long before its
+        // PostWidget exists. Keep the old anchor authoritative during that
+        // interval, including a quick switch to another tab.
+        if (log->findPost(postId)) {
+            area->setProperty("sessionBookmark", QString());
+            area->setProperty("sessionBookmarkAnchor", QVariant());
+        }
         return;
     }
 
-    // Keep the requested identity in subsequent snapshots while cold bodies
-    // arrive. User navigation/scrolling cancels the asynchronous positioning.
+    // ChannelPostSource deliberately does not invent an absolute index for a
+    // cached post. It must first adopt a bounded *server* context through the
+    // same PostRepository and ChannelPostSource path as explicit post navigation.
+    // Fetching only the post body (as for a thread's provisional slot) leaves
+    // an ordinary channel bookmark unmapped and its viewport at newest.
     QPointer<ChatArea> guard(area);
-    auto loadBookmark = [guard, postId] {
+    if (!area->isThread) {
+        PostRepository::instance(area->getBackend()).loadChannelAround(
+            area->getChannel(), postId,
+            [guard, postId, position](const PostRepository::Context& context) {
+                if (!guard || guard->property("sessionBookmark").toString() != postId)
+                    return;
+                if (!context.success) return; // Retain the bookmark for retry.
+
+                guard->ensurePinnedPostVisible(
+                    postId, context.postIds,
+                    context.reachedOldest, context.reachedNewest);
+                auto* view = guard->findChild<ChatLogWidget*>(
+                    QStringLiteral("listWidget"));
+                if (position(view) && view->findPost(postId)) {
+                    guard->setProperty("sessionBookmark", QString());
+                    guard->setProperty("sessionBookmarkAnchor", QVariant());
+                }
+                if (view) view->refreshReadState();
+            },
+            true);
+        return;
+    }
+
+    // ThreadPostSource already supports provisional indices and asynchronous
+    // context reconciliation. Continue through its shared positioning path.
+    // User navigation/scrolling cancels the pending bookmark.
+    auto loadBookmark = [guard, postId, position] {
         if (!guard || guard->property("sessionBookmark").toString() != postId) return;
         PostRepository::instance(guard->getBackend()).loadPost(postId,
-            [guard, postId](const PostRepository::PostResult& result) {
+            [guard, postId, position](const PostRepository::PostResult& result) {
                 if (!guard || guard->property("sessionBookmark").toString() != postId) return;
                 auto* view = guard->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-                const bool positioned = result.success && view && view->restoreViewportBookmark(postId);
-                guard->setProperty("sessionBookmark", QString());
-                if (!positioned) guard->goToNewest();
+                const bool positioned = result.success && position(view);
+                if (!result.success) {
+                    // A genuinely missing post cannot be restored. A
+                    // successful fetch with a temporarily unavailable row is
+                    // *not* evidence that the semantic destination is invalid.
+                    guard->setProperty("sessionBookmark", QString());
+                    guard->setProperty("sessionBookmarkAnchor", QVariant());
+                    guard->goToNewest();
+                } else if (positioned && view && view->findPost(postId)) {
+                    guard->setProperty("sessionBookmark", QString());
+                    guard->setProperty("sessionBookmarkAnchor", QVariant());
+                }
                 if (view) view->refreshReadState();
             });
     };
@@ -110,25 +241,17 @@ void NavigationUiController::saveSession()
     const QString key = sessionSettingsKey();
     if (key.isEmpty()) return;
 
-    auto locationOf = [](ChatArea* area) {
-        Location location;
-        if (area) {
-            location.channelId = area->getChannel().id;
-            if (area->isThread) location.rootId = area->root_id;
-        }
-        return location;
+    auto locationOf = [this](ChatArea* area) {
+        return area ? captureLocation(area) : Location{};
     };
     saveActiveTabLocation();
     QJsonArray tabs;
     for (int i = 0; i < tabModel.count(); ++i) {
         const auto* modelEntry = tabModel.at(i);
         Location location = tabLocation(*modelEntry);
-        ChatArea* area = location.rootId.isEmpty() ? nullptr
-            : findThread(location.channelId, location.rootId);
-        auto* central = channelTree ? channelTree->getCurrentPage() : nullptr;
-        if (location.rootId.isEmpty() && central && central->getChannel().id == location.channelId)
-            area = central;
-        if (area) location = locationOf(area);
+        // The model already owns the last measured bookmark for inactive
+        // tabs. Re-reading a live view here would also overwrite an anchor
+        // while its asynchronous restoration is still in progress.
         QJsonObject tab = encode(location);
         tab.insert("pinned", modelEntry->pinned);
         tabs.append(tab);
@@ -157,7 +280,7 @@ void NavigationUiController::saveSession()
     if (const auto* entry = tabModel.at(activeTabIndex)) active = tabLocation(*entry);
     auto* dock = visibleDock;
     auto* focused = qobject_cast<ChatArea*>(QApplication::activeWindow());
-    QJsonObject state {{"version", 1}, {"tabs", tabs}, {"threads", threads},
+    QJsonObject state {{"version", 2}, {"tabs", tabs}, {"threads", threads},
                        {"active_tab", encode(active)},
                        {"active_dock", encode(locationOf(dock))},
                        {"dock_visible", visibleDock != nullptr},
@@ -174,7 +297,9 @@ void NavigationUiController::restoreSession()
     const QJsonObject state = QJsonDocument::fromJson(
         MLOptions::instance()->value<QByteArray>(key)).object();
     sessionRestored = true;
-    if (state.value("version").toInt() != 1) return;
+    const int version = state.value("version").toInt();
+    if (version != 1 && version != 2) return;
+    const bool restoreAnchors = version >= 2;
     restoringSession = true;
     const bool wasSwitching = switchingTabs;
     switchingTabs = true;
@@ -188,7 +313,7 @@ void NavigationUiController::restoreSession()
         activeTabIndex = -1;
         for (const QJsonValue& value : state.value("tabs").toArray()) {
             const QJsonObject tab = value.toObject();
-            const Location location = decode(tab);
+            const Location location = decode(tab, restoreAnchors);
             if (!valid(location)) continue;
             const int index = appendNavigationTab(location);
             tabModel.setPinned(index, tab.value("pinned").toBool());
@@ -197,11 +322,11 @@ void NavigationUiController::restoreSession()
             // activateTab() below constructs just the selected destination.
         }
     }
-    const Location dock = decode(state.value("active_dock").toObject());
+    const Location dock = decode(state.value("active_dock").toObject(), restoreAnchors);
     const bool dockVisible = state.value("dock_visible").toBool();
     for (const QJsonValue& value : state.value("threads").toArray()) {
         const QJsonObject object = value.toObject();
-        const Location location = decode(object);
+        const Location location = decode(object, restoreAnchors);
         const QString mode = object.value("mode").toString();
         if (!valid(location) || location.rootId.isEmpty()
             || (mode != "window" && mode != "dock")
@@ -221,16 +346,17 @@ void NavigationUiController::restoreSession()
         } else {
             attachThread(area);
         }
-        // No persisted scroll position: newly restored views use newest.
+        if (location.viewportAnchor) {
+            restoreSessionBookmark(area, location.postId, location.viewportAnchor);
+        }
     }
-    const Location active = decode(state.value("active_tab").toObject());
+    const Location active = decode(state.value("active_tab").toObject(), restoreAnchors);
     int index = tabModel.findDestination(active.channelId, active.rootId);
     if (index < 0 && !tabModel.isEmpty()) index = 0;
     if (index >= 0) {
-        const Location location = tabLocation(*tabModel.at(index));
-        // Session restore reopens the destination at its ordinary newest
-        // position. In-process viewport anchors are never serialized.
-        activateTab(index, false);
+        // Only the selected view is constructed; all other tab anchors stay
+        // as lightweight metadata until the user activates those tabs.
+        activateTab(index, true);
     }
     if (auto* area = findThread(dock.channelId, dock.rootId);
         area && threadStack->indexOf(area) >= 0) threadStack->setCurrentWidget(area);
@@ -242,7 +368,7 @@ void NavigationUiController::restoreSession()
     refreshTabBarVisibility();
     syncSplitterEdgeGutters();
     updateHistoryButtons();
-    const Location focused = decode(state.value("focused_window").toObject());
+    const Location focused = decode(state.value("focused_window").toObject(), restoreAnchors);
     if (auto* area = findThread(focused.channelId, focused.rootId);
         area && area->property("threadDetached").toBool()) {
         area->raise();

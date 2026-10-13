@@ -5,7 +5,10 @@
 #include <QLoggingCategory>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
+#include <QScrollBar>
+#include <QScopedPointer>
 #include <QTabBar>
+#include <QToolButton>
 #include <QStackedWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -32,6 +35,16 @@ using namespace Mattermost;
 namespace {
 QString rootId(int thread) { return QStringLiteral("root%1").arg(thread, 22, 10, QLatin1Char('0')); }
 QString replyId(int thread, int reply) { return QStringLiteral("reply%1_%2").arg(thread).arg(reply); }
+QString channelPostId(int postIndex) { return QStringLiteral("channel_post_%1").arg(postIndex); }
+QJsonObject channelPost(int postIndex)
+{
+    const qint64 time = 1000000000000LL + postIndex * 1000;
+    return QJsonObject {{"id", channelPostId(postIndex)},
+                        {"channel_id", "channel"}, {"user_id", "user"},
+                        {"root_id", ""},
+                        {"message", QStringLiteral("Channel post %1").arg(postIndex)},
+                        {"create_at", time}, {"update_at", time}};
+}
 QString sessionKey(const QString& user = QStringLiteral("user"))
 {
     return QStringLiteral("navigation_session/") + QString::fromLatin1(
@@ -59,12 +72,15 @@ public:
     QStringList postLookups;
     QStringList threadLookups;
     QStringList teamChannelLookups;
+    QStringList channelContextRequests;
+    int channelRootCount = 0;
     int teamChannelResponses = 0;
     int delayMs = 0;
     int replyCount = 3;
     int returnedReplies = 0;
     bool failPost = false;
     bool startupChannels = false;
+    bool secondChannel = false;
     Server()
     {
         connect(this, &QTcpServer::newConnection, this, [this] {
@@ -86,9 +102,63 @@ public:
                     if (startupChannels && url.path() == "/api/v4/users/me/teams") {
                         body = R"([{"id":"team","name":"team","display_name":"Team"}])";
                     } else if (startupChannels && url.path() == "/api/v4/users/me/teams/team/channels") {
-                        body = R"([{"id":"channel","type":"G","display_name":"Test chat"}])";
+                        QJsonObject info {{"id", "channel"}, {"type", "G"},
+                                          {"display_name", "Test chat"}};
+                        if (channelRootCount > 0) {
+                            info.insert("total_msg_count_root", channelRootCount);
+                            info.insert("total_msg_count", channelRootCount);
+                            info.insert("last_root_post_at",
+                                        channelPost(channelRootCount).value("create_at"));
+                        }
+                        QJsonArray channels {info};
+                        if (secondChannel) {
+                            channels.append(QJsonObject {
+                                {"id", "channel_other"}, {"type", "G"},
+                                {"display_name", "Other chat"}});
+                        }
+                        body = QJsonDocument(channels).toJson(QJsonDocument::Compact);
                     } else if (startupChannels && url.path().endsWith("/channels/categories")) {
-                        body = R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
+                        body = secondChannel
+                            ? R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel","channel_other"]}],"order":["dm"]})"
+                            : R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
+                    }
+                    if (channelRootCount > 0
+                        && url.path() == "/api/v4/channels/channel/posts") {
+                        const QUrlQuery query(url);
+                        const QString before = query.queryItemValue("before");
+                        const QString after = query.queryItemValue("after");
+                        if (!before.isEmpty() || !after.isEmpty()) {
+                            channelContextRequests.push_back(before.isEmpty() ? after : before);
+                        }
+                        int first = 1;
+                        int last = channelRootCount;
+                        if (!before.isEmpty()) {
+                            last = std::min(last,
+                                before.mid(QStringLiteral("channel_post_").size()).toInt() - 1);
+                        } else if (!after.isEmpty()) {
+                            first = std::max(first,
+                                after.mid(QStringLiteral("channel_post_").size()).toInt() + 1);
+                        }
+                        const int perPage = std::max(1,
+                            query.queryItemValue("per_page").toInt());
+                        const int page = std::max(0,
+                            query.queryItemValue("page").toInt());
+                        QJsonObject posts;
+                        QJsonArray order;
+                        int skipped = page * perPage;
+                        int returned = 0;
+                        for (int i = last; i >= first && returned < perPage; --i) {
+                            if (skipped-- > 0) continue;
+                            posts.insert(channelPostId(i), channelPost(i));
+                            order.append(channelPostId(i));
+                            ++returned;
+                        }
+                        body = QJsonDocument(QJsonObject {
+                            {"posts", posts}, {"order", order},
+                            {"prev_post_id", first > 1 ? channelPostId(first - 1) : QString()},
+                            {"next_post_id", last < channelRootCount
+                                ? channelPostId(last + 1) : QString()}
+                        }).toJson(QJsonDocument::Compact);
                     }
                     if (parts.size() >= 4 && parts.at(2) == "posts") {
                         const QString root = parts.at(3);
@@ -99,7 +169,10 @@ public:
                         if (parts.size() == 4) {
                             postLookups.push_back(root);
                             failed = failPost;
-                            if (root.startsWith("reply")) {
+                            if (root.startsWith("channel_post_")) {
+                                rootPost = channelPost(
+                                    root.mid(QStringLiteral("channel_post_").size()).toInt());
+                            } else if (root.startsWith("reply")) {
                                 const auto ids = root.mid(5).split('_');
                                 rootPost = post(ids.value(0).toInt(), ids.value(1).toInt());
                             }
@@ -374,6 +447,300 @@ private slots:
         QTRY_VERIFY(ui.findThread("channel", rootId(301)));
     }
 
+    void coldChannelSessionRestoresPostRelativeViewport()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.channelRootCount = 48;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        const QString targetId = channelPostId(24);
+        const QJsonObject savedAnchor {
+            {"post", targetId}, {"bottom", false}, {"fraction", 0.0}};
+        const QJsonObject destination {
+            {"channel", "channel"}, {"root", ""},
+            {"anchor", savedAnchor}};
+        MLOptions::instance()->setValue(sessionKey(),
+            QJsonDocument(QJsonObject {
+                {"version", 2}, {"tabs", QJsonArray {destination}},
+                {"active_tab", destination}})
+                .toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1000, 700);
+        window.show();
+        // The navigation controller owns the tab bar and is constructed lazily.
+        // Do not inspect it before establishing that owner.
+        auto& ui = NavigationUiController::instance(window);
+
+        auto* tabs = window.findChild<QTabBar*>(
+            QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_COMPARE(tabs->count(), 1);
+        auto* tree = window.findChild<ChannelTree*>(
+            QStringLiteral("channelList"));
+        QVERIFY(tree);
+        QTRY_VERIFY(tree->getCurrentPage()
+            && tree->getCurrentPage()->getChannel().id == "channel");
+        auto* log = tree->getCurrentPage()->findChild<ChatLogWidget*>(
+            QStringLiteral("listWidget"));
+        QVERIFY(log);
+        QTRY_VERIFY(server.channelContextRequests.contains(targetId));
+
+        // A body-only post lookup cannot assign ChannelPostSource an exact
+        // position. The existing server-context adoption must materialize
+        // the saved post at its relative viewport centre.
+        qreal fraction = 0;
+        QTRY_VERIFY(log->findPost(targetId)
+            && log->source()->indexOfPost(targetId) >= 0
+            && log->captureSemanticAnchorFraction(
+                log->source()->indexOfPost(targetId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
+                fraction)
+            && qAbs(fraction) < 0.07);
+        QVERIFY(!log->isAtEnd());
+
+        ui.saveSession();
+        const QJsonObject saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
+                     .value("anchor").toObject().value("post").toString(), targetId);
+    }
+
+    void sidebarSwitchAfterScrollingToNewestOverridesRestoredBookmark()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.secondChannel = true;
+        server.channelRootCount = 48;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        const QString targetId = channelPostId(24);
+        const QJsonObject destination {
+            {"channel", "channel"}, {"root", ""},
+            {"anchor", QJsonObject {
+                {"post", targetId}, {"bottom", false}, {"fraction", 0.0}}}};
+        MLOptions::instance()->setValue(sessionKey(),
+            QJsonDocument(QJsonObject {
+                {"version", 2}, {"tabs", QJsonArray {destination}},
+                {"active_tab", destination}})
+                .toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1000, 700);
+        window.show();
+        auto& ui = NavigationUiController::instance(window);
+        auto* tree = window.findChild<ChannelTree*>(
+            QStringLiteral("channelList"));
+        QVERIFY(tree);
+        QTRY_VERIFY(tree->getCurrentPage()
+            && tree->getCurrentPage()->getChannel().id == "channel");
+        auto* firstArea = tree->getCurrentPage();
+        auto* log = firstArea->findChild<ChatLogWidget*>(
+            QStringLiteral("listWidget"));
+        QVERIFY(log);
+
+        qreal fraction = 0;
+        QTRY_VERIFY(log->findPost(targetId)
+            && log->captureSemanticAnchorFraction(
+                log->source()->indexOfPost(targetId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter, fraction)
+            && qAbs(fraction) < 0.07);
+        QVERIFY(!log->isAtEnd());
+
+        // A scrollbar action is user input: it must supersede a stale
+        // restoration intent even if source materialization is still ongoing.
+        log->verticalScrollBar()->triggerAction(
+            QAbstractSlider::SliderToMaximum);
+        QTRY_VERIFY(log->isAtEnd());
+        QVERIFY(firstArea->property("sessionBookmark").toString().isEmpty());
+
+        tree->openChannel(QStringLiteral("channel_other"));
+        QTRY_VERIFY(tree->getCurrentPage()
+            && tree->getCurrentPage()->getChannel().id == "channel_other");
+        tree->openChannel(QStringLiteral("channel"));
+        QTRY_COMPARE(tree->getCurrentPage(), firstArea);
+        QTRY_VERIFY(log->isAtEnd());
+
+        ui.saveSession();
+        const QJsonObject saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        const QJsonObject snapshot = saved.value("active_tab").toObject();
+        QCOMPARE(snapshot.value("channel").toString(), QStringLiteral("channel"));
+        const QJsonObject edgeAnchor = snapshot.value("anchor").toObject();
+        // A cold live edge may have no concrete bottommost PostWidget yet.
+        // In that case an absent bookmark means 'reopen newest', not the
+        // stale middle-of-log bookmark from the previous session.
+        QVERIFY(edgeAnchor.isEmpty()
+            || (edgeAnchor.value("bottom").toBool()
+                && edgeAnchor.value("post").toString() != targetId));
+    }
+
+    void semanticBookmarksSurviveRestartOnlyForOpenSurfaces()
+    {
+        Server server;
+        server.startupChannels = true;
+        // Use enough content above and below the saved target for the center
+        // coordinate to be physically attainable at both Qt5 and Qt6 metrics.
+        server.replyCount = 48;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        auto location = [](int thread, int reply, bool bottom, double fraction) {
+            return QJsonObject {
+                {"channel", "channel"},
+                {"root", rootId(thread)},
+                {"anchor", QJsonObject {
+                    {"post", replyId(thread, reply)},
+                    {"bottom", bottom},
+                    {"fraction", fraction}}}};
+        };
+        const QJsonObject active = location(41, 24, false, -0.14);
+        const QJsonObject inactive = location(42, 20, true, -0.03);
+        QJsonObject detached = location(43, 24, false, 0.0);
+        detached.insert("mode", "window");
+        detached.insert("geometry", QString());
+
+        const QString key = sessionKey();
+        MLOptions::instance()->setValue(key,
+            QJsonDocument(QJsonObject {
+                {"version", 2},
+                {"tabs", QJsonArray {active, inactive}},
+                {"active_tab", active},
+                {"threads", QJsonArray {detached}},
+                {"focused_window", detached}})
+                .toJson(QJsonDocument::Compact));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        auto& ui = NavigationUiController::instance(window);
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_COMPARE(tabs->count(), 2);
+        QTRY_VERIFY(ui.findThread("channel", rootId(41)));
+        QTRY_VERIFY(ui.findThread("channel", rootId(43)));
+        // Detached windows are not owned by MainWindow. Guarantee their
+        // destruction even when a QtTest assertion aborts this test early.
+        QScopedPointer<ChatArea> detachedOwner(ui.findThread("channel", rootId(43)));
+        // Inactive tabs are restored as semantic entries, not ChatAreas.
+        QVERIFY(!ui.findThread("channel", rootId(42)));
+        QTRY_VERIFY(server.postLookups.contains(replyId(41, 24)));
+        QTRY_VERIFY(server.postLookups.contains(replyId(43, 24)));
+        // Test the persisted measured anchor, not the temporary initial
+        // viewport before the detached post has finished materializing.
+        auto* detachedLog = ui.findThread("channel", rootId(43))
+                                ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(detachedLog);
+        QTRY_VERIFY(detachedLog->findPost(replyId(43, 24)));
+
+        // Restart must restore the same measured post/geometry rather than
+        // merely serializing a plausible-looking JSON bookmark.
+        auto* activeLog = ui.findThread("channel", rootId(41))
+                              ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(activeLog);
+        qreal activeFraction = 0;
+        const auto activeAnchored = [&] {
+            if (!activeLog->findPost(replyId(41, 24))) return false;
+            if (!activeLog->captureSemanticAnchorFraction(
+                    activeLog->source()->indexOfPost(replyId(41, 24)),
+                    LongListWidget::SemanticAnchorPoint::ItemCenter,
+                    activeFraction)) return false;
+            return qAbs(activeFraction + 0.14) < 0.07;
+        };
+        for (int elapsed = 0; elapsed < 15000 && !activeAnchored(); elapsed += 50) {
+            QTest::qWait(50);
+        }
+        if (!activeAnchored()) {
+            qWarning() << "Active thread anchor mismatch"
+                       << "fraction=" << activeFraction
+                       << "scroll=" << activeLog->verticalScrollBar()->value()
+                       << "maximum=" << activeLog->verticalScrollBar()->maximum()
+                       << "targetIndex=" << activeLog->source()->indexOfPost(replyId(41, 24));
+        }
+        QVERIFY(activeAnchored());
+        qreal detachedFraction = 0;
+        QTRY_VERIFY(detachedLog->captureSemanticAnchorFraction(
+            detachedLog->source()->indexOfPost(replyId(43, 24)),
+            LongListWidget::SemanticAnchorPoint::ItemCenter,
+            detachedFraction)
+            && qAbs(detachedFraction) < 0.07);
+
+        ui.saveSession();
+        QJsonObject saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(key)).object();
+        QCOMPARE(saved.value("version").toInt(), 2);
+        QCOMPARE(saved.value("tabs").toArray().size(), 2);
+        ChatLogWidget::SemanticViewportBookmark visibleActive;
+        ChatLogWidget::SemanticViewportBookmark visibleDetached;
+        QVERIFY(activeLog->captureSemanticViewportBookmark(visibleActive));
+        QVERIFY(detachedLog->captureSemanticViewportBookmark(visibleDetached));
+        const QJsonObject savedActive = saved.value("tabs").toArray().at(0)
+                                              .toObject().value("anchor").toObject();
+        const auto matchesViewportOrPending = [](
+            const QJsonObject& serialized,
+            const ChatLogWidget::SemanticViewportBookmark& measured,
+            const QString& requestedPost, qreal requestedFraction) {
+            // While an asynchronous bookmark is settling, saveSession()
+            // intentionally preserves the requested semantic anchor. Once
+            // settled, it captures the centre post currently under the
+            // viewport. Both represent the same visible position.
+            const bool measuredAnchor =
+                serialized.value("post").toString() == measured.postId
+                && serialized.value("bottom").toBool()
+                    == (measured.point == LongListWidget::SemanticAnchorPoint::ItemBottom)
+                && qAbs(serialized.value("fraction").toDouble()
+                        - measured.fraction) < 0.02;
+            const bool pendingAnchor =
+                serialized.value("post").toString() == requestedPost
+                && !serialized.value("bottom").toBool()
+                && qAbs(serialized.value("fraction").toDouble()
+                        - requestedFraction) < 0.02;
+            return measuredAnchor || pendingAnchor;
+        };
+        QVERIFY(matchesViewportOrPending(
+            savedActive, visibleActive, replyId(41, 24), -0.14));
+        // Inactive tabs preserve their original semantic bookmark verbatim.
+        QCOMPARE(saved.value("tabs").toArray().at(1).toObject()
+                     .value("anchor").toObject().value("post").toString(),
+                 replyId(42, 20));
+        QCOMPARE(saved.value("threads").toArray().size(), 1);
+        const QJsonObject savedDetached = saved.value("threads").toArray().at(0)
+                                                .toObject().value("anchor").toObject();
+        QVERIFY(matchesViewportOrPending(
+            savedDetached, visibleDetached, replyId(43, 24), 0.0));
+
+        // Closing a tab removes its bookmark too; the snapshot must contain
+        // only still-open presentation surfaces.
+        QTest::mouseClick(tabs, Qt::MiddleButton, Qt::NoModifier,
+                          tabs->tabRect(1).center());
+        QTRY_COMPARE(tabs->count(), 1);
+        ui.saveSession();
+        saved = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(key)).object();
+        QCOMPARE(saved.value("tabs").toArray().size(), 1);
+        QVERIFY(activeLog->captureSemanticViewportBookmark(visibleActive));
+        QVERIFY(matchesViewportOrPending(
+            saved.value("tabs").toArray().at(0).toObject()
+                 .value("anchor").toObject(),
+            visibleActive, replyId(41, 24), -0.14));
+    }
+
     void sessionDoesNotRestoreLegacyViewportBookmark()
     {
         Server server;
@@ -557,6 +924,177 @@ private slots:
         QCOMPARE(surfaceStack->currentWidget(), static_cast<QWidget*>(tabbed));
     }
 
+    void scrollingUpFromLiveEdgeRestoresMeasuredPositionAfterTabSwitch()
+    {
+        Server server;
+        server.replyCount = 24;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"},
+                         {"display_name", "Test chat"}});
+        QVERIFY(channel);
+        QJsonObject root = post(41);
+        root.insert("reply_count", server.replyCount);
+        root.insert("last_reply_at", 1000000000000LL + 41000 + server.replyCount);
+        channel->addPost(root);
+        // This fixture tests geometry restoration, not sparse cursor seek.
+        // Give both presentations the same complete, resident thread.
+        for (int reply = 1; reply <= server.replyCount; ++reply) {
+            channel->addPost(post(41, reply));
+        }
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
+        auto& ui = NavigationUiController::instance(window);
+        window.resize(1000, 700);
+        window.show();
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openThreadInTab(channel->id, rootId(41));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* first = ui.findThread(channel->id, rootId(41));
+        auto* log = first->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(log);
+        QTRY_COMPARE(log->itemCount(), 25);
+        auto* bar = log->verticalScrollBar();
+        QVERIFY(bar);
+        QTRY_VERIFY(bar->maximum() > 400);
+        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QPointer<ChatArea> retired = first;
+        QTest::qWait(120); // Drain initial deferred newest-position timers.
+        log->scrollToEnd();
+        QTRY_VERIFY(log->isAtEnd());
+
+        // This gesture cancels the live-edge intent. The same physical
+        // timeline must now be captured as a post-center anchor.
+        // Read from a stable middle viewport with room on both sides.
+        // Explicit scrollbar ownership must win over activation's weak tail
+        // positioning, just as a real user scroll does.
+        bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
+        bar->setValue(bar->maximum() / 2);
+        QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
+        QTRY_VERIFY(!log->isAtEnd());
+        ChatLogWidget::SemanticViewportBookmark before;
+        QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
+        QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+
+        navigation.openThreadInTab(channel->id, rootId(42));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
+        // Removing the widget from its presentation owner must make it
+        // undiscoverable immediately, even if Qt defers destruction.
+        QVERIFY(!ui.findThread(channel->id, rootId(41)));
+        QTRY_VERIFY(retired.isNull());
+
+        // Exercise the user's actual tab-bar click path, not a new semantic
+        // navigation request through AppNavigationService.
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        QTRY_COMPARE(tabs->count(), 2);
+        tabs->setCurrentIndex(0);
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* reopened = ui.findThread(channel->id, rootId(41));
+        auto* restoredLog = reopened->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(restoredLog);
+        QTRY_VERIFY(restoredLog->findPost(before.postId));
+        QTRY_VERIFY(!restoredLog->isAtEnd());
+
+        // A different post may cover the viewport centre after reflow.
+        // Measure the saved identity itself rather than selecting a new
+        // centre post, which can change at row boundaries.
+        const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
+        QVERIFY(anchorIndex >= 0);
+        qreal restoredFraction = 0;
+        QTRY_VERIFY(restoredLog->findPost(before.postId)
+            && restoredLog->captureSemanticAnchorFraction(
+                restoredLog->source()->indexOfPost(before.postId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
+                restoredFraction)
+            && qAbs(restoredFraction - before.fraction) < 0.06);
+    }
+
+    void backHistoryRestoresMeasuredPostCenter()
+    {
+        Server server;
+        server.replyCount = 24;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"},
+                         {"display_name", "Test chat"}});
+        QVERIFY(channel);
+        QJsonObject root = post(41);
+        root.insert("reply_count", server.replyCount);
+        root.insert("last_reply_at", 1000000000000LL + 41000 + server.replyCount);
+        channel->addPost(root);
+        // This fixture tests geometry restoration, not sparse cursor seek.
+        // Give both presentations the same complete, resident thread.
+        for (int reply = 1; reply <= server.replyCount; ++reply) {
+            channel->addPost(post(41, reply));
+        }
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
+        auto& ui = NavigationUiController::instance(window);
+        window.resize(1000, 700);
+        window.show();
+
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openThreadInTab(channel->id, rootId(41));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* log = ui.findThread(channel->id, rootId(41))
+                        ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(log);
+        QTRY_COMPARE(log->itemCount(), 25);
+        QTRY_VERIFY(log->verticalScrollBar()->maximum() > 400);
+        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QTest::qWait(120); // Drain initial deferred newest-position timers.
+        log->scrollToEnd();
+        QTRY_VERIFY(log->isAtEnd());
+        auto* bar = log->verticalScrollBar();
+        // Read from a stable middle viewport with room on both sides.
+        // Explicit scrollbar ownership must win over activation's weak tail
+        // positioning, just as a real user scroll does.
+        bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
+        bar->setValue(bar->maximum() / 2);
+        QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
+        QTRY_VERIFY(!log->isAtEnd());
+
+        ChatLogWidget::SemanticViewportBookmark before;
+        QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
+        QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+
+        navigation.openThreadInTab(channel->id, rootId(42));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
+        auto* back = window.findChild<QToolButton*>(
+            QStringLiteral("navigationBackButton"));
+        QVERIFY(back);
+        QTRY_VERIFY(back->isEnabled());
+        back->click();
+
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* restored = ui.findThread(channel->id, rootId(41))
+                             ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(restored);
+        qreal actualFraction = 0;
+        QTRY_VERIFY(restored->findPost(before.postId)
+            && restored->captureSemanticAnchorFraction(
+                restored->source()->indexOfPost(before.postId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
+                actualFraction)
+            && qAbs(actualFraction - before.fraction) < 0.06);
+        QVERIFY(!restored->isAtEnd());
+    }
+
     void coldThreadsOpenInSuccessiveTabs()
     {
         Server server;
@@ -576,6 +1114,9 @@ private slots:
         auto& ui = NavigationUiController::instance(window);
         window.resize(1000, 700);
         window.show();
+        auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(tabs);
+        const int initialTabs = tabs->count();
         auto& navigation = AppNavigationService::instance(backend);
         for (int thread = 1; thread <= 8; ++thread) {
             navigation.openThreadInTab(channel->id, rootId(thread));
@@ -587,30 +1128,60 @@ private slots:
             QTRY_VERIFY(list->findPost(replyId(thread, 3)));
             QVERIFY(area->isVisible());
             QVERIFY(area->property("threadTabbed").toBool());
+
+            // Inactive tabs retain their semantic destination, not a hidden
+            // ChatArea, its post source, or any pending view state.
             for (int previous = 1; previous < thread; ++previous) {
-                auto* existing = ui.findThread(channel->id, rootId(previous));
-                QVERIFY(existing);
-                QVERIFY(!existing->isVisible());
+                QTRY_VERIFY(!ui.findThread(channel->id, rootId(previous)));
             }
         }
+        QCOMPARE(tabs->count(), initialTabs + 8);
         QCOMPARE(server.postLookups.size(), 7);
         QVERIFY(!server.postLookups.contains(rootId(1)));
 
-        // Tab presentation must not cancel other sources' bootstrap when the
-        // user opens several Following entries before any HTTP reply arrives.
+        // An inactive tab must reconstruct its view on activation without
+        // creating another tab entry or losing its saved destination.
+        navigation.openThreadInTab(channel->id, rootId(1));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(1)));
+        auto* reopened = ui.findThread(channel->id, rootId(1));
+        QTRY_VERIFY(reopened->findChild<ChatLogWidget*>(QStringLiteral("listWidget"))
+                        ->findPost(replyId(1, 3)));
+        QVERIFY(reopened->isVisible());
+        QCOMPARE(tabs->count(), initialTabs + 8);
+        QTRY_VERIFY(!ui.findThread(channel->id, rootId(8)));
+
+        // Rapid tab switches while root requests are in flight must not keep
+        // invisible thread views alive or require their replies to arrive.
         server.delayMs = 50;
         for (int thread = 21; thread <= 28; ++thread) {
             navigation.openThreadInTab(channel->id, rootId(thread));
-            QVERIFY(ui.findThread(channel->id, rootId(thread)));
+            QTRY_VERIFY(ui.findThread(channel->id, rootId(thread)));
+            for (int previous = 21; previous < thread; ++previous) {
+                QTRY_VERIFY(!ui.findThread(channel->id, rootId(previous)));
+            }
         }
-        for (int thread = 21; thread <= 28; ++thread) {
-            auto* area = ui.findThread(channel->id, rootId(thread));
-            auto* list = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
-            QTRY_COMPARE(list->itemCount(), 4);
-            QTRY_VERIFY(list->findPost(replyId(thread, 3)));
-            QCOMPARE(area->isVisible(), thread == 28);
-        }
-        QCOMPARE(server.postLookups.size(), 15);
+        QCOMPARE(tabs->count(), initialTabs + 16);
+        auto* latest = ui.findThread(channel->id, rootId(28));
+        QVERIFY(latest);
+        auto* latestList = latest->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(latestList);
+        QTRY_COMPARE(latestList->itemCount(), 4);
+        QTRY_VERIFY(latestList->findPost(replyId(28, 3)));
+        QVERIFY(latest->isVisible());
+        QTRY_VERIFY(server.postLookups.contains(rootId(28)));
+
+        // A previously inactive cold thread only needs to materialize when
+        // selected again; old, delayed responses cannot resurrect its view.
+        navigation.openThreadInTab(channel->id, rootId(21));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(21)));
+        auto* revisited = ui.findThread(channel->id, rootId(21));
+        auto* revisitedList = revisited->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(revisitedList);
+        QTRY_COMPARE(revisitedList->itemCount(), 4);
+        QTRY_VERIFY(revisitedList->findPost(replyId(21, 3)));
+        QVERIFY(revisited->isVisible());
+        QCOMPARE(tabs->count(), initialTabs + 16);
+        QTRY_VERIFY(!ui.findThread(channel->id, rootId(28)));
     }
 
     void missingRootFailureCanBeRetried()

@@ -311,3 +311,33 @@ reconciliation may therefore remove a phantom prefix or insert a missing oldest 
 changes latency only, never correctness.
 
 This replaces the old controller-level `TimelineSeekState` state machine.
+
+## Semantic navigation history, tabs, and restorable open windows
+
+When leaving a tab or pushing a Back/Forward history entry at the live edge, store the **identity of the bottom-most
+visible post**, together with the signed normalized displacement of its bottom
+edge from the viewport's bottom edge. Returning via that tab or Back/Forward restores the same
+post at the same bottom-relative position, **not** the newest post that may
+have arrived while the tab was inactive.
+
+Away from the live edge, choose a concrete post at (or nearest) the viewport
+centre. Persist in process memory its identity and
+
+`(post vertical centre - viewport vertical centre) / viewport height`.
+
+The fraction can be negative when viewing a tall post. Both Back/Forward and tab restoration must
+retain the relative centre through asynchronous font/media reflow. Inactive
+thread tabs drop concrete ChatAreas and post sources. The `NavigationUiController::Location` used by Back/Forward and the tab entries
+share one `ViewportAnchor` representation; neither creates a second navigation
+resolver. They restore through `restoreSessionBookmark()` and its existing
+asynchronous post lookup.
+
+The session stores *only open presentations*: ordered channel/thread tabs and
+the currently open detached/docked threads. Each of those entries can carry a
+measured semantic anchor (`postId`, `ItemBottom`/`ItemCenter`, signed normalized
+fraction), so reopening the application restores the same visible post to the
+same relative viewport position after asynchronous loading. Inactive open tabs
+retain only that bookmark and destination; their `ChatArea`, `PostSource`,
+PostWidgets and residency leases are recreated lazily on activation. Closed
+tabs/windows are absent from the snapshot, including any former anchors.
+Pixel scroll offsets and the Back/Forward history stack are **not** persisted.
