@@ -64,6 +64,9 @@ public:
     bool ensurePostVisible(const QString& postId,
                            Alignment alignment = Alignment::EnsureVisible);
     void highlightPost(const QString& postId);
+
+    /** Flash only currently rendered, unread Attention posts in this viewport. */
+    void flashVisibleAttention();
     void refreshPost(const QString& postId);
 
     /** Keep the locally confirmed outgoing post at the live edge of the log. */
@@ -141,6 +144,7 @@ private:
     ChatArea* chatArea = nullptr;
     QPointer<AbstractPostSource> postSource;
     QPointer<PostWidget> editedPostWidget;
+    QSet<QString> _flashingAttentionPostIds;
     QVector<QMetaObject::Connection> sourceConnections;
 
     QString navigationPostId;
