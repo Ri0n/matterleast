@@ -67,9 +67,12 @@ Unknown boundaries must not flash arbitrary historical posts.
 After each animation completes, the existing viewport read engine is asked to
 re-evaluate the post *if its lower edge remains visible in the active window*.
 A partially displayed tall post or an offscreen unread tail cannot acknowledge
-an entire Attention entry. The model retains its existing unread watermark
-and server acknowledgement contract; Attention removes acknowledged entries,
-except for its existing selected-row retention policy.
+an entire Attention conversation/thread entry. An explicitly mentioned root
+post has its own synthetic Attention entry, which can be removed individually
+after its lower edge was visibly consumed, without marking the whole channel
+read. The model retains its existing unread watermark and server acknowledgement
+contract; Attention removes acknowledged entries, except for its existing
+selected-row retention policy.
 
 ## Thread snapshot refresh policy
 
