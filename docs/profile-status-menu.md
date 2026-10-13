@@ -26,3 +26,14 @@ custom status. Cancel leaves the previous status untouched. The separate
 Clear custom status menu action stays available, including for emoji-only
 statuses. The menu/header recognize a status as active when either emoji
 or text is set. The existing emoji registry renders it in the header.
+
+## Compact sidebar presentation
+
+The navigation header keeps the custom status label visible even though the
+account name is hidden; ordinary availability remains on the avatar badge.
+When custom status has an emoji and no non-whitespace message, the emoji is
+rendered at **three times its standard size**. Unicode glyphs use the scaled
+emoji font; custom emoji images use a 48px extent rather than the regular
+16px reaction-size presentation. Mixed emoji + message and text-only statuses
+retain the original font and icon size. Changes in custom status always reset
+from the label's original font so switching statuses never compounds scaling.
