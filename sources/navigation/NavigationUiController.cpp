@@ -26,7 +26,7 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolButton>
-#include <QVariantMap>
+#include <QVariant>
 #include <QVBoxLayout>
 
 #include "backend/Backend.h"
