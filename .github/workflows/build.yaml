@@ -189,26 +189,26 @@ jobs:
           CCACHE_COMPILERCHECK: content
         run: cmake --build build --parallel 4
 
-      - name: Unit tests
-        # CTest's failure-only capture on Windows can lose QtTest output when a
-        # test is terminated. Verbose mode streams each test process output to
-        # the Actions log as it runs, so the last active Qt test/function is
-        # still visible even for hangs or abrupt failures.
-        run: ctest --test-dir build --verbose --output-on-failure
-
-      - name: Diagnose Windows thread-tab test failure
-        if: failure()
+      - name: Thread tabs integration test (captured first run)
         shell: pwsh
         run: |
-          # GUI-subsystem QtTest executables can lose their console output on
-          # Windows even with ctest -V. Capture a dedicated QtTest text log.
-          $log = Join-Path $PWD 'thread-tabs-debug.txt'
+          # The Windows GUI-subsystem test binary does not write QtTest's
+          # console output through CTest. Capture the FIRST execution, not a
+          # repeat which can hide a first-run startup race.
+          $log = Join-Path $PWD 'thread-tabs-first-run.txt'
           & ./build/tests/thread-tabs-integration-test.exe -o "$log,txt"
-          Write-Host "Thread-tabs diagnostic exit code: $LASTEXITCODE"
+          $testExit = $LASTEXITCODE
           if (Test-Path $log) {
             Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce its diagnostic log."
+            exit 1
           }
-          exit 0
+          exit $testExit
+
+      - name: Unit tests
+        # Thread tabs were already run once above with durable QtTest output.
+        run: ctest --test-dir build --verbose --output-on-failure -E "^thread-tabs-integration-test$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
