@@ -432,6 +432,25 @@ private slots:
         QVERIFY(detachedLog);
         QTRY_VERIFY(detachedLog->findPost(replyId(43, 12)));
 
+        // Restart must restore the same measured post/geometry rather than
+        // merely serializing a plausible-looking JSON bookmark.
+        auto* activeLog = ui.findThread("channel", rootId(41))
+                              ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(activeLog);
+        qreal activeFraction = 0;
+        QTRY_VERIFY(activeLog->findPost(replyId(41, 12))
+            && activeLog->captureSemanticAnchorFraction(
+                activeLog->source()->indexOfPost(replyId(41, 12)),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
+                activeFraction)
+            && qAbs(activeFraction + 0.14) < 0.07);
+        qreal detachedFraction = 0;
+        QTRY_VERIFY(detachedLog->captureSemanticAnchorFraction(
+            detachedLog->source()->indexOfPost(replyId(43, 12)),
+            LongListWidget::SemanticAnchorPoint::ItemCenter,
+            detachedFraction)
+            && qAbs(detachedFraction) < 0.07);
+
         ui.saveSession();
         QJsonObject saved = QJsonDocument::fromJson(
             MLOptions::instance()->value<QByteArray>(key)).object();
