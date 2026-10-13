@@ -1,5 +1,7 @@
 #include "InteractivePostWidget.h"
 
+#include <utility>
+
 #include <QEasingCurve>
 #include <QPainter>
 #include <QPalette>
