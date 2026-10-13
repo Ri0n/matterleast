@@ -414,7 +414,7 @@ void ChatLogWidget::flashVisibleAttention()
         }
 
         BackendPost* post = postSource->postAt(index);
-        auto* widget = qobject_cast<InteractivePostWidget*>(itemWidget(index));
+        auto* widget = dynamic_cast<InteractivePostWidget*>(itemWidget(index));
         if (!post || !widget || post->id.isEmpty()
             || _flashingAttentionPostIds.contains(post->id)) {
             continue;
