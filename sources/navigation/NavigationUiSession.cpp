@@ -10,7 +10,7 @@
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTimer>
-#include <QVariantMap>
+#include <QVariant>
 
 #include "AppNavigationService.h"
 #include "backend/Backend.h"
