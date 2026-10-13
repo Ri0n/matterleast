@@ -617,25 +617,17 @@ private slots:
         QTRY_VERIFY(restoredLog->findPost(before.postId));
         QTRY_VERIFY(!restoredLog->isAtEnd());
 
-        // Report the observed geometry if the asynchronous navigation settles
-        // at the wrong post or offset on any supported Qt version.
-        QTest::qWait(250);
-        ChatLogWidget::SemanticViewportBookmark after;
-        const bool measured = restoredLog->captureSemanticViewportBookmark(after);
-        qInfo().noquote() << "TAB_ANCHOR_DIAGNOSTIC"
-            << "expectedPost" << before.postId
-            << "expectedFraction" << before.fraction
-            << "actualCaptured" << measured
-            << "actualPost" << after.postId
-            << "actualFraction" << after.fraction
-            << "actualPoint" << static_cast<int>(after.point)
-            << "atEnd" << restoredLog->isAtEnd()
-            << "scroll" << restoredLog->verticalScrollBar()->value()
-            << "max" << restoredLog->verticalScrollBar()->maximum();
-        QTRY_VERIFY(restoredLog->captureSemanticViewportBookmark(after)
-            && after.postId == before.postId
-            && after.point == LongListWidget::SemanticAnchorPoint::ItemCenter
-            && qAbs(after.fraction - before.fraction) < 0.06);
+        // A different post may cover the viewport centre after reflow.
+        // Measure the saved identity itself rather than selecting a new
+        // centre post, which can change at row boundaries.
+        const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
+        QVERIFY(anchorIndex >= 0);
+        qreal restoredFraction = 0;
+        QTRY_VERIFY(restoredLog->findPost(before.postId)
+            && restoredLog->captureSemanticAnchorFraction(
+                anchorIndex, LongListWidget::SemanticAnchorPoint::ItemCenter,
+                restoredFraction)
+            && qAbs(restoredFraction - before.fraction) < 0.06);
     }
 
     void coldThreadsOpenInSuccessiveTabs()
