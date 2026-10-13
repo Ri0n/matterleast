@@ -6,6 +6,7 @@
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
 #include <QScrollBar>
+#include <QScopedPointer>
 #include <QTabBar>
 #include <QToolButton>
 #include <QStackedWidget>
@@ -550,6 +551,9 @@ private slots:
         QTRY_COMPARE(tabs->count(), 2);
         QTRY_VERIFY(ui.findThread("channel", rootId(41)));
         QTRY_VERIFY(ui.findThread("channel", rootId(43)));
+        // Detached windows are not owned by MainWindow. Guarantee their
+        // destruction even when a QtTest assertion aborts this test early.
+        QScopedPointer<ChatArea> detachedOwner(ui.findThread("channel", rootId(43)));
         // Inactive tabs are restored as semantic entries, not ChatAreas.
         QVERIFY(!ui.findThread("channel", rootId(42)));
         QTRY_VERIFY(server.postLookups.contains(replyId(41, 24)));
@@ -604,11 +608,29 @@ private slots:
         QVERIFY(detachedLog->captureSemanticViewportBookmark(visibleDetached));
         const QJsonObject savedActive = saved.value("tabs").toArray().at(0)
                                               .toObject().value("anchor").toObject();
-        QCOMPARE(savedActive.value("post").toString(), visibleActive.postId);
-        QCOMPARE(savedActive.value("bottom").toBool(),
-                 visibleActive.point == LongListWidget::SemanticAnchorPoint::ItemBottom);
-        QVERIFY(qAbs(savedActive.value("fraction").toDouble()
-                     - visibleActive.fraction) < 0.02);
+        const auto matchesViewportOrPending = [](
+            const QJsonObject& serialized,
+            const ChatLogWidget::SemanticViewportBookmark& measured,
+            const QString& requestedPost, qreal requestedFraction) {
+            // While an asynchronous bookmark is settling, saveSession()
+            // intentionally preserves the requested semantic anchor. Once
+            // settled, it captures the centre post currently under the
+            // viewport. Both represent the same visible position.
+            const bool measuredAnchor =
+                serialized.value("post").toString() == measured.postId
+                && serialized.value("bottom").toBool()
+                    == (measured.point == LongListWidget::SemanticAnchorPoint::ItemBottom)
+                && qAbs(serialized.value("fraction").toDouble()
+                        - measured.fraction) < 0.02;
+            const bool pendingAnchor =
+                serialized.value("post").toString() == requestedPost
+                && !serialized.value("bottom").toBool()
+                && qAbs(serialized.value("fraction").toDouble()
+                        - requestedFraction) < 0.02;
+            return measuredAnchor || pendingAnchor;
+        };
+        QVERIFY(matchesViewportOrPending(
+            savedActive, visibleActive, replyId(41, 24), -0.14));
         // Inactive tabs preserve their original semantic bookmark verbatim.
         QCOMPARE(saved.value("tabs").toArray().at(1).toObject()
                      .value("anchor").toObject().value("post").toString(),
@@ -616,11 +638,8 @@ private slots:
         QCOMPARE(saved.value("threads").toArray().size(), 1);
         const QJsonObject savedDetached = saved.value("threads").toArray().at(0)
                                                 .toObject().value("anchor").toObject();
-        QCOMPARE(savedDetached.value("post").toString(), visibleDetached.postId);
-        QCOMPARE(savedDetached.value("bottom").toBool(),
-                 visibleDetached.point == LongListWidget::SemanticAnchorPoint::ItemBottom);
-        QVERIFY(qAbs(savedDetached.value("fraction").toDouble()
-                     - visibleDetached.fraction) < 0.02);
+        QVERIFY(matchesViewportOrPending(
+            savedDetached, visibleDetached, replyId(43, 24), 0.0));
 
         // Closing a tab removes its bookmark too; the snapshot must contain
         // only still-open presentation surfaces.
@@ -632,12 +651,10 @@ private slots:
             MLOptions::instance()->value<QByteArray>(key)).object();
         QCOMPARE(saved.value("tabs").toArray().size(), 1);
         QVERIFY(activeLog->captureSemanticViewportBookmark(visibleActive));
-        QCOMPARE(saved.value("tabs").toArray().at(0).toObject()
-                     .value("anchor").toObject().value("post").toString(),
-                 visibleActive.postId);
-        if (auto* windowThread = ui.findThread("channel", rootId(43))) {
-            delete windowThread;
-        }
+        QVERIFY(matchesViewportOrPending(
+            saved.value("tabs").toArray().at(0).toObject()
+                 .value("anchor").toObject(),
+            visibleActive, replyId(41, 24), -0.14));
     }
 
     void sessionDoesNotRestoreLegacyViewportBookmark()
