@@ -698,6 +698,12 @@ if(TARGET matterleast-core)
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+add_executable(attention-flash-lifetime-test AttentionFlashLifetimeTest.cpp)
+target_include_directories(attention-flash-lifetime-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(attention-flash-lifetime-test
+    PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME attention-flash-lifetime-test COMMAND attention-flash-lifetime-test)
+
 add_executable(following-presentation-test FollowingPresentationTest.cpp)
 target_include_directories(following-presentation-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(following-presentation-test
