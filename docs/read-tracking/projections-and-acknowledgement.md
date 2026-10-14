@@ -74,6 +74,17 @@ read. The model retains its existing unread watermark and server acknowledgement
 contract; Attention removes acknowledged entries, except for its existing
 selected-row retention policy.
 
+Attention animations are owned by the concrete chat viewport, not by a post
+that can outlive its current presentation. The temporary animation tracking
+context must be invalidated on source replacement and destroyed in
+`ChatLogWidget::~ChatLogWidget()` **before** `LongListWidget` or `QWidget`
+destroys child post widgets. Connecting a post's `destroyed()` directly to
+`ChatLogWidget` is unsafe here: Qt's receiver auto-disconnect happens in
+`QObject::~QObject()`, after derived class members (including any `QSet`
+used by the callback) have already been destroyed. Late animation completions
+must also check the separately invalidated context before consulting the
+viewport or read cursor.
+
 ## Thread snapshot refresh policy
 
 `FollowingModel` keeps a shared server snapshot of followed CRT threads. Refreshing
