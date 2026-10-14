@@ -937,7 +937,17 @@ void ChatArea::restoreDraftAndFocus(const QString& draftKey)
 
 void ChatArea::onMainWindowActivate()
 {
-    // Merely restoring/focusing the application is not a reading gesture.
+    // Wait for Qt's activation/layout transition to settle. This only checks
+    // existing materialized messages and does not change the viewport.
+    QPointer<ChatArea> guard(this);
+    QTimer::singleShot(0, this, [guard] {
+        if (!guard || !guard->isVisible() || !guard->isActiveWindow()
+            || !guard->ui || !guard->ui->listWidget
+            || !guard->ui->listWidget->isVisible()) {
+            return;
+        }
+        guard->ui->listWidget->flashVisibleAttention();
+    });
 }
 
 void ChatArea::onMove(QPoint)

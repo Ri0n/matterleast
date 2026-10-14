@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include "channel-tree/AttentionActivationPolicy.h"
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingPresentation.h"
 #include "channel-tree/SidebarUnreadPolicy.h"
@@ -43,6 +44,87 @@ private slots:
         QCOMPARE(tooltip.size(), FollowingThreadSnippetLength);
         QVERIFY(tooltip.endsWith(QChar(0x2026)));
         QVERIFY(!tooltip.contains(QLatin1Char('\n')));
+    }
+
+    void activationFlashesOnlyUnreadAttentionPosts()
+    {
+        FollowingModel::Entry conversation;
+        conversation.channelId = QStringLiteral("dm");
+        conversation.unread = true;
+        AttentionViewportPost visible;
+        visible.channelId = QStringLiteral("dm");
+        visible.postId = QStringLiteral("new");
+        visible.createAt = 150;
+        visible.channelLastViewedAt = 100;
+
+        QVERIFY(shouldFlashAttentionPost(conversation, visible));
+        visible.createAt = 90;
+        QVERIFY(!shouldFlashAttentionPost(conversation, visible));
+        visible.createAt = 150;
+        visible.channelId = QStringLiteral("other");
+        QVERIFY(!shouldFlashAttentionPost(conversation, visible));
+        visible.channelId = QStringLiteral("dm");
+        visible.postRootId = QStringLiteral("thread");
+        QVERIFY(!shouldFlashAttentionPost(conversation, visible));
+        visible.postRootId.clear();
+
+        conversation.resumeState = FollowingModel::ResumeState::FirstUnread;
+        conversation.firstUnreadPostId = QStringLiteral("first-new");
+        QVERIFY(!shouldFlashAttentionPost(conversation, visible));
+        visible.firstUnreadOrLater = true;
+        QVERIFY(shouldFlashAttentionPost(conversation, visible));
+
+        conversation.readThroughPostId = QStringLiteral("read");
+        conversation.readThroughCreateAt = 160;
+        QVERIFY(!shouldFlashAttentionPost(conversation, visible));
+        visible.createAt = 161;
+        QVERIFY(shouldFlashAttentionPost(conversation, visible));
+
+        conversation.muted = true;
+        QVERIFY(!shouldFlashAttentionPost(conversation, visible));
+    }
+
+    void activationRespectsThreadAndSyntheticMentionIdentity()
+    {
+        FollowingModel::Entry thread;
+        thread.kind = FollowingModel::Kind::Thread;
+        thread.channelId = QStringLiteral("town");
+        thread.threadId = QStringLiteral("root");
+        thread.unreadReplies = 3;
+        thread.lastViewedAt = 100;
+
+        AttentionViewportPost visible;
+        visible.channelId = QStringLiteral("town");
+        visible.threadId = QStringLiteral("root");
+        visible.postId = QStringLiteral("reply");
+        visible.postRootId = QStringLiteral("root");
+        visible.createAt = 150;
+        QVERIFY(shouldFlashAttentionPost(thread, visible));
+
+        visible.postRootId.clear();
+        visible.postId = QStringLiteral("root");
+        QVERIFY(!shouldFlashAttentionPost(thread, visible));
+        visible.postRootId = QStringLiteral("root");
+        visible.threadId.clear();
+        QVERIFY(!shouldFlashAttentionPost(thread, visible));
+
+        thread.synthetic = true;
+        thread.unreadReplies = 0;
+        thread.unreadMentions = 1;
+        visible.postRootId.clear();
+        QVERIFY(shouldFlashAttentionPost(thread, visible));
+        visible.postId = QStringLiteral("another");
+        QVERIFY(!shouldFlashAttentionPost(thread, visible));
+        visible.postId = QStringLiteral("root");
+        visible.threadId = QStringLiteral("root");
+        QVERIFY(!shouldFlashAttentionPost(thread, visible));
+
+        thread.synthetic = false;
+        thread.muted = true;
+        visible.threadId = QStringLiteral("root");
+        visible.postId = QStringLiteral("reply");
+        visible.postRootId = QStringLiteral("root");
+        QVERIFY(shouldFlashAttentionPost(thread, visible));
     }
 
     void mutedAttentionKeepsExplicitlyFollowedThreads()

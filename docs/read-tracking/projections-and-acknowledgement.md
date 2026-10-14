@@ -49,6 +49,31 @@ This is an important invariant: **Following and Attention must never differ in
 what counts as read.** If clicking the same semantic entry in one projection
 changes unread state while the other does not, the implementation is wrong.
 
+## Visible Attention feedback when a window gains focus
+
+When the main window is activated (including taskbar restoration), only the
+currently visible channel and docked thread panes are inspected. Detached
+thread windows are inspected independently when their own window activates.
+Hidden tabs, nonmaterialized posts and off-viewport history are untouched and
+do not trigger network requests.
+
+Materialized unread posts belonging to the current Attention projection play
+the standard three-second post-background navigation animation, without focus
+changes or scrolling. A synthetic mention matches its exact root-post ID;
+followed threads and DM/GM conversations use their local first-unread or
+read-through boundary, falling back to authoritative last-viewed timestamps.
+Unknown boundaries must not flash arbitrary historical posts.
+
+After each animation completes, the existing viewport read engine is asked to
+re-evaluate the post *if its lower edge remains visible in the active window*.
+A partially displayed tall post or an offscreen unread tail cannot acknowledge
+an entire Attention conversation/thread entry. An explicitly mentioned root
+post has its own synthetic Attention entry, which can be removed individually
+after its lower edge was visibly consumed, without marking the whole channel
+read. The model retains its existing unread watermark and server acknowledgement
+contract; Attention removes acknowledged entries, except for its existing
+selected-row retention policy.
+
 ## Thread snapshot refresh policy
 
 `FollowingModel` keeps a shared server snapshot of followed CRT threads. Refreshing

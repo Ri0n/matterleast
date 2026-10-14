@@ -667,6 +667,13 @@ void ChatArea::changeEvent(QEvent* event)
         return;
     }
 
+    // Detached threads are independent top-level windows. The main-window
+    // activation handler intentionally does not inspect them.
+    if (event->type() == QEvent::ActivationChange
+        && isWindow() && isActiveWindow()) {
+        onMainWindowActivate();
+    }
+
     if (event->type() == QEvent::PaletteChange
         || event->type() == QEvent::ApplicationPaletteChange
         || event->type() == QEvent::StyleChange) {

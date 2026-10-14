@@ -113,6 +113,10 @@ public:
                             bool sourceAtEnd,
                             bool rootOnlyConversation = false);
 
+    /** A synthetic root mention may be acknowledged independently of its channel. */
+    void acknowledgeVisibleSyntheticMention(const QString& channelId,
+                                            const QString& postId);
+
     /** Keep an explicit server-backed Mark as unread in Attention until it is read again. */
     void markPostUnread(const QString& channelId, const QString& threadId,
                         const QString& postId, uint64_t createAt);

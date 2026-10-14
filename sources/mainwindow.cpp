@@ -882,10 +882,14 @@ void MainWindow::changeEvent(QEvent* event)
 	QWidget::changeEvent(event);
 	if (event->type() == QEvent::ActivationChange) {
 		if (isActiveWindow()) {
-			ChatArea* currentPage = ui->channelList->getCurrentPage();
-			if (currentPage) {
-				currentPage->onMainWindowActivate();
-			}
+            // A docked thread and the central chat may both have visible
+            // timelines. Hidden tabs and detached windows do not belong to
+            // this activation and must not be materialized or touched.
+            for (ChatArea* area : findChildren<ChatArea*>()) {
+                if (area && area->window() == this && area->isVisible()) {
+                    area->onMainWindowActivate();
+                }
+            }
 		}
 	} else {
 		qDebug() << event->type();

@@ -1,5 +1,7 @@
 #include "InteractivePostWidget.h"
 
+#include <utility>
+
 #include <QEasingCurve>
 #include <QPainter>
 #include <QPalette>
@@ -22,8 +24,11 @@ InteractivePostWidget::InteractivePostWidget(Backend& backend,
 {
 }
 
-void InteractivePostWidget::animateNavigationHighlight()
+void InteractivePostWidget::animateNavigationHighlight(std::function<void()> onCompleted)
 {
+    if (onCompleted) {
+        _navigationHighlightCallbacks.push_back(std::move(onCompleted));
+    }
     if (!navigationAnimation) {
         navigationAnimation = new QVariantAnimation(this);
         navigationAnimation->setDuration(NavigationDurationMs);
@@ -45,6 +50,11 @@ void InteractivePostWidget::animateNavigationHighlight()
                 this, [this] {
             navigationAlpha = 0;
             update();
+            auto callbacks = std::move(_navigationHighlightCallbacks);
+            _navigationHighlightCallbacks.clear();
+            for (auto& callback : callbacks) {
+                callback();
+            }
         });
     }
 
