@@ -10,6 +10,7 @@
 #include <QPointer>
 #include <QRandomGenerator>
 #include <QTimer>
+#include <QVector>
 #include <QWidget>
 
 #include "SnowSeason.h"
@@ -219,7 +220,7 @@ private:
         // Preview is intentionally opt-in for QA outside the holiday period.
         // It does not affect ordinary users or any persisted preferences.
         _inSeason = MatterLeast::SeasonalSnow::activeOn(QDate::currentDate())
-            || qEnvironmentVariableIsSet("MATTERLEAST_SNOW_PREVIEW");
+            || qEnvironmentVariable("MATTERLEAST_SNOW_PREVIEW") == QLatin1String("1");
         _calendarTimer.start(MatterLeast::SeasonalSnow::untilNextLocalMidnight(
             QDateTime::currentDateTime()));
         refreshVisibility();
