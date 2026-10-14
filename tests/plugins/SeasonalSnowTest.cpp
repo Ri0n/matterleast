@@ -116,7 +116,7 @@ private slots:
                  "Snow overlay blanked or repainted the underlying window");
 
         // A transparent overlay must never be the recipient of a mouse hit.
-        QVERIFY(mainWindow.childAt(QPoint(200, 200)) == nullptr);
+        QCOMPARE(mainWindow.childAt(QPoint(200, 200)), &chatPanel);
 
         mainWindow.resize(950, 700);
         QTRY_COMPARE(overlay->geometry(), mainWindow.rect());
