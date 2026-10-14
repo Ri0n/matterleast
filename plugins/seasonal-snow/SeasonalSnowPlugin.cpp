@@ -53,8 +53,10 @@ public:
     {
         setObjectName(QStringLiteral("seasonalSnowOverlay"));
         setAttribute(Qt::WA_TransparentForMouseEvents, true);
-        setAttribute(Qt::WA_TranslucentBackground, true);
-        setAttribute(Qt::WA_NoSystemBackground, true);
+        // This is a child QWidget sharing the main window's backing store,
+        // not a translucent top-level window. Let Qt propagate and repaint
+        // the content behind us; suppressing the system background would
+        // leave transparent clears as black on opaque native windows.
         setAutoFillBackground(false);
         setFocusPolicy(Qt::NoFocus);
         setGeometry(host->rect());
@@ -128,11 +130,9 @@ protected:
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
-        // With WA_NoSystemBackground, explicitly clear the complete surface
-        // on every frame: old flake positions must not leave ghost trails.
-        painter.setCompositionMode(QPainter::CompositionMode_Source);
-        painter.fillRect(rect(), Qt::transparent);
-        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        // Do not erase the shared backing store with transparent pixels:
+        // Qt composites this child over the other painted widgets. Normal
+        // background propagation on each update clears previous snowflakes.
         painter.setRenderHint(QPainter::Antialiasing, true);
 
         const bool dark = palette().color(QPalette::Window).lightness() < 130;
