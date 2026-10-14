@@ -4,6 +4,7 @@
 #include <QLibrary>
 #include <QPluginLoader>
 #include <QWidget>
+#include <QTimeZone>
 
 #include "plugins/api/MainWindowOverlayInterface.h"
 #include "plugins/api/PluginInterface.h"
@@ -29,8 +30,13 @@ private slots:
 
     void schedulesDailyLocalDateCheck()
     {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const QDateTime now(QDate(2026, 12, 24), QTime(11, 30),
+                            QTimeZone::systemTimeZone());
+#else
         const QDateTime now(QDate(2026, 12, 24), QTime(11, 30),
                             Qt::LocalTime);
+#endif
         const int remaining =
             MatterLeast::SeasonalSnow::untilNextLocalMidnight(now);
         QVERIFY(remaining > 11 * 3600 * 1000);
