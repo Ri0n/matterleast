@@ -193,7 +193,7 @@ private:
             _flakes.push_back(createFlake(false));
         }
         if (static_cast<int>(_flakes.size()) > desired) {
-            _flakes.resize(static_cast<std::size_t>(desired));
+            _flakes.resize(desired);
         }
     }
 
