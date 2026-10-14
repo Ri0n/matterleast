@@ -47,3 +47,22 @@ add_test(
     COMMAND "${CMAKE_COMMAND}" -P
         "${CMAKE_CURRENT_BINARY_DIR}/PluginSdkSmoke.cmake"
 )
+
+# Test the real bundled plugin through the public ABI (no core linkage).
+add_executable(seasonal-snow-test
+    SeasonalSnowTest.cpp
+)
+target_include_directories(seasonal-snow-test PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(seasonal-snow-test PRIVATE
+    matterleast-plugin-api
+    Qt${QT_VERSION_MAJOR}::Test
+    Qt${QT_VERSION_MAJOR}::Widgets
+)
+add_dependencies(seasonal-snow-test matterleast-seasonal-snow)
+add_test(
+    NAME seasonal-snow-test
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "QT_QPA_PLATFORM=offscreen"
+        "MATTERLEAST_SNOW_TEST_PLUGIN_PATH=$<TARGET_FILE:matterleast-seasonal-snow>"
+        "$<TARGET_FILE:seasonal-snow-test>"
+)
