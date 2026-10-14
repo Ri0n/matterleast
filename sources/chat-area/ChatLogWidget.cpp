@@ -1,4 +1,5 @@
 #include "ChatLogWidget.h"
+#include "AttentionFlashLifetime.h"
 
 #include <functional>
 #include <algorithm>
@@ -81,6 +82,7 @@ void acknowledgeChannelRead(Backend& backend, BackendChannel& channel)
 ChatLogWidget::ChatLogWidget(QWidget* parent)
     : PostListWidget(parent)
 {
+    _attentionFlashLifetime = std::make_unique<AttentionFlashLifetime>();
     setDefaultItemHeight(96);
 
     connect(this, &LongListWidget::rangeRequested, this,
@@ -173,6 +175,10 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
 
 ChatLogWidget::~ChatLogWidget()
 {
+    // QObject's automatic receiver cleanup happens only in QObject::~QObject.
+    // LongListWidget destroys materialized posts before then, after our C++
+    // members have gone away. Disconnect row callbacks while they are alive.
+    _attentionFlashLifetime.reset();
     for (const QMetaObject::Connection& connection : sourceConnections) {
         disconnect(connection);
     }
@@ -205,7 +211,8 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
         << " newCount=" << (sourceInstance ? sourceInstance->itemCount() : 0);
 
     clearNavigationLock();
-    _flashingAttentionPostIds.clear();
+    // A reused list must not accept a late completion from its old source.
+    _attentionFlashLifetime = std::make_unique<AttentionFlashLifetime>();
     manualUnreadGate_.clear();
     manualUnreadHighWaterPostId_.clear();
     manualUnreadHighWaterCreateAt_ = 0;
@@ -416,7 +423,7 @@ void ChatLogWidget::flashVisibleAttention()
         BackendPost* post = postSource->postAt(index);
         auto* widget = dynamic_cast<InteractivePostWidget*>(itemWidget(index));
         if (!post || !widget || post->id.isEmpty()
-            || _flashingAttentionPostIds.contains(post->id)) {
+            || _attentionFlashLifetime->isFlashing(post->id)) {
             continue;
         }
 
@@ -445,19 +452,20 @@ void ChatLogWidget::flashVisibleAttention()
             continue;
         }
 
-        _flashingAttentionPostIds.insert(post->id);
-        QPointer<ChatLogWidget> guard(this);
         const QString postId = post->id;
-        // A virtualized row can be destroyed before its animation finishes.
-        // Do not retain a stale in-progress flag if it is later materialized.
-        connect(widget, &QObject::destroyed, this, [this, postId] {
-            _flashingAttentionPostIds.remove(postId);
-        });
-        widget->animateNavigationHighlight([guard, postId] {
-            if (!guard) {
+        if (!_attentionFlashLifetime->begin(*widget, postId)) {
+            continue;
+        }
+        QPointer<ChatLogWidget> guard(this);
+        QPointer<AttentionFlashLifetime> lifetime(_attentionFlashLifetime.get());
+        widget->animateNavigationHighlight([guard, lifetime, postId] {
+            // ChatLogWidget's QObject remains valid while its C++ fields are
+            // being destroyed. The lifetime context is explicitly deleted
+            // first, so this also protects against that destruction window.
+            if (!lifetime || !guard) {
                 return;
             }
-            guard->_flashingAttentionPostIds.remove(postId);
+            lifetime->finish(postId);
             // A post may have been scrolled away or this window deactivated
             // during the animation. Read acknowledgement remains a fact about
             // the currently visible lower edge, never a timer alone.
