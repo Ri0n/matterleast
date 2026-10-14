@@ -10,6 +10,7 @@
 #include <QLibrary>
 #include <QPointer>
 #include <QStandardPaths>
+#include <QWidget>
 
 #include "PluginHost.h"
 #include "backend/Backend.h"
@@ -20,6 +21,7 @@
 #include "options/MLOptions.h"
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/ConversationMenuInterface.h"
+#include "plugins/api/MainWindowOverlayInterface.h"
 
 namespace Mattermost {
 namespace {
@@ -146,6 +148,30 @@ QStringList PluginManager::pluginSearchPaths() const
     return paths;
 }
 
+void PluginManager::attachMainWindow(QWidget& window)
+{
+    _mainWindow = &window;
+    for (const auto& host : plugins_) {
+        if (host && host->isEnabled()) {
+            attachWindowOverlay(*host);
+        }
+    }
+}
+
+void PluginManager::attachWindowOverlay(PluginHost& host)
+{
+    if (!_mainWindow || !host.isEnabled()) {
+        return;
+    }
+    QObject* object = host.instance();
+    auto* overlay = object
+        ? qobject_cast<MatterLeast::PluginApi::MainWindowOverlayInterface*>(object)
+        : nullptr;
+    if (overlay) {
+        overlay->attachToMainWindow(_mainWindow);
+    }
+}
+
 void PluginManager::loadStandardPlugins()
 {
     for (const QString& path : pluginSearchPaths()) {
@@ -246,6 +272,9 @@ bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
     }
 
     MLOptions::instance()->setValue<bool>(pluginEnabledOption(pluginId), enabled);
+    if (enabled) {
+        attachWindowOverlay(host);
+    }
     return true;
 }
 

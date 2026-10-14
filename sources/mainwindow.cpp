@@ -68,6 +68,7 @@
 #include "notifications/RootNotificationPolicy.h"
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
+#include "plugins/PluginManager.h"
 #include "ui/IconUtils.h"
 #include "ui/EmojiPresentation.h"
 #include "ui/TeamSelectorLabel.h"
@@ -309,6 +310,9 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	}
 
 	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
+    // The main window is fully constructed before optional visual plugins
+    // receive its QWidget surface. No MatterLeast UI class crosses the ABI.
+    PluginManager::instance(backend).attachMainWindow(*this);
 	LOG_DEBUG("MainWindow create finish");
 }
 
