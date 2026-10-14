@@ -111,6 +111,18 @@ Supported action descriptor keys are documented in `plugins/api/ConversationMenu
 
 MatterLeast creates proxy `QAction`s and resolves the plugin object again when an action is triggered. UI objects therefore never cross the plugin boundary and stale actions cannot retain a raw plugin interface pointer after unload.
 
+## Main-window overlay capability
+
+`MainWindowOverlayInterface/1.0` allows an enabled native plugin to
+attach a presentation-only overlay to the main window without exposing a
+MatterLeast implementation type across the plugin ABI. The host passes
+only a Qt `QWidget*` after the main window has been constructed; a plugin
+must clean up its child widgets and event filters in `disable()` before
+unload. A re-enabled plugin is attached again.
+
+The bundled [Seasonal Snow](seasonal-snow.md) plugin exercises this
+capability with a click-through, low-density holiday animation.
+
 ## Ownership
 
 - `PluginManager` owns loaded `PluginHost` instances.
