@@ -60,3 +60,9 @@ install(FILES
     DESTINATION "${MATTERLEAST_PLUGIN_API_CMAKE_DIR}"
     COMPONENT Development
 )
+
+# Bundle the seasonal visual effect on desktop; it remains a normal native
+# plugin with an independent enable/disable lifecycle in Settings.
+if(NOT ANDROID)
+    add_subdirectory(seasonal-snow)
+endif()
