@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <memory>
 
 #include <cstdint>
 
@@ -22,6 +23,7 @@ namespace Mattermost {
 
 class Backend;
 class BackendPost;
+class AttentionFlashLifetime;
 class ChatArea;
 class PostWidget;
 struct PendingPost;
@@ -144,7 +146,8 @@ private:
     ChatArea* chatArea = nullptr;
     QPointer<AbstractPostSource> postSource;
     QPointer<PostWidget> editedPostWidget;
-    QSet<QString> _flashingAttentionPostIds;
+    // Destroyed before LongListWidget tears down materialized post widgets.
+    std::unique_ptr<AttentionFlashLifetime> _attentionFlashLifetime;
     QVector<QMetaObject::Connection> sourceConnections;
 
     QString navigationPostId;
