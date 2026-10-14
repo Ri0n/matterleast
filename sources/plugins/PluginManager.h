@@ -5,10 +5,12 @@
 
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
 class QAction;
+class QWidget;
 
 namespace Mattermost {
 
@@ -36,6 +38,9 @@ public:
         const QString& conversationId,
         const QString& threadRootId);
 
+    /** Attach enabled window-overlay extensions to this main window. */
+    void attachMainWindow(QWidget& window);
+
     QList<PluginInfo> pluginInfos() const;
     bool setPluginEnabled(const QString& pluginId, bool enabled);
     QStringList loadedPluginIds() const;
@@ -45,11 +50,13 @@ private:
     class ConversationHost;
 
     explicit PluginManager(Backend& backend);
+    void attachWindowOverlay(PluginHost& host);
     void loadStandardPlugins();
     bool loadPluginFile(const QString& filePath);
     void shutdown();
 
     Backend& backend_;
+    QPointer<QWidget> _mainWindow;
     std::unique_ptr<ConversationHost> conversationHost_;
     std::vector<std::unique_ptr<PluginHost>> plugins_;
 };
