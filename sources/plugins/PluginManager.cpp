@@ -22,6 +22,7 @@
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/ConversationMenuInterface.h"
 #include "plugins/api/MainWindowOverlayInterface.h"
+#include "plugins/api/PluginSettingsInterface.h"
 
 namespace Mattermost {
 namespace {
@@ -33,6 +34,36 @@ const char PluginIdProperty[] = "matterleastPluginId";
 QString pluginEnabledOption(const QString& pluginId)
 {
     return QStringLiteral("plugins/") + pluginId + QStringLiteral("/enabled");
+}
+
+QString pluginSettingOption(const QString& pluginId, const QString& key)
+{
+    return QStringLiteral("plugins/") + pluginId + QStringLiteral("/settings/") + key;
+}
+
+bool validSettingValue(const QVariantHash& descriptor, const QVariant& value)
+{
+    const QString key = descriptor.value(QStringLiteral("key")).toString();
+    if (key.isEmpty() || key.contains(QLatin1Char('/'))) {
+        return false;
+    }
+    const QString type = descriptor.value(QStringLiteral("type")).toString();
+    const QVariant fallback = descriptor.value(QStringLiteral("default"));
+    if (type == QLatin1String("integer")) {
+        if (value.userType() != QMetaType::Int ||
+            fallback.userType() != QMetaType::Int) {
+            return false;
+        }
+        const int minimum = descriptor.value(QStringLiteral("minimum")).toInt();
+        const int maximum = descriptor.value(QStringLiteral("maximum")).toInt();
+        return minimum <= maximum && value.toInt() >= minimum
+            && value.toInt() <= maximum;
+    }
+    if (type == QLatin1String("boolean")) {
+        return value.userType() == QMetaType::Bool
+            && fallback.userType() == QMetaType::Bool;
+    }
+    return false;
 }
 
 } // namespace
@@ -214,6 +245,7 @@ bool PluginManager::loadPluginFile(const QString& filePath)
         qWarning() << "Discovered MatterLeast plugin but could not enable"
                    << pluginId << "from" << filePath;
     } else if (host->isEnabled()) {
+        restorePluginSettings(*host);
         qInfo() << "Loaded MatterLeast plugin" << host->id()
                 << host->version() << "from" << filePath;
     }
@@ -273,9 +305,93 @@ bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
 
     MLOptions::instance()->setValue<bool>(pluginEnabledOption(pluginId), enabled);
     if (enabled) {
+        restorePluginSettings(host);
         attachWindowOverlay(host);
     }
     return true;
+}
+
+void PluginManager::restorePluginSettings(PluginHost& host)
+{
+    auto* settings = host.instance()
+        ? qobject_cast<MatterLeast::PluginApi::PluginSettingsInterface*>(
+            host.instance()) : nullptr;
+    if (!settings) {
+        return;
+    }
+    for (const QVariantHash& descriptor : settings->settingDescriptors()) {
+        const QVariant fallback = descriptor.value(QStringLiteral("default"));
+        if (!validSettingValue(descriptor, fallback)) {
+            qWarning() << "Ignoring invalid plugin setting descriptor:" << host.id();
+            continue;
+        }
+        const QString key = descriptor.value(QStringLiteral("key")).toString();
+        const QVariant stored = MLOptions::instance()->value(
+            pluginSettingOption(host.id(), key), fallback);
+        if (!validSettingValue(descriptor, stored) ||
+            !settings->setSettingValue(key, stored)) {
+            settings->setSettingValue(key, fallback);
+        }
+    }
+}
+
+QList<QVariantHash> PluginManager::pluginSettings(const QString& pluginId) const
+{
+    const auto it = std::find_if(plugins_.cbegin(), plugins_.cend(),
+        [&pluginId](const std::unique_ptr<PluginHost>& host) {
+            return host && host->id() == pluginId && host->isEnabled();
+        });
+    if (it == plugins_.cend()) {
+        return {};
+    }
+    auto* extension = qobject_cast<MatterLeast::PluginApi::PluginSettingsInterface*>(
+        (*it)->instance());
+    if (!extension) {
+        return {};
+    }
+    QList<QVariantHash> result;
+    for (QVariantHash descriptor : extension->settingDescriptors()) {
+        const QVariant fallback = descriptor.value(QStringLiteral("default"));
+        if (!validSettingValue(descriptor, fallback)) {
+            continue;
+        }
+        const QString key = descriptor.value(QStringLiteral("key")).toString();
+        const QVariant saved = MLOptions::instance()->value(
+            pluginSettingOption(pluginId, key), fallback);
+        descriptor.insert(QStringLiteral("value"),
+                          validSettingValue(descriptor, saved) ? saved : fallback);
+        result.push_back(std::move(descriptor));
+    }
+    return result;
+}
+
+bool PluginManager::setPluginSetting(const QString& pluginId,
+                                     const QString& key, const QVariant& value)
+{
+    const auto it = std::find_if(plugins_.begin(), plugins_.end(),
+        [&pluginId](const std::unique_ptr<PluginHost>& host) {
+            return host && host->id() == pluginId && host->isEnabled();
+        });
+    if (it == plugins_.end()) {
+        return false;
+    }
+    auto* extension = qobject_cast<MatterLeast::PluginApi::PluginSettingsInterface*>(
+        (*it)->instance());
+    if (!extension) {
+        return false;
+    }
+    for (const QVariantHash& descriptor : extension->settingDescriptors()) {
+        if (descriptor.value(QStringLiteral("key")).toString() != key) {
+            continue;
+        }
+        if (!validSettingValue(descriptor, value) ||
+            !extension->setSettingValue(key, value)) {
+            return false;
+        }
+        MLOptions::instance()->setValue(pluginSettingOption(pluginId, key), value);
+        return true;
+    }
+    return false;
 }
 
 QStringList PluginManager::loadedPluginIds() const

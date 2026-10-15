@@ -14,15 +14,14 @@
 #include <QWidget>
 
 #include "SnowSeason.h"
+#include "SnowSettings.h"
 #include "plugins/api/MainWindowOverlayInterface.h"
 #include "plugins/api/PluginInterface.h"
+#include "plugins/api/PluginSettingsInterface.h"
 
 namespace {
 
 constexpr int FrameIntervalMs = 33;
-constexpr int MinimumFlakes = 6;
-constexpr int MaximumFlakes = 22;
-constexpr int PixelsPerFlake = 52000;
 constexpr double Pi = 3.14159265358979323846;
 
 double randomBetween(double lower, double upper)
@@ -45,11 +44,13 @@ struct Snowflake {
 class SnowOverlay final : public QWidget
 {
 public:
-    explicit SnowOverlay(QWidget* host)
+    explicit SnowOverlay(QWidget* host, int sizePercent, int intensityPercent)
         : QWidget(host)
         , _host(host)
         , _calendarTimer(this)
         , _frameTimer(this)
+        , _sizePercent(sizePercent)
+        , _intensityPercent(intensityPercent)
     {
         setObjectName(QStringLiteral("seasonalSnowOverlay"));
         setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -60,6 +61,7 @@ public:
         setAutoFillBackground(false);
         setFocusPolicy(Qt::NoFocus);
         setGeometry(host->rect());
+        setProperty("snowflakeSizePercent", _sizePercent);
 
         _calendarTimer.setSingleShot(true);
         connect(&_calendarTimer, &QTimer::timeout, this, [this] {
@@ -82,6 +84,15 @@ public:
         if (_host) {
             _host->removeEventFilter(this);
         }
+    }
+
+    void applySettings(int sizePercent, int intensityPercent)
+    {
+        _sizePercent = sizePercent;
+        _intensityPercent = intensityPercent;
+        setProperty("snowflakeSizePercent", _sizePercent);
+        adjustPopulation();
+        update();
     }
 
 protected:
@@ -142,6 +153,8 @@ protected:
         painter.setPen(pen);
 
         for (const Snowflake& flake : _flakes) {
+            const double radius = flake.radius
+                * MatterLeast::SeasonalSnow::radiusScale(_sizePercent);
             const double x = flake.baseX
                 + flake.sway * std::sin(flake.phase);
             painter.save();
@@ -149,9 +162,9 @@ protected:
             painter.rotate(flake.angle);
             // Six narrow arms with tiny side branches, slowly rotating.
             for (int arm = 0; arm < 6; ++arm) {
-                painter.drawLine(QPointF(0, 0), QPointF(0, -flake.radius));
-                const double branchY = -flake.radius * 0.65;
-                const double branch = flake.radius * 0.25;
+                painter.drawLine(QPointF(0, 0), QPointF(0, -radius));
+                const double branchY = -radius * 0.65;
+                const double branch = radius * 0.25;
                 painter.drawLine(QPointF(0, branchY),
                                  QPointF(-branch, branchY - branch));
                 painter.drawLine(QPointF(0, branchY),
@@ -169,7 +182,8 @@ private:
         flake.baseX = randomBetween(0, std::max(1, width()));
         flake.radius = randomBetween(3.0, 6.5);
         flake.y = aboveViewport
-            ? randomBetween(-80.0, -flake.radius)
+            ? randomBetween(-80.0, -flake.radius
+                * MatterLeast::SeasonalSnow::radiusScale(_sizePercent))
             : randomBetween(0, std::max(1, height()));
         flake.speed = randomBetween(18.0, 34.0); // pixels per second
         flake.angle = randomBetween(0.0, 360.0);
@@ -186,15 +200,15 @@ private:
         if (width() <= 0 || height() <= 0) {
             return;
         }
-        const int desired = qBound(MinimumFlakes,
-                                   width() * height() / PixelsPerFlake,
-                                   MaximumFlakes);
+        const int desired = MatterLeast::SeasonalSnow::flakeCountForArea(
+            width(), height(), _intensityPercent);
         while (static_cast<int>(_flakes.size()) < desired) {
             _flakes.push_back(createFlake(false));
         }
         if (static_cast<int>(_flakes.size()) > desired) {
             _flakes.resize(desired);
         }
+        setProperty("snowflakeCount", desired);
     }
 
     void advance()
@@ -208,7 +222,8 @@ private:
             flake.y += flake.speed * seconds;
             flake.angle += flake.spin * seconds;
             flake.phase += flake.phaseSpeed * seconds;
-            if (flake.y > height() + flake.radius * 2) {
+            if (flake.y > height() + flake.radius
+                * MatterLeast::SeasonalSnow::radiusScale(_sizePercent) * 2) {
                 flake = createFlake(true);
             }
         }
@@ -251,6 +266,8 @@ private:
     QTimer _frameTimer;
     QElapsedTimer _clock;
     QVector<Snowflake> _flakes;
+    int _sizePercent = MatterLeast::SeasonalSnow::DefaultSizePercent;
+    int _intensityPercent = MatterLeast::SeasonalSnow::DefaultIntensityPercent;
     bool _inSeason = false;
 };
 
@@ -260,13 +277,64 @@ class SeasonalSnowPlugin final
     : public QObject
     , public MatterLeast::PluginApi::PluginInterface
     , public MatterLeast::PluginApi::MainWindowOverlayInterface
+    , public MatterLeast::PluginApi::PluginSettingsInterface
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID MATTERLEAST_PLUGIN_IID FILE "SeasonalSnowPlugin.json")
     Q_INTERFACES(MatterLeast::PluginApi::PluginInterface)
     Q_INTERFACES(MatterLeast::PluginApi::MainWindowOverlayInterface)
+    Q_INTERFACES(MatterLeast::PluginApi::PluginSettingsInterface)
 
 public:
+    QList<QVariantHash> settingDescriptors() const override
+    {
+        return {
+            {
+                {QStringLiteral("key"), QStringLiteral("sizePercent")},
+                {QStringLiteral("title"), tr("Snowflake size")},
+                {QStringLiteral("description"), tr("Relative to the original snowflake size.")},
+                {QStringLiteral("type"), QStringLiteral("integer")},
+                {QStringLiteral("default"), MatterLeast::SeasonalSnow::DefaultSizePercent},
+                {QStringLiteral("minimum"), 50},
+                {QStringLiteral("maximum"), 300},
+                {QStringLiteral("step"), 10},
+                {QStringLiteral("suffix"), QStringLiteral("%")}
+            },
+            {
+                {QStringLiteral("key"), QStringLiteral("intensityPercent")},
+                {QStringLiteral("title"), tr("Snow intensity")},
+                {QStringLiteral("description"), tr("Number of falling snowflakes relative to the original density.")},
+                {QStringLiteral("type"), QStringLiteral("integer")},
+                {QStringLiteral("default"), MatterLeast::SeasonalSnow::DefaultIntensityPercent},
+                {QStringLiteral("minimum"), 25},
+                {QStringLiteral("maximum"), 250},
+                {QStringLiteral("step"), 25},
+                {QStringLiteral("suffix"), QStringLiteral("%")}
+            }
+        };
+    }
+
+    bool setSettingValue(const QString& key, const QVariant& value) override
+    {
+        if (value.userType() != QMetaType::Int) {
+            return false;
+        }
+        const int percent = value.toInt();
+        if (key == QLatin1String("sizePercent")) {
+            if (percent < 50 || percent > 300) return false;
+            _sizePercent = percent;
+        } else if (key == QLatin1String("intensityPercent")) {
+            if (percent < 25 || percent > 250) return false;
+            _intensityPercent = percent;
+        } else {
+            return false;
+        }
+        if (_overlay) {
+            _overlay->applySettings(_sizePercent, _intensityPercent);
+        }
+        return true;
+    }
+
     bool enable() override
     {
         _enabled = true;
@@ -292,11 +360,13 @@ public:
             return;
         }
         delete _overlay.data();
-        _overlay = new SnowOverlay(window);
+        _overlay = new SnowOverlay(window, _sizePercent, _intensityPercent);
     }
 
 private:
     QPointer<SnowOverlay> _overlay;
+    int _sizePercent = MatterLeast::SeasonalSnow::DefaultSizePercent;
+    int _intensityPercent = MatterLeast::SeasonalSnow::DefaultIntensityPercent;
     bool _enabled = false;
 };
 

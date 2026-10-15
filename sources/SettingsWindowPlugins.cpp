@@ -1,7 +1,11 @@
 #include "SettingsWindow.h"
 
+#include <QCheckBox>
+#include <QGroupBox>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QSpinBox>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QTabWidget>
@@ -92,8 +96,98 @@ void SettingsWindow::showEvent(QShowEvent* event)
         empty->setFlags(Qt::ItemIsEnabled);
     }
 
+    auto* settingsGroup = new QGroupBox(tr("Plugin settings"), page);
+    settingsGroup->setObjectName(QStringLiteral("pluginSettingsGroup"));
+    auto* settingsLayout = new QVBoxLayout(settingsGroup);
+    settingsLayout->setSpacing(8);
+    settingsGroup->hide();
+
+    // The extension publishes typed descriptors; the host owns all widgets
+    // and persistent options. Plugins do not receive UI or application types.
+    const auto rebuildSettings = [&manager, tree, settingsGroup, settingsLayout] {
+        while (QLayoutItem* item = settingsLayout->takeAt(0)) {
+            if (QWidget* widget = item->widget()) {
+                delete widget;
+            }
+            delete item;
+        }
+
+        QTreeWidgetItem* selected = tree->currentItem();
+        const QString id = selected
+            ? selected->data(0, Qt::UserRole).toString() : QString();
+        const auto settings = manager.pluginSettings(id);
+        settingsGroup->setVisible(!settings.isEmpty());
+
+        for (const QVariantHash& descriptor : settings) {
+            const QString key = descriptor.value(QStringLiteral("key")).toString();
+            const QString type = descriptor.value(QStringLiteral("type")).toString();
+            auto* row = new QWidget(settingsGroup);
+            auto* rowLayout = new QVBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(3);
+
+            const QString title = descriptor.value(QStringLiteral("title")).toString();
+            if (type == QLatin1String("integer")) {
+                auto* controls = new QHBoxLayout;
+                auto* label = new QLabel(title, row);
+                auto* edit = new QSpinBox(row);
+                edit->setObjectName(QStringLiteral("pluginSetting_") + key);
+                edit->setRange(descriptor.value(QStringLiteral("minimum")).toInt(),
+                               descriptor.value(QStringLiteral("maximum")).toInt());
+                edit->setSingleStep(qMax(1,
+                    descriptor.value(QStringLiteral("step"), 1).toInt()));
+                edit->setSuffix(descriptor.value(QStringLiteral("suffix")).toString());
+                const int initial = descriptor.value(QStringLiteral("value")).toInt();
+                edit->setValue(initial);
+                controls->addWidget(label);
+                controls->addStretch(1);
+                controls->addWidget(edit);
+                rowLayout->addLayout(controls);
+                QObject::connect(edit, qOverload<int>(&QSpinBox::valueChanged), row,
+                    [&manager, id, key, edit, previous = initial](int value) mutable {
+                    if (manager.setPluginSetting(id, key, value)) {
+                        previous = value;
+                    } else {
+                        const QSignalBlocker blocker(edit);
+                        edit->setValue(previous);
+                    }
+                });
+            } else if (type == QLatin1String("boolean")) {
+                auto* edit = new QCheckBox(title, row);
+                edit->setObjectName(QStringLiteral("pluginSetting_") + key);
+                const bool initial = descriptor.value(QStringLiteral("value")).toBool();
+                edit->setChecked(initial);
+                rowLayout->addWidget(edit);
+                QObject::connect(edit, &QCheckBox::toggled, row,
+                    [&manager, id, key, edit, previous = initial](bool value) mutable {
+                    if (manager.setPluginSetting(id, key, value)) {
+                        previous = value;
+                    } else {
+                        const QSignalBlocker blocker(edit);
+                        edit->setChecked(previous);
+                    }
+                });
+            }
+
+            const QString description =
+                descriptor.value(QStringLiteral("description")).toString();
+            if (!description.isEmpty()) {
+                auto* explanation = new QLabel(description, row);
+                explanation->setWordWrap(true);
+                explanation->setTextFormat(Qt::PlainText);
+                rowLayout->addWidget(explanation);
+            }
+            settingsLayout->addWidget(row);
+        }
+    };
+
+    connect(tree, &QTreeWidget::currentItemChanged, settingsGroup,
+            [rebuildSettings](QTreeWidgetItem*, QTreeWidgetItem*) {
+        rebuildSettings();
+    });
+
     connect(tree, &QTreeWidget::itemChanged, tree,
-            [&manager, tree](QTreeWidgetItem* item, int column) {
+            [&manager, tree, rebuildSettings](QTreeWidgetItem* item, int column) {
         if (!item || column != 0) {
             return;
         }
@@ -104,6 +198,7 @@ void SettingsWindow::showEvent(QShowEvent* event)
 
         const bool requested = item->checkState(0) == Qt::Checked;
         if (manager.setPluginEnabled(pluginId, requested)) {
+            rebuildSettings();
             return;
         }
 
@@ -114,6 +209,10 @@ void SettingsWindow::showEvent(QShowEvent* event)
     });
 
     layout->addWidget(tree, 1);
+    layout->addWidget(settingsGroup);
+    if (!plugins.isEmpty()) {
+        tree->setCurrentItem(tree->topLevelItem(0));
+    }
 
     auto* paths = new QLabel(
         tr("Plugin folders:\n%1").arg(manager.pluginSearchPaths().join(QLatin1Char('\n'))),

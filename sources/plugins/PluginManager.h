@@ -8,6 +8,7 @@
 #include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QVariantHash>
 
 class QAction;
 class QWidget;
@@ -43,6 +44,10 @@ public:
 
     QList<PluginInfo> pluginInfos() const;
     bool setPluginEnabled(const QString& pluginId, bool enabled);
+    /** Descriptors include the persisted value; only enabled plugins expose settings. */
+    QList<QVariantHash> pluginSettings(const QString& pluginId) const;
+    bool setPluginSetting(const QString& pluginId,
+                          const QString& key, const QVariant& value);
     QStringList loadedPluginIds() const;
     QStringList pluginSearchPaths() const;
 
@@ -51,6 +56,7 @@ private:
 
     explicit PluginManager(Backend& backend);
     void attachWindowOverlay(PluginHost& host);
+    void restorePluginSettings(PluginHost& host);
     void loadStandardPlugins();
     bool loadPluginFile(const QString& filePath);
     void shutdown();
