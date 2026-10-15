@@ -126,8 +126,11 @@ has no settings panel, and a disabled plugin must be enabled before editing
 its settings. UI changes apply immediately through `setSettingValue()` and
 are persisted under `plugins/<plugin-id>/settings/<key>` only after the
 plugin accepts the value. The manager validates types and numeric bounds,
-then replays persisted settings on each enable before attaching window
-overlays. Invalid old settings fall back to the plugin default.
+then replays persisted settings after accessor injection but **before**
+`enable()` and window-overlay attachment. Native `QSettings` backends can
+return INI integers and booleans as strings, so stored values are normalized
+to their descriptor type before validation. Invalid old settings fall back
+to the plugin default.
 
 The settings capability has its own IID and can be adopted without changing
 the existing `PluginInterface/1.0` lifecycle ABI. Plugin code owns behavior;

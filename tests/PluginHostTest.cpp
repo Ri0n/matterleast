@@ -3,6 +3,7 @@
 #include "plugins/PluginHost.h"
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/ConversationMenuInterface.h"
+#include "plugins/api/PluginSettingsInterface.h"
 
 namespace {
 
@@ -60,8 +61,14 @@ private slots:
                  QStringLiteral("io.github.Ri0n.MatterLeast.tests.conversation"));
         QCOMPARE(host.name(), QStringLiteral("Conversation API test plugin"));
         QCOMPARE(host.version(), QStringLiteral("1.0.0"));
-        QVERIFY(host.loadAndEnable());
+        QVERIFY(host.loadAndEnable([](QObject& object) {
+            auto* settings = qobject_cast<
+                MatterLeast::PluginApi::PluginSettingsInterface*>(&object);
+            QVERIFY(settings);
+            QVERIFY(settings->setSettingValue(QStringLiteral("probe"), 42));
+        }));
         QVERIFY(host.isEnabled());
+        QCOMPARE(host.instance()->property("probeAtEnable").toInt(), 42);
 
         auto* extension = qobject_cast<
             MatterLeast::PluginApi::ConversationMenuInterface*>(host.instance());
@@ -90,6 +97,7 @@ private slots:
         QVERIFY(host.loadAndEnable());
         QVERIFY(host.isEnabled());
         QVERIFY(host.instance() != nullptr);
+        QCOMPARE(host.instance()->property("probeAtEnable").toInt(), 10);
         QVERIFY(host.disableAndUnload());
         QVERIFY(!host.isEnabled());
     }

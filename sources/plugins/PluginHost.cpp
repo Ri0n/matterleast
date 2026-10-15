@@ -51,7 +51,7 @@ void PluginHost::injectAccessors(QObject& object)
     }
 }
 
-bool PluginHost::loadAndEnable()
+bool PluginHost::loadAndEnable(const std::function<void(QObject&)>& prepare)
 {
     if (enabled_) {
         return true;
@@ -75,6 +75,9 @@ bool PluginHost::loadAndEnable()
     }
 
     injectAccessors(*object);
+    if (prepare) {
+        prepare(*object);
+    }
     if (!plugin->enable()) {
         qWarning() << "Plugin enable failed:" << id_;
         loader_.unload();

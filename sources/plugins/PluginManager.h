@@ -56,7 +56,7 @@ private:
 
     explicit PluginManager(Backend& backend);
     void attachWindowOverlay(PluginHost& host);
-    void restorePluginSettings(PluginHost& host);
+    void restorePluginSettings(const QString& pluginId, QObject& object);
     void loadStandardPlugins();
     bool loadPluginFile(const QString& filePath);
     void shutdown();

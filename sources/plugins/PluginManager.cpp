@@ -41,6 +41,29 @@ QString pluginSettingOption(const QString& pluginId, const QString& key)
     return QStringLiteral("plugins/") + pluginId + QStringLiteral("/settings/") + key;
 }
 
+QVariant normalizeStoredSetting(const QVariantHash& descriptor, const QVariant& stored)
+{
+    const QString type = descriptor.value(QStringLiteral("type")).toString();
+    if (type == QLatin1String("integer")) {
+        bool ok = false;
+        const int number = stored.toInt(&ok);
+        return ok ? QVariant(number) : QVariant();
+    }
+    if (type == QLatin1String("boolean")) {
+        if (stored.userType() == QMetaType::Bool) {
+            return stored;
+        }
+        const QString text = stored.toString().trimmed().toLower();
+        if (text == QLatin1String("true") || text == QLatin1String("1")) {
+            return QVariant(true);
+        }
+        if (text == QLatin1String("false") || text == QLatin1String("0")) {
+            return QVariant(false);
+        }
+    }
+    return {};
+}
+
 bool validSettingValue(const QVariantHash& descriptor, const QVariant& value)
 {
     const QString key = descriptor.value(QStringLiteral("key")).toString();
@@ -241,11 +264,13 @@ bool PluginManager::loadPluginFile(const QString& filePath)
 
     const bool shouldEnable = MLOptions::instance()->value<bool>(
         pluginEnabledOption(pluginId), true);
-    if (shouldEnable && !host->loadAndEnable()) {
+    if (shouldEnable && !host->loadAndEnable(
+            [this, &pluginId](QObject& object) {
+                restorePluginSettings(pluginId, object);
+            })) {
         qWarning() << "Discovered MatterLeast plugin but could not enable"
                    << pluginId << "from" << filePath;
     } else if (host->isEnabled()) {
-        restorePluginSettings(*host);
         qInfo() << "Loaded MatterLeast plugin" << host->id()
                 << host->version() << "from" << filePath;
     }
@@ -290,7 +315,11 @@ bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
         return true;
     }
 
-    const bool lifecycleOk = enabled ? host.loadAndEnable() : host.disableAndUnload();
+    const bool lifecycleOk = enabled
+        ? host.loadAndEnable([this, &host](QObject& object) {
+            restorePluginSettings(host.id(), object);
+        })
+        : host.disableAndUnload();
     if (!lifecycleOk && host.isEnabled() != enabled) {
         return false;
     }
@@ -305,29 +334,28 @@ bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
 
     MLOptions::instance()->setValue<bool>(pluginEnabledOption(pluginId), enabled);
     if (enabled) {
-        restorePluginSettings(host);
         attachWindowOverlay(host);
     }
     return true;
 }
 
-void PluginManager::restorePluginSettings(PluginHost& host)
+void PluginManager::restorePluginSettings(const QString& pluginId, QObject& object)
 {
-    auto* settings = host.instance()
-        ? qobject_cast<MatterLeast::PluginApi::PluginSettingsInterface*>(
-            host.instance()) : nullptr;
+    auto* settings = qobject_cast<
+        MatterLeast::PluginApi::PluginSettingsInterface*>(&object);
     if (!settings) {
         return;
     }
     for (const QVariantHash& descriptor : settings->settingDescriptors()) {
         const QVariant fallback = descriptor.value(QStringLiteral("default"));
         if (!validSettingValue(descriptor, fallback)) {
-            qWarning() << "Ignoring invalid plugin setting descriptor:" << host.id();
+            qWarning() << "Ignoring invalid plugin setting descriptor:" << pluginId;
             continue;
         }
         const QString key = descriptor.value(QStringLiteral("key")).toString();
-        const QVariant stored = MLOptions::instance()->value(
-            pluginSettingOption(host.id(), key), fallback);
+        const QVariant stored = normalizeStoredSetting(descriptor,
+            MLOptions::instance()->value(pluginSettingOption(pluginId, key),
+                                         fallback));
         if (!validSettingValue(descriptor, stored) ||
             !settings->setSettingValue(key, stored)) {
             settings->setSettingValue(key, fallback);
@@ -356,8 +384,9 @@ QList<QVariantHash> PluginManager::pluginSettings(const QString& pluginId) const
             continue;
         }
         const QString key = descriptor.value(QStringLiteral("key")).toString();
-        const QVariant saved = MLOptions::instance()->value(
-            pluginSettingOption(pluginId, key), fallback);
+        const QVariant saved = normalizeStoredSetting(descriptor,
+            MLOptions::instance()->value(pluginSettingOption(pluginId, key),
+                                         fallback));
         descriptor.insert(QStringLiteral("value"),
                           validSettingValue(descriptor, saved) ? saved : fallback);
         result.push_back(std::move(descriptor));
