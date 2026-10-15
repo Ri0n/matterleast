@@ -356,7 +356,19 @@ void MainWindow::setupChannelTabs()
 	channelsLayout->setContentsMargins(0, 0, 0, 0);
 	channelsLayout->setSpacing(0);
 	ui->teamSelectorLabel->hide();
-	channelsLayout->addWidget(ui->teamSelectorLabel->createTeamToolbar(channelsPage));
+	unreadFilterButton = new QToolButton(channelsPage);
+	unreadFilterButton->setObjectName(QStringLiteral("channelsUnreadFilterButton"));
+	unreadFilterButton->setCheckable(true);
+	unreadFilterButton->setAutoRaise(true);
+	unreadFilterButton->setFixedSize(28, 28);
+	unreadFilterButton->setIconSize(QSize(20, 20));
+	unreadFilterButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+	unreadFilterButton->setToolTip(tr("Show unread only"));
+	unreadFilterButton->setAccessibleName(tr("Show unread only"));
+	unreadFilterButton->installEventFilter(this);
+	refreshUnreadFilterIcon();
+	channelsLayout->addWidget(
+		ui->teamSelectorLabel->createTeamToolbar(channelsPage, unreadFilterButton));
 	channelsLayout->addWidget(ui->channelList, 1);
 
 	recentChannels = new ChannelQuickList(channelTabs);
@@ -383,17 +395,7 @@ void MainWindow::setupChannelTabs()
 	sidebarFilterEdit->setAccessibleName(tr("Filter channels or contacts"));
 	sidebarFilterEdit->setContentsMargins(4, 2, 4, 2);
 
-	unreadFilterButton = new QToolButton(sidebarFilterRow);
-	unreadFilterButton->setCheckable(true);
-	unreadFilterButton->setAutoRaise(true);
-	unreadFilterButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
-	unreadFilterButton->setToolTip(tr("Show unread only"));
-	unreadFilterButton->setAccessibleName(tr("Show unread only"));
-	unreadFilterButton->installEventFilter(this);
-	refreshUnreadFilterIcon();
-
 	sidebarFilterLayout->addWidget(sidebarFilterEdit, 1);
-	sidebarFilterLayout->addWidget(unreadFilterButton);
 	leftLayout->addWidget(sidebarFilterRow);
 	leftLayout->addWidget(channelTabs, 1);
 
@@ -418,17 +420,9 @@ void MainWindow::setupChannelTabs()
 		refreshChannelUnreadFilter();
 	});
 
-    auto* options = MLOptions::instance();
-    auto* channelsOnlyOption = options->optionObject<bool>(
-        UNREAD_MODE_CHANNELS_ONLY, UNREAD_MODE_CHANNELS_ONLY_DEFAULT);
-    auto* ignoreFilteringOption = options->optionObject<bool>(
+    auto* ignoreFilteringOption = MLOptions::instance()->optionObject<bool>(
         UNREAD_MODE_IGNORE_WHILE_FILTERING,
         UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT);
-    connect(channelsOnlyOption, &MLOptionObject::changed, this,
-            [this](const QVariant&) {
-        refreshUnreadFilterIcon();
-        refreshChannelUnreadFilter();
-    });
     connect(ignoreFilteringOption, &MLOptionObject::changed, this,
             [this](const QVariant&) { refreshChannelUnreadFilter(); });
 
@@ -524,19 +518,6 @@ void MainWindow::refreshChannelUnreadFilter()
 
 	const bool unreadOnly = unreadFilterButton->isChecked();
     auto* options = MLOptions::instance();
-    const bool channelsOnly = options->value<bool>(
-        UNREAD_MODE_CHANNELS_ONLY, UNREAD_MODE_CHANNELS_ONLY_DEFAULT);
-	if (channelTabs && recentChannels) {
-		const int followingIndex = channelTabs->indexOf(recentChannels);
-        const bool showFollowing = SidebarUnreadPolicy::followingVisible(
-            unreadOnly, channelsOnly);
-		if (!showFollowing && followingIndex >= 0) {
-			channelTabs->removeTab(followingIndex);
-		} else if (showFollowing && followingIndex < 0) {
-			channelTabs->insertTab(1, recentChannels, tr("Following"));
-		}
-	}
-
 	const QString filterText = sidebarFilterEdit
 		? sidebarFilterEdit->text().trimmed() : QString();
 	const bool textFilterActive = !filterText.isEmpty();
@@ -860,11 +841,8 @@ void MainWindow::refreshUnreadFilterIcon()
 		? palette.color(QPalette::Highlight)
 		: palette.color(QPalette::ButtonText);
 	unreadFilterButton->setIcon(IconUtils::tintedIcon(icon, color));
-    const bool channelsOnly = MLOptions::instance()->value<bool>(
-        UNREAD_MODE_CHANNELS_ONLY, UNREAD_MODE_CHANNELS_ONLY_DEFAULT);
 	unreadFilterButton->setToolTip(unreadFilterButton->isChecked()
-        ? (channelsOnly ? tr("Show all channels")
-                        : tr("Show all channels and Following"))
+		? tr("Show all channels")
 		: tr("Show unread only"));
 }
 

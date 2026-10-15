@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QHBoxLayout>
 #include <QJsonObject>
 #include <QMenu>
 #include <QStandardPaths>
@@ -56,8 +57,15 @@ private slots:
         layout->addWidget(selector);
         auto* tree = new ChannelTree(&window);
         tree->setObjectName(QStringLiteral("channelList"));
-        auto* toolbar = selector->createTeamToolbar(&window);
+        auto* unreadOnly = new QToolButton(&window);
+        unreadOnly->setCheckable(true);
+        unreadOnly->setObjectName(QStringLiteral("channelsUnreadFilterButton"));
+        auto* toolbar = selector->createTeamToolbar(&window, unreadOnly);
         layout->addWidget(toolbar);
+        QCOMPARE(unreadOnly->parentWidget(), toolbar);
+        auto* toolbarLayout = qobject_cast<QHBoxLayout*>(toolbar->layout());
+        QVERIFY(toolbarLayout);
+        QCOMPARE(toolbarLayout->itemAt(0)->widget(), static_cast<QWidget*>(unreadOnly));
         layout->addWidget(tree);
         tree->populateSidebars(backend);
 
@@ -81,14 +89,17 @@ private slots:
         QTRY_COMPARE(toolbar->findChildren<QToolButton*>(
             QStringLiteral("teamToolbarTeamButton")).size(), 2);
         QCOMPARE(selector->activeTeamId(), QStringLiteral("team-alpha"));
-        // One visible team should start at the channel tree's left edge,
+        // Teams remain left-aligned directly after the unread toggle,
         // rather than floating in the center of the available strip.
         const auto buttons = toolbar->findChildren<QToolButton*>(
             QStringLiteral("teamToolbarTeamButton"));
         QVERIFY(!buttons.isEmpty());
         const QPoint firstButtonTopLeft = buttons.first()->mapTo(toolbar, QPoint(0, 0));
-        QVERIFY2(firstButtonTopLeft.x() <= 30,
-                 "Team pills must be left-aligned, not centered in their scroll area");
+        const int unreadRight = unreadOnly->mapTo(
+            toolbar, QPoint(unreadOnly->width(), 0)).x();
+        QVERIFY(firstButtonTopLeft.x() >= unreadRight);
+        QVERIFY2(firstButtonTopLeft.x() - unreadRight <= 30,
+                 "Team pills must stay left-aligned after the unread toggle");
 
         QToolButton* beta = nullptr;
         for (QToolButton* button : toolbar->findChildren<QToolButton*>(

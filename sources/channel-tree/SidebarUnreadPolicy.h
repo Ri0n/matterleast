@@ -2,11 +2,6 @@
 
 namespace Mattermost::SidebarUnreadPolicy {
 
-inline bool followingVisible(bool unreadOnly, bool channelsOnly)
-{
-    return !unreadOnly || channelsOnly;
-}
-
 inline bool unreadGateActive(bool unreadOnly,
                              bool textFilterActive,
                              bool ignoreWhileFiltering)

@@ -33,7 +33,7 @@ public:
 
     QString activeTeamId() const { return activeTeamId_; }
 
-    QWidget* createTeamToolbar(QWidget* parent);
+    QWidget* createTeamToolbar(QWidget* parent, QWidget* leadingControl = nullptr);
 
     /** Switch the selector belonging to context's window, if one exists. */
     static bool activateTeam(QWidget* context, const QString& teamId);
