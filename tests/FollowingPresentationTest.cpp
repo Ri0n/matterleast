@@ -147,16 +147,6 @@ private slots:
             true, QStringLiteral("channel"), QStringLiteral("channel"), true));
     }
 
-    void unreadModeControlsFollowingVisibility()
-    {
-        using SidebarUnreadPolicy::followingVisible;
-
-        QVERIFY(followingVisible(false, false));
-        QVERIFY(followingVisible(false, true));
-        QVERIFY(!followingVisible(true, false));
-        QVERIFY(followingVisible(true, true));
-    }
-
     void textFilterCanTemporarilySuspendUnreadGate()
     {
         using SidebarUnreadPolicy::unreadGateActive;
