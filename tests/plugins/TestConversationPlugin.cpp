@@ -4,22 +4,48 @@
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/ConversationMenuInterface.h"
 #include "plugins/api/PluginInterface.h"
+#include "plugins/api/PluginSettingsInterface.h"
 
 class TestConversationPlugin final
     : public QObject
     , public MatterLeast::PluginApi::PluginInterface
     , public MatterLeast::PluginApi::ConversationAccessor
     , public MatterLeast::PluginApi::ConversationMenuInterface
+    , public MatterLeast::PluginApi::PluginSettingsInterface
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID MATTERLEAST_PLUGIN_IID FILE "TestConversationPlugin.json")
     Q_INTERFACES(MatterLeast::PluginApi::PluginInterface)
     Q_INTERFACES(MatterLeast::PluginApi::ConversationAccessor)
     Q_INTERFACES(MatterLeast::PluginApi::ConversationMenuInterface)
+    Q_INTERFACES(MatterLeast::PluginApi::PluginSettingsInterface)
 
 public:
+    QList<QVariantHash> settingDescriptors() const override
+    {
+        return {{
+            {QStringLiteral("key"), QStringLiteral("probe")},
+            {QStringLiteral("title"), QStringLiteral("Probe value")},
+            {QStringLiteral("type"), QStringLiteral("integer")},
+            {QStringLiteral("default"), 10},
+            {QStringLiteral("minimum"), 1},
+            {QStringLiteral("maximum"), 100}
+        }};
+    }
+
+    bool setSettingValue(const QString& key, const QVariant& value) override
+    {
+        if (key != QLatin1String("probe") || value.userType() != QMetaType::Int
+            || value.toInt() < 1 || value.toInt() > 100) {
+            return false;
+        }
+        _probe = value.toInt();
+        return true;
+    }
+
     bool enable() override
     {
+        setProperty("probeAtEnable", _probe);
         enabled_ = host_ != nullptr;
         return enabled_;
     }
@@ -67,6 +93,7 @@ public:
 private:
     MatterLeast::PluginApi::ConversationAccessingHost* host_ = nullptr;
     bool enabled_ = false;
+    int _probe = 10;
 };
 
 #include "TestConversationPlugin.moc"

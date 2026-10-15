@@ -10,7 +10,9 @@
 
 #include "plugins/api/MainWindowOverlayInterface.h"
 #include "plugins/api/PluginInterface.h"
+#include "plugins/api/PluginSettingsInterface.h"
 #include "plugins/seasonal-snow/SnowSeason.h"
+#include "plugins/seasonal-snow/SnowSettings.h"
 
 class SeasonalSnowTest final : public QObject
 {
@@ -45,6 +47,18 @@ private slots:
         QVERIFY(remaining <= 13 * 3600 * 1000);
     }
 
+    void snowSettingsScaleSizeAndPopulation()
+    {
+        using namespace MatterLeast::SeasonalSnow;
+        QCOMPARE(DefaultSizePercent, 150);
+        QCOMPARE(DefaultIntensityPercent, 100);
+        QCOMPARE(radiusScale(DefaultSizePercent), 1.5);
+        QCOMPARE(flakeCountForArea(800, 600, 100), 9);
+        QCOMPARE(flakeCountForArea(800, 600, 200), 18);
+        QCOMPARE(flakeCountForArea(800, 600, 25), 2);
+        QCOMPARE(flakeCountForArea(0, 600, 250), 0);
+    }
+
     void overlayStaysClickThroughAndCanBeUnloaded()
     {
         const QString path =
@@ -61,8 +75,19 @@ private slots:
             MatterLeast::PluginApi::PluginInterface*>(object);
         auto* overlayExtension = qobject_cast<
             MatterLeast::PluginApi::MainWindowOverlayInterface*>(object);
+        auto* settings = qobject_cast<
+            MatterLeast::PluginApi::PluginSettingsInterface*>(object);
         QVERIFY(plugin);
         QVERIFY(overlayExtension);
+        QVERIFY(settings);
+        const auto descriptors = settings->settingDescriptors();
+        QCOMPARE(descriptors.size(), 2);
+        QCOMPARE(descriptors.at(0).value(QStringLiteral("key")).toString(),
+                 QStringLiteral("sizePercent"));
+        QCOMPARE(descriptors.at(0).value(QStringLiteral("default")).toInt(), 150);
+        QCOMPARE(descriptors.at(1).value(QStringLiteral("key")).toString(),
+                 QStringLiteral("intensityPercent"));
+        QCOMPARE(descriptors.at(1).value(QStringLiteral("default")).toInt(), 100);
         QVERIFY(plugin->enable());
 
         QWidget mainWindow;
@@ -94,6 +119,15 @@ private slots:
         QVERIFY(overlay->testAttribute(Qt::WA_TransparentForMouseEvents));
         QCOMPARE(overlay->geometry(), mainWindow.rect());
         QTRY_VERIFY(overlay->isVisible());
+        QCOMPARE(overlay->property("snowflakeSizePercent").toInt(), 150);
+        const int originalCount = overlay->property("snowflakeCount").toInt();
+        QCOMPARE(originalCount, MatterLeast::SeasonalSnow::flakeCountForArea(800, 600, 100));
+        QVERIFY(settings->setSettingValue(QStringLiteral("sizePercent"), 225));
+        QCOMPARE(overlay->property("snowflakeSizePercent").toInt(), 225);
+        QVERIFY(settings->setSettingValue(QStringLiteral("intensityPercent"), 200));
+        QCOMPARE(overlay->property("snowflakeCount").toInt(), originalCount * 2);
+        QVERIFY(!settings->setSettingValue(QStringLiteral("sizePercent"), 999));
+        QVERIFY(!settings->setSettingValue(QStringLiteral("unknown"), 100));
 
         // Regress the black-window bug: clearing alpha in the shared QWidget
         // backing store used to blank the entire main window behind the snow.

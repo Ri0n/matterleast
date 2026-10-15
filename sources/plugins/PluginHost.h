@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include <QJsonObject>
@@ -22,7 +23,8 @@ public:
     PluginHost(const PluginHost&) = delete;
     PluginHost& operator=(const PluginHost&) = delete;
 
-    bool loadAndEnable();
+    /** Optional preparation runs after accessor injection but before enable(). */
+    bool loadAndEnable(const std::function<void(QObject&)>& prepare = {});
     bool disableAndUnload();
 
     bool isEnabled() const { return enabled_; }

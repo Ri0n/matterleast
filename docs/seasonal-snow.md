@@ -25,9 +25,13 @@ covers the window client area, including sidebars and current chat panes,
 but not separate native popups or detached thread windows.
 
 - `WA_TransparentForMouseEvents` makes the entire layer click-through.
-- Sparse flakes (6–22, depending on window area) move at slightly
-  different speeds (18–34 logical pixels/second) and rotate slowly
-  (8–22 degrees/second).
+- Sparse flakes (6–22 at 100% intensity, depending on window area) move at
+  slightly different speeds (18–34 logical pixels/second) and rotate slowly
+  (8–22 degrees/second). The plugin exposes live **Intensity** (25–250%),
+  scaling the population with a safety cap.
+- **Snowflake size** defaults to 150% of the original 3–6.5 logical-pixel
+  radius (resulting radii 4.5–9.75). Users can choose 50–300%. Existing
+  flakes resize immediately without restarting or respawning.
 - Small translucent flakes and slight sideways oscillation minimize
   interference with chat text. Colors follow the current palette.
 - Animation pauses whenever the main window is minimized or hidden,
@@ -45,6 +49,9 @@ The desktop build generates `matterleast-seasonal-snow` as a native
 plugin and installs it into `<application directory>/plugins`, one of
 the existing PluginManager discovery locations. Like other native
 plugins, it can be turned off or back on under **Settings → Plugins**.
+Its settings extension provides snowflake size (default 150%) and intensity
+(default 100%) controls. Values are persisted by the host, restored on
+re-enable and updated immediately, including outside the active season.
 No snow effect is produced on startup outside the season unless preview
 mode is explicitly enabled.
 
