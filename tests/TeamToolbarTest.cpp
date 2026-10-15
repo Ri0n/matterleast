@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QHBoxLayout>
 #include <QJsonObject>
 #include <QMenu>
 #include <QStandardPaths>
