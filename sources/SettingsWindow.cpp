@@ -172,16 +172,6 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* unreadModeLayout = new QVBoxLayout(unreadModeGroup);
     unreadModeLayout->setSpacing(6);
 
-    unreadModeChannelsOnly = new QCheckBox(tr("Channels only"), unreadModeGroup);
-    unreadModeChannelsOnly->setChecked(
-        options->optionObject<bool>(UNREAD_MODE_CHANNELS_ONLY,
-                                    UNREAD_MODE_CHANNELS_ONLY_DEFAULT)
-            ->value().toBool());
-    unreadModeLayout->addWidget(unreadModeChannelsOnly);
-    unreadModeLayout->addWidget(makeDescription(
-        unreadModeGroup,
-        tr("Keep Following available while Unread mode filters the Channels tab.")));
-
     unreadModeIgnoreWhileFiltering = new QCheckBox(
         tr("Ignore while filtering"), unreadModeGroup);
     unreadModeIgnoreWhileFiltering->setChecked(
@@ -502,10 +492,6 @@ void SettingsWindow::applyNewSettings ()
         COMPOSER_SEND_WITH_CTRL_ENTER,
         COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
         ->setValue(sendWithCtrlEnter->isChecked());
-    options->optionObject<bool>(
-        UNREAD_MODE_CHANNELS_ONLY,
-        UNREAD_MODE_CHANNELS_ONLY_DEFAULT)
-        ->setValue(unreadModeChannelsOnly->isChecked());
     options->optionObject<bool>(
         UNREAD_MODE_IGNORE_WHILE_FILTERING,
         UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT)

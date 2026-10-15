@@ -144,7 +144,7 @@ protected:
 };
 } // namespace
 
-QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent)
+QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingControl)
 {
     if (_teamToolbar) {
         return _teamToolbar;
@@ -156,6 +156,9 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent)
     auto* outer = new QHBoxLayout(bar);
     outer->setContentsMargins(4, 2, 4, 2);
     outer->setSpacing(3);
+    if (leadingControl) {
+        outer->addWidget(leadingControl);
+    }
 
     auto* scroll = new QScrollArea(bar);
     scroll->setObjectName(QStringLiteral("teamButtonScrollArea"));

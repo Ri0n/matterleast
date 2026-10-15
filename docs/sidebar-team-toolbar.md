@@ -1,10 +1,13 @@
-# Channels-only team toolbar
+# Channels tab toolbar
 
 TeamSelectorLabel stays alive as the hidden controller for team context,
 ChannelTree root-index switching, restoring and persisting team selection.
 Its horizontal team strip lives inside channelsPage, immediately beneath
 the Channels tab and above ChannelTree. The Following and Attention tabs
-have no toolbar and retain their full available height.
+have no toolbar and retain their full available height. The unread-only toggle
+is the toolbar's leading control and filters ChannelTree only; it never hides
+Following or changes Following/Attention contents. The sidebar text search
+remains above the tabs and works independently of the unread toggle.
 
 Team names are always shown on clickable buttons. The active team has a
 rounded inset/pressed background. Delicate gray dotted separators sit between

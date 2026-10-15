@@ -51,7 +51,6 @@ private:
     Ui::SettingsWindow *ui;
 
     QCheckBox* sendWithCtrlEnter = nullptr;
-    QCheckBox* unreadModeChannelsOnly = nullptr;
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
     QComboBox* _channelRootNotificationMode = nullptr;
     QComboBox* emojiDefaultSkinTone_ = nullptr;
