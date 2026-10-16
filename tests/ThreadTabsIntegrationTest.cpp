@@ -66,42 +66,6 @@ QJsonObject post(int thread, int reply = 0)
     return result;
 }
 
-// A semantic post-center bookmark is a requested content offset, not an
-// instruction to scroll beyond the available history. When remeasurement
-// changes the heights of early rows, the same saved Y may become physically
-// unreachable; the correct restoration then clamps at the scrollbar edge.
-bool bookmarkRestoredOrClamped(ChatLogWidget& log, const QString& postId,
-                              qreal savedFraction, qreal& observedFraction)
-{
-    if (!log.findPost(postId) || !log.source()) return false;
-    const int index = log.source()->indexOfPost(postId);
-    if (index < 0 || !log.captureSemanticAnchorFraction(
-            index, LongListWidget::SemanticAnchorPoint::ItemCenter,
-            observedFraction)) {
-        return false;
-    }
-    if (qAbs(observedFraction - savedFraction) < 0.06) return true;
-
-    QScrollBar* bar = log.verticalScrollBar();
-    const qreal targetScroll = bar->value()
-        + (observedFraction - savedFraction) * log.viewport()->height();
-    const bool atUpperBound = bar->value() == bar->minimum()
-        && targetScroll <= bar->minimum();
-    const bool atLowerBound = bar->value() == bar->maximum()
-        && targetScroll >= bar->maximum();
-    static int checkCount = 0;
-    ++checkCount;
-    if (checkCount == 1 || checkCount % 100 == 0) {
-        qInfo() << "BOOKMARK_GEOMETRY" << postId
-                << "saved" << savedFraction << "actual" << observedFraction
-                << "targetScroll" << targetScroll << "bar" << bar->value()
-                << "/" << bar->maximum() << "height" << log.viewport()->height()
-                << "materializedCount" << log.materializedCount()
-                << "clamped" << atUpperBound << atLowerBound;
-    }
-    return atUpperBound || atLowerBound;
-}
-
 class Server : public QTcpServer
 {
 public:
@@ -963,7 +927,7 @@ private slots:
     void scrollingUpFromLiveEdgeRestoresMeasuredPositionAfterTabSwitch()
     {
         Server server;
-        server.replyCount = 60;
+        server.replyCount = 24;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
@@ -996,11 +960,11 @@ private slots:
         auto* first = ui.findThread(channel->id, rootId(41));
         auto* log = first->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(log);
-        QTRY_COMPARE(log->itemCount(), 61);
+        QTRY_COMPARE(log->itemCount(), 25);
         auto* bar = log->verticalScrollBar();
         QVERIFY(bar);
         QTRY_VERIFY(bar->maximum() > 400);
-        QTRY_VERIFY(log->findPost(replyId(41, 60)));
+        QTRY_VERIFY(log->findPost(replyId(41, 24)));
         QPointer<ChatArea> retired = first;
         QTest::qWait(120); // Drain initial deferred newest-position timers.
         log->scrollToEnd();
@@ -1014,24 +978,10 @@ private slots:
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
-        // This fixture checks exact restoration where the saved post has
-        // measurable content above *and* below it. Let the new visible rows
-        // finish remeasurement, then settle at the true middle of the log.
-        QTest::qWait(120);
-        bar->setValue(bar->maximum() / 2);
-        QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
         ChatLogWidget::SemanticViewportBookmark before;
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
-        qInfo() << "SAVED_THREAD_GEOMETRY" << before.postId
-                << "fraction" << before.fraction
-                << "viewportH" << log->viewport()->height()
-                << "bar" << bar->value() << "/" << bar->maximum();
-        const int savedIndex = log->source()->indexOfPost(before.postId);
-        QVERIFY2(savedIndex >= 8 && savedIndex < log->itemCount() - 8,
-                 "The test must bookmark an interior post whose position can "
-                 "be reproduced without clamping to the start or end");
 
         navigation.openThreadInTab(channel->id, rootId(42));
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
@@ -1059,14 +1009,18 @@ private slots:
         const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
         QVERIFY(anchorIndex >= 0);
         qreal restoredFraction = 0;
-        QTRY_VERIFY(bookmarkRestoredOrClamped(
-            *restoredLog, before.postId, before.fraction, restoredFraction));
+        QTRY_VERIFY(restoredLog->findPost(before.postId)
+            && restoredLog->captureSemanticAnchorFraction(
+                restoredLog->source()->indexOfPost(before.postId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
+                restoredFraction)
+            && qAbs(restoredFraction - before.fraction) < 0.06);
     }
 
     void backHistoryRestoresMeasuredPostCenter()
     {
         Server server;
-        server.replyCount = 60;
+        server.replyCount = 24;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
@@ -1100,9 +1054,9 @@ private slots:
         auto* log = ui.findThread(channel->id, rootId(41))
                         ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(log);
-        QTRY_COMPARE(log->itemCount(), 61);
+        QTRY_COMPARE(log->itemCount(), 25);
         QTRY_VERIFY(log->verticalScrollBar()->maximum() > 400);
-        QTRY_VERIFY(log->findPost(replyId(41, 60)));
+        QTRY_VERIFY(log->findPost(replyId(41, 24)));
         QTest::qWait(120); // Drain initial deferred newest-position timers.
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
@@ -1113,25 +1067,11 @@ private slots:
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
-        // This fixture checks exact restoration where the saved post has
-        // measurable content above *and* below it. Let the new visible rows
-        // finish remeasurement, then settle at the true middle of the log.
-        QTest::qWait(120);
-        bar->setValue(bar->maximum() / 2);
-        QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
 
         ChatLogWidget::SemanticViewportBookmark before;
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
-        qInfo() << "SAVED_THREAD_GEOMETRY" << before.postId
-                << "fraction" << before.fraction
-                << "viewportH" << log->viewport()->height()
-                << "bar" << bar->value() << "/" << bar->maximum();
-        const int savedIndex = log->source()->indexOfPost(before.postId);
-        QVERIFY2(savedIndex >= 8 && savedIndex < log->itemCount() - 8,
-                 "The test must bookmark an interior post whose position can "
-                 "be reproduced without clamping to the start or end");
 
         navigation.openThreadInTab(channel->id, rootId(42));
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
@@ -1146,8 +1086,12 @@ private slots:
                              ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(restored);
         qreal actualFraction = 0;
-        QTRY_VERIFY(bookmarkRestoredOrClamped(
-            *restored, before.postId, before.fraction, actualFraction));
+        QTRY_VERIFY(restored->findPost(before.postId)
+            && restored->captureSemanticAnchorFraction(
+                restored->source()->indexOfPost(before.postId),
+                LongListWidget::SemanticAnchorPoint::ItemCenter,
+                actualFraction)
+            && qAbs(actualFraction - before.fraction) < 0.06);
         QVERIFY(!restored->isAtEnd());
     }
 

@@ -30,6 +30,11 @@ model merely to change its presentation.
   when there are at least two semantic tabs. Hiding the bar never hides the
   central destination itself; the normal channel surface remains the visible
   page of the central host.
+- When adding a new tab, the tab-bar must remain hidden until the outgoing
+  viewport's semantic post-centre bookmark has been captured. Showing a second
+  tab first shrinks the current ChatArea, potentially changes its centre post,
+  and corrupts both tab revisit and Back history positions. Defer visibility
+  only for the new-tab navigation path, then reveal it after activation.
 - Tab titles use a leading star for their own unread domain. Channel/DM/GM
   tabs use `SidebarService::isChannelUnread()` or a channel mention. Thread
   tabs use their `FollowingModel::Entry::requiresAttention()`, including CRT
