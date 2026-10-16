@@ -111,6 +111,11 @@ private:
         std::optional<NavigationTabsModel::ViewportAnchor> anchor = std::nullopt);
     void setupSidebarHeader();
     void setupThreadPane();
+    void setupTabShortcuts();
+    ChatArea* centralTabArea() const;
+    void closeActiveTab();
+    void activatePreviousTab();
+    void activateNextTab();
     void updateIdentityTooltip();
     void updateHistoryButtons();
 

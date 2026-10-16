@@ -29,8 +29,12 @@ The toolbar inserts these Markdown primitives:
 Conventional shortcuts are handled at the editor layer where practical: `Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K`, and `Ctrl/Cmd+Shift+X`. Completion-popup navigation keeps priority over ordinary editor navigation.
 
 The toolbar is an overlay attached to `ChatArea`, not a row in `composerInputLayout`.
-It appears immediately above the editor when the editor has focus and is hidden
-on focus loss, preserving the preference and shortcuts above. The overlay runs
+It appears immediately above the editor only when the editor has focus AND
+the mouse is over the input or the toolbar itself. Keyboard-only focus does not
+open a mouse-only toolbar. The panel stays visible while the pointer travels
+over its buttons; a short 75 ms leave grace period bridges the editor/panel gap.
+On focus loss it closes even if the pointer remains nearby. The existing
+preference and shortcuts are unchanged. The overlay runs
 edge-to-edge across the whole chat surface, not just the inset input column,
 with no card frame or horizontal margins and the original chat Window-palette
 background (never the contrasting text-editor Base color). Its appearance

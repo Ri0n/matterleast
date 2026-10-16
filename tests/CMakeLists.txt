@@ -495,6 +495,12 @@ target_link_libraries(thread-pane-layout-test
 add_test(NAME thread-pane-layout-test COMMAND thread-pane-layout-test)
 set_tests_properties(thread-pane-layout-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(emoji-smooth-scaling-test EmojiSmoothScalingTest.cpp)
+target_include_directories(emoji-smooth-scaling-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(emoji-smooth-scaling-test
+    PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Gui)
+add_test(NAME emoji-smooth-scaling-test COMMAND emoji-smooth-scaling-test)
+
 add_executable(emoji-dialog-support-test
     EmojiDialogSupportTest.cpp
 )

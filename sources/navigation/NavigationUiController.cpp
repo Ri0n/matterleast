@@ -366,6 +366,50 @@ void NavigationUiController::setupThreadPane()
             ++activeTabIndex;
         }
     });
+    setupTabShortcuts();
+}
+
+void NavigationUiController::setupTabShortcuts()
+{
+    if (!navigationTabs) return;
+    auto* close = new QShortcut(QKeySequence(QStringLiteral("Ctrl+W")), &window);
+    auto* previous = new QShortcut(QKeySequence(QStringLiteral("Ctrl+PgUp")), &window);
+    auto* next = new QShortcut(QKeySequence(QStringLiteral("Ctrl+PgDn")), &window);
+    connect(close, &QShortcut::activated, this, &NavigationUiController::closeActiveTab);
+    connect(previous, &QShortcut::activated, this, &NavigationUiController::activatePreviousTab);
+    connect(next, &QShortcut::activated, this, &NavigationUiController::activateNextTab);
+}
+
+ChatArea* NavigationUiController::centralTabArea() const
+{
+    if (!navigationSurfaceStack) return nullptr;
+    QWidget* surface = navigationSurfaceStack->currentWidget();
+    if (surface == mainStack) {
+        return mainStack ? qobject_cast<ChatArea*>(mainStack->currentWidget()) : nullptr;
+    }
+    return qobject_cast<ChatArea*>(surface);
+}
+
+void NavigationUiController::closeActiveTab()
+{
+    if (navigationTabs && tabModel.count() > 1 && activeTabIndex >= 0
+        && centralTabArea()) {
+        closeTab(activeTabIndex);
+    }
+}
+
+void NavigationUiController::activatePreviousTab()
+{
+    if (!navigationTabs || tabModel.count() <= 1) return;
+    const int index = tabModel.cycledIndex(activeTabIndex, -1);
+    if (index >= 0 && index != activeTabIndex) activateTab(index);
+}
+
+void NavigationUiController::activateNextTab()
+{
+    if (!navigationTabs || tabModel.count() <= 1) return;
+    const int index = tabModel.cycledIndex(activeTabIndex, 1);
+    if (index >= 0 && index != activeTabIndex) activateTab(index);
 }
 
 void NavigationUiController::updateIdentityTooltip()

@@ -140,6 +140,25 @@ private slots:
         QCOMPARE(model.at(0)->postId, QStringLiteral("reply-2"));
     }
 
+    void cycledIndexWrapsAndHandlesInvalid()
+    {
+        NavigationTabsModel empty;
+        QCOMPARE(empty.cycledIndex(-1, 1), -1);
+        NavigationTabsModel model;
+        for (const QString& id : {QStringLiteral("a"), QStringLiteral("b"),
+                                  QStringLiteral("c")}) {
+            NavigationTabsModel::Entry entry;
+            entry.channelId = id;
+            model.append(entry);
+        }
+        QCOMPARE(model.cycledIndex(0, -1), 2);
+        QCOMPARE(model.cycledIndex(2, 1), 0);
+        QCOMPARE(model.cycledIndex(-1, 1), 0);
+        QCOMPARE(model.cycledIndex(-1, -1), 2);
+        QCOMPARE(model.cycledIndex(99, 1), 0);
+        QCOMPARE(model.cycledIndex(99, -1), 2);
+    }
+
     void movingTabsKeepsSemanticTargetsAligned()
     {
         NavigationTabsModel model;

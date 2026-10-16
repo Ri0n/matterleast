@@ -32,6 +32,7 @@
 #include "backend/CustomEmojiService.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "options/MLOptions.h"
+#include "ui/EmojiRaster.h"
 #include "ui/FlowLayout.h"
 #include "ui/OverlayScrollBarManager.h"
 
@@ -794,7 +795,9 @@ QPushButton* EmojiPickerWidget::createEmojiButton(
     const QString imagePath = customEmojiImagePath(selected.unicodeString);
     if (!imagePath.isEmpty()) {
         button->setText(QString());
-        button->setIcon(QIcon(QPixmap::fromImage(QImage(imagePath))));
+        const QString smoothed =
+            EmojiRaster::smoothedPath(imagePath, QSize(24, 24));
+        button->setIcon(QIcon(smoothed.isEmpty() ? imagePath : smoothed));
         button->setIconSize(QSize(24, 24));
     }
 

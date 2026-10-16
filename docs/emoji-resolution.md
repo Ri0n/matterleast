@@ -189,3 +189,31 @@ Skin tone is a presentation preference, not a separate registry identity.
   than reading persistent settings for every emoji button.
 
 
+
+## Smooth custom-emoji downscaling
+
+Runtime custom emoji often arrive as large PNG, JPEG or GIF files (and the
+disk cache may assign a `.gif` suffix regardless of actual encoding).
+Rendering those source images directly in a 16–24px reaction box lets Qt's
+rich-text and icon paths choose fast/nearest-neighbor reduction, making some
+diagonal artwork noticeably jagged.
+
+`ui/EmojiRaster.h` creates a **process-local**, smoothly downsampled PNG
+thumbnail only when the source exceeds its requested presentation size.
+It preserves aspect ratio and transparency and leaves original assets
+untouched. The key includes the source path, size, file length and
+modification time. It uses `QImageReader::setDecideFormatFromContent`
+so incorrect filename extensions do not corrupt the decode. Sources are
+restricted to local files and Qt resources; remote URLs are not loaded.
+
+Consumers are reaction chips (`EmojiPresentation::normalizeHtml`), other
+rich-text image fragments (`EmojiPresentation::apply`), quick-reaction and
+composer popup buttons (`RankedEmojiPresentation`), and the emoji chooser.
+Unicode emoji are unchanged. These thumbnails are intentionally static
+representations of the first image frame, matching the current static
+reaction/icon widgets; animation support must remain a separate feature,
+not be conflated with resampling. Temporary thumbnails are removed when
+the application exits.
+
+`EmojiSmoothScalingTest` checks that real downscaling blends alternating
+columns, preserves non-square aspect ratio and rejects remote image URLs.

@@ -54,6 +54,16 @@ public:
         return index >= 0 && index < entries_.size() ? &entries_.at(index) : nullptr;
     }
 
+    int cycledIndex(int currentIndex, int delta) const
+    {
+        const int n = entries_.size();
+        if (n <= 0) return -1;
+        if (n == 1) return 0;
+        const int base = currentIndex < 0 || currentIndex >= n
+            ? (delta > 0 ? -1 : 0) : currentIndex;
+        return ((base + delta) % n + n) % n;
+    }
+
     int findDestination(const QString& channelId, const QString& rootId) const
     {
         for (int i = 0; i < entries_.size(); ++i) {
