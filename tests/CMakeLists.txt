@@ -834,3 +834,14 @@ target_link_libraries(network-request-test
 )
 
 add_test(NAME network-request-test COMMAND network-request-test)
+
+# Selecting search-only DM must not rebuild QTreeWidget during a selection update.
+if(TARGET matterleast-core)
+    add_executable(channel-tree-search-activation-test ChannelTreeSearchActivationTest.cpp)
+    target_link_libraries(channel-tree-search-activation-test
+        PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME channel-tree-search-activation-test
+        COMMAND channel-tree-search-activation-test)
+    set_tests_properties(channel-tree-search-activation-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
