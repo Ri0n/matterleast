@@ -105,7 +105,11 @@ private slots:
         QCOMPARE(log.height(), narrowViewportHeight);
         QCOMPARE(editor.mapTo(&host, QPoint()).y(), narrowEditorY);
 
+        // Focus returns with the pointer outside both regions: still hidden.
         overlay.setExpanded(true);
+        QTest::qWait(150);
+        QVERIFY(!overlay.panel()->isVisible());
+        QApplication::sendEvent(&editor, &enterEditor);
         QTest::qWait(150);
         QApplication::processEvents();
         QVERIFY(overlay.panel()->isVisible());
