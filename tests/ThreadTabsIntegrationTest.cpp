@@ -1009,12 +1009,28 @@ private slots:
         const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
         QVERIFY(anchorIndex >= 0);
         qreal restoredFraction = 0;
-        QTRY_VERIFY(restoredLog->findPost(before.postId)
-            && restoredLog->captureSemanticAnchorFraction(
-                restoredLog->source()->indexOfPost(before.postId),
-                LongListWidget::SemanticAnchorPoint::ItemCenter,
-                restoredFraction)
-            && qAbs(restoredFraction - before.fraction) < 0.06);
+        int restoreCheckCount = 0;
+        const auto restoredMatches = [&] {
+            const bool materialized = restoredLog->findPost(before.postId);
+            const int index = restoredLog->source()->indexOfPost(before.postId);
+            const bool measured = index >= 0
+                && restoredLog->captureSemanticAnchorFraction(index,
+                       LongListWidget::SemanticAnchorPoint::ItemCenter,
+                       restoredFraction);
+            if (++restoreCheckCount == 1 || restoreCheckCount == 20
+                || restoreCheckCount == 100) {
+                qInfo() << "THREAD_TAB_RESTORE_DIAG" << "post" << before.postId
+                        << "saved" << before.fraction << "restored" << restoredFraction
+                        << "measured" << measured << "materialized" << materialized
+                        << "index" << index << "viewportH"
+                        << restoredLog->viewport()->height() << "scroll"
+                        << restoredLog->verticalScrollBar()->value()
+                        << "max" << restoredLog->verticalScrollBar()->maximum();
+            }
+            return materialized && measured
+                && qAbs(restoredFraction - before.fraction) < 0.06;
+        };
+        QTRY_VERIFY(restoredMatches());
     }
 
     void backHistoryRestoresMeasuredPostCenter()
@@ -1086,12 +1102,27 @@ private slots:
                              ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(restored);
         qreal actualFraction = 0;
-        QTRY_VERIFY(restored->findPost(before.postId)
-            && restored->captureSemanticAnchorFraction(
-                restored->source()->indexOfPost(before.postId),
-                LongListWidget::SemanticAnchorPoint::ItemCenter,
-                actualFraction)
-            && qAbs(actualFraction - before.fraction) < 0.06);
+        int backCheckCount = 0;
+        const auto backMatches = [&] {
+            const bool materialized = restored->findPost(before.postId);
+            const int index = restored->source()->indexOfPost(before.postId);
+            const bool measured = index >= 0
+                && restored->captureSemanticAnchorFraction(index,
+                       LongListWidget::SemanticAnchorPoint::ItemCenter,
+                       actualFraction);
+            if (++backCheckCount == 1 || backCheckCount == 20
+                || backCheckCount == 100) {
+                qInfo() << "THREAD_BACK_RESTORE_DIAG" << "post" << before.postId
+                        << "saved" << before.fraction << "restored" << actualFraction
+                        << "measured" << measured << "materialized" << materialized
+                        << "index" << index << "viewportH" << restored->viewport()->height()
+                        << "scroll" << restored->verticalScrollBar()->value()
+                        << "max" << restored->verticalScrollBar()->maximum();
+            }
+            return materialized && measured
+                && qAbs(actualFraction - before.fraction) < 0.06;
+        };
+        QTRY_VERIFY(backMatches());
         QVERIFY(!restored->isAtEnd());
     }
 
