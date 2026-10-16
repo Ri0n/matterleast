@@ -97,10 +97,12 @@ request remains free to start independently.
 WebSocket reconnect uses the same bounded-working-set rule. The current channel
 continues to receive a bounded history fallback when replay explicitly fails.
 Additionally, every *materialized* thread source requests its authoritative newest
-thread page on reconnect, regardless of whether the server preserved the WebSocket
-sequence. This repairs missed replies after suspend without recreating the thread,
-while unopened/inactive channels are not enumerated. Repeated reconnect signals
-coalesce per thread source; original viewport positions remain untouched.
+thread page on reconnect, and every materialized channel source validates its
+newest page, regardless of whether the server preserved the WebSocket sequence.
+This repairs missed messages after suspend without recreating views; unopened
+and inactive channel objects are not enumerated. Repeated reconnect signals
+coalesce per thread source, and logical identity reconciliation does not reset
+the original viewport position.
 
 Bootstrap HTTP failures are not valid empty snapshots. Team and channel-membership
 loading now retry failed requests, and the sidebar's membership/preference

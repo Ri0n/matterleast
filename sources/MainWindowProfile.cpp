@@ -46,9 +46,6 @@ void MainWindow::on_usericon_label_clicked()
         return;
     }
     const BackendUser& user = *userPtr;
-    if (user.id.isEmpty()) {
-        return;
-    }
 
     QMenu menu(this);
     auto* title = menu.addAction(tr("Availability"));

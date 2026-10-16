@@ -142,6 +142,13 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
     if (hasRootCountEstimate) {
         QTimer::singleShot(0, this, [this] { hydrateCachedTail(); });
     }
+
+    // WebSocket replay cannot recover replies/posts when the session moved to a
+    // new stream. The source knows the current logical viewport and already has
+    // a safe, bounded page-zero reconciliation path; reuse it without opening
+    // inactive channels or shifting the user's scroll position.
+    connect(&backend, &Backend::onRealtimeRecovered,
+            this, &ChannelPostSource::validateCachedTail);
 }
 
 int ChannelPostSource::ensurePostIndex(const QString& postId)

@@ -29,6 +29,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | emoji picker, custom emoji lookup/search, live theme propagation | [Emoji resolution and picker search](emoji-resolution.md) | changing custom emoji discovery, caching, registry synchronization or picker palette behavior |
 | HTTP request headers, cookies, CSRF, HTTP/2 or TLS behavior | [HTTP client profile and transport](network-transport.md) | changing the shared request identity or transport negotiation |
 | debugging from logs | [Debug logging](debug-logging.md) | selecting categories or interpreting upload/read/navigation traces |
+| DEB crash debugging / separate debug packages | [Debian debug symbols](debian-debug-symbols.md) | changing GNU debuglink, package splitting or GDB setup |
 | CI, packaging or release workflow | [Maintainer workflow](maintainer-workflow.md) | changing build matrices, package targets or release artifacts |
 
 ## Documentation structure
