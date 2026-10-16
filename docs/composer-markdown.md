@@ -30,7 +30,10 @@ Conventional shortcuts are handled at the editor layer where practical: `Ctrl/Cm
 
 The toolbar is an overlay attached to `ChatArea`, not a row in `composerInputLayout`.
 It appears immediately above the editor when the editor has focus and is hidden
-on focus loss, preserving the preference and shortcuts above. Its appearance
+on focus loss, preserving the preference and shortcuts above. The overlay runs
+edge-to-edge across the whole chat surface, not just the inset input column,
+with no card frame or horizontal margins and the original chat Window-palette
+background (never the contrasting text-editor Base color). Its appearance
 uses a 110 ms `OutCubic` / `InCubic` slide-and-fade animation. It may
 temporarily cover the last pixels of the chat log, but **never changes either
 the composer height or the log viewport height**. This avoids a repeated

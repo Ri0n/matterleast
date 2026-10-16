@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QFrame>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -62,8 +63,15 @@ private slots:
         QVERIFY(overlay.panel()->isVisible());
         QCOMPARE(log.height(), viewportHeight);
         QCOMPARE(editor.mapTo(&host, QPoint()).y(), editorY);
-        QCOMPARE(overlay.panel()->width(), editor.width());
+        QCOMPARE(overlay.panel()->width(), host.width());
+        QCOMPARE(overlay.panel()->x(), 0);
         QVERIFY(overlay.panel()->geometry().bottom() < editorY);
+        auto* frame = qobject_cast<QFrame*>(overlay.panel());
+        QVERIFY(frame);
+        QCOMPARE(frame->frameShape(), QFrame::NoFrame);
+        QCOMPARE(frame->backgroundRole(), QPalette::Window);
+        QVERIFY(frame->autoFillBackground());
+        QCOMPARE(frame->layout()->contentsMargins(), QMargins());
         const int wideToolbarHeight = overlay.panel()->height();
 
         // Wrapping adds toolbar rows upward, not into the footer or log.
@@ -71,7 +79,8 @@ private slots:
         QApplication::processEvents();
         QTest::qWait(20);
         QVERIFY(overlay.panel()->height() > wideToolbarHeight);
-        QCOMPARE(overlay.panel()->width(), editor.width());
+        QCOMPARE(overlay.panel()->width(), host.width());
+        QCOMPARE(overlay.panel()->x(), 0);
         const int narrowViewportHeight = log.height();
         const int narrowEditorY = editor.mapTo(&host, QPoint()).y();
 

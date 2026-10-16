@@ -20,8 +20,6 @@ namespace {
 constexpr int AnimationDurationMs = 110;
 constexpr int OverlayGap = 3;
 constexpr int SlideDistance = 7;
-constexpr int BorderPaddingHorizontal = 4;
-constexpr int BorderPaddingVertical = 3;
 
 } // namespace
 
@@ -43,14 +41,14 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
 
     _panel = new QFrame(&host);
     _panel->setObjectName(QStringLiteral("formattingToolbarOverlay"));
-    _panel->setFrameShape(QFrame::StyledPanel);
-    _panel->setBackgroundRole(QPalette::Base);
+    // Match the old toolbar's chat background instead of a white Base card.
+    // Stay opaque to prevent message text showing through the controls.
+    _panel->setFrameShape(QFrame::NoFrame);
+    _panel->setBackgroundRole(QPalette::Window);
     _panel->setAutoFillBackground(true);
 
     auto* panelLayout = new QVBoxLayout(_panel);
-    panelLayout->setContentsMargins(
-        BorderPaddingHorizontal, BorderPaddingVertical,
-        BorderPaddingHorizontal, BorderPaddingVertical);
+    panelLayout->setContentsMargins(0, 0, 0, 0);
     panelLayout->setSpacing(0);
 
     toolbar.setParent(_panel);
@@ -153,7 +151,9 @@ void FormattingToolbarOverlay::refreshGeometry()
     }
 
     const QPoint editorTop = _editor->mapTo(_host, QPoint(0, 0));
-    const int width = std::max(1, _editor->width());
+    // Attachment and send buttons inset the editor, but not the chat.
+    // Cover the entire chat width without arbitrary horizontal gutters.
+    const int width = std::max(1, _host->width());
     const QMargins margins = _panel->layout()->contentsMargins();
     const int contentWidth = std::max(
         1, width - margins.left() - margins.right() - 2 * _panel->frameWidth());
@@ -168,7 +168,7 @@ void FormattingToolbarOverlay::refreshGeometry()
     const int height = std::max(1, contentHeight + margins.top()
         + margins.bottom() + 2 * _panel->frameWidth());
     const int shift = qRound((1.0 - _progress) * SlideDistance);
-    const QRect target(editorTop.x(),
+    const QRect target(0,
                        editorTop.y() - height - OverlayGap + shift,
                        width, height);
     if (_panel->geometry() != target) {
