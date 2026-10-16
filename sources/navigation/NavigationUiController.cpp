@@ -602,8 +602,7 @@ QString NavigationUiController::tabTitle(const Location& location) const
     return title;
 }
 
-int NavigationUiController::appendNavigationTab(const Location& location,
-                                              bool deferVisibility)
+int NavigationUiController::appendNavigationTab(const Location& location)
 {
     if (!navigationTabs || !location.isChat() || !location.isValid()) {
         return -1;
@@ -622,9 +621,7 @@ int NavigationUiController::appendNavigationTab(const Location& location,
     }
     setNavigationTabTitle(index, title);
     refreshTabUnreadVisual(location.channelId);
-    if (!deferVisibility) {
-        refreshTabBarVisibility();
-    }
+    refreshTabBarVisibility();
     return index;
 }
 
@@ -820,8 +817,7 @@ int NavigationUiController::releaseThreadFromTabSurface(ChatArea* area)
     return tabIndex;
 }
 
-void NavigationUiController::activateTab(int index, bool restoreBookmark,
-                                         bool outgoingBookmarkSaved)
+void NavigationUiController::activateTab(int index, bool restoreBookmark)
 {
     const auto* entry = tabModel.at(index);
     if (!entry || !navigationTabs) {
@@ -829,9 +825,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark,
     }
 
     if (activeTabIndex != index) {
-        if (!outgoingBookmarkSaved) {
-            saveActiveTabLocation();
-        }
+        saveActiveTabLocation();
 
         // The previous tab now exists only as an in-memory semantic entry.
         // A hidden thread must not retain its timeline or issue new requests.
@@ -1084,15 +1078,7 @@ void NavigationUiController::openInTab(
     destination.channelId = channelId;
     destination.rootId = rootId;
 
-    // Keep the outgoing viewport unchanged until its bookmark is captured.
-    // Making the second tab visible first shrinks ChatArea, moving the centre
-    // onto the adjacent post and corrupting both tab and Back history anchors.
-    // Capture the currently visible viewport *before* even adding the next
-    // QTabBar entry. Adding a tab can trigger geometry and deferred layout
-    // changes that select a neighbouring centre post. Do not recapture after
-    // that transition: the original pre-navigation snapshot is authoritative.
-    saveActiveTabLocation();
-    const int index = appendNavigationTab(destination, true);
+    const int index = appendNavigationTab(destination);
     if (index < 0) {
         return;
     }
@@ -1101,7 +1087,7 @@ void NavigationUiController::openInTab(
         QSignalBlocker blocker(navigationTabs);
         navigationTabs->setCurrentIndex(index);
     }
-    activateTab(index, postId.isEmpty(), true);
+    activateTab(index, postId.isEmpty());
 
     if (postId.isEmpty()) {
         return;

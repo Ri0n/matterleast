@@ -130,8 +130,7 @@ private:
     NavigationTabsModel::Entry tabEntry(const Location& location) const;
     Location tabLocation(const NavigationTabsModel::Entry& entry) const;
     QString tabTitle(const Location& location) const;
-    int appendNavigationTab(const Location& location,
-                            bool deferVisibility = false);
+    int appendNavigationTab(const Location& location);
     void ensureInitialTab();
     void refreshTabBarVisibility();
     void setNavigationTabTitle(int index, const QString& title);
@@ -139,8 +138,7 @@ private:
     void refreshAllTabUnreadVisuals();
     void updateTab(int index, const Location& location);
     void saveActiveTabLocation();
-    void activateTab(int index, bool restoreBookmark = true,
-                     bool outgoingBookmarkSaved = false);
+    void activateTab(int index, bool restoreBookmark = true);
     void closeTab(int index);
     void removeTab(int index, bool closeThread);
     int tabIndexForThread(ChatArea* area) const;
