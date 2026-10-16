@@ -1,4 +1,4 @@
-name: Publish Windows update channel
+name: Publish stable Windows update channel
 
 on:
   workflow_call:
@@ -18,9 +18,9 @@ on:
       channel:
         required: true
         type: choice
-        options: [stable, nightly]
+        options: [stable]
       release_tag:
-        description: Immutable published GitHub Release tag
+        description: Immutable stable GitHub Release tag
         required: true
         type: string
       allow_rollback:
@@ -56,11 +56,7 @@ jobs:
               [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || exit 1
               expect_prerelease=false
               ;;
-            nightly)
-              [[ "$RELEASE_TAG" =~ ^nightly-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$ ]] || exit 1
-              expect_prerelease=true
-              ;;
-            *) echo "::error::Unsupported channel"; exit 1;;
+            *) echo "::error::Only stable channel is supported here; nightly is published by nightly.yml"; exit 1;;
           esac
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json isDraft,isPrerelease > release.json
