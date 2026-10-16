@@ -17,6 +17,7 @@
 #include <QPalette>
 #include <QPixmap>
 #include <QSet>
+#include <QScrollBar>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QSplitter>
