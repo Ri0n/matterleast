@@ -334,16 +334,19 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
         if (callback) callback(QString());
         return;
     }
-	BackendUser* loginUser = storage.addUser (doc.object(), true);
-	loginUser->isLoginUser = true;
+    QByteArray issuedToken = reply.rawHeader("Token");
+    if (NetworkRequest::getToken().isEmpty() && issuedToken.isEmpty()) {
+        qWarning() << "Login rejected: server returned no session token";
+        if (callback) callback(QString());
+        return;
+    }
 
-	if (NetworkRequest::getToken().isEmpty()) {
-		NetworkRequest::setToken (reply.rawHeader ("Token"));
-	}
+    BackendUser* loginUser = storage.addUser(doc.object(), true);
+    loginUser->isLoginUser = true;
 
-	if (NetworkRequest::getToken().isEmpty()) {
-		qCritical() << "Login Token is empty. WebSocket communication may not work";
-	}
+    if (NetworkRequest::getToken().isEmpty()) {
+        NetworkRequest::setToken(issuedToken);
+    }
 
 	webSocketConnector.open (NetworkRequest::host() + "api/v4/", NetworkRequest::getToken());
 	isLoggedIn = true;

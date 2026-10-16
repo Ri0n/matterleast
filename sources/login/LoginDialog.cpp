@@ -139,8 +139,14 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
 
 void LoginDialog::onNetworkError (uint32_t errorNumber, const QString& errorText)
 {
-	qCritical() << "Net error: " << errorNumber << ": " << errorText;
-    setError ("Network Error: " + errorText);
+    qCritical() << "Net error: " << errorNumber << ": " << errorText;
+    if (_autoLoginEnabled) {
+        // Keep the manual form disabled until the saved-session attempt
+        // finishes; its callback owns the retry timer and error state.
+        ui->error_label->setText(tr("Network error: %1").arg(errorText));
+        return;
+    }
+    setError("Network Error: " + errorText);
     ui->loginInProgressLabel->hide();
 }
 
