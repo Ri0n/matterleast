@@ -32,6 +32,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | debugging from logs | [Debug logging](debug-logging.md) | selecting categories or interpreting upload/read/navigation traces |
 | DEB crash debugging / separate debug packages | [Debian debug symbols](debian-debug-symbols.md) | changing GNU debuglink, package splitting or GDB setup |
 | CI, packaging or release workflow | [Maintainer workflow](maintainer-workflow.md) | changing build matrices, package targets or release artifacts |
+| Windows self-update, stable/nightly manifests and versioned launcher | [Windows auto-update](windows-auto-update.md) | changing GitHub update pointers, Windows staging or rollback |
 
 ## Documentation structure
 

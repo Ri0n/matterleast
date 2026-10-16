@@ -1,0 +1,126 @@
+name: Publish Windows update channel
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+      allow_rollback:
+        type: boolean
+        required: false
+        default: false
+  workflow_dispatch:
+    inputs:
+      channel:
+        required: true
+        type: choice
+        options: [stable, nightly]
+      release_tag:
+        description: Immutable published GitHub Release tag
+        required: true
+        type: string
+      allow_rollback:
+        description: Explicitly permit emergency channel rollback
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: matterleast-update-pointer-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted publisher
+        uses: actions/checkout@v7
+
+      - name: Validate immutable release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          case "$CHANNEL" in
+            stable)
+              [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || exit 1
+              expect_prerelease=false
+              ;;
+            nightly)
+              [[ "$RELEASE_TAG" =~ ^nightly-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$ ]] || exit 1
+              expect_prerelease=true
+              ;;
+            *) echo "::error::Unsupported channel"; exit 1;;
+          esac
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease > release.json
+          jq -e --argjson prerelease "$expect_prerelease" \
+            '.isDraft == false and .isPrerelease == $prerelease' release.json
+
+      - name: Fetch current pointer for monotonic promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          if gh release view "updates-$CHANNEL" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mkdir -p previous
+            gh release download "updates-$CHANNEL" --repo "$GITHUB_REPOSITORY" \
+              --pattern windows-x64.json --dir previous
+          fi
+
+      - name: Download and hash immutable release ZIP
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ALLOW_ROLLBACK: ${{ inputs.allow_rollback }}
+        run: |
+          set -euo pipefail
+          mkdir -p immutable
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'matterleast-*-windows-x64-portable.zip' --dir immutable
+          mapfile -t assets < <(find immutable -maxdepth 1 -type f -name '*.zip')
+          [[ "${#assets[@]}" -eq 1 ]] || {
+            echo "::error::Expected exactly one portable Windows release asset."
+            exit 1
+          }
+          previous=()
+          [[ ! -f previous/windows-x64.json ]] || previous+=(--previous previous/windows-x64.json)
+          [[ "$ALLOW_ROLLBACK" != "true" ]] || previous+=(--allow-rollback)
+          python3 scripts/make-windows-update-manifest.py \
+            --channel "$CHANNEL" --release-tag "$RELEASE_TAG" \
+            --asset "${assets[0]}" --output windows-x64.json "${previous[@]}"
+          python3 -m unittest discover -s tests -p test_windows_update_manifest.py -v
+          cat windows-x64.json
+
+      - name: Promote manifest-only channel release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          pointer="updates-$CHANNEL"
+          if ! gh release view "$pointer" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$pointer" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --prerelease \
+              --title "Windows update pointer: $CHANNEL" \
+              --notes "Manifest only. Download packages from immutable versioned releases."
+          fi
+          gh release upload "$pointer" windows-x64.json \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release view "$pointer" --repo "$GITHUB_REPOSITORY" --json assets |
+            jq -e '[.assets[].name] == ["windows-x64.json"]'

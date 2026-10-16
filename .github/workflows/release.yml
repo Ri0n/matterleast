@@ -133,3 +133,13 @@ jobs:
             --verify-tag \
             --generate-notes \
             --title "MatterLeast $VERSION"
+
+  update_channel:
+    name: Promote stable Windows update pointer
+    needs: [version, release]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/update-channel.yml
+    with:
+      channel: stable
+      release_tag: ${{ needs.version.outputs.tag }}
