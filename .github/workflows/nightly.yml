@@ -133,6 +133,11 @@ jobs:
               --title 'Windows update channel: nightly (rolling packages)' \
               --notes 'Rolling nightly packages and windows-x64.json. Packages retain unique build IDs. Stable releases are separate.'
           fi
+          # The legacy manifest-only release becomes the one visible rolling nightly release.
+          gh release edit updates-nightly --repo "$GITHUB_REPOSITORY" \
+            --title 'MatterLeast Nightly (rolling)' \
+            --notes 'Nightly build packages and windows-x64.json are updated here. Previous builds are retained temporarily for safe downloads and rollback.' \
+            --prerelease
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" \
             | jq -e '.draft == false and .prerelease == true'
 
