@@ -1,0 +1,182 @@
+name: Nightly release
+
+# Initial push bootstraps the first run; later runs can be manual or scheduled.
+on:
+  push:
+    branches: [master]
+    paths: ['.github/workflows/nightly.yml']
+  workflow_dispatch:
+  schedule:
+    - cron: '23 1 * * *'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: matterleast-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    name: Resolve immutable nightly identity
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve latest stable version
+        id: stable
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || exit 1
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Prepare version
+        id: version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ${{ steps.stable.outputs.tag }}
+      - name: Create unique nightly release tag
+        id: identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="nightly-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:12}"
+          [[ "$tag" =~ ^nightly-[0-9]{8}-[0-9]{6}-[0-9a-f]{12}$ ]]
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Nightly tag already exists: $tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Nightly $tag for $GITHUB_SHA"
+
+  packages:
+    name: Build and test nightly packages
+    needs: identity
+    uses: ./.github/workflows/packages.yml
+    with:
+      version: ${{ needs.identity.outputs.version }}
+
+  release:
+    name: Publish immutable nightly release
+    needs: [identity, packages]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download nightly build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: matterleast-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify complete nightly payload
+        shell: bash
+        env:
+          VERSION: ${{ needs.identity.outputs.version }}
+        run: |
+          set -euo pipefail
+          expected=(
+            "matterleast-${VERSION}-ubuntu-22.04-amd64.deb"
+            "matterleast-${VERSION}-ubuntu-22.04-amd64-dbgsym.deb"
+            "matterleast-${VERSION}-ubuntu-24.04-amd64.deb"
+            "matterleast-${VERSION}-ubuntu-24.04-amd64-dbgsym.deb"
+            "matterleast-${VERSION}-ubuntu-26.04-amd64.deb"
+            "matterleast-${VERSION}-ubuntu-26.04-amd64-dbgsym.deb"
+            "matterleast-${VERSION}-debian-13-amd64.deb"
+            "matterleast-${VERSION}-debian-13-amd64-dbgsym.deb"
+            "matterleast-${VERSION}-fedora-44-x86_64.rpm"
+            "matterleast-${VERSION}-linux-x86_64.AppImage"
+            "matterleast-${VERSION}-windows-x64-installer.exe"
+            "matterleast-${VERSION}-windows-x64-portable.zip"
+          )
+          for asset in "${expected[@]}"; do
+            test -s "release-assets/$asset" || {
+              echo "::error::Missing or empty nightly asset: $asset"
+              exit 1
+            }
+          done
+          count=$(find release-assets -maxdepth 1 -type f | wc -l)
+          [[ "$count" -eq "${#expected[@]}" ]] || exit 1
+          ls -lh release-assets/
+      - name: Create immutable nightly prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_TAG: ${{ needs.identity.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$NIGHTLY_TAG" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "MatterLeast $NIGHTLY_TAG" \
+            --notes "Development build from source commit $GITHUB_SHA. Use the release tag to distinguish builds with identical numeric versions."
+          gh release view "$NIGHTLY_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease,assets \
+            | jq -e '.isDraft == false and .isPrerelease == true and ([.assets[].name] | length == 12)'
+
+  update_channel:
+    name: Promote nightly Windows update pointer
+    needs: [identity, release]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/update-channel.yml
+    with:
+      channel: nightly
+      release_tag: ${{ needs.identity.outputs.tag }}
+
+  verify:
+    name: Verify published nightly update pointer
+    needs: [identity, update_channel]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare published JSON with immutable release ZIP
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_TAG: ${{ needs.identity.outputs.tag }}
+          VERSION: ${{ needs.identity.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" > pointer.json
+          jq -e '.draft == false and .prerelease == true and ([.assets[].name] == ["windows-x64.json"])' pointer.json
+          mkdir -p downloaded
+          gh release download updates-nightly --repo "$GITHUB_REPOSITORY" \
+            --pattern windows-x64.json --dir downloaded
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$NIGHTLY_TAG" > nightly.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          manifest = json.loads(Path("downloaded/windows-x64.json").read_text())
+          release = json.loads(Path("nightly.json").read_text())
+          tag, version = os.environ["NIGHTLY_TAG"], os.environ["VERSION"]
+          name = f"matterleast-{version}-windows-x64-portable.zip"
+          matches = [a for a in release["assets"] if a["name"] == name]
+          assert len(matches) == 1
+          asset = matches[0]
+          assert asset["digest"] and asset["digest"].startswith("sha256:")
+          assert release["prerelease"] and not release["draft"]
+          assert manifest["schema"] == 1
+          assert manifest["channel"] == "nightly"
+          assert manifest["platform"] == "windows-x64"
+          assert manifest["releaseTag"] == tag
+          assert manifest["version"] == version
+          assert manifest["minimumLauncherProtocol"] == 1
+          assert manifest["package"] == {
+              "format": "portable-zip",
+              "url": asset["browser_download_url"],
+              "size": asset["size"],
+              "sha256": asset["digest"].removeprefix("sha256:"),
+          }
+          print(f"Verified nightly pointer {tag}")
+          PY
