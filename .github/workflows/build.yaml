@@ -21,7 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Verify stable/nightly JSON generation
-        run: python3 -m unittest discover -s tests -p test_windows_update_manifest.py -v
+        run: |
+          python3 -m unittest discover -s tests -p test_windows_update_manifest.py -v
+          python3 -m unittest discover -s tests -p test_prune_nightly_assets.py -v
 
   debian13:
     name: Qt 6.8.2 / Debian 13 — DEB
