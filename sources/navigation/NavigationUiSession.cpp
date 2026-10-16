@@ -153,6 +153,13 @@ void NavigationUiController::restoreSessionBookmark(
     area->preparePostNavigation();
     auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
     if (!log) return;
+    if (area->isThread) {
+        qInfo() << "RESTORE_THREAD_BOOKMARK" << postId
+                << "anchor" << (anchor ? anchor->postId : QString())
+                << "fraction" << (anchor ? anchor->fraction : 999.0)
+                << "viewportH" << log->viewport()->height()
+                << "bar" << log->verticalScrollBar()->value();
+    }
     area->setProperty("sessionBookmark", postId);
     area->setProperty("sessionBookmarkAnchor", anchor
         ? QVariant(QVariantMap {
@@ -164,6 +171,10 @@ void NavigationUiController::restoreSessionBookmark(
         return restorePosition(view, postId, anchor);
     };
     if (position(log)) {
+        if (area->isThread)
+            qInfo() << "RESTORE_THREAD_POSITION_ACCEPTED" << postId
+                    << "hasWidget" << (log->findPost(postId) != nullptr)
+                    << "bar" << log->verticalScrollBar()->value();
         // A provisional thread slot can accept the target long before its
         // PostWidget exists. Keep the old anchor authoritative during that
         // interval, including a quick switch to another tab.

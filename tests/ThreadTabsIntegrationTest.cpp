@@ -89,6 +89,16 @@ bool bookmarkRestoredOrClamped(ChatLogWidget& log, const QString& postId,
         && targetScroll <= bar->minimum();
     const bool atLowerBound = bar->value() == bar->maximum()
         && targetScroll >= bar->maximum();
+    static int checkCount = 0;
+    ++checkCount;
+    if (checkCount == 1 || checkCount % 100 == 0) {
+        qInfo() << "BOOKMARK_GEOMETRY" << postId
+                << "saved" << savedFraction << "actual" << observedFraction
+                << "targetScroll" << targetScroll << "bar" << bar->value()
+                << "/" << bar->maximum() << "height" << log.viewport()->height()
+                << "materializedCount" << log.materializedCount()
+                << "clamped" << atUpperBound << atLowerBound;
+    }
     return atUpperBound || atLowerBound;
 }
 
@@ -1014,6 +1024,10 @@ private slots:
         ChatLogWidget::SemanticViewportBookmark before;
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+        qInfo() << "SAVED_THREAD_GEOMETRY" << before.postId
+                << "fraction" << before.fraction
+                << "viewportH" << log->viewport()->height()
+                << "bar" << bar->value() << "/" << bar->maximum();
         const int savedIndex = log->source()->indexOfPost(before.postId);
         QVERIFY2(savedIndex >= 8 && savedIndex < log->itemCount() - 8,
                  "The test must bookmark an interior post whose position can "
@@ -1110,6 +1124,10 @@ private slots:
         ChatLogWidget::SemanticViewportBookmark before;
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+        qInfo() << "SAVED_THREAD_GEOMETRY" << before.postId
+                << "fraction" << before.fraction
+                << "viewportH" << log->viewport()->height()
+                << "bar" << bar->value() << "/" << bar->maximum();
         const int savedIndex = log->source()->indexOfPost(before.postId);
         QVERIFY2(savedIndex >= 8 && savedIndex < log->itemCount() - 8,
                  "The test must bookmark an interior post whose position can "
