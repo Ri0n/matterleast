@@ -3,23 +3,23 @@
 ## Architecture and rollout
 
 Port the **transactional version-switching design** of AnyKeep's Windows updater,
-not its WiX/MSI extraction. MatterLeast distributes NSIS and an already existing
-self-contained `matterleast-<version>-windows-x64-portable.zip`. That ZIP is
-the canonical update payload; an extra update archive would be redundant.
+not its WiX/MSI extraction. MatterLeast distributes NSIS and the existing
+self-contained Windows portable ZIP as its canonical update payload.
 
-**Status:** manifest generation and publishing infrastructure only.
-The Windows client must **not** attempt unattended update installation until
-the native launcher/updater and NSIS migration below are implemented and tested.
+**Status:** manifest generation and publication infrastructure only.
+The Windows client must **not** attempt unattended updates until the native
+launcher/updater and NSIS migration below have been implemented and tested.
 
-### Immutable binaries, mutable channel pointers
+### Stable: immutable versioned packages and a mutable pointer
 
-- Normal stable GitHub Releases: `v1.9`, `v1.10`, etc.
-- Immutable nightly prereleases: `nightly-YYYYMMDD-HHMMSS-<shortsha>`.
-- Two special prerelease Releases: `updates-stable` and `updates-nightly`,
-  each containing only one file named `windows-x64.json`. The special tags
-  must NOT move and do not trigger the regular `v*` release workflow.
+- Normal stable GitHub Releases are immutable: v1.9, v1.10, etc.
+- The special prerelease updates-stable contains **only** windows-x64.json.
+- Stable packages reside in their normal immutable v* Releases.
+- Release workflow automatically promotes the stable pointer after successful packaging.
+- Manual promotion (including emergency rollback) uses update-channel.yml.
+- Stable releaseTag identifies the immutable release, and version is its numeric version.
 
-Channel manifest schema 1:
+Stable schema-1 example:
 
 ```json
 {
@@ -38,55 +38,106 @@ Channel manifest schema 1:
 }
 ```
 
-`version` is the CMake numeric version; `releaseTag` is the **unique build
-identity**. Different nightly builds can have identical CMake versions.
-For nightly, compare the sortable timestamped tag, not numeric version alone.
-Stable uses numeric version comparisons. Channel changes must be explicit.
+### Nightly: one rolling prerelease containing both packages and pointer
 
-Channel pointer promotion is monotonic by default. Replaying an older release
-cannot silently downgrade the channel; an explicit `allow_rollback` input is
-required to move the pointer backwards during incident recovery.
+**Do not create a GitHub Release for each nightly build.** The sole mutable
+updates-nightly prerelease carries windows-x64.json **and** the packaged
+nightly assets (Windows ZIP and installer, Linux packages, debug packages).
 
-The publisher downloads the *actual published ZIP* and computes SHA-256 and
-size from these final bytes. It does not accept arbitrary package URLs.
-`.github/workflows/update-channel.yml` can be called by the Release workflow
-to promote stable after successful publication, or run manually with
-`channel` and `release_tag` for an existing published release.
-Nightly publication/build is a separate CI task; expired workflow artifacts
-are **not** real GitHub Release payloads.
+- Each package has a unique build identity in its filename:
+  matterleast-1.9-nightly-20261017-012300-abcdef123456-windows-x64-portable.zip
+- The nightly buildId is nightly-YYYYMMDD-HHMMSS-<7-40 lowercase hex commit>;
+  it is sortable and independent of numeric version. The numeric version can
+  remain 1.9 across many nightly builds.
+- In nightly manifests, releaseTag is **always** updates-nightly; buildId
+  provides the actual immutable build identity. Package URLs refer directly
+  to the uniquely named asset in that same rolling GitHub Release.
+- Stable remains schema 1 without buildId. There is no Windows client using
+  the old nightly contract; the first nightly publication supports migrating
+  the previous schema-1 pointer with a nightly-* releaseTag.
+- The old separate nightly-* Release is eligible for deletion **after seven
+  days**, avoiding broken in-flight downloads from a previously seen pointer.
 
-Because `gh release upload --clobber` replaces a mutable asset, avoid relying
-on long-lived caches of its download URL. The future client should resolve
-`GET /repos/Ri0n/matterleast/releases/tags/updates-{channel}` each check,
-select the current asset ID, then request that asset with appropriate caching
-headers and redirects. Validate every manifest field and the exact trusted
-repository/release URL; SHA-256 and size are mandatory, as are safe ZIP entry
-paths and rejection of traversal/symlinks. Prevent downgrades. Transient 404
-during pointer replacement should retry rather than corrupt installed state.
+Nightly schema-1 example (illustrative sizes/digests):
 
-### Required remaining implementation
+```json
+{
+  "schema": 1,
+  "channel": "nightly",
+  "platform": "windows-x64",
+  "version": "1.9",
+  "releaseTag": "updates-nightly",
+  "buildId": "nightly-20261017-012300-abcdef123456",
+  "minimumLauncherProtocol": 1,
+  "package": {
+    "format": "portable-zip",
+    "url": "https://github.com/Ri0n/matterleast/releases/download/updates-nightly/matterleast-1.9-nightly-20261017-012300-abcdef123456-windows-x64-portable.zip",
+    "size": 123456,
+    "sha256": "64 lowercase hex digits"
+  }
+}
+```
 
-1. A tiny native `MatterLeastLauncher.exe` at the installation root, with
-   `current.version`, `previous.version`, and
-   `versions/<releaseTag>/MatterLeast/bin/matterleast.exe`. The launcher
-   chooses a complete version. App data stays outside version directories.
-2. Migrate the **existing flat NSIS install** (today `bin/matterleast.exe`)
-   to the versioned layout. Keep Add/Remove Programs registration, shortcuts,
-   user preferences and uninstallation functional. Never silently self-update
-   an old installation before it has been migrated.
-3. Background checks/download/staging with streaming file I/O, maximum
-   manifest/download sizes, strict HTTPS and GitHub URL allowlist, version and
-   format validation, SHA-256, atomic staging and path-safe ZIP extraction.
+#### Publication transaction and retention
+
+.github/workflows/nightly.yml runs daily at 01:23 UTC, manually, or on its
+own first deployment. It builds and tests all standard packages via packages.yml.
+
+1. Check every package and rename all 12 using the unique buildId; never
+   clobber package assets already published for another build.
+2. Retrieve the currently published manifest and reject non-monotonic
+   buildId promotion. An old build must not overwrite a newer pointer.
+3. Upload all 12 uniquely named packages to updates-nightly.
+4. **Verify every uploaded asset size and GitHub-reported SHA-256** against
+   the local build. Abort without touching the pointer on any failure.
+5. Upload windows-x64.json **last**. GitHub's --clobber replaces the
+   pointer asset; this operation is not fully atomic, so readers must
+   retry transient 404s during replacement.
+6. Download the real published manifest again and verify its buildId, ZIP
+   URL, size, digest and release metadata.
+7. Only after that verification, remove expired packages: retain **at least
+   three most recent builds** and **every build younger than seven days**.
+   The active build is protected regardless of age. Expired legacy
+   nightly-* prereleases are also removed, along with their tags.
+
+Cleanup is guarded by a separate tested script, scripts/prune-nightly-assets.py.
+It recognizes only the expected nightly package filename/suffix combinations
+and specifically avoids deleting the pointer, stable releases, or unknown assets.
+Partially uploaded packages of old nightly builds are eligible for cleanup
+after retention expires. These safeguards protect both interrupted client
+downloads and rollback to recent builds.
+
+The special update tags must not move and do not trigger the regular v* release
+workflow. Stable and nightly are separate channels; switching is explicit.
+
+The updater should fetch GET /repos/Ri0n/matterleast/releases/tags/updates-{channel}
+each check, identify the latest windows-x64.json asset ID, and request that asset
+without depending on long-lived URL caches. Check schema, expected trusted
+repository/release URL, HTTPS, buildId/releaseTag, SHA-256, size, ZIP entry safety
+and downgrade prevention before staging. Transient 404 during pointer replacement
+must be retried, never interpreted as a request to uninstall or downgrade.
+
+### Required remaining Windows client implementation
+
+1. A tiny native MatterLeastLauncher.exe at the install root, with
+   current.version, previous.version, and
+   versions/<buildId-or-releaseTag>/MatterLeast/bin/matterleast.exe.
+   The launcher selects a complete version; user data stays outside these
+   directories.
+2. Migrate existing flat NSIS installs (today bin/matterleast.exe) to
+   versioned layout without losing Add/Remove Programs registration,
+   shortcuts, preferences, and clean uninstallation. Do not silently update
+   an old installation that has not been migrated.
+3. Background downloads/staging with streamed I/O, strict HTTPS allowlist,
+   payload size limits, checksum enforcement, and path-safe ZIP extraction.
 4. Native updater waits for the old process to exit, atomically switches
-   `current.version`, starts the new build, probes for healthy startup, and
-   rolls back to `previous.version` on failed launch or startup crash.
-   Resume interrupted updates correctly.
-5. UI: automatic checks, manual check, stable/nightly preference, progress,
-   update prepared notification and update/restart. Portable legacy installs
-   and MSIX/Store-managed installs must not be overwritten unsafely.
-6. Windows CI installation, upgrade, rollback and uninstall tests, including
-   intentionally broken new builds.
+   current.version, checks new process health, and rolls back to
+   previous.version on failed launch or startup crash; resume after power loss.
+5. UI for manual/automatic checks, stable/nightly preference, progress and
+   update/restart. Do not overwrite MSIX/Store-managed or legacy portable
+   installations unsafely.
+6. Windows CI tests for installation, upgrade, rollback and uninstall,
+   including intentionally broken builds.
 
-No copying of GPL-only AnyKeep implementation code into MatterLeast's
-LGPL project without verifying the licensing rights; implement the same
-architectural pattern independently.
+Do not copy GPL-only AnyKeep implementation into this LGPL project without
+verifying licensing rights. Reimplement the architectural design independently.
