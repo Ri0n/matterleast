@@ -43,6 +43,10 @@ identity**. Different nightly builds can have identical CMake versions.
 For nightly, compare the sortable timestamped tag, not numeric version alone.
 Stable uses numeric version comparisons. Channel changes must be explicit.
 
+Channel pointer promotion is monotonic by default. Replaying an older release
+cannot silently downgrade the channel; an explicit `allow_rollback` input is
+required to move the pointer backwards during incident recovery.
+
 The publisher downloads the *actual published ZIP* and computes SHA-256 and
 size from these final bytes. It does not accept arbitrary package URLs.
 `.github/workflows/update-channel.yml` can be called by the Release workflow

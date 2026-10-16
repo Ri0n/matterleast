@@ -47,14 +47,44 @@ def make_manifest(channel: str, tag: str, file: Path) -> dict:
     }
 
 
+def validate_promotion(previous: dict, proposed: dict, allow_rollback: bool = False) -> None:
+    """Reject accidental channel rollback when replaying old release workflows."""
+    if previous.get("schema") != 1 or previous.get("channel") != proposed["channel"]:
+        raise ValueError("Existing channel pointer has an unexpected schema or channel")
+    old, new = previous.get("releaseTag"), proposed["releaseTag"]
+    if not isinstance(old, str):
+        raise ValueError("Previous channel releaseTag is invalid")
+    if proposed["channel"] == "stable":
+        matched = STABLE.fullmatch(old)
+        if not matched:
+            raise ValueError("Previous stable channel releaseTag is invalid")
+        old_key = tuple(int(v) for v in matched.group(1).split("."))
+        new_key = tuple(int(v) for v in proposed["version"].split("."))
+        old_key += (0,) * (3 - len(old_key))
+        new_key += (0,) * (3 - len(new_key))
+        downgrade = new_key < old_key or (new_key == old_key and new != old)
+    else:
+        if not NIGHTLY.fullmatch(old):
+            raise ValueError("Previous nightly channel releaseTag is invalid")
+        downgrade = new < old
+    if downgrade and not allow_rollback:
+        raise ValueError("Refusing to move an update channel backwards")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--channel", required=True, choices=("stable", "nightly"))
     parser.add_argument("--release-tag", required=True)
     parser.add_argument("--asset", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--previous", type=Path)
+    parser.add_argument("--allow-rollback", action="store_true")
     options = parser.parse_args()
     manifest = make_manifest(options.channel, options.release_tag, options.asset)
+    if options.previous:
+        validate_promotion(
+            json.loads(options.previous.read_text(encoding="utf-8")),
+            manifest, options.allow_rollback)
     options.output.parent.mkdir(parents=True, exist_ok=True)
     options.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 

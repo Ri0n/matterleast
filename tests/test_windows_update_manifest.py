@@ -41,6 +41,22 @@ class WindowsUpdateManifestTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     MANIFEST.make_manifest(channel, tag, self.asset)
 
+    def test_reject_accidental_rollback(self):
+        old = MANIFEST.make_manifest("stable", "v1.9", self.asset)
+        # The same immutable package may be re-published idempotently.
+        MANIFEST.validate_promotion(old, old)
+        new = dict(old)
+        new["version"], new["releaseTag"] = "1.8", "v1.8"
+        with self.assertRaises(ValueError):
+            MANIFEST.validate_promotion(old, new)
+        MANIFEST.validate_promotion(old, new, allow_rollback=True)
+        nightly = MANIFEST.make_manifest(
+            "nightly", "nightly-20261017-010000-abcdef1", self.asset)
+        stale = dict(nightly)
+        stale["releaseTag"] = "nightly-20261016-010000-abcdef1"
+        with self.assertRaises(ValueError):
+            MANIFEST.validate_promotion(nightly, stale)
+
     def test_reject_invalid_asset(self):
         self.asset.write_bytes(b"")
         with self.assertRaises(ValueError):

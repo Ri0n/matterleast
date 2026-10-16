@@ -9,6 +9,10 @@ on:
       release_tag:
         required: true
         type: string
+      allow_rollback:
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       channel:
@@ -19,6 +23,11 @@ on:
         description: Immutable published GitHub Release tag
         required: true
         type: string
+      allow_rollback:
+        description: Explicitly permit emergency channel rollback
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -58,12 +67,26 @@ jobs:
           jq -e --argjson prerelease "$expect_prerelease" \
             '.isDraft == false and .isPrerelease == $prerelease' release.json
 
+      - name: Fetch current pointer for monotonic promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          if gh release view "updates-$CHANNEL" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mkdir -p previous
+            gh release download "updates-$CHANNEL" --repo "$GITHUB_REPOSITORY" \
+              --pattern windows-x64.json --dir previous
+          fi
+
       - name: Download and hash immutable release ZIP
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ inputs.channel }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          ALLOW_ROLLBACK: ${{ inputs.allow_rollback }}
         run: |
           set -euo pipefail
           mkdir -p immutable
@@ -74,9 +97,12 @@ jobs:
             echo "::error::Expected exactly one portable Windows release asset."
             exit 1
           }
+          previous=()
+          [[ ! -f previous/windows-x64.json ]] || previous+=(--previous previous/windows-x64.json)
+          [[ "$ALLOW_ROLLBACK" != "true" ]] || previous+=(--allow-rollback)
           python3 scripts/make-windows-update-manifest.py \
             --channel "$CHANNEL" --release-tag "$RELEASE_TAG" \
-            --asset "${assets[0]}" --output windows-x64.json
+            --asset "${assets[0]}" --output windows-x64.json "${previous[@]}"
           python3 -m unittest discover -s tests -p test_windows_update_manifest.py -v
           cat windows-x64.json
 
