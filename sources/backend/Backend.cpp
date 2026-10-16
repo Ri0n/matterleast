@@ -23,6 +23,7 @@
  */
 
 #include "Backend.h"
+#include "LoginResponsePolicy.h"
 
 #include <iostream>
 #include <utility>
@@ -214,6 +215,7 @@ QString replyHeadersForUploadTrace(const QNetworkReply& reply)
 
 void Backend::login (const BackendLoginData& credentials, std::function<void(const QString&)> callback)
 {
+    _lastLoginFailureTransient = false;
 	loginData = credentials;
 	NetworkRequest::setHost (credentials.domain);
 
@@ -253,6 +255,9 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 #endif
 	json.setObject(jsonRoot);
 
+    // A password login must not accidentally reuse a previously rejected
+    // Bearer/cookie token from a failed saved-session attempt.
+    NetworkRequest::clearToken();
 	NetworkRequest request ("users/login");
 
 	//debugRequest (request, data);
@@ -311,10 +316,18 @@ bool Backend::autoLoginEnabled ()
 
 void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply, std::function<void (const QString&)> callback)
 {
-#if 1
-	QString jsonString = doc.toJson(QJsonDocument::Indented);
-	std::cout << "loginUser: " << jsonString.toStdString() << std::endl;
-#endif
+    const LoginResponseValidation validation = validateLoginResponse(
+        reply.error(),
+        reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), doc);
+    _lastLoginFailureTransient = validation.retryable;
+    if (!validation.accepted) {
+        qWarning() << "Login identity fetch failed, retryable="
+                   << validation.retryable
+                   << "networkError=" << reply.error()
+                   << "status=" << reply.attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        if (callback) callback(QString());
+        return;
+    }
 	BackendUser* loginUser = storage.addUser (doc.object(), true);
 	loginUser->isLoginUser = true;
 
@@ -339,7 +352,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     }
 
 	//retrieveAllPublicTeams ();
-	callback (NetworkRequest::getToken());
+	if (callback) callback(NetworkRequest::getToken());
 }
 
 void Backend::reset ()

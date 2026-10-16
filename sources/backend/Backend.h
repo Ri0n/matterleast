@@ -56,6 +56,7 @@ public:
 	explicit Backend (QObject *parent = nullptr);
 
 	bool autoLoginEnabled ();
+    bool lastLoginFailureTransient() const { return _lastLoginFailureTransient; }
 
 	void reset ();
 
@@ -326,6 +327,7 @@ private:
     QTimer 							timeoutTimer;
     bool							isLoggedIn;
     bool							autoLoginEnabledFlag;
+    bool _lastLoginFailureTransient = false;
     uint32_t						nonFilledTeams;
     uint64_t						lastStartTime;
     QAtomicInteger<unsigned>				avatarsLoaded;

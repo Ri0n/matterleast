@@ -530,6 +530,11 @@ endif()
 
 
 if(TARGET matterleast-core)
+    add_executable(login-bootstrap-test LoginBootstrapTest.cpp)
+    target_link_libraries(login-bootstrap-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME login-bootstrap-test COMMAND login-bootstrap-test)
+    set_tests_properties(login-bootstrap-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(channel-post-source-live-sync-test ChannelPostSourceLiveSyncTest.cpp)
     target_link_libraries(channel-post-source-live-sync-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME channel-post-source-live-sync-test COMMAND channel-post-source-live-sync-test)

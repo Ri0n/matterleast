@@ -66,7 +66,9 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 ,currentWindow (nullptr)
 {
     QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
-    QGuiApplication::setDesktopFileName(QStringLiteral("matterleast"));
+    // Match the installed .desktop file for notification portal identity.
+    QGuiApplication::setDesktopFileName(
+        QStringLiteral("io.github.Ri0n.MatterLeast"));
     QGuiApplication::setWindowIcon(IconUtils::applicationIcon());
 
     OverlayScrollBarManager::install(*this);

@@ -1306,6 +1306,30 @@ void NavigationUiController::navigateTo(const Location& location)
     restoreSessionBookmark(area, location.postId, location.viewportAnchor);
 }
 
+bool NavigationUiController::isConversationVisible(
+    const QString& channelId, const QString& rootId) const
+{
+    ChatArea* area = nullptr;
+    if (rootId.isEmpty()) {
+        // A docked thread may be active while its parent channel remains
+        // visible in the adjacent central surface.
+        area = mainStack
+            ? qobject_cast<ChatArea*>(mainStack->currentWidget()) : nullptr;
+        if (!area || area->isThread) return false;
+    } else {
+        area = findThread(channelId, rootId);
+    }
+
+    if (!area || area->getChannel().id != channelId
+        || !area->isVisible() || !area->window()) {
+        return false;
+    }
+    // QWidget::isActiveWindow() alone is not sufficient: all widgets inside
+    // an inactive QStackedWidget may still belong to the active top-level
+    // window. isVisible() is the second, essential half of this check.
+    return area->window()->isActiveWindow();
+}
+
 ChatArea* NavigationUiController::findThread(const QString& channelId,
                                              const QString& rootId) const
 {
