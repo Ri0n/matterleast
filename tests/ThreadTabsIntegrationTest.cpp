@@ -66,6 +66,32 @@ QJsonObject post(int thread, int reply = 0)
     return result;
 }
 
+// A semantic post-center bookmark is a requested content offset, not an
+// instruction to scroll beyond the available history. When remeasurement
+// changes the heights of early rows, the same saved Y may become physically
+// unreachable; the correct restoration then clamps at the scrollbar edge.
+bool bookmarkRestoredOrClamped(ChatLogWidget& log, const QString& postId,
+                              qreal savedFraction, qreal& observedFraction)
+{
+    if (!log.findPost(postId) || !log.source()) return false;
+    const int index = log.source()->indexOfPost(postId);
+    if (index < 0 || !log.captureSemanticAnchorFraction(
+            index, LongListWidget::SemanticAnchorPoint::ItemCenter,
+            observedFraction)) {
+        return false;
+    }
+    if (qAbs(observedFraction - savedFraction) < 0.06) return true;
+
+    QScrollBar* bar = log.verticalScrollBar();
+    const qreal targetScroll = bar->value()
+        + (observedFraction - savedFraction) * log.viewport()->height();
+    const bool atUpperBound = bar->value() == bar->minimum()
+        && targetScroll <= bar->minimum();
+    const bool atLowerBound = bar->value() == bar->maximum()
+        && targetScroll >= bar->maximum();
+    return atUpperBound || atLowerBound;
+}
+
 class Server : public QTcpServer
 {
 public:
@@ -1019,12 +1045,8 @@ private slots:
         const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
         QVERIFY(anchorIndex >= 0);
         qreal restoredFraction = 0;
-        QTRY_VERIFY(restoredLog->findPost(before.postId)
-            && restoredLog->captureSemanticAnchorFraction(
-                restoredLog->source()->indexOfPost(before.postId),
-                LongListWidget::SemanticAnchorPoint::ItemCenter,
-                restoredFraction)
-            && qAbs(restoredFraction - before.fraction) < 0.06);
+        QTRY_VERIFY(bookmarkRestoredOrClamped(
+            *restoredLog, before.postId, before.fraction, restoredFraction));
     }
 
     void backHistoryRestoresMeasuredPostCenter()
@@ -1106,12 +1128,8 @@ private slots:
                              ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(restored);
         qreal actualFraction = 0;
-        QTRY_VERIFY(restored->findPost(before.postId)
-            && restored->captureSemanticAnchorFraction(
-                restored->source()->indexOfPost(before.postId),
-                LongListWidget::SemanticAnchorPoint::ItemCenter,
-                actualFraction)
-            && qAbs(actualFraction - before.fraction) < 0.06);
+        QTRY_VERIFY(bookmarkRestoredOrClamped(
+            *restored, before.postId, before.fraction, actualFraction));
         QVERIFY(!restored->isAtEnd());
     }
 
