@@ -317,6 +317,18 @@ target_include_directories(navigation-tabs-model-test PRIVATE "${CMAKE_SOURCE_DI
 target_link_libraries(navigation-tabs-model-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME navigation-tabs-model-test COMMAND navigation-tabs-model-test)
 
+add_executable(formatting-toolbar-overlay-test
+    FormattingToolbarOverlayTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/chat-area/FormattingToolbarOverlay.cpp"
+)
+target_include_directories(formatting-toolbar-overlay-test
+    PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(formatting-toolbar-overlay-test
+    PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME formatting-toolbar-overlay-test COMMAND formatting-toolbar-overlay-test)
+set_tests_properties(formatting-toolbar-overlay-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(message-text-edit-widget-test
     MessageTextEditWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/MessageTextEditWidget.cpp"

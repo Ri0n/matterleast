@@ -28,7 +28,22 @@ The toolbar inserts these Markdown primitives:
 
 Conventional shortcuts are handled at the editor layer where practical: `Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K`, and `Ctrl/Cmd+Shift+X`. Completion-popup navigation keeps priority over ordinary editor navigation.
 
-The toolbar slot expands/collapses over 110 ms using `OutCubic` / `InCubic`, matching the interaction style used by other compact composer controls.
+The toolbar is an overlay attached to `ChatArea`, not a row in `composerInputLayout`.
+It appears immediately above the editor when the editor has focus and is hidden
+on focus loss, preserving the preference and shortcuts above. The overlay runs
+edge-to-edge across the whole chat surface, not just the inset input column,
+with no card frame or horizontal margins and the original chat Window-palette
+background (never the contrasting text-editor Base color). Its appearance
+uses a 110 ms `OutCubic` / `InCubic` slide-and-fade animation. It may
+temporarily cover the last pixels of the chat log, but **never changes either
+the composer height or the log viewport height**. This avoids a repeated
+viewport re-layout/re-anchor when switching between reading and typing.
+
+`FormattingToolbarOverlay` owns detachment, the animation, and positioning.
+Its position follows the editor's actual geometry (including multiline composer
+resizing) and its height is measured from the toolbar's height-for-width
+layout; narrow chats can therefore wrap the formatting buttons into several
+rows without reserving vertical space in the footer.
 
 ### Toolbar sizing and narrow windows
 

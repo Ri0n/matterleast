@@ -18,21 +18,16 @@
 #include <algorithm>
 #include <cmath>
 
-#include <QAbstractAnimation>
 #include <QAbstractTextDocumentLayout>
 #include <QContextMenuEvent>
-#include <QEasingCurve>
 #include <QFocusEvent>
-#include <QFrame>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QKeySequence>
-#include <QLayout>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMimeData>
 #include <QPalette>
-#include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QResizeEvent>
 #include <QStringList>
@@ -49,14 +44,6 @@ namespace Mattermost {
 namespace {
 
 constexpr int ComposerMaximumHeight = 300;
-constexpr int FormattingToolbarAnimationMs = 110;
-constexpr int FormattingToolbarGap = 2;
-constexpr char FormattingToolbarObjectName[] = "formattingToolbar";
-constexpr char FormattingAnimationObjectName[] =
-    "_matterleast_formatting_toolbar_animation";
-constexpr char FormattingNormalizedProperty[] =
-    "_matterleast_formatting_layout_normalized";
-
 struct MarkdownLinkMatch {
     int start = -1;
     int end = -1;
@@ -241,7 +228,6 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
             this, [this](const QSizeF&) { updateHeightToContents(); });
 
     QTimer::singleShot(0, this, [this] {
-        normalizeFormattingToolbar();
         updateHeightToContents();
     });
 }
@@ -255,98 +241,15 @@ bool MessageTextEditWidget::formattingToolbarPreferredVisible() const
         COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT)->value().toBool();
 }
 
-void MessageTextEditWidget::normalizeFormattingToolbar()
-{
-    if (!parentWidget()) {
-        return;
-    }
-    QWidget* toolbar = parentWidget()->findChild<QWidget*>(
-        QString::fromLatin1(FormattingToolbarObjectName));
-    if (!toolbar || toolbar->property(FormattingNormalizedProperty).toBool()) {
-        return;
-    }
-
-    toolbar->setProperty(FormattingNormalizedProperty, true);
-    if (QWidget* container = toolbar->parentWidget()) {
-        if (QLayout* layout = container->layout()) {
-            layout->setSpacing(0);
-        }
-    }
-    if (QLayout* layout = toolbar->layout()) {
-        QMargins margins = layout->contentsMargins();
-        margins.setBottom(std::max(margins.bottom(), FormattingToolbarGap));
-        layout->setContentsMargins(margins);
-    }
-
-    toolbar->setMinimumHeight(0);
-    toolbar->setMaximumHeight(0);
-    toolbar->show();
-    toolbar->updateGeometry();
-}
-
-void MessageTextEditWidget::animateFormattingToolbar(bool visible)
-{
-    normalizeFormattingToolbar();
-    if (!parentWidget()) {
-        return;
-    }
-    QWidget* toolbar = parentWidget()->findChild<QWidget*>(
-        QString::fromLatin1(FormattingToolbarObjectName));
-    if (!toolbar) {
-        return;
-    }
-
-    if (auto* previous = toolbar->findChild<QPropertyAnimation*>(
-            QString::fromLatin1(FormattingAnimationObjectName),
-            Qt::FindDirectChildrenOnly)) {
-        previous->stop();
-        previous->deleteLater();
-    }
-
-    if (visible) {
-        // The Designer connection hides the toolbar after a completed collapse.
-        // Make it visible again before expanding its real layout slot.
-        toolbar->show();
-    }
-
-    int currentHeight = toolbar->maximumHeight();
-    if (currentHeight >= QWIDGETSIZE_MAX) {
-        currentHeight = toolbar->height();
-    }
-    const int expandedHeight = toolbar->layout()
-        ? std::max(1, toolbar->layout()->sizeHint().height())
-        : std::max(1, toolbar->sizeHint().height());
-    const int targetHeight = visible ? expandedHeight : 0;
-    if (currentHeight == targetHeight) {
-        toolbar->updateGeometry();
-        emit formattingToolbarVisibilityChanged(visible);
-        return;
-    }
-
-    auto* animation = new QPropertyAnimation(toolbar, "maximumHeight", toolbar);
-    animation->setObjectName(QString::fromLatin1(FormattingAnimationObjectName));
-    animation->setDuration(FormattingToolbarAnimationMs);
-    animation->setStartValue(std::max(0, currentHeight));
-    animation->setEndValue(targetHeight);
-    animation->setEasingCurve(
-        visible ? QEasingCurve::OutCubic : QEasingCurve::InCubic);
-    connect(animation, &QPropertyAnimation::valueChanged,
-            toolbar, [toolbar](const QVariant&) { toolbar->updateGeometry(); });
-    connect(animation, &QPropertyAnimation::finished,
-            this, [this, toolbar, visible] {
-        toolbar->updateGeometry();
-        emit formattingToolbarVisibilityChanged(visible);
-    });
-    animation->start(QAbstractAnimation::DeleteWhenStopped);
-}
-
 void MessageTextEditWidget::setFormattingToolbarVisible(bool visible)
 {
     if (formattingToolbarVisible_ == visible) {
         return;
     }
     formattingToolbarVisible_ = visible;
-    animateFormattingToolbar(visible);
+    // ChatArea owns the floating toolbar geometry and its animation.
+    // No child of the composer layout changes height on a focus transition.
+    emit formattingToolbarVisibilityChanged(visible);
 }
 
 void MessageTextEditWidget::setFormattingToolbarPreferredVisible(bool visible)
