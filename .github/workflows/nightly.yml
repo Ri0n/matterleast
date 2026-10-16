@@ -1,6 +1,6 @@
 name: Nightly release
 
-# Initial push bootstraps the first run; later runs can be manual or scheduled.
+# The first merge of this new publication layout bootstraps the rolling release.
 on:
   push:
     branches: [master]
@@ -13,20 +13,21 @@ permissions:
   actions: read
   contents: read
 
+# Do not let an older job replace a newer nightly pointer or prune its assets.
 concurrency:
   group: matterleast-nightly-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   identity:
-    name: Resolve immutable nightly identity
+    name: Resolve unique nightly build identity
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.identity.outputs.tag }}
+      build_id: ${{ steps.identity.outputs.build_id }}
     steps:
       - uses: actions/checkout@v7
-      - name: Resolve latest stable version
+      - name: Resolve latest stable version for CMake
         id: stable
         shell: bash
         env:
@@ -41,21 +42,14 @@ jobs:
         uses: ./.github/actions/prepare-version
         with:
           version: ${{ steps.stable.outputs.tag }}
-      - name: Create unique nightly release tag
+      - name: Create unique build identity, not a GitHub Release
         id: identity
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="nightly-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:12}"
-          [[ "$tag" =~ ^nightly-[0-9]{8}-[0-9]{6}-[0-9a-f]{12}$ ]]
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Nightly tag already exists: $tag"
-            exit 1
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Nightly $tag for $GITHUB_SHA"
+          build_id="nightly-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:12}"
+          [[ "$build_id" =~ ^nightly-[0-9]{8}-[0-9]{6}-[0-9a-f]{12}$ ]]
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
 
   packages:
     name: Build and test nightly packages
@@ -64,112 +58,174 @@ jobs:
     with:
       version: ${{ needs.identity.outputs.version }}
 
-  release:
-    name: Publish immutable nightly release
+  publish:
+    name: Stage packages, verify digests, then promote pointer
     needs: [identity, packages]
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
     steps:
-      - name: Download nightly build artifacts
+      - uses: actions/checkout@v7
+      - name: Download artifacts from this workflow run
         uses: actions/download-artifact@v7
         with:
           pattern: matterleast-*
           path: release-assets
           merge-multiple: true
-      - name: Verify complete nightly payload
+      - name: Validate and rename the twelve packages
         shell: bash
         env:
           VERSION: ${{ needs.identity.outputs.version }}
+          BUILD_ID: ${{ needs.identity.outputs.build_id }}
         run: |
           set -euo pipefail
           expected=(
-            "matterleast-${VERSION}-ubuntu-22.04-amd64.deb"
-            "matterleast-${VERSION}-ubuntu-22.04-amd64-dbgsym.deb"
-            "matterleast-${VERSION}-ubuntu-24.04-amd64.deb"
-            "matterleast-${VERSION}-ubuntu-24.04-amd64-dbgsym.deb"
-            "matterleast-${VERSION}-ubuntu-26.04-amd64.deb"
-            "matterleast-${VERSION}-ubuntu-26.04-amd64-dbgsym.deb"
-            "matterleast-${VERSION}-debian-13-amd64.deb"
-            "matterleast-${VERSION}-debian-13-amd64-dbgsym.deb"
-            "matterleast-${VERSION}-fedora-44-x86_64.rpm"
-            "matterleast-${VERSION}-linux-x86_64.AppImage"
-            "matterleast-${VERSION}-windows-x64-installer.exe"
-            "matterleast-${VERSION}-windows-x64-portable.zip"
+            ubuntu-22.04-amd64.deb ubuntu-22.04-amd64-dbgsym.deb
+            ubuntu-24.04-amd64.deb ubuntu-24.04-amd64-dbgsym.deb
+            ubuntu-26.04-amd64.deb ubuntu-26.04-amd64-dbgsym.deb
+            debian-13-amd64.deb debian-13-amd64-dbgsym.deb
+            fedora-44-x86_64.rpm linux-x86_64.AppImage
+            windows-x64-installer.exe windows-x64-portable.zip
           )
-          for asset in "${expected[@]}"; do
-            test -s "release-assets/$asset" || {
-              echo "::error::Missing or empty nightly asset: $asset"
-              exit 1
-            }
+          mkdir -p publish-assets
+          for suffix in "${expected[@]}"; do
+            source="release-assets/matterleast-${VERSION}-${suffix}"
+            test -s "$source" || { echo "::error::Missing or empty $source"; exit 1; }
+            cp -- "$source" "publish-assets/matterleast-${VERSION}-${BUILD_ID}-${suffix}"
           done
-          count=$(find release-assets -maxdepth 1 -type f | wc -l)
-          [[ "$count" -eq "${#expected[@]}" ]] || exit 1
-          ls -lh release-assets/
-      - name: Create immutable nightly prerelease
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 12
+          test "$(find publish-assets -maxdepth 1 -type f | wc -l)" -eq 12
+
+      - name: Read previous pointer and reject stale publications
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          NIGHTLY_TAG: ${{ needs.identity.outputs.tag }}
-        run: |
-          set -euo pipefail
-          gh release create "$NIGHTLY_TAG" release-assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --prerelease \
-            --title "MatterLeast $NIGHTLY_TAG" \
-            --notes "Development build from source commit $GITHUB_SHA. Use the release tag to distinguish builds with identical numeric versions."
-          gh release view "$NIGHTLY_TAG" --repo "$GITHUB_REPOSITORY" \
-            --json isDraft,isPrerelease,assets \
-            | jq -e '.isDraft == false and .isPrerelease == true and ([.assets[].name] | length == 12)'
-
-  update_channel:
-    name: Promote nightly Windows update pointer
-    needs: [identity, release]
-    permissions:
-      contents: write
-    uses: ./.github/workflows/update-channel.yml
-    with:
-      channel: nightly
-      release_tag: ${{ needs.identity.outputs.tag }}
-
-  verify:
-    name: Verify published nightly update pointer
-    needs: [identity, update_channel]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Compare published JSON with immutable release ZIP
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NIGHTLY_TAG: ${{ needs.identity.outputs.tag }}
+          BUILD_ID: ${{ needs.identity.outputs.build_id }}
           VERSION: ${{ needs.identity.outputs.version }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" > pointer.json
-          jq -e '.draft == false and .prerelease == true and ([.assets[].name] == ["windows-x64.json"])' pointer.json
+          if gh release view updates-nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mkdir -p previous
+            gh release download updates-nightly --repo "$GITHUB_REPOSITORY" \
+              --pattern windows-x64.json --dir previous
+          fi
+          args=()
+          if [[ -f previous/windows-x64.json ]]; then
+            args+=(--previous previous/windows-x64.json)
+          fi
+          python3 scripts/make-windows-update-manifest.py \
+            --channel nightly --build-id "$BUILD_ID" \
+            --asset "publish-assets/matterleast-${VERSION}-${BUILD_ID}-windows-x64-portable.zip" \
+            --output windows-x64.json "${args[@]}"
+          python3 -m unittest discover -s tests -p test_windows_update_manifest.py -v
+          python3 -m unittest discover -s tests -p test_prune_nightly_assets.py -v
+
+      - name: Create rolling nightly release if missing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view updates-nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create updates-nightly --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --prerelease \
+              --title 'Windows update channel: nightly (rolling packages)' \
+              --notes 'Rolling nightly packages and windows-x64.json. Packages retain unique build IDs. Stable releases are separate.'
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" \
+            | jq -e '.draft == false and .prerelease == true'
+
+      - name: Upload immutable-named nightly packages (never clobber)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload updates-nightly publish-assets/* --repo "$GITHUB_REPOSITORY"
+
+      - name: Verify all twelve uploaded assets before promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" > release.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          release = json.loads(Path("release.json").read_text())
+          assert release["tag_name"] == "updates-nightly" and release["prerelease"] and not release["draft"]
+          assets = release["assets"]
+          files = list(Path("publish-assets").iterdir())
+          assert len(files) == 12
+          for path in files:
+              matches = [a for a in assets if a["name"] == path.name]
+              assert len(matches) == 1, f"Release missing {path.name}"
+              remote = matches[0]
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              assert remote["size"] == path.stat().st_size
+              assert remote["digest"] == f"sha256:{digest}", f"Digest mismatch: {path.name}"
+              assert remote["browser_download_url"] == (
+                  f"https://github.com/Ri0n/matterleast/releases/download/updates-nightly/{path.name}"
+              )
+          print("Verified all twelve GitHub release asset digests and sizes")
+          PY
+
+      - name: Promote manifest only after all packages are available
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload updates-nightly windows-x64.json \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  verify:
+    name: Verify published nightly pointer and its ZIP
+    needs: [identity, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read back actual GitHub published assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_ID: ${{ needs.identity.outputs.build_id }}
+          VERSION: ${{ needs.identity.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" > release.json
           mkdir -p downloaded
-          gh release download updates-nightly --repo "$GITHUB_REPOSITORY" \
-            --pattern windows-x64.json --dir downloaded
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$NIGHTLY_TAG" > nightly.json
+          for attempt in 1 2 3; do
+            if gh release download updates-nightly --repo "$GITHUB_REPOSITORY" \
+                --pattern windows-x64.json --dir downloaded --clobber; then
+              break
+            fi
+            sleep 3
+          done
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
+
+          release = json.loads(Path("release.json").read_text())
           manifest = json.loads(Path("downloaded/windows-x64.json").read_text())
-          release = json.loads(Path("nightly.json").read_text())
-          tag, version = os.environ["NIGHTLY_TAG"], os.environ["VERSION"]
-          name = f"matterleast-{version}-windows-x64-portable.zip"
-          matches = [a for a in release["assets"] if a["name"] == name]
-          assert len(matches) == 1
-          asset = matches[0]
+          build = os.environ["BUILD_ID"]
+          version = os.environ["VERSION"]
+          filename = f"matterleast-{version}-{build}-windows-x64-portable.zip"
+          matching = [a for a in release["assets"] if a["name"] == filename]
+          assert len(matching) == 1
+          asset = matching[0]
           assert asset["digest"] and asset["digest"].startswith("sha256:")
+          assert release["tag_name"] == "updates-nightly"
           assert release["prerelease"] and not release["draft"]
           assert manifest["schema"] == 1
           assert manifest["channel"] == "nightly"
           assert manifest["platform"] == "windows-x64"
-          assert manifest["releaseTag"] == tag
+          assert manifest["releaseTag"] == "updates-nightly"
+          assert manifest["buildId"] == build
           assert manifest["version"] == version
           assert manifest["minimumLauncherProtocol"] == 1
           assert manifest["package"] == {
@@ -178,5 +234,43 @@ jobs:
               "size": asset["size"],
               "sha256": asset["digest"].removeprefix("sha256:"),
           }
-          print(f"Verified nightly pointer {tag}")
+          print(f"Verified rolling nightly {build}, {filename}")
           PY
+
+  cleanup:
+    name: Prune old packages and expired legacy nightly releases
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate conservative seven-day retention plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" > release.json
+          mkdir -p current
+          gh release download updates-nightly --repo "$GITHUB_REPOSITORY" \
+            --pattern windows-x64.json --dir current
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | @json' > legacy.ndjson
+          python3 scripts/prune-nightly-assets.py \
+            --release release.json --pointer current/windows-x64.json \
+            --legacy legacy.ndjson --output prune-plan.json
+          python3 -m unittest discover -s tests -p test_prune_nightly_assets.py -v
+      - name: Delete only assets and releases selected by retention policy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r asset_id; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+          done < <(jq -r '.asset_ids[]' prune-plan.json)
+          while IFS= read -r old_tag; do
+            gh release delete "$old_tag" --repo "$GITHUB_REPOSITORY" \
+              --yes --cleanup-tag
+          done < <(jq -r '.legacy_release_tags[]' prune-plan.json)
