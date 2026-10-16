@@ -30,6 +30,7 @@
 #include <QInputDialog>
 #include <QPointer>
 #include <QStackedWidget>
+#include <QTimer>
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
@@ -150,8 +151,12 @@ ChannelTree::ChannelTree (QWidget* parent)
 
 	connect (this, &QTreeWidget::currentItemChanged, this,
              [this] (QTreeWidgetItem* item, QTreeWidgetItem*) {
-        activateChannelItem(item);
-	});
+        // Reconciliation can temporarily change selection while moving rows;
+        // never interpret those internal updates as user navigation.
+        if (!renderingSidebar) {
+            activateChannelItem(item);
+        }
+    });
 
     connect(this, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
         if (!renderingSidebar) {
@@ -637,17 +642,29 @@ void ChannelTree::activateChannelItem(QTreeWidgetItem* item)
         }
     }
 
-    // A search hit may not belong to any current sidebar category. Once
-    // opened, promote it to Direct Messages so clearing the filter retains
-    // the conversation like an ordinary recently activated DM/GM.
+    // Search-only DM/GM rows must be admitted to the regular sidebar after
+    // opening. currentItemChanged runs *inside* Qt's selection notification:
+    // reconciling synchronously detaches items while Qt is still updating its
+    // model indexes, which can crash in QTreeWidgetItem::takeChild().
     if (backendForSidebar) {
         auto& sidebar = SidebarService::instance(*backendForSidebar);
         if (sidebar.conversationSearchActive()) {
-            if (BackendChannel* selected = backendForSidebar->getStorage().getChannelById(
-                    item->data(0, ItemIdRole).toString())) {
+            const QString channelId = item->data(0, ItemIdRole).toString();
+            if (BackendChannel* selected =
+                    backendForSidebar->getStorage().getChannelById(channelId)) {
                 if (selected->type == BackendChannel::directChannel
                     || selected->type == BackendChannel::groupChannel) {
-                    admitStoredConversation(*selected);
+                    // Capture an ID, not a row/channel pointer: they may be
+                    // replaced before this event-loop turn completes.
+                    QTimer::singleShot(0, this, [this, channelId] {
+                        if (!backendForSidebar) {
+                            return;
+                        }
+                        if (BackendChannel* stored =
+                                backendForSidebar->getStorage().getChannelById(channelId)) {
+                            admitStoredConversation(*stored);
+                        }
+                    });
                 }
             }
         }
