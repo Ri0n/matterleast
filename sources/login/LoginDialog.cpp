@@ -23,6 +23,7 @@
 
 #include "backend/Backend.h"
 #include "log.h"
+#include <QPointer>
 #include <QTimer>
 #include "ui/IconUtils.h"
 
@@ -101,7 +102,9 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
     ui->loginInProgressLabel->show();
 
     LOG_DEBUG ("LoginDialog login");
-    backend.login(loginData, [this, loginData](const QString& token) mutable {
+    QPointer<LoginDialog> guard(this);
+    backend.login(loginData, [this, guard, loginData](const QString& token) mutable {
+        if (!guard) return;
         _attemptInProgress = false;
         if (!token.isEmpty()) {
             _autoLoginRetryTimer.stop();

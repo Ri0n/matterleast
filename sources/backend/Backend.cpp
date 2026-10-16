@@ -215,9 +215,15 @@ QString replyHeadersForUploadTrace(const QNetworkReply& reply)
 
 void Backend::login (const BackendLoginData& credentials, std::function<void(const QString&)> callback)
 {
+    const bool restartingAfterFailure = _lastLoginFailureTransient;
     _lastLoginFailureTransient = false;
-	loginData = credentials;
-	NetworkRequest::setHost (credentials.domain);
+    loginData = credentials;
+    NetworkRequest::setHost(credentials.domain);
+    if (restartingAfterFailure) {
+        // There is no WebSocket yet to signal a route change during offline
+        // startup. Force fresh HTTP connections for each automatic retry.
+        httpConnector.restartTransport();
+    }
 
 	if (!credentials.token.isEmpty()) {
 
