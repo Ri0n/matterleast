@@ -87,3 +87,17 @@ such explicit values and fills only missing common headers.
 Use the `mattermost.upload` trace for attachment transport comparison. It
 records Qt/SSL versions, negotiated TLS/cipher, whether HTTP/2 was used, and
 sanitized request/response headers. Authentication and CSRF values are redacted.
+
+## Offline startup and saved-session recovery
+
+The login dialog never considers a persisted token sufficient proof of
+authentication. `/users/me` must return a successful HTTP response containing
+a nonempty user ID before `Backend::loginSuccess()` mutates Storage, starts
+WebSocket or allows the main window to be constructed.
+
+Saved-token auto-login retries transient DNS/transport failures and temporary
+HTTP 408/429/5xx responses every three seconds while keeping the login dialog
+open. Invalid/expired credentials (401/403 and other permanent client errors)
+stop automatic attempts and return control to manual login. A manual login
+cancels any pending automatic retry. This prevents partial main-window
+initialization that cannot recover by merely establishing WebSocket later.

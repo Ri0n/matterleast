@@ -20,6 +20,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QTimer>
 #include "backend/types/BackendLoginData.h"
 
 namespace Ui {
@@ -47,6 +48,10 @@ private:
 
 	Backend&			backend;
 	Ui::LoginDialog*	ui;
+    QTimer _autoLoginRetryTimer;
+    BackendLoginData _savedLoginData;
+    bool _autoLoginEnabled = false;
+    bool _attemptInProgress = false;
 };
 
 } /* namespace Mattermost */

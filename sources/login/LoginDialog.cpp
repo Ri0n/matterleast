@@ -23,6 +23,8 @@
 
 #include "backend/Backend.h"
 #include "log.h"
+#include <QPointer>
+#include <QTimer>
 #include "ui/IconUtils.h"
 
 namespace Mattermost {
@@ -51,8 +53,17 @@ LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
 	ui->icon->setPixmap (IconUtils::applicationIcon().pixmap (QSize (64, 64)));
 	ui->loginInProgressLabel->hide();
 
+    _autoLoginRetryTimer.setSingleShot(true);
+    connect(&_autoLoginRetryTimer, &QTimer::timeout, this, [this] {
+        if (_autoLoginEnabled && !_attemptInProgress) {
+            loginToServer(_savedLoginData);
+        }
+    });
+
 	//if all data is available in the settings, use it for the login
 	if (backend.autoLoginEnabled() && loginData.areAllFieldsFilled()) {
+        _autoLoginEnabled = true;
+        _savedLoginData = loginData;
 		loginToServer (loginData);
 	}
 }
@@ -64,6 +75,9 @@ LoginDialog::~LoginDialog()
 
 void LoginDialog::on_login_pushButton_clicked()
 {
+    _autoLoginEnabled = false;
+    _autoLoginRetryTimer.stop();
+    if (_attemptInProgress) return;
 	BackendLoginData loginData;
 
 	loginData.domain = ui->domain_lineEdit->text();
@@ -78,6 +92,8 @@ void LoginDialog::on_login_pushButton_clicked()
 
 void LoginDialog::loginToServer (const BackendLoginData& loginData)
 {
+    if (_attemptInProgress) return;
+    _attemptInProgress = true;
     ui->domain_lineEdit->setEnabled(false);
     ui->username_lineEdit->setEnabled(false);
     ui->password_lineEdit->setEnabled(false);
@@ -86,29 +102,51 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
     ui->loginInProgressLabel->show();
 
     LOG_DEBUG ("LoginDialog login");
-    backend.login (loginData, [this, loginData = loginData] (const QString& token) mutable {
+    QPointer<LoginDialog> guard(this);
+    backend.login(loginData, [this, guard, loginData](const QString& token) mutable {
+        if (!guard) return;
+        _attemptInProgress = false;
+        if (!token.isEmpty()) {
+            _autoLoginRetryTimer.stop();
+            _autoLoginEnabled = false;
+            if (loginData.token.isEmpty()) {
+                BackendLoginData saved = loginData;
+                saved.token = token;
+                saved.saveToOptions();
+            }
+            accept();
+            return;
+        }
 
-		//token already saved. If the callback is called, the login is ok
-		if (!loginData.token.isEmpty()) {
-			accept ();
-			return;
-		}
+        if (_autoLoginEnabled && backend.lastLoginFailureTransient()) {
+            // Auto-login is an offline-capable startup path: stay in the
+            // login dialog until /users/me returned a valid user identity.
+            // Never create a partially initialized MainWindow.
+            ui->loginInProgressLabel->setText(
+                tr("Server unavailable. Retrying saved session…"));
+            _autoLoginRetryTimer.start(3000);
+            return;
+        }
 
-		if (token.isEmpty()) {
-			setError ("Unable to login using the saved token. Please enter your login credentials.");
-			return;
-		}
-
-		loginData.token = token;
-		loginData.saveToOptions ();
-		accept();
-	});
+        _autoLoginEnabled = false;
+        _autoLoginRetryTimer.stop();
+        setError(loginData.token.isEmpty()
+            ? tr("Login failed. Check your credentials or network connection.")
+            : tr("Saved session rejected. Please sign in again."));
+        ui->loginInProgressLabel->hide();
+    });
 }
 
 void LoginDialog::onNetworkError (uint32_t errorNumber, const QString& errorText)
 {
-	qCritical() << "Net error: " << errorNumber << ": " << errorText;
-    setError ("Network Error: " + errorText);
+    qCritical() << "Net error: " << errorNumber << ": " << errorText;
+    if (_autoLoginEnabled) {
+        // Keep the manual form disabled until the saved-session attempt
+        // finishes; its callback owns the retry timer and error state.
+        ui->error_label->setText(tr("Network error: %1").arg(errorText));
+        return;
+    }
+    setError("Network Error: " + errorText);
     ui->loginInProgressLabel->hide();
 }
 

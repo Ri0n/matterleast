@@ -592,7 +592,15 @@ void SidebarService::retrieveChannelMemberships(std::function<void()> callback)
             + QStringLiteral("&per_page=") + QString::number(channelMembershipsPerPage));
 
         httpConnector.get(request, HttpResponseCallback(
-            [this, memberships, fetchPage, page](const QJsonDocument& doc) {
+            [this, memberships, fetchPage, page](QVariant status,
+                                                  const QJsonDocument& doc) {
+                if (status.toInt() != QNetworkReply::NoError || !doc.isArray()) {
+                    membershipsLoading = false;
+                    QTimer::singleShot(5000, this, [this] {
+                        retrieveChannelMemberships();
+                    });
+                    return;
+                }
                 const QJsonArray pageMemberships = doc.array();
                 for (const auto& value : pageMemberships) {
                     memberships->push_back(value);
@@ -682,7 +690,15 @@ void SidebarService::retrieveChannelPreferences(std::function<void()> callback)
     }
 
     NetworkRequest request(QStringLiteral("users/") + currentUserId() + QStringLiteral("/preferences"));
-    httpConnector.get(request, HttpResponseCallback([this](const QJsonDocument& doc) {
+    httpConnector.get(request, HttpResponseCallback(
+        [this](QVariant status, const QJsonDocument& doc) {
+        if (status.toInt() != QNetworkReply::NoError || !doc.isArray()) {
+            preferencesLoading = false;
+            QTimer::singleShot(5000, this, [this] {
+                retrieveChannelPreferences();
+            });
+            return;
+        }
         QMap<QString, uint64_t> approximateViewTimes;
         QMap<QString, uint64_t> openTimes;
         directChannelVisibility.clear();

@@ -28,11 +28,18 @@ Notifications for a currently active channel are also suppressed, as before.
 
 - New DM/GM root messages keep their existing notification behavior, regardless
   of the channel-root setting.
-- Thread replies never consult the channel-root setting or Favorites.
-  The existing mention-driven desktop-notification path is unchanged.
-- Following/Attention membership, unread counters and read tracking are
-  separate from desktop notification eligibility. Do not infer notification
-  preferences from Following UI state.
+- Thread replies do not consult the channel-root setting or Favorites.
+  Replies notify if they mention the user **or** their thread belongs to the
+  loaded server-backed Following snapshot. Synthetic root-mention markers
+  are not treated as followed threads.
+- The global muted-channel and own-post suppressions still apply to replies.
+  Unread counters, Attention and read tracking remain separate from desktop
+  notification eligibility.
+- A notification is suppressed only if its **exact channel or thread**
+  is actually visible in a focused top-level window. Merely having the parent
+  channel selected, a hidden thread tab, or an unfocused MatterLeast window
+  does not suppress a notification. Docked and detached visible threads
+  follow the same rule.
 
 The setting is persisted as integer
 `notifications/channelRootMode` in `MLOptions` and read for each incoming root
@@ -43,3 +50,13 @@ restarting. Unknown persisted values fall back to mode 1.
 
 `RootNotificationPolicyTest` covers the three-mode Cartesian matrix of
 mention/Favorites states, preservation of DM/GM notifications, and the default.
+
+## Linux desktop identity
+
+The Qt desktop-file name, freedesktop notification icon, and
+`desktop-entry` hint all use `io.github.Ri0n.MatterLeast`, matching the
+installed `.desktop` file. The previous `mattermost-qt` notification identity
+was stale after renaming. Running an uninstalled build from a source checkout
+can still log a desktop-portal registration warning because there is no
+corresponding installed desktop entry; that warning alone does not establish
+that notifications were filtered by the application's policy.

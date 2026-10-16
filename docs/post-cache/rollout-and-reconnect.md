@@ -94,11 +94,21 @@ immediate retry loop. Overlapping/adjacent logical demand may attach to a compat
 source request, but that attachment does not grow into a FIFO prefetch chain; a distant fast-scroll
 request remains free to start independently.
 
-WebSocket reconnect uses the same bounded-working-set rule. A successful Mattermost sequence resume
-requires no HTTP history replay. If reliable replay explicitly fails, only the currently viewed
-conversation is validated immediately; inactive joined channels are left lazy and are validated when
-opened. This prevents a reconnect from filling either the network queue or the post cache with
-channels the user is not reading.
+WebSocket reconnect uses the same bounded-working-set rule. The current channel
+continues to receive a bounded history fallback when replay explicitly fails.
+Additionally, every *materialized* thread source requests its authoritative newest
+thread page on reconnect, and every materialized channel source validates its
+newest page, regardless of whether the server preserved the WebSocket sequence.
+This repairs missed messages after suspend without recreating views; unopened
+and inactive channel objects are not enumerated. Repeated reconnect signals
+coalesce per thread source, and logical identity reconciliation does not reset
+the original viewport position.
+
+Bootstrap HTTP failures are not valid empty snapshots. Team and channel-membership
+loading now retry failed requests, and the sidebar's membership/preference
+loaders retain pending callbacks until successful responses. A WebSocket reconnect
+also refreshes every HTTPConnector transport so long-lived sidebar requests do
+not remain pinned to a dead network path.
 
 Cache admission follows user interest rather than membership. By default a channel is eligible for
 resident-memory post caching for one hour after it was viewed, and for persistent SQLite post caching

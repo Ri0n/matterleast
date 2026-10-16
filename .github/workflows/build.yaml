@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           test "$(qmake6 -query QT_VERSION)" = 6.8.2
           cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DQT_6=ON -DBUILD_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
             "-DMATTERLEAST_DEBIAN_EXTRA_DEPENDS=libqt6svg6, qt6-svg-plugins"
           cmake --build build --parallel 4
@@ -56,13 +56,22 @@ jobs:
           deb=$(find package -maxdepth 1 -name '*.deb' -print -quit)
           test -n "$deb"
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
-          mv "$deb" "package/matterleast-${version}-debian-13-amd64.deb"
+          runtime="package/matterleast-${version}-debian-13-amd64.deb"
+          symbols="package/matterleast-${version}-debian-13-amd64-dbgsym.deb"
+          mv "$deb" "$runtime"
+          bash scripts/package-deb-debug.sh "$runtime" "$symbols"
+          test "$(dpkg-deb -f "$symbols" Package)" = matterleast-dbgsym
+          test "$(dpkg-deb -f "$symbols" Version)" = "$version"
+          test "$(dpkg-deb -f "$symbols" Depends)" = "matterleast (= $version)"
+          dpkg-deb --contents "$symbols" | grep -F '/usr/lib/debug/usr/bin/matterleast.debug'
 
       - name: Upload Debian 13 test package
         uses: actions/upload-artifact@v4
         with:
           name: matterleast-debian-13-amd64
-          path: package/matterleast-*-debian-13-amd64.deb
+          path: |
+            package/matterleast-*-debian-13-amd64.deb
+            package/matterleast-*-debian-13-amd64-dbgsym.deb
           if-no-files-found: error
 
   ubuntu-2404:

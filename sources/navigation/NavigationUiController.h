@@ -81,6 +81,9 @@ public:
     ~NavigationUiController() override;
 
     ChatArea* findThread(const QString& channelId, const QString& rootId) const;
+    /** Whether the exact conversation is visible in a focused window. */
+    bool isConversationVisible(const QString& channelId,
+                               const QString& rootId) const;
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
     void openInTab(const QString& channelId,

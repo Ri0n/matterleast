@@ -141,12 +141,13 @@ bool NotificationManager::showFreedesktop(const QString& title, const QString& b
         actions << QStringLiteral("default") << tr("Open");
     }
     const QVariantMap hints {
-        {QStringLiteral("desktop-entry"), QStringLiteral("mattermost-qt")},
+        {QStringLiteral("desktop-entry"),
+         QStringLiteral("io.github.Ri0n.MatterLeast")},
     };
     const QList<QVariant> arguments {
         qApp->applicationName(),
         QVariant::fromValue(uint(0)),
-        QStringLiteral("mattermost-qt"),
+        QStringLiteral("io.github.Ri0n.MatterLeast"),
         title,
         body,
         actions,

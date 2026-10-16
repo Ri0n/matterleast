@@ -46,6 +46,7 @@
 #include "backend/Backend.h"
 #include "backend/CustomStatusValidation.h"
 #include "backend/PendingPostService.h"
+#include "backend/FollowingModel.h"
 #include "navigation/NavigationUiController.h"
 #include "navigation/ConversationReference.h"
 #include "backend/SidebarService.h"
@@ -945,31 +946,30 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
                 sidebar.isChannelFavorite(channel), mode)) {
             return;
         }
-	} else if (!post.currentUserMentioned) {
-		// Until full followed-thread desktop notification preferences are modeled,
-		// keep thread notifications mention-driven just as before.
-		return;
-	}
+    } else {
+        const FollowingModel::Entry* followed =
+            FollowingModel::instance(backend).findEntry(channel.id, post.root_id);
+        if (!shouldNotifyThreadReply(post.currentUserMentioned,
+                followed && followed->isThread() && !followed->synthetic)) {
+            return;
+        }
+    }
 
-	if (post.root_id.isEmpty()) {
-		if (isActiveWindow() && ui->channelList->isChannelActive(channel)) {
-			return;
-		}
-	} else {
-		ChatArea* parentArea = ui->channelList->getCurrentPage();
-		if (parentArea && &parentArea->getChannel() == &channel) {
-			for (ChatArea* threadArea : parentArea->threadsAreas) {
-				if (threadArea && threadArea->root_id == post.root_id
-					&& threadArea->isActiveWindow()) {
-					return;
-				}
-			}
-		}
-	}
+    // A parent channel, another central tab and a docked/detached thread are
+    // independent reading surfaces. Suppress only when this exact destination
+    // is visibly presented in its focused window, not merely because a parent
+    // channel is selected somewhere in the sidebar.
+    if (NavigationUiController::instance(*this).isConversationVisible(
+            channel.id, post.root_id)) {
+        return;
+    }
 
 	QString title;
 	if (!post.root_id.isEmpty()) {
-		title = post.getDisplayAuthorName() + " mentioned you in a thread";
+        title = post.getDisplayAuthorName()
+            + (post.currentUserMentioned
+                ? " mentioned you in a thread"
+                : " replied in a followed thread");
 	} else if (channel.type == BackendChannel::directChannel) {
 		title = post.getDisplayAuthorName() + " messaged you";
 	} else {

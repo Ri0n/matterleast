@@ -20,6 +20,18 @@ inline ChannelRootNotificationMode channelRootNotificationModeFromSetting(int va
     }
 }
 
+// Replies in Following are explicitly subscribed to, independently of
+// channel-root Favorites preferences. Mentions remain universally eligible.
+inline bool shouldNotifyThreadReply(bool mentioned, bool followed)
+{
+    return mentioned || followed;
+}
+
+inline bool shouldSuppressVisibleNotification(bool focused, bool visible)
+{
+    return focused && visible;
+}
+
 inline bool shouldNotifyRootPost(bool directConversation,
                                  bool mentioned,
                                  bool favorite,

@@ -56,6 +56,7 @@ public:
 	explicit Backend (QObject *parent = nullptr);
 
 	bool autoLoginEnabled ();
+    bool lastLoginFailureTransient() const { return _lastLoginFailureTransient; }
 
 	void reset ();
 
@@ -303,6 +304,8 @@ signals:
     void onHttpError (uint32_t errorNumber, const QString& errorText);
 
     void onWebSocketConnect ();
+    /** Socket reconnection warrants bounded recovery for materialized thread timelines. */
+    void onRealtimeRecovered();
     void onWebSocketDisconnect ();
     void onWebSocketConnectionStateChanged(WebSocketConnector::ConnectionState state);
 private:
@@ -324,6 +327,7 @@ private:
     QTimer 							timeoutTimer;
     bool							isLoggedIn;
     bool							autoLoginEnabledFlag;
+    bool _lastLoginFailureTransient = false;
     uint32_t						nonFilledTeams;
     uint64_t						lastStartTime;
     QAtomicInteger<unsigned>				avatarsLoaded;

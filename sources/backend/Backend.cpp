@@ -23,6 +23,7 @@
  */
 
 #include "Backend.h"
+#include "LoginResponsePolicy.h"
 
 #include <iostream>
 #include <utility>
@@ -93,10 +94,17 @@ Backend::Backend(QObject *parent)
 			 * Replace the HTTP transport before notifying listeners so their
 			 * onWebSocketConnect retries are issued on the new network path.
 			 */
-			httpConnector.restartTransport();
+			HTTPConnector::restartAllTransports();
 		}
 
 		emit onWebSocketConnect();
+
+        // A resumed websocket only guarantees a live event stream, not that
+        // all HTTP-fed thread projections caught up while the machine slept.
+        // Each instantiated thread source owns its own bounded tail resync.
+        if (isReconnect) {
+            emit onRealtimeRecovered();
+        }
 
 		// Reliable WebSocket replay covers normal reconnects. Only when the
 		// server explicitly started a new stream do we need a history fallback.
@@ -109,6 +117,7 @@ Backend::Backend(QObject *parent)
 	connect(&webSocketConnector, &WebSocketConnector::reliableResumeFailed,
 	        this, [this] {
 		LOG_DEBUG("Reliable WebSocket resume failed after authentication");
+        emit onRealtimeRecovered();
 		if (currentChannel) {
 			retrieveChannelPosts(*currentChannel, 0, 25);
 		}
@@ -206,8 +215,15 @@ QString replyHeadersForUploadTrace(const QNetworkReply& reply)
 
 void Backend::login (const BackendLoginData& credentials, std::function<void(const QString&)> callback)
 {
-	loginData = credentials;
-	NetworkRequest::setHost (credentials.domain);
+    const bool restartingAfterFailure = _lastLoginFailureTransient;
+    _lastLoginFailureTransient = false;
+    loginData = credentials;
+    NetworkRequest::setHost(credentials.domain);
+    if (restartingAfterFailure) {
+        // There is no WebSocket yet to signal a route change during offline
+        // startup. Force fresh HTTP connections for each automatic retry.
+        httpConnector.restartTransport();
+    }
 
 	if (!credentials.token.isEmpty()) {
 
@@ -245,6 +261,9 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 #endif
 	json.setObject(jsonRoot);
 
+    // A password login must not accidentally reuse a previously rejected
+    // Bearer/cookie token from a failed saved-session attempt.
+    NetworkRequest::clearToken();
 	NetworkRequest request ("users/login");
 
 	//debugRequest (request, data);
@@ -303,20 +322,31 @@ bool Backend::autoLoginEnabled ()
 
 void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply, std::function<void (const QString&)> callback)
 {
-#if 1
-	QString jsonString = doc.toJson(QJsonDocument::Indented);
-	std::cout << "loginUser: " << jsonString.toStdString() << std::endl;
-#endif
-	BackendUser* loginUser = storage.addUser (doc.object(), true);
-	loginUser->isLoginUser = true;
+    const LoginResponseValidation validation = validateLoginResponse(
+        reply.error(),
+        reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), doc);
+    _lastLoginFailureTransient = validation.retryable;
+    if (!validation.accepted) {
+        qWarning() << "Login identity fetch failed, retryable="
+                   << validation.retryable
+                   << "networkError=" << reply.error()
+                   << "status=" << reply.attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        if (callback) callback(QString());
+        return;
+    }
+    QByteArray issuedToken = reply.rawHeader("Token");
+    if (NetworkRequest::getToken().isEmpty() && issuedToken.isEmpty()) {
+        qWarning() << "Login rejected: server returned no session token";
+        if (callback) callback(QString());
+        return;
+    }
 
-	if (NetworkRequest::getToken().isEmpty()) {
-		NetworkRequest::setToken (reply.rawHeader ("Token"));
-	}
+    BackendUser* loginUser = storage.addUser(doc.object(), true);
+    loginUser->isLoginUser = true;
 
-	if (NetworkRequest::getToken().isEmpty()) {
-		qCritical() << "Login Token is empty. WebSocket communication may not work";
-	}
+    if (NetworkRequest::getToken().isEmpty()) {
+        NetworkRequest::setToken(issuedToken);
+    }
 
 	webSocketConnector.open (NetworkRequest::host() + "api/v4/", NetworkRequest::getToken());
 	isLoggedIn = true;
@@ -331,7 +361,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     }
 
 	//retrieveAllPublicTeams ();
-	callback (NetworkRequest::getToken());
+	if (callback) callback(NetworkRequest::getToken());
 }
 
 void Backend::reset ()
@@ -689,7 +719,15 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
 
     LOG_DEBUG ("retrieveOwnTeams request");
 
-    httpConnector.get (request, HttpResponseCallback ([this, callback] (const QJsonDocument& doc) {
+    httpConnector.get (request, HttpResponseCallback ([this, callback] (
+            const QJsonDocument& doc, const QNetworkReply& reply) {
+        if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+            LOG_DEBUG("retrieveOwnTeams failed; retrying in 5 seconds");
+            QTimer::singleShot(5000, this, [this, callback] {
+                if (isLoggedIn) retrieveOwnTeams(callback);
+            });
+            return;
+        }
     	LOG_DEBUG ("retrieveOwnTeams reply");
 		storage.teams.clear ();
 		nonFilledTeams = 0;
@@ -817,7 +855,16 @@ void Backend::retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::func
     NetworkRequest request ("users/me/teams/" + team.id + "/channels");
     QPointer<BackendTeam> teamGuard(&team);
 
-    httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (const QJsonDocument& doc) {
+    httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (
+            const QJsonDocument& doc, const QNetworkReply& reply) {
+        if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+            LOG_DEBUG("Channel memberships request failed; retrying in 5 seconds");
+            QTimer::singleShot(5000, this, [this, teamGuard, callback] {
+                if (isLoggedIn && teamGuard)
+                    retrieveOwnChannelMembershipsForTeam(*teamGuard, callback);
+            });
+            return;
+        }
         // A refreshed team snapshot may replace this QObject while HTTP is in
         // flight, even reusing its ID/address. Never apply the old response to
         // a destroyed team or decrement the new snapshot's startup counter.

@@ -64,6 +64,22 @@ private slots:
                  expected);
     }
 
+    void followedThreadNotifications()
+    {
+        QVERIFY(shouldNotifyThreadReply(true, false));
+        QVERIFY(shouldNotifyThreadReply(true, true));
+        QVERIFY(shouldNotifyThreadReply(false, true));
+        QVERIFY(!shouldNotifyThreadReply(false, false));
+    }
+
+    void onlySuppressExactVisibleFocusedDestination()
+    {
+        QVERIFY(shouldSuppressVisibleNotification(true, true));
+        QVERIFY(!shouldSuppressVisibleNotification(true, false));
+        QVERIFY(!shouldSuppressVisibleNotification(false, true));
+        QVERIFY(!shouldSuppressVisibleNotification(false, false));
+    }
+
     void directAndGroupMessagesUnchanged()
     {
         for (int mode = 0; mode <= 2; ++mode) {

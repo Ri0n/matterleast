@@ -96,6 +96,7 @@ private:
     void placeTail(const QStringList& ids);
     int estimatedIndexForPost(const BackendPost& post) const;
     void appendLiveReply(BackendPost& post);
+    void resyncAfterReconnect();
 
     Backend& backend;
     QString rootId;
@@ -108,6 +109,8 @@ private:
     // A confirmed newest-boundary overlap may prove that reply_count includes
     // unavailable replies. Preserve that proven delta across later root updates.
     int _unavailableReplyCount = 0;
+    bool _recoveryInFlight = false;
+    bool _recoveryPending = false;
     quint64 latestGeneration = 0;
     std::vector<std::weak_ptr<Demand>> activeDemands;
 };

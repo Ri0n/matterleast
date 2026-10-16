@@ -198,6 +198,9 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
     });
 
     QTimer::singleShot(0, this, [this] { hydrateCachedTail(); });
+
+    connect(&backend, &Backend::onRealtimeRecovered, this,
+            &ThreadPostSource::resyncAfterReconnect);
 }
 
 bool ThreadPostSource::isAvailable(int index) const
@@ -1545,6 +1548,34 @@ int ThreadPostSource::estimatedIndexForPost(const BackendPost& post) const
     const long double fraction = static_cast<long double>(post.create_at - oldest)
         / static_cast<long double>(newest - oldest);
     return 1 + static_cast<int>(std::llround(fraction * (count - 2)));
+}
+
+void ThreadPostSource::resyncAfterReconnect()
+{
+    if (_recoveryInFlight) {
+        _recoveryPending = true;
+        return;
+    }
+    _recoveryInFlight = true;
+    QPointer<ThreadPostSource> guard(this);
+    // The request deliberately targets the authoritative newest boundary.
+    // No current-channel pointer or visible widget is required, so detached
+    // and tabbed thread sources can catch up independently.
+    PostTimelineService::instance(backend).loadThreadTail(
+        channel, rootId, ServerBlockSize, [guard](const PostTimelineService::Page& page) {
+        if (!guard) return;
+        guard->_recoveryInFlight = false;
+        if (page.success && !page.postIds.isEmpty()) {
+            guard->rememberCursorCreateAt(page.createAtById);
+            guard->placeTail(page.postIds);
+        }
+        if (guard->_recoveryPending) {
+            guard->_recoveryPending = false;
+            QTimer::singleShot(0, guard.data(), [guard] {
+                if (guard) guard->resyncAfterReconnect();
+            });
+        }
+    });
 }
 
 void ThreadPostSource::appendLiveReply(BackendPost& post)

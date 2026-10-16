@@ -97,6 +97,8 @@ private:
     void seedUnknownNewestPost();
     void hydrateCachedTail();
     void validateCachedTail();
+    void resyncAfterReconnect();
+    void resyncAfterCursor(const QString& cursor);
     void removeLogicalRange(int first, int count);
     void placePage(int page, const QStringList& chronologicalIds);
     void probeEstimatedOldestBoundary(std::function<void()> completion);
@@ -123,6 +125,8 @@ private:
     // the signed difference so later metadata refreshes preserve that mapping.
     int rootCountAdjustment = 0;
     bool moreBeforeFirst = false;
+    bool _recoveryInFlight = false;
+    bool _recoveryPending = false;
     bool beforeRequestInFlight = false;
 
     // Shared reconciliation state lets concurrent top-edge/range requests wait

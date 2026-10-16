@@ -2,8 +2,14 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonDocument>
 #include <QSignalSpy>
 #include <QStandardPaths>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QUrlQuery>
+
+#include "backend/NetworkRequest.h"
 
 #include "backend/Backend.h"
 #include "backend/types/BackendChannel.h"
@@ -49,6 +55,72 @@ QJsonObject channelJson(int rootCount, qint64 lastRootAt)
     };
 }
 
+// Real localhost HTTP cursor endpoint. The test deliberately keeps the
+// channel's original root-count estimate stale after the server grows.
+class ChannelServer final : public QTcpServer
+{
+public:
+    int latest = 1;
+    QList<QUrl> requests;
+
+    ChannelServer()
+    {
+        connect(this, &QTcpServer::newConnection, this, [this] {
+            while (hasPendingConnections()) {
+                QTcpSocket* socket = nextPendingConnection();
+                connect(socket, &QTcpSocket::disconnected,
+                        socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket,
+                        [this, socket] {
+                    QByteArray bytes = socket->property("incoming").toByteArray()
+                        + socket->readAll();
+                    socket->setProperty("incoming", bytes);
+                    if (!bytes.contains("\r\n\r\n")
+                        || socket->property("answered").toBool()) return;
+                    socket->setProperty("answered", true);
+
+                    const QUrl url(QString::fromUtf8(bytes.split(' ').value(1)));
+                    requests.push_back(url);
+                    const QUrlQuery query(url);
+                    int first = 1;
+                    if (query.hasQueryItem(QStringLiteral("after"))) {
+                        const QString cursor =
+                            query.queryItemValue(QStringLiteral("after"));
+                        for (int i = 1; i <= latest; ++i) {
+                            if (postId(i) == cursor) {
+                                first = i + 1;
+                                break;
+                            }
+                        }
+                    } else {
+                        first = qMax(1, latest - 9);
+                    }
+                    QJsonObject posts;
+                    QJsonArray order;
+                    const int limit = query.queryItemValue(
+                        QStringLiteral("per_page")).toInt();
+                    int count = 0;
+                    for (int i = latest; i >= first && count < limit; --i) {
+                        order.append(postId(i));
+                        posts.insert(postId(i), rootPost(i));
+                        ++count;
+                    }
+                    const QByteArray json = QJsonDocument(QJsonObject {
+                        {QStringLiteral("order"), order},
+                        {QStringLiteral("posts"), posts}
+                    }).toJson(QJsonDocument::Compact);
+                    const QByteArray reply = QByteArrayLiteral(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Connection: close\r\nContent-Length: ")
+                        + QByteArray::number(json.size()) + "\r\n\r\n" + json;
+                    socket->write(reply);
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+    }
+};
+
 } // namespace
 
 class ChannelPostSourceLiveSyncTest : public QObject
@@ -59,6 +131,42 @@ private slots:
     void initTestCase()
     {
         QStandardPaths::setTestModeEnabled(true);
+    }
+
+    void recoveredConnectionFetchesMissedRootsInOrder()
+    {
+        ChannelServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        BackendChannel channel(
+            backend.getStorage(), channelJson(1, timestamp(1)));
+        QVERIFY(channel.addPost(rootPost(1)));
+        ChannelPostSource source(backend, channel);
+        QCOMPARE(source.itemCount(), 1);
+        // Let initial cache-tail validation finish against the old server
+        // snapshot before simulating messages that arrived during sleep.
+        QTRY_VERIFY(!server.requests.isEmpty());
+        QTest::qWait(30);
+        server.requests.clear();
+
+        server.latest = 4;
+        emit backend.onRealtimeRecovered();
+        QTRY_COMPARE(source.itemCount(), 4);
+        for (int i = 1; i <= 4; ++i) {
+            QCOMPARE(source.postIdAt(i - 1), postId(i));
+            QVERIFY(source.isAvailable(i - 1));
+        }
+        QCOMPARE(source.indexOfPost(postId(4)), 3);
+        bool fetchedSinceFirst = false;
+        for (const QUrl& request : server.requests) {
+            if (QUrlQuery(request).queryItemValue(QStringLiteral("after"))
+                == postId(1)) {
+                fetchedSinceFirst = true;
+            }
+        }
+        QVERIFY(fetchedSinceFirst);
     }
 
     void transientBackendEventExtendsSemanticTail()
