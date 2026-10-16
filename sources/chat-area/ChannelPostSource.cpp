@@ -148,7 +148,7 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
     // a safe, bounded page-zero reconciliation path; reuse it without opening
     // inactive channels or shifting the user's scroll position.
     connect(&backend, &Backend::onRealtimeRecovered,
-            this, &ChannelPostSource::validateCachedTail);
+            this, &ChannelPostSource::resyncAfterReconnect);
 }
 
 int ChannelPostSource::ensurePostIndex(const QString& postId)
@@ -1803,6 +1803,86 @@ void ChannelPostSource::hydrateCachedTail()
                 << " last=" << (first + usableCount - 1)
                 << " count=" << usableCount;
             guard->validateCachedTail();
+        });
+}
+
+void ChannelPostSource::resyncAfterReconnect()
+{
+    if (_recoveryInFlight) {
+        _recoveryPending = true;
+        return;
+    }
+
+    // The last mapped root is a semantic cursor: it proves which messages we
+    // already knew before sleep. A page-zero request alone can overwrite rows
+    // when the server's total_msg_count_root estimate was not refreshed.
+    QString cursor;
+    for (int i = static_cast<int>(postIds.size()) - 1; i >= 0; --i) {
+        const QString& candidate = postIds.at(i);
+        if (candidate.isEmpty()) continue;
+        if (provisionalPostIds.contains(candidate)) {
+            // A provisional permalink window is not an authoritative newest
+            // edge, so let the existing server-page reconciliation handle it.
+            validateCachedTail();
+            return;
+        }
+        cursor = candidate;
+        break;
+    }
+
+    if (cursor.isEmpty()) {
+        validateCachedTail();
+        return;
+    }
+
+    _recoveryInFlight = true;
+    resyncAfterCursor(cursor);
+}
+
+void ChannelPostSource::resyncAfterCursor(const QString& cursor)
+{
+    QPointer<ChannelPostSource> guard(this);
+    PostTimelineService::instance(backend).loadChannelAfter(
+        channel, cursor, ServerPageSize,
+        [guard, cursor](const PostTimelineService::Page& result) {
+            if (!guard) return;
+
+            if (result.success && !result.postIds.isEmpty()) {
+                const int anchor = guard->indexOfPost(cursor);
+                if (anchor >= 0) {
+                    const int start = anchor + 1;
+                    const int required = start + static_cast<int>(result.postIds.size());
+                    // The HTTP page may update channel metadata and reserve
+                    // empty logical slots first. Reuse those slots; only grow
+                    // the real tail if the server cursor proves more replies.
+                    if (required > guard->itemCount()) {
+                        guard->resizeLogicalTail(required);
+                    }
+                    guard->publishExactWindow(
+                        guard->assignExactWindow(start, result.postIds));
+                }
+            }
+
+            // One bounded request at a time. A full page might have more posts
+            // after its final identity; continue using that exact server cursor.
+            const QString last = result.postIds.isEmpty()
+                ? QString() : result.postIds.last();
+            if (result.success && result.postIds.size() == ServerPageSize
+                && !last.isEmpty() && last != cursor) {
+                QTimer::singleShot(100, guard.data(), [guard, last] {
+                    if (guard) guard->resyncAfterCursor(last);
+                });
+                return;
+            }
+
+            guard->_recoveryInFlight = false;
+            if (result.success) guard->validateCachedTail();
+            if (guard->_recoveryPending) {
+                guard->_recoveryPending = false;
+                QTimer::singleShot(0, guard.data(), [guard] {
+                    if (guard) guard->resyncAfterReconnect();
+                });
+            }
         });
 }
 

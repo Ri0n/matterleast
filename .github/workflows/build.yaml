@@ -63,7 +63,7 @@ jobs:
           test "$(dpkg-deb -f "$symbols" Package)" = matterleast-dbgsym
           test "$(dpkg-deb -f "$symbols" Version)" = "$version"
           test "$(dpkg-deb -f "$symbols" Depends)" = "matterleast (= $version)"
-          dpkg-deb --contents "$symbols" | grep -q '/usr/lib/debug/usr/bin/matterleast.debug'
+          dpkg-deb --contents "$symbols" | grep -F '/usr/lib/debug/usr/bin/matterleast.debug'
 
       - name: Upload Debian 13 test package
         uses: actions/upload-artifact@v4
