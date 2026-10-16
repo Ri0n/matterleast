@@ -66,6 +66,35 @@ QJsonObject post(int thread, int reply = 0)
     return result;
 }
 
+// The virtualized timeline can remeasure materialized posts after a direct
+// scrollbar move. Test the bookmark of a settled viewport, as a user would
+// see it, instead of racing the next geometry commit.
+bool captureSettledCenterBookmark(
+    ChatLogWidget* log, ChatLogWidget::SemanticViewportBookmark& result)
+{
+    if (!log) return false;
+    ChatLogWidget::SemanticViewportBookmark previous;
+    int consecutiveMatches = 0;
+    for (int attempt = 0; attempt < 30; ++attempt) {
+        QTest::qWait(50);
+        ChatLogWidget::SemanticViewportBookmark current;
+        const bool valid = !log->isAtEnd()
+            && log->captureSemanticViewportBookmark(current)
+            && current.point == LongListWidget::SemanticAnchorPoint::ItemCenter;
+        if (valid && current.postId == previous.postId
+            && qAbs(current.fraction - previous.fraction) < 0.005) {
+            if (++consecutiveMatches >= 3) {
+                result = current;
+                return true;
+            }
+        } else {
+            consecutiveMatches = 0;
+        }
+        previous = valid ? current : ChatLogWidget::SemanticViewportBookmark {};
+    }
+    return false;
+}
+
 class Server : public QTcpServer
 {
 public:
@@ -980,7 +1009,8 @@ private slots:
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
         ChatLogWidget::SemanticViewportBookmark before;
-        QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
+        QVERIFY2(captureSettledCenterBookmark(log, before),
+                 "The test must wait for measured viewport geometry to settle");
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
 
         navigation.openThreadInTab(channel->id, rootId(42));
@@ -1070,7 +1100,8 @@ private slots:
         QTRY_VERIFY(!log->isAtEnd());
 
         ChatLogWidget::SemanticViewportBookmark before;
-        QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
+        QVERIFY2(captureSettledCenterBookmark(log, before),
+                 "The test must wait for measured viewport geometry to settle");
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
 
         navigation.openThreadInTab(channel->id, rootId(42));
