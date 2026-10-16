@@ -29,7 +29,9 @@ private slots:
 
         QWidget footer(&host);
         auto* footerLayout = new QVBoxLayout(&footer);
-        footerLayout->setContentsMargins(0, 0, 0, 0);
+        // Simulate the editor being inset between attachment/send buttons.
+        // The floating toolbar must still reach both chat edges.
+        footerLayout->setContentsMargins(22, 0, 15, 0);
         footerLayout->setSpacing(0);
         mainLayout->addWidget(&footer);
 
@@ -54,6 +56,8 @@ private slots:
         // Removing the toolbar from the footer must leave only the editor.
         QCOMPARE(footerLayout->indexOf(&toolbar), -1);
         QCOMPARE(toolbar.parentWidget(), overlay.panel());
+        QVERIFY(editor.width() < host.width());
+        QVERIFY(editor.mapTo(&host, QPoint()).x() > 0);
         const int viewportHeight = log.height();
         const int editorY = editor.mapTo(&host, QPoint()).y();
 
