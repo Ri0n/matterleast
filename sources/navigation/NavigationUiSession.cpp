@@ -153,6 +153,10 @@ void NavigationUiController::restoreSessionBookmark(
     area->preparePostNavigation();
     auto* log = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
     if (!log) return;
+    if (area->isThread) {
+        qInfo() << "TAB_RESTORE_DIAG" << "id" << postId
+                << "fraction" << (anchor ? anchor->fraction : 999.0);
+    }
     area->setProperty("sessionBookmark", postId);
     area->setProperty("sessionBookmarkAnchor", anchor
         ? QVariant(QVariantMap {

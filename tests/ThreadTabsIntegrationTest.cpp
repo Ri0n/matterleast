@@ -1012,6 +1012,11 @@ private slots:
         QVERIFY2(captureSettledCenterBookmark(log, before),
                  "The test must wait for measured viewport geometry to settle");
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+        qInfo() << "TEST_SAVED_DIAG" << "id" << before.postId
+                << "fraction" << before.fraction
+                << "bar" << bar->value()
+                << "max" << bar->maximum()
+                << "height" << log->viewport()->height();
 
         navigation.openThreadInTab(channel->id, rootId(42));
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
@@ -1103,6 +1108,11 @@ private slots:
         QVERIFY2(captureSettledCenterBookmark(log, before),
                  "The test must wait for measured viewport geometry to settle");
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+        qInfo() << "TEST_SAVED_DIAG" << "id" << before.postId
+                << "fraction" << before.fraction
+                << "bar" << bar->value()
+                << "max" << bar->maximum()
+                << "height" << log->viewport()->height();
 
         navigation.openThreadInTab(channel->id, rootId(42));
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));

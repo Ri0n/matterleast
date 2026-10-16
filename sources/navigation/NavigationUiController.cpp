@@ -757,6 +757,20 @@ void NavigationUiController::saveActiveTabLocation()
     }
 
     const Location location = captureLocation(area);
+    if (area->isThread && entry->rootId == area->root_id) {
+        auto* view = area->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        ChatLogWidget::SemanticViewportBookmark direct;
+        const bool captured = view && view->captureSemanticViewportBookmark(direct);
+        qInfo() << "TAB_SAVE_DIAG" << "tab" << activeTabIndex
+                << "root" << entry->rootId << "captured" << captured
+                << "id" << location.postId
+                << "directId" << direct.postId
+                << "fraction" << (location.viewportAnchor
+                        ? location.viewportAnchor->fraction : 999.0)
+                << "directFraction" << direct.fraction
+                << "bar" << (view ? view->verticalScrollBar()->value() : -1)
+                << "viewH" << (view ? view->viewport()->height() : -1);
+    }
     const Location expected = tabLocation(*entry);
     if (location.isValid() && location.sameDestination(expected)) {
         // Capture before the outgoing tab's ChatArea is destroyed. History
@@ -859,6 +873,12 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark,
     // The tab and Back/Forward history carry the same runtime bookmark.
     // An explicit navigation target supersedes a passive viewport snapshot.
     Location location = tabLocation(*entry);
+    if (!location.rootId.isEmpty() && !location.postId.isEmpty()) {
+        qInfo() << "TAB_ACTIVATE_DIAG" << "tab" << index
+                << "id" << location.postId
+                << "fraction" << (location.viewportAnchor
+                        ? location.viewportAnchor->fraction : 999.0);
+    }
     if (!restoreBookmark) {
         location.postId.clear();
         location.viewportAnchor.reset();
