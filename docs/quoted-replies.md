@@ -95,3 +95,14 @@ metadata into one-character columns and clips its action buttons.
 `PostAttachmentList` handles width-dependent height updates itself on
 viewport resize. A Qt widget regression test
 (`QuotedPostPreviewAttachmentLayoutTest`) covers a permalink file card.
+
+### Raw HTML compatibility
+
+Official Mattermost's Markdown formatter uses `marked` with `sanitize: true`
+(`mattermost/mattermost/webapp/channels/src/utils/markdown/index.ts`).
+Therefore arbitrary raw HTML sent inside a quoted message must not be
+interpreted as trusted rich content merely because it is inside a blockquote.
+The experimental `alotts/f96f50b` path of enabling unrestricted HTML in
+`QTextDocument` was not adopted. If a quote contains an exported HTML wrapper,
+strip or escape the wrapper selectively and preserve textual content using a
+bounded, explicitly tested conversion; ordinary Markdown remains canonical.

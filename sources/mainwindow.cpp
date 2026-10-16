@@ -21,7 +21,10 @@
 
 #include <algorithm>
 
+#include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
+#include <QKeySequence>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -64,6 +67,7 @@
 #include "channel-tree-dialogs/UserSearchDialog.h"
 #include "channel-tree-dialogs/UserGroupsDialog.h"
 #include "chat-area/ChatArea.h"
+#include "chat-area/PostFilterPolicy.h"
 #include "log.h"
 #include "notifications/NotificationManager.h"
 #include "notifications/RootNotificationPolicy.h"
@@ -750,6 +754,11 @@ void MainWindow::createMenu()
 	mainMenu = new QMenu(ui->toolButton);
 
 	QMenu* fileMenu = mainMenu->addMenu("File");
+    QAction* quitAction = fileMenu->addAction(tr("Quit"), qApp, &QApplication::quit);
+    quitAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Q")));
+    quitAction->setShortcutContext(Qt::ApplicationShortcut);
+    quitAction->setMenuRole(QAction::QuitRole);
+    addAction(quitAction);
 	fileMenu->addAction("Logout", [this] {
 		backend.logout([this] {
 			doDeinit = true;
@@ -930,6 +939,12 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 	if (sidebar.isChannelMuted(channel)) {
 		return;
 	}
+
+    const BackendUser* loginUser = backend.getStorage().loginUser;
+    if (!shouldShowMainTimelinePost(post.type, post.props.toObject(),
+                                    loginUser ? loginUser->username : QString())) {
+        return;
+    }
 
 	const bool directConversation = channel.type == BackendChannel::directChannel
 		|| channel.type == BackendChannel::groupChannel;

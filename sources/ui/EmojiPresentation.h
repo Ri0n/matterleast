@@ -14,6 +14,7 @@
 #include <QUrl>
 
 #include "EmojiFont.h"
+#include "EmojiRaster.h"
 #include "backend/emoji/EmojiRegistry.h"
 
 namespace Mattermost::EmojiPresentation {
@@ -138,7 +139,18 @@ inline void apply(QTextDocument& document, Mode mode,
                 continue;
             }
 
+            const QString source = imageFormat.name();
             apply(imageFormat, document.defaultFont(), mode, registry);
+            // QTextDocument may use fast scaling when drawing image
+            // resources. Preserve the original resource name while injecting
+            // smoothly downsampled pixels for the requested display size.
+            const QString resized = EmojiRaster::smoothedPath(
+                source, QSize(qRound(imageFormat.width()),
+                              qRound(imageFormat.height())));
+            if (!resized.isEmpty()) {
+                document.addResource(QTextDocument::ImageResource,
+                                     QUrl(source), QImage(resized));
+            }
             QTextCursor cursor(&document);
             cursor.setPosition(fragment.position());
             cursor.setPosition(fragment.position() + fragment.length(), QTextCursor::KeepAnchor);
@@ -182,6 +194,14 @@ inline QString normalizeHtml(const QString& html, const QFont& font, Mode mode,
         if (sourceMatch.hasMatch() && registry
             && registry->isCustomEmojiPath(sourceMatch.captured(1))) {
             const QSize size = imageSize(sourceMatch.captured(1), font, mode);
+            // QLabel's rich-text document is private; substitute a temporary,
+            // smoothly rasterized thumbnail into the rendered HTML instead.
+            const QString smoothed = EmojiRaster::smoothedUrl(
+                sourceMatch.captured(1), size);
+            if (!smoothed.isEmpty()) {
+                tag.replace(sourceMatch.capturedStart(1),
+                            sourceMatch.capturedLength(1), smoothed);
+            }
             const QString width = QStringLiteral("width=\"%1\"").arg(size.width());
             const QString height = QStringLiteral("height=\"%1\"").arg(size.height());
 

@@ -7,6 +7,7 @@
 
 #include "backend/emoji/EmojiRegistry.h"
 #include "ui/EmojiPresentation.h"
+#include "ui/EmojiRaster.h"
 
 namespace Mattermost::RankedEmojiPresentation {
 namespace {
@@ -66,7 +67,9 @@ bool configureButton(EmojiRegistry& registry, QPushButton& button,
 
     const QString source = customEmojiSource(emoji->unicodeString);
     if (!source.isEmpty()) {
-        const QPixmap pixmap(pixmapPath(source));
+        const QString original = pixmapPath(source);
+        const QString smoothed = EmojiRaster::smoothedPath(original, QSize(20, 20));
+        const QPixmap pixmap(smoothed.isEmpty() ? original : smoothed);
         if (pixmap.isNull()) {
             return false;
         }

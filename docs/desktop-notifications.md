@@ -60,3 +60,8 @@ was stale after renaming. Running an uninstalled build from a source checkout
 can still log a desktop-portal registration warning because there is no
 corresponding installed desktop entry; that warning alone does not establish
 that notifications were filtered by the application's policy.
+
+Routine membership join/leave churn is not a desktop notification.
+`MainWindow::messageNotify` now checks `shouldShowMainTimelinePost`, excluding
+routine membership posts unless they explicitly concern the current user.
+This does not change mention policy or muted-channel suppression.

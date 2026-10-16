@@ -66,6 +66,35 @@ QJsonObject post(int thread, int reply = 0)
     return result;
 }
 
+// Restoring a post centre preserves its signed fractional offset from the
+// viewport centre whenever that content position is reachable. If it would
+// require scrolling beyond the actual beginning/end of the thread, the
+// scrollbar must stop at that boundary instead. Removing the old formatting
+// toolbar from the footer changed the available viewport height, exposing
+// exactly this edge case in a short, fully resident test thread.
+bool semanticBookmarkRestored(ChatLogWidget* view,
+                              const ChatLogWidget::SemanticViewportBookmark& saved)
+{
+    if (!view || !view->source() || !view->findPost(saved.postId)) return false;
+    const int index = view->source()->indexOfPost(saved.postId);
+    qreal actualFraction = 0.0;
+    if (index < 0 || !view->captureSemanticAnchorFraction(
+            index, saved.point, actualFraction)) {
+        return false;
+    }
+    if (qAbs(actualFraction - saved.fraction) < 0.06) return true;
+
+    // The fractional difference is proportional to the remaining content
+    // offset needed to put the same measured anchor back on the saved Y.
+    const QScrollBar* bar = view->verticalScrollBar();
+    const qreal requiredOffset = bar->value()
+        + (actualFraction - saved.fraction) * view->viewport()->height();
+    return (bar->value() == bar->minimum()
+            && requiredOffset < bar->minimum())
+        || (bar->value() == bar->maximum()
+            && requiredOffset > bar->maximum());
+}
+
 class Server : public QTcpServer
 {
 public:
@@ -1006,15 +1035,7 @@ private slots:
         // A different post may cover the viewport centre after reflow.
         // Measure the saved identity itself rather than selecting a new
         // centre post, which can change at row boundaries.
-        const int anchorIndex = restoredLog->source()->indexOfPost(before.postId);
-        QVERIFY(anchorIndex >= 0);
-        qreal restoredFraction = 0;
-        QTRY_VERIFY(restoredLog->findPost(before.postId)
-            && restoredLog->captureSemanticAnchorFraction(
-                restoredLog->source()->indexOfPost(before.postId),
-                LongListWidget::SemanticAnchorPoint::ItemCenter,
-                restoredFraction)
-            && qAbs(restoredFraction - before.fraction) < 0.06);
+        QTRY_VERIFY(semanticBookmarkRestored(restoredLog, before));
     }
 
     void backHistoryRestoresMeasuredPostCenter()
@@ -1085,13 +1106,7 @@ private slots:
         auto* restored = ui.findThread(channel->id, rootId(41))
                              ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(restored);
-        qreal actualFraction = 0;
-        QTRY_VERIFY(restored->findPost(before.postId)
-            && restored->captureSemanticAnchorFraction(
-                restored->source()->indexOfPost(before.postId),
-                LongListWidget::SemanticAnchorPoint::ItemCenter,
-                actualFraction)
-            && qAbs(actualFraction - before.fraction) < 0.06);
+        QTRY_VERIFY(semanticBookmarkRestored(restored, before));
         QVERIFY(!restored->isAtEnd());
     }
 

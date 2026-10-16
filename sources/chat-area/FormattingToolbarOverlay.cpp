@@ -3,6 +3,8 @@
 #include <algorithm>
 
 #include <QEvent>
+#include <QAbstractScrollArea>
+#include <QCursor>
 #include <QEasingCurve>
 #include <QFrame>
 #include <QGraphicsOpacityEffect>
@@ -78,11 +80,38 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
     connect(_animation, &QVariantAnimation::finished, this, [this] {
         if (!_expanded && _panel) {
             _panel->hide();
+            _panelHovered = false;
+        }
+    });
+
+    _hideTimer = new QTimer(this);
+    _hideTimer->setSingleShot(true);
+    _hideTimer->setInterval(75);
+    connect(_hideTimer, &QTimer::timeout, this, [this] {
+        if (!_editorHovered && !_panelHovered) {
+            animateExpanded(false);
+        }
+    });
+    // Enter/Leave is not always delivered to child widgets when a cursor
+    // exits the application directly across the native window boundary.
+    // While the overlay is visible, independently check that the pointer
+    // remains within ChatArea. No polling takes place while it is hidden.
+    _boundaryTimer = new QTimer(this);
+    _boundaryTimer->setInterval(200);
+    connect(_boundaryTimer, &QTimer::timeout, this, [this] {
+        if (_expanded && _host
+            && !_host->rect().contains(_host->mapFromGlobal(QCursor::pos()))) {
+            clearHoverOnWindowExit();
         }
     });
 
     host.installEventFilter(this);
     editor.installEventFilter(this);
+    if (auto* scroll = qobject_cast<QAbstractScrollArea*>(&editor)) {
+        _editorViewport = scroll->viewport();
+        _editorViewport->installEventFilter(this);
+    }
+    _panel->installEventFilter(this);
     toolbar.installEventFilter(this);
 
     // The first FlowLayout polish pass can occur after constructing the
@@ -95,13 +124,49 @@ QWidget* FormattingToolbarOverlay::panel() const
     return _panel;
 }
 
-void FormattingToolbarOverlay::setExpanded(bool expanded)
+void FormattingToolbarOverlay::setExpanded(bool focused)
+{
+    _focusRequested = focused;
+    updateHoverVisibility();
+}
+
+void FormattingToolbarOverlay::updateHoverVisibility()
+{
+    if (_focusRequested && (_editorHovered || _panelHovered)) {
+        _hideTimer->stop();
+        animateExpanded(true);
+    } else if (_focusRequested && _expanded) {
+        // Brief grace period for crossing the editor-to-panel gap.
+        _hideTimer->start();
+    } else {
+        _hideTimer->stop();
+        animateExpanded(false);
+    }
+}
+
+void FormattingToolbarOverlay::clearHoverOnWindowExit()
+{
+    // A native window leave need not produce Leave for the QTextEdit viewport.
+    // Clear both cached flags: otherwise stale _editorHovered=true would
+    // immediately resurrect the bar at the next focus/geometry event.
+    _editorHovered = false;
+    _panelHovered = false;
+    _hideTimer->stop();
+    animateExpanded(false);
+}
+
+void FormattingToolbarOverlay::animateExpanded(bool expanded)
 {
     if (_expanded == expanded || !_panel) {
         return;
     }
     _expanded = expanded;
 
+    if (expanded) {
+        _boundaryTimer->start();
+    } else {
+        _boundaryTimer->stop();
+    }
     _animation->stop();
     if (expanded) {
         refreshGeometry();
@@ -130,6 +195,21 @@ bool FormattingToolbarOverlay::eventFilter(QObject* watched, QEvent* event)
         return QObject::eventFilter(watched, event);
     }
     const auto type = event->type();
+    if (watched == _host
+        && (type == QEvent::Leave || type == QEvent::Hide
+            || type == QEvent::WindowDeactivate)) {
+        clearHoverOnWindowExit();
+    }
+    const bool editorSurface = watched == _editor || watched == _editorViewport;
+    const bool toolbarSurface = watched == _panel || watched == _toolbar;
+    if ((editorSurface || toolbarSurface)
+        && (type == QEvent::Enter || type == QEvent::Leave
+            || type == QEvent::MouseButtonPress)) {
+        const bool entering = type != QEvent::Leave;
+        if (editorSurface) _editorHovered = entering;
+        else _panelHovered = entering;
+        updateHoverVisibility();
+    }
     if ((watched == _host || watched == _editor)
         && (type == QEvent::Resize || type == QEvent::Move
             || type == QEvent::Show)) {

@@ -7,6 +7,7 @@ class QEvent;
 class QFrame;
 class QGraphicsOpacityEffect;
 class QVariantAnimation;
+class QTimer;
 class QWidget;
 
 namespace Mattermost {
@@ -27,6 +28,9 @@ public slots:
     void setExpanded(bool expanded);
 
 private:
+    void animateExpanded(bool expanded);
+    void updateHoverVisibility();
+    void clearHoverOnWindowExit();
     bool eventFilter(QObject* watched, QEvent* event) override;
     void refreshGeometry();
     void applyProgress(qreal progress);
@@ -34,11 +38,17 @@ private:
     QPointer<QWidget> _host;
     QPointer<QWidget> _editor;
     QPointer<QWidget> _toolbar;
+    QPointer<QWidget> _editorViewport;
+    QTimer* _hideTimer = nullptr;
+    QTimer* _boundaryTimer = nullptr;
     QFrame* _panel = nullptr;
     QGraphicsOpacityEffect* _opacity = nullptr;
     QVariantAnimation* _animation = nullptr;
     qreal _progress = 0.0;
     bool _expanded = false;
+    bool _focusRequested = false;
+    bool _editorHovered = false;
+    bool _panelHovered = false;
 };
 
 } // namespace Mattermost

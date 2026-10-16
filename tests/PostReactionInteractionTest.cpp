@@ -4,6 +4,8 @@
 #include <QFontMetrics>
 #include <QImage>
 #include <QLabel>
+#include <QRegularExpression>
+#include <QUrl>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -283,6 +285,46 @@ private slots:
         QVERIFY2(!secondRendered.contains(QStringLiteral("width=\"1\""))
                      && !secondRendered.contains(QStringLiteral("height=\"1\"")),
                  qPrintable(secondRendered));
+    }
+
+    void largeCustomReactionUsesSmoothedImageSource()
+    {
+        Backend backend;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QImage image(64, 64, QImage::Format_ARGB32);
+        for (int y = 0; y < 64; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                const int shade = (x % 2 == 0) ? 0 : 255;
+                image.setPixelColor(x, y, QColor(shade, shade, shade));
+            }
+        }
+        const QString source = directory.filePath(QStringLiteral("jagged.png"));
+        QVERIFY(image.save(source, "PNG"));
+        const QString name = QStringLiteral("smoothed_reaction_test");
+        backend.emojiRegistry().addCustomEmoji(name, source);
+        const auto presentation = backend.emojiRegistry().resolveByName(name);
+        QVERIFY(presentation);
+
+        PostReaction chip(backend, name, presentation->unicodeString,
+                          BackendPostReaction {}, nullptr);
+        const QLabel* label = chip.findChild<QLabel*>(QStringLiteral("emoji"));
+        QVERIFY(label);
+
+        // The reaction chip must use the smoothed PNG, not ask QLabel to
+        // downsample the original 64px custom image itself.
+        const QRegularExpression sourceExpression(
+            QStringLiteral("src=\"([^\"]+)\""));
+        const auto match = sourceExpression.match(label->text());
+        QVERIFY(match.hasMatch());
+        const QString rasterPath = QUrl(match.captured(1)).toLocalFile();
+        QVERIFY(!rasterPath.isEmpty());
+        QVERIFY(rasterPath != source);
+        const QImage reduced(rasterPath);
+        QVERIFY(!reduced.isNull());
+        const int center = reduced.pixelColor(
+            reduced.width() / 2, reduced.height() / 2).red();
+        QVERIFY(center > 20 && center < 235);
     }
 
     void customReactionCanBeRemovedBeforeRegistration()

@@ -63,6 +63,10 @@ private slots:
 
         overlay.setExpanded(true);
         QTest::qWait(150);
+        QVERIFY(!overlay.panel()->isVisible());
+        QEvent enterEditor(QEvent::Enter);
+        QApplication::sendEvent(&editor, &enterEditor);
+        QTest::qWait(150);
         QApplication::processEvents();
         QVERIFY(overlay.panel()->isVisible());
         QCOMPARE(log.height(), viewportHeight);
@@ -88,6 +92,12 @@ private slots:
         const int narrowViewportHeight = log.height();
         const int narrowEditorY = editor.mapTo(&host, QPoint()).y();
 
+        QEvent leaveEditor(QEvent::Leave);
+        QApplication::sendEvent(&editor, &leaveEditor);
+        QEvent enterPanel(QEvent::Enter);
+        QApplication::sendEvent(overlay.panel(), &enterPanel);
+        QTest::qWait(150);
+        QVERIFY(overlay.panel()->isVisible());
         overlay.setExpanded(false);
         QTest::qWait(150);
         QApplication::processEvents();
@@ -95,10 +105,24 @@ private slots:
         QCOMPARE(log.height(), narrowViewportHeight);
         QCOMPARE(editor.mapTo(&host, QPoint()).y(), narrowEditorY);
 
+        // Focus returns with the pointer outside both regions: still hidden.
         overlay.setExpanded(true);
+        QTest::qWait(150);
+        QVERIFY(!overlay.panel()->isVisible());
+        QApplication::sendEvent(&editor, &enterEditor);
         QTest::qWait(150);
         QApplication::processEvents();
         QVERIFY(overlay.panel()->isVisible());
+        QCOMPARE(log.height(), narrowViewportHeight);
+        QCOMPARE(editor.mapTo(&host, QPoint()).y(), narrowEditorY);
+
+        // Some window managers deliver only the ChatArea's Leave when the
+        // pointer crosses the native window edge, never QTextEdit::Leave.
+        // A cached editor-hover state must not keep the overlay alive.
+        QEvent leaveHost(QEvent::Leave);
+        QApplication::sendEvent(&host, &leaveHost);
+        QTest::qWait(150);
+        QVERIFY(!overlay.panel()->isVisible());
         QCOMPARE(log.height(), narrowViewportHeight);
         QCOMPARE(editor.mapTo(&host, QPoint()).y(), narrowEditorY);
     }
