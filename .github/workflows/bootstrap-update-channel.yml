@@ -1,0 +1,100 @@
+name: Bootstrap stable Windows update channel
+
+# A release published before update-channel.yml existed will not call the publisher.
+# Bootstrap that existing latest stable release when publisher infrastructure reaches master.
+# Subsequent versioned releases promote through release.yml.
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/bootstrap-update-channel.yml'
+      - '.github/workflows/update-channel.yml'
+      - 'scripts/make-windows-update-manifest.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: matterleast-windows-update-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  latest:
+    name: Resolve latest published stable release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Resolve latest non-prerelease
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || {
+            echo "::error::Unexpected latest stable release tag: $tag"
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  promote:
+    name: Publish latest stable update manifest
+    needs: latest
+    permissions:
+      contents: write
+    uses: ./.github/workflows/update-channel.yml
+    with:
+      channel: stable
+      release_tag: ${{ needs.latest.outputs.tag }}
+
+  verify:
+    name: Verify live stable update pointer
+    needs: [latest, promote]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare live manifest with immutable release metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.latest.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-stable" > pointer.json
+          jq -e '
+            .draft == false and .prerelease == true and
+            ([.assets[].name] == ["windows-x64.json"])
+          ' pointer.json
+          mkdir -p downloaded
+          gh release download updates-stable --repo "$GITHUB_REPOSITORY" \
+            --pattern windows-x64.json --dir downloaded
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > stable.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path("downloaded/windows-x64.json").read_text())
+          stable = json.loads(Path("stable.json").read_text())
+          tag = os.environ["RELEASE_TAG"]
+          expected_name = f"matterleast-{tag.removeprefix('v')}-windows-x64-portable.zip"
+          assets = [asset for asset in stable["assets"] if asset["name"] == expected_name]
+          assert len(assets) == 1, "Expected exactly one immutable Windows portable ZIP"
+          asset = assets[0]
+          assert asset["digest"] and asset["digest"].startswith("sha256:"), "Release SHA missing"
+          assert manifest["schema"] == 1
+          assert manifest["channel"] == "stable"
+          assert manifest["platform"] == "windows-x64"
+          assert manifest["releaseTag"] == tag
+          assert manifest["version"] == tag[1:]
+          assert manifest["minimumLauncherProtocol"] == 1
+          assert manifest["package"] == {
+              "format": "portable-zip",
+              "url": asset["browser_download_url"],
+              "size": asset["size"],
+              "sha256": asset["digest"].removeprefix("sha256:"),
+          }, "Published pointer does not match immutable release asset"
+          print(f"Verified live stable pointer for {tag}: {expected_name}")
+          PY
