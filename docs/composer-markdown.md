@@ -33,6 +33,10 @@ It appears immediately above the editor only when the editor has focus AND
 the mouse is over the input or the toolbar itself. Keyboard-only focus does not
 open a mouse-only toolbar. The panel stays visible while the pointer travels
 over its buttons; a short 75 ms leave grace period bridges the editor/panel gap.
+When the cursor leaves the ChatArea window (even without a QTextEdit
+`Leave` event), the overlay closes and invalidates cached hover state.
+A boundary check runs only while the overlay is visible as a fallback for
+window managers that do not deliver native-window leave notifications.
 On focus loss it closes even if the pointer remains nearby. The existing
 preference and shortcuts are unchanged. The overlay runs
 edge-to-edge across the whole chat surface, not just the inset input column,

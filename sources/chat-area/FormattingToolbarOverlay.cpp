@@ -4,6 +4,7 @@
 
 #include <QEvent>
 #include <QAbstractScrollArea>
+#include <QCursor>
 #include <QEasingCurve>
 #include <QFrame>
 #include <QGraphicsOpacityEffect>
@@ -91,6 +92,19 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
             animateExpanded(false);
         }
     });
+    // Enter/Leave is not always delivered to child widgets when a cursor
+    // exits the application directly across the native window boundary.
+    // While the overlay is visible, independently check that the pointer
+    // remains within ChatArea. No polling takes place while it is hidden.
+    _boundaryTimer = new QTimer(this);
+    _boundaryTimer->setInterval(200);
+    connect(_boundaryTimer, &QTimer::timeout, this, [this] {
+        if (_expanded && _host
+            && !_host->rect().contains(_host->mapFromGlobal(QCursor::pos()))) {
+            clearHoverOnWindowExit();
+        }
+    });
+
     host.installEventFilter(this);
     editor.installEventFilter(this);
     if (auto* scroll = qobject_cast<QAbstractScrollArea*>(&editor)) {
@@ -130,6 +144,17 @@ void FormattingToolbarOverlay::updateHoverVisibility()
     }
 }
 
+void FormattingToolbarOverlay::clearHoverOnWindowExit()
+{
+    // A native window leave need not produce Leave for the QTextEdit viewport.
+    // Clear both cached flags: otherwise stale _editorHovered=true would
+    // immediately resurrect the bar at the next focus/geometry event.
+    _editorHovered = false;
+    _panelHovered = false;
+    _hideTimer->stop();
+    animateExpanded(false);
+}
+
 void FormattingToolbarOverlay::animateExpanded(bool expanded)
 {
     if (_expanded == expanded || !_panel) {
@@ -137,6 +162,11 @@ void FormattingToolbarOverlay::animateExpanded(bool expanded)
     }
     _expanded = expanded;
 
+    if (expanded) {
+        _boundaryTimer->start();
+    } else {
+        _boundaryTimer->stop();
+    }
     _animation->stop();
     if (expanded) {
         refreshGeometry();
@@ -165,6 +195,11 @@ bool FormattingToolbarOverlay::eventFilter(QObject* watched, QEvent* event)
         return QObject::eventFilter(watched, event);
     }
     const auto type = event->type();
+    if (watched == _host
+        && (type == QEvent::Leave || type == QEvent::Hide
+            || type == QEvent::WindowDeactivate)) {
+        clearHoverOnWindowExit();
+    }
     const bool editorSurface = watched == _editor || watched == _editorViewport;
     const bool toolbarSurface = watched == _panel || watched == _toolbar;
     if ((editorSurface || toolbarSurface)

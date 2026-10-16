@@ -30,6 +30,7 @@ public slots:
 private:
     void animateExpanded(bool expanded);
     void updateHoverVisibility();
+    void clearHoverOnWindowExit();
     bool eventFilter(QObject* watched, QEvent* event) override;
     void refreshGeometry();
     void applyProgress(qreal progress);
@@ -39,6 +40,7 @@ private:
     QPointer<QWidget> _toolbar;
     QPointer<QWidget> _editorViewport;
     QTimer* _hideTimer = nullptr;
+    QTimer* _boundaryTimer = nullptr;
     QFrame* _panel = nullptr;
     QGraphicsOpacityEffect* _opacity = nullptr;
     QVariantAnimation* _animation = nullptr;

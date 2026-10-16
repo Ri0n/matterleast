@@ -115,6 +115,16 @@ private slots:
         QVERIFY(overlay.panel()->isVisible());
         QCOMPARE(log.height(), narrowViewportHeight);
         QCOMPARE(editor.mapTo(&host, QPoint()).y(), narrowEditorY);
+
+        // Some window managers deliver only the ChatArea's Leave when the
+        // pointer crosses the native window edge, never QTextEdit::Leave.
+        // A cached editor-hover state must not keep the overlay alive.
+        QEvent leaveHost(QEvent::Leave);
+        QApplication::sendEvent(&host, &leaveHost);
+        QTest::qWait(150);
+        QVERIFY(!overlay.panel()->isVisible());
+        QCOMPARE(log.height(), narrowViewportHeight);
+        QCOMPARE(editor.mapTo(&host, QPoint()).y(), narrowEditorY);
     }
 };
 
