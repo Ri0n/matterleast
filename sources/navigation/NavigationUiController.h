@@ -139,7 +139,8 @@ private:
     void refreshAllTabUnreadVisuals();
     void updateTab(int index, const Location& location);
     void saveActiveTabLocation();
-    void activateTab(int index, bool restoreBookmark = true);
+    void activateTab(int index, bool restoreBookmark = true,
+                     bool outgoingBookmarkSaved = false);
     void closeTab(int index);
     void removeTab(int index, bool closeThread);
     int tabIndexForThread(ChatArea* area) const;

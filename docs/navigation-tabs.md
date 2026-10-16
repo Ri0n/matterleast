@@ -35,6 +35,9 @@ model merely to change its presentation.
   tab first shrinks the current ChatArea, potentially changes its centre post,
   and corrupts both tab revisit and Back history positions. Defer visibility
   only for the new-tab navigation path, then reveal it after activation.
+  Capture the outgoing semantic bookmark before appending even a hidden tab;
+  do not overwrite it by a second capture inside `activateTab()` after the tab
+  model or QWidget geometry has started changing.
 - Tab titles use a leading star for their own unread domain. Channel/DM/GM
   tabs use `SidebarService::isChannelUnread()` or a channel mention. Thread
   tabs use their `FollowingModel::Entry::requiresAttention()`, including CRT
