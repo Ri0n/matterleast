@@ -219,6 +219,5 @@
   <connection><sender>formatBulletListButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleBulletList()</slot></connection>
   <connection><sender>formatNumberedListButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>toggleNumberedList()</slot></connection>
   <connection><sender>messagePriorityButton</sender><signal>clicked()</signal><receiver>outgoingPostCreator</receiver><slot>showMessagePriorityMenu()</slot></connection>
-  <connection><sender>outgoingPostCreator</sender><signal>formattingToolbarVisibilityChanged(bool)</signal><receiver>formattingToolbar</receiver><slot>setVisible(bool)</slot></connection>
  </connections>
 </ui>

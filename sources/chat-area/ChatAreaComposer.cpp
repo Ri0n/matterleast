@@ -36,6 +36,7 @@
 #include <QTimer>
 
 #include "ChatLogWidget.h"
+#include "FormattingToolbarOverlay.h"
 #include "QuotedReplyController.h"
 #include "outgoing-post/MentionAutocomplete.h"
 #include "backend/Backend.h"
@@ -97,6 +98,14 @@ public:
 
 void ChatArea::setupComposerUi()
 {
+    // Detach the formatting row from the footer layout: this overlay may
+    // cover the log when editing, but never changes the log's viewport height.
+    auto* formattingOverlay = new FormattingToolbarOverlay(
+        *this, *ui->outgoingPostCreator, *ui->formattingToolbar);
+    connect(ui->outgoingPostCreator,
+            &MessageTextEditWidget::formattingToolbarVisibilityChanged,
+            formattingOverlay, &FormattingToolbarOverlay::setExpanded);
+
     auto configureActionButton = [](QPushButton& button) {
         button.setFixedSize(ActionButtonExtent, ActionButtonExtent);
         button.setCursor(Qt::PointingHandCursor);
