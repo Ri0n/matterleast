@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QTabBar>
