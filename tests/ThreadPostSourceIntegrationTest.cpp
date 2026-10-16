@@ -190,6 +190,38 @@ class ThreadPostSourceIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void reconnectRefreshesThreadTailWithoutReopening()
+    {
+        ThreadServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        server.replyCount = 2;
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel channel(backend.getStorage(),
+            QJsonObject {{QStringLiteral("id"), QStringLiteral("channel")},
+                         {QStringLiteral("type"), QStringLiteral("O")}});
+        QJsonObject oldRoot = post(0);
+        oldRoot.insert(QStringLiteral("reply_count"), 2);
+        oldRoot.insert(QStringLiteral("last_reply_at"), timestamp(2));
+        channel.addPost(oldRoot);
+        channel.addPost(post(1));
+        channel.addPost(post(2));
+        ThreadPostSource source(backend, channel, id(0));
+        QCOMPARE(source.itemCount(), 3);
+
+        // The server got three more replies while the websocket was down.
+        // Recovered threads must resolve their new logical tail in place.
+        server.replyCount = 5;
+        emit backend.onRealtimeRecovered();
+        QTRY_VERIFY(server.requests.size() >= 1);
+        QTRY_COMPARE(source.itemCount(), 6);
+        QTRY_COMPARE(source.indexOfPost(id(5)), 5);
+        QVERIFY(source.isAvailable(5));
+        QVERIFY(source.isPostPositionAuthoritative(id(5)));
+    }
+
     void cursorDemandUsesExactRanks_data()
     {
         QTest::addColumn<int>("target");

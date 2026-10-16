@@ -303,6 +303,8 @@ signals:
     void onHttpError (uint32_t errorNumber, const QString& errorText);
 
     void onWebSocketConnect ();
+    /** Socket reconnection warrants bounded recovery for materialized thread timelines. */
+    void onRealtimeRecovered();
     void onWebSocketDisconnect ();
     void onWebSocketConnectionStateChanged(WebSocketConnector::ConnectionState state);
 private:

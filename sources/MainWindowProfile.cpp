@@ -38,7 +38,14 @@ void reportStatusResult(QPointer<MainWindow> window, bool success,
 
 void MainWindow::on_usericon_label_clicked()
 {
-    const BackendUser& user = backend.getLoginUser();
+    // A late network recovery or session reset can temporarily leave the
+    // profile widget alive without a logged-in user. getLoginUser()
+    // dereferences that pointer, so inspect it before opening the menu.
+    const BackendUser* userPtr = backend.getStorage().loginUser;
+    if (!userPtr || userPtr->id.isEmpty()) {
+        return;
+    }
+    const BackendUser& user = *userPtr;
     if (user.id.isEmpty()) {
         return;
     }

@@ -93,10 +93,17 @@ Backend::Backend(QObject *parent)
 			 * Replace the HTTP transport before notifying listeners so their
 			 * onWebSocketConnect retries are issued on the new network path.
 			 */
-			httpConnector.restartTransport();
+			HTTPConnector::restartAllTransports();
 		}
 
 		emit onWebSocketConnect();
+
+        // A resumed websocket only guarantees a live event stream, not that
+        // all HTTP-fed thread projections caught up while the machine slept.
+        // Each instantiated thread source owns its own bounded tail resync.
+        if (isReconnect) {
+            emit onRealtimeRecovered();
+        }
 
 		// Reliable WebSocket replay covers normal reconnects. Only when the
 		// server explicitly started a new stream do we need a history fallback.
@@ -109,6 +116,7 @@ Backend::Backend(QObject *parent)
 	connect(&webSocketConnector, &WebSocketConnector::reliableResumeFailed,
 	        this, [this] {
 		LOG_DEBUG("Reliable WebSocket resume failed after authentication");
+        emit onRealtimeRecovered();
 		if (currentChannel) {
 			retrieveChannelPosts(*currentChannel, 0, 25);
 		}
@@ -689,7 +697,15 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
 
     LOG_DEBUG ("retrieveOwnTeams request");
 
-    httpConnector.get (request, HttpResponseCallback ([this, callback] (const QJsonDocument& doc) {
+    httpConnector.get (request, HttpResponseCallback ([this, callback] (
+            const QJsonDocument& doc, const QNetworkReply& reply) {
+        if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+            LOG_DEBUG("retrieveOwnTeams failed; retrying in 5 seconds");
+            QTimer::singleShot(5000, this, [this, callback] {
+                if (isLoggedIn) retrieveOwnTeams(callback);
+            });
+            return;
+        }
     	LOG_DEBUG ("retrieveOwnTeams reply");
 		storage.teams.clear ();
 		nonFilledTeams = 0;
@@ -817,7 +833,16 @@ void Backend::retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::func
     NetworkRequest request ("users/me/teams/" + team.id + "/channels");
     QPointer<BackendTeam> teamGuard(&team);
 
-    httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (const QJsonDocument& doc) {
+    httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (
+            const QJsonDocument& doc, const QNetworkReply& reply) {
+        if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+            LOG_DEBUG("Channel memberships request failed; retrying in 5 seconds");
+            QTimer::singleShot(5000, this, [this, teamGuard, callback] {
+                if (isLoggedIn && teamGuard)
+                    retrieveOwnChannelMembershipsForTeam(*teamGuard, callback);
+            });
+            return;
+        }
         // A refreshed team snapshot may replace this QObject while HTTP is in
         // flight, even reusing its ID/address. Never apply the old response to
         // a destroyed team or decrement the new snapshot's startup counter.
