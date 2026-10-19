@@ -554,13 +554,36 @@ jobs:
           key: windows-msvc-qt6.11.2
           max-size: 2G
 
-      - name: Install NSIS
+      - name: Ensure NSIS is installed
         run: |
-          choco install nsis -y --no-progress
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
-          if (-not (Test-Path (Join-Path $nsisDir "makensis.exe"))) {
+          $makensis = Join-Path $nsisDir "makensis.exe"
+          if (-not (Test-Path $makensis)) {
+            # Chocolatey's public NuGet feed occasionally returns transient
+            # HTTP 5xx responses (notably on nsis.install dependency lookup).
+            # Check the runner image first and retry only when necessary.
+            $maxAttempts = 4
+            for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+              Write-Host "Installing NSIS via Chocolatey (attempt $attempt/$maxAttempts)"
+              choco install nsis -y --no-progress
+              $chocoExit = $LASTEXITCODE
+              if ($chocoExit -eq 0 -and (Test-Path $makensis)) {
+                break
+              }
+              if ($attempt -eq $maxAttempts) {
+                throw "NSIS installation failed after $maxAttempts attempts (last Chocolatey exit code: $chocoExit)"
+              }
+              $delay = 15 * $attempt
+              Write-Warning "Chocolatey could not install NSIS (exit $chocoExit); retrying after $delay seconds"
+              Start-Sleep -Seconds $delay
+            }
+          }
+          if (-not (Test-Path $makensis)) {
             throw "makensis.exe was not installed in $nsisDir"
+          }
+          & $makensis /VERSION
+          if ($LASTEXITCODE -ne 0) {
+            throw "Installed makensis.exe failed its version probe"
           }
           $nsisDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
