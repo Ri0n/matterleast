@@ -1038,6 +1038,106 @@ private slots:
         QTRY_VERIFY(semanticBookmarkRestored(restoredLog, before));
     }
 
+    void openingSecondTabPreservesOutgoingBookmark_data()
+    {
+        QTest::addColumn<int>("replies");
+        QTest::addColumn<int>("height");
+        QTest::newRow("short-700") << 24 << 700;
+        QTest::newRow("long-700") << 120 << 700;
+        QTest::newRow("long-400") << 120 << 400;
+        QTest::newRow("long-950") << 120 << 950;
+    }
+
+    void openingSecondTabPreservesOutgoingBookmark()
+    {
+        Server server;
+        QFETCH(int, replies);
+        QFETCH(int, height);
+        server.replyCount = replies;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"},
+                         {"display_name", "Test chat"}});
+        QVERIFY(channel);
+        QJsonObject root = post(41);
+        root.insert("reply_count", server.replyCount);
+        root.insert("last_reply_at", 1000000000000LL + 41000 + server.replyCount);
+        channel->addPost(root);
+        // This fixture tests geometry restoration, not sparse cursor seek.
+        // Give both presentations the same complete, resident thread.
+        for (int reply = 1; reply <= server.replyCount; ++reply) {
+            channel->addPost(post(41, reply));
+        }
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
+        auto& ui = NavigationUiController::instance(window);
+        MLOptions::instance()->setValue(sessionKey(), QByteArray());
+        ui.restoreSession();
+        window.resize(1000, height);
+        window.show();
+        auto& navigation = AppNavigationService::instance(backend);
+        navigation.openThreadInTab(channel->id, rootId(41));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
+        auto* first = ui.findThread(channel->id, rootId(41));
+        auto* log = first->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(log);
+        QTRY_COMPARE(log->itemCount(), replies + 1);
+        auto* bar = log->verticalScrollBar();
+        QVERIFY(bar);
+        QTRY_VERIFY(bar->maximum() > 400);
+        QTRY_VERIFY(log->findPost(replyId(41, replies)));
+        QTest::qWait(120); // Drain initial deferred newest-position timers.
+        log->scrollToEnd();
+        QTRY_VERIFY(log->isAtEnd());
+
+        // This gesture cancels the live-edge intent. The same physical
+        // timeline must now be captured as a post-center anchor.
+        // Read from a stable middle viewport with room on both sides.
+        // Explicit scrollbar ownership must win over activation's weak tail
+        // positioning, just as a real user scroll does.
+        bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
+        bar->setValue(bar->maximum() / 2);
+        QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
+        QTRY_VERIFY(!log->isAtEnd());
+        // Allow initial measurements to finish before taking the baseline.
+        QTest::qWait(200);
+        bar->setValue(bar->maximum() / 2);
+        QTest::qWait(200);
+        auto* initialTabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
+        QVERIFY(initialTabs);
+        QCOMPARE(initialTabs->count(), 1);
+        QVERIFY(initialTabs->isHidden());
+        const int oldViewportHeight = log->viewport()->height();
+        ChatLogWidget::SemanticViewportBookmark before;
+        QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
+        QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
+
+        navigation.openThreadInTab(channel->id, rootId(42));
+        QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
+        ui.saveSession();
+        const QJsonObject snapshot = QJsonDocument::fromJson(
+            MLOptions::instance()->value<QByteArray>(sessionKey())).object();
+        const QJsonArray savedTabs = snapshot.value("tabs").toArray();
+        QCOMPARE(savedTabs.size(), 2);
+        const QJsonObject anchor = savedTabs.at(0).toObject().value("anchor").toObject();
+        // Preserve the actual reading position before the hidden tab bar
+        // takes space from the outgoing viewport. Restoration tests alone can
+        // miss this change because their reflow tolerance exceeds the shift.
+        QCOMPARE(anchor.value("post").toString(), before.postId);
+        QCOMPARE(anchor.value("bottom").toBool(), false);
+        QVERIFY(qAbs(anchor.value("fraction").toDouble() - before.fraction)
+                * oldViewportHeight < 1.0);
+        QCOMPARE(initialTabs->count(), 2);
+        QVERIFY(!initialTabs->isHidden());
+    }
+
     void backHistoryRestoresMeasuredPostCenter()
     {
         Server server;

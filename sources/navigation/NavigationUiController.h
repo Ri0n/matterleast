@@ -130,7 +130,8 @@ private:
     NavigationTabsModel::Entry tabEntry(const Location& location) const;
     Location tabLocation(const NavigationTabsModel::Entry& entry) const;
     QString tabTitle(const Location& location) const;
-    int appendNavigationTab(const Location& location);
+    int appendNavigationTab(const Location& location,
+                            bool deferVisibility = false);
     void ensureInitialTab();
     void refreshTabBarVisibility();
     void setNavigationTabTitle(int index, const QString& title);

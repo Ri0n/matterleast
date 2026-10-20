@@ -602,7 +602,8 @@ QString NavigationUiController::tabTitle(const Location& location) const
     return title;
 }
 
-int NavigationUiController::appendNavigationTab(const Location& location)
+int NavigationUiController::appendNavigationTab(const Location& location,
+                                              bool deferVisibility)
 {
     if (!navigationTabs || !location.isChat() || !location.isValid()) {
         return -1;
@@ -621,7 +622,9 @@ int NavigationUiController::appendNavigationTab(const Location& location)
     }
     setNavigationTabTitle(index, title);
     refreshTabUnreadVisual(location.channelId);
-    refreshTabBarVisibility();
+    if (!deferVisibility) {
+        refreshTabBarVisibility();
+    }
     return index;
 }
 
@@ -1078,7 +1081,10 @@ void NavigationUiController::openInTab(
     destination.channelId = channelId;
     destination.rootId = rootId;
 
-    const int index = appendNavigationTab(destination);
+    // Keep the outgoing viewport unchanged until its bookmark is captured.
+    // Making the second tab visible first shrinks ChatArea, moving the centre
+    // onto the adjacent post and corrupting both tab and Back history anchors.
+    const int index = appendNavigationTab(destination, true);
     if (index < 0) {
         return;
     }
