@@ -66,6 +66,8 @@ public:
 
     bool isChannelTracked(const QString& channelId) const;
     bool isChannelUnread(const BackendChannel& channel) const;
+    /** Diagnostic-only channel counters plus the tracked unread origins. */
+    QString channelUnreadDebugState(const BackendChannel& channel) const;
     /** True when parent-channel unread state intentionally excludes CRT replies. */
     bool usesRootUnreadCounts(const BackendChannel& channel) const;
     uint64_t channelActivityTime(const BackendChannel& channel) const;
