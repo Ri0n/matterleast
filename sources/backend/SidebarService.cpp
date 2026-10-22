@@ -251,8 +251,8 @@ QString SidebarService::channelUnreadDebugState(const BackendChannel& channel) c
                           "hasTotalRoot=%5 ")
         .arg(QString::number(channel.total_msg_count_root))
         .arg(QString::number(channel.total_msg_count))
-        .arg(QString::number(channel.last_root_post_at))
-        .arg(QString::number(channel.last_post_at))
+        .arg(QString::number(static_cast<qulonglong>(channel.last_root_post_at)))
+        .arg(QString::number(static_cast<qulonglong>(channel.last_post_at)))
         .arg(QString::number(channel.has_total_msg_count_root))
         + activityTracker.unreadDebugState(channel.id);
 }
