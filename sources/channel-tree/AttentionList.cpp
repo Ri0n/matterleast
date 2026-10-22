@@ -22,6 +22,7 @@
 #include <QVector>
 
 #include "backend/Backend.h"
+#include "backend/ChannelUnreadPostSelection.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
@@ -232,19 +233,30 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
         return;
     }
 
+    BackendChannel* channel = backend_->getStorage().getChannelById(channelId);
+    if (!channel) {
+        emit channelSelected(channelId);
+        return;
+    }
+
+    const bool rootsOnly = SidebarService::instance(*backend_).usesRootUnreadCounts(*channel);
+    // A conversation entry is not a thread entry. A cached FirstUnread cursor
+    // can survive a read-mode change and must never send a root-only DM/GM into
+    // an old reply's thread (openPost automatically follows root_id).
+    const auto validCachedTarget = [channel, rootsOnly](const QString& postId) {
+        const BackendPost* post = channel->postIdToPost.value(postId, nullptr);
+        return isConversationTargetCompatible(rootsOnly, post != nullptr,
+                                              post ? post->root_id : QString());
+    };
+
     if (entry->resumeState == FollowingModel::ResumeState::FirstUnread
-        && !entry->firstUnreadPostId.isEmpty()) {
+        && !entry->firstUnreadPostId.isEmpty()
+        && validCachedTarget(entry->firstUnreadPostId)) {
         AppNavigationService::instance(*backend_).openPost(entry->firstUnreadPostId);
         return;
     }
     if (entry->resumeState == FollowingModel::ResumeState::AtEnd) {
         AppNavigationService::instance(*backend_).openChannel(channelId);
-        return;
-    }
-
-    BackendChannel* channel = backend_->getStorage().getChannelById(channelId);
-    if (!channel) {
-        emit channelSelected(channelId);
         return;
     }
 
@@ -262,15 +274,25 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
                 AppNavigationService::instance(*guard->backend_).openChannel(channelId);
                 return;
             }
-            if (current->resumeState == FollowingModel::ResumeState::FirstUnread
-                && !current->firstUnreadPostId.isEmpty()) {
-                AppNavigationService::instance(*guard->backend_).openPost(
-                    current->firstUnreadPostId);
-                return;
-            }
-
             BackendChannel* currentChannel =
                 guard->backend_->getStorage().getChannelById(channelId);
+            const bool currentRootsOnly = currentChannel
+                && SidebarService::instance(*guard->backend_)
+                       .usesRootUnreadCounts(*currentChannel);
+            if (current->resumeState == FollowingModel::ResumeState::FirstUnread
+                && !current->firstUnreadPostId.isEmpty()) {
+                const BackendPost* cached = currentChannel
+                    ? currentChannel->postIdToPost.value(current->firstUnreadPostId, nullptr)
+                    : nullptr;
+                if (isConversationTargetCompatible(
+                        currentRootsOnly, cached != nullptr,
+                        cached ? cached->root_id : QString())) {
+                    AppNavigationService::instance(*guard->backend_).openPost(
+                        current->firstUnreadPostId);
+                    return;
+                }
+            }
+
             if (!postId.isEmpty() && currentChannel
                 && !isStaleConversationResumeTarget(*current, *currentChannel, postId)) {
                 AppNavigationService::instance(*guard->backend_).openPost(postId);
@@ -280,7 +302,7 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
                 // Never let that asynchronous fallback navigate backwards.
                 AppNavigationService::instance(*guard->backend_).openChannel(channelId);
             }
-        });
+        }, rootsOnly);
 }
 
 QString AttentionList::threadLabel(const FollowingModel::Entry& entry) const
