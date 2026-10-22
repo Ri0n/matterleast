@@ -875,6 +875,10 @@ void ChatLogWidget::updateReadCursorFromVisibility()
             && (threadEntry->requiresAttention()
                 || threadEntry->resumeState == FollowingModel::ResumeState::FirstUnread);
         const QString threadTeamId = threadEntry ? threadEntry->teamId : QString();
+        const int priorUnreadReplies = threadEntry ? threadEntry->unreadReplies : -1;
+        const int priorUnreadMentions = threadEntry ? threadEntry->unreadMentions : -1;
+        const int priorResumeState = threadEntry
+            ? static_cast<int>(threadEntry->resumeState) : -1;
         const bool directThread = channel.type == BackendChannel::directChannel
             || channel.type == BackendChannel::groupChannel;
 
@@ -896,10 +900,9 @@ void ChatLogWidget::updateReadCursorFromVisibility()
                 << " authoritative=" << postSource->isPostPositionAuthoritative(readPost->id)
                 << " entry=" << (threadEntry != nullptr)
                 << " team=" << threadTeamId
-                << " unreadReplies=" << (threadEntry ? threadEntry->unreadReplies : -1)
-                << " unreadMentions=" << (threadEntry ? threadEntry->unreadMentions : -1)
-                << " previousState="
-                << (threadEntry ? static_cast<int>(threadEntry->resumeState) : -1)
+                << " unreadReplies=" << priorUnreadReplies
+                << " unreadMentions=" << priorUnreadMentions
+                << " previousState=" << priorResumeState
                 << " cursorAtEnd=" << cursorAtEnd
                 << " sendRead=" << sendRead;
         }
