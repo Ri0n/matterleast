@@ -23,6 +23,7 @@
  */
 
 #include "Backend.h"
+#include "backend/ChannelUnreadPostSelection.h"
 #include "LoginResponsePolicy.h"
 
 #include <iostream>
@@ -1087,11 +1088,16 @@ void Backend::retrieveChannelOlderPosts (BackendChannel& channel, int perPage)
     }));
 }
 
-void Backend::retrieveChannelUnreadPost (BackendChannel& channel, std::function<void (const QString&)> responseHandler)
+void Backend::retrieveChannelUnreadPost(
+    BackendChannel& channel, std::function<void(const QString&)> responseHandler,
+    bool rootsOnly)
 {
-	NetworkRequest request ("users/me/channels/" + channel.id + "/posts/unread?limit_before=0&limit_after=1");
+    NetworkRequest request("users/me/channels/" + channel.id
+                           + "/posts/unread?limit_before=0&limit_after=1");
 
-	httpConnector.get (request, HttpResponseCallback ([this, &channel, responseHandler](const QJsonDocument& doc) {
+    httpConnector.get(request, HttpResponseCallback(
+        [this, &channel, responseHandler = std::move(responseHandler), rootsOnly](
+            const QJsonDocument& doc) {
 
 		//LOG_DEBUG ("retrieveChannelUnreadPost reply for " << channel.display_name << " (" << channel.id << ")");
 
@@ -1100,8 +1106,8 @@ void Backend::retrieveChannelUnreadPost (BackendChannel& channel, std::function<
 		std::cout << jsonString.toStdString() << std::endl;
 #endif
 
-		const QJsonArray order = doc.object().value("order").toArray();
-		const QString firstUnreadPost = order.isEmpty() ? QString() : order.last().toString();
+        const QString firstUnreadPost =
+            selectChannelUnreadPostId(doc.object(), rootsOnly);
 
 		responseHandler (firstUnreadPost);
 		if (!firstUnreadPost.isEmpty()) {
