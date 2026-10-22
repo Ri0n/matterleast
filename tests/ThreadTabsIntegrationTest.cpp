@@ -110,6 +110,7 @@ public:
     bool failPost = false;
     bool startupChannels = false;
     bool secondChannel = false;
+    bool crtMentionFixture = false;
     Server()
     {
         connect(this, &QTcpServer::newConnection, this, [this] {
@@ -128,7 +129,12 @@ public:
                     const bool teamChannels = url.path().startsWith("/api/v4/users/me/teams/")
                         && url.path().endsWith("/channels");
                     if (teamChannels) teamChannelLookups.push_back(url.path());
-                    if (startupChannels && url.path() == "/api/v4/users/me/teams") {
+                    if (crtMentionFixture && url.path() == "/api/v4/config/client") {
+                        body = R"({"CollapsedThreads":"always_on"})";
+                    } else if (crtMentionFixture
+                               && url.path() == "/api/v4/users/user/channel_members") {
+                        body = R"([{"channel_id":"channel","msg_count":5,"msg_count_root":5,"mention_count":0,"mention_count_root":0,"last_viewed_at":1000}])";
+                    } else if (startupChannels && url.path() == "/api/v4/users/me/teams") {
                         body = R"([{"id":"team","name":"team","display_name":"Team"}])";
                     } else if (startupChannels && url.path() == "/api/v4/users/me/teams/team/channels") {
                         QJsonObject info {{"id", "channel"}, {"type", "G"},
@@ -824,6 +830,56 @@ private slots:
         ui.saveSession();
         QCOMPARE(MLOptions::instance()->value<QByteArray>(sessionKey()), original);
         QVERIFY(MLOptions::instance()->contains(sessionKey("other-user")));
+    }
+
+    void crtReplyMentionDoesNotMakeParentDmUnread()
+    {
+        Server server;
+        server.crtMentionFixture = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        storage.addUser(QJsonObject {{"id", "peer"}, {"username", "peer"}});
+        auto* channel = storage.addGroupChannel(QJsonObject {
+            {"id", "channel"}, {"type", "G"}, {"display_name", "Test DM"},
+            {"total_msg_count", 5}, {"total_msg_count_root", 5},
+            {"last_post_at", 1000}, {"last_root_post_at", 1000}
+        });
+        QVERIFY(channel);
+
+        auto& sidebar = SidebarService::instance(backend);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        sidebar.retrieveChannelMemberships();
+        QTRY_VERIFY(sidebar.usesRootUnreadCounts(*channel));
+        QVERIFY(!sidebar.isChannelUnread(*channel));
+        QVERIFY(!sidebar.hasUnreadMention(channel->id));
+
+        // This is a real MainWindow notification callback, not just a
+        // ChannelActivityTracker unit test. A mentioned reply must belong to
+        // its CRT thread without contaminating the parent GM's root mentions.
+        QJsonObject reply = post(101, 1);
+        reply.insert("user_id", "peer");
+        reply.insert("_mmqt_current_user_mentioned", true);
+        BackendPost* replyPost = channel->addPost(reply);
+        QVERIFY(replyPost);
+        emit backend.onNewPost(*channel, *replyPost);
+        QVERIFY(!sidebar.isChannelUnread(*channel));
+        QVERIFY(!sidebar.hasUnreadMention(channel->id));
+
+        // A genuinely mentioned root still marks the parent conversation.
+        QJsonObject root = post(102);
+        root.insert("user_id", "peer");
+        root.insert("_mmqt_current_user_mentioned", true);
+        BackendPost* rootPost = channel->addPost(root);
+        QVERIFY(rootPost);
+        emit backend.onNewPost(*channel, *rootPost);
+        QVERIFY(sidebar.isChannelUnread(*channel));
+        QVERIFY(sidebar.hasUnreadMention(channel->id));
     }
 
     void threadTabAttentionIsIndependentFromParentChannel()
