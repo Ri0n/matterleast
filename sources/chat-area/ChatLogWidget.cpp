@@ -875,39 +875,16 @@ void ChatLogWidget::updateReadCursorFromVisibility()
             && (threadEntry->requiresAttention()
                 || threadEntry->resumeState == FollowingModel::ResumeState::FirstUnread);
         const QString threadTeamId = threadEntry ? threadEntry->teamId : QString();
-        const int priorUnreadReplies = threadEntry ? threadEntry->unreadReplies : -1;
-        const int priorUnreadMentions = threadEntry ? threadEntry->unreadMentions : -1;
-        const int priorResumeState = threadEntry
-            ? static_cast<int>(threadEntry->resumeState) : -1;
-        const bool directThread = channel.type == BackendChannel::directChannel
-            || channel.type == BackendChannel::groupChannel;
 
         followingModel.observeReadThrough(channel.id, chatArea->root_id,
                                           *readPost, threadAtEnd);
 
-        const FollowingModel::Entry* current =
-            followingModel.findEntry(channel.id, chatArea->root_id);
-        const bool cursorAtEnd = current
-            && current->resumeState == FollowingModel::ResumeState::AtEnd;
-        const bool sendRead = shouldAcknowledgeThread && !threadTeamId.isEmpty()
-            && cursorAtEnd;
-        if (directThread) {
-            qCDebug(lcTimelineTrace).nospace()
-                << "DM_THREAD_READ_DECISION channel=" << channel.id
-                << " thread=" << chatArea->root_id
-                << " post=" << readPost->id
-                << " sourceTailRead=" << sourceTailRead
-                << " authoritative=" << postSource->isPostPositionAuthoritative(readPost->id)
-                << " entry=" << (threadEntry != nullptr)
-                << " team=" << threadTeamId
-                << " unreadReplies=" << priorUnreadReplies
-                << " unreadMentions=" << priorUnreadMentions
-                << " previousState=" << priorResumeState
-                << " cursorAtEnd=" << cursorAtEnd
-                << " sendRead=" << sendRead;
-        }
-        if (sendRead) {
-            followingModel.markThreadRead(threadTeamId, chatArea->root_id);
+        if (shouldAcknowledgeThread && !threadTeamId.isEmpty()) {
+            const FollowingModel::Entry* current =
+                followingModel.findEntry(channel.id, chatArea->root_id);
+            if (current && current->resumeState == FollowingModel::ResumeState::AtEnd) {
+                followingModel.markThreadRead(threadTeamId, chatArea->root_id);
+            }
         }
 
         // With CRT root counters, replies are owned by the thread unread

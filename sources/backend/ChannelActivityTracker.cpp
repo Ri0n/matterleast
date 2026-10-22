@@ -303,34 +303,6 @@ bool ChannelActivityTracker::isTracked(const QString& channelId) const
     return it != entries.cend() && it->tracked;
 }
 
-QString ChannelActivityTracker::unreadDebugState(const QString& channelId) const
-{
-    const auto it = entries.constFind(channelId);
-    if (it == entries.cend() || !it->tracked) {
-        return QStringLiteral("untracked");
-    }
-
-    const Entry& state = it.value();
-    return QStringLiteral("readRoot=%1 readAll=%2 rootMode=%3 serverUnread=%4 "
-                          "runtimeRootUnread=%5 runtimeReplyUnread=%6 "
-                          "rootMentions=%7 mentions=%8 serverMention=%9 "
-                          "runtimeRootMention=%10 runtimeReplyMention=%11 "
-                          "ownRootCredit=%12 lastViewed=%13")
-        .arg(QString::number(static_cast<qulonglong>(state.readRootMessageCount)))
-        .arg(QString::number(static_cast<qulonglong>(state.readMessageCount)))
-        .arg(QString::number(state.rootUnreadMode))
-        .arg(QString::number(state.serverUnreadActivity))
-        .arg(QString::number(state.runtimeUnreadActivity))
-        .arg(QString::number(state.runtimeReplyUnreadActivity))
-        .arg(QString::number(static_cast<qulonglong>(state.rootMentionCount)))
-        .arg(QString::number(static_cast<qulonglong>(state.mentionCount)))
-        .arg(QString::number(state.serverMentioned))
-        .arg(QString::number(state.runtimeMentioned))
-        .arg(QString::number(state.runtimeReplyMentioned))
-        .arg(QString::number(static_cast<qulonglong>(state.pendingOwnRootMessageCount)))
-        .arg(QString::number(static_cast<qulonglong>(state.lastViewedAt)));
-}
-
 bool ChannelActivityTracker::isUnread(const QString& channelId) const
 {
     const auto it = entries.constFind(channelId);

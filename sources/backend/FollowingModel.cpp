@@ -4,7 +4,6 @@
 #include <utility>
 
 #include <QDateTime>
-#include <QLoggingCategory>
 #include <QPointer>
 
 #include "Backend.h"
@@ -15,8 +14,6 @@
 
 namespace Mattermost {
 namespace {
-
-Q_LOGGING_CATEGORY(lcCrtModelTrace, "mattermost.timeline.trace", QtWarningMsg)
 
 constexpr int ThreadRefreshDelayMs = 300;
 const QString ModelObjectName = QStringLiteral("mattermostFollowingModel");
@@ -557,24 +554,6 @@ void FollowingModel::applyThreadSnapshot(
             }
         }
 
-        if (channel
-            && (channel->type == BackendChannel::directChannel
-                || channel->type == BackendChannel::groupChannel)
-            && (wasAttention || readPending || entry.requiresAttention())) {
-            qCDebug(lcCrtModelTrace).nospace()
-                << "DM_THREAD_SNAPSHOT channel=" << entry.channelId
-                << " thread=" << entry.threadId
-                << " team=" << entry.teamId
-                << " serverUnreadReplies=" << thread.unreadReplies
-                << " serverUnreadMentions=" << thread.unreadMentions
-                << " serverLastReplyAt=" << thread.lastReplyAt
-                << " previousReadPending=" << readPending
-                << " readBoundary=" << entry.readAcknowledgementAt
-                << " resultUnreadReplies=" << entry.unreadReplies
-                << " resultUnreadMentions=" << entry.unreadMentions
-                << " resultReadPending=" << entry.readAcknowledgementPending;
-        }
-
         noteAttentionTransition(entry, wasAttention);
         if (existingNextIndex >= 0) {
             next[existingNextIndex] = std::move(entry);
@@ -759,18 +738,6 @@ void FollowingModel::markThreadRead(const QString& teamId,
     QString manualKey;
     if (Entry* entry = findThreadMutable(threadId)) {
         manualKey = manualUnreadKey(entry->channelId, threadId);
-        if (const BackendChannel* channel = backend_.getStorage().getChannelById(
-                entry->channelId);
-            channel && (channel->type == BackendChannel::directChannel
-                        || channel->type == BackendChannel::groupChannel)) {
-            qCDebug(lcCrtModelTrace).nospace()
-                << "DM_THREAD_MODEL_ACK channel=" << entry->channelId
-                << " thread=" << threadId << " team=" << teamId
-                << " unreadReplies=" << entry->unreadReplies
-                << " unreadMentions=" << entry->unreadMentions
-                << " lastReplyAt=" << entry->lastReplyAt
-                << " readThroughCreateAt=" << entry->readThroughCreateAt;
-        }
         entry->unreadReplies = 0;
         entry->unreadMentions = 0;
         entry->mentioned = false;
@@ -801,21 +768,6 @@ void FollowingModel::markThreadRead(const QString& teamId,
             } else if (!manualKey.isEmpty()) {
                 guard->manualUnreadMarkers_.remove(manualKey);
                 guard->manualAttentionKeys_.remove(manualKey);
-            }
-
-            if (const Entry* entry = guard->findThread(threadId)) {
-                const BackendChannel* channel =
-                    guard->backend_.getStorage().getChannelById(entry->channelId);
-                if (channel && (channel->type == BackendChannel::directChannel
-                                || channel->type == BackendChannel::groupChannel)) {
-                    qCDebug(lcCrtModelTrace).nospace()
-                        << "DM_THREAD_ACK_COMPLETED channel=" << entry->channelId
-                        << " thread=" << threadId
-                        << " success=" << success
-                        << " unreadReplies=" << entry->unreadReplies
-                        << " unreadMentions=" << entry->unreadMentions
-                        << " readPending=" << entry->readAcknowledgementPending;
-                }
             }
 
             // On failure the retained manual-attention key makes the next CRT

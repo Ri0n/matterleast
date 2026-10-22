@@ -43,7 +43,6 @@ constexpr int FollowingThreadsPerPage = 25;
 constexpr int UnreadThreadsPerPage = 100;
 
 Q_LOGGING_CATEGORY(lcFollowing, "mattermost.following", QtWarningMsg)
-Q_LOGGING_CATEGORY(lcCrtReadTrace, "mattermost.timeline.trace", QtWarningMsg)
 
 void logFollowingState(Backend& backend,
                        const QVector<ThreadFollowService::ThreadSummary>& threads,
@@ -544,22 +543,12 @@ void ThreadFollowService::markThreadRead(const QString& teamId,
     }
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    qCDebug(lcCrtReadTrace).nospace()
-        << "CRT_THREAD_READ_REQUEST thread=" << threadId
-        << " team=" << teamId << " timestamp=" << now;
     NetworkRequest request(threadPath(teamId, threadId)
                            + QStringLiteral("/read/") + QString::number(now));
     _httpConnector.put(request, QByteArrayCreator(QJsonObject {}),
                        HttpResponseCallback([this, teamId, threadId, callback = std::move(callback)](
-                                                QVariant status, QByteArray,
-                                                const QNetworkReply& reply) mutable {
+                                                QVariant status, const QJsonDocument&) mutable {
         const bool success = status.toInt() == QNetworkReply::NoError;
-        qCDebug(lcCrtReadTrace).nospace()
-            << "CRT_THREAD_READ_RESPONSE thread=" << threadId
-            << " team=" << teamId
-            << " http=" << reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-            << " networkError=" << status.toInt()
-            << " success=" << success;
         if (success) {
             // Both Attention and Following treat followingChanged(true) as a
             // followed-thread state invalidation and reconcile their independent

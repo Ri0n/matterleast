@@ -77,8 +77,6 @@ public:
 
     bool isTracked(const QString& channelId) const;
     bool isUnread(const QString& channelId) const;
-    /** Diagnostic-only view of the independent root/reply unread sources. */
-    QString unreadDebugState(const QString& channelId) const;
     bool hasMention(const QString& channelId) const;
     /** Whether CRT root counters, rather than all-message counters, define parent unread state. */
     bool usesRootUnreadCounts(const QString& channelId) const;
