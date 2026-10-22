@@ -245,6 +245,18 @@ bool SidebarService::isChannelUnread(const BackendChannel& channel) const
     return activityTracker.isUnread(channel.id);
 }
 
+QString SidebarService::channelUnreadDebugState(const BackendChannel& channel) const
+{
+    return QStringLiteral("totalRoot=%1 totalAll=%2 lastRoot=%3 lastPost=%4 "
+                          "hasTotalRoot=%5 ")
+        .arg(QString::number(channel.total_msg_count_root))
+        .arg(QString::number(channel.total_msg_count))
+        .arg(QString::number(channel.last_root_post_at))
+        .arg(QString::number(channel.last_post_at))
+        .arg(QString::number(channel.has_total_msg_count_root))
+        + activityTracker.unreadDebugState(channel.id);
+}
+
 bool SidebarService::usesRootUnreadCounts(const BackendChannel& channel) const
 {
     return activityTracker.usesRootUnreadCounts(channel.id);
