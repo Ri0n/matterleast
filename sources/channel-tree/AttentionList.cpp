@@ -15,6 +15,7 @@
 #include <QFont>
 #include <QHeaderView>
 #include <QIcon>
+#include <QLoggingCategory>
 #include <QMouseEvent>
 #include <QPointer>
 #include <QSignalBlocker>
@@ -35,6 +36,8 @@
 
 namespace Mattermost {
 namespace {
+
+Q_LOGGING_CATEGORY(lcDmAttentionTrace, "mattermost.timeline.trace", QtWarningMsg)
 
 constexpr int SelectionSettleDelayMs = 180;
 
@@ -355,6 +358,22 @@ void AttentionList::refresh()
         if (!entry.requiresAttention()
             || !attentionMuteAllowsEntry(entry.muted, explicitlyFollowedThread)) {
             continue;
+        }
+        if (const BackendChannel* channel =
+                backend_->getStorage().getChannelById(entry.channelId);
+            channel && (channel->type == BackendChannel::directChannel
+                        || channel->type == BackendChannel::groupChannel)) {
+            qCDebug(lcDmAttentionTrace).nospace()
+                << "DM_ATTENTION_ROW kind=" << (entry.isThread() ? "thread" : "conversation")
+                << " channel=" << entry.channelId
+                << " thread=" << entry.threadId
+                << " team=" << entry.teamId
+                << " unread=" << entry.unread
+                << " unreadReplies=" << entry.unreadReplies
+                << " unreadMentions=" << entry.unreadMentions
+                << " readPending=" << entry.readAcknowledgementPending
+                << " rootUnreadMode="
+                << SidebarService::instance(*backend_).usesRootUnreadCounts(*channel);
         }
         displayEntries.push_back(DisplayEntry { entry, true });
     }
