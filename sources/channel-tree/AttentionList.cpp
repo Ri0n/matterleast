@@ -262,7 +262,7 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
 
     QPointer<AttentionList> guard(this);
     backend_->retrieveChannelUnreadPost(*channel,
-        [guard, channelId](const QString& postId) {
+        [guard, channelId, rootsOnly](const QString& postId) {
             if (!guard || !guard->backend_ || !guard->model_ || !guard->retainedEntry_
                 || guard->retainedEntry_->channelId != channelId
                 || !guard->retainedEntry_->threadId.isEmpty()) {
@@ -293,7 +293,16 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
                 }
             }
 
-            if (!postId.isEmpty() && currentChannel
+            // A CRT mode change while the HTTP request was in flight must
+            // not turn an unfiltered legacy reply into a parent DM jump.
+            const BackendPost* cachedTarget = currentChannel
+                ? currentChannel->postIdToPost.value(postId, nullptr) : nullptr;
+            const bool verifiedRoot = rootsOnly
+                || isConversationTargetCompatible(currentRootsOnly,
+                                                  cachedTarget != nullptr,
+                                                  cachedTarget
+                                                      ? cachedTarget->root_id : QString());
+            if (!postId.isEmpty() && currentChannel && verifiedRoot
                 && !isStaleConversationResumeTarget(*current, *currentChannel, postId)) {
                 AppNavigationService::instance(*guard->backend_).openPost(postId);
             } else {
