@@ -111,6 +111,7 @@ public:
     bool startupChannels = false;
     bool secondChannel = false;
     bool crtMentionFixture = false;
+    bool unreadReplyFixture = false;
     Server()
     {
         connect(this, &QTcpServer::newConnection, this, [this] {
@@ -129,7 +130,10 @@ public:
                     const bool teamChannels = url.path().startsWith("/api/v4/users/me/teams/")
                         && url.path().endsWith("/channels");
                     if (teamChannels) teamChannelLookups.push_back(url.path());
-                    if (crtMentionFixture && url.path() == "/api/v4/config/client") {
+                    if (unreadReplyFixture
+                        && url.path() == "/api/v4/users/me/channels/channel/posts/unread") {
+                        body = R"({"order":["reply-1"],"posts":{"reply-1":{"id":"reply-1","root_id":"thread-1"}}})";
+                    } else if (crtMentionFixture && url.path() == "/api/v4/config/client") {
                         body = R"({"CollapsedThreads":"always_on"})";
                     } else if (crtMentionFixture
                                && url.path() == "/api/v4/users/user/channel_members") {
@@ -256,6 +260,36 @@ class ThreadTabsIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void serverUnreadReplyCannotRedirectRootOnlyConversation()
+    {
+        // The test server returns a synthetic reply as the unread cursor.
+        // Root-only navigation must refuse it; the legacy all-posts response
+        // remains unchanged.
+        Server server;
+        server.unreadReplyFixture = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        auto* channel = backend.getStorage().addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"}});
+        QVERIFY(channel);
+
+        QString rootOnlyTarget = QStringLiteral("unresolved");
+        backend.retrieveChannelUnreadPost(*channel,
+            [&rootOnlyTarget](const QString& id) { rootOnlyTarget = id; }, true);
+        QTRY_VERIFY(rootOnlyTarget != QStringLiteral("unresolved"));
+        QVERIFY(rootOnlyTarget.isEmpty());
+
+        QString legacyTarget;
+        backend.retrieveChannelUnreadPost(*channel,
+            [&legacyTarget](const QString& id) { legacyTarget = id; });
+        QTRY_COMPARE(legacyTarget, QStringLiteral("reply-1"));
+    }
+
     void repositoryShutdownReleasesCallbackOwnedLeases()
     {
         Server server;
