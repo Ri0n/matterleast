@@ -373,7 +373,9 @@ void AttentionList::refresh()
                 << " unreadMentions=" << entry.unreadMentions
                 << " readPending=" << entry.readAcknowledgementPending
                 << " rootUnreadMode="
-                << SidebarService::instance(*backend_).usesRootUnreadCounts(*channel);
+                << SidebarService::instance(*backend_).usesRootUnreadCounts(*channel)
+                << " unreadDetails="
+                << SidebarService::instance(*backend_).channelUnreadDebugState(*channel);
         }
         displayEntries.push_back(DisplayEntry { entry, true });
     }
