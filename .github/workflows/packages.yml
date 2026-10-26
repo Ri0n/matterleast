@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          packages=(build-essential dpkg-dev fakeroot)
+          packages=(build-essential dpkg-dev fakeroot libssl-dev)
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
             packages+=(qt6-base-dev qt6-websockets-dev)
           else
@@ -165,7 +165,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins
+            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libssl-dev libssl-dev
 
       - name: Checkout
         uses: actions/checkout@v7
