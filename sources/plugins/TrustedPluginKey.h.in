@@ -1,0 +1,7 @@
+#pragma once
+
+namespace Mattermost {
+inline constexpr const char* TrustedPluginPublicKeyPem = R"ml_ed25519(
+@MATTERLEAST_PLUGIN_PUBLIC_KEY_PEM@
+)ml_ed25519";
+}
