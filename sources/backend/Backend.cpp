@@ -162,57 +162,9 @@ Backend::Backend(QObject *parent)
 	(void)RealtimeFallbackService::instance(*this);
 }
 
-void debugRequest (const QNetworkRequest& request, QByteArray data = QByteArray())
-{
-  qDebug() << request.url().toString();
-  const QList<QByteArray>& rawHeaderList(request.rawHeaderList());
-  foreach (QByteArray rawHeader, rawHeaderList) {
-    qDebug() << rawHeader << ":"  << request.rawHeader(rawHeader);
-  }
-  qDebug() << data;
-}
+// Never dump full HTTP requests, headers or response bodies. Authentication
+// credentials may appear in cookies, custom headers, URLs and server errors.
 
-namespace {
-
-bool isSensitiveHttpHeader(const QByteArray& name)
-{
-    return name.compare("Cookie", Qt::CaseInsensitive) == 0
-        || name.compare("Set-Cookie", Qt::CaseInsensitive) == 0
-        || name.compare("Authorization", Qt::CaseInsensitive) == 0
-        || name.compare("X-CSRF-Token", Qt::CaseInsensitive) == 0;
-}
-
-QString requestHeadersForUploadTrace(const QNetworkRequest& request)
-{
-    QStringList fields;
-    const QList<QByteArray> names = request.rawHeaderList();
-    fields.reserve(names.size());
-    for (const QByteArray& name : names) {
-        const QString value = isSensitiveHttpHeader(name)
-            ? QStringLiteral("<redacted>")
-            : QString::fromUtf8(request.rawHeader(name));
-        fields.push_back(QString::fromLatin1(name) + QLatin1Char('=')
-                         + value);
-    }
-    return fields.join(QStringLiteral("; "));
-}
-
-QString replyHeadersForUploadTrace(const QNetworkReply& reply)
-{
-    QStringList fields;
-    const QList<QByteArray> names = reply.rawHeaderList();
-    fields.reserve(names.size());
-    for (const QByteArray& name : names) {
-        const QString value = isSensitiveHttpHeader(name)
-            ? QStringLiteral("<redacted>")
-            : QString::fromUtf8(reply.rawHeader(name));
-        fields.push_back(QString::fromLatin1(name) + QLatin1Char('=')
-                         + value);
-    }
-    return fields.join(QStringLiteral("; "));
-}
-
-} // namespace
 
 void Backend::login (const BackendLoginData& credentials, std::function<void(const QString&)> callback)
 {
@@ -267,7 +219,6 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
     NetworkRequest::clearToken();
 	NetworkRequest request ("users/login");
 
-	//debugRequest (request, data);
 
 	httpConnector.post (request, json, HttpResponseCallback ([this, callback](const QJsonDocument& data, const QNetworkReply& reply) {
 		loginSuccess (data, reply, callback);
@@ -281,7 +232,7 @@ void Backend::loginRetry ()
 		NetworkRequest::setToken (loginData.token);
 		NetworkRequest request ("users/me");
 
-		debugRequest (request);
+		LOG_DEBUG("Retrying authenticated login request");
 
 		httpConnector.get (request, HttpResponseCallback ([this](QVariant, QByteArray, const QNetworkReply&) {
 			webSocketConnector.open (NetworkRequest::host() + "api/v4/", loginData.token);
@@ -418,8 +369,7 @@ void Backend::logout (std::function<void ()> callback)
 		timeoutTimer.stop();
 		reset ();
 
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		qDebug () << jsonString;
+		// No JSON body logging on logout.
 		callback ();
 	}));
 }
@@ -1477,11 +1427,9 @@ void Backend::uploadFile(
         << " file=" << fileInfo.fileName()
         << " bytes=" << fileInfo.size()
         << " mime=" << mimeType
-        << " url=" << request.url().toString()
-        << " ua=" << request.rawHeader("User-Agent")
-        << " cookie=" << (!request.rawHeader("Cookie").isEmpty() ? "yes" : "no")
-        << " requestedWith=" << request.rawHeader("X-Requested-With")
-        << " connectionId=" << (connectionId.isEmpty() ? "none" : connectionId);
+        << " endpoint=files"
+        << " hasSessionCookie=" << !request.rawHeader("Cookie").isEmpty()
+        << " hasConnectionId=" << !connectionId.isEmpty();
 
     httpConnector.post(
         request,
@@ -1499,10 +1447,7 @@ void Backend::uploadFile(
                     << " file=" << fileName
                     << " networkError=" << status.toInt()
                     << " http=" << httpStatus
-                    << " error="
-                    << (status.toInt() == QNetworkReply::NoError
-                            ? QStringLiteral("none")
-                            : reply.errorString())
+                    << " networkError=" << status.toInt()
                     << " contentType=" << reply.header(QNetworkRequest::ContentTypeHeader).toString()
                     << " responseBytes=" << data.size()
                     << " qt=" << qVersion()
@@ -1514,17 +1459,11 @@ void Backend::uploadFile(
                     << reply.attribute(QNetworkRequest::Http2WasUsedAttribute)
                            .toBool();
 
-                qCInfo(lcUploadTrace).nospace()
-                    << "UPLOAD_REQUEST_HEADERS clientId=" << clientId
-                    << " headers={"
-                    << requestHeadersForUploadTrace(reply.request())
-                    << "}";
-
-                qCInfo(lcUploadTrace).nospace()
-                    << "UPLOAD_RESPONSE_HEADERS clientId=" << clientId
-                    << " headers={"
-                    << replyHeadersForUploadTrace(reply)
-                    << "}";
+                // Deliberately no raw HTTP header values in release logs.
+                qCDebug(lcUploadTrace).nospace()
+                    << "UPLOAD_HEADER_COUNTS clientId=" << clientId
+                    << " request=" << reply.request().rawHeaderList().size()
+                    << " response=" << reply.rawHeaderList().size();
 
                 const QJsonDocument document = QJsonDocument::fromJson(data);
                 if (status.toInt() != QNetworkReply::NoError) {
@@ -1537,13 +1476,11 @@ void Backend::uploadFile(
                         }
                     }
 
-                    const QByteArray responsePreview = data.left(1024);
-                    qCWarning(lcUploadTrace).nospace()
+                     qCWarning(lcUploadTrace).nospace()
                         << "UPLOAD_FAILED clientId=" << clientId
                         << " file=" << fileName
                         << " http=" << httpStatus
-                        << " error=" << error
-                        << " body=" << QString::fromUtf8(responsePreview);
+                        << " networkError=" << status.toInt();
 
                     if (responseHandler) {
                         responseHandler(QString(), error);
@@ -1775,10 +1712,7 @@ void Backend::removeUserFromTeam (const BackendTeam& team, const QString& userID
 
 void Backend::sendSubmitDialog (const QJsonDocument& json)
 {
-	QString jsonString = json.toJson(QJsonDocument::Indented);
-	qDebug() << "SendSubmitDialog request: " << jsonString.toStdString().c_str();
-
-
+	// The dialog submission may contain private data; do not log the payload.
 	NetworkRequest request ("actions/dialogs/submit");
 	httpConnector.post (request, json, HttpResponseCallback ([] (QVariant, QByteArray) {
 #if 0
