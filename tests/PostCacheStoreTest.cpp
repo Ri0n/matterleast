@@ -51,6 +51,7 @@ void PostCacheStoreTest::roundTripAndAccountIsolation()
     QVERIFY(directory.isValid());
 
     PostCacheStore cache(directory.filePath(QStringLiteral("posts.sqlite3")));
+    cache.setEncryptionKey(QByteArray(32, 'k'));
     QVERIFY(cache.open());
     QVERIFY(cache.setAccount(QStringLiteral("https://chat.example/"),
                              QStringLiteral("alice-id")));
@@ -87,6 +88,7 @@ void PostCacheStoreTest::selectsChannelRootsAndThreadReplies()
     QVERIFY(directory.isValid());
 
     PostCacheStore cache(directory.filePath(QStringLiteral("posts.sqlite3")));
+    cache.setEncryptionKey(QByteArray(32, 'k'));
     QVERIFY(cache.open());
     QVERIFY(cache.setAccount(QStringLiteral("https://chat.example"),
                              QStringLiteral("alice-id")));
@@ -128,6 +130,7 @@ void PostCacheStoreTest::tailWindowRequiresProvenanceAndKeepsCompleteSuffix()
     QVERIFY(directory.isValid());
 
     PostCacheStore cache(directory.filePath(QStringLiteral("posts.sqlite3")));
+    cache.setEncryptionKey(QByteArray(32, 'k'));
     QVERIFY(cache.open());
     QVERIFY(cache.setAccount(QStringLiteral("https://chat.example"),
                              QStringLiteral("alice-id")));
@@ -182,6 +185,7 @@ void PostCacheStoreTest::enforcesThreadAndGlobalLimits()
     QVERIFY(directory.isValid());
 
     PostCacheStore cache(directory.filePath(QStringLiteral("posts.sqlite3")));
+    cache.setEncryptionKey(QByteArray(32, 'k'));
     QVERIFY(cache.open());
     QVERIFY(cache.setAccount(QStringLiteral("https://chat.example"),
                              QStringLiteral("alice-id")));
@@ -233,6 +237,7 @@ void PostCacheStoreTest::admitsOnlyRecentlyOpenedChannels()
     QVERIFY(directory.isValid());
 
     PostCacheStore cache(directory.filePath(QStringLiteral("posts.sqlite3")));
+    cache.setEncryptionKey(QByteArray(32, 'k'));
     QVERIFY(cache.open());
     QVERIFY(cache.setAccount(QStringLiteral("https://chat.example"),
                              QStringLiteral("alice-id")));
