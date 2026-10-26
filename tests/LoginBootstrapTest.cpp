@@ -60,7 +60,7 @@ class LoginBootstrapTest final : public QObject
 private slots:
     void initTestCase()
     {
-        // QSettings uses the Windows registry and requires a concrete
+        // The native Windows settings backend requires a concrete
         // application/organization identity. Mirror the real application's
         // initialization and keep tests separate from user settings.
         QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
