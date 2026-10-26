@@ -80,20 +80,18 @@ Useful failure boundaries:
 
 - no `HTTP_UPLOAD_START`: request is stuck before the network transport;
 - progress starts but no `UPLOAD_REPLY`: transport/server path did not finish;
-- `UPLOAD_FAILED`: inspect HTTP status, network error and the bounded response
-  body printed on that line;
+- `UPLOAD_FAILED`: inspect HTTP status and network error. The body is not logged;
 - `UPLOAD_INVALID_REPLY`: the request succeeded but the response did not contain
   a usable `file_infos[].id`;
 - `UPLOAD_ACCEPTED` exists but `POST_SUBMIT` has no matching `file_id`: the
   bug is in composer state/handoff rather than the upload API.
 
-The trace prints whether authentication headers are present, but never prints the
-Mattermost auth token itself. Each upload reply also records the Qt version,
-SSL library build/runtime versions, negotiated TLS protocol/cipher, whether
-Qt actually used HTTP/2, and sanitized request/response headers. Cookie,
-authorization and CSRF values are redacted. These fields are intended for
-comparing Qt 5/Qt 6 behavior with Chromium/Electron when a reverse proxy or WAF
-rejects an upload before Mattermost returns its normal JSON response.
+When explicitly enabled, upload tracing reports transport metadata such as
+byte counts, HTTP status, Qt/TLS versions and whether a session cookie is
+present. The application does not print raw HTTP header values, authentication
+values, complete request URLs or upload response bodies. Header counts are
+available at the debug level. Release builds leave the upload trace disabled
+by default.
 
 ## Following / Attention
 
@@ -131,8 +129,8 @@ Typing events are deliberately silent. If the client prints:
 Unhandled WebSocket event '...'
 ```
 
-keep the packet in a bug report: an unhandled event may represent missing client
-state synchronization rather than harmless log noise.
+keep the event name in a bug report: it may indicate missing client state
+synchronization. WebSocket packet contents are deliberately not logged.
 
 For example, `multiple_channels_viewed` must be handled because Mattermost uses
 its `channel_times` map to synchronize channel read state across client
