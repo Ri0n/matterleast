@@ -146,6 +146,12 @@ if(BUILD_MULTIMEDIA)
 	find_package(Qt${QT_VERSION_MAJOR} COMPONENTS MultimediaWidgets REQUIRED)
 endif()
 
+# Corporate/security-sensitive builds can disable all MatterLeast native plugins
+# and persistent login tokens until signed-plugin and keychain support exist.
+# These are compile-time restrictions, not user-editable settings.
+option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugins" ON)
+option(MATTERLEAST_PERSIST_LOGIN_TOKEN "Persist the session token in application settings (unencrypted)" ON)
+
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
 add_subdirectory(plugins)
 add_subdirectory(third_party/QSourceHighlite)
@@ -176,6 +182,12 @@ else()
   # real repository, HTTP connector and source/widget signal wiring.
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
   add_library(matterleast-core OBJECT ${SOURCES})
+  if(NOT MATTERLEAST_ENABLE_NATIVE_PLUGINS)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_NATIVE_PLUGINS_DISABLED)
+  endif()
+  if(NOT MATTERLEAST_PERSIST_LOGIN_TOKEN)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_LOGIN_TOKEN_PERSISTENCE_DISABLED)
+  endif()
   target_link_libraries(matterleast-core PUBLIC
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite
