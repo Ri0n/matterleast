@@ -200,6 +200,7 @@ jobs:
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DQT_6=ON
+          -DMATTERLEAST_USE_KEYCHAIN=ON
           -DBUILD_TESTING=ON
           -DWARNINGS_AS_ERRORS=ON
 
