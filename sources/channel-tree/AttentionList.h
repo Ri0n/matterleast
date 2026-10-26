@@ -43,6 +43,8 @@ public:
 
 signals:
     void channelSelected(const QString& channelId);
+    /** Repeated selection should flash visible unread posts without scrolling. */
+    void conversationAttentionReactivated(const QString& channelId);
     void attentionCountChanged(uint32_t count);
 
 protected:

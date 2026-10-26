@@ -127,6 +127,8 @@ public:
 	void onActivate ();
 	void onDeactivate ();
 	void onMainWindowActivate ();
+    /** Animate visible unread posts on an explicit Attention reactivation. */
+    void flashVisibleAttention();
 	void onMove (QPoint pos);
 
 	/** Re-evaluate read progress from the current concrete timeline viewport. */

@@ -229,6 +229,9 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
             entry->channelId,
             currentChannel ? currentChannel->id : QString(),
             repeatedActivation)) {
+        // Keep the exact viewport on a repeated click, but still animate
+        // unread root posts that are already visible in this conversation.
+        emit conversationAttentionReactivated(channelId);
         AppNavigationService::instance(*backend_).openChannel(channelId);
         return;
     }
@@ -255,6 +258,22 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
         AppNavigationService::instance(*backend_).openPost(entry->firstUnreadPostId);
         return;
     }
+
+    // A normal new root DM may have no FirstUnread cursor yet, and Mattermost's
+    // /posts/unread short window may contain only older thread replies. The
+    // realtime root is already cached: use that concrete post identity so
+    // opening Attention also produces the standard background highlight.
+    if (rootsOnly) {
+        auto& sidebar = SidebarService::instance(*backend_);
+        const QString cachedRoot = firstCachedUnreadRootPostId(
+            *channel, sidebar.channelLastViewedTime(channelId),
+            entry->readThroughCreateAt, entry->readThroughPostId);
+        if (!cachedRoot.isEmpty()) {
+            AppNavigationService::instance(*backend_).openPost(cachedRoot);
+            return;
+        }
+    }
+
     if (entry->resumeState == FollowingModel::ResumeState::AtEnd) {
         AppNavigationService::instance(*backend_).openChannel(channelId);
         return;
@@ -306,10 +325,23 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
                 && !isStaleConversationResumeTarget(*current, *currentChannel, postId)) {
                 AppNavigationService::instance(*guard->backend_).openPost(postId);
             } else {
-                // The server unread cursor can lag behind the local viewport
-                // high-water mark until channel acknowledgement completes.
-                // Never let that asynchronous fallback navigate backwards.
-                AppNavigationService::instance(*guard->backend_).openChannel(channelId);
+                // A new root can arrive while the server fallback is running.
+                // Prefer that concrete unread identity to a generic channel
+                // activation, but never resurrect an older read boundary.
+                QString cachedRoot;
+                if (currentChannel && currentRootsOnly) {
+                    auto& sidebar = SidebarService::instance(*guard->backend_);
+                    cachedRoot = firstCachedUnreadRootPostId(
+                        *currentChannel, sidebar.channelLastViewedTime(channelId),
+                        current->readThroughCreateAt, current->readThroughPostId);
+                }
+                if (!cachedRoot.isEmpty()) {
+                    AppNavigationService::instance(*guard->backend_).openPost(cachedRoot);
+                } else {
+                    // No verified root target. Keep the channel-level fallback:
+                    // following an unrelated thread reply would be incorrect.
+                    AppNavigationService::instance(*guard->backend_).openChannel(channelId);
+                }
             }
         }, rootsOnly);
 }
