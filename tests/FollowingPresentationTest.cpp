@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include "backend/ChannelUnreadPostSelection.h"
 #include "channel-tree/AttentionActivationPolicy.h"
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingPresentation.h"
@@ -44,6 +45,52 @@ private slots:
         QCOMPARE(tooltip.size(), FollowingThreadSnippetLength);
         QVERIFY(tooltip.endsWith(QChar(0x2026)));
         QVERIFY(!tooltip.contains(QLatin1Char('\n')));
+    }
+
+    void unreadConversationNavigationNeverTargetsCrtReplies()
+    {
+        // Synthetic protocol fixtures, deliberately unrelated to any real
+        // conversation or diagnostic log. The unread endpoint orders newest
+        // first, so the old implementation picked the final reply.
+        const QJsonObject response {
+            {"order", QJsonArray {QStringLiteral("root-new"),
+                                  QStringLiteral("reply-old")}},
+            {"posts", QJsonObject {
+                {"root-new", QJsonObject {{"root_id", ""}}},
+                {"reply-old", QJsonObject {{"root_id", "thread-root"}}}
+            }}
+        };
+
+        QCOMPARE(selectChannelUnreadPostId(response, false),
+                 QStringLiteral("reply-old"));
+        QCOMPARE(selectChannelUnreadPostId(response, true),
+                 QStringLiteral("root-new"));
+
+        // With no verified root in the server's short unread window,
+        // navigate to the parent DM tail rather than the unrelated thread.
+        const QJsonObject onlyReply {
+            {"order", QJsonArray {QStringLiteral("reply-only")}},
+            {"posts", QJsonObject {
+                {"reply-only", QJsonObject {{"root_id", "thread-root"}}}
+            }}
+        };
+        QVERIFY(selectChannelUnreadPostId(onlyReply, true).isEmpty());
+        QCOMPARE(selectChannelUnreadPostId(onlyReply, false),
+                 QStringLiteral("reply-only"));
+
+        const QJsonObject unknownMetadata {
+            {"order", QJsonArray {QStringLiteral("unknown")}},
+            {"posts", QJsonObject {{"unknown", QJsonObject {{"id", "unknown"}}}}}
+        };
+        QVERIFY(selectChannelUnreadPostId(unknownMetadata, true).isEmpty());
+
+        // A cached FirstUnread cursor must respect the same root boundary.
+        QVERIFY(isConversationTargetCompatible(true, true, QString()));
+        QVERIFY(!isConversationTargetCompatible(
+            true, true, QStringLiteral("thread-root")));
+        QVERIFY(!isConversationTargetCompatible(true, false, QString()));
+        QVERIFY(isConversationTargetCompatible(
+            false, true, QStringLiteral("thread-root")));
     }
 
     void activationFlashesOnlyUnreadAttentionPosts()
