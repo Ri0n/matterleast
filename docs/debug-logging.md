@@ -34,7 +34,7 @@ can be very verbose on active servers.
 
 | Category | Default | Use |
 | --- | --- | --- |
-| `mattermost.upload` | info | Attachment selection, multipart transport, upload progress, HTTP response, returned `file_id`, and handoff to post creation |
+| `mattermost.upload` | warning | Attachment selection, multipart transport, upload progress, HTTP response, returned `file_id`, and handoff to post creation |
 | `mattermost.following` | warning | Following/Attention thread queries, pagination, merge statistics, unread state |
 | `mattermost.timeline.trace` | warning | Virtualized list requests, visible/materialized ranges, navigation locks and read-cursor triggers |
 | `mattermost.timeline.channel` | warning | Channel source paging, boundary reconciliation and logical placement |
