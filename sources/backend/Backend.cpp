@@ -1494,8 +1494,7 @@ void Backend::uploadFile(
                     qCWarning(lcUploadTrace).nospace()
                         << "UPLOAD_INVALID_REPLY clientId=" << clientId
                         << " file=" << fileName
-                        << " reason=no-file-infos body="
-                        << QString::fromUtf8(data.left(1024));
+                        << " reason=no-file-infos";
                     if (responseHandler) {
                         responseHandler(
                             QString(),
@@ -1510,8 +1509,7 @@ void Backend::uploadFile(
                     qCWarning(lcUploadTrace).nospace()
                         << "UPLOAD_INVALID_REPLY clientId=" << clientId
                         << " file=" << fileName
-                        << " reason=empty-file-id body="
-                        << QString::fromUtf8(data.left(1024));
+                        << " reason=empty-file-id";
                     if (responseHandler) {
                         responseHandler(
                             QString(),
