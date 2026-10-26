@@ -65,7 +65,8 @@ void PostCacheServiceTest::asyncReadsFollowQueuedWrites()
     const QString user = QStringLiteral("user");
     const QString channel = QStringLiteral("channel");
     const QString root = QStringLiteral("root");
-    PostCacheService service(dir.filePath(QStringLiteral("posts.sqlite3")));
+    PostCacheService service(dir.filePath(QStringLiteral("posts.sqlite3")),
+                             QByteArray(32, 'k'));
 
     service.recordChannelOpened(server, user, channel, QDateTime::currentMSecsSinceEpoch());
     QJsonObject posts;
@@ -120,7 +121,8 @@ void PostCacheServiceTest::liveLimitChangesReachExistingWorker()
     const QString server = QStringLiteral("https://example.invalid");
     const QString user = QStringLiteral("user");
     const QString channel = QStringLiteral("channel");
-    PostCacheService service(dir.filePath(QStringLiteral("posts.sqlite3")));
+    PostCacheService service(dir.filePath(QStringLiteral("posts.sqlite3")),
+                             QByteArray(32, 'k'));
 
     service.recordChannelOpened(
         server, user, channel, QDateTime::currentMSecsSinceEpoch());
