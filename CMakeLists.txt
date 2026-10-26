@@ -258,6 +258,9 @@ endif()
 find_package(Qca3-qt${QT_VERSION_MAJOR} 3.0.11 CONFIG QUIET)
 if(NOT TARGET Qca3::Qca)
   include(FetchContent)
+  # Embedded QCA's optional Doxygen rule assumes it is the top-level source.
+  # Documentation is not part of our dependency build.
+  set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
   set(BUILD_TESTS OFF CACHE BOOL "QCA tests" FORCE)
   set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
   set(BUILD_PLUGINS "ossl" CACHE STRING "QCA providers" FORCE)
@@ -268,8 +271,18 @@ if(NOT TARGET Qca3::Qca)
     set(BUILD_WITH_QT6 OFF CACHE BOOL "QCA Qt version" FORCE)
   endif()
   FetchContent_Declare(matterleast_qca
-    URL https://codeload.github.com/psi-im/qca/tar.gz/0adfcc757974ca865f6d1de0955df68e7a304676)
+    URL https://codeload.github.com/psi-im/qca/tar.gz/0adfcc757974ca865f6d1de0955df68e7a304676
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(matterleast_qca)
+  # QCA 3.0.11 generates qca_export.h in its own build directory but
+  # assumes CMAKE_BINARY_DIR points there. Supply the directory explicitly
+  # when it is embedded inside another project.
+  target_include_directories(qca3-qt${QT_VERSION_MAJOR} PUBLIC
+    "${matterleast_qca_SOURCE_DIR}/include/QtCrypto"
+    "${matterleast_qca_BINARY_DIR}")
+  if(TARGET qca-ossl)
+    target_include_directories(qca-ossl PRIVATE "${matterleast_qca_BINARY_DIR}")
+  endif()
   # Keep project -Werror separate from our pinned third-party library.
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(qca3-qt${QT_VERSION_MAJOR} PRIVATE -Wno-error)
