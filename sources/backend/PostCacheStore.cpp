@@ -1,4 +1,5 @@
 #include "PostCacheStore.h"
+#include "LocalMessageCrypto.h"
 
 #include <algorithm>
 #include <utility>
@@ -63,8 +64,19 @@ PostCacheStore::~PostCacheStore()
     QSqlDatabase::removeDatabase(connectionName);
 }
 
+void PostCacheStore::setEncryptionKey(const QByteArray& key)
+{
+    if (!database.isOpen()) {
+        _encryptionKey = key.size() == LocalMessageCrypto::KeyBytes ? key : QByteArray();
+    }
+}
+
 bool PostCacheStore::open()
 {
+    if (_encryptionKey.size() != LocalMessageCrypto::KeyBytes
+        || !LocalMessageCrypto::isAvailable()) {
+        return false;
+    }
     if (database.isOpen()) {
         return true;
     }
@@ -313,7 +325,12 @@ int PostCacheStore::storePosts(const QJsonObject& postsObject)
         query.bindValue(4, post.value(QStringLiteral("create_at")).toVariant().toLongLong());
         query.bindValue(5, post.value(QStringLiteral("update_at")).toVariant().toLongLong());
         query.bindValue(6, timestamp);
-        query.bindValue(7, encodePost(post));
+        const QByteArray ciphertext = encodePost(post);
+        if (ciphertext.isEmpty()) {
+            database.rollback();
+            return 0;
+        }
+        query.bindValue(7, ciphertext);
         if (!query.exec()) {
             qCWarning(lcPostCache) << "cannot cache post" << postId
                                    << query.lastError().text();
@@ -652,12 +669,20 @@ qint64 PostCacheStore::nowMs() const
 
 QByteArray PostCacheStore::encodePost(const QJsonObject& post) const
 {
-    return qCompress(QJsonDocument(post).toJson(QJsonDocument::Compact), 6);
+    return LocalMessageCrypto::encrypt(
+        qCompress(QJsonDocument(post).toJson(QJsonDocument::Compact), 6),
+        _encryptionKey, QByteArrayLiteral("post-cache-v1"));
 }
 
 QJsonObject PostCacheStore::decodePost(const QByteArray& payload) const
 {
-    const QByteArray json = qUncompress(payload);
+    QByteArray compressed;
+    if (!LocalMessageCrypto::decrypt(payload, _encryptionKey,
+                                      QByteArrayLiteral("post-cache-v1"),
+                                      &compressed)) {
+        return {};
+    }
+    const QByteArray json = qUncompress(compressed);
     if (json.isEmpty()) {
         return {};
     }
