@@ -789,18 +789,15 @@ void WebSocketConnector::onNewPacket (const QString& string)
             return;
         }
 
-		LOG_DEBUG ("Unhandled WebSocket event '" << eventName << "'\n");
-		const QString jsonString = doc.toJson (QJsonDocument::Indented);
-		std::cout << jsonString.toStdString ();
-		qDebug() << "========" << '\n';
+		LOG_DEBUG("Unhandled WebSocket event '" << eventName
+                  << "' (payload deliberately omitted)");
 		return;
 	}
 
-	if (printEvent (it.key())) {
-		qDebug() << "========" << '\n';
-		const QString jsonString = doc.toJson (QJsonDocument::Indented);
-		std::cout << jsonString.toStdString ();
-	}
+	if (printEvent(it.key())) {
+        qDebug() << "WebSocket event:" << eventName
+                 << "(payload deliberately omitted)";
+    }
 
 	it.value() (*this,
 				jsonObject.value (QStringLiteral("data")).toObject(),
