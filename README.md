@@ -115,10 +115,18 @@ From the build directory, start:
 ```
 
 A login dialog appears on first start. After successful login, the server
-URL and username are saved in application settings. The session token is saved
-asynchronously in the platform credential store through QtKeychain (Windows
-Credential Manager, macOS Keychain, Linux Secret Service/KWallet). The
-password itself is never saved.
+URL and username are saved in application settings. When built with
+QtKeychain support, the session token is saved asynchronously in the platform
+credential store (Windows Credential Manager, macOS Keychain, Linux Secret
+Service/KWallet). The password itself is never saved.
+
+CMake detects QtKeychain automatically: `MATTERLEAST_USE_KEYCHAIN` defaults to
+`ON` if the Qt5/Qt6 matching development package is installed, otherwise
+`OFF`. Explicit `-DMATTERLEAST_USE_KEYCHAIN=ON` overrides the detection and
+can build the pinned bundled library; explicit `OFF` always disables it. The
+automatic `OFF` case does not download any dependencies and does not persist
+login sessions. Official release packaging explicitly enables keychain support
+to keep autologin working across restarts.
 
 For upgrades, the old plaintext settings token is read only to resume the
 existing session. After a successful secure write it is cleared from
