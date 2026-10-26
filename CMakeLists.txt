@@ -146,11 +146,41 @@ if(BUILD_MULTIMEDIA)
 	find_package(Qt${QT_VERSION_MAJOR} COMPONENTS MultimediaWidgets REQUIRED)
 endif()
 
-# Corporate/security-sensitive builds can disable all MatterLeast native plugins
-# and persistent login tokens until signed-plugin and keychain support exist.
-# These are compile-time restrictions, not user-editable settings.
+# Keep native plugin policy independent of authentication.
 option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugins" ON)
-option(MATTERLEAST_PERSIST_LOGIN_TOKEN "Persist the session token in application settings (unencrypted)" ON)
+option(MATTERLEAST_USE_KEYCHAIN "Store saved login sessions in the platform keyring" ON)
+
+if(MATTERLEAST_USE_KEYCHAIN)
+  # Prefer the distribution's QtKeychain. Bundle the same pinned upstream
+  # implementation statically when unavailable (notably Windows packaging).
+  find_package(Qt${QT_VERSION_MAJOR}Keychain CONFIG QUIET)
+  if(NOT TARGET qt${QT_VERSION_MAJOR}keychain)
+    include(FetchContent)
+    set(_matterleast_saved_build_testing ${BUILD_TESTING})
+    set(_matterleast_saved_shared_libs ${BUILD_SHARED_LIBS})
+    set(BUILD_TESTING OFF)
+    set(BUILD_SHARED_LIBS OFF)
+    set(BUILD_TRANSLATIONS OFF)
+    if(QT_VERSION_MAJOR EQUAL 5)
+      set(BUILD_WITH_QT5 ON)
+    else()
+      set(BUILD_WITH_QT5 OFF)
+    endif()
+    if(UNIX AND NOT APPLE AND NOT ANDROID)
+      find_package(PkgConfig QUIET)
+      if(PkgConfig_FOUND)
+        pkg_check_modules(MATTERLEAST_LIBSECRET QUIET libsecret-1)
+      endif()
+      set(LIBSECRET_SUPPORT ${MATTERLEAST_LIBSECRET_FOUND})
+    endif()
+    FetchContent_Declare(matterleast_qtkeychain
+      URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(matterleast_qtkeychain)
+    set(BUILD_TESTING ${_matterleast_saved_build_testing})
+    set(BUILD_SHARED_LIBS ${_matterleast_saved_shared_libs})
+  endif()
+endif()
 
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
 add_subdirectory(plugins)
@@ -185,8 +215,9 @@ else()
   if(NOT MATTERLEAST_ENABLE_NATIVE_PLUGINS)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_NATIVE_PLUGINS_DISABLED)
   endif()
-  if(NOT MATTERLEAST_PERSIST_LOGIN_TOKEN)
-    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_LOGIN_TOKEN_PERSISTENCE_DISABLED)
+  if(MATTERLEAST_USE_KEYCHAIN)
+    target_link_libraries(matterleast-core PUBLIC qt${QT_VERSION_MAJOR}keychain)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_HAVE_KEYCHAIN)
   endif()
   target_link_libraries(matterleast-core PUBLIC
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
