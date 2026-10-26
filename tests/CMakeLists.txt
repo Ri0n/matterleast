@@ -389,6 +389,7 @@ add_test(NAME quoted-reply-format-test COMMAND quoted-reply-format-test)
 add_executable(post-cache-store-test
     PostCacheStoreTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheStore.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp"
 )
 
 target_include_directories(post-cache-store-test
@@ -398,6 +399,7 @@ target_include_directories(post-cache-store-test
 
 target_link_libraries(post-cache-store-test
     PRIVATE
+        Qca3::Qca
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Sql
@@ -409,6 +411,8 @@ add_executable(post-cache-service-test
     PostCacheServiceTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheService.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheStore.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalContentKeyStore.cpp"
     "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
 )
 
@@ -419,6 +423,7 @@ target_include_directories(post-cache-service-test
 
 target_link_libraries(post-cache-service-test
     PRIVATE
+        Qca3::Qca
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Sql
@@ -812,10 +817,12 @@ endif()
 add_executable(draft-store-test
     DraftStoreTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/DraftStore.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp"
 )
 target_include_directories(draft-store-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(draft-store-test
     PRIVATE
+        Qca3::Qca
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
 )
@@ -881,3 +888,11 @@ if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE AND MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
     set_tests_properties(trusted-plugin-load-test PROPERTIES
         ENVIRONMENT "MATTERLEAST_SIGNED_PLUGIN_TEST_PATH=$<TARGET_FILE:matterleast-seasonal-snow>")
 endif()
+
+# Verifies authenticated envelopes and tamper rejection.
+add_executable(local-message-crypto-test
+    LocalMessageCryptoTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp")
+target_include_directories(local-message-crypto-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(local-message-crypto-test PRIVATE Qca3::Qca Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME local-message-crypto-test COMMAND local-message-crypto-test)
