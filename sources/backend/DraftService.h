@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <QByteArray>
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
@@ -79,6 +80,8 @@ private:
     QHash<QString, DraftEntry> entries;
     QString identity;
     QString storePath;
+    QByteArray _encryptionKey;
+    bool _loadedLocalDrafts = false;
     bool remoteSyncDisabled = false;
     quint64 syncGeneration = 0;
     int pendingTeamSyncs = 0;
