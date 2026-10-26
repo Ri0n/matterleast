@@ -18,8 +18,7 @@ QString SessionTokenStore::keyFor(const QString& server,
                                   const QString& username)
 {
     const QUrl url(server.trimmed());
-    const QString origin = url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery
-                                        | QUrl::RemoveFragment
+    const QString origin = url.adjusted(QUrl::RemoveQuery | QUrl::RemoveFragment
                                         | QUrl::StripTrailingSlash)
                                .toString(QUrl::FullyEncoded)
                                .toLower();
