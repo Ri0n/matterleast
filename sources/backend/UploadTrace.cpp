@@ -2,6 +2,6 @@
 
 namespace Mattermost {
 
-Q_LOGGING_CATEGORY(lcUploadTrace, "mattermost.upload", QtInfoMsg)
+Q_LOGGING_CATEGORY(lcUploadTrace, "mattermost.upload", QtWarningMsg)
 
 } // namespace Mattermost
