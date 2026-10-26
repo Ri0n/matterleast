@@ -23,7 +23,9 @@ QString SessionTokenStore::keyFor(const QString& server,
                                         | QUrl::StripTrailingSlash)
                                .toString(QUrl::FullyEncoded)
                                .toLower();
-    const QByteArray material = origin.toUtf8() + '\\0' + username.trimmed().toUtf8();
+    QByteArray material = origin.toUtf8();
+    material.append(char(0));
+    material.append(username.trimmed().toUtf8());
     return QStringLiteral("login-token-v1-")
         + QString::fromLatin1(
             QCryptographicHash::hash(material, QCryptographicHash::Sha256).toHex());
