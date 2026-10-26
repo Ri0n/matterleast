@@ -21,20 +21,8 @@ set_target_properties(matterleast-seasonal-snow PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${_snow_output_dir}"
 )
 
-# Signing happens after the final binary has been linked, but before packaging.
-# The private key is supplied externally by trusted release infrastructure.
-if(MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
-    add_custom_command(TARGET matterleast-seasonal-snow POST_BUILD
-        COMMAND "${MATTERLEAST_OPENSSL_EXECUTABLE}" pkeyutl -sign -rawin
-                -inkey "${MATTERLEAST_PLUGIN_SIGNING_KEY_FILE}"
-                -in "$<TARGET_FILE:matterleast-seasonal-snow>"
-                -out "$<TARGET_FILE:matterleast-seasonal-snow>.sig"
-        COMMENT "Sign bundled MatterLeast plugin with external Ed25519 key"
-        VERBATIM)
-    install(FILES "$<TARGET_FILE:matterleast-seasonal-snow>.sig"
-        DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
-        COMPONENT Runtime)
-endif()
+# Detached signature (when corporate release signing is enabled).
+matterleast_sign_plugin(matterleast-seasonal-snow)
 
 install(TARGETS matterleast-seasonal-snow
     LIBRARY DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
