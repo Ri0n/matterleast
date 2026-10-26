@@ -228,9 +228,25 @@ jobs:
           }
           exit $testExit
 
+      - name: Login bootstrap regression (captured first run)
+        shell: pwsh
+        run: |
+          # QtTest's GUI-mode executable produces no useful stdout on Windows.
+          # Capture the original execution, including assertion location.
+          $log = Join-Path $PWD 'login-bootstrap-first-run.txt'
+          & ./build/tests/login-bootstrap-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce its login bootstrap log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
-        # Thread tabs were already run once above with durable QtTest output.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^thread-tabs-integration-test$"
+        # Both GUI test binaries were run above with durable first-run output.
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
