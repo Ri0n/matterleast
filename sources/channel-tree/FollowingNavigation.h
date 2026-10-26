@@ -36,4 +36,38 @@ inline bool isStaleConversationResumeTarget(const FollowingModel::Entry& entry,
     return candidate->id <= entry.readThroughPostId;
 }
 
+/**
+ * Find the oldest definitely unread root already resident in this channel.
+ *
+ * /posts/unread is not a root-only query: in CRT mode its short reply-only
+ * window is not a safe target for parent DM navigation. When a new root is
+ * already cached by the realtime path, navigate directly to that root so
+ * normal semantic navigation can highlight it, without opening an old thread.
+ *
+ * Only message timestamps past both the channel's last-viewed boundary and
+ * the local viewport high-water mark qualify. Do not infer unread status for
+ * the user's own posts.
+ */
+inline QString firstCachedUnreadRootPostId(const BackendChannel& channel,
+                                          std::uint64_t lastViewedAt,
+                                          std::uint64_t readThroughCreateAt = 0,
+                                          const QString& readThroughPostId = {})
+{
+    const BackendPost* result = nullptr;
+    for (const BackendPost& post : channel.posts) {
+        if (post.id.isEmpty() || post.isDeleted || !post.root_id.isEmpty()
+            || post.isOwnPost() || post.create_at <= lastViewedAt
+            || post.create_at < readThroughCreateAt
+            || (post.create_at == readThroughCreateAt
+                && post.id <= readThroughPostId)) {
+            continue;
+        }
+        if (!result || post.create_at < result->create_at
+            || (post.create_at == result->create_at && post.id < result->id)) {
+            result = &post;
+        }
+    }
+    return result ? result->id : QString();
+}
+
 } // namespace Mattermost
