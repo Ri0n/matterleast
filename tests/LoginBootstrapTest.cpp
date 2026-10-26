@@ -10,6 +10,7 @@
 #include "backend/LoginResponsePolicy.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendLoginData.h"
+#include "options/MLOptions.h"
 
 using namespace Mattermost;
 
@@ -59,6 +60,11 @@ class LoginBootstrapTest final : public QObject
 private slots:
     void initTestCase()
     {
+        // The native Windows settings backend requires a concrete
+        // application/organization identity. Mirror the real application's
+        // initialization and keep tests separate from user settings.
+        QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
+        QCoreApplication::setApplicationName(QStringLiteral("login-bootstrap-test"));
         QStandardPaths::setTestModeEnabled(true);
     }
 
@@ -78,6 +84,28 @@ private slots:
         QVERIFY(!rejected.accepted);
         QVERIFY(!rejected.retryable);
         QVERIFY(validateLoginResponse(QNetworkReply::NoError, 200, valid).accepted);
+    }
+
+    void neverPersistsNewSessionSecretsInSettings()
+    {
+        auto* settings = MLOptions::instance();
+        settings->setValue<QString>(QStringLiteral("token"), QString());
+
+        BackendLoginData login;
+        login.domain = QStringLiteral("https://test.example.invalid/");
+        login.username = QStringLiteral("synthetic-user");
+        login.token = QStringLiteral("never-persist-this");
+        login.saveToOptions();
+        QVERIFY(settings->value<QString>(QStringLiteral("token")).isEmpty());
+
+        // Existing plaintext credentials must not be silently discarded
+        // before their asynchronous secure migration has succeeded.
+        settings->setValue<QString>(QStringLiteral("token"),
+                                    QStringLiteral("legacy-only"));
+        login.saveToOptions();
+        QCOMPARE(settings->value<QString>(QStringLiteral("token")),
+                 QStringLiteral("legacy-only"));
+        settings->setValue<QString>(QStringLiteral("token"), QString());
     }
 
     void doesNotEnterMainWindowWithEmptyProfileAndRecoversOnRetry()

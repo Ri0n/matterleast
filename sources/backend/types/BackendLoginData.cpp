@@ -33,7 +33,9 @@ void BackendLoginData::loadFromOptions ()
 	auto* options = MLOptions::instance();
 	domain = options->value<QString>(QStringLiteral("domain"));
 	username = options->value<QString>(QStringLiteral("username"));
-	token = options->value<QString>(QStringLiteral("token"));
+    // Read legacy plaintext only to migrate it after successful login.
+    // New tokens are never persisted here.
+    token = options->value<QString>(QStringLiteral("token"));
 }
 
 void BackendLoginData::saveToOptions () const
@@ -41,7 +43,8 @@ void BackendLoginData::saveToOptions () const
 	auto* options = MLOptions::instance();
 	options->setValue(QStringLiteral("domain"), domain);
 	options->setValue(QStringLiteral("username"), username);
-	options->setValue(QStringLiteral("token"), token);
+    // No saved session secret belongs in application options; LoginDialog
+    // handles the asynchronous secure keyring write.
 }
 
 bool BackendLoginData::areAllFieldsFilled () const

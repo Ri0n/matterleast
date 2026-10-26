@@ -34,7 +34,7 @@ can be very verbose on active servers.
 
 | Category | Default | Use |
 | --- | --- | --- |
-| `mattermost.upload` | info | Attachment selection, multipart transport, upload progress, HTTP response, returned `file_id`, and handoff to post creation |
+| `mattermost.upload` | warning | Attachment selection, multipart transport, upload progress, HTTP response, returned `file_id`, and handoff to post creation |
 | `mattermost.following` | warning | Following/Attention thread queries, pagination, merge statistics, unread state |
 | `mattermost.timeline.trace` | warning | Virtualized list requests, visible/materialized ranges, navigation locks and read-cursor triggers |
 | `mattermost.timeline.channel` | warning | Channel source paging, boundary reconciliation and logical placement |
@@ -54,6 +54,24 @@ QT_LOGGING_RULES='mattermost.upload.info=false' ./matterleast
 ```
 
 ## Attachment upload trace
+
+By default, upload diagnostics omit raw header values, full URLs and response
+bodies. Only safe metadata and debug-level header counts are recorded.
+
+For a **local diagnostic build only**, detailed request/response headers can be
+compiled in explicitly:
+
+```bash
+cmake -S . -B build -DMATTERLEAST_DEBUG_UPLOAD_HEADERS=ON
+QT_LOGGING_RULES='mattermost.upload.info=true' ./build/matterleast
+```
+
+This enables `UPLOAD_REQUEST_HEADERS` and `UPLOAD_RESPONSE_HEADERS` entries.
+Known credentials (cookies, authorization headers, CSRF tokens and common
+API/token headers) are redacted, but custom headers may still contain secrets.
+Do not enable this option in distributed builds or attach such logs to public
+issues without checking them. `QT_LOGGING_RULES` alone cannot turn these
+records on when the build option is OFF.
 
 A successful background upload should have the following high-level sequence:
 
@@ -77,20 +95,19 @@ Useful failure boundaries:
 
 - no `HTTP_UPLOAD_START`: request is stuck before the network transport;
 - progress starts but no `UPLOAD_REPLY`: transport/server path did not finish;
-- `UPLOAD_FAILED`: inspect HTTP status, network error and the bounded response
-  body printed on that line;
+- `UPLOAD_FAILED`: inspect HTTP status and network error. The body is not logged;
 - `UPLOAD_INVALID_REPLY`: the request succeeded but the response did not contain
   a usable `file_infos[].id`;
 - `UPLOAD_ACCEPTED` exists but `POST_SUBMIT` has no matching `file_id`: the
   bug is in composer state/handoff rather than the upload API.
 
-The trace prints whether authentication headers are present, but never prints the
-Mattermost auth token itself. Each upload reply also records the Qt version,
-SSL library build/runtime versions, negotiated TLS protocol/cipher, whether
-Qt actually used HTTP/2, and sanitized request/response headers. Cookie,
-authorization and CSRF values are redacted. These fields are intended for
-comparing Qt 5/Qt 6 behavior with Chromium/Electron when a reverse proxy or WAF
-rejects an upload before Mattermost returns its normal JSON response.
+When explicitly enabled, upload tracing reports transport metadata such as
+byte counts, HTTP status, Qt/TLS versions and whether a session cookie is
+present. Normal builds do not print HTTP header values, authentication values,
+complete request URLs or upload response bodies. Header counts are
+available at the debug level. Opt-in diagnostic builds may additionally print
+redacted header values. Release builds leave the upload trace disabled
+by default.
 
 ## Following / Attention
 
@@ -128,8 +145,8 @@ Typing events are deliberately silent. If the client prints:
 Unhandled WebSocket event '...'
 ```
 
-keep the packet in a bug report: an unhandled event may represent missing client
-state synchronization rather than harmless log noise.
+keep the event name in a bug report: it may indicate missing client state
+synchronization. WebSocket packet contents are deliberately not logged.
 
 For example, `multiple_channels_viewed` must be handled because Mattermost uses
 its `channel_times` map to synchronize channel read state across client

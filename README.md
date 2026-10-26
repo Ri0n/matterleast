@@ -114,9 +114,60 @@ From the build directory, start:
 ./matterleast
 ```
 
-A login dialog appears on first start. After a successful login, the server URL, username and login token are stored in MatterLeast's persistent application settings; the password itself is not saved. On Linux the settings normally live under `~/.config/matterleast/MatterLeast.conf`.
+A login dialog appears on first start. After successful login, the server
+URL and username are saved in application settings. When built with
+QtKeychain support, the session token is saved asynchronously in the platform
+credential store (Windows Credential Manager, macOS Keychain, Linux Secret
+Service/KWallet). The password itself is never saved.
 
-The saved token is currently not encrypted, so the settings file should be treated as sensitive.
+CMake detects QtKeychain automatically: `MATTERLEAST_USE_KEYCHAIN` defaults to
+`ON` if the Qt5/Qt6 matching development package is installed, otherwise
+`OFF`. Explicit `-DMATTERLEAST_USE_KEYCHAIN=ON` overrides the detection and
+can build the pinned bundled library; explicit `OFF` always disables it. The
+automatic `OFF` case does not download any dependencies and does not persist
+login sessions. Official release packaging explicitly enables keychain support
+to keep autologin working across restarts.
+
+For upgrades, the old plaintext settings token is read only to resume the
+existing session. After a successful secure write it is cleared from
+application settings. An unavailable or locked keyring never triggers a
+plaintext fallback for new tokens. Existing settings copies, backups or
+filesystem snapshots are not securely wiped by this migration.
+
+## Security considerations
+
+Local message-cache payloads and draft files are **not yet encrypted at rest**.
+Keep this limitation in mind when evaluating the application's threat model.
+
+A corporate build can enforce signed-only native plugins by specifying its
+Ed25519 PUBLIC verification key as a PEM file:
+
+```bash
+cmake -S . -B build \
+  -DMATTERLEAST_PLUGIN_VERIFY_KEY_FILE=/secure/build/company-public.pem
+```
+
+Such a build rejects unsigned or invalidly signed MatterLeast plugins before
+loading their code. It still supports corporate plugins and signed bundled
+plugins. The private signing key must never be stored in the application or
+source repository. In a separately secured release environment, set
+`MATTERLEAST_PLUGIN_SIGNING_KEY_FILE` to sign bundled plugins during the
+build. Each native library receives a raw Ed25519 sidecar `<library>.sig`
+covering its complete linked binary; do not modify the library after signing.
+
+To sign externally built plugins with OpenSSL 3:
+
+```bash
+openssl pkeyutl -sign -rawin -inkey company-private.pem \
+  -in company-plugin.so -out company-plugin.so.sig
+```
+
+Alternatively, `-DMATTERLEAST_ENABLE_NATIVE_PLUGINS=OFF` disables all
+MatterLeast native plugins, including built-in ones. Normal builds can also
+disable MatterLeast native plugins at runtime with
+`--disable-native-plugins` or `MATTERLEAST_DISABLE_NATIVE_PLUGINS=1`.
+Runtime switches are user-controlled and not an administrator-enforced policy.
+Plugin signing does not sandbox trusted plugins or cover unrelated Qt plugins.
 
 ## Contributing
 

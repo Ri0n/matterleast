@@ -863,3 +863,21 @@ if(TARGET matterleast-core)
     set_tests_properties(channel-tree-search-activation-test
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# Corporate verification is exercised with an ephemeral keypair in CI.
+if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE AND MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
+    add_executable(trusted-plugin-load-test
+        TrustedPluginLoadTest.cpp
+        "${CMAKE_SOURCE_DIR}/sources/plugins/PluginSignature.cpp")
+    target_include_directories(trusted-plugin-load-test PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources"
+        "${CMAKE_BINARY_DIR}/generated")
+    target_compile_definitions(trusted-plugin-load-test PRIVATE
+        MATTERLEAST_TRUSTED_PLUGINS_ONLY)
+    target_link_libraries(trusted-plugin-load-test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core OpenSSL::Crypto)
+    add_dependencies(trusted-plugin-load-test matterleast-seasonal-snow)
+    add_test(NAME trusted-plugin-load-test COMMAND trusted-plugin-load-test)
+    set_tests_properties(trusted-plugin-load-test PROPERTIES
+        ENVIRONMENT "MATTERLEAST_SIGNED_PLUGIN_TEST_PATH=$<TARGET_FILE:matterleast-seasonal-snow>")
+endif()

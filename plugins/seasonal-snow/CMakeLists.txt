@@ -21,6 +21,9 @@ set_target_properties(matterleast-seasonal-snow PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${_snow_output_dir}"
 )
 
+# Detached signature (when corporate release signing is enabled).
+matterleast_sign_plugin(matterleast-seasonal-snow)
+
 install(TARGETS matterleast-seasonal-snow
     LIBRARY DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"

@@ -84,6 +84,7 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DQT_6=${{ matrix.qt6 }} \
+            -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
@@ -185,6 +186,7 @@ jobs:
           }
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
+            -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6, qt6-svg-plugins"
 
@@ -297,6 +299,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DQT_6=ON \
+            -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
 
@@ -461,6 +464,7 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_6=ON \
+            -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
 
@@ -596,6 +600,7 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DQT_6=ON `
+            -DMATTERLEAST_USE_KEYCHAIN=ON `
             -DBUILD_TESTING=ON `
             -DWARNINGS_AS_ERRORS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

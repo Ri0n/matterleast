@@ -84,6 +84,8 @@ foreach(source_file IN LISTS SETTINGS_ACCESS_SOURCES)
 endforeach()
 
 option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(MATTERLEAST_DEBUG_UPLOAD_HEADERS
+    "Compile verbose HTTP upload header logging (may expose sensitive server-specific values)" OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 	add_compile_options(-Wall -Wextra)
@@ -146,6 +148,111 @@ if(BUILD_MULTIMEDIA)
 	find_package(Qt${QT_VERSION_MAJOR} COMPONENTS MultimediaWidgets REQUIRED)
 endif()
 
+# Keep native plugin policy independent of authentication.
+option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugins" ON)
+
+# Auto-enable keyring-backed sessions only if development files for the
+# matching major Qt version are installed. Explicit ON/OFF always wins.
+# An explicit ON may use our pinned QtKeychain fallback (Windows packaging);
+# the automatic case must never download dependencies.
+set(_matterleast_system_keychain_target "")
+if(NOT DEFINED MATTERLEAST_USE_KEYCHAIN OR MATTERLEAST_USE_KEYCHAIN)
+  find_package(Qt${QT_VERSION_MAJOR}Keychain CONFIG QUIET)
+  if(TARGET Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
+    set(_matterleast_system_keychain_target
+        Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
+  elseif(TARGET qt${QT_VERSION_MAJOR}keychain)
+    set(_matterleast_system_keychain_target qt${QT_VERSION_MAJOR}keychain)
+  endif()
+endif()
+if(_matterleast_system_keychain_target)
+  set(_matterleast_keychain_default ON)
+else()
+  set(_matterleast_keychain_default OFF)
+endif()
+option(MATTERLEAST_USE_KEYCHAIN
+  "Store saved login sessions in the platform keyring (default: ON only when QtKeychain dev files are installed)"
+  ${_matterleast_keychain_default})
+
+# Corporate builds embed only a PUBLIC Ed25519 verification key. Signing uses
+# an external private key, never checked into the source tree or application.
+set(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE "" CACHE FILEPATH
+    "PEM Ed25519 public key: require a valid detached signature on every MatterLeast native plugin")
+set(MATTERLEAST_PLUGIN_SIGNING_KEY_FILE "" CACHE FILEPATH
+    "PEM Ed25519 private key for signing bundled plugins; use only in trusted packaging")
+if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
+  if(NOT EXISTS "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}")
+    message(FATAL_ERROR "Plugin verification public key does not exist")
+  endif()
+  find_package(OpenSSL 1.1.1 REQUIRED COMPONENTS Crypto)
+  file(READ "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}" MATTERLEAST_PLUGIN_PUBLIC_KEY_PEM)
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  configure_file(sources/plugins/TrustedPluginKey.h.in
+                 "${CMAKE_CURRENT_BINARY_DIR}/generated/TrustedPluginKey.h" @ONLY)
+endif()
+if(MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
+  if(NOT MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
+    message(FATAL_ERROR "Signing requires configuring the matching verification key")
+  endif()
+  if(NOT EXISTS "${MATTERLEAST_PLUGIN_SIGNING_KEY_FILE}")
+    message(FATAL_ERROR "Plugin signing private key file does not exist")
+  endif()
+  find_program(MATTERLEAST_OPENSSL_EXECUTABLE openssl)
+  if(NOT MATTERLEAST_OPENSSL_EXECUTABLE)
+    message(FATAL_ERROR "OpenSSL CLI is needed when signing bundled native plugins")
+  endif()
+endif()
+
+if(MATTERLEAST_USE_KEYCHAIN)
+  if(_matterleast_system_keychain_target)
+    set(MATTERLEAST_KEYCHAIN_TARGET ${_matterleast_system_keychain_target})
+    message(STATUS "MatterLeast keychain: ON (system Qt${QT_VERSION_MAJOR}Keychain)")
+  else()
+    # Reaching this fallback requires an explicit -DMATTERLEAST_USE_KEYCHAIN=ON.
+    # In AUTO mode missing dev files select OFF instead of downloading.
+    message(STATUS "MatterLeast keychain: ON (bundled QtKeychain)")
+    include(FetchContent)
+    set(_matterleast_saved_build_testing ${BUILD_TESTING})
+    set(_matterleast_saved_shared_libs ${BUILD_SHARED_LIBS})
+    set(BUILD_TESTING OFF)
+    set(BUILD_SHARED_LIBS OFF)
+    set(BUILD_TRANSLATIONS OFF)
+    if(QT_VERSION_MAJOR EQUAL 5)
+      set(BUILD_WITH_QT5 ON)
+    else()
+      set(BUILD_WITH_QT5 OFF)
+    endif()
+    if(UNIX AND NOT APPLE AND NOT ANDROID)
+      find_package(PkgConfig QUIET)
+      if(PkgConfig_FOUND)
+        pkg_check_modules(MATTERLEAST_LIBSECRET QUIET libsecret-1)
+      endif()
+      # QtKeychain's option() uses the OLD CMP0077 policy on older CMake:
+      # a normal variable is silently discarded and it defaults back to ON.
+      set(LIBSECRET_SUPPORT ${MATTERLEAST_LIBSECRET_FOUND}
+          CACHE BOOL "Enable QtKeychain libsecret backend if available" FORCE)
+    endif()
+    FetchContent_Declare(matterleast_qtkeychain
+      URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
+)
+    FetchContent_MakeAvailable(matterleast_qtkeychain)
+    # This pinned upstream release contains a legacy Linux callback cast.
+    # Keep -Werror for MatterLeast without imposing it on this external target.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+      target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE
+                             -Wno-error=cast-function-type)
+    elseif(MSVC)
+      # QtKeychain 0.17 has warnings in its Windows Credential Store backend.
+      target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE /WX-)
+    endif()
+    set(BUILD_TESTING ${_matterleast_saved_build_testing})
+    set(BUILD_SHARED_LIBS ${_matterleast_saved_shared_libs})
+    set(MATTERLEAST_KEYCHAIN_TARGET qt${QT_VERSION_MAJOR}keychain)
+  endif()
+else()
+  message(STATUS "MatterLeast keychain: OFF (missing system dev files or explicitly disabled)")
+endif()
+
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
 add_subdirectory(plugins)
 add_subdirectory(third_party/QSourceHighlite)
@@ -176,6 +283,21 @@ else()
   # real repository, HTTP connector and source/widget signal wiring.
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
   add_library(matterleast-core OBJECT ${SOURCES})
+  if(MATTERLEAST_DEBUG_UPLOAD_HEADERS)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_DEBUG_UPLOAD_HEADERS)
+  endif()
+  if(NOT MATTERLEAST_ENABLE_NATIVE_PLUGINS)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_NATIVE_PLUGINS_DISABLED)
+  endif()
+  if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_TRUSTED_PLUGINS_ONLY)
+    target_include_directories(matterleast-core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(matterleast-core PUBLIC OpenSSL::Crypto)
+  endif()
+  if(MATTERLEAST_USE_KEYCHAIN)
+    target_link_libraries(matterleast-core PUBLIC ${MATTERLEAST_KEYCHAIN_TARGET})
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_HAVE_KEYCHAIN)
+  endif()
   target_link_libraries(matterleast-core PUBLIC
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite

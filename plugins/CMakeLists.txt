@@ -1,5 +1,6 @@
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/MatterLeastPluginSigning.cmake")
 
 set(MATTERLEAST_PLUGIN_API_VERSION "1.0.0")
 

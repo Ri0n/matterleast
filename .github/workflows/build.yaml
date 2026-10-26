@@ -106,7 +106,8 @@ jobs:
             libqt6svg6 \
             qt6-base-dev \
             qt6-multimedia-dev \
-            qt6-websockets-dev
+            qt6-websockets-dev \
+            qtkeychain-qt6-dev
 
       - name: Configure
         run: >
@@ -143,7 +144,8 @@ jobs:
             build-essential \
             libqt5sql5-sqlite \
             libqt5websockets5-dev \
-            qtbase5-dev
+            qtbase5-dev \
+            qtkeychain-qt5-dev
 
       - name: Configure
         run: >
@@ -200,6 +202,7 @@ jobs:
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DQT_6=ON
+          -DMATTERLEAST_USE_KEYCHAIN=ON
           -DBUILD_TESTING=ON
           -DWARNINGS_AS_ERRORS=ON
 
@@ -225,9 +228,25 @@ jobs:
           }
           exit $testExit
 
+      - name: Login bootstrap regression (captured first run)
+        shell: pwsh
+        run: |
+          # QtTest's GUI-mode executable produces no useful stdout on Windows.
+          # Capture the original execution, including assertion location.
+          $log = Join-Path $PWD 'login-bootstrap-first-run.txt'
+          & ./build/tests/login-bootstrap-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce its login bootstrap log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
-        # Thread tabs were already run once above with durable QtTest output.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^thread-tabs-integration-test$"
+        # Both GUI test binaries were run above with durable first-run output.
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
@@ -250,3 +269,36 @@ jobs:
           name: matterleast-windows-x64-portable
           path: package/matterleast-*-windows-x64-portable.zip
           if-no-files-found: error
+
+  signed-plugins:
+    name: Ed25519 plugin signature contract / Qt6
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ""
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build qt6-base-dev \
+            qt6-websockets-dev libssl-dev openssl
+      - name: Configure ephemeral corporate signing policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/matterleast-signing"
+          openssl genpkey -algorithm Ed25519 \
+            -out "$RUNNER_TEMP/matterleast-signing/private.pem"
+          openssl pkey -in "$RUNNER_TEMP/matterleast-signing/private.pem" \
+            -pubout -out "$RUNNER_TEMP/matterleast-signing/public.pem"
+          cmake -S . -B build-trusted -G Ninja -DQT_6=ON \
+            -DMATTERLEAST_USE_KEYCHAIN=OFF \
+            -DBUILD_TESTING=ON -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_PLUGIN_VERIFY_KEY_FILE="$RUNNER_TEMP/matterleast-signing/public.pem" \
+            -DMATTERLEAST_PLUGIN_SIGNING_KEY_FILE="$RUNNER_TEMP/matterleast-signing/private.pem"
+      - name: Verify signed and tampered plugins
+        run: |
+          cmake --build build-trusted --target trusted-plugin-load-test --parallel 4
+          ctest --test-dir build-trusted -R '^trusted-plugin-load-test$' --output-on-failure

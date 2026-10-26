@@ -10,9 +10,11 @@
 #include <QLibrary>
 #include <QPointer>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QWidget>
 
 #include "PluginHost.h"
+#include "PluginSignature.h"
 #include "backend/Backend.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
@@ -30,6 +32,17 @@ namespace {
 const QString ManagerObjectName = QStringLiteral("matterleastPluginManager");
 const char PluginActionProperty[] = "matterleastPluginAction";
 const char PluginIdProperty[] = "matterleastPluginId";
+
+bool nativePluginLoadingDisabled()
+{
+#ifdef MATTERLEAST_NATIVE_PLUGINS_DISABLED
+    return true; // Enforced by the executable's build configuration.
+#else
+    const QCoreApplication* app = QCoreApplication::instance();
+    return qEnvironmentVariable("MATTERLEAST_DISABLE_NATIVE_PLUGINS") == QLatin1String("1")
+        || (app && app->arguments().contains(QStringLiteral("--disable-native-plugins")));
+#endif
+}
 
 QString pluginEnabledOption(const QString& pluginId)
 {
@@ -228,6 +241,10 @@ void PluginManager::attachWindowOverlay(PluginHost& host)
 
 void PluginManager::loadStandardPlugins()
 {
+    // No metadata parsing or QPluginLoader::instance() for untrusted libraries.
+    if (nativePluginLoadingDisabled()) {
+        return;
+    }
     for (const QString& path : pluginSearchPaths()) {
         const QDir dir(path);
         if (!dir.exists()) {
@@ -246,7 +263,22 @@ void PluginManager::loadStandardPlugins()
 
 bool PluginManager::loadPluginFile(const QString& filePath)
 {
-    auto host = std::make_unique<PluginHost>(filePath, *conversationHost_);
+    if (nativePluginLoadingDisabled()) {
+        return false;
+    }
+    QString loadPath = filePath;
+#ifdef MATTERLEAST_TRUSTED_PLUGINS_ONLY
+    if (!_verifiedPluginDirectory) {
+        _verifiedPluginDirectory = std::make_unique<QTemporaryDir>();
+    }
+    loadPath = trustedPluginPath(filePath, _verifiedPluginDirectory.get());
+    if (loadPath.isEmpty()) {
+        qWarning() << "Rejected unsigned or untrusted native plugin:"
+                   << QFileInfo(filePath).fileName();
+        return false;
+    }
+#endif
+    auto host = std::make_unique<PluginHost>(loadPath, *conversationHost_);
     if (!host->hasValidMetadata()) {
         return false;
     }

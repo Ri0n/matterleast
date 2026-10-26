@@ -12,6 +12,7 @@
 
 class QAction;
 class QWidget;
+class QTemporaryDir;
 
 namespace Mattermost {
 
@@ -64,6 +65,7 @@ private:
     Backend& backend_;
     QPointer<QWidget> _mainWindow;
     std::unique_ptr<ConversationHost> conversationHost_;
+    std::unique_ptr<QTemporaryDir> _verifiedPluginDirectory;
     std::vector<std::unique_ptr<PluginHost>> plugins_;
 };
 

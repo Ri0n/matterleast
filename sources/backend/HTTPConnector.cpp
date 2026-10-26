@@ -232,15 +232,10 @@ void HTTPConnector::post(QNetworkRequest& request,
         request.setPriority(QNetworkRequest::HighPriority);
     }
 
-    qCInfo(lcUploadTrace).nospace()
-        << "HTTP_UPLOAD_QUEUE url=" << request.url().toString()
-        << " priority=" << static_cast<int>(request.priority())
-        << " ua=" << request.rawHeader("User-Agent")
-        << " cookie=" << (!request.rawHeader("Cookie").isEmpty() ? "yes" : "no")
-        << " connectionId="
-        << (request.rawHeader("Connection-Id").isEmpty()
-                ? QByteArrayLiteral("none")
-                : request.rawHeader("Connection-Id"));
+    qCDebug(lcUploadTrace).nospace()
+        << "HTTP_UPLOAD_QUEUE priority=" << static_cast<int>(request.priority())
+        << " hasCookie=" << !request.rawHeader("Cookie").isEmpty()
+        << " hasConnectionId=" << !request.rawHeader("Connection-Id").isEmpty();
 
     // Multipart framing remains endpoint-specific; common HTTP/TLS client
     // identity is applied centrally in enqueue() for every request method.
@@ -374,11 +369,8 @@ void HTTPConnector::startRequest(PendingRequest request)
         if (request.multipartData) {
             reply = qnetworkManager->post(request.request, request.multipartData.data());
 
-            qCInfo(lcUploadTrace).nospace()
+            qCDebug(lcUploadTrace).nospace()
                 << "HTTP_UPLOAD_START reply=" << static_cast<const void*>(reply)
-                << " url=" << reply->request().url().toString()
-                << " contentType=" << reply->request().rawHeader("Content-Type")
-                << " ua=" << reply->request().rawHeader("User-Agent")
                 << " http2Allowed="
                 << reply->request()
                        .attribute(QNetworkRequest::Http2AllowedAttribute, true)
@@ -406,7 +398,7 @@ void HTTPConnector::startRequest(PendingRequest request)
                             return;
                         }
                         lastLoggedPercent = percent;
-                        qCInfo(lcUploadTrace).nospace()
+                        qCDebug(lcUploadTrace).nospace()
                             << "HTTP_UPLOAD_PROGRESS reply="
                             << static_cast<const void*>(reply)
                             << " sent=" << sent
