@@ -166,6 +166,18 @@ Backend::Backend(QObject *parent)
 // private server-specific fields even after known authentication headers are
 // redacted; never enable this in production builds.
 #ifdef MATTERLEAST_DEBUG_UPLOAD_HEADERS
+// Legacy detailed request dumper, deliberately excluded from normal builds.
+// This can expose credentials and request bodies: use only in local debugging.
+void debugRequest(const QNetworkRequest& request, QByteArray data = QByteArray())
+{
+    qDebug() << request.url().toString();
+    const QList<QByteArray> rawHeaderList = request.rawHeaderList();
+    for (const QByteArray& rawHeader : rawHeaderList) {
+        qDebug() << rawHeader << ":" << request.rawHeader(rawHeader);
+    }
+    qDebug() << data;
+}
+
 namespace {
 
 bool isSensitiveHttpHeader(const QByteArray& name)
