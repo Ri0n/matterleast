@@ -34,7 +34,7 @@ private slots:
             QFile file(changed);
             QVERIFY(file.open(QIODevice::ReadWrite));
             QVERIFY(file.seek(0));
-            const char altered = '\\x7e';
+            const char altered = char(0x7e);
             QCOMPARE(file.write(&altered, 1), qint64(1));
         }
         QVERIFY(trustedPluginPath(changed, &verified).isEmpty());
