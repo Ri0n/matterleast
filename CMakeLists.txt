@@ -214,6 +214,9 @@ if(MATTERLEAST_USE_KEYCHAIN)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
       target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE
                              -Wno-error=cast-function-type)
+    elseif(MSVC)
+      # QtKeychain 0.17 has warnings in its Windows Credential Store backend.
+      target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE /WX-)
     endif()
     set(BUILD_TESTING ${_matterleast_saved_build_testing})
     set(BUILD_SHARED_LIBS ${_matterleast_saved_shared_libs})
