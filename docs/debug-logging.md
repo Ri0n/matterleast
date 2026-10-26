@@ -55,6 +55,9 @@ QT_LOGGING_RULES='mattermost.upload.info=false' ./matterleast
 
 ## Attachment upload trace
 
+The upload diagnostics now omit raw header values, full URLs and response
+bodies. Only safe metadata and debug-level header counts are recorded.
+
 A successful background upload should have the following high-level sequence:
 
 ```text
