@@ -136,8 +136,16 @@ filesystem snapshots are not securely wiped by this migration.
 
 ## Security considerations
 
-Local message-cache payloads and draft files are **not yet encrypted at rest**.
-Keep this limitation in mind when evaluating the application's threat model.
+Cached post payloads are encrypted at rest using QCA AES-256-GCM after
+compression. Locally saved draft message text is also encrypted. SQLite
+topology/index fields and non-message draft metadata remain plaintext.
+A distinct random device encryption key is held in the platform keyring,
+not derived from the Mattermost session token. When the keyring or QCA
+AES-GCM provider is unavailable, local message persistence is disabled
+rather than falling back to plaintext. Legacy plaintext post-cache data is
+discarded; legacy draft JSON is migrated once the keyring can be unlocked.
+Already-created backups or snapshots cannot be securely wiped. This is
+**at-rest encryption**, not end-to-end encryption.
 
 A corporate build can enforce signed-only native plugins by specifying its
 Ed25519 PUBLIC verification key as a PEM file:
