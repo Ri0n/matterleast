@@ -84,6 +84,8 @@ foreach(source_file IN LISTS SETTINGS_ACCESS_SOURCES)
 endforeach()
 
 option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(MATTERLEAST_DEBUG_UPLOAD_HEADERS
+    "Compile verbose HTTP upload header logging (may expose sensitive server-specific values)" OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 	add_compile_options(-Wall -Wextra)
@@ -281,6 +283,9 @@ else()
   # real repository, HTTP connector and source/widget signal wiring.
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
   add_library(matterleast-core OBJECT ${SOURCES})
+  if(MATTERLEAST_DEBUG_UPLOAD_HEADERS)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_DEBUG_UPLOAD_HEADERS)
+  endif()
   if(NOT MATTERLEAST_ENABLE_NATIVE_PLUGINS)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_NATIVE_PLUGINS_DISABLED)
   endif()
