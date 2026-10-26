@@ -126,6 +126,13 @@ void MainWindow::installRealtimeUiSync()
                ui->channelList, &ChannelTree::openChannel);
     connect(attentionList, &AttentionList::channelSelected,
             ui->channelList, &ChannelTree::openStoredChannel);
+    connect(attentionList, &AttentionList::conversationAttentionReactivated,
+            this, [this](const QString& channelId) {
+        ChatArea* active = ui->channelList->getCurrentPage();
+        if (active && !active->isThread && active->getChannel().id == channelId) {
+            active->flashVisibleAttention();
+        }
+    });
 
     auto connectConversationSource = [this](BackendDirectChannelsTeam& conversations) {
         connect(&conversations, &BackendDirectChannelsTeam::onNewChannel,
