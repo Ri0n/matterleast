@@ -8,6 +8,10 @@
 
 using namespace Mattermost;
 
+namespace {
+const QByteArray TestKey(32, 'k');
+}
+
 class DraftStoreTest : public QObject
 {
     Q_OBJECT
@@ -34,10 +38,15 @@ private slots:
         thread.replyToPostId = QStringLiteral("quoted-post");
         thread.updateAt = 200;
 
-        QVERIFY(DraftStore::save(path, {channel, thread}));
+        QVERIFY(DraftStore::save(path, {channel, thread}, TestKey));
 
+        QFile storedFile(path);
+        QVERIFY(storedFile.open(QIODevice::ReadOnly));
+        const QByteArray raw = storedFile.readAll();
+        QVERIFY(!raw.contains("thread draft"));
+        QVERIFY(raw.contains("\\"version\\":2"));
         bool ok = false;
-        const QVector<DraftEntry> loaded = DraftStore::load(path, &ok);
+        const QVector<DraftEntry> loaded = DraftStore::load(path, TestKey, &ok);
         QVERIFY(ok);
         QCOMPARE(loaded.size(), 2);
         QCOMPARE(loaded.at(0).key(), channel.key());
@@ -76,10 +85,10 @@ private slots:
         QVERIFY(first.isRecovered());
         QVERIFY(second.isRecovered());
         QVERIFY(first.key() != second.key());
-        QVERIFY(DraftStore::save(path, {first, second}));
+        QVERIFY(DraftStore::save(path, {first, second}, TestKey));
 
         bool ok = false;
-        const QVector<DraftEntry> loaded = DraftStore::load(path, &ok);
+        const QVector<DraftEntry> loaded = DraftStore::load(path, TestKey, &ok);
         QVERIFY(ok);
         QCOMPARE(loaded.size(), 2);
         QCOMPARE(loaded.at(0).recoveryId, first.recoveryId);
@@ -104,10 +113,10 @@ private slots:
         tombstone.remotePresent = true;
         tombstone.syncRequested = true;
 
-        QVERIFY(DraftStore::save(path, {tombstone}));
+        QVERIFY(DraftStore::save(path, {tombstone}, TestKey));
 
         bool ok = false;
-        const QVector<DraftEntry> loaded = DraftStore::load(path, &ok);
+        const QVector<DraftEntry> loaded = DraftStore::load(path, TestKey, &ok);
         QVERIFY(ok);
         QCOMPARE(loaded.size(), 1);
         QVERIFY(loaded.first().deleted);
@@ -127,7 +136,7 @@ private slots:
         file.close();
 
         bool ok = true;
-        QVERIFY(DraftStore::load(path, &ok).isEmpty());
+        QVERIFY(DraftStore::load(path, TestKey, &ok).isEmpty());
         QVERIFY(!ok);
     }
 };
