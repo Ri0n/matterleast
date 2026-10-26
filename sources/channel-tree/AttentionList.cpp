@@ -229,6 +229,9 @@ void AttentionList::activateItem(QTreeWidgetItem* item)
             entry->channelId,
             currentChannel ? currentChannel->id : QString(),
             repeatedActivation)) {
+        // Keep the exact viewport on a repeated click, but still animate
+        // unread root posts that are already visible in this conversation.
+        emit conversationAttentionReactivated(channelId);
         AppNavigationService::instance(*backend_).openChannel(channelId);
         return;
     }
