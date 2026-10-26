@@ -31,6 +31,17 @@ const QString ManagerObjectName = QStringLiteral("matterleastPluginManager");
 const char PluginActionProperty[] = "matterleastPluginAction";
 const char PluginIdProperty[] = "matterleastPluginId";
 
+bool nativePluginLoadingDisabled()
+{
+#ifdef MATTERLEAST_NATIVE_PLUGINS_DISABLED
+    return true; // Enforced by the executable's build configuration.
+#else
+    const QCoreApplication* app = QCoreApplication::instance();
+    return qEnvironmentVariable("MATTERLEAST_DISABLE_NATIVE_PLUGINS") == QLatin1String("1")
+        || (app && app->arguments().contains(QStringLiteral("--disable-native-plugins")));
+#endif
+}
+
 QString pluginEnabledOption(const QString& pluginId)
 {
     return QStringLiteral("plugins/") + pluginId + QStringLiteral("/enabled");
@@ -228,6 +239,10 @@ void PluginManager::attachWindowOverlay(PluginHost& host)
 
 void PluginManager::loadStandardPlugins()
 {
+    // No metadata parsing or QPluginLoader::instance() for untrusted libraries.
+    if (nativePluginLoadingDisabled()) {
+        return;
+    }
     for (const QString& path : pluginSearchPaths()) {
         const QDir dir(path);
         if (!dir.exists()) {
@@ -246,6 +261,9 @@ void PluginManager::loadStandardPlugins()
 
 bool PluginManager::loadPluginFile(const QString& filePath)
 {
+    if (nativePluginLoadingDisabled()) {
+        return false;
+    }
     auto host = std::make_unique<PluginHost>(filePath, *conversationHost_);
     if (!host->hasValidMetadata()) {
         return false;
