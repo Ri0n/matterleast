@@ -92,7 +92,16 @@ The first implementation discovers trusted native plugins in:
 1. `<application directory>/plugins`
 2. the platform `QStandardPaths::AppDataLocation/plugins` directory
 
-Native plugins execute in-process and are **not sandboxed**. A permissions UI, enable/disable persistence and plugin distribution are separate layers and must not weaken the ABI boundary described here.
+Native plugins execute in-process and are **not sandboxed**. Plugin
+metadata is not a signature or provenance verification. A plugin enable
+checkbox is not a security boundary.
+
+Corporate builds can enforce `-DMATTERLEAST_ENABLE_NATIVE_PLUGINS=OFF`,
+disabling the entire native plugin manager. Normal builds can disable plugin
+loading per launch with `--disable-native-plugins` or the environment variable
+`MATTERLEAST_DISABLE_NATIVE_PLUGINS=1`. These user-controlled runtime options
+are not suitable as an enterprise-enforced policy. This protects against native
+MatterLeast plugins; it does not disable unrelated Qt plugins and dependencies. A permissions UI, enable/disable persistence and plugin distribution are separate layers and must not weaken the ABI boundary described here.
 
 ## Conversation capability
 
