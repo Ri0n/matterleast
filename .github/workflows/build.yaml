@@ -106,7 +106,8 @@ jobs:
             libqt6svg6 \
             qt6-base-dev \
             qt6-multimedia-dev \
-            qt6-websockets-dev
+            qt6-websockets-dev \
+            qtkeychain-qt6-dev
 
       - name: Configure
         run: >
@@ -143,7 +144,8 @@ jobs:
             build-essential \
             libqt5sql5-sqlite \
             libqt5websockets5-dev \
-            qtbase5-dev
+            qtbase5-dev \
+            qtkeychain-qt5-dev
 
       - name: Configure
         run: >
