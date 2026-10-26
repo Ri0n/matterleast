@@ -6,7 +6,15 @@
 #include <QUrl>
 
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
+// Bundled QtKeychain exposes <qtkeychain/keychain.h>; distro development
+// packages install <qt5keychain/keychain.h> or <qt6keychain/keychain.h>.
+#if __has_include(<qtkeychain/keychain.h>)
 #include <qtkeychain/keychain.h>
+#elif QT_VERSION_MAJOR == 5
+#include <qt5keychain/keychain.h>
+#else
+#include <qt6keychain/keychain.h>
+#endif
 #endif
 
 namespace Mattermost {
