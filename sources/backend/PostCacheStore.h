@@ -41,6 +41,8 @@ public:
     explicit PostCacheStore(QString databasePath, QObject* parent = nullptr);
     ~PostCacheStore() override;
 
+    // A valid device key is required before opening the database.
+    void setEncryptionKey(const QByteArray& key);
     bool open();
     bool isOpen() const { return database.isOpen(); }
 
@@ -106,6 +108,7 @@ private:
     void vacuumFreelist();
 
     QString databasePath;
+    QByteArray _encryptionKey;
     QString connectionName;
     QSqlDatabase database;
     qint64 accountId = -1;
