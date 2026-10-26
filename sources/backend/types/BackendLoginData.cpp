@@ -33,7 +33,14 @@ void BackendLoginData::loadFromOptions ()
 	auto* options = MLOptions::instance();
 	domain = options->value<QString>(QStringLiteral("domain"));
 	username = options->value<QString>(QStringLiteral("username"));
-	token = options->value<QString>(QStringLiteral("token"));
+#ifdef MATTERLEAST_LOGIN_TOKEN_PERSISTENCE_DISABLED
+    // Remove a token written by an older, less restrictive build. Clearing
+    // settings is not secure erasure of backups or historical disk blocks.
+    options->setValue<QString>(QStringLiteral("token"), QString());
+    token.clear();
+#else
+    token = options->value<QString>(QStringLiteral("token"));
+#endif
 }
 
 void BackendLoginData::saveToOptions () const
@@ -41,7 +48,12 @@ void BackendLoginData::saveToOptions () const
 	auto* options = MLOptions::instance();
 	options->setValue(QStringLiteral("domain"), domain);
 	options->setValue(QStringLiteral("username"), username);
-	options->setValue(QStringLiteral("token"), token);
+#ifdef MATTERLEAST_LOGIN_TOKEN_PERSISTENCE_DISABLED
+    // Authentication still uses the token in RAM for this process only.
+    options->setValue<QString>(QStringLiteral("token"), QString());
+#else
+    options->setValue(QStringLiteral("token"), token);
+#endif
 }
 
 bool BackendLoginData::areAllFieldsFilled () const
