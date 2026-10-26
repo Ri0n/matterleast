@@ -278,8 +278,8 @@ if(NOT TARGET Qca3::Qca)
   # assumes CMAKE_BINARY_DIR points there. Supply the directory explicitly
   # when it is embedded inside another project.
   target_include_directories(qca3-qt${QT_VERSION_MAJOR} PUBLIC
-    "${matterleast_qca_SOURCE_DIR}/include/QtCrypto"
-    "${matterleast_qca_BINARY_DIR}")
+    "$<BUILD_INTERFACE:${matterleast_qca_SOURCE_DIR}/include/QtCrypto>"
+    "$<BUILD_INTERFACE:${matterleast_qca_BINARY_DIR}>")
   if(TARGET qca-ossl)
     target_include_directories(qca-ossl PRIVATE "${matterleast_qca_BINARY_DIR}")
   endif()
