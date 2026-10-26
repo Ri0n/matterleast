@@ -1,6 +1,10 @@
 #include "LocalMessageCrypto.h"
 
 #include <QtCrypto>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QFile>
 
 namespace Mattermost {
 namespace {
@@ -13,8 +17,30 @@ constexpr int TagBytes = 16;
 
 QCA::Initializer& cryptoInitializer()
 {
-    static QCA::Initializer initializer;
-    return initializer;
+    // Bundled QCA providers are installed beside the application. QCA does not
+    // automatically discover its private plugin directory when the package is
+    // relocated (especially in AppImage), so add it before QCA initializes.
+    // A developer-provided QCA_PLUGIN_PATH is respected.
+    static QCA::Initializer* initializer = [] {
+        if (qEnvironmentVariableIsEmpty("QCA_PLUGIN_PATH")
+            && QCoreApplication::instance()) {
+            const QDir appDir(QCoreApplication::applicationDirPath());
+            const QString suffix = QStringLiteral("qca3-qt%1").arg(QT_VERSION_MAJOR);
+            const QStringList candidatePaths {
+                appDir.filePath(QStringLiteral("lib/") + suffix),
+                appDir.filePath(QStringLiteral("../lib/") + suffix),
+            };
+            for (const QString& candidate : candidatePaths) {
+                const QFileInfo pluginDir(QDir(candidate).filePath(QStringLiteral("crypto")));
+                if (pluginDir.isDir()) {
+                    qputenv("QCA_PLUGIN_PATH", QFile::encodeName(candidate));
+                    break;
+                }
+            }
+        }
+        return new QCA::Initializer();
+    }();
+    return *initializer;
 }
 
 bool canEncrypt()
