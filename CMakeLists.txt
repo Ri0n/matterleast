@@ -253,6 +253,28 @@ else()
   message(STATUS "MatterLeast keychain: OFF (missing system dev files or explicitly disabled)")
 endif()
 
+# Use system QCA >=3.0.11 where available; otherwise build the pinned
+# upstream version (including its OpenSSL-backed AES-GCM provider).
+find_package(Qca3-qt${QT_VERSION_MAJOR} 3.0.11 CONFIG QUIET)
+if(NOT TARGET Qca3::Qca)
+  include(FetchContent)
+  set(BUILD_TESTS OFF CACHE BOOL "QCA tests" FORCE)
+  set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
+  set(BUILD_PLUGINS "ossl" CACHE STRING "QCA providers" FORCE)
+  set(BUILD_SHARED_LIBS ON CACHE BOOL "QCA shared library" FORCE)
+  if(QT_VERSION_MAJOR EQUAL 6)
+    set(BUILD_WITH_QT6 ON CACHE BOOL "QCA Qt version" FORCE)
+  else()
+    set(BUILD_WITH_QT6 OFF CACHE BOOL "QCA Qt version" FORCE)
+  endif()
+  FetchContent_Declare(matterleast_qca
+    URL https://codeload.github.com/psi-im/qca/tar.gz/0adfcc757974ca865f6d1de0955df68e7a304676)
+  FetchContent_MakeAvailable(matterleast_qca)
+endif()
+if(NOT TARGET Qca3::Qca)
+  message(FATAL_ERROR "QCA 3.0.11 or newer is needed to encrypt local messages")
+endif()
+
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
 add_subdirectory(plugins)
 add_subdirectory(third_party/QSourceHighlite)
@@ -299,6 +321,7 @@ else()
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_HAVE_KEYCHAIN)
   endif()
   target_link_libraries(matterleast-core PUBLIC
+    Qca3::Qca
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite
     matterleast-plugin-api)
