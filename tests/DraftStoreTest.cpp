@@ -44,7 +44,7 @@ private slots:
         QVERIFY(storedFile.open(QIODevice::ReadOnly));
         const QByteArray raw = storedFile.readAll();
         QVERIFY(!raw.contains("thread draft"));
-        QVERIFY(raw.contains("\\"version\\":2"));
+        QVERIFY(raw.contains("\"version\":2"));
         bool ok = false;
         const QVector<DraftEntry> loaded = DraftStore::load(path, TestKey, &ok);
         QVERIFY(ok);
