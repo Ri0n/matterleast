@@ -935,6 +935,14 @@ void ChatArea::restoreDraftAndFocus(const QString& draftKey)
     focusComposer();
 }
 
+void ChatArea::flashVisibleAttention()
+{
+    if (isVisible() && isActiveWindow() && ui && ui->listWidget
+        && ui->listWidget->isVisible()) {
+        ui->listWidget->flashVisibleAttention();
+    }
+}
+
 void ChatArea::onMainWindowActivate()
 {
     // Wait for Qt's activation/layout transition to settle. This only checks
