@@ -48,5 +48,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(LocalMessageCryptoTest)
+QTEST_GUILESS_MAIN(LocalMessageCryptoTest)
 #include "LocalMessageCryptoTest.moc"
