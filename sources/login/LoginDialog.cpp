@@ -22,6 +22,8 @@
 #include "ui_LoginDialog.h"
 
 #include "backend/Backend.h"
+#include "backend/SessionTokenStore.h"
+#include "options/MLOptions.h"
 #include "log.h"
 #include <QPointer>
 #include <QTimer>
@@ -60,12 +62,42 @@ LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
         }
     });
 
-	//if all data is available in the settings, use it for the login
-	if (backend.autoLoginEnabled() && loginData.areAllFieldsFilled()) {
+    // Keyring access can unlock the desktop wallet. Never block the UI or
+    // attempt password login while an asynchronous read is pending.
+    if (backend.autoLoginEnabled() && !loginData.domain.isEmpty()
+        && !loginData.username.isEmpty()) {
         _autoLoginEnabled = true;
-        _savedLoginData = loginData;
-		loginToServer (loginData);
-	}
+        QPointer<LoginDialog> guard(this);
+        SessionTokenStore::read(
+            this, loginData.domain, loginData.username,
+            [this, guard, loginData](SessionTokenStore::ReadStatus status,
+                                     const QString& secureToken) mutable {
+                if (!guard || !_autoLoginEnabled || _attemptInProgress) return;
+                if (status == SessionTokenStore::ReadStatus::Found) {
+                    loginData.token = secureToken;
+                    // A previous plaintext entry is obsolete once the same
+                    // account has a successfully retrieved keyring secret.
+                    MLOptions::instance()->setValue<QString>(
+                        QStringLiteral("token"), QString());
+                } else if (status == SessionTokenStore::ReadStatus::NotFound
+                           && !loginData.token.isEmpty()) {
+                    // One-time migration: authenticate with the old token.
+                    // Its settings copy is cleared only when saving to the
+                    // keyring succeeds after authentication.
+                } else {
+                    // Keyring unavailable is not "entry not found".
+                    // Preserve legacy settings on temporary keyring errors.
+                    _autoLoginEnabled = false;
+                    return;
+                }
+                if (!loginData.areAllFieldsFilled()) {
+                    _autoLoginEnabled = false;
+                    return;
+                }
+                _savedLoginData = loginData;
+                loginToServer(loginData);
+            });
+    }
 }
 
 LoginDialog::~LoginDialog()
@@ -109,11 +141,17 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
         if (!token.isEmpty()) {
             _autoLoginRetryTimer.stop();
             _autoLoginEnabled = false;
-            if (loginData.token.isEmpty()) {
-                BackendLoginData saved = loginData;
-                saved.token = token;
-                saved.saveToOptions();
-            }
+            // The backend outlives this login dialog. Save asynchronously
+            // there, so closing the dialog cannot cancel the keyring job.
+            // Never write a new token into plaintext application settings.
+            SessionTokenStore::write(
+                &backend, loginData.domain, loginData.username, token,
+                [](bool success) {
+                    if (success) {
+                        MLOptions::instance()->setValue<QString>(
+                            QStringLiteral("token"), QString());
+                    }
+                });
             accept();
             return;
         }
