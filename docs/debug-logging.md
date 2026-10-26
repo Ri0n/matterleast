@@ -55,8 +55,23 @@ QT_LOGGING_RULES='mattermost.upload.info=false' ./matterleast
 
 ## Attachment upload trace
 
-The upload diagnostics now omit raw header values, full URLs and response
+By default, upload diagnostics omit raw header values, full URLs and response
 bodies. Only safe metadata and debug-level header counts are recorded.
+
+For a **local diagnostic build only**, detailed request/response headers can be
+compiled in explicitly:
+
+```bash
+cmake -S . -B build -DMATTERLEAST_DEBUG_UPLOAD_HEADERS=ON
+QT_LOGGING_RULES='mattermost.upload.info=true' ./build/matterleast
+```
+
+This enables `UPLOAD_REQUEST_HEADERS` and `UPLOAD_RESPONSE_HEADERS` entries.
+Known credentials (cookies, authorization headers, CSRF tokens and common
+API/token headers) are redacted, but custom headers may still contain secrets.
+Do not enable this option in distributed builds or attach such logs to public
+issues without checking them. `QT_LOGGING_RULES` alone cannot turn these
+records on when the build option is OFF.
 
 A successful background upload should have the following high-level sequence:
 
@@ -88,9 +103,10 @@ Useful failure boundaries:
 
 When explicitly enabled, upload tracing reports transport metadata such as
 byte counts, HTTP status, Qt/TLS versions and whether a session cookie is
-present. The application does not print raw HTTP header values, authentication
-values, complete request URLs or upload response bodies. Header counts are
-available at the debug level. Release builds leave the upload trace disabled
+present. Normal builds do not print HTTP header values, authentication values,
+complete request URLs or upload response bodies. Header counts are
+available at the debug level. Opt-in diagnostic builds may additionally print
+redacted header values. Release builds leave the upload trace disabled
 by default.
 
 ## Following / Attention
