@@ -118,6 +118,25 @@ A login dialog appears on first start. After a successful login, the server URL,
 
 The saved token is currently not encrypted, so the settings file should be treated as sensitive.
 
+## Security considerations
+
+The current local message cache and local draft files are not encrypted.
+To build MatterLeast with native plugin loading disabled and without saving
+login tokens in application settings, use:
+
+```bash
+cmake -S . -B build -DMATTERLEAST_ENABLE_NATIVE_PLUGINS=OFF -DMATTERLEAST_PERSIST_LOGIN_TOKEN=OFF
+```
+
+This requires logging in after each restart. It does not encrypt local
+messages or drafts or securely erase data saved by earlier versions.
+
+With plugin support enabled at build time, a normal launch can disable
+MatterLeast native plugins using `--disable-native-plugins` or the environment
+variable `MATTERLEAST_DISABLE_NATIVE_PLUGINS=1`.
+These runtime switches are not an administrator-enforced policy.
+Plugins execute in-process and are not signature-verified.
+
 ## Contributing
 
 Bug reports and pull requests are welcome. MatterLeast is maintained as a lightweight native Mattermost client, so changes that improve compatibility, reliability, resource usage and normal desktop usability are especially useful.
