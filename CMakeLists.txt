@@ -209,6 +209,12 @@ if(MATTERLEAST_USE_KEYCHAIN)
       URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
 )
     FetchContent_MakeAvailable(matterleast_qtkeychain)
+    # This pinned upstream release contains a legacy Linux callback cast.
+    # Keep -Werror for MatterLeast without imposing it on this external target.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+      target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE
+                             -Wno-error=cast-function-type)
+    endif()
     set(BUILD_TESTING ${_matterleast_saved_build_testing})
     set(BUILD_SHARED_LIBS ${_matterleast_saved_shared_libs})
   endif()
