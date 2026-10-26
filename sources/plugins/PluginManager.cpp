@@ -10,9 +10,11 @@
 #include <QLibrary>
 #include <QPointer>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QWidget>
 
 #include "PluginHost.h"
+#include "PluginSignature.h"
 #include "backend/Backend.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
@@ -264,7 +266,19 @@ bool PluginManager::loadPluginFile(const QString& filePath)
     if (nativePluginLoadingDisabled()) {
         return false;
     }
-    auto host = std::make_unique<PluginHost>(filePath, *conversationHost_);
+    QString loadPath = filePath;
+#ifdef MATTERLEAST_TRUSTED_PLUGINS_ONLY
+    if (!_verifiedPluginDirectory) {
+        _verifiedPluginDirectory = std::make_unique<QTemporaryDir>();
+    }
+    loadPath = trustedPluginPath(filePath, _verifiedPluginDirectory.get());
+    if (loadPath.isEmpty()) {
+        qWarning() << "Rejected unsigned or untrusted native plugin:"
+                   << QFileInfo(filePath).fileName();
+        return false;
+    }
+#endif
+    auto host = std::make_unique<PluginHost>(loadPath, *conversationHost_);
     if (!host->hasValidMetadata()) {
         return false;
     }
