@@ -200,7 +200,10 @@ if(MATTERLEAST_USE_KEYCHAIN)
       if(PkgConfig_FOUND)
         pkg_check_modules(MATTERLEAST_LIBSECRET QUIET libsecret-1)
       endif()
-      set(LIBSECRET_SUPPORT ${MATTERLEAST_LIBSECRET_FOUND})
+      # QtKeychain's option() uses the OLD CMP0077 policy on older CMake:
+      # a normal variable is silently discarded and it defaults back to ON.
+      set(LIBSECRET_SUPPORT ${MATTERLEAST_LIBSECRET_FOUND}
+          CACHE BOOL "Enable QtKeychain libsecret backend if available" FORCE)
     endif()
     FetchContent_Declare(matterleast_qtkeychain
       URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
