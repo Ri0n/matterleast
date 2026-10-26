@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include <QByteArray>
 #include <QtGlobal>
 #include <QJsonObject>
 #include <QObject>
@@ -26,7 +27,7 @@ public:
     using ReadCallback = std::function<void(QJsonObject)>;
 
     PostCacheService();
-    explicit PostCacheService(QString databasePath);
+    explicit PostCacheService(QString databasePath, QByteArray testKey = {});
     ~PostCacheService();
 
     PostCacheService(const PostCacheService&) = delete;
