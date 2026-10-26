@@ -150,6 +150,32 @@ endif()
 option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugins" ON)
 option(MATTERLEAST_USE_KEYCHAIN "Store saved login sessions in the platform keyring" ON)
 
+# Corporate builds embed only a PUBLIC Ed25519 verification key. Signing uses
+# an external private key, never checked into the source tree or application.
+set(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE "" CACHE FILEPATH
+    "PEM Ed25519 public key: require a valid detached signature on every MatterLeast native plugin")
+set(MATTERLEAST_PLUGIN_SIGNING_KEY_FILE "" CACHE FILEPATH
+    "PEM Ed25519 private key for signing bundled plugins; use only in trusted packaging")
+if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
+  if(NOT EXISTS "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}")
+    message(FATAL_ERROR "Plugin verification public key does not exist")
+  endif()
+  find_package(OpenSSL 1.1.1 REQUIRED COMPONENTS Crypto)
+  file(READ "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}" MATTERLEAST_PLUGIN_PUBLIC_KEY_PEM)
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  configure_file(sources/plugins/TrustedPluginKey.h.in
+                 "${CMAKE_CURRENT_BINARY_DIR}/generated/TrustedPluginKey.h" @ONLY)
+endif()
+if(MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
+  if(NOT MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
+    message(FATAL_ERROR "Signing requires configuring the matching verification key")
+  endif()
+  if(NOT EXISTS "${MATTERLEAST_PLUGIN_SIGNING_KEY_FILE}")
+    message(FATAL_ERROR "Plugin signing private key file does not exist")
+  endif()
+  find_program(MATTERLEAST_OPENSSL_EXECUTABLE openssl REQUIRED)
+endif()
+
 if(MATTERLEAST_USE_KEYCHAIN)
   # Prefer the distribution's QtKeychain. Bundle the same pinned upstream
   # implementation statically when unavailable (notably Windows packaging).
@@ -175,7 +201,7 @@ if(MATTERLEAST_USE_KEYCHAIN)
     endif()
     FetchContent_Declare(matterleast_qtkeychain
       URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
-      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+)
     FetchContent_MakeAvailable(matterleast_qtkeychain)
     set(BUILD_TESTING ${_matterleast_saved_build_testing})
     set(BUILD_SHARED_LIBS ${_matterleast_saved_shared_libs})
@@ -214,6 +240,11 @@ else()
   add_library(matterleast-core OBJECT ${SOURCES})
   if(NOT MATTERLEAST_ENABLE_NATIVE_PLUGINS)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_NATIVE_PLUGINS_DISABLED)
+  endif()
+  if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_TRUSTED_PLUGINS_ONLY)
+    target_include_directories(matterleast-core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(matterleast-core PUBLIC OpenSSL::Crypto)
   endif()
   if(MATTERLEAST_USE_KEYCHAIN)
     target_link_libraries(matterleast-core PUBLIC qt${QT_VERSION_MAJOR}keychain)
