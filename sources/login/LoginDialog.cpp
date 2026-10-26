@@ -117,8 +117,12 @@ void LoginDialog::on_login_pushButton_clicked()
 	loginData.password = ui->password_lineEdit->text();
 	loginData.token = "";
 
-	loginData.saveToOptions ();
-	loginToServer (loginData);
+    loginData.saveToOptions();
+    // Explicitly switching credentials invalidates a legacy settings token.
+    // Otherwise a crash before the new keyring write could bind the old
+    // plaintext session to the newly selected server/username.
+    MLOptions::instance()->setValue<QString>(QStringLiteral("token"), QString());
+    loginToServer(loginData);
 }
 
 
