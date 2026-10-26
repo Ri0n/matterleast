@@ -141,5 +141,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(DraftStoreTest)
+QTEST_GUILESS_MAIN(DraftStoreTest)
 #include "DraftStoreTest.moc"
