@@ -33,14 +33,9 @@ void BackendLoginData::loadFromOptions ()
 	auto* options = MLOptions::instance();
 	domain = options->value<QString>(QStringLiteral("domain"));
 	username = options->value<QString>(QStringLiteral("username"));
-#ifdef MATTERLEAST_LOGIN_TOKEN_PERSISTENCE_DISABLED
-    // Remove a token written by an older, less restrictive build. Clearing
-    // settings is not secure erasure of backups or historical disk blocks.
-    options->setValue<QString>(QStringLiteral("token"), QString());
-    token.clear();
-#else
+    // Read legacy plaintext only to migrate it after successful login.
+    // New tokens are never persisted here.
     token = options->value<QString>(QStringLiteral("token"));
-#endif
 }
 
 void BackendLoginData::saveToOptions () const
@@ -48,12 +43,8 @@ void BackendLoginData::saveToOptions () const
 	auto* options = MLOptions::instance();
 	options->setValue(QStringLiteral("domain"), domain);
 	options->setValue(QStringLiteral("username"), username);
-#ifdef MATTERLEAST_LOGIN_TOKEN_PERSISTENCE_DISABLED
-    // Authentication still uses the token in RAM for this process only.
-    options->setValue<QString>(QStringLiteral("token"), QString());
-#else
-    options->setValue(QStringLiteral("token"), token);
-#endif
+    // No saved session secret belongs in application options; LoginDialog
+    // handles the asynchronous secure keyring write.
 }
 
 bool BackendLoginData::areAllFieldsFilled () const
