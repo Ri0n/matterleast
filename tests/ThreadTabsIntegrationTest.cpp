@@ -22,6 +22,7 @@
 #include "backend/PostRepository.h"
 #include "backend/types/BackendChannel.h"
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree/FollowingNavigation.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
 #include "chat-area/ThreadPostSource.h"
@@ -864,6 +865,43 @@ private slots:
         ui.saveSession();
         QCOMPARE(MLOptions::instance()->value<QByteArray>(sessionKey()), original);
         QVERIFY(MLOptions::instance()->contains(sessionKey("other-user")));
+    }
+
+    void cachedRootAttentionTargetExcludesRepliesOwnPostsAndReadHistory()
+    {
+        // Synthetic posts only: no IDs, timestamps or message contents from
+        // production conversations or diagnostic logs.
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "tester"}, {"username", "me"}}, true);
+        storage.addUser(QJsonObject {{"id", "sender"}, {"username", "colleague"}});
+        auto* channel = storage.addGroupChannel(
+            QJsonObject {{"id", "test-channel"}, {"type", "G"}});
+        QVERIFY(channel);
+
+        auto append = [channel](const QString& id, const QString& user,
+                                std::uint64_t createdAt, const QString& root = QString()) {
+            return channel->addPost(QJsonObject {
+                {"id", id}, {"channel_id", "test-channel"},
+                {"user_id", user}, {"root_id", root},
+                {"create_at", static_cast<qint64>(createdAt)},
+                {"update_at", static_cast<qint64>(createdAt)}
+            });
+        };
+        QVERIFY(append("root-read", "sender", 100));
+        QVERIFY(append("reply-newer", "sender", 170, "root-read"));
+        QVERIFY(append("root-latest", "sender", 160));
+        QVERIFY(append("root-first", "sender", 130));
+        QVERIFY(append("root-own", "tester", 125));
+
+        QCOMPARE(firstCachedUnreadRootPostId(*channel, 110),
+                 QStringLiteral("root-first"));
+        QCOMPARE(firstCachedUnreadRootPostId(*channel, 135),
+                 QStringLiteral("root-latest"));
+        QCOMPARE(firstCachedUnreadRootPostId(*channel, 110, 130, "root-first"),
+                 QStringLiteral("root-latest"));
+        QVERIFY(firstCachedUnreadRootPostId(*channel, 165).isEmpty());
+        QVERIFY(firstCachedUnreadRootPostId(*channel, 110, 160, "root-latest").isEmpty());
     }
 
     void crtReplyMentionDoesNotMakeParentDmUnread()
