@@ -363,7 +363,7 @@ void Backend::logout (std::function<void ()> callback)
 
 	timeoutTimer.start (1000);
 
-	httpConnector.post (request, QByteArray(), HttpResponseCallback ([this, callback] (const QJsonDocument& doc) {
+	httpConnector.post (request, QByteArray(), HttpResponseCallback ([this, callback] (const QJsonDocument&) {
 		LOG_DEBUG ("Logout done");
 
 		timeoutTimer.stop();
