@@ -22,6 +22,7 @@
 #include "channel-tree/AttentionList.h"
 #include "channel-tree/ChannelQuickList.h"
 #include "channel-tree/ChannelTree.h"
+#include "chat-area/ChatArea.h"
 #include "navigation/AppNavigationService.h"
 #include "notifications/NotificationManager.h"
 #include "post-collection/PostCollectionView.h"
