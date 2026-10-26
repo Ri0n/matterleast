@@ -250,3 +250,36 @@ jobs:
           name: matterleast-windows-x64-portable
           path: package/matterleast-*-windows-x64-portable.zip
           if-no-files-found: error
+
+  signed-plugins:
+    name: Ed25519 plugin signature contract / Qt6
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare version
+        uses: ./.github/actions/prepare-version
+        with:
+          version: ""
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build qt6-base-dev \
+            qt6-websockets-dev libssl-dev openssl
+      - name: Configure ephemeral corporate signing policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/matterleast-signing"
+          openssl genpkey -algorithm Ed25519 \
+            -out "$RUNNER_TEMP/matterleast-signing/private.pem"
+          openssl pkey -in "$RUNNER_TEMP/matterleast-signing/private.pem" \
+            -pubout -out "$RUNNER_TEMP/matterleast-signing/public.pem"
+          cmake -S . -B build-trusted -G Ninja -DQT_6=ON \
+            -DMATTERLEAST_USE_KEYCHAIN=OFF \
+            -DBUILD_TESTING=ON -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_PLUGIN_VERIFY_KEY_FILE="$RUNNER_TEMP/matterleast-signing/public.pem" \
+            -DMATTERLEAST_PLUGIN_SIGNING_KEY_FILE="$RUNNER_TEMP/matterleast-signing/private.pem"
+      - name: Verify signed and tampered plugins
+        run: |
+          cmake --build build-trusted --target trusted-plugin-load-test --parallel 4
+          ctest --test-dir build-trusted -R '^trusted-plugin-load-test$' --output-on-failure
