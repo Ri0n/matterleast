@@ -912,3 +912,13 @@ target_include_directories(update-trust-policy-test PRIVATE
 target_link_libraries(update-trust-policy-test PRIVATE
     matterleast-crypto Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME update-trust-policy-test COMMAND update-trust-policy-test)
+
+# ZIP safety gates are platform-independent; validate the wire format on
+# every CI runner, including Qt5. Extraction itself runs only on Windows.
+add_executable(windows-zip-policy-test
+    WindowsZipPolicyTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/update/WindowsZipInstaller.cpp")
+target_include_directories(windows-zip-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(windows-zip-policy-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME windows-zip-policy-test COMMAND windows-zip-policy-test)

@@ -46,6 +46,9 @@
 #include "./ui_mainwindow.h"
 #include "Settings.h"
 #include "SettingsWindow.h"
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+#include "update/WindowsUpdateController.h"
+#endif
 #include "backend/Backend.h"
 #include "backend/CustomStatusValidation.h"
 #include "backend/PendingPostService.h"
@@ -781,6 +784,19 @@ void MainWindow::createMenu()
 	});
 
 	QMenu* helpMenu = mainMenu->addMenu("Help");
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+    if (auto* updater = qApp->findChild<WindowsUpdateController*>()) {
+        helpMenu->addAction(tr("Check for updates"), updater,
+                            &WindowsUpdateController::checkNow);
+        QAction* restart = helpMenu->addAction(tr("Update and restart"),
+            updater, &WindowsUpdateController::startUpdateAndRestart);
+        restart->setEnabled(updater->canApply());
+        connect(updater, &WindowsUpdateController::stateChanged, this,
+            [updater, restart](WindowsUpdateController::State) {
+                restart->setEnabled(updater->canApply());
+            });
+    }
+#endif
 	helpMenu->addAction("About MatterLeast", [this] {
 		auto* msgBox = new QMessageBox(QMessageBox::Information,
 		                               "About MatterLeast", infoText);

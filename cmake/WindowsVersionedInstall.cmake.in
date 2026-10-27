@@ -1,0 +1,38 @@
+# Run after qt_generate_deploy_app_script has staged the entire runtime.
+# Both CPack NSIS and cmake --install use the same versioned directory layout.
+set(_ml_root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+set(_ml_runtime "${_ml_root}/versions/@MATTERLEAST_INSTALL_ID@/MatterLeast")
+if(NOT EXISTS "${_ml_root}/bin/matterleast.exe"
+    OR NOT EXISTS "${_ml_root}/bin/MatterLeastUpdater.exe"
+    OR NOT EXISTS "${_ml_root}/MatterLeastLauncher.exe")
+    message(FATAL_ERROR "Versioned Windows install requires both helpers and the deployed MatterLeast binary")
+endif()
+file(MAKE_DIRECTORY "${_ml_runtime}")
+# The generated Qt runtime contains bin, plugins and possibly resources.
+# Move everything except the stable launcher and previous version directories.
+# Explicitly move the deployed application directory; an unqualified GLOB
+# can omit directories on Windows, leaving bin/ behind while only copying
+# loose files. A missing bin/ at this point is a packaging error, not an
+# update-safe package.
+file(RENAME "${_ml_root}/bin" "${_ml_runtime}/bin")
+if(NOT EXISTS "${_ml_runtime}/bin/matterleast.exe"
+    OR NOT EXISTS "${_ml_runtime}/bin/MatterLeastUpdater.exe")
+    message(FATAL_ERROR
+        "Versioned Windows update executables are missing from ${_ml_runtime}/bin")
+endif()
+
+# Keep the Qt plugin and QML directory layout relative to bin/qt.conf.
+# Move actual runtime entries only; don't nest unrelated SDK include/lib
+# files in a release update payload.
+foreach(_ml_entry IN ITEMS plugins qml translations resources share)
+    if(EXISTS "${_ml_root}/${_ml_entry}")
+        file(RENAME "${_ml_root}/${_ml_entry}"
+            "${_ml_runtime}/${_ml_entry}")
+    endif()
+endforeach()
+if(NOT EXISTS "${_ml_runtime}/plugins/platforms/qwindows.dll")
+    message(FATAL_ERROR
+        "Versioned Windows update is missing Qt's platform plugin at "
+        "${_ml_runtime}/plugins/platforms/qwindows.dll")
+endif()
+message(STATUS "Versioned Windows runtime prepared: ${_ml_runtime}")

@@ -1,0 +1,3 @@
+#pragma once
+// Initial NSIS/ZIP install. Later builds do not reset current.version.
+#define MATTERLEAST_INSTALL_VERSION_W L"@MATTERLEAST_INSTALL_ID@"
