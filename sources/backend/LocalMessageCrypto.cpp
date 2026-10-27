@@ -46,7 +46,7 @@ QCA::Initializer& cryptoInitializer()
 bool canEncrypt()
 {
     (void)cryptoInitializer();
-    return QCA::isSupported(QStringLiteral("aes256-gcm"));
+    return QCA::isSupported("aes256-gcm");
 }
 
 } // namespace
