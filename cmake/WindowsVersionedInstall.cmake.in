@@ -1,0 +1,26 @@
+# Run after qt_generate_deploy_app_script has staged the entire runtime.
+# Both CPack NSIS and cmake --install use the same versioned directory layout.
+set(_ml_root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+set(_ml_runtime "${_ml_root}/versions/@MATTERLEAST_INSTALL_ID@/MatterLeast")
+if(NOT EXISTS "${_ml_root}/bin/matterleast.exe"
+    OR NOT EXISTS "${_ml_root}/bin/MatterLeastUpdater.exe"
+    OR NOT EXISTS "${_ml_root}/MatterLeastLauncher.exe")
+    message(FATAL_ERROR "Versioned Windows install requires both helpers and the deployed MatterLeast binary")
+endif()
+file(MAKE_DIRECTORY "${_ml_runtime}")
+# The generated Qt runtime contains bin, plugins and possibly resources.
+# Move everything except the stable launcher and previous version directories.
+file(GLOB _ml_entries RELATIVE "${_ml_root}" "${_ml_root}/*")
+foreach(_ml_entry IN LISTS _ml_entries)
+    if(_ml_entry STREQUAL "MatterLeastLauncher.exe"
+        OR _ml_entry STREQUAL "versions"
+        OR _ml_entry STREQUAL "current.version"
+        OR _ml_entry STREQUAL "previous.version")
+        continue()
+    endif()
+    file(RENAME "${_ml_root}/${_ml_entry}" "${_ml_runtime}/${_ml_entry}")
+endforeach()
+if(NOT EXISTS "${_ml_runtime}/bin/matterleast.exe"
+    OR NOT EXISTS "${_ml_runtime}/bin/MatterLeastUpdater.exe")
+    message(FATAL_ERROR "Versioned Windows update payload is incomplete")
+endif()
