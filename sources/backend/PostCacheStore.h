@@ -97,7 +97,7 @@ private:
     bool execStatement(const QString& sql) const;
     qint64 pragmaValue(const QString& name) const;
     qint64 nowMs() const;
-    QByteArray encodePost(const QJsonObject& post) const;
+    QByteArray encodePost(const QJsonObject& post, const QString& postId) const;
     QJsonObject decodePost(const QByteArray& payload, const QString& postId) const;
     QJsonObject readPostQuery(QSqlQuery& query, bool touchRows);
     bool touchPosts(const QStringList& postIds, qint64 timestamp);
