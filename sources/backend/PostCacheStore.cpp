@@ -325,7 +325,7 @@ int PostCacheStore::storePosts(const QJsonObject& postsObject)
         query.bindValue(4, post.value(QStringLiteral("create_at")).toVariant().toLongLong());
         query.bindValue(5, post.value(QStringLiteral("update_at")).toVariant().toLongLong());
         query.bindValue(6, timestamp);
-        const QByteArray ciphertext = encodePost(post);
+        const QByteArray ciphertext = encodePost(post, postId);
         if (ciphertext.isEmpty()) {
             database.rollback();
             return 0;
@@ -667,13 +667,13 @@ qint64 PostCacheStore::nowMs() const
     return QDateTime::currentMSecsSinceEpoch();
 }
 
-QByteArray PostCacheStore::encodePost(const QJsonObject& post) const
+QByteArray PostCacheStore::encodePost(const QJsonObject& post, const QString& postId) const
 {
     // Authenticated context prevents a database editor from swapping one
     // ciphertext between accounts or post IDs.
     const QByteArray context = QByteArrayLiteral("post-cache-v1:")
         + QByteArray::number(accountId) + QByteArray(1, char(0))
-        + post.value(QStringLiteral("id")).toString().toUtf8();
+        + postId.toUtf8();
     return LocalMessageCrypto::encrypt(
         qCompress(QJsonDocument(post).toJson(QJsonDocument::Compact), 6),
         _encryptionKey, context);
