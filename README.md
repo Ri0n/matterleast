@@ -134,6 +134,36 @@ application settings. An unavailable or locked keyring never triggers a
 plaintext fallback for new tokens. Existing settings copies, backups or
 filesystem snapshots are not securely wiped by this migration.
 
+## Locked crypto dependencies
+
+`dependencies.lock.json` is the single source of the QCA and QtKeychain
+release tags, full Git commits and minimum system-library versions. The same
+lock structure is used by Iris. To update a dependency, verify the upstream
+release tag and its commit, change the lock, then run CI; do not duplicate pins
+in CMake or GitHub Actions.
+
+MatterLeast requires **QCA 3.0.12 or newer** for local message encryption.
+By default, CMake uses a matching system QCA installation if present, otherwise
+fetches and builds the exact commit pinned by the lock. For reproducible CI
+and release builds the workflows explicitly pass:
+
+```sh
+cmake -S . -B build -DMATTERLEAST_BUNDLED_QCA=ON
+```
+
+CMake then downloads QCA itself and builds its OpenSSL (`qca-ossl`)
+crypto provider. On Linux, `libssl-dev` (Debian/Ubuntu) or
+`openssl-devel` (Fedora) provides **OpenSSL headers and libraries for that
+provider**; neither package replaces QCA. The packaged application must
+include or depend on the QCA runtime library **and** its `crypto/qca-ossl`
+provider module. Runtime encryption fails closed when the provider or
+keyring cannot be used.
+
+For QtKeychain, matching system development files are preferred; when
+explicitly enabled without them, CMake fetches the exact pinned version
+(currently 0.17.0). This leaves supported Linux distributions free to use
+their system QtKeychain implementation.
+
 ## Security considerations
 
 Cached post payloads are encrypted at rest using QCA AES-256-GCM after
