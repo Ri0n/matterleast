@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 include(GNUInstallDirs)
 
 # Sign a native MatterLeast plugin after linking and install its detached
-# Ed25519 signature alongside the final binary. The key is supplied only by
+# RSA/SHA-256 signature alongside the final binary. The key is supplied only by
 # trusted packaging infrastructure and is never bundled with the application.
 #
 # Usage:
@@ -46,11 +46,11 @@ function(matterleast_sign_plugin target)
     endif()
 
     add_custom_command(TARGET "${target}" POST_BUILD
-        COMMAND "${MATTERLEAST_OPENSSL_EXECUTABLE}" pkeyutl -sign -rawin
-                -inkey "${MATTERLEAST_PLUGIN_SIGNING_KEY_FILE}"
+        COMMAND "${MATTERLEAST_OPENSSL_EXECUTABLE}" dgst -sha256 -sign
+                "${MATTERLEAST_PLUGIN_SIGNING_KEY_FILE}"
                 -in "$<TARGET_FILE:${target}>"
                 -out "$<TARGET_FILE:${target}>.sig"
-        COMMENT "Sign MatterLeast plugin ${target} with external Ed25519 key"
+        COMMENT "Sign MatterLeast plugin ${target} with external RSA/SHA-256 key"
         VERBATIM)
 
     install(FILES "$<TARGET_FILE:${target}>.sig"
