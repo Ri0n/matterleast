@@ -98,7 +98,7 @@ private:
     qint64 pragmaValue(const QString& name) const;
     qint64 nowMs() const;
     QByteArray encodePost(const QJsonObject& post) const;
-    QJsonObject decodePost(const QByteArray& payload) const;
+    QJsonObject decodePost(const QByteArray& payload, const QString& postId) const;
     QJsonObject readPostQuery(QSqlQuery& query, bool touchRows);
     bool touchPosts(const QStringList& postIds, qint64 timestamp);
     bool isChannelEligible(const QString& channelId, qint64 timestamp) const;
