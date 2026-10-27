@@ -46,6 +46,8 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/update-channel.yml
+    secrets:
+      update_signing_private_key_pem: ${{ secrets.MATTERLEAST_UPDATE_SIGNING_PRIVATE_KEY_PEM }}
     with:
       channel: stable
       release_tag: ${{ needs.latest.outputs.tag }}
@@ -65,7 +67,9 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-stable" > pointer.json
           jq -e '
             .draft == false and .prerelease == true and
-            ([.assets[].name] == ["windows-x64.json"])
+            (([.assets[].name] | sort) as $names |
+              ($names == ["windows-x64.json"] or
+               $names == ["windows-x64.json","windows-x64.json.sig"]))
           ' pointer.json
           mkdir -p downloaded
           gh release download updates-stable --repo "$GITHUB_REPOSITORY" \

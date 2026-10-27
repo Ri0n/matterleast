@@ -1,0 +1,12 @@
+#pragma once
+
+#define MATTERLEAST_COMPILED_UPDATE_CHECKS @MATTERLEAST_UPDATE_CHECKS_COMPILED@
+
+// Generated at configure time; never embed a private key.
+namespace Mattermost::UpdateTrustConfig {
+inline constexpr bool checksCompiled = @MATTERLEAST_UPDATE_CHECKS_COMPILED@ != 0;
+inline constexpr bool signaturesRequired = @MATTERLEAST_UPDATE_SIGNATURE_REQUIRED@ != 0;
+inline constexpr const char* stableManifestUrl = R"ml_update_url(@_matterleast_stable_url@)ml_update_url";
+inline constexpr const char* nightlyManifestUrl = R"ml_update_url(@_matterleast_nightly_url@)ml_update_url";
+inline constexpr const char* publicKeyPem = R"ml_update_pem(@MATTERLEAST_UPDATE_PUBLIC_KEY_PEM@)ml_update_pem";
+}

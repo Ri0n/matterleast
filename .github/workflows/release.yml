@@ -140,6 +140,8 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/update-channel.yml
+    secrets:
+      update_signing_private_key_pem: ${{ secrets.MATTERLEAST_UPDATE_SIGNING_PRIVATE_KEY_PEM }}
     with:
       channel: stable
       release_tag: ${{ needs.version.outputs.tag }}

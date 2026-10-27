@@ -876,6 +876,7 @@ if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE AND MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
     add_executable(trusted-plugin-load-test
         TrustedPluginLoadTest.cpp
         "${CMAKE_SOURCE_DIR}/sources/plugins/PluginSignature.cpp"
+        "${CMAKE_SOURCE_DIR}/sources/crypto/RsaSha256Verifier.cpp"
         "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp")
     target_include_directories(trusted-plugin-load-test PRIVATE
         "${CMAKE_SOURCE_DIR}/sources"
@@ -897,3 +898,17 @@ add_executable(local-message-crypto-test
 target_include_directories(local-message-crypto-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(local-message-crypto-test PRIVATE matterleast-crypto Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME local-message-crypto-test COMMAND local-message-crypto-test)
+
+# Isolated signature-policy tests use the same QCA target and static plugin
+# import as production. In unsigned builds we verify fail-closed semantics.
+add_executable(update-trust-policy-test
+    UpdateTrustPolicyTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/update/UpdateTrustPolicy.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/crypto/RsaSha256Verifier.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp")
+target_include_directories(update-trust-policy-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources"
+    "${CMAKE_BINARY_DIR}/generated")
+target_link_libraries(update-trust-policy-test PRIVATE
+    matterleast-crypto Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME update-trust-policy-test COMMAND update-trust-policy-test)
