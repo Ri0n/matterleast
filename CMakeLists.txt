@@ -46,6 +46,11 @@ project(matterleast VERSION ${version}
 file(WRITE "${CMAKE_BINARY_DIR}/matterleast-version.txt" "${PROJECT_VERSION}\n")
 message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
+# Both system-version minimums and fetched-source SHAs come from one lock.
+include(cmake/MatterLeastDependencyLock.cmake)
+matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)
+matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)
+
 if(WIN32)
 	enable_language(RC)
 endif()
@@ -157,7 +162,8 @@ option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugi
 # the automatic case must never download dependencies.
 set(_matterleast_system_keychain_target "")
 if(NOT DEFINED MATTERLEAST_USE_KEYCHAIN OR MATTERLEAST_USE_KEYCHAIN)
-  find_package(Qt${QT_VERSION_MAJOR}Keychain CONFIG QUIET)
+  find_package(Qt${QT_VERSION_MAJOR}Keychain
+    ${MATTERLEAST_QTKEYCHAIN_LOCK_MIN_VERSION} CONFIG QUIET)
   if(TARGET Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
     set(_matterleast_system_keychain_target
         Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
@@ -233,8 +239,8 @@ if(MATTERLEAST_USE_KEYCHAIN)
           CACHE BOOL "Enable QtKeychain libsecret backend if available" FORCE)
     endif()
     FetchContent_Declare(matterleast_qtkeychain
-      URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
-)
+      URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/${MATTERLEAST_QTKEYCHAIN_LOCK_COMMIT}
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(matterleast_qtkeychain)
     # QtKeychain 0.17 emits upstream warnings that vary across compiler and
     # libsecret versions (including callback casts and incomplete SecretSchema
@@ -253,10 +259,19 @@ else()
   message(STATUS "MatterLeast keychain: OFF (missing system dev files or explicitly disabled)")
 endif()
 
-# Use system QCA >=3.0.11 where available; otherwise build the pinned
-# upstream version (including its OpenSSL-backed AES-GCM provider).
-find_package(Qca3-qt${QT_VERSION_MAJOR} 3.0.11 CONFIG QUIET)
-if(NOT TARGET Qca3::Qca)
+# Use the locked QCA 3.0.12 source in CI and release builds; local
+# development can use a sufficiently recent system installation.
+# libssl-dev / openssl-devel are OpenSSL provider *build dependencies*,
+# never substitutes for QCA itself.
+option(MATTERLEAST_BUNDLED_QCA
+  "Build QCA from the exact dependencies.lock.json commit, even if system QCA exists"
+  OFF)
+if(NOT MATTERLEAST_BUNDLED_QCA)
+  find_package(Qca3-qt${QT_VERSION_MAJOR}
+    ${MATTERLEAST_QCA_LOCK_MIN_VERSION} CONFIG QUIET)
+endif()
+if(MATTERLEAST_BUNDLED_QCA OR NOT TARGET Qca3::Qca)
+  message(STATUS "MatterLeast QCA: fetching ${MATTERLEAST_QCA_LOCK_TAG} (${MATTERLEAST_QCA_LOCK_COMMIT})")
   include(FetchContent)
   # Embedded QCA's optional Doxygen rule assumes it is the top-level source.
   # Documentation is not part of our dependency build.
@@ -271,10 +286,10 @@ if(NOT TARGET Qca3::Qca)
     set(BUILD_WITH_QT6 OFF CACHE BOOL "QCA Qt version" FORCE)
   endif()
   FetchContent_Declare(matterleast_qca
-    URL https://codeload.github.com/psi-im/qca/tar.gz/0adfcc757974ca865f6d1de0955df68e7a304676
+    URL https://codeload.github.com/psi-im/qca/tar.gz/${MATTERLEAST_QCA_LOCK_COMMIT}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(matterleast_qca)
-  # QCA 3.0.11 generates qca_export.h in its own build directory but
+  # QCA generates qca_export.h in its own build directory but
   # assumes CMAKE_BINARY_DIR points there. Supply the directory explicitly
   # when it is embedded inside another project.
   target_include_directories(qca3-qt${QT_VERSION_MAJOR} PUBLIC
@@ -298,7 +313,10 @@ if(NOT TARGET Qca3::Qca)
   endif()
 endif()
 if(NOT TARGET Qca3::Qca)
-  message(FATAL_ERROR "QCA 3.0.11 or newer is needed to encrypt local messages")
+  message(FATAL_ERROR "QCA >= ${MATTERLEAST_QCA_LOCK_MIN_VERSION} is required to encrypt local messages")
+endif()
+if(NOT MATTERLEAST_BUNDLED_QCA)
+  message(STATUS "MatterLeast QCA: system provider or pinned fallback, minimum ${MATTERLEAST_QCA_LOCK_MIN_VERSION}")
 endif()
 
 # Executables under build/tests/ and build/ must find the vendored QCA
