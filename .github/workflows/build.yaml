@@ -266,8 +266,15 @@ jobs:
         run: |
           cmake --install build --prefix stage
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path stage/bin/matterleast.exe)) {
-            throw "Qt deploy tree is missing matterleast.exe"
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          $runtime = "stage/versions/v$version/MatterLeast"
+          foreach ($p in @(
+              "stage/MatterLeastLauncher.exe",
+              "$runtime/bin/matterleast.exe",
+              "$runtime/bin/MatterLeastUpdater.exe",
+              "$runtime/bin/Qt6Core.dll",
+              "$runtime/plugins/platforms/qwindows.dll")) {
+            if (-not (Test-Path $p)) { throw "Versioned deployment missing $p" }
           }
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
           New-Item -ItemType Directory -Force package | Out-Null
