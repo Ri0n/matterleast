@@ -6,6 +6,8 @@
 #include "options/MLOptions.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QSharedPointer>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
