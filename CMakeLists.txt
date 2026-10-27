@@ -259,18 +259,32 @@ else()
   message(STATUS "MatterLeast keychain: OFF (missing system dev files or explicitly disabled)")
 endif()
 
-# Use the locked QCA 3.0.12 source in CI and release builds; local
-# development can use a sufficiently recent system installation.
-# libssl-dev / openssl-devel are OpenSSL provider *build dependencies*,
-# never substitutes for QCA itself.
+# QCA 2.3.4+ supports the AES-256-GCM / AuthTag API used by our
+# authenticated local message payloads. Favor installed, matching-Qt libraries
+# before fetching new code: system QCA3 -> system QCA2 -> pinned QCA3.
+# An explicit bundled build always uses the lock and bypasses system packages.
+set(MATTERLEAST_QCA2_MIN_VERSION "2.3.4")
+set(MATTERLEAST_QCA_TARGET "")
+set(MATTERLEAST_QCA_PROVIDER "")
 option(MATTERLEAST_BUNDLED_QCA
   "Build QCA from the exact dependencies.lock.json commit, even if system QCA exists"
   OFF)
 if(NOT MATTERLEAST_BUNDLED_QCA)
   find_package(Qca3-qt${QT_VERSION_MAJOR}
     ${MATTERLEAST_QCA_LOCK_MIN_VERSION} CONFIG QUIET)
+  if(TARGET Qca3::Qca)
+    set(MATTERLEAST_QCA_TARGET Qca3::Qca)
+    set(MATTERLEAST_QCA_PROVIDER "system-qca3")
+  else()
+    find_package(Qca-qt${QT_VERSION_MAJOR}
+      ${MATTERLEAST_QCA2_MIN_VERSION} CONFIG QUIET)
+    if(TARGET qca-qt${QT_VERSION_MAJOR})
+      set(MATTERLEAST_QCA_TARGET qca-qt${QT_VERSION_MAJOR})
+      set(MATTERLEAST_QCA_PROVIDER "system-qca2")
+    endif()
+  endif()
 endif()
-if(MATTERLEAST_BUNDLED_QCA OR NOT TARGET Qca3::Qca)
+if(NOT MATTERLEAST_QCA_TARGET)
   message(STATUS "MatterLeast QCA: fetching ${MATTERLEAST_QCA_LOCK_TAG} (${MATTERLEAST_QCA_LOCK_COMMIT})")
   include(FetchContent)
   # Embedded QCA's optional Doxygen rule assumes it is the top-level source.
@@ -312,12 +326,13 @@ if(MATTERLEAST_BUNDLED_QCA OR NOT TARGET Qca3::Qca)
     endif()
   endif()
 endif()
-if(NOT TARGET Qca3::Qca)
-  message(FATAL_ERROR "QCA >= ${MATTERLEAST_QCA_LOCK_MIN_VERSION} is required to encrypt local messages")
+  if(NOT TARGET Qca3::Qca)
+    message(FATAL_ERROR "Bundled QCA ${MATTERLEAST_QCA_LOCK_TAG} has no Qca3::Qca target")
+  endif()
+  set(MATTERLEAST_QCA_TARGET Qca3::Qca)
+  set(MATTERLEAST_QCA_PROVIDER "bundled-qca3")
 endif()
-if(NOT MATTERLEAST_BUNDLED_QCA)
-  message(STATUS "MatterLeast QCA: system provider or pinned fallback, minimum ${MATTERLEAST_QCA_LOCK_MIN_VERSION}")
-endif()
+message(STATUS "MatterLeast QCA: ${MATTERLEAST_QCA_PROVIDER} (${MATTERLEAST_QCA_TARGET})")
 
 # Executables under build/tests/ and build/ must find the vendored QCA
 # runtime DLL before they can even start. Qt's PATH cannot supply this
@@ -381,7 +396,7 @@ else()
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_HAVE_KEYCHAIN)
   endif()
   target_link_libraries(matterleast-core PUBLIC
-    Qca3::Qca
+    ${MATTERLEAST_QCA_TARGET}
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite
     matterleast-plugin-api)
