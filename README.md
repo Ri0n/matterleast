@@ -142,22 +142,26 @@ lock structure is used by Iris. To update a dependency, verify the upstream
 release tag and its commit, change the lock, then run CI; do not duplicate pins
 in CMake or GitHub Actions.
 
-MatterLeast requires **QCA 3.0.12 or newer** for local message encryption.
-By default, CMake uses a matching system QCA installation if present, otherwise
-fetches and builds the exact commit pinned by the lock. For reproducible CI
-and release builds the workflows explicitly pass:
+For local message encryption, MatterLeast supports system QCA 3.0.12+ or
+QCA 2.3.4+ with its OpenSSL crypto provider. CMake selects the matching Qt
+major version in this order: **installed QCA 3 → installed QCA 2 →
+locked QCA 3.0.12**, downloaded only if no compatible system package exists.
+The shared AES-256-GCM envelope is compatible across QCA 2 and QCA 3.
+
+Windows and AppImage jobs explicitly request reproducible bundled QCA 3.
+Native DEB and RPM jobs install QCA 2 development files and the matching
+OpenSSL provider as distro packages. For a forced bundled build, use:
 
 ```sh
 cmake -S . -B build -DMATTERLEAST_BUNDLED_QCA=ON
 ```
 
-CMake then downloads QCA itself and builds its OpenSSL (`qca-ossl`)
-crypto provider. On Linux, `libssl-dev` (Debian/Ubuntu) or
-`openssl-devel` (Fedora) provides **OpenSSL headers and libraries for that
-provider**; neither package replaces QCA. The packaged application must
-include or depend on the QCA runtime library **and** its `crypto/qca-ossl`
-provider module. Runtime encryption fails closed when the provider or
-keyring cannot be used.
+In bundled mode CMake downloads QCA 3 and builds its OpenSSL
+(`qca-ossl`) provider. `libssl-dev` (Debian/Ubuntu) or
+`openssl-devel` (Fedora) supplies OpenSSL headers and libraries, not QCA
+itself. Native distro packages depend on their QCA 2 runtime library **and**
+the matching OpenSSL provider module; these are loaded dynamically.
+Runtime encryption fails closed when the provider or keyring is unavailable.
 
 For QtKeychain, matching system development files are preferred; when
 explicitly enabled without them, CMake fetches the exact pinned version
