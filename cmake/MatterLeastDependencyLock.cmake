@@ -7,7 +7,7 @@ file(READ "${_matterleast_dependency_lock_file}" _matterleast_dependency_lock)
 
 function(matterleast_load_dependency name output)
     string(REGEX MATCH
-        "\"\${name}\"[ \t\r\n]*:[ \t\r\n]*\\{[^}]*\\}"
+        "\"${name}\"[ \t\r\n]*:[ \t\r\n]*\\{[^}]*\\}"
         entry "${_matterleast_dependency_lock}")
     if(NOT entry)
         message(FATAL_ERROR "dependencies.lock.json: missing ${name}")
