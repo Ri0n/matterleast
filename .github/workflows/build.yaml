@@ -283,7 +283,7 @@ jobs:
           if-no-files-found: error
 
   signed-plugins:
-    name: Ed25519 plugin signature contract / Qt6
+    name: RSA/SHA256 plugin signature contract / Qt6
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -295,13 +295,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential ninja-build qt6-base-dev \
-            qt6-websockets-dev libssl-dev openssl
+            qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins libssl-dev openssl
       - name: Configure ephemeral corporate signing policy
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/matterleast-signing"
-          openssl genpkey -algorithm Ed25519 \
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
             -out "$RUNNER_TEMP/matterleast-signing/private.pem"
           openssl pkey -in "$RUNNER_TEMP/matterleast-signing/private.pem" \
             -pubout -out "$RUNNER_TEMP/matterleast-signing/public.pem"
