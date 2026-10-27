@@ -10,17 +10,29 @@ endif()
 file(MAKE_DIRECTORY "${_ml_runtime}")
 # The generated Qt runtime contains bin, plugins and possibly resources.
 # Move everything except the stable launcher and previous version directories.
-file(GLOB _ml_entries RELATIVE "${_ml_root}" "${_ml_root}/*")
-foreach(_ml_entry IN LISTS _ml_entries)
-    if(_ml_entry STREQUAL "MatterLeastLauncher.exe"
-        OR _ml_entry STREQUAL "versions"
-        OR _ml_entry STREQUAL "current.version"
-        OR _ml_entry STREQUAL "previous.version")
-        continue()
-    endif()
-    file(RENAME "${_ml_root}/${_ml_entry}" "${_ml_runtime}/${_ml_entry}")
-endforeach()
+# Explicitly move the deployed application directory; an unqualified GLOB
+# can omit directories on Windows, leaving bin/ behind while only copying
+# loose files. A missing bin/ at this point is a packaging error, not an
+# update-safe package.
+file(RENAME "${_ml_root}/bin" "${_ml_runtime}/bin")
 if(NOT EXISTS "${_ml_runtime}/bin/matterleast.exe"
     OR NOT EXISTS "${_ml_runtime}/bin/MatterLeastUpdater.exe")
-    message(FATAL_ERROR "Versioned Windows update payload is incomplete")
+    message(FATAL_ERROR
+        "Versioned Windows update executables are missing from ${_ml_runtime}/bin")
 endif()
+
+# Keep the Qt plugin and QML directory layout relative to bin/qt.conf.
+# Move actual runtime entries only; don't nest unrelated SDK include/lib
+# files in a release update payload.
+foreach(_ml_entry IN ITEMS plugins qml translations resources share)
+    if(EXISTS "${_ml_root}/${_ml_entry}")
+        file(RENAME "${_ml_root}/${_ml_entry}"
+            "${_ml_runtime}/${_ml_entry}")
+    endif()
+endforeach()
+if(NOT EXISTS "${_ml_runtime}/plugins/platforms/qwindows.dll")
+    message(FATAL_ERROR
+        "Versioned Windows update is missing Qt's platform plugin at "
+        "${_ml_runtime}/plugins/platforms/qwindows.dll")
+endif()
+message(STATUS "Versioned Windows runtime prepared: ${_ml_runtime}")
