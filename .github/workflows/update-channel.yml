@@ -13,6 +13,9 @@ on:
         type: boolean
         required: false
         default: false
+    secrets:
+      update_signing_private_key_pem:
+        required: false
   workflow_dispatch:
     inputs:
       channel:
@@ -102,6 +105,21 @@ jobs:
           python3 -m unittest discover -s tests -p test_windows_update_manifest.py -v
           cat windows-x64.json
 
+      # Optional corporate feed signing: a CI secret supplies the RSA private
+      # key, which is never checked out or installed in the application.
+      - name: Sign update manifest when release key is configured
+        shell: bash
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.update_signing_private_key_pem || secrets.MATTERLEAST_UPDATE_SIGNING_PRIVATE_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${UPDATE_SIGNING_PRIVATE_KEY_PEM:-}" ]]; then
+            umask 077
+            printf '%s\n' "$UPDATE_SIGNING_PRIVATE_KEY_PEM" > "$RUNNER_TEMP/matterleast-update-sign.pem"
+            trap 'rm -f "$RUNNER_TEMP/matterleast-update-sign.pem"' EXIT
+            bash scripts/sign-update-manifest.sh windows-x64.json "$RUNNER_TEMP/matterleast-update-sign.pem"
+          fi
+
       - name: Promote manifest-only channel release
         shell: bash
         env:
@@ -116,7 +134,36 @@ jobs:
               --title "Windows update pointer: $CHANNEL" \
               --notes "Manifest only. Download packages from immutable versioned releases."
           fi
+          # Never silently downgrade an already signed feed to unsigned.
+          if [[ ! -f windows-x64.json.sig ]] &&
+             gh release view "$pointer" --repo "$GITHUB_REPOSITORY" \
+               --json assets --jq '.assets[].name' | grep -Fxq windows-x64.json.sig; then
+            echo "::error::Signed update channel requires the signing secret"
+            exit 1
+          fi
+          # Publish the signature first, the manifest last. During rotation
+          # transient mismatches fail closed for clients requiring signatures.
+          if [[ -f windows-x64.json.sig ]]; then
+            gh release upload "$pointer" windows-x64.json.sig \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          fi
           gh release upload "$pointer" windows-x64.json \
             --repo "$GITHUB_REPOSITORY" --clobber
           gh release view "$pointer" --repo "$GITHUB_REPOSITORY" --json assets |
-            jq -e '[.assets[].name] == ["windows-x64.json"]'
+            jq -e '([.assets[].name] | sort) as $names |
+              ($names == ["windows-x64.json"] or
+               $names == ["windows-x64.json","windows-x64.json.sig"])'
+          # Compare actual published sidecars with the just-verified source.
+          # A GitHub asset redirect can briefly return 404 after replacement.
+          mkdir -p verify-pointer
+          for attempt in 1 2 3; do
+            if gh release download "$pointer" --repo "$GITHUB_REPOSITORY" \
+                --pattern 'windows-x64.json*' --dir verify-pointer --clobber; then
+              break
+            fi
+            sleep 3
+          done
+          cmp windows-x64.json verify-pointer/windows-x64.json
+          if [[ -f windows-x64.json.sig ]]; then
+            cmp windows-x64.json.sig verify-pointer/windows-x64.json.sig
+          fi

@@ -10,6 +10,68 @@ self-contained Windows portable ZIP as its canonical update payload.
 The Windows client must **not** attempt unattended updates until the native
 launcher/updater and NSIS migration below have been implemented and tested.
 
+## Compile-time update source and cryptographic trust
+
+The client does **not** yet contain the Windows update launcher, downloader
+or unattended installer. These CMake settings define an immutable update-check
+policy and implement verification of update manifests for that future client.
+No updater service is silently enabled by configuring these options.
+
+- `MATTERLEAST_ENABLE_UPDATE_CHECKS` (default `ON`): compile-time switch.
+  `OFF` leaves both update manifest URLs empty and makes the update
+  authentication/checking policy refuse requests.
+- `MATTERLEAST_UPDATE_MANIFEST_URL`: a single absolute HTTPS manifest URL.
+  Use `{channel}` if stable/nightly have different locations; the
+  application substitutes only `stable` or `nightly`. Without a placeholder
+  both channels use the same URL. The default public source is
+  `https://github.com/Ri0n/matterleast/releases/download/updates-{channel}/windows-x64.json`.
+- `MATTERLEAST_UPDATE_VERIFY_KEY_FILE`: optional RSA public key PEM that
+  requires a detached RSA PKCS#1 v1.5 / SHA-256 signature at `<manifest-url>.sig`.
+  The signature authenticates **exactly the downloaded JSON bytes** before
+  trusting URLs, hashes and package metadata inside the manifest.
+- A build using `MATTERLEAST_PLUGIN_VERIFY_KEY_FILE` reuses that public
+  key for update verification unless an explicit update key overrides it.
+  If **any** plugin signing/verification key or update verification key is
+  configured, CMake **requires an explicit non-default update URL**. This
+  also applies if checks have been disabled. Corporate builds must not silently
+  rely on the public GitHub endpoint.
+- Public community builds without configured keys continue to use GitHub.
+  Their manifests currently rely on HTTPS/GitHub, rather than a pinned RSA
+  signature. A configured trusted build rejects unsigned, incorrect, malformed
+  or tampered signatures (fail-closed).
+
+Corporate example (key files are supplied securely by build infrastructure):
+
+```sh
+cmake -S . -B build \
+  -DMATTERLEAST_PLUGIN_VERIFY_KEY_FILE=/secure/build/plugin-public.pem \
+  '-DMATTERLEAST_UPDATE_MANIFEST_URL=https://updates.example.com/{channel}/windows-x64.json'
+```
+
+To completely disable checks at compile time use
+`-DMATTERLEAST_ENABLE_UPDATE_CHECKS=OFF`. Disabling update checking does
+not disable the independent native plugin signature verification.
+
+### Publishing signed update pointers
+
+The stable and nightly GitHub Actions release publishers support the optional
+repository secret `MATTERLEAST_UPDATE_SIGNING_PRIVATE_KEY_PEM` (RSA private
+PEM). When supplied, they sign `windows-x64.json` using
+`scripts/sign-update-manifest.sh`, verify the signature locally and upload
+`windows-x64.json.sig` **before** replacing `windows-x64.json`. Signature
+and JSON are two assets, not an atomic transaction: a client must refuse
+inconsistent pairs and retry rather than accepting unsigned data.
+
+Once a channel has a signature asset, publishing without this signing secret
+fails rather than silently downgrading the channel to unsigned. Nothing
+containing a private key is compiled into the application or uploaded.
+
+The signed manifest contains the package URL, exact SHA-256 digest and byte
+size. Verifying its RSA signature, package hash/size, HTTPS restrictions,
+release identity and downgrade policy protects the downloaded payload without
+requiring an additional signature on the ZIP itself. Signature verification
+**must precede all manifest-based downloads** in the future updater.
+
 ### Stable: immutable versioned packages and a mutable pointer
 
 - Normal stable GitHub Releases are immutable: v1.9, v1.10, etc.

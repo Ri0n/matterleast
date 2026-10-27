@@ -179,12 +179,37 @@ jobs:
           print("Verified all twelve GitHub release asset digests and sizes")
           PY
 
+      - name: Sign nightly update pointer if configured
+        shell: bash
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.MATTERLEAST_UPDATE_SIGNING_PRIVATE_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${UPDATE_SIGNING_PRIVATE_KEY_PEM:-}" ]]; then
+            umask 077
+            printf '%s\n' "$UPDATE_SIGNING_PRIVATE_KEY_PEM" > "$RUNNER_TEMP/matterleast-update-sign.pem"
+            trap 'rm -f "$RUNNER_TEMP/matterleast-update-sign.pem"' EXIT
+            bash scripts/sign-update-manifest.sh windows-x64.json "$RUNNER_TEMP/matterleast-update-sign.pem"
+          fi
+
       - name: Promote manifest only after all packages are available
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Never downgrade an existing signed feed to an unsigned pointer.
+          if [[ ! -f windows-x64.json.sig ]] &&
+             gh release view updates-nightly --repo "$GITHUB_REPOSITORY" \
+               --json assets --jq '.assets[].name' | grep -Fxq windows-x64.json.sig; then
+            echo "::error::Signed nightly update channel requires the signing secret"
+            exit 1
+          fi
+          # Publish sidecar first, pointer last (fail closed during replacement).
+          if [[ -f windows-x64.json.sig ]]; then
+            gh release upload updates-nightly windows-x64.json.sig \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          fi
           gh release upload updates-nightly windows-x64.json \
             --repo "$GITHUB_REPOSITORY" --clobber
 
@@ -199,6 +224,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_ID: ${{ needs.identity.outputs.build_id }}
           VERSION: ${{ needs.identity.outputs.version }}
+          UPDATE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.MATTERLEAST_UPDATE_SIGNING_PRIVATE_KEY_PEM }}
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/updates-nightly" > release.json
@@ -210,6 +236,33 @@ jobs:
             fi
             sleep 3
           done
+          # If a signed pointer exists, its signature must be downloadable and
+          # verify against the same release key. Refuse silent unsigned downgrades.
+          if gh release view updates-nightly --repo "$GITHUB_REPOSITORY" \
+                --json assets --jq '.assets[].name' | grep -Fxq windows-x64.json.sig; then
+            for attempt in 1 2 3; do
+              if gh release download updates-nightly --repo "$GITHUB_REPOSITORY" \
+                  --pattern windows-x64.json.sig --dir downloaded --clobber; then
+                break
+              fi
+              sleep 3
+            done
+            test -s downloaded/windows-x64.json.sig
+            test -n "${UPDATE_SIGNING_PRIVATE_KEY_PEM:-}" || {
+              echo "::error::Signed nightly pointer cannot be verified without its release key"
+              exit 1
+            }
+            umask 077
+            printf '%s\n' "$UPDATE_SIGNING_PRIVATE_KEY_PEM" > "$RUNNER_TEMP/update-signing.pem"
+            trap 'rm -f "$RUNNER_TEMP/update-signing.pem" "$RUNNER_TEMP/update-public.pem"' EXIT
+            openssl pkey -in "$RUNNER_TEMP/update-signing.pem" -pubout \
+              -out "$RUNNER_TEMP/update-public.pem"
+            openssl dgst -sha256 -verify "$RUNNER_TEMP/update-public.pem" \
+              -signature downloaded/windows-x64.json.sig downloaded/windows-x64.json
+          elif [[ -n "${UPDATE_SIGNING_PRIVATE_KEY_PEM:-}" ]]; then
+            echo "::error::Expected a signed nightly pointer"
+            exit 1
+          fi
           python3 - <<'PY'
           import json
           import os
