@@ -40,7 +40,10 @@ class DependencyLockContract(unittest.TestCase):
         self.assertIn("matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QCA_LOCK_COMMIT}", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QTKEYCHAIN_LOCK_COMMIT}", cmake)
-        self.assertIn("\u0024{MATTERLEAST_QCA_LOCK_MIN_VERSION} CONFIG QUIET", cmake)
+        selection = (ROOT / "cmake/MatterLeastQcaSelection.cmake").read_text(encoding="utf-8")
+        self.assertIn("include(cmake/MatterLeastQcaSelection.cmake)", cmake)
+        self.assertIn("\u0024{MATTERLEAST_QCA_LOCK_MIN_VERSION} CONFIG QUIET", selection)
+        self.assertIn("Qca-qt\u0024{QT_VERSION_MAJOR}", selection)
         for name, entry in self.lock.items():
             self.assertNotIn(entry["commit"], cmake, name)
 
