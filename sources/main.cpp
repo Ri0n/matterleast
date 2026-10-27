@@ -28,6 +28,14 @@
 #include <QLockFile>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QSaveFile>
+#include <QFileInfo>
+
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+#include "update/WindowsUpdateController.h"
+#include "options/MLOptions.h"
+#include <QAction>
+#endif
 
 #include "login/LoginDialog.h"
 #include "mainwindow.h"
@@ -88,6 +96,45 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 	});
 
 	trayIconMenu->addAction (tr("Open MatterLeast"), this, &MattermostApplication::showWindow);
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+    auto* updater = new WindowsUpdateController(this);
+    auto* updates = trayIconMenu->addMenu(tr("Updates"));
+    updates->addAction(tr("Check for updates"), updater, &WindowsUpdateController::checkNow);
+    auto* restart = updates->addAction(tr("Update and restart"), updater,
+                                      &WindowsUpdateController::startUpdateAndRestart);
+    restart->setEnabled(updater->canApply());
+    auto* automatic = updates->addAction(tr("Check automatically"));
+    automatic->setCheckable(true);
+    automatic->setChecked(MLOptions::instance()->value<bool>(
+        QStringLiteral("updates/automatic"), true));
+    connect(automatic, &QAction::toggled, updater, [](bool checked) {
+        MLOptions::instance()->setValue(QStringLiteral("updates/automatic"), checked);
+    });
+    auto* nightly = updates->addAction(tr("Use nightly update channel"));
+    nightly->setCheckable(true);
+    nightly->setChecked(MLOptions::instance()->value<QString>(
+        QStringLiteral("updates/channel"), QStringLiteral("stable")) == QLatin1String("nightly"));
+    connect(nightly, &QAction::toggled, updater, [updater](bool checked) {
+        MLOptions::instance()->setValue(QStringLiteral("updates/channel"),
+            checked ? QStringLiteral("nightly") : QStringLiteral("stable"));
+        updater->checkNow();
+    });
+    connect(updater, &WindowsUpdateController::stateChanged, this,
+            [restart, updater](WindowsUpdateController::State) {
+        restart->setEnabled(updater->canApply());
+    });
+    connect(updater, &WindowsUpdateController::updatePrepared, this,
+            [this](const QString& id) {
+        trayIcon->showMessage(tr("MatterLeast update ready"),
+            tr("%1 is ready. Choose Updates → Update and restart.").arg(id),
+            QSystemTrayIcon::Information, 12000);
+    });
+    connect(updater, &WindowsUpdateController::errorOccurred, this,
+            [this](const QString& error) {
+        trayIcon->showMessage(tr("MatterLeast update failed"), error,
+                              QSystemTrayIcon::Warning, 10000);
+    });
+#endif
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
@@ -195,6 +242,33 @@ int main( int argc, char *argv[])
                              peer, &QLocalSocket::deleteLater);
         }
     });
+
+#ifdef Q_OS_WIN
+    // Started by the standalone version switcher: acknowledge startup only
+    // after the main event loop has remained healthy for 60 seconds.
+    const QStringList args = QCoreApplication::arguments();
+    const int probeArg = args.indexOf(QStringLiteral("--matterleast-update-probe-file"));
+    if (probeArg >= 0 && probeArg + 1 < args.size()) {
+        const QString probe = QFileInfo(args[probeArg + 1]).absoluteFilePath();
+        QDir installRoot(QCoreApplication::applicationDirPath());
+        if (installRoot.cdUp() && installRoot.cdUp()
+            && installRoot.cdUp() && installRoot.cdUp()) {
+            const QString staging = installRoot.filePath(QStringLiteral("staging"));
+            const QString prefix = QDir(staging).absolutePath() + QLatin1Char('/');
+            if (probe.startsWith(prefix, Qt::CaseInsensitive)
+                && QFileInfo(probe).fileName().startsWith(QStringLiteral("startup-"))
+                && probe.endsWith(QStringLiteral(".ok"))) {
+                QTimer::singleShot(60000, &app, [probe] {
+                    QSaveFile marker(probe);
+                    if (marker.open(QIODevice::WriteOnly)) {
+                        marker.write("healthy\\n");
+                        marker.commit();
+                    }
+                });
+            }
+        }
+    }
+#endif
 
     app.openLoginWindow();
     return app.exec();
