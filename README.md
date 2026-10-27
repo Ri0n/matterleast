@@ -166,11 +166,10 @@ headers and libraries (`libssl-dev` on Debian/Ubuntu, `openssl-devel`
 on Fedora); these packages are **not needed for MatterLeast builds using a
 compatible system QCA and its prebuilt provider**. Native distro packages
 depend on their QCA runtime library and dynamically loaded OpenSSL provider.
-Corporate builds using `MATTERLEAST_PLUGIN_VERIFY_KEY_FILE` additionally
-require OpenSSL development headers: Ed25519 plugin signature verification
-still calls OpenSSL EVP directly, since the QCA 2 API does not expose the
-Ed25519 signature scheme. The build-time `openssl` command is also required
-when signing bundled native plugins. HTTPS uses QtNetwork's TLS backend,
+Corporate builds using `MATTERLEAST_PLUGIN_VERIFY_KEY_FILE` verify RSA
+PKCS#1 v1.5 signatures over SHA-256 via the selected QCA 2/3 provider,
+with no direct OpenSSL library dependency. Build-time `openssl` CLI is
+required only when signing bundled native plugins. HTTPS uses QtNetwork's TLS backend,
 not QCA::TLS. Runtime message encryption fails closed if the QCA provider
 or platform keyring is unavailable.
 
@@ -193,7 +192,7 @@ Already-created backups or snapshots cannot be securely wiped. This is
 **at-rest encryption**, not end-to-end encryption.
 
 A corporate build can enforce signed-only native plugins by specifying its
-Ed25519 PUBLIC verification key as a PEM file:
+RSA PUBLIC verification key as a PEM file:
 
 ```bash
 cmake -S . -B build \
@@ -205,14 +204,14 @@ loading their code. It still supports corporate plugins and signed bundled
 plugins. The private signing key must never be stored in the application or
 source repository. In a separately secured release environment, set
 `MATTERLEAST_PLUGIN_SIGNING_KEY_FILE` to sign bundled plugins during the
-build. Each native library receives a raw Ed25519 sidecar `<library>.sig`
+build. Each native library receives a RSA/SHA-256 sidecar `<library>.sig`
 covering its complete linked binary; do not modify the library after signing.
 
-To sign externally built plugins with OpenSSL 3:
+To sign externally built plugins with RSA/SHA-256:
 
 ```bash
-openssl pkeyutl -sign -rawin -inkey company-private.pem \
-  -in company-plugin.so -out company-plugin.so.sig
+openssl dgst -sha256 -sign company-private.pem \
+  -out company-plugin.so.sig company-plugin.so
 ```
 
 Alternatively, `-DMATTERLEAST_ENABLE_NATIVE_PLUGINS=OFF` disables all
