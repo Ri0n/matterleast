@@ -161,11 +161,18 @@ cmake -S . -B build -DMATTERLEAST_BUNDLED_QCA=ON
 ```
 
 In bundled mode CMake downloads QCA 3 and statically links its OpenSSL
-(`qca-ossl`) provider. `libssl-dev` (Debian/Ubuntu) or
-`openssl-devel` (Fedora) supplies OpenSSL headers and libraries, not QCA
-itself. Native distro packages depend on their QCA 2 runtime library **and**
-the matching OpenSSL provider module; those are loaded dynamically.
-Runtime encryption fails closed when the provider or keyring is unavailable.
+(`qca-ossl`) provider. Building that provider needs OpenSSL development
+headers and libraries (`libssl-dev` on Debian/Ubuntu, `openssl-devel`
+on Fedora); these packages are **not needed for MatterLeast builds using a
+compatible system QCA and its prebuilt provider**. Native distro packages
+depend on their QCA runtime library and dynamically loaded OpenSSL provider.
+Corporate builds using `MATTERLEAST_PLUGIN_VERIFY_KEY_FILE` additionally
+require OpenSSL development headers: Ed25519 plugin signature verification
+still calls OpenSSL EVP directly, since the QCA 2 API does not expose the
+Ed25519 signature scheme. The build-time `openssl` command is also required
+when signing bundled native plugins. HTTPS uses QtNetwork's TLS backend,
+not QCA::TLS. Runtime message encryption fails closed if the QCA provider
+or platform keyring is unavailable.
 
 For QtKeychain, matching system development files are preferred; when
 explicitly enabled without them, CMake fetches the exact pinned version
