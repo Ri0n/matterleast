@@ -69,9 +69,9 @@ jobs:
           sudo apt-get update
           packages=(build-essential dpkg-dev fakeroot libssl-dev)
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
-            packages+=(qt6-base-dev qt6-websockets-dev)
+            packages+=(qt6-base-dev qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins)
           else
-            packages+=(qtbase5-dev libqt5websockets5-dev)
+            packages+=(qtbase5-dev libqt5websockets5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
           fi
           read -r -a runtime_packages <<< "${{ matrix.build-runtime-packages }}"
           packages+=("${runtime_packages[@]}")
@@ -86,7 +86,7 @@ jobs:
             -DQT_6=${{ matrix.qt6 }} \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
-            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
+            -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
@@ -165,7 +165,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libssl-dev
+            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqca-qt6-dev libqca-qt6-plugins libssl-dev
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -187,7 +187,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
-            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
+            -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6, qt6-svg-plugins"
 
       - name: Build and test
@@ -445,7 +445,9 @@ jobs:
             openssl-devel \
             qt6-qtbase-devel \
             qt6-qtsvg \
-            qt6-qtwebsockets-devel
+            qt6-qtwebsockets-devel \
+            qca-qt6-devel \
+            qca-qt6-ossl
           dnf clean all
 
       - name: Checkout
@@ -468,7 +470,7 @@ jobs:
             -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
-            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
+            -DWARNINGS_AS_ERRORS=ON \
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
