@@ -882,7 +882,7 @@ if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE AND MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
     target_compile_definitions(trusted-plugin-load-test PRIVATE
         MATTERLEAST_TRUSTED_PLUGINS_ONLY)
     target_link_libraries(trusted-plugin-load-test PRIVATE
-        Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core OpenSSL::Crypto)
+        Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core matterleast-crypto)
     add_dependencies(trusted-plugin-load-test matterleast-seasonal-snow)
     add_test(NAME trusted-plugin-load-test COMMAND trusted-plugin-load-test)
     set_tests_properties(trusted-plugin-load-test PROPERTIES
