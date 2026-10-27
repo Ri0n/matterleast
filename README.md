@@ -149,18 +149,22 @@ locked QCA 3.0.12**, downloaded only if no compatible system package exists.
 The shared AES-256-GCM envelope is compatible across QCA 2 and QCA 3.
 
 Windows and AppImage jobs explicitly request reproducible bundled QCA 3.
-Native DEB and RPM jobs install QCA 2 development files and the matching
-OpenSSL provider as distro packages. For a forced bundled build, use:
+**Bundled QCA 3 is fully static**: both the QCA core and `qca-ossl` are
+static libraries linked into the application, with the provider registered by
+`Q_IMPORT_PLUGIN(qca_ossl)`. No QCA DLL, shared library or plugin file needs
+to be deployed. Native DEB and RPM jobs instead use QCA 2 development files
+and the matching dynamically loaded OpenSSL provider. For a forced bundled
+build, use:
 
 ```sh
 cmake -S . -B build -DMATTERLEAST_BUNDLED_QCA=ON
 ```
 
-In bundled mode CMake downloads QCA 3 and builds its OpenSSL
+In bundled mode CMake downloads QCA 3 and statically links its OpenSSL
 (`qca-ossl`) provider. `libssl-dev` (Debian/Ubuntu) or
 `openssl-devel` (Fedora) supplies OpenSSL headers and libraries, not QCA
 itself. Native distro packages depend on their QCA 2 runtime library **and**
-the matching OpenSSL provider module; these are loaded dynamically.
+the matching OpenSSL provider module; those are loaded dynamically.
 Runtime encryption fails closed when the provider or keyring is unavailable.
 
 For QtKeychain, matching system development files are preferred; when
