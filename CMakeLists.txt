@@ -180,17 +180,16 @@ option(MATTERLEAST_USE_KEYCHAIN
   "Store saved login sessions in the platform keyring (default: ON only when QtKeychain dev files are installed)"
   ${_matterleast_keychain_default})
 
-# Corporate builds embed only a PUBLIC Ed25519 verification key. Signing uses
+# Corporate builds embed only a PUBLIC RSA verification key. Signing uses
 # an external private key, never checked into the source tree or application.
 set(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE "" CACHE FILEPATH
-    "PEM Ed25519 public key: require a valid detached signature on every MatterLeast native plugin")
+    "PEM RSA public key: require RSA PKCS#1 v1.5 / SHA-256 detached signatures on native plugins")
 set(MATTERLEAST_PLUGIN_SIGNING_KEY_FILE "" CACHE FILEPATH
-    "PEM Ed25519 private key for signing bundled plugins; use only in trusted packaging")
+    "PEM RSA private key for signing bundled plugins; use only in trusted packaging")
 if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
   if(NOT EXISTS "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}")
     message(FATAL_ERROR "Plugin verification public key does not exist")
   endif()
-  find_package(OpenSSL 1.1.1 REQUIRED COMPONENTS Crypto)
   file(READ "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}" MATTERLEAST_PLUGIN_PUBLIC_KEY_PEM)
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
   configure_file(sources/plugins/TrustedPluginKey.h.in
@@ -391,7 +390,6 @@ else()
   if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_TRUSTED_PLUGINS_ONLY)
     target_include_directories(matterleast-core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-    target_link_libraries(matterleast-core PUBLIC OpenSSL::Crypto)
   endif()
   if(MATTERLEAST_USE_KEYCHAIN)
     target_link_libraries(matterleast-core PUBLIC ${MATTERLEAST_KEYCHAIN_TARGET})
