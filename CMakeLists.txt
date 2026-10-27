@@ -582,6 +582,9 @@ endif()
 
 if(WIN32)
 	set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PRODUCT_NAME}")
+    # Automatic updates require a writable per-user install tree. Legacy
+    # Program Files installs are migrated only by running the new NSIS setup.
+    set(CPACK_NSIS_INSTALL_ROOT "$LOCALAPPDATA")
 	set(CPACK_NSIS_DISPLAY_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_PACKAGE_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
