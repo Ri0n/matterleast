@@ -142,7 +142,7 @@ lock structure is used by Iris. To update a dependency, verify the upstream
 release tag and its commit, change the lock, then run CI; do not duplicate pins
 in CMake or GitHub Actions.
 
-For local message encryption, MatterLeast supports system QCA 3.0.12+ or
+For local message encryption, MatterLeast supports system QCA 3.0.10+ or
 QCA 2.3.4+ with its OpenSSL crypto provider. CMake selects the matching Qt
 major version in this order: **installed QCA 3 → installed QCA 2 →
 locked QCA 3.0.12**, downloaded only if no compatible system package exists.
