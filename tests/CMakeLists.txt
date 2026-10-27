@@ -875,7 +875,8 @@ endif()
 if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE AND MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
     add_executable(trusted-plugin-load-test
         TrustedPluginLoadTest.cpp
-        "${CMAKE_SOURCE_DIR}/sources/plugins/PluginSignature.cpp")
+        "${CMAKE_SOURCE_DIR}/sources/plugins/PluginSignature.cpp"
+        "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp")
     target_include_directories(trusted-plugin-load-test PRIVATE
         "${CMAKE_SOURCE_DIR}/sources"
         "${CMAKE_BINARY_DIR}/generated")
