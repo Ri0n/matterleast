@@ -35,16 +35,16 @@ public:
 
     void request(QObject* context, LocalContentKeyStore::Callback callback)
     {
-        if (completed) {
+        if (_completed) {
             QTimer::singleShot(0, context, [callback = std::move(callback),
-                                             key = encryptionKey] {
+                                             key = _encryptionKey] {
                 callback(key);
             });
             return;
         }
-        callbacks.push_back({context, std::move(callback)});
-        if (started) return;
-        started = true;
+        _callbacks.push_back({context, std::move(callback)});
+        if (_started) return;
+        _started = true;
         if (!LocalMessageCrypto::isAvailable()) {
             finish({});
             return;
@@ -86,10 +86,10 @@ public:
 private:
     void finish(const QByteArray& key)
     {
-        completed = true;
-        encryptionKey = key;
-        auto pending = std::move(callbacks);
-        callbacks.clear();
+        _completed = true;
+        _encryptionKey = key;
+        auto pending = std::move(_callbacks);
+        _callbacks.clear();
         for (auto& entry : pending) {
             if (entry.context && entry.callback) {
                 QTimer::singleShot(0, entry.context,
@@ -100,10 +100,10 @@ private:
         }
     }
 
-    bool started = false;
-    bool completed = false;
-    QByteArray encryptionKey;
-    QVector<PendingCallback> callbacks;
+    bool _started = false;
+    bool _completed = false;
+    QByteArray _encryptionKey;
+    QVector<PendingCallback> _callbacks;
 };
 
 KeyState* state()
