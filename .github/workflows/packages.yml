@@ -674,13 +674,17 @@ jobs:
           $stage = Join-Path $env:GITHUB_WORKSPACE "stage"
           cmake --install build --prefix "$stage"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          $runtime = Join-Path $stage "versions/v$version/MatterLeast"
           $required = @(
-            (Join-Path $stage "bin/matterleast.exe"),
-            (Join-Path $stage "bin/Qt6Core.dll"),
-            (Join-Path $stage "bin/Qt6Widgets.dll"),
-            (Join-Path $stage "bin/Qt6Network.dll"),
-            (Join-Path $stage "bin/Qt6WebSockets.dll"),
-            (Join-Path $stage "plugins/platforms/qwindows.dll")
+            (Join-Path $stage "MatterLeastLauncher.exe"),
+            (Join-Path $runtime "bin/matterleast.exe"),
+            (Join-Path $runtime "bin/MatterLeastUpdater.exe"),
+            (Join-Path $runtime "bin/Qt6Core.dll"),
+            (Join-Path $runtime "bin/Qt6Widgets.dll"),
+            (Join-Path $runtime "bin/Qt6Network.dll"),
+            (Join-Path $runtime "bin/Qt6WebSockets.dll"),
+            (Join-Path $runtime "plugins/platforms/qwindows.dll")
           )
           foreach ($path in $required) {
             if (-not (Test-Path $path)) {
@@ -695,11 +699,12 @@ jobs:
           $stage = Join-Path $env:GITHUB_WORKSPACE "stage"
           $portable = Join-Path $env:RUNNER_TEMP "MatterLeast"
           New-Item -ItemType Directory -Force -Path $portable | Out-Null
-          # Preserve the windeployqt-generated bin/plugins layout; a portable
-          # distribution must include all DLLs and Qt platform plugins.
+          # Preserve the versioned layout with its launcher and complete
+          # Qt runtime so direct ZIP updates can atomically replace versions.
           Copy-Item (Join-Path $stage "*") $portable -Recurse -Force
-          if (-not (Test-Path (Join-Path $portable "bin/matterleast.exe"))) {
-            throw "Portable archive lacks matterleast.exe"
+          if (-not (Test-Path (Join-Path $portable "MatterLeastLauncher.exe")) -or
+              -not (Test-Path (Join-Path $portable "versions/v$version/MatterLeast/bin/matterleast.exe"))) {
+            throw "Portable archive lacks launcher or versioned application"
           }
           New-Item -ItemType Directory -Force -Path package | Out-Null
           $output = Join-Path $env:GITHUB_WORKSPACE "package/matterleast-$version-windows-x64-portable.zip"
