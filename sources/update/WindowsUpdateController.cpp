@@ -274,10 +274,16 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
         setState(State::Failed, tr("Missing installed version pointer"));
         return;
     }
+    const QVersionNumber running = QVersionNumber::fromString(
+        QCoreApplication::applicationVersion());
+    const QVersionNumber available = QVersionNumber::fromString(version);
+    // Never auto-downgrade the numeric release, even when switching channels.
+    if (!running.isNull() && QVersionNumber::compare(available, running) < 0) {
+        setState(State::Idle);
+        return;
+    }
     if (channel == QLatin1String("stable")) {
-        if (QVersionNumber::compare(QVersionNumber::fromString(version),
-            QVersionNumber::fromString(installed.startsWith(QLatin1Char('v'))
-                ? installed.mid(1) : installed)) <= 0) {
+        if (!running.isNull() && QVersionNumber::compare(available, running) <= 0) {
             setState(State::Idle);
             return;
         }
