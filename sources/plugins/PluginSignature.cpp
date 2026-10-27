@@ -24,7 +24,7 @@ bool verifyRsaSha256(const QByteArray& bytes, const QByteArray& signature)
     Q_UNUSED(_qca)
 
     QCA::ConvertResult result = QCA::ConvertGood;
-    const QCA::PublicKey key = QCA::PublicKey::fromPEM(
+    QCA::PublicKey key = QCA::PublicKey::fromPEM(
         QString::fromUtf8(TrustedPluginPublicKeyPem), &result);
     if (result != QCA::ConvertGood || key.isNull() || !key.isRSA()
         || !key.canVerify() || key.bitSize() < 2048 || key.bitSize() > 8192
