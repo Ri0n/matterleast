@@ -6,6 +6,13 @@
 #include <QFileInfo>
 #include <QFile>
 
+#ifdef MATTERLEAST_STATIC_QCA_OSSL
+#include <QtPlugin>
+// Explicit registration is required for a static Qt plugin. The same import
+// is linked into the app and each standalone crypto/cache test executable.
+Q_IMPORT_PLUGIN(qca_ossl)
+#endif
+
 namespace Mattermost {
 namespace {
 
@@ -22,6 +29,7 @@ QCA::Initializer& cryptoInitializer()
     // relocated (especially in AppImage), so add it before QCA initializes.
     // A developer-provided QCA_PLUGIN_PATH is respected.
     static QCA::Initializer* initializer = [] {
+#ifndef MATTERLEAST_STATIC_QCA_OSSL
         if (qEnvironmentVariableIsEmpty("QCA_PLUGIN_PATH")
             && QCoreApplication::instance()) {
             const QDir appDir(QCoreApplication::applicationDirPath());
@@ -38,6 +46,7 @@ QCA::Initializer& cryptoInitializer()
                 }
             }
         }
+#endif
         return new QCA::Initializer();
     }();
     return *initializer;
