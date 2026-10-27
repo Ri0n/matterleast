@@ -116,6 +116,7 @@ jobs:
             qt6-multimedia-dev \
             qt6-websockets-dev \
             qtkeychain-qt6-dev \
+            libqca-qt6-dev libqca-qt6-plugins \
             libssl-dev
 
       - name: Configure
@@ -125,7 +126,7 @@ jobs:
           -DQT_6=ON
           -DBUILD_MULTIMEDIA=ON
           -DBUILD_TESTING=ON
-          -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
+          -DWARNINGS_AS_ERRORS=ON
 
       - name: Build
         run: cmake --build build --parallel 4
@@ -155,6 +156,7 @@ jobs:
             libqt5websockets5-dev \
             qtbase5-dev \
             qtkeychain-qt5-dev \
+            libqca-qt5-2-dev libqca-qt5-2-plugins \
             libssl-dev
 
       - name: Configure
@@ -163,7 +165,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DQT_6=OFF
           -DBUILD_TESTING=ON
-          -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
+          -DWARNINGS_AS_ERRORS=ON
 
       - name: Build
         run: cmake --build build --parallel 4
