@@ -168,6 +168,11 @@ bool subtreeWithoutLinks(const QString& root)
 }
 } // namespace
 
+bool auditWindowsUpdateZip(const QString& zipPath, QString* error)
+{
+    return auditZip(zipPath, error);
+}
+
 bool prepareWindowsUpdateZip(const QString& zipPath, const QString& root,
                              const QString& identity, QString* error)
 {
