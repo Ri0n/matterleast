@@ -611,6 +611,7 @@ if(WIN32)
 	# into project.nsi, so quotes required by NSIS need to survive one extra layer.
 	string(ASCII 92 34 MATTERLEAST_NSIS_QUOTE)
 	string(CONCAT CPACK_NSIS_BRANDING_TEXT_CODE
+		"RequestExecutionLevel user\n"
 		"BrandingText /TRIMLEFT ${MATTERLEAST_NSIS_QUOTE}${PRODUCT_NAME} ${PROJECT_VERSION}${MATTERLEAST_NSIS_QUOTE}\n"
 		"VIProductVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"
 		"VIFileVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"
