@@ -46,8 +46,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 
     // Do not let an arbitrary command line turn the updater into a
     // generic pointer-writing tool: it must live inside the target version.
-    const std::wstring own = modulePath();
-    const std::wstring expected = updaterExe(root, target);
+    std::wstring own = modulePath();
+    std::wstring expected = updaterExe(root, target);
+    // Qt supplies C:/... paths while GetModuleFileNameW uses C:\\... .
+    // They identify the same file; normalize before checking provenance.
+    std::replace(own.begin(), own.end(), L'/', L'\\');
+    std::replace(expected.begin(), expected.end(), L'/', L'\\');
     if (_wcsicmp(own.c_str(), expected.c_str()) != 0)
         return 11;
     wchar_t* end = nullptr;
