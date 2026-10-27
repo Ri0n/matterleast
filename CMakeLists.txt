@@ -455,6 +455,10 @@ else()
       "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.h" @ONLY)
     add_executable(MatterLeastLauncher WIN32 sources/update/win/launcher.cpp)
     target_include_directories(MatterLeastLauncher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    configure_file(resources/matterleast-launcher.rc.in
+      "${CMAKE_CURRENT_BINARY_DIR}/matterleast-launcher.rc" @ONLY)
+    target_sources(MatterLeastLauncher PRIVATE
+      "${CMAKE_CURRENT_BINARY_DIR}/matterleast-launcher.rc")
     target_link_libraries(MatterLeastLauncher PRIVATE shell32)
     add_executable(MatterLeastUpdater WIN32 sources/update/win/updater.cpp)
     target_link_libraries(MatterLeastUpdater PRIVATE shell32)
