@@ -43,7 +43,7 @@ private slots:
         QVERIFY(QFile::copy(source, unsignedPath));
         QVERIFY(trustedPluginPath(unsignedPath, &verified).isEmpty());
 
-        // Invalid signature length cannot bypass verification.
+        // Invalid signature length cannot bypass RSA verification.
         const QString badLength = scratch.filePath(QStringLiteral("invalid.bin"));
         QVERIFY(QFile::copy(source, badLength));
         QFile shortSignature(badLength + QStringLiteral(".sig"));
