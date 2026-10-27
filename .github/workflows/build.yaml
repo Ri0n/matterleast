@@ -15,6 +15,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency-lock:
+    name: QCA and QtKeychain dependency lock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate pinned dependency sources
+        run: python3 -m unittest discover -s tests -p test_dependency_lock.py -v
+
   update-manifest:
     name: Windows update manifest contract
     runs-on: ubuntu-latest
