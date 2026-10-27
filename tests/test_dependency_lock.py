@@ -54,6 +54,13 @@ class DependencyLockContract(unittest.TestCase):
         self.assertIn("set(BUILD_SHARED_LIBS OFF CACHE BOOL", cmake)
         self.assertIn("set(LOAD_SHARED_PLUGINS OFF CACHE BOOL", cmake)
         self.assertIn('set(BUILD_PLUGINS "ossl"', cmake)
+        self.assertIn('set(WITH_ossl_PLUGIN "yes"', cmake)
+        self.assertIn('set(WITH_${_matterleast_unused_qca_provider}_PLUGIN "no"', cmake)
+        for provider in ("botan", "cyrus-sasl", "gcrypt", "gnupg",
+                         "logger", "nss", "pkcs11", "softstore"):
+            self.assertIn(provider, cmake)
+        self.assertIn("foreach(_matterleast_qca_provider IN LISTS PLUGINS)", cmake)
+        self.assertIn("Unexpected bundled QCA provider", cmake)
         self.assertIn('set(DEVELOPER_MODE ON CACHE BOOL', cmake)
         self.assertIn('"STATIC_LIBRARY"', cmake)
         self.assertIn("target_link_libraries(matterleast-crypto INTERFACE qca-ossl)", cmake)
