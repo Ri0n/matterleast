@@ -276,11 +276,29 @@ jobs:
               "$runtime/plugins/platforms/qwindows.dll")) {
             if (-not (Test-Path $p)) { throw "Versioned deployment missing $p" }
           }
-          $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          # The update ZIP contract requires exactly one MatterLeast/
+          # root, not the CI-only stage/ name. Match packages.yml verbatim.
+          $portable = Join-Path $env:RUNNER_TEMP "MatterLeast"
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          Copy-Item (Join-Path (Resolve-Path stage) "*") $portable -Recurse -Force
           New-Item -ItemType Directory -Force package | Out-Null
-          Compress-Archive -Path stage -DestinationPath "package/matterleast-$version-windows-x64-portable.zip"
-          if (-not (Test-Path "package/matterleast-$version-windows-x64-portable.zip")) {
-            throw "Portable archive not created"
+          $zip = "package/matterleast-$version-windows-x64-portable.zip"
+          Compress-Archive -Path $portable -DestinationPath $zip -CompressionLevel Optimal
+          if (-not (Test-Path $zip)) { throw "Portable archive not created" }
+          # Catch incompatible directory layouts before publishing an artifact
+          # that the updater's ZIP safety audit would necessarily reject.
+          $contents = @(tar -tf $zip)
+          if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate ZIP contents" }
+          foreach ($entry in @(
+              "MatterLeast/MatterLeastLauncher.exe",
+              "MatterLeast/versions/v$version/MatterLeast/bin/matterleast.exe",
+              "MatterLeast/versions/v$version/MatterLeast/bin/MatterLeastUpdater.exe")) {
+            if ($contents -notcontains $entry) {
+              throw "Update ZIP is missing required entry $entry"
+            }
+          }
+          if ($contents | Where-Object { $_ -notmatch '^MatterLeast/' }) {
+            throw "Update ZIP must contain only paths below MatterLeast/"
           }
 
       - name: Upload portable ZIP for PR testing
