@@ -183,6 +183,9 @@ int main( int argc, char *argv[])
 {
 	QCoreApplication::setOrganizationName("matterleast");
 	QCoreApplication::setApplicationName("MatterLeast");
+#ifdef MATTERLEAST_BUILD_VERSION
+    QCoreApplication::setApplicationVersion(QStringLiteral(MATTERLEAST_BUILD_VERSION));
+#endif
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 
     Mattermost::MattermostApplication app(argc, argv);
