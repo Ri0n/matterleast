@@ -22,7 +22,7 @@ class SystemQcaSelectionTest(unittest.TestCase):
             "cmake_minimum_required(VERSION 3.16)\n"
             "project(qca_selection LANGUAGES NONE)\n"
             "set(QT_VERSION_MAJOR 6)\n"
-            "set(MATTERLEAST_QCA_LOCK_MIN_VERSION 3.0.12)\n"
+            "set(MATTERLEAST_QCA_LOCK_MIN_VERSION 3.0.10)\n"
             f'include("{selection}")\n'
             'file(WRITE "${CMAKE_BINARY_DIR}/selection.txt" '
             '"${MATTERLEAST_QCA_PROVIDER}|${MATTERLEAST_QCA_TARGET}")\n'
@@ -63,7 +63,7 @@ class SystemQcaSelectionTest(unittest.TestCase):
         self.assertEqual(self.selected(), "system-qca2|qca-qt6")
 
     def test_outdated_qca3_falls_back_to_qca2(self):
-        self.package("Qca3-qt6", "3.0.11", "Qca3::Qca")
+        self.package("Qca3-qt6", "3.0.9", "Qca3::Qca")
         self.package("Qca-qt6", "2.3.10", "qca-qt6")
         self.assertEqual(self.selected(), "system-qca2|qca-qt6")
 
