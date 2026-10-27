@@ -236,11 +236,11 @@ if(MATTERLEAST_USE_KEYCHAIN)
       URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
 )
     FetchContent_MakeAvailable(matterleast_qtkeychain)
-    # This pinned upstream release contains a legacy Linux callback cast.
-    # Keep -Werror for MatterLeast without imposing it on this external target.
+    # QtKeychain 0.17 emits upstream warnings that vary across compiler and
+    # libsecret versions (including callback casts and incomplete SecretSchema
+    # initializers). Keep them visible, but restrict -Werror to MatterLeast.
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-      target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE
-                             -Wno-error=cast-function-type)
+      target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE -Wno-error)
     elseif(MSVC)
       # QtKeychain 0.17 has warnings in its Windows Credential Store backend.
       target_compile_options(qt${QT_VERSION_MAJOR}keychain PRIVATE /WX-)
