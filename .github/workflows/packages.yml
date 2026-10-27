@@ -86,7 +86,7 @@ jobs:
             -DQT_6=${{ matrix.qt6 }} \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
-            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
@@ -165,7 +165,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libssl-dev libssl-dev
+            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libssl-dev
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -187,7 +187,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
-            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6, qt6-svg-plugins"
 
       - name: Build and test
@@ -255,6 +255,7 @@ jobs:
             curl \
             file \
             libgl1-mesa-dev \
+            libssl-dev \
             libxcb-cursor0 \
             libxcb-icccm4 \
             libxcb-image0 \
@@ -301,7 +302,7 @@ jobs:
             -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
-            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
@@ -441,6 +442,7 @@ jobs:
             git \
             make \
             rpm-build \
+            openssl-devel \
             qt6-qtbase-devel \
             qt6-qtsvg \
             qt6-qtwebsockets-devel
@@ -466,7 +468,7 @@ jobs:
             -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
-            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
@@ -602,7 +604,7 @@ jobs:
             -DQT_6=ON `
             -DMATTERLEAST_USE_KEYCHAIN=ON `
             -DBUILD_TESTING=ON `
-            -DWARNINGS_AS_ERRORS=ON
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
