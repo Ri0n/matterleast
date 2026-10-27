@@ -69,9 +69,9 @@ jobs:
           sudo apt-get update
           packages=(build-essential dpkg-dev fakeroot)
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
-            packages+=(qt6-base-dev qt6-websockets-dev)
+            packages+=(qt6-base-dev qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins)
           else
-            packages+=(qtbase5-dev libqt5websockets5-dev)
+            packages+=(qtbase5-dev libqt5websockets5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
           fi
           read -r -a runtime_packages <<< "${{ matrix.build-runtime-packages }}"
           packages+=("${runtime_packages[@]}")
@@ -165,7 +165,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins
+            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqca-qt6-dev libqca-qt6-plugins
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -255,6 +255,7 @@ jobs:
             curl \
             file \
             libgl1-mesa-dev \
+            libssl-dev \
             libxcb-cursor0 \
             libxcb-icccm4 \
             libxcb-image0 \
@@ -301,7 +302,7 @@ jobs:
             -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
-            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test -n "$version"
@@ -443,7 +444,9 @@ jobs:
             rpm-build \
             qt6-qtbase-devel \
             qt6-qtsvg \
-            qt6-qtwebsockets-devel
+            qt6-qtwebsockets-devel \
+            qca-qt6-devel \
+            qca-qt6-ossl
           dnf clean all
 
       - name: Checkout
@@ -602,7 +605,7 @@ jobs:
             -DQT_6=ON `
             -DMATTERLEAST_USE_KEYCHAIN=ON `
             -DBUILD_TESTING=ON `
-            -DWARNINGS_AS_ERRORS=ON
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()

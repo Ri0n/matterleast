@@ -46,6 +46,11 @@ project(matterleast VERSION ${version}
 file(WRITE "${CMAKE_BINARY_DIR}/matterleast-version.txt" "${PROJECT_VERSION}\n")
 message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
+# Both system-version minimums and fetched-source SHAs come from one lock.
+include(cmake/MatterLeastDependencyLock.cmake)
+matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)
+matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)
+
 if(WIN32)
 	enable_language(RC)
 endif()
@@ -157,7 +162,8 @@ option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugi
 # the automatic case must never download dependencies.
 set(_matterleast_system_keychain_target "")
 if(NOT DEFINED MATTERLEAST_USE_KEYCHAIN OR MATTERLEAST_USE_KEYCHAIN)
-  find_package(Qt${QT_VERSION_MAJOR}Keychain CONFIG QUIET)
+  find_package(Qt${QT_VERSION_MAJOR}Keychain
+    ${MATTERLEAST_QTKEYCHAIN_LOCK_MIN_VERSION} CONFIG QUIET)
   if(TARGET Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
     set(_matterleast_system_keychain_target
         Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
@@ -174,17 +180,16 @@ option(MATTERLEAST_USE_KEYCHAIN
   "Store saved login sessions in the platform keyring (default: ON only when QtKeychain dev files are installed)"
   ${_matterleast_keychain_default})
 
-# Corporate builds embed only a PUBLIC Ed25519 verification key. Signing uses
+# Corporate builds embed only a PUBLIC RSA verification key. Signing uses
 # an external private key, never checked into the source tree or application.
 set(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE "" CACHE FILEPATH
-    "PEM Ed25519 public key: require a valid detached signature on every MatterLeast native plugin")
+    "PEM RSA public key: require RSA PKCS#1 v1.5 / SHA-256 detached signatures on native plugins")
 set(MATTERLEAST_PLUGIN_SIGNING_KEY_FILE "" CACHE FILEPATH
-    "PEM Ed25519 private key for signing bundled plugins; use only in trusted packaging")
+    "PEM RSA private key for signing bundled plugins; use only in trusted packaging")
 if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
   if(NOT EXISTS "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}")
     message(FATAL_ERROR "Plugin verification public key does not exist")
   endif()
-  find_package(OpenSSL 1.1.1 REQUIRED COMPONENTS Crypto)
   file(READ "${MATTERLEAST_PLUGIN_VERIFY_KEY_FILE}" MATTERLEAST_PLUGIN_PUBLIC_KEY_PEM)
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
   configure_file(sources/plugins/TrustedPluginKey.h.in
@@ -233,8 +238,8 @@ if(MATTERLEAST_USE_KEYCHAIN)
           CACHE BOOL "Enable QtKeychain libsecret backend if available" FORCE)
     endif()
     FetchContent_Declare(matterleast_qtkeychain
-      URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/875f77d9f61bd97fd84cca47ce3bc71186dfbd09
-)
+      URL https://codeload.github.com/frankosterfeld/qtkeychain/tar.gz/${MATTERLEAST_QTKEYCHAIN_LOCK_COMMIT}
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(matterleast_qtkeychain)
     # QtKeychain 0.17 emits upstream warnings that vary across compiler and
     # libsecret versions (including callback casts and incomplete SecretSchema
@@ -251,6 +256,99 @@ if(MATTERLEAST_USE_KEYCHAIN)
   endif()
 else()
   message(STATUS "MatterLeast keychain: OFF (missing system dev files or explicitly disabled)")
+endif()
+
+# Prefer a sufficiently recent system QCA3, then QCA2, then locked QCA3.
+include(cmake/MatterLeastQcaSelection.cmake)
+if(NOT MATTERLEAST_QCA_TARGET)
+  message(STATUS "MatterLeast QCA: fetching ${MATTERLEAST_QCA_LOCK_TAG} (${MATTERLEAST_QCA_LOCK_COMMIT})")
+  include(FetchContent)
+  # Embedded QCA's optional Doxygen rule assumes it is the top-level source.
+  # Documentation is not part of our dependency build.
+  set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
+  set(BUILD_TESTS OFF CACHE BOOL "QCA tests" FORCE)
+  set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
+  # Local cache values from an earlier QCA build must not bring in extra
+  # providers. Only the OpenSSL provider is needed for AES-256-GCM.
+  set(BUILD_PLUGINS "ossl" CACHE STRING "QCA providers (only ossl)" FORCE)
+  set(WITH_ossl_PLUGIN "yes" CACHE STRING "Build required QCA OpenSSL provider" FORCE)
+  foreach(_matterleast_unused_qca_provider IN ITEMS
+          botan cyrus-sasl gcrypt gnupg logger nss pkcs11 softstore)
+    set(WITH_${_matterleast_unused_qca_provider}_PLUGIN "no"
+        CACHE STRING "Disable unused embedded QCA provider" FORCE)
+  endforeach()
+  # Bundled really means statically linked core + statically imported
+  # OpenSSL provider; there must be no QCA DLL/.so/plugin to deploy.
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "QCA static library" FORCE)
+  set(LOAD_SHARED_PLUGINS OFF CACHE BOOL "Disable QCA runtime plugin scanning" FORCE)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  # QCA is a private embedded dependency: do not install its SDK archives
+  # into MatterLeast's runtime DEB/RPM/NSIS/AppImage staging tree.
+  set(DEVELOPER_MODE ON CACHE BOOL "Do not install embedded QCA SDK" FORCE)
+  if(QT_VERSION_MAJOR EQUAL 6)
+    set(BUILD_WITH_QT6 ON CACHE BOOL "QCA Qt version" FORCE)
+  else()
+    set(BUILD_WITH_QT6 OFF CACHE BOOL "QCA Qt version" FORCE)
+  endif()
+  FetchContent_Declare(matterleast_qca
+    URL https://codeload.github.com/psi-im/qca/tar.gz/${MATTERLEAST_QCA_LOCK_COMMIT}
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(matterleast_qca)
+  # Fail if the upstream provider list or CMake selection unexpectedly
+  # creates anything beyond qca-ossl. Static plugin imports must stay exact.
+  foreach(_matterleast_qca_provider IN LISTS PLUGINS)
+    if(NOT _matterleast_qca_provider STREQUAL "ossl")
+      if(TARGET qca-${_matterleast_qca_provider}
+          OR WITH_${_matterleast_qca_provider}_PLUGIN_INTERNAL)
+        message(FATAL_ERROR
+          "Unexpected bundled QCA provider: qca-${_matterleast_qca_provider}")
+      endif()
+    endif()
+  endforeach()
+  # QCA generates qca_export.h in its own build directory but
+  # assumes CMAKE_BINARY_DIR points there. Supply the directory explicitly
+  # when it is embedded inside another project.
+  target_include_directories(qca3-qt${QT_VERSION_MAJOR} PUBLIC
+    "$<BUILD_INTERFACE:${matterleast_qca_SOURCE_DIR}/include/QtCrypto>"
+    "$<BUILD_INTERFACE:${matterleast_qca_BINARY_DIR}>"
+    "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>")
+  if(TARGET qca-ossl)
+    target_include_directories(qca-ossl PRIVATE "${matterleast_qca_BINARY_DIR}")
+  endif()
+  # Keep project -Werror separate from our pinned third-party library.
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(qca3-qt${QT_VERSION_MAJOR} PRIVATE -Wno-error)
+    if(TARGET qca-ossl)
+      target_compile_options(qca-ossl PRIVATE -Wno-error)
+    endif()
+  elseif(MSVC)
+    target_compile_options(qca3-qt${QT_VERSION_MAJOR} PRIVATE /WX-)
+    if(TARGET qca-ossl)
+      target_compile_options(qca-ossl PRIVATE /WX-)
+    endif()
+  endif()
+  if(NOT TARGET Qca3::Qca OR NOT TARGET qca-ossl)
+    message(FATAL_ERROR "Bundled QCA must build a static core and qca-ossl plugin")
+  endif()
+  get_target_property(_matterleast_qca_type qca3-qt${QT_VERSION_MAJOR} TYPE)
+  get_target_property(_matterleast_ossl_type qca-ossl TYPE)
+  if(NOT _matterleast_qca_type STREQUAL "STATIC_LIBRARY"
+      OR NOT _matterleast_ossl_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR "Bundled QCA and qca-ossl must both be STATIC libraries")
+  endif()
+  set(MATTERLEAST_QCA_TARGET Qca3::Qca)
+  set(MATTERLEAST_QCA_PROVIDER "bundled-qca3")
+endif()
+message(STATUS "MatterLeast QCA: ${MATTERLEAST_QCA_PROVIDER} (${MATTERLEAST_QCA_TARGET})")
+
+# Consumers use one interface so tests and the application always link the
+# static crypto provider and import its Qt plugin registration together.
+add_library(matterleast-crypto INTERFACE)
+target_link_libraries(matterleast-crypto INTERFACE ${MATTERLEAST_QCA_TARGET})
+if(MATTERLEAST_QCA_PROVIDER STREQUAL "bundled-qca3")
+  target_link_libraries(matterleast-crypto INTERFACE qca-ossl)
+  target_compile_definitions(matterleast-crypto INTERFACE
+    QCA_STATIC MATTERLEAST_STATIC_QCA_OSSL)
 endif()
 
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
@@ -292,13 +390,13 @@ else()
   if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_TRUSTED_PLUGINS_ONLY)
     target_include_directories(matterleast-core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-    target_link_libraries(matterleast-core PUBLIC OpenSSL::Crypto)
   endif()
   if(MATTERLEAST_USE_KEYCHAIN)
     target_link_libraries(matterleast-core PUBLIC ${MATTERLEAST_KEYCHAIN_TARGET})
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_HAVE_KEYCHAIN)
   endif()
   target_link_libraries(matterleast-core PUBLIC
+    matterleast-crypto
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite
     matterleast-plugin-api)
@@ -422,6 +520,16 @@ if(QT_VERSION_MAJOR EQUAL 6)
 else()
 	set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5sql5-sqlite")
 endif()
+# System QCA2 must have the matching crypto plugin at runtime. The QCA
+# library dependency is detected by shlibdeps, the provider needs an explicit
+# package dependency because it is loaded dynamically.
+if(MATTERLEAST_QCA_PROVIDER STREQUAL "system-qca2")
+    if(QT_VERSION_MAJOR EQUAL 6)
+        string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", libqca-qt6-2, libqca-qt6-plugins")
+    else()
+        string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", libqca-qt5-2, libqca-qt5-2-plugins")
+    endif()
+endif()
 if(MATTERLEAST_DEBIAN_EXTRA_DEPENDS)
 	string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", ${MATTERLEAST_DEBIAN_EXTRA_DEPENDS}")
 endif()
@@ -434,6 +542,13 @@ if(QT_VERSION_MAJOR EQUAL 6)
 	set(CPACK_RPM_PACKAGE_REQUIRES "qt6-qtsvg")
 else()
 	set(CPACK_RPM_PACKAGE_REQUIRES "qt5-qtsvg")
+endif()
+if(MATTERLEAST_QCA_PROVIDER STREQUAL "system-qca2")
+    if(QT_VERSION_MAJOR EQUAL 6)
+        string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", qca-qt6, qca-qt6-ossl")
+    else()
+        string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", qca-qt5, qca-qt5-ossl")
+    endif()
 endif()
 
 if(WIN32)

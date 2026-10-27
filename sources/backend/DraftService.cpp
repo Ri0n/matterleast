@@ -5,6 +5,8 @@
  */
 
 #include "DraftService.h"
+#include "LocalContentKeyStore.h"
+#include "LocalMessageCrypto.h"
 
 #include <algorithm>
 
@@ -114,6 +116,18 @@ DraftService::DraftService(Backend& backendInstance)
     , backend(backendInstance)
 {
     ensureIdentity();
+    LocalContentKeyStore::request(this, [this](const QByteArray& key) {
+        if (key.size() != LocalMessageCrypto::KeyBytes) {
+            qWarning() << "Drafts will stay in memory: local encryption key unavailable";
+            return;
+        }
+        _encryptionKey = key;
+        ensureIdentity();
+        if (_loadedLocalDrafts) {
+            persist(); // migrate legacy plaintext drafts and flush pending edits
+            emit draftsChanged();
+        }
+    });
 
     connect(&backend, &Backend::onAllTeamChannelsPopulated,
             this, &DraftService::syncAllTeams);
@@ -140,16 +154,19 @@ void DraftService::ensureIdentity()
             .toHex());
 
     if (identity == nextIdentity) {
-        return;
+        if (_loadedLocalDrafts || _encryptionKey.isEmpty()) return;
+    } else {
+        ++syncGeneration;
+        identity = nextIdentity;
+        _loadedLocalDrafts = false;
+        remoteSyncDisabled = false;
+        pendingTeamSyncs = 0;
+        teamSyncHadError = false;
+        remoteKeysSeen.clear();
+        entries.clear();
     }
 
-    ++syncGeneration;
-    identity = nextIdentity;
-    remoteSyncDisabled = false;
-    pendingTeamSyncs = 0;
-    teamSyncHadError = false;
-    remoteKeysSeen.clear();
-    entries.clear();
+    if (_encryptionKey.isEmpty()) return;
 
     const QString base = QStandardPaths::writableLocation(
         QStandardPaths::AppDataLocation);
@@ -157,14 +174,18 @@ void DraftService::ensureIdentity()
         QStringLiteral("drafts/") + identity + QStringLiteral(".json"));
 
     bool loaded = false;
-    const QVector<DraftEntry> stored = DraftStore::load(storePath, &loaded);
+    const QVector<DraftEntry> stored = DraftStore::load(
+        storePath, _encryptionKey, &loaded);
     if (!loaded) {
         qWarning() << "Failed to load draft store" << storePath;
         return;
     }
     for (const DraftEntry& entry : stored) {
-        entries.insert(entry.key(), entry);
+        if (!entries.contains(entry.key())) {
+            entries.insert(entry.key(), entry);
+        }
     }
+    _loadedLocalDrafts = true;
 }
 
 QVector<DraftEntry> DraftService::drafts()
@@ -220,7 +241,8 @@ bool DraftService::persist()
     for (const DraftEntry& entry : entries) {
         stored.push_back(entry);
     }
-    if (!DraftStore::save(storePath, stored)) {
+    if (!_loadedLocalDrafts
+        || !DraftStore::save(storePath, stored, _encryptionKey)) {
         qWarning() << "Failed to save draft store" << storePath;
         return false;
     }

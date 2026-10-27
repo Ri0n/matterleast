@@ -1,0 +1,12 @@
+{
+  "qca": {
+    "tag": "v3.0.12",
+    "commit": "96c88f9ee127d206691ff688e68676c022f505f8",
+    "minimum_version": "3.0.10"
+  },
+  "qtkeychain": {
+    "tag": "0.17.0",
+    "commit": "875f77d9f61bd97fd84cca47ce3bc71186dfbd09",
+    "minimum_version": "0.13.0"
+  }
+}

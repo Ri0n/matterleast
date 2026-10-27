@@ -1,7 +1,7 @@
 #pragma once
 
 namespace Mattermost {
-inline constexpr const char* TrustedPluginPublicKeyPem = R"ml_ed25519(
+inline constexpr const char* TrustedPluginPublicKeyPem = R"ml_rsa_sha256(
 @MATTERLEAST_PLUGIN_PUBLIC_KEY_PEM@
-)ml_ed25519";
+)ml_rsa_sha256";
 }

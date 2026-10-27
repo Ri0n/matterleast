@@ -134,13 +134,65 @@ application settings. An unavailable or locked keyring never triggers a
 plaintext fallback for new tokens. Existing settings copies, backups or
 filesystem snapshots are not securely wiped by this migration.
 
+## Locked crypto dependencies
+
+`dependencies.lock.json` is the single source of the QCA and QtKeychain
+release tags, full Git commits and minimum system-library versions. The same
+lock structure is used by Iris. To update a dependency, verify the upstream
+release tag and its commit, change the lock, then run CI; do not duplicate pins
+in CMake or GitHub Actions.
+
+For local message encryption, MatterLeast supports system QCA 3.0.10+ or
+QCA 2.3.4+ with its OpenSSL crypto provider. CMake selects the matching Qt
+major version in this order: **installed QCA 3 → installed QCA 2 →
+locked QCA 3.0.12**, downloaded only if no compatible system package exists.
+The shared AES-256-GCM envelope is compatible across QCA 2 and QCA 3.
+
+Windows and AppImage jobs explicitly request reproducible bundled QCA 3.
+**Bundled QCA 3 is fully static**: both the QCA core and `qca-ossl` are
+static libraries linked into the application, with the provider registered by
+`Q_IMPORT_PLUGIN(qca_ossl)`. No QCA DLL, shared library or plugin file needs
+to be deployed. Native DEB and RPM jobs instead use QCA 2 development files
+and the matching dynamically loaded OpenSSL provider. For a forced bundled
+build, use:
+
+```sh
+cmake -S . -B build -DMATTERLEAST_BUNDLED_QCA=ON
+```
+
+In bundled mode CMake downloads QCA 3 and statically links its OpenSSL
+(`qca-ossl`) provider. Building that provider needs OpenSSL development
+headers and libraries (`libssl-dev` on Debian/Ubuntu, `openssl-devel`
+on Fedora); these packages are **not needed for MatterLeast builds using a
+compatible system QCA and its prebuilt provider**. Native distro packages
+depend on their QCA runtime library and dynamically loaded OpenSSL provider.
+Corporate builds using `MATTERLEAST_PLUGIN_VERIFY_KEY_FILE` verify RSA
+PKCS#1 v1.5 signatures over SHA-256 via the selected QCA 2/3 provider,
+with no direct OpenSSL library dependency. Build-time `openssl` CLI is
+required only when signing bundled native plugins. HTTPS uses QtNetwork's TLS backend,
+not QCA::TLS. Runtime message encryption fails closed if the QCA provider
+or platform keyring is unavailable.
+
+For QtKeychain, matching system development files are preferred; when
+explicitly enabled without them, CMake fetches the exact pinned version
+(currently 0.17.0). This leaves supported Linux distributions free to use
+their system QtKeychain implementation.
+
 ## Security considerations
 
-Local message-cache payloads and draft files are **not yet encrypted at rest**.
-Keep this limitation in mind when evaluating the application's threat model.
+Cached post payloads are encrypted at rest using QCA AES-256-GCM after
+compression. Locally saved draft message text is also encrypted. SQLite
+topology/index fields and non-message draft metadata remain plaintext.
+A distinct random device encryption key is held in the platform keyring,
+not derived from the Mattermost session token. When the keyring or QCA
+AES-GCM provider is unavailable, local message persistence is disabled
+rather than falling back to plaintext. Legacy plaintext post-cache data is
+discarded; legacy draft JSON is migrated once the keyring can be unlocked.
+Already-created backups or snapshots cannot be securely wiped. This is
+**at-rest encryption**, not end-to-end encryption.
 
 A corporate build can enforce signed-only native plugins by specifying its
-Ed25519 PUBLIC verification key as a PEM file:
+RSA PUBLIC verification key as a PEM file:
 
 ```bash
 cmake -S . -B build \
@@ -152,14 +204,14 @@ loading their code. It still supports corporate plugins and signed bundled
 plugins. The private signing key must never be stored in the application or
 source repository. In a separately secured release environment, set
 `MATTERLEAST_PLUGIN_SIGNING_KEY_FILE` to sign bundled plugins during the
-build. Each native library receives a raw Ed25519 sidecar `<library>.sig`
+build. Each native library receives a RSA/SHA-256 sidecar `<library>.sig`
 covering its complete linked binary; do not modify the library after signing.
 
-To sign externally built plugins with OpenSSL 3:
+To sign externally built plugins with RSA/SHA-256:
 
 ```bash
-openssl pkeyutl -sign -rawin -inkey company-private.pem \
-  -in company-plugin.so -out company-plugin.so.sig
+openssl dgst -sha256 -sign company-private.pem \
+  -out company-plugin.so.sig company-plugin.so
 ```
 
 Alternatively, `-DMATTERLEAST_ENABLE_NATIVE_PLUGINS=OFF` disables all

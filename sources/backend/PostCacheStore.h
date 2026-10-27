@@ -41,6 +41,8 @@ public:
     explicit PostCacheStore(QString databasePath, QObject* parent = nullptr);
     ~PostCacheStore() override;
 
+    // A valid device key is required before opening the database.
+    void setEncryptionKey(const QByteArray& key);
     bool open();
     bool isOpen() const { return database.isOpen(); }
 
@@ -95,8 +97,8 @@ private:
     bool execStatement(const QString& sql) const;
     qint64 pragmaValue(const QString& name) const;
     qint64 nowMs() const;
-    QByteArray encodePost(const QJsonObject& post) const;
-    QJsonObject decodePost(const QByteArray& payload) const;
+    QByteArray encodePost(const QJsonObject& post, const QString& postId) const;
+    QJsonObject decodePost(const QByteArray& payload, const QString& postId) const;
     QJsonObject readPostQuery(QSqlQuery& query, bool touchRows);
     bool touchPosts(const QStringList& postIds, qint64 timestamp);
     bool isChannelEligible(const QString& channelId, qint64 timestamp) const;
@@ -106,6 +108,7 @@ private:
     void vacuumFreelist();
 
     QString databasePath;
+    QByteArray _encryptionKey;
     QString connectionName;
     QSqlDatabase database;
     qint64 accountId = -1;

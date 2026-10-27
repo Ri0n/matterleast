@@ -15,6 +15,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency-lock:
+    name: QCA and QtKeychain dependency lock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate pinned dependency sources
+        run: |
+          python3 -m unittest discover -s tests -p test_dependency_lock.py -v
+          python3 -m unittest discover -s tests -p test_qca_system_selection.py -v
+
   update-manifest:
     name: Windows update manifest contract
     runs-on: ubuntu-latest
@@ -40,7 +50,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             git ca-certificates cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins
+            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libssl-dev
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,7 +67,7 @@ jobs:
           test "$(qmake6 -query QT_VERSION)" = 6.8.2
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
-            -DWARNINGS_AS_ERRORS=ON \
+            -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
             "-DMATTERLEAST_DEBIAN_EXTRA_DEPENDS=libqt6svg6, qt6-svg-plugins"
           cmake --build build --parallel 4
           ctest --test-dir build --output-on-failure
@@ -107,7 +117,8 @@ jobs:
             qt6-base-dev \
             qt6-multimedia-dev \
             qt6-websockets-dev \
-            qtkeychain-qt6-dev
+            qtkeychain-qt6-dev \
+            libqca-qt6-dev libqca-qt6-plugins
 
       - name: Configure
         run: >
@@ -145,7 +156,8 @@ jobs:
             libqt5sql5-sqlite \
             libqt5websockets5-dev \
             qtbase5-dev \
-            qtkeychain-qt5-dev
+            qtkeychain-qt5-dev \
+            libqca-qt5-2-dev libqca-qt5-2-plugins
 
       - name: Configure
         run: >
@@ -204,7 +216,7 @@ jobs:
           -DQT_6=ON
           -DMATTERLEAST_USE_KEYCHAIN=ON
           -DBUILD_TESTING=ON
-          -DWARNINGS_AS_ERRORS=ON
+          -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
 
       - name: Build
         env:
@@ -271,7 +283,7 @@ jobs:
           if-no-files-found: error
 
   signed-plugins:
-    name: Ed25519 plugin signature contract / Qt6
+    name: RSA/SHA256 plugin signature contract / Qt6
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -283,19 +295,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential ninja-build qt6-base-dev \
-            qt6-websockets-dev libssl-dev openssl
+            qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins libssl-dev openssl
       - name: Configure ephemeral corporate signing policy
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/matterleast-signing"
-          openssl genpkey -algorithm Ed25519 \
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
             -out "$RUNNER_TEMP/matterleast-signing/private.pem"
           openssl pkey -in "$RUNNER_TEMP/matterleast-signing/private.pem" \
             -pubout -out "$RUNNER_TEMP/matterleast-signing/public.pem"
           cmake -S . -B build-trusted -G Ninja -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=OFF \
-            -DBUILD_TESTING=ON -DWARNINGS_AS_ERRORS=ON \
+            -DBUILD_TESTING=ON -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_PLUGIN_VERIFY_KEY_FILE="$RUNNER_TEMP/matterleast-signing/public.pem" \
             -DMATTERLEAST_PLUGIN_SIGNING_KEY_FILE="$RUNNER_TEMP/matterleast-signing/private.pem"
       - name: Verify signed and tampered plugins

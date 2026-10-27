@@ -1,4 +1,5 @@
 #include "PostCacheStore.h"
+#include "LocalMessageCrypto.h"
 
 #include <algorithm>
 #include <utility>
@@ -63,8 +64,19 @@ PostCacheStore::~PostCacheStore()
     QSqlDatabase::removeDatabase(connectionName);
 }
 
+void PostCacheStore::setEncryptionKey(const QByteArray& key)
+{
+    if (!database.isOpen()) {
+        _encryptionKey = key.size() == LocalMessageCrypto::KeyBytes ? key : QByteArray();
+    }
+}
+
 bool PostCacheStore::open()
 {
+    if (_encryptionKey.size() != LocalMessageCrypto::KeyBytes
+        || !LocalMessageCrypto::isAvailable()) {
+        return false;
+    }
     if (database.isOpen()) {
         return true;
     }
@@ -313,7 +325,12 @@ int PostCacheStore::storePosts(const QJsonObject& postsObject)
         query.bindValue(4, post.value(QStringLiteral("create_at")).toVariant().toLongLong());
         query.bindValue(5, post.value(QStringLiteral("update_at")).toVariant().toLongLong());
         query.bindValue(6, timestamp);
-        query.bindValue(7, encodePost(post));
+        const QByteArray ciphertext = encodePost(post, postId);
+        if (ciphertext.isEmpty()) {
+            database.rollback();
+            return 0;
+        }
+        query.bindValue(7, ciphertext);
         if (!query.exec()) {
             qCWarning(lcPostCache) << "cannot cache post" << postId
                                    << query.lastError().text();
@@ -650,14 +667,30 @@ qint64 PostCacheStore::nowMs() const
     return QDateTime::currentMSecsSinceEpoch();
 }
 
-QByteArray PostCacheStore::encodePost(const QJsonObject& post) const
+QByteArray PostCacheStore::encodePost(const QJsonObject& post, const QString& postId) const
 {
-    return qCompress(QJsonDocument(post).toJson(QJsonDocument::Compact), 6);
+    // Authenticated context prevents a database editor from swapping one
+    // ciphertext between accounts or post IDs.
+    const QByteArray context = QByteArrayLiteral("post-cache-v1:")
+        + QByteArray::number(accountId) + QByteArray(1, char(0))
+        + postId.toUtf8();
+    return LocalMessageCrypto::encrypt(
+        qCompress(QJsonDocument(post).toJson(QJsonDocument::Compact), 6),
+        _encryptionKey, context);
 }
 
-QJsonObject PostCacheStore::decodePost(const QByteArray& payload) const
+QJsonObject PostCacheStore::decodePost(const QByteArray& payload,
+                                       const QString& postId) const
 {
-    const QByteArray json = qUncompress(payload);
+    const QByteArray context = QByteArrayLiteral("post-cache-v1:")
+        + QByteArray::number(accountId) + QByteArray(1, char(0))
+        + postId.toUtf8();
+    QByteArray compressed;
+    if (!LocalMessageCrypto::decrypt(payload, _encryptionKey,
+                                      context, &compressed)) {
+        return {};
+    }
+    const QByteArray json = qUncompress(compressed);
     if (json.isEmpty()) {
         return {};
     }
@@ -677,7 +710,7 @@ QJsonObject PostCacheStore::readPostQuery(QSqlQuery& query, bool touchRows)
     QStringList touched;
     while (query.next()) {
         const QString postId = query.value(0).toString();
-        const QJsonObject post = decodePost(query.value(1).toByteArray());
+        const QJsonObject post = decodePost(query.value(1).toByteArray(), postId);
         if (postId.isEmpty() || post.isEmpty()) {
             continue;
         }

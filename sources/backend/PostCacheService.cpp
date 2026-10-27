@@ -12,6 +12,9 @@
 #include <QStandardPaths>
 
 #include "PostCacheStore.h"
+#include "LocalContentKeyStore.h"
+#include "LocalMessageCrypto.h"
+#include <QFile>
 #include "Settings.h"
 #include "options/MLOptions.h"
 
@@ -25,7 +28,13 @@ constexpr qint64 MiB = 1024LL * 1024;
 QString defaultDatabasePath()
 {
     const QDir cacheRoot(QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
-    return cacheRoot.filePath(QStringLiteral("post-cache/posts.sqlite3"));
+    // Dispose of the old plaintext cache; this cache is never authoritative.
+    // The new filename also ensures the old payload format is never re-used.
+    const QString legacy = cacheRoot.filePath(QStringLiteral("post-cache/posts.sqlite3"));
+    QFile::remove(legacy);
+    QFile::remove(legacy + QStringLiteral("-wal"));
+    QFile::remove(legacy + QStringLiteral("-shm"));
+    return cacheRoot.filePath(QStringLiteral("post-cache/posts-encrypted-v1.sqlite3"));
 }
 
 int optionInt(const char* name, int defaultValue)
@@ -88,6 +97,11 @@ public:
         : databasePath(std::move(path))
         , limits(std::move(configuredLimits))
     {
+    }
+
+    void setEncryptionKey(const QByteArray& key)
+    {
+        if (key.size() == LocalMessageCrypto::KeyBytes) _encryptionKey = key;
     }
 
     void recordChannelOpened(const QString& server,
@@ -252,11 +266,13 @@ private:
 
     bool selectAccount(const QString& server, const QString& userId)
     {
-        if (server.trimmed().isEmpty() || userId.trimmed().isEmpty()) {
+        if (server.trimmed().isEmpty() || userId.trimmed().isEmpty()
+            || _encryptionKey.size() != LocalMessageCrypto::KeyBytes) {
             return false;
         }
         if (!store) {
             store = std::make_unique<PostCacheStore>(databasePath);
+            store->setEncryptionKey(_encryptionKey);
             store->setLimits(limits);
             if (!store->open()) {
                 store.reset();
@@ -284,6 +300,7 @@ private:
     }
 
     QString databasePath;
+    QByteArray _encryptionKey;
     PostCacheStore::Limits limits;
     std::unique_ptr<PostCacheStore> store;
     QHash<QString, InvalidationWatermark> invalidationWatermarks;
@@ -294,7 +311,7 @@ PostCacheService::PostCacheService()
 {
 }
 
-PostCacheService::PostCacheService(QString databasePath)
+PostCacheService::PostCacheService(QString databasePath, QByteArray testKey)
 {
     workerThread.setObjectName(QStringLiteral("MattermostPostCache"));
     worker = new PostCacheWorker(std::move(databasePath), configuredLimits());
@@ -302,6 +319,19 @@ PostCacheService::PostCacheService(QString databasePath)
     QObject::connect(&workerThread, &QThread::finished,
                      worker, &QObject::deleteLater);
     workerThread.start();
+
+    const auto provideKey = [this](const QByteArray& key) {
+        if (key.size() != LocalMessageCrypto::KeyBytes) return;
+        PostCacheWorker* currentWorker = worker;
+        QMetaObject::invokeMethod(currentWorker, [currentWorker, key] {
+            currentWorker->setEncryptionKey(key);
+        }, Qt::QueuedConnection);
+    };
+    if (testKey.size() == LocalMessageCrypto::KeyBytes) {
+        provideKey(testKey);
+    } else {
+        LocalContentKeyStore::request(&callbackContext, provideKey);
+    }
 
     const auto watchLimit = [this](const char* key, int defaultValue) {
         auto* option = MLOptions::instance()->optionObject<int>(key, defaultValue);

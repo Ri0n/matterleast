@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -37,8 +38,10 @@ struct DraftEntry {
 class DraftStore final
 {
 public:
-    static QVector<DraftEntry> load(const QString& path, bool* ok = nullptr);
-    static bool save(const QString& path, const QVector<DraftEntry>& drafts);
+    static QVector<DraftEntry> load(const QString& path, const QByteArray& key,
+                                    bool* ok = nullptr);
+    static bool save(const QString& path, const QVector<DraftEntry>& drafts,
+                     const QByteArray& key);
 };
 
 } // namespace Mattermost

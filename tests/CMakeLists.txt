@@ -389,6 +389,7 @@ add_test(NAME quoted-reply-format-test COMMAND quoted-reply-format-test)
 add_executable(post-cache-store-test
     PostCacheStoreTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheStore.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp"
 )
 
 target_include_directories(post-cache-store-test
@@ -398,6 +399,7 @@ target_include_directories(post-cache-store-test
 
 target_link_libraries(post-cache-store-test
     PRIVATE
+        matterleast-crypto
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Sql
@@ -409,6 +411,8 @@ add_executable(post-cache-service-test
     PostCacheServiceTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheService.cpp"
     "${CMAKE_SOURCE_DIR}/sources/backend/PostCacheStore.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalContentKeyStore.cpp"
     "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
 )
 
@@ -419,6 +423,7 @@ target_include_directories(post-cache-service-test
 
 target_link_libraries(post-cache-service-test
     PRIVATE
+        matterleast-crypto
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Sql
@@ -812,10 +817,12 @@ endif()
 add_executable(draft-store-test
     DraftStoreTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/DraftStore.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp"
 )
 target_include_directories(draft-store-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(draft-store-test
     PRIVATE
+        matterleast-crypto
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
 )
@@ -868,16 +875,25 @@ endif()
 if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE AND MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
     add_executable(trusted-plugin-load-test
         TrustedPluginLoadTest.cpp
-        "${CMAKE_SOURCE_DIR}/sources/plugins/PluginSignature.cpp")
+        "${CMAKE_SOURCE_DIR}/sources/plugins/PluginSignature.cpp"
+        "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp")
     target_include_directories(trusted-plugin-load-test PRIVATE
         "${CMAKE_SOURCE_DIR}/sources"
         "${CMAKE_BINARY_DIR}/generated")
     target_compile_definitions(trusted-plugin-load-test PRIVATE
         MATTERLEAST_TRUSTED_PLUGINS_ONLY)
     target_link_libraries(trusted-plugin-load-test PRIVATE
-        Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core OpenSSL::Crypto)
+        Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core matterleast-crypto)
     add_dependencies(trusted-plugin-load-test matterleast-seasonal-snow)
     add_test(NAME trusted-plugin-load-test COMMAND trusted-plugin-load-test)
     set_tests_properties(trusted-plugin-load-test PROPERTIES
         ENVIRONMENT "MATTERLEAST_SIGNED_PLUGIN_TEST_PATH=$<TARGET_FILE:matterleast-seasonal-snow>")
 endif()
+
+# Verifies authenticated envelopes and tamper rejection.
+add_executable(local-message-crypto-test
+    LocalMessageCryptoTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp")
+target_include_directories(local-message-crypto-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(local-message-crypto-test PRIVATE matterleast-crypto Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME local-message-crypto-test COMMAND local-message-crypto-test)

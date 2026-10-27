@@ -5,6 +5,7 @@
  */
 
 #include "DraftStore.h"
+#include "LocalMessageCrypto.h"
 
 #include <utility>
 
@@ -29,12 +30,17 @@ QString DraftEntry::key() const
     return result;
 }
 
-QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
+QVector<DraftEntry> DraftStore::load(const QString& path, const QByteArray& key,
+                                    bool* ok)
 {
     if (ok) {
         *ok = false;
     }
 
+    if (key.size() != LocalMessageCrypto::KeyBytes
+        || !LocalMessageCrypto::isAvailable()) {
+        return {};
+    }
     QFile file(path);
     if (!file.exists()) {
         if (ok) {
@@ -54,7 +60,8 @@ QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
     }
 
     const QJsonObject root = document.object();
-    if (root.value(QStringLiteral("version")).toInt() != 1
+    const int version = root.value(QStringLiteral("version")).toInt();
+    if ((version != 1 && version != 2)
         || !root.value(QStringLiteral("drafts")).isArray()) {
         return {};
     }
@@ -68,7 +75,25 @@ QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
         DraftEntry entry;
         entry.channelId = object.value(QStringLiteral("channel_id")).toString();
         entry.rootId = object.value(QStringLiteral("root_id")).toString();
-        entry.message = object.value(QStringLiteral("message")).toString();
+        const QString storedMessage = object.value(QStringLiteral("message")).toString();
+        if (version == 2 && !storedMessage.isEmpty()) {
+            const QByteArray envelope = QByteArray::fromBase64(
+                storedMessage.toLatin1());
+            QByteArray decrypted;
+            // Derive the context from the unencrypted identifying fields.
+            const QString recoveryId = object.value(QStringLiteral("recovery_id")).toString();
+            const QByteArray entryContext = QByteArrayLiteral("draft-v1:")
+                + (entry.channelId + QChar(0x1f) + entry.rootId
+                   + (recoveryId.isEmpty() ? QString()
+                      : QString(QChar(0x1f)) + recoveryId)).toUtf8();
+            if (!LocalMessageCrypto::decrypt(envelope, key, entryContext,
+                                              &decrypted)) {
+                return {}; // never turn an undecryptable draft into an empty draft
+            }
+            entry.message = QString::fromUtf8(decrypted);
+        } else {
+            entry.message = storedMessage; // plaintext v1 is read only for migration
+        }
         entry.replyToPostId =
             object.value(QStringLiteral("reply_to_post_id")).toString();
         const QJsonArray attachmentValues =
@@ -118,8 +143,13 @@ QVector<DraftEntry> DraftStore::load(const QString& path, bool* ok)
     return result;
 }
 
-bool DraftStore::save(const QString& path, const QVector<DraftEntry>& drafts)
+bool DraftStore::save(const QString& path, const QVector<DraftEntry>& drafts,
+                      const QByteArray& key)
 {
+    if (key.size() != LocalMessageCrypto::KeyBytes
+        || !LocalMessageCrypto::isAvailable()) {
+        return false; // never write plaintext content without a key
+    }
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath())) {
         return false;
@@ -131,10 +161,18 @@ bool DraftStore::save(const QString& path, const QVector<DraftEntry>& drafts)
         for (const QString& attachmentPath : entry.attachmentPaths) {
             attachmentPaths.push_back(attachmentPath);
         }
+        QString storedMessage;
+        if (!entry.message.isEmpty()) {
+            const QByteArray ciphertext = LocalMessageCrypto::encrypt(
+                entry.message.toUtf8(), key,
+                QByteArrayLiteral("draft-v1:") + entry.key().toUtf8());
+            if (ciphertext.isEmpty()) return false;
+            storedMessage = QString::fromLatin1(ciphertext.toBase64());
+        }
         QJsonObject object {
             {QStringLiteral("channel_id"), entry.channelId},
             {QStringLiteral("root_id"), entry.rootId},
-            {QStringLiteral("message"), entry.message},
+            {QStringLiteral("message"), storedMessage},
             {QStringLiteral("reply_to_post_id"), entry.replyToPostId},
             {QStringLiteral("attachment_paths"), attachmentPaths},
             {QStringLiteral("recovery_id"), entry.recoveryId},
@@ -149,7 +187,7 @@ bool DraftStore::save(const QString& path, const QVector<DraftEntry>& drafts)
     }
 
     const QJsonDocument document(QJsonObject {
-        {QStringLiteral("version"), 1},
+        {QStringLiteral("version"), 2},
         {QStringLiteral("drafts"), array},
     });
 
