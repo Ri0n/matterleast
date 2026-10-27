@@ -118,8 +118,7 @@ jobs:
             qt6-multimedia-dev \
             qt6-websockets-dev \
             qtkeychain-qt6-dev \
-            libqca-qt6-dev libqca-qt6-plugins \
-            libssl-dev
+            libqca-qt6-dev libqca-qt6-plugins
 
       - name: Configure
         run: >
@@ -158,8 +157,7 @@ jobs:
             libqt5websockets5-dev \
             qtbase5-dev \
             qtkeychain-qt5-dev \
-            libqca-qt5-2-dev libqca-qt5-2-plugins \
-            libssl-dev
+            libqca-qt5-2-dev libqca-qt5-2-plugins
 
       - name: Configure
         run: >
