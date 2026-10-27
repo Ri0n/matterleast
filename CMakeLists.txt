@@ -301,6 +301,22 @@ if(NOT TARGET Qca3::Qca)
   message(FATAL_ERROR "QCA 3.0.11 or newer is needed to encrypt local messages")
 endif()
 
+# Executables under build/tests/ and build/ must find the vendored QCA
+# runtime DLL before they can even start. Qt's PATH cannot supply this
+# project-local dependency on Windows.
+if(WIN32 AND TARGET qca3-qt${QT_VERSION_MAJOR})
+  add_custom_target(matterleast-stage-qca-runtime ALL
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/tests"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<TARGET_FILE:qca3-qt${QT_VERSION_MAJOR}>"
+      "${CMAKE_BINARY_DIR}/"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<TARGET_FILE:qca3-qt${QT_VERSION_MAJOR}>"
+      "${CMAKE_BINARY_DIR}/tests/"
+    DEPENDS qca3-qt${QT_VERSION_MAJOR}
+    VERBATIM)
+endif()
+
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
 add_subdirectory(plugins)
 add_subdirectory(third_party/QSourceHighlite)
