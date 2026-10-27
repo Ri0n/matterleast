@@ -54,8 +54,7 @@ class DependencyLockContract(unittest.TestCase):
                 self.assertIn("-DMATTERLEAST_BUNDLED_QCA=ON", workflow)
                 self.assertNotIn(self.lock["qca"]["commit"], workflow)
                 self.assertNotIn(self.lock["qca"]["tag"], workflow)
-                self.assertIn("libssl-dev", workflow if path.name == "build.yaml" else
-                              workflow)  # OpenSSL headers are distinct from QCA sources
+                self.assertIn("libssl-dev", workflow)  # OpenSSL headers, not QCA itself
 
 
 if __name__ == "__main__":
