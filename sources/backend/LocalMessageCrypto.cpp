@@ -71,9 +71,13 @@ QByteArray LocalMessageCrypto::encrypt(const QByteArray& cleartext,
     const QByteArray nonce = QCA::Random::randomArray(NonceBytes).toByteArray();
     if (nonce.size() != NonceBytes) return {};
 
+    // QCA requires an explicit-sized AuthTag for AES-GCM encryption.
+    // Without it OpenSSL does not extract a tag at final(), so unauthenticated
+    // ciphertext would otherwise be produced.
     QCA::Cipher cipher(QStringLiteral("aes256"), QCA::Cipher::GCM,
                        QCA::Cipher::NoPadding, QCA::Encode,
-                       QCA::SymmetricKey(key), QCA::InitializationVector(nonce));
+                       QCA::SymmetricKey(key), QCA::InitializationVector(nonce),
+                       QCA::AuthTag(TagBytes));
     QByteArray input = context;
     input.append(char(0));
     input.append(cleartext);
