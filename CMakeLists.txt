@@ -269,7 +269,15 @@ if(NOT MATTERLEAST_QCA_TARGET)
   set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
   set(BUILD_TESTS OFF CACHE BOOL "QCA tests" FORCE)
   set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
-  set(BUILD_PLUGINS "ossl" CACHE STRING "QCA providers" FORCE)
+  # Local cache values from an earlier QCA build must not bring in extra
+  # providers. Only the OpenSSL provider is needed for AES-256-GCM.
+  set(BUILD_PLUGINS "ossl" CACHE STRING "QCA providers (only ossl)" FORCE)
+  set(WITH_ossl_PLUGIN "yes" CACHE STRING "Build required QCA OpenSSL provider" FORCE)
+  foreach(_matterleast_unused_qca_provider IN ITEMS
+          botan cyrus-sasl gcrypt gnupg logger nss pkcs11 softstore)
+    set(WITH_${_matterleast_unused_qca_provider}_PLUGIN "no"
+        CACHE STRING "Disable unused embedded QCA provider" FORCE)
+  endforeach()
   # Bundled really means statically linked core + statically imported
   # OpenSSL provider; there must be no QCA DLL/.so/plugin to deploy.
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "QCA static library" FORCE)
@@ -287,6 +295,17 @@ if(NOT MATTERLEAST_QCA_TARGET)
     URL https://codeload.github.com/psi-im/qca/tar.gz/${MATTERLEAST_QCA_LOCK_COMMIT}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(matterleast_qca)
+  # Fail if the upstream provider list or CMake selection unexpectedly
+  # creates anything beyond qca-ossl. Static plugin imports must stay exact.
+  foreach(_matterleast_qca_provider IN LISTS PLUGINS)
+    if(NOT _matterleast_qca_provider STREQUAL "ossl")
+      if(TARGET qca-${_matterleast_qca_provider}
+          OR WITH_${_matterleast_qca_provider}_PLUGIN_INTERNAL)
+        message(FATAL_ERROR
+          "Unexpected bundled QCA provider: qca-${_matterleast_qca_provider}")
+      endif()
+    endif()
+  endforeach()
   # QCA generates qca_export.h in its own build directory but
   # assumes CMAKE_BINARY_DIR points there. Supply the directory explicitly
   # when it is embedded inside another project.
