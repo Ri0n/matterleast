@@ -47,6 +47,22 @@ class DependencyLockContract(unittest.TestCase):
         for name, entry in self.lock.items():
             self.assertNotIn(entry["commit"], cmake, name)
 
+    def test_bundled_qca_is_fully_static(self):
+        cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        crypto = (ROOT / "sources/backend/LocalMessageCrypto.cpp").read_text(encoding="utf-8")
+        tests = (ROOT / "tests/CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn("set(BUILD_SHARED_LIBS OFF CACHE BOOL", cmake)
+        self.assertIn("set(LOAD_SHARED_PLUGINS OFF CACHE BOOL", cmake)
+        self.assertIn('set(BUILD_PLUGINS "ossl"', cmake)
+        self.assertIn('set(DEVELOPER_MODE ON CACHE BOOL', cmake)
+        self.assertIn('"STATIC_LIBRARY"', cmake)
+        self.assertIn("target_link_libraries(matterleast-crypto INTERFACE qca-ossl)", cmake)
+        self.assertIn("QCA_STATIC MATTERLEAST_STATIC_QCA_OSSL", cmake)
+        self.assertIn("Q_IMPORT_PLUGIN(qca_ossl)", crypto)
+        self.assertIn("#ifdef MATTERLEAST_STATIC_QCA_OSSL", crypto)
+        self.assertIn("matterleast-crypto", tests)
+        self.assertNotIn("matterleast-stage-qca-runtime", cmake)
+
     def test_ci_and_release_use_locked_qca(self):
         for path in (
             ROOT / ".github/workflows/build.yaml",
