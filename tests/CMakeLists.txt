@@ -399,7 +399,7 @@ target_include_directories(post-cache-store-test
 
 target_link_libraries(post-cache-store-test
     PRIVATE
-        Qca3::Qca
+        ${MATTERLEAST_QCA_TARGET}
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Sql
@@ -423,7 +423,7 @@ target_include_directories(post-cache-service-test
 
 target_link_libraries(post-cache-service-test
     PRIVATE
-        Qca3::Qca
+        ${MATTERLEAST_QCA_TARGET}
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Sql
@@ -822,7 +822,7 @@ add_executable(draft-store-test
 target_include_directories(draft-store-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(draft-store-test
     PRIVATE
-        Qca3::Qca
+        ${MATTERLEAST_QCA_TARGET}
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Core
 )
@@ -894,5 +894,5 @@ add_executable(local-message-crypto-test
     LocalMessageCryptoTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/LocalMessageCrypto.cpp")
 target_include_directories(local-message-crypto-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(local-message-crypto-test PRIVATE Qca3::Qca Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
+target_link_libraries(local-message-crypto-test PRIVATE ${MATTERLEAST_QCA_TARGET} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME local-message-crypto-test COMMAND local-message-crypto-test)
