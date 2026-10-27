@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SEMVER = re.compile(r"v?(\\d+)\\.(\\d+)\\.(\\d+)\\Z")
-SHA = re.compile(r"[0-9a-f]{40}\\Z")
+SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)\Z")
+SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
 class DependencyLockContract(unittest.TestCase):
