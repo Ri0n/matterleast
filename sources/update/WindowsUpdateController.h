@@ -1,4 +1,8 @@
 #pragma once
+
+// Q_OS_WIN is defined by QtGlobal, not by the compiler. Include it *before*
+// testing the platform macro so AUTMOC and the implementation see the class.
+#include <QtGlobal>
 #ifdef Q_OS_WIN
 
 #include <QObject>
