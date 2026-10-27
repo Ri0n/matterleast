@@ -48,8 +48,8 @@ function(matterleast_sign_plugin target)
     add_custom_command(TARGET "${target}" POST_BUILD
         COMMAND "${MATTERLEAST_OPENSSL_EXECUTABLE}" dgst -sha256 -sign
                 "${MATTERLEAST_PLUGIN_SIGNING_KEY_FILE}"
-                -in "$<TARGET_FILE:${target}>"
                 -out "$<TARGET_FILE:${target}>.sig"
+                "$<TARGET_FILE:${target}>"
         COMMENT "Sign MatterLeast plugin ${target} with external RSA/SHA-256 key"
         VERBATIM)
 
