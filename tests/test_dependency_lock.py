@@ -70,6 +70,33 @@ class DependencyLockContract(unittest.TestCase):
         self.assertIn("matterleast-crypto", tests)
         self.assertNotIn("matterleast-stage-qca-runtime", cmake)
 
+    def test_system_qca_builds_do_not_require_openssl_headers(self):
+        ci = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+        packages = (ROOT / ".github/workflows/packages.yml").read_text(encoding="utf-8")
+
+        # Only the bundled QCA provider and signed Ed25519 plugin verification
+        # compile against OpenSSL headers. System QCA2/3 loads its prebuilt
+        # crypto provider dynamically.
+        for job, following in (("ubuntu-2404", "ubuntu-2204"),
+                               ("ubuntu-2204", "windows")):
+            section = ci.split(f"  {job}:", 1)[1].split(f"  {following}:", 1)[0]
+            self.assertNotIn("libssl-dev", section, job)
+            self.assertIn("libqca-", section, job)
+
+        ubuntu = packages.split("  debian:", 1)[1].split("  debian13:", 1)[0]
+        debian = packages.split("  debian13:", 1)[1].split("  appimage:", 1)[0]
+        fedora = packages.split("  fedora:", 1)[1].split("  windows:", 1)[0]
+        self.assertNotIn("libssl-dev", ubuntu)
+        self.assertNotIn("libssl-dev", debian)
+        self.assertNotIn("openssl-devel", fedora)
+        self.assertIn("qca-qt6-ossl", fedora)
+        self.assertIn("libqca-qt6-plugins", debian)
+
+        appimage = packages.split("  appimage:", 1)[1].split("  fedora:", 1)[0]
+        self.assertIn("libssl-dev", appimage)
+        signing = ci.split("  signed-plugins:", 1)[1]
+        self.assertIn("libssl-dev openssl", signing)
+
     def test_ci_and_release_use_locked_qca(self):
         for path in (
             ROOT / ".github/workflows/build.yaml",
