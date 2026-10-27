@@ -270,7 +270,14 @@ if(NOT MATTERLEAST_QCA_TARGET)
   set(BUILD_TESTS OFF CACHE BOOL "QCA tests" FORCE)
   set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
   set(BUILD_PLUGINS "ossl" CACHE STRING "QCA providers" FORCE)
-  set(BUILD_SHARED_LIBS ON CACHE BOOL "QCA shared library" FORCE)
+  # Bundled really means statically linked core + statically imported
+  # OpenSSL provider; there must be no QCA DLL/.so/plugin to deploy.
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "QCA static library" FORCE)
+  set(LOAD_SHARED_PLUGINS OFF CACHE BOOL "Disable QCA runtime plugin scanning" FORCE)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  # QCA is a private embedded dependency: do not install its SDK archives
+  # into MatterLeast's runtime DEB/RPM/NSIS/AppImage staging tree.
+  set(DEVELOPER_MODE ON CACHE BOOL "Do not install embedded QCA SDK" FORCE)
   if(QT_VERSION_MAJOR EQUAL 6)
     set(BUILD_WITH_QT6 ON CACHE BOOL "QCA Qt version" FORCE)
   else()
@@ -302,28 +309,28 @@ if(NOT MATTERLEAST_QCA_TARGET)
       target_compile_options(qca-ossl PRIVATE /WX-)
     endif()
   endif()
-  if(NOT TARGET Qca3::Qca)
-    message(FATAL_ERROR "Bundled QCA ${MATTERLEAST_QCA_LOCK_TAG} has no Qca3::Qca target")
+  if(NOT TARGET Qca3::Qca OR NOT TARGET qca-ossl)
+    message(FATAL_ERROR "Bundled QCA must build a static core and qca-ossl plugin")
+  endif()
+  get_target_property(_matterleast_qca_type qca3-qt${QT_VERSION_MAJOR} TYPE)
+  get_target_property(_matterleast_ossl_type qca-ossl TYPE)
+  if(NOT _matterleast_qca_type STREQUAL "STATIC_LIBRARY"
+      OR NOT _matterleast_ossl_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR "Bundled QCA and qca-ossl must both be STATIC libraries")
   endif()
   set(MATTERLEAST_QCA_TARGET Qca3::Qca)
   set(MATTERLEAST_QCA_PROVIDER "bundled-qca3")
 endif()
 message(STATUS "MatterLeast QCA: ${MATTERLEAST_QCA_PROVIDER} (${MATTERLEAST_QCA_TARGET})")
 
-# Executables under build/tests/ and build/ must find the vendored QCA
-# runtime DLL before they can even start. Qt's PATH cannot supply this
-# project-local dependency on Windows.
-if(WIN32 AND TARGET qca3-qt${QT_VERSION_MAJOR})
-  add_custom_target(matterleast-stage-qca-runtime ALL
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/tests"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-      "$<TARGET_FILE:qca3-qt${QT_VERSION_MAJOR}>"
-      "${CMAKE_BINARY_DIR}/"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-      "$<TARGET_FILE:qca3-qt${QT_VERSION_MAJOR}>"
-      "${CMAKE_BINARY_DIR}/tests/"
-    DEPENDS qca3-qt${QT_VERSION_MAJOR}
-    VERBATIM)
+# Consumers use one interface so tests and the application always link the
+# static crypto provider and import its Qt plugin registration together.
+add_library(matterleast-crypto INTERFACE)
+target_link_libraries(matterleast-crypto INTERFACE ${MATTERLEAST_QCA_TARGET})
+if(MATTERLEAST_QCA_PROVIDER STREQUAL "bundled-qca3")
+  target_link_libraries(matterleast-crypto INTERFACE qca-ossl)
+  target_compile_definitions(matterleast-crypto INTERFACE
+    QCA_STATIC MATTERLEAST_STATIC_QCA_OSSL)
 endif()
 
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
@@ -372,7 +379,7 @@ else()
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_HAVE_KEYCHAIN)
   endif()
   target_link_libraries(matterleast-core PUBLIC
-    ${MATTERLEAST_QCA_TARGET}
+    matterleast-crypto
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite
     matterleast-plugin-api)
