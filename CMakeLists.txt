@@ -425,6 +425,7 @@ else()
   endif()
   add_executable(${APPID} sources/main.cpp resource.qrc)
   target_link_libraries(${APPID} PRIVATE matterleast-core)
+  target_compile_definitions(${APPID} PRIVATE MATTERLEAST_BUILD_VERSION="${PROJECT_VERSION}")
 
   if(WIN32)
     # Keep Windows Explorer/AV/product metadata tied to the same version that
