@@ -669,17 +669,25 @@ qint64 PostCacheStore::nowMs() const
 
 QByteArray PostCacheStore::encodePost(const QJsonObject& post) const
 {
+    // Authenticated context prevents a database editor from swapping one
+    // ciphertext between accounts or post IDs.
+    const QByteArray context = QByteArrayLiteral("post-cache-v1:")
+        + QByteArray::number(accountId) + QByteArray(1, char(0))
+        + post.value(QStringLiteral("id")).toString().toUtf8();
     return LocalMessageCrypto::encrypt(
         qCompress(QJsonDocument(post).toJson(QJsonDocument::Compact), 6),
-        _encryptionKey, QByteArrayLiteral("post-cache-v1"));
+        _encryptionKey, context);
 }
 
-QJsonObject PostCacheStore::decodePost(const QByteArray& payload) const
+QJsonObject PostCacheStore::decodePost(const QByteArray& payload,
+                                       const QString& postId) const
 {
+    const QByteArray context = QByteArrayLiteral("post-cache-v1:")
+        + QByteArray::number(accountId) + QByteArray(1, char(0))
+        + postId.toUtf8();
     QByteArray compressed;
     if (!LocalMessageCrypto::decrypt(payload, _encryptionKey,
-                                      QByteArrayLiteral("post-cache-v1"),
-                                      &compressed)) {
+                                      context, &compressed)) {
         return {};
     }
     const QByteArray json = qUncompress(compressed);
@@ -702,7 +710,7 @@ QJsonObject PostCacheStore::readPostQuery(QSqlQuery& query, bool touchRows)
     QStringList touched;
     while (query.next()) {
         const QString postId = query.value(0).toString();
-        const QJsonObject post = decodePost(query.value(1).toByteArray());
+        const QJsonObject post = decodePost(query.value(1).toByteArray(), postId);
         if (postId.isEmpty() || post.isEmpty()) {
             continue;
         }
