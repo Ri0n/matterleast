@@ -379,6 +379,11 @@ else()
   # forwarding headers: any remaining dependency on the old chat timeline must
   # fail at its real active call site and become part of the migration checklist.
   list(FILTER SOURCES EXCLUDE REGEX "(^|/)deprecated/")
+  # Native Win32 helpers are standalone executables; not part of Qt core.
+  list(FILTER SOURCES EXCLUDE REGEX "(^|/)update/win/")
+  if(NOT WIN32 OR NOT MATTERLEAST_ENABLE_UPDATE_CHECKS)
+    list(FILTER SOURCES EXCLUDE REGEX "(^|/)update/WindowsUpdateController\\.cpp$")
+  endif()
   # Share the production implementation with integration tests, including the
   # real repository, HTTP connector and source/widget signal wiring.
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
@@ -442,6 +447,16 @@ else()
       "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${MATTERLEAST_VERSION_PATCH}.0")
     target_sources(${APPID} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/matterleast.rc")
     set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
+
+    # A permanent Win32 launcher and a version-owned atomic switcher.
+    set(MATTERLEAST_INSTALL_ID "v${PROJECT_VERSION}")
+    configure_file(sources/update/win/LauncherVersion.h.in
+      "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.h" @ONLY)
+    add_executable(MatterLeastLauncher WIN32 sources/update/win/launcher.cpp)
+    target_include_directories(MatterLeastLauncher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(MatterLeastLauncher PRIVATE shell32)
+    add_executable(MatterLeastUpdater WIN32 sources/update/win/updater.cpp)
+    target_link_libraries(MatterLeastUpdater PRIVATE shell32)
   endif()
 
 endif()
@@ -479,6 +494,15 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 		NO_UNSUPPORTED_PLATFORM_ERROR
 	)
 	install(SCRIPT "${qt_deploy_script}" COMPONENT Runtime)
+endif()
+
+if(WIN32)
+  install(TARGETS MatterLeastLauncher RUNTIME DESTINATION "." COMPONENT Runtime)
+  install(TARGETS MatterLeastUpdater RUNTIME DESTINATION "bin" COMPONENT Runtime)
+  configure_file(cmake/WindowsVersionedInstall.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/WindowsVersionedInstall.cmake" @ONLY)
+  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/WindowsVersionedInstall.cmake"
+    COMPONENT Runtime)
 endif()
 
 if(UNIX)
@@ -562,7 +586,9 @@ if(WIN32)
 	set(CPACK_NSIS_PACKAGE_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
 	set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
-	set(CPACK_NSIS_INSTALLED_ICON_NAME "bin/matterleast.exe")
+	set(CPACK_NSIS_INSTALLED_ICON_NAME "MatterLeastLauncher.exe")
+    set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
+    set(CPACK_PACKAGE_EXECUTABLES "MatterLeastLauncher" "MatterLeast")
 	set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 	set(CPACK_NSIS_HELP_LINK "${PROJECT_HOMEPAGE_URL}/issues")
 	set(CPACK_NSIS_URL_INFO_ABOUT "${PROJECT_HOMEPAGE_URL}")
