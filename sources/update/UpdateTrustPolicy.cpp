@@ -24,6 +24,11 @@ QString updateManifestUrl(UpdateChannel channel)
         : UpdateTrustConfig::nightlyManifestUrl);
 }
 
+QString defaultUpdateChannel()
+{
+    return QString::fromLatin1(UpdateTrustConfig::defaultChannel);
+}
+
 bool authenticateUpdateManifest(const QByteArray& manifest,
                                 const QByteArray& detachedSignature)
 {
