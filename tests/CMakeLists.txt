@@ -922,3 +922,14 @@ target_include_directories(windows-zip-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/
 target_link_libraries(windows-zip-policy-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME windows-zip-policy-test COMMAND windows-zip-policy-test)
+
+# Manual update checking must produce a result even if an installation cannot
+# self-update (flat/Store/non-versioned layouts), rather than doing nothing.
+if(WIN32 AND MATTERLEAST_ENABLE_UPDATE_CHECKS AND TARGET matterleast-core)
+    add_executable(windows-update-feedback-test WindowsUpdateFeedbackTest.cpp)
+    target_include_directories(windows-update-feedback-test PRIVATE
+        "${CMAKE_SOURCE_DIR}/sources")
+    target_link_libraries(windows-update-feedback-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME windows-update-feedback-test COMMAND windows-update-feedback-test)
+endif()
