@@ -1082,19 +1082,15 @@ void MainWindow::refreshUnreadFilterIcon()
 		return;
 	}
 
-	QIcon icon = QIcon::fromTheme(QStringLiteral("mail-unread-symbolic"));
-	if (icon.isNull()) {
-		icon = QIcon::fromTheme(QStringLiteral("mail-unread"));
-	}
-	if (icon.isNull()) {
-		icon = style()->standardIcon(QStyle::SP_MessageBoxInformation);
-	}
-
-	const QPalette palette = unreadFilterButton->palette();
-	const QColor color = unreadFilterButton->isChecked()
-		? palette.color(QPalette::Highlight)
-		: palette.color(QPalette::ButtonText);
-	unreadFilterButton->setIcon(IconUtils::tintedIcon(icon, color));
+    // Compass icon-filter-variant (F0236), the same glyph as the official
+    // Mattermost client. Never depend on theme icons or private-use fonts:
+    // Windows has neither and used to fall back to an information icon.
+    const QPalette palette = unreadFilterButton->palette();
+    const QColor color = unreadFilterButton->isChecked()
+        ? palette.color(QPalette::Highlight)
+        : palette.color(QPalette::ButtonText);
+    unreadFilterButton->setIcon(IconUtils::tintedSymbolicIcon(
+        QStringLiteral(":/icons/filter-variant"), color));
 	unreadFilterButton->setToolTip(unreadFilterButton->isChecked()
 		? tr("Show all channels")
 		: tr("Show unread only"));
