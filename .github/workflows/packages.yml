@@ -730,21 +730,13 @@ jobs:
             }
           }
 
-          # Verify imported native OpenSSL libraries are present next to the
-          # executable. GitHub runners have them on PATH; users generally don't.
+          # Native QCA CNG/wincrypto must not need OpenSSL runtime DLLs.
           $exe = Join-Path $runtime "bin/matterleast.exe"
           $imports = & dumpbin.exe /DEPENDENTS "$exe" | Out-String
-          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed to inspect dependencies" }
-          $opensslDlls = @([regex]::Matches($imports,
-              '(?im)^\s*((?:libssl|libcrypto|libtls|ssleay|libeay)[\w.-]*\.dll)\s*$') |
-              ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-          foreach ($name in $opensslDlls) {
-            $dll = Join-Path $runtime "bin/$name"
-            if (-not (Test-Path -LiteralPath $dll)) {
-              throw "Required OpenSSL DLL absent from Windows package: $name"
-            }
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed" }
+          if ($imports -match '(?im)^\s*(?:libssl|libcrypto|libtls|ssleay|libeay)[\w.-]*\.dll\s*$') {
+            throw "Native wincrypto build unexpectedly imports OpenSSL DLLs"
           }
-          Write-Host "Packaged imported OpenSSL DLLs: $($opensslDlls -join ', ')"
 
       - name: Package portable Windows ZIP
         id: portable
