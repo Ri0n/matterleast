@@ -49,6 +49,10 @@ message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 # Both system-version minimums and fetched-source SHAs come from one lock.
 include(cmake/MatterLeastDependencyLock.cmake)
 matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)
+if(WIN32)
+  # Pin the enhanced native-CNG QCA master only on Windows.
+  matterleast_load_dependency(qca_windows MATTERLEAST_QCA_LOCK)
+endif()
 matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)
 
 if(WIN32)
@@ -281,17 +285,25 @@ if(NOT MATTERLEAST_QCA_TARGET)
   set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
   set(BUILD_TESTS OFF CACHE BOOL "QCA tests" FORCE)
   set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
-  # Local cache values from an earlier QCA build must not bring in extra
-  # providers. Only the OpenSSL provider is needed for AES-256-GCM.
-  set(BUILD_PLUGINS "ossl" CACHE STRING "QCA providers (only ossl)" FORCE)
-  set(WITH_ossl_PLUGIN "yes" CACHE STRING "Build required QCA OpenSSL provider" FORCE)
-  foreach(_matterleast_unused_qca_provider IN ITEMS
-          botan cyrus-sasl gcrypt gnupg logger nss pkcs11 softstore)
-    set(WITH_${_matterleast_unused_qca_provider}_PLUGIN "no"
-        CACHE STRING "Disable unused embedded QCA provider" FORCE)
+  # Build only the platform's native provider. On Windows the QCA master
+  # wincrypto plugin supports AES-256-GCM and RSA/SHA-256 through CNG.
+  if(WIN32)
+    set(_matterleast_qca_plugin "wincrypto")
+  else()
+    set(_matterleast_qca_plugin "ossl")
+  endif()
+  set(BUILD_PLUGINS "${_matterleast_qca_plugin}" CACHE STRING "Single QCA provider" FORCE)
+  foreach(_qca_candidate IN ITEMS
+          botan cyrus-sasl gcrypt gnupg logger nss ossl pkcs11 softstore wincrypto)
+    if(_qca_candidate STREQUAL _matterleast_qca_plugin)
+      set(_qca_enabled "yes")
+    else()
+      set(_qca_enabled "no")
+    endif()
+    set(WITH_${_qca_candidate}_PLUGIN "${_qca_enabled}"
+        CACHE STRING "Selected QCA provider" FORCE)
   endforeach()
-  # Bundled really means statically linked core + statically imported
-  # OpenSSL provider; there must be no QCA DLL/.so/plugin to deploy.
+  # Static core + provider: no extra QCA DLL or plugin is packaged.
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "QCA static library" FORCE)
   set(LOAD_SHARED_PLUGINS OFF CACHE BOOL "Disable QCA runtime plugin scanning" FORCE)
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -307,10 +319,9 @@ if(NOT MATTERLEAST_QCA_TARGET)
     URL https://codeload.github.com/psi-im/qca/tar.gz/${MATTERLEAST_QCA_LOCK_COMMIT}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(matterleast_qca)
-  # Fail if the upstream provider list or CMake selection unexpectedly
-  # creates anything beyond qca-ossl. Static plugin imports must stay exact.
+  # Fail if an unexpected upstream QCA provider becomes enabled.
   foreach(_matterleast_qca_provider IN LISTS PLUGINS)
-    if(NOT _matterleast_qca_provider STREQUAL "ossl")
+    if(NOT _matterleast_qca_provider STREQUAL _matterleast_qca_plugin)
       if(TARGET qca-${_matterleast_qca_provider}
           OR WITH_${_matterleast_qca_provider}_PLUGIN_INTERNAL)
         message(FATAL_ERROR
@@ -325,29 +336,29 @@ if(NOT MATTERLEAST_QCA_TARGET)
     "$<BUILD_INTERFACE:${matterleast_qca_SOURCE_DIR}/include/QtCrypto>"
     "$<BUILD_INTERFACE:${matterleast_qca_BINARY_DIR}>"
     "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>")
-  if(TARGET qca-ossl)
-    target_include_directories(qca-ossl PRIVATE "${matterleast_qca_BINARY_DIR}")
+  if(TARGET qca-${_matterleast_qca_plugin})
+    target_include_directories(qca-${_matterleast_qca_plugin} PRIVATE "${matterleast_qca_BINARY_DIR}")
   endif()
   # Keep project -Werror separate from our pinned third-party library.
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(qca3-qt${QT_VERSION_MAJOR} PRIVATE -Wno-error)
-    if(TARGET qca-ossl)
-      target_compile_options(qca-ossl PRIVATE -Wno-error)
+    if(TARGET qca-${_matterleast_qca_plugin})
+      target_compile_options(qca-${_matterleast_qca_plugin} PRIVATE -Wno-error)
     endif()
   elseif(MSVC)
     target_compile_options(qca3-qt${QT_VERSION_MAJOR} PRIVATE /WX-)
-    if(TARGET qca-ossl)
-      target_compile_options(qca-ossl PRIVATE /WX-)
+    if(TARGET qca-${_matterleast_qca_plugin})
+      target_compile_options(qca-${_matterleast_qca_plugin} PRIVATE /WX-)
     endif()
   endif()
-  if(NOT TARGET Qca3::Qca OR NOT TARGET qca-ossl)
-    message(FATAL_ERROR "Bundled QCA must build a static core and qca-ossl plugin")
+  if(NOT TARGET Qca3::Qca OR NOT TARGET qca-${_matterleast_qca_plugin})
+    message(FATAL_ERROR "Bundled QCA must provide qca-${_matterleast_qca_plugin}")
   endif()
   get_target_property(_matterleast_qca_type qca3-qt${QT_VERSION_MAJOR} TYPE)
-  get_target_property(_matterleast_ossl_type qca-ossl TYPE)
+  get_target_property(_matterleast_provider_type qca-${_matterleast_qca_plugin} TYPE)
   if(NOT _matterleast_qca_type STREQUAL "STATIC_LIBRARY"
-      OR NOT _matterleast_ossl_type STREQUAL "STATIC_LIBRARY")
-    message(FATAL_ERROR "Bundled QCA and qca-ossl must both be STATIC libraries")
+      OR NOT _matterleast_provider_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR "Bundled QCA and native provider must both be static")
   endif()
   set(MATTERLEAST_QCA_TARGET Qca3::Qca)
   set(MATTERLEAST_QCA_PROVIDER "bundled-qca3")
@@ -359,9 +370,14 @@ message(STATUS "MatterLeast QCA: ${MATTERLEAST_QCA_PROVIDER} (${MATTERLEAST_QCA_
 add_library(matterleast-crypto INTERFACE)
 target_link_libraries(matterleast-crypto INTERFACE ${MATTERLEAST_QCA_TARGET})
 if(MATTERLEAST_QCA_PROVIDER STREQUAL "bundled-qca3")
-  target_link_libraries(matterleast-crypto INTERFACE qca-ossl)
-  target_compile_definitions(matterleast-crypto INTERFACE
-    QCA_STATIC MATTERLEAST_STATIC_QCA_OSSL)
+  target_link_libraries(matterleast-crypto INTERFACE qca-${_matterleast_qca_plugin})
+  if(WIN32)
+    target_compile_definitions(matterleast-crypto INTERFACE
+      QCA_STATIC MATTERLEAST_STATIC_QCA_WINCRYPTO)
+  else()
+    target_compile_definitions(matterleast-crypto INTERFACE
+      QCA_STATIC MATTERLEAST_STATIC_QCA_OSSL)
+  endif()
 endif()
 
 include_directories(${Qt${QT_VERSION_MAJOR}Network_INCLUDE_DIRS} sources/)
@@ -523,13 +539,7 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 endif()
 
 if(WIN32)
-  # qt_deploy_runtime_dependencies handles Qt DLLs, but it does not
-  # consistently bundle the native OpenSSL DLLs required by static qca-ossl.
-  # Resolve the actual import dependencies and stage them before moving bin/.
-  configure_file(cmake/WindowsDeployOpenSSL.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}/WindowsDeployOpenSSL.cmake" @ONLY)
-  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/WindowsDeployOpenSSL.cmake"
-    COMPONENT Runtime)
+  # Native CNG wincrypto has no external OpenSSL DLL dependencies.
   install(TARGETS MatterLeastLauncher RUNTIME DESTINATION "." COMPONENT Runtime)
   install(TARGETS MatterLeastUpdater RUNTIME DESTINATION "bin" COMPONENT Runtime)
   configure_file(cmake/WindowsVersionedInstall.cmake.in
