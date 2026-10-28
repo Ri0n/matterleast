@@ -458,6 +458,8 @@ else()
     file(WRITE "${CMAKE_BINARY_DIR}/matterleast-install-id.txt"
       "${MATTERLEAST_INSTALL_ID}\n")
     message(STATUS "MatterLeast Windows install identity: ${MATTERLEAST_INSTALL_ID}")
+    target_compile_definitions(${APPID} PRIVATE
+      MATTERLEAST_BUILD_ID="${MATTERLEAST_INSTALL_ID}")
     configure_file(sources/update/win/LauncherVersion.h.in
       "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.h" @ONLY)
     add_executable(MatterLeastLauncher WIN32 sources/update/win/launcher.cpp)
