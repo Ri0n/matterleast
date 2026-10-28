@@ -47,11 +47,11 @@ add_executable(update-download-probe
 target_include_directories(update-download-probe PRIVATE "${REPO_ROOT}/sources")
 target_link_libraries(update-download-probe PRIVATE Qt6::Core Qt6::Network matterleast-miniz)
 
-# Signed-update transport smoke uses the exact pinned Windows QCA3 revision
+# Signed-update transport smoke uses the single released QCA3 revision
 # with native CNG wincrypto. The public GitHub test above remains unsigned.
 include(FetchContent)
 file(READ "${REPO_ROOT}/dependencies.lock.json" _matterleast_deps)
-string(JSON _qca_master_sha GET "${_matterleast_deps}" qca_windows commit)
+string(JSON _qca_release_sha GET "${_matterleast_deps}" qca commit)
 set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
 set(BUILD_TESTS OFF CACHE BOOL "QCA internal tests" FORCE)
 set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
@@ -63,7 +63,7 @@ set(LOAD_SHARED_PLUGINS OFF CACHE BOOL "" FORCE)
 set(DEVELOPER_MODE ON CACHE BOOL "" FORCE)
 set(BUILD_WITH_QT6 ON CACHE BOOL "" FORCE)
 FetchContent_Declare(smoke_qca
-    URL "https://codeload.github.com/psi-im/qca/tar.gz/${_qca_master_sha}"
+    URL "https://codeload.github.com/psi-im/qca/tar.gz/${_qca_release_sha}"
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(smoke_qca)
 target_include_directories(qca3-qt6 PUBLIC
