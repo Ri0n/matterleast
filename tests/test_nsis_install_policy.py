@@ -41,7 +41,7 @@ class PerUserNsisTemplateTest(unittest.TestCase):
         self.assertIn('set(CPACK_MODULE_PATH "${_matterleast_nsis_templates}")', root_cmake)
         self.assertIn('matterleast_prepare_per_user_nsis_template(', root_cmake)
         self.assertIn('set(CPACK_COMPONENT_DEVELOPMENT_DISABLED TRUE)', root_cmake)
-        self.assertIn('WindowsDeployOpenSSL.cmake.in', root_cmake)
+        self.assertNotIn('WindowsDeployOpenSSL.cmake.in', root_cmake)
         self.assertNotIn('"RequestExecutionLevel user\\n"', root_cmake)
 
 

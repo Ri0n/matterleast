@@ -37,6 +37,8 @@ class DependencyLockContract(unittest.TestCase):
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn("include(cmake/MatterLeastDependencyLock.cmake)", cmake)
         self.assertIn("matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)", cmake)
+        self.assertNotIn("matterleast_load_dependency(qca_windows", cmake)
+        self.assertIn('set(QCA_VERSION "${MATTERLEAST_QCA_LOCK_TAG}"', cmake)
         self.assertIn("matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QCA_LOCK_COMMIT}", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QTKEYCHAIN_LOCK_COMMIT}", cmake)
@@ -53,9 +55,10 @@ class DependencyLockContract(unittest.TestCase):
         tests = (ROOT / "tests/CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn("set(BUILD_SHARED_LIBS OFF CACHE BOOL", cmake)
         self.assertIn("set(LOAD_SHARED_PLUGINS OFF CACHE BOOL", cmake)
-        self.assertIn('set(BUILD_PLUGINS "ossl"', cmake)
-        self.assertIn('set(WITH_ossl_PLUGIN "yes"', cmake)
-        self.assertIn('set(WITH_${_matterleast_unused_qca_provider}_PLUGIN "no"', cmake)
+        self.assertIn('set(_matterleast_qca_plugin "ossl")', cmake)
+        self.assertIn('set(_matterleast_qca_plugin "wincrypto")', cmake)
+        self.assertIn('set(BUILD_PLUGINS "${_matterleast_qca_plugin}"', cmake)
+        self.assertIn('set(WITH_${_qca_candidate}_PLUGIN "${_qca_enabled}"', cmake)
         for provider in ("botan", "cyrus-sasl", "gcrypt", "gnupg",
                          "logger", "nss", "pkcs11", "softstore"):
             self.assertIn(provider, cmake)
@@ -63,10 +66,11 @@ class DependencyLockContract(unittest.TestCase):
         self.assertIn("Unexpected bundled QCA provider", cmake)
         self.assertIn('set(DEVELOPER_MODE ON CACHE BOOL', cmake)
         self.assertIn('"STATIC_LIBRARY"', cmake)
-        self.assertIn("target_link_libraries(matterleast-crypto INTERFACE qca-ossl)", cmake)
+        self.assertIn("target_link_libraries(matterleast-crypto INTERFACE qca-${_matterleast_qca_plugin})", cmake)
         self.assertIn("QCA_STATIC MATTERLEAST_STATIC_QCA_OSSL", cmake)
+        self.assertIn("QCA_STATIC MATTERLEAST_STATIC_QCA_WINCRYPTO", cmake)
         self.assertIn("Q_IMPORT_PLUGIN(qca_ossl)", crypto)
-        self.assertIn("#ifdef MATTERLEAST_STATIC_QCA_OSSL", crypto)
+        self.assertIn("Q_IMPORT_PLUGIN(qca_wincrypto)", crypto)
         self.assertIn("matterleast-crypto", tests)
         self.assertNotIn("matterleast-stage-qca-runtime", cmake)
 
@@ -107,7 +111,12 @@ class DependencyLockContract(unittest.TestCase):
                 self.assertIn("-DMATTERLEAST_BUNDLED_QCA=ON", workflow)
                 self.assertNotIn(self.lock["qca"]["commit"], workflow)
                 self.assertNotIn(self.lock["qca"]["tag"], workflow)
-                self.assertIn("libssl-dev", workflow)  # OpenSSL headers, not QCA itself
+                # Linux packaging still needs OpenSSL for the ossl provider;
+                # native Windows packaging must not bundle any OpenSSL DLLs.
+                if path.name == "packages.yml":
+                    self.assertIn("libssl-dev", workflow)
+                self.assertIn("wincrypto", (ROOT / "CMakeLists.txt").read_text())
+
 
 
 if __name__ == "__main__":

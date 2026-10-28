@@ -6,11 +6,14 @@
 #include <QFileInfo>
 #include <QFile>
 
-#ifdef MATTERLEAST_STATIC_QCA_OSSL
+#if defined(MATTERLEAST_STATIC_QCA_OSSL) || defined(MATTERLEAST_STATIC_QCA_WINCRYPTO)
 #include <QtPlugin>
-// Explicit registration is required for a static Qt plugin. The same import
-// is linked into the app and each standalone crypto/cache test executable.
+// Every standalone crypto test and the application import the static provider.
+#if defined(MATTERLEAST_STATIC_QCA_WINCRYPTO)
+Q_IMPORT_PLUGIN(qca_wincrypto)
+#else
 Q_IMPORT_PLUGIN(qca_ossl)
+#endif
 #endif
 
 namespace Mattermost {
@@ -29,7 +32,7 @@ QCA::Initializer& cryptoInitializer()
     // relocated (especially in AppImage), so add it before QCA initializes.
     // A developer-provided QCA_PLUGIN_PATH is respected.
     static QCA::Initializer* initializer = [] {
-#ifndef MATTERLEAST_STATIC_QCA_OSSL
+#if !defined(MATTERLEAST_STATIC_QCA_OSSL) && !defined(MATTERLEAST_STATIC_QCA_WINCRYPTO)
         if (qEnvironmentVariableIsEmpty("QCA_PLUGIN_PATH")
             && QCoreApplication::instance()) {
             const QDir appDir(QCoreApplication::applicationDirPath());
