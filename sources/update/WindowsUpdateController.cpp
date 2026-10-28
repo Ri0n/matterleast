@@ -3,6 +3,7 @@
 #ifdef Q_OS_WIN
 #include "WindowsZipInstaller.h"
 #include "UpdateTrustPolicy.h"
+#include "WindowsUpdateVersionPolicy.h"
 #include "options/MLOptions.h"
 
 #include <QCoreApplication>
@@ -366,17 +367,9 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
         if (!_automatic)
             emit noUpdateAvailable(description);
     };
-    // Never auto-downgrade the numeric release, even when switching channels.
-    if (!running.isNull() && QVersionNumber::compare(available, running) < 0) {
-        noUpdate();
-        return;
-    }
-    if (channel == QLatin1String("stable")) {
-        if (!running.isNull() && QVersionNumber::compare(available, running) <= 0) {
-            noUpdate();
-            return;
-        }
-    } else if (installed.startsWith(QStringLiteral("nightly-")) && id <= installed) {
+    // A packaged nightly has the manifest buildId as its installed identity.
+    // Never fetch the same build, even if the user changes the update channel.
+    if (windowsUpdateAlreadyCurrentOrOlder(channel, installed, id, running, available)) {
         noUpdate();
         return;
     }
