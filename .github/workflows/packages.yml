@@ -13,10 +13,6 @@ on:
         type: choice
         options: [stable, nightly]
         default: stable
-      install_id:
-        description: Optional Windows versioned install identity (nightly buildId)
-        required: false
-        type: string
   workflow_call:
     inputs:
       version:
