@@ -922,6 +922,9 @@ target_include_directories(windows-zip-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/
 target_link_libraries(windows-zip-policy-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME windows-zip-policy-test COMMAND windows-zip-policy-test)
+if(WIN32)
+    target_link_libraries(windows-zip-policy-test PRIVATE matterleast-miniz)
+endif()
 
 # The buildId of a packaged nightly must prevent downloading that same
 # nightly while still allowing newer builds and channel transitions.
