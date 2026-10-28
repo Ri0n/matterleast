@@ -16,9 +16,12 @@ Set-Content -Path (Join-Path $root 'current.version') -Value $oldId -NoNewline -
 
 Write-Host "Disposable installation root: $root"
 Write-Host "Downloading the real current stable GitHub ZIP through WindowsUpdateController..."
-$probe = Start-Process -FilePath (Join-Path $bin 'matterleast.exe') -NoNewWindow -Wait -PassThru
-if ($probe.ExitCode -ne 0) {
-    throw "WindowsUpdateController failed to download/prepare the published update (exit $($probe.ExitCode))"
+# Invoke a console-subsystem smoke binary directly so Qt's qCritical
+# output (HTTP response, TLS error, etc.) survives in Actions logs.
+& (Join-Path $bin 'matterleast.exe') 2>&1 | Out-Host
+$probeExit = $LASTEXITCODE
+if ($probeExit -ne 0) {
+    throw "WindowsUpdateController failed to download/prepare the published update (exit $probeExit)"
 }
 
 $preparedPath = Join-Path $root 'staging/prepared.json'
