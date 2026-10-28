@@ -38,7 +38,7 @@ class DependencyLockContract(unittest.TestCase):
         self.assertIn("include(cmake/MatterLeastDependencyLock.cmake)", cmake)
         self.assertIn("matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)", cmake)
         self.assertNotIn("matterleast_load_dependency(qca_windows", cmake)
-        self.assertEqual(self.lock["qca"]["tag"], "v3.1.0")
+        self.assertIn('set(QCA_VERSION "${MATTERLEAST_QCA_LOCK_TAG}"', cmake)
         self.assertIn("matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QCA_LOCK_COMMIT}", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QTKEYCHAIN_LOCK_COMMIT}", cmake)
