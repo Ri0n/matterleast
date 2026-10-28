@@ -24,6 +24,7 @@
         <file alias="format-numbered-list">img/format-numbered-list.svg</file>
         <file alias="message-priority">img/message-priority.svg</file>
         <file alias="unread">img/unread.svg</file>
+        <file alias="filter-variant">img/filter-variant.svg</file>
         <file>img/quote-arrow.png</file>
     </qresource>
     <qresource prefix="/">
