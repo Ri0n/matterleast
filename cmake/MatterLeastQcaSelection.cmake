@@ -5,7 +5,7 @@ set(MATTERLEAST_QCA_TARGET "")
 set(MATTERLEAST_QCA_PROVIDER "")
 option(MATTERLEAST_BUNDLED_QCA
   "Build QCA from the exact dependencies.lock.json commit, even if system QCA exists"
-  OFF)
+  ${WIN32})
 
 if(NOT MATTERLEAST_BUNDLED_QCA)
   find_package(Qca3-qt${QT_VERSION_MAJOR}
