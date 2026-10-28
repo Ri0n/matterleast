@@ -33,6 +33,7 @@
 #include <QPointer>
 #include <QDialog>
 #include <QLabel>
+#include <QLocale>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -790,79 +791,129 @@ void MainWindow::createMenu()
 	QMenu* helpMenu = mainMenu->addMenu("Help");
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
     if (auto* updater = qApp->findChild<WindowsUpdateController*>()) {
-        helpMenu->addAction(tr("Check for updates"), updater,
-                            &WindowsUpdateController::checkNow);
         QAction* restart = helpMenu->addAction(tr("Update and restart"),
             updater, &WindowsUpdateController::startUpdateAndRestart);
         restart->setEnabled(updater->canApply());
 
-        // Use explicit widgets, not QProgressDialog: the latter may auto-show
-        // itself on setValue()/setRange() with minimumDuration=0, even during
-        // background checks, and is not reliably legible in the dark palette.
-        // Only manualCheckStarted() is allowed to display this window.
-        auto* progress = new QDialog(this);
-        progress->setWindowTitle(tr("MatterLeast updates"));
-        progress->setAttribute(Qt::WA_QuitOnClose, false);
-        progress->setWindowModality(Qt::NonModal);
-        progress->setMinimumWidth(340);
-        auto* layout = new QVBoxLayout(progress);
-        auto* description = new QLabel(tr("Checking for updates..."), progress);
-        description->setWordWrap(true);
-        layout->addWidget(description);
-        auto* bar = new QProgressBar(progress);
-        bar->setRange(0, 0);
-        bar->setTextVisible(false);
-        layout->addWidget(bar);
-        auto* closeButton = new QPushButton(tr("Hide"), progress);
-        layout->addWidget(closeButton, 0, Qt::AlignRight);
-        connect(closeButton, &QPushButton::clicked, progress, &QDialog::hide);
-        progress->hide();
+        // Opening Help -> Check for updates is a read-only view of the
+        // existing controller. The automatic check never creates or shows a
+        // window and opening this dialog never starts a second network request.
+        auto* statusDialog = new QDialog(this);
+        statusDialog->setWindowTitle(tr("MatterLeast updates"));
+        statusDialog->setAttribute(Qt::WA_QuitOnClose, false);
+        statusDialog->setWindowModality(Qt::NonModal);
+        statusDialog->setMinimumWidth(400);
 
-        connect(updater, &WindowsUpdateController::manualCheckStarted, this,
-            [this, progress, description, bar] {
-                description->setText(tr("Checking for updates..."));
+        auto* layout = new QVBoxLayout(statusDialog);
+        auto* channelLabel = new QLabel(statusDialog);
+        layout->addWidget(channelLabel);
+        auto* statusLabel = new QLabel(statusDialog);
+        statusLabel->setWordWrap(true);
+        layout->addWidget(statusLabel);
+        auto* lastCheckedLabel = new QLabel(statusDialog);
+        lastCheckedLabel->setWordWrap(true);
+        layout->addWidget(lastCheckedLabel);
+        auto* resultLabel = new QLabel(statusDialog);
+        resultLabel->setWordWrap(true);
+        layout->addWidget(resultLabel);
+
+        auto* bar = new QProgressBar(statusDialog);
+        bar->setTextVisible(true);
+        layout->addWidget(bar);
+        auto* buttons = new QHBoxLayout();
+        layout->addLayout(buttons);
+        auto* checkButton = new QPushButton(tr("Check now"), statusDialog);
+        buttons->addWidget(checkButton);
+        auto* applyButton = new QPushButton(tr("Update and restart"), statusDialog);
+        buttons->addWidget(applyButton);
+        buttons->addStretch();
+        auto* closeButton = new QPushButton(tr("Close"), statusDialog);
+        buttons->addWidget(closeButton);
+        connect(closeButton, &QPushButton::clicked, statusDialog, &QDialog::hide);
+        connect(checkButton, &QPushButton::clicked, updater,
+                &WindowsUpdateController::checkNow);
+        connect(applyButton, &QPushButton::clicked, updater,
+                &WindowsUpdateController::startUpdateAndRestart);
+        statusDialog->hide();
+
+        const auto refresh = [this, updater, restart, channelLabel,
+                              statusLabel, lastCheckedLabel, resultLabel,
+                              bar, checkButton, applyButton] {
+            const auto state = updater->state();
+            const bool busy = updater->isBusy();
+            const bool available = state != WindowsUpdateController::State::Unavailable;
+            channelLabel->setText(tr("Channel: %1").arg(updater->checkChannel()));
+
+            QString status;
+            switch (state) {
+            case WindowsUpdateController::State::Unavailable:
+                status = tr("Updates are unavailable for this installation.");
+                break;
+            case WindowsUpdateController::State::Idle:
+                status = tr("Not checking for updates.");
+                break;
+            case WindowsUpdateController::State::Checking:
+                status = tr("Checking for updates...");
+                break;
+            case WindowsUpdateController::State::Downloading:
+                status = tr("Downloading update %1...").arg(updater->availableVersion());
+                break;
+            case WindowsUpdateController::State::Preparing:
+                status = tr("Verifying and preparing %1...").arg(updater->availableVersion());
+                break;
+            case WindowsUpdateController::State::Ready:
+                status = tr("Version %1 is ready to install.").arg(updater->availableVersion());
+                break;
+            case WindowsUpdateController::State::Failed:
+                status = tr("The previous update operation failed.");
+                break;
+            }
+            statusLabel->setText(status);
+
+            const QDateTime checked = updater->lastCheckTime();
+            lastCheckedLabel->setText(checked.isValid()
+                ? tr("Last checked: %1").arg(QLocale().toString(
+                    checked.toLocalTime(), QLocale::ShortFormat))
+                : tr("Last checked: never"));
+            const QString result = updater->lastCheckResult();
+            resultLabel->setText(result.isEmpty()
+                ? tr("No previous check result.") : result);
+
+            bar->setVisible(busy);
+            if (state == WindowsUpdateController::State::Downloading
+                && updater->downloadTotalBytes() > 0) {
+                bar->setRange(0, 100);
+                bar->setValue(int(100 * updater->downloadedBytes()
+                                   / updater->downloadTotalBytes()));
+                bar->setFormat(tr("%p% (%1 / %2 MB)")
+                    .arg(updater->downloadedBytes() / (1024 * 1024))
+                    .arg(updater->downloadTotalBytes() / (1024 * 1024)));
+            } else if (busy) {
                 bar->setRange(0, 0);
-                progress->show();
-                progress->raise();
+            }
+            checkButton->setEnabled(available && !busy);
+            applyButton->setVisible(updater->canApply());
+            applyButton->setEnabled(updater->canApply());
+            restart->setEnabled(updater->canApply());
+        };
+
+        helpMenu->addAction(tr("Check for updates"), this,
+            [statusDialog, refresh] {
+                refresh(); // Snapshot of any background work already underway.
+                statusDialog->show();
+                statusDialog->raise();
+                statusDialog->activateWindow();
             });
         connect(updater, &WindowsUpdateController::stateChanged, this,
-            [updater, restart, progress, description, bar, this](WindowsUpdateController::State state) {
-                restart->setEnabled(updater->canApply());
-                if (!updater->manualCheckActive() || !progress->isVisible())
-                    return;
-                if (state == WindowsUpdateController::State::Downloading) {
-                    description->setText(tr("Downloading update..."));
-                    bar->setRange(0, 100);
-                    bar->setValue(0);
-                } else if (state == WindowsUpdateController::State::Preparing) {
-                    description->setText(tr("Verifying and preparing update..."));
-                    bar->setRange(0, 0);
-                }
-            });
+            [refresh](WindowsUpdateController::State) { refresh(); });
         connect(updater, &WindowsUpdateController::progressChanged, this,
-            [progress, bar](qint64 received, qint64 total) {
-                if (progress->isVisible() && total > 0)
-                    bar->setValue(int(100 * received / total));
-            });
-        connect(updater, &WindowsUpdateController::noUpdateAvailable, this,
-            [this, progress](const QString& message) {
-                progress->hide();
-                QMessageBox::information(this, tr("MatterLeast updates"), message);
-            });
-        connect(updater, &WindowsUpdateController::errorOccurred, this,
-            [this, progress](const QString& message) {
-                progress->hide();
-                QMessageBox::warning(this, tr("MatterLeast update failed"), message);
-            });
-        connect(updater, &WindowsUpdateController::updatePrepared, this,
-            [this, updater, progress](const QString& identity) {
-                if (!updater->manualCheckActive())
-                    return;
-                progress->hide();
-                QMessageBox::information(this, tr("MatterLeast update ready"),
-                    tr("Version %1 is ready. Choose Help → Update and restart "
-                       "to install it.").arg(identity));
-            });
+            [refresh](qint64, qint64) { refresh(); });
+        connect(updater, &WindowsUpdateController::checkHistoryChanged, this,
+            refresh);
+        connect(MLOptions::instance()->optionObject(
+                    QStringLiteral("updates/channel"), QStringLiteral("stable")),
+                &MLOptionObject::changed, this,
+                [refresh](const QVariant&) { refresh(); });
     }
 #endif
 	helpMenu->addAction("About MatterLeast", [this] {
