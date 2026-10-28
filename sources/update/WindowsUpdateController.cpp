@@ -152,8 +152,12 @@ void WindowsUpdateController::check(bool automatic)
         return;
     }
     if (_state == State::Ready) {
-        if (!automatic)
+        if (!automatic) {
+            // An automatic check may already have prepared a version. A
+            // subsequent Help-menu click must still show the ready dialog.
+            _automatic = false;
             emit updatePrepared(_identity);
+        }
         return;
     }
     if (_state == State::Checking || _state == State::Downloading
