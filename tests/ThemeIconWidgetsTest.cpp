@@ -2,12 +2,14 @@
 
 #include <QApplication>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QImage>
 #include <QPainter>
 #include <QPalette>
 #include <QWidget>
 
 #include "ui/SvgRasterCache.h"
+#include "ui/IconUtils.h"
 #include "ui/ThemeIconWidgets.h"
 
 using namespace Mattermost;
@@ -59,6 +61,32 @@ class ThemeIconWidgetsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void unreadFilterUsesCompassSvgInsteadOfSystemFonts()
+    {
+        const QString path = QStringLiteral(":/icons/filter-variant");
+        const QIcon original(path);
+        QVERIFY2(!original.isNull(), "Compass filter-variant missing from resource.qrc");
+
+        const QImage shape = original.pixmap(24, 24).toImage();
+        QVERIFY(!shape.isNull());
+        // Exact Mattermost Compass F0236 geometry: horizontal bars of
+        // decreasing widths (18, 12 and 4 units), not an envelope/info icon.
+        QVERIFY(shape.pixelColor(4, 7).alpha() > 200);
+        QVERIFY(shape.pixelColor(7, 12).alpha() > 200);
+        QVERIFY(shape.pixelColor(11, 17).alpha() > 200);
+        QVERIFY(shape.pixelColor(6, 17).alpha() < 10);
+        QVERIFY(shape.pixelColor(20, 12).alpha() < 10);
+
+        const QColor inactive(32, 72, 104);
+        const QColor active(215, 101, 30);
+        const QIcon normal = IconUtils::tintedSymbolicIcon(path, inactive);
+        const QIcon highlighted = IconUtils::tintedSymbolicIcon(path, active);
+        QVERIFY(!normal.isNull());
+        QVERIFY(!highlighted.isNull());
+        QCOMPARE(normal.pixmap(24, 24).toImage().pixelColor(11, 7), inactive);
+        QCOMPARE(highlighted.pixmap(24, 24).toImage().pixelColor(11, 7), active);
+    }
+
     void symbolicIconTracksApplicationPalette()
     {
         const QPalette original = qApp->palette();
