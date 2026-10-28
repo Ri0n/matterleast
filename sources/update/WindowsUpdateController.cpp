@@ -357,8 +357,8 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
     // same-version/downgrade response. Automatic checks remain silent.
     const auto noUpdate = [this, channel, version, id] {
         const QString description = tr(
-            "No updates available on the %1 channel.\\n"
-            "Installed version: %2\\n"
+            "No updates available on the %1 channel.\n"
+            "Installed version: %2\n"
             "Latest published version: %3 (%4)")
             .arg(channel, QCoreApplication::applicationVersion(), version, id);
         recordCheckResult(description);
