@@ -502,6 +502,13 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 endif()
 
 if(WIN32)
+  # qt_deploy_runtime_dependencies handles Qt DLLs, but it does not
+  # consistently bundle the native OpenSSL DLLs required by static qca-ossl.
+  # Resolve the actual import dependencies and stage them before moving bin/.
+  configure_file(cmake/WindowsDeployOpenSSL.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/WindowsDeployOpenSSL.cmake" @ONLY)
+  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/WindowsDeployOpenSSL.cmake"
+    COMPONENT Runtime)
   install(TARGETS MatterLeastLauncher RUNTIME DESTINATION "." COMPONENT Runtime)
   install(TARGETS MatterLeastUpdater RUNTIME DESTINATION "bin" COMPONENT Runtime)
   configure_file(cmake/WindowsVersionedInstall.cmake.in
