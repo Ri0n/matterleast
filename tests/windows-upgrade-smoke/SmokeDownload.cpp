@@ -32,6 +32,8 @@ int main(int argc, char** argv)
     application.setOrganizationName(QStringLiteral("MatterLeastUpgradeSmoke"));
     application.setApplicationName(QStringLiteral("MatterLeastUpgradeSmoke"));
     application.setApplicationVersion(QStringLiteral("1.0"));
+    const bool expectNoUpdate = application.arguments().contains(
+        QStringLiteral("--expect-no-update"));
 
     // This executable is copied to versions/v1.0/MatterLeast/bin/matterleast.exe
     // in a disposable installation. The current nightly release is newer than 1.0.
@@ -61,12 +63,22 @@ int main(int argc, char** argv)
         application.exit(3);
     });
     QObject::connect(&updater, &Mattermost::WindowsUpdateController::noUpdateAvailable,
-                     &application, [&application](const QString& reason) {
+                     &application, [&application, expectNoUpdate](const QString& reason) {
+        if (expectNoUpdate) {
+            qInfo().noquote() << "Confirmed no self-update:" << reason;
+            application.exit(0);
+            return;
+        }
         qCritical().noquote() << "Expected a newer release:" << reason;
         application.exit(4);
     });
     QObject::connect(&updater, &Mattermost::WindowsUpdateController::updatePrepared,
-                     &application, [&application, &receivedPayload](const QString& id) {
+                     &application, [&application, &receivedPayload, expectNoUpdate](const QString& id) {
+        if (expectNoUpdate) {
+            qCritical().noquote() << "Regression: own nightly build was treated as an update:" << id;
+            application.exit(7);
+            return;
+        }
         if (!receivedPayload) {
             qCritical() << "Update was prepared without an observed streamed download";
             application.exit(5);
