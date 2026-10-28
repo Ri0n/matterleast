@@ -450,7 +450,14 @@ else()
     set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
 
     # A permanent Win32 launcher and a version-owned atomic switcher.
-    set(MATTERLEAST_INSTALL_ID "v${PROJECT_VERSION}")
+    # For nightly packages, this identity must equal the manifest buildId
+    # (not v${PROJECT_VERSION}, which is shared by every nightly).
+    include(cmake/MatterLeastWindowsInstallIdentity.cmake)
+    matterleast_resolve_windows_install_identity(
+      "${PROJECT_VERSION}" "${MATTERLEAST_UPDATE_DEFAULT_CHANNEL}")
+    file(WRITE "${CMAKE_BINARY_DIR}/matterleast-install-id.txt"
+      "${MATTERLEAST_INSTALL_ID}\n")
+    message(STATUS "MatterLeast Windows install identity: ${MATTERLEAST_INSTALL_ID}")
     configure_file(sources/update/win/LauncherVersion.h.in
       "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.h" @ONLY)
     add_executable(MatterLeastLauncher WIN32 sources/update/win/launcher.cpp)
