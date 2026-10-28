@@ -33,6 +33,20 @@ private slots:
             QVersionNumber(2, 0), QVersionNumber(2, 0)));
     }
 
+    void doesNotDowngradeNewerCiBuildToOlderNightly()
+    {
+        QVERIFY(windowsUpdateAlreadyCurrentOrOlder(
+            QStringLiteral("nightly"),
+            QStringLiteral("ci-20261028-203000-090bc3c6d046"),
+            QStringLiteral("nightly-20261028-185307-a743adbc1dfb"),
+            QVersionNumber(2, 0), QVersionNumber(2, 0)));
+        QVERIFY(!windowsUpdateAlreadyCurrentOrOlder(
+            QStringLiteral("nightly"),
+            QStringLiteral("ci-20261028-203000-090bc3c6d046"),
+            QStringLiteral("nightly-20261029-010000-aaaaaaaaaaaa"),
+            QVersionNumber(2, 0), QVersionNumber(2, 0)));
+    }
+
     void allowsFirstNightlyFromStable()
     {
         QVERIFY(!windowsUpdateAlreadyCurrentOrOlder(
