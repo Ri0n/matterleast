@@ -12,6 +12,9 @@ bool updateChecksCompiled();
 bool updateManifestSignatureRequired();
 QString updateManifestUrl(UpdateChannel channel);
 
+// Build-specific default; user-saved updates/channel overrides it.
+QString defaultUpdateChannel();
+
 // Verify the detached <manifest>.sig signature over the raw manifest bytes.
 // Returns false if checks are compiled out, no trust key is configured,
 // the signature is malformed, or verification fails.
