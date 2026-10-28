@@ -1,4 +1,7 @@
 name: Nightly release
+# Include the source commit in the run title so published packages can be
+# distinguished from earlier nightly builds during updater tests.
+run-name: Nightly packaging from ${{ github.sha }}
 
 # The first merge of this new publication layout bootstraps the rolling release.
 on:
