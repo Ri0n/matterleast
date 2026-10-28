@@ -740,6 +740,27 @@ jobs:
             throw "CPack did not produce an NSIS installer"
           }
 
+          # CPack can silently override the install root for JustMe users
+          # (falling back to redirected Documents/OneDrive). Audit the final
+          # generated NSIS script, not merely the CMake configuration.
+          $nsisScript = Get-ChildItem package -Recurse -File -Filter project.nsi |
+            Select-Object -First 1
+          if (-not $nsisScript) { throw "Generated project.nsi not found" }
+          $nsisCode = Get-Content -LiteralPath $nsisScript.FullName -Raw
+          foreach ($expectedLine in @(
+            'InstallDir "$LOCALAPPDATA\Programs\MatterLeast"',
+            'RequestExecutionLevel user',
+            'SetShellVarContext current')) {
+            if (-not $nsisCode.Contains($expectedLine)) {
+              throw "NSIS per-user contract missing: $expectedLine"
+            }
+          }
+          if ($nsisCode.Contains('StrCpy $INSTDIR "$DOCUMENTS') -or
+              $nsisCode.Contains('SetShellVarContext all') -or
+              $nsisCode.Contains('RequestExecutionLevel admin')) {
+            throw "NSIS generator reintroduced an unsafe install directory or privilege policy"
+          }
+
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
           $installerInfo = $installer.VersionInfo
           # Dump everything before asserting so packaging regressions are
