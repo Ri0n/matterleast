@@ -9,6 +9,12 @@ class UpdateTrustPolicyTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void defaultChannelPolicy()
+    {
+        const QString name = defaultUpdateChannelName();
+        QVERIFY(name == QLatin1String("stable") || name == QLatin1String("nightly"));
+    }
+
     void endpointPolicy()
     {
         if (!updateChecksCompiled()) {
