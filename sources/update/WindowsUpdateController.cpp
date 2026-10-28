@@ -31,6 +31,9 @@ namespace Mattermost {
 namespace {
 constexpr qint64 MaxPackage = 900LL * 1024 * 1024;
 constexpr int MaxManifest = 128 * 1024;
+// Metadata is tiny: never leave a manual check waiting for Qt's 120-second
+// transfer stall timeout (or an indefinitely active TLS connection).
+constexpr int MetadataTimeoutMs = 15000;
 constexpr int Protocol = 1;
 
 bool safeIdentity(const QString& identity)
@@ -199,19 +202,45 @@ void WindowsUpdateController::downloadBytes(
     QNetworkReply* reply = _network.get(requestFor(url));
     _reply = reply;
     const auto collected = QSharedPointer<QByteArray>::create();
+    // A hard wall-clock timeout is necessary for a usable manual check:
+    // transferTimeout() only covers inactivity and the connection may never
+    // finish when a proxy/TLS handshake stalls.
+    QTimer::singleShot(MetadataTimeoutMs, reply, [reply] {
+        if (!reply->isFinished()) {
+            reply->setProperty("matterleastTimedOut", true);
+            reply->abort();
+        }
+    });
     connect(reply, &QIODevice::readyRead, this, [reply, collected, limit] {
         collected->append(reply->readAll());
-        if (collected->size() > limit) reply->abort();
+        if (collected->size() > limit)
+            reply->abort();
     });
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, collected, limit, done] {
         collected->append(reply->readAll());
         if (_reply == reply) _reply.clear();
         const bool valid = isHttpSuccess(reply) && collected->size() <= limit;
-        const QString error = reply->errorString();
+        const bool timedOut = reply->property("matterleastTimedOut").toBool();
+        const int httpStatus = reply->attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QString networkError = reply->errorString();
+        const QString host = reply->url().host();
         reply->deleteLater();
         if (!valid) {
-            setState(State::Failed, tr("Could not retrieve signed update metadata: %1").arg(error));
+            if (timedOut) {
+                setState(State::Failed,
+                    tr("Update server %1 did not respond within %2 seconds. "
+                       "Check your connection, proxy or firewall.")
+                        .arg(host).arg(MetadataTimeoutMs / 1000));
+            } else if (collected->size() > limit) {
+                setState(State::Failed, tr("Update metadata exceeds the size limit."));
+            } else {
+                setState(State::Failed,
+                    tr("Could not fetch update metadata from %1 "
+                       "(HTTP %2): %3")
+                        .arg(host).arg(httpStatus).arg(networkError));
+            }
             return;
         }
         done(*collected);
