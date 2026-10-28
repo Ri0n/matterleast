@@ -53,6 +53,10 @@ private:
     QCheckBox* sendWithCtrlEnter = nullptr;
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
     QComboBox* _channelRootNotificationMode = nullptr;
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+    QCheckBox* _updatesAutomatic = nullptr;
+    QComboBox* _updatesChannel = nullptr;
+#endif
     QComboBox* emojiDefaultSkinTone_ = nullptr;
     QString originalChatFont;
     QString _originalCodeFontFamily;
