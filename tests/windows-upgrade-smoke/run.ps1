@@ -19,7 +19,15 @@ Set-Content -Path (Join-Path $root 'current.version') -Value $oldId -NoNewline -
 # able to replace that file instead of reporting an unrelated hash/I/O error.
 $manifest = Invoke-RestMethod -Uri 'https://github.com/Ri0n/matterleast/releases/download/updates-nightly/windows-x64.json'
 $pendingId = [string]$manifest.buildId
-if ($pendingId -notmatch '^nightly-[0-9]{8}-[0-9]{6}-[a-f0-9]{7,40}
+if ($pendingId -notmatch '^nightly-[0-9]{8}-[0-9]{6}-[a-f0-9]{7,40}$') {
+    throw 'Live manifest did not provide a valid nightly buildId'
+}
+$priorZip = Join-Path $root "staging/$pendingId.zip"
+New-Item -ItemType Directory -Force -Path (Split-Path $priorZip) | Out-Null
+[System.IO.File]::WriteAllBytes($priorZip, [System.Text.Encoding]::ASCII.GetBytes(
+    'leftover ZIP from a previous failed extraction'))
+Write-Host "Simulating previously downloaded ZIP at: $priorZip"
+Write-Host "Disposable installation root: $root"
 Write-Host "Downloading the current nightly GitHub ZIP through WindowsUpdateController..."
 # Invoke a console-subsystem smoke binary directly so Qt's qCritical
 # output (HTTP response, TLS error, etc.) survives in Actions logs.
