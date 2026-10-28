@@ -13,7 +13,7 @@ class WindowsUpdateFeedbackTest final : public QObject
 private slots:
     void initTestCase()
     {
-        // MLOptions uses native QSettings. Standalone QtTest executables
+        // MLOptions uses the native settings store. Standalone QtTest executables
         // must set the same application scope the real client sets, or the
         // Windows registry backend cannot persist the test history.
         QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
