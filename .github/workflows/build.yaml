@@ -212,6 +212,16 @@ jobs:
         shell: pwsh
         run: python -m unittest discover -s tests -p test_nsis_install_policy.py -v
 
+      - name: Stamp Windows CI artifact build identity
+        shell: pwsh
+        run: |
+          # CI artifacts are NOT published nightly releases. Their UTC
+          # creation time distinguishes them from older nightly pointers.
+          $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
+          $id = "ci-$stamp-$($env:GITHUB_SHA.Substring(0,12))"
+          "MATTERLEAST_CI_BUILD_ID=$id" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "CI build identity: $id"
+
       - name: Configure
         env:
           CCACHE_COMPILERCHECK: content
@@ -222,6 +232,7 @@ jobs:
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DQT_6=ON
           -DMATTERLEAST_USE_KEYCHAIN=ON
+          -DMATTERLEAST_INSTALL_ID="$env:MATTERLEAST_CI_BUILD_ID"
           -DBUILD_TESTING=ON
           -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
 
@@ -287,7 +298,11 @@ jobs:
           cmake --install build --prefix stage
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
-          $runtime = "stage/versions/v$version/MatterLeast"
+          $installId = (Get-Content build/matterleast-install-id.txt -Raw).Trim()
+          if ($installId -ne $env:MATTERLEAST_CI_BUILD_ID) {
+            throw "CI package identity is not the compiled buildId"
+          }
+          $runtime = "stage/versions/$installId/MatterLeast"
           foreach ($p in @(
               "stage/MatterLeastLauncher.exe",
               "$runtime/bin/matterleast.exe",
@@ -327,8 +342,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Cannot enumerate ZIP contents" }
           foreach ($entry in @(
               "MatterLeast/MatterLeastLauncher.exe",
-              "MatterLeast/versions/v$version/MatterLeast/bin/matterleast.exe",
-              "MatterLeast/versions/v$version/MatterLeast/bin/MatterLeastUpdater.exe")) {
+              "MatterLeast/versions/$installId/MatterLeast/bin/matterleast.exe",
+              "MatterLeast/versions/$installId/MatterLeast/bin/MatterLeastUpdater.exe")) {
             if ($contents -notcontains $entry) {
               throw "Update ZIP is missing required entry $entry"
             }
