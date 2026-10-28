@@ -48,11 +48,8 @@ message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
 # Both system-version minimums and fetched-source SHAs come from one lock.
 include(cmake/MatterLeastDependencyLock.cmake)
+# QCA 3.1.0 is the single locked source on Windows, Linux and macOS.
 matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)
-if(WIN32)
-  # Pin the enhanced native-CNG QCA master only on Windows.
-  matterleast_load_dependency(qca_windows MATTERLEAST_QCA_LOCK)
-endif()
 matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)
 
 if(WIN32)
