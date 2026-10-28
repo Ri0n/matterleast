@@ -8,6 +8,8 @@ on:
       - 'tests/windows-upgrade-smoke/**'
       - 'sources/update/**'
       - 'sources/options/MLOptions.*'
+      - 'sources/crypto/RsaSha256Verifier.*'
+      - 'dependencies.lock.json'
 
 permissions:
   contents: read
@@ -44,3 +46,8 @@ jobs:
         shell: pwsh
         run: |
           ./tests/windows-upgrade-smoke/run.ps1 -BuildDir build-upgrade-smoke
+      - name: Verify signed manifests and reject bad signatures over real HTTPS
+        shell: pwsh
+        run: |
+          python ./tests/windows-upgrade-smoke/signed_https_smoke.py --probe build-upgrade-smoke/update-signed-probe.exe
+          exit $LASTEXITCODE
