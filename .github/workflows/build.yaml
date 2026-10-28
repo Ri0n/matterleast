@@ -36,6 +36,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_windows_update_manifest.py -v
           python3 -m unittest discover -s tests -p test_prune_nightly_assets.py -v
           python3 -m unittest discover -s tests -p test_update_policy.py -v
+          python3 -m unittest discover -s tests -p test_windows_install_identity.py -v
 
   debian13:
     name: Qt 6.8.2 / Debian 13 — DEB
