@@ -17,6 +17,19 @@ target_link_libraries(sidebar-conversation-search-policy-test
 add_test(NAME sidebar-conversation-search-policy-test
     COMMAND sidebar-conversation-search-policy-test)
 
+# The sidebar update call-to-action is a presentation-only widget. Cover its
+# visibility, progress, clickable pending download and retry states on Qt5/Qt6.
+add_executable(sidebar-update-banner-test
+    SidebarUpdateBannerTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/ui/SidebarUpdateBanner.cpp")
+target_include_directories(sidebar-update-banner-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(sidebar-update-banner-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME sidebar-update-banner-test COMMAND sidebar-update-banner-test)
+set_tests_properties(sidebar-update-banner-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(long-list-widget-test
     LongListWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/widgets/LongListWidget.cpp"
