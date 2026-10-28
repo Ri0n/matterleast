@@ -312,6 +312,10 @@ if(NOT MATTERLEAST_QCA_TARGET)
   else()
     set(BUILD_WITH_QT6 OFF CACHE BOOL "QCA Qt version" FORCE)
   endif()
+  # SHA-addressed source archives have no reliable git-describe context.
+  # Compile the exact released version recorded in dependencies.lock.json.
+  set(QCA_VERSION "${MATTERLEAST_QCA_LOCK_TAG}" CACHE STRING
+      "Version of the pinned bundled QCA release" FORCE)
   FetchContent_Declare(matterleast_qca
     URL https://codeload.github.com/psi-im/qca/tar.gz/${MATTERLEAST_QCA_LOCK_COMMIT}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
