@@ -6,6 +6,16 @@
 option(MATTERLEAST_ENABLE_UPDATE_CHECKS
     "Compile support for checking for MatterLeast updates" ON)
 
+# The packaged binary selects its default update feed at build time. This is
+# only a default: an explicit per-user updates/channel preference takes priority.
+set(MATTERLEAST_BUILD_CHANNEL "stable" CACHE STRING
+    "Default update channel embedded in the application (stable or nightly)")
+set_property(CACHE MATTERLEAST_BUILD_CHANNEL PROPERTY STRINGS stable nightly)
+if(NOT MATTERLEAST_BUILD_CHANNEL STREQUAL "stable"
+    AND NOT MATTERLEAST_BUILD_CHANNEL STREQUAL "nightly")
+    message(FATAL_ERROR "MATTERLEAST_BUILD_CHANNEL must be stable or nightly")
+endif()
+
 set(_matterleast_default_update_url
     "https://github.com/Ri0n/matterleast/releases/download/updates-{channel}/windows-x64.json")
 set(MATTERLEAST_UPDATE_MANIFEST_URL "${_matterleast_default_update_url}" CACHE STRING
