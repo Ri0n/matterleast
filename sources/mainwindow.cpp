@@ -355,7 +355,7 @@ GNU Lesser General Public License for more details.<br/>
 <br/>
 You should have received a copy of the GNU Lesser General Public License
 along with MatterLeast. If not, see <a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.<br/>
-)");
+)";
     const QString buildId = qApp->property("matterleast-build-id").toString();
     if (!buildId.isEmpty()) {
         description.insert(description.indexOf(QStringLiteral("<br/>")),
