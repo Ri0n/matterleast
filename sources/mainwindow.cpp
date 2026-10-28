@@ -332,8 +332,10 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 MainWindow::~MainWindow() = default;
 
-static QString infoText(QString("MatterLeast " PROJECT_VER "<br/>"
-                                "An unofficial native Mattermost client using the Qt framework.<br/>") +
+static QString infoText()
+{
+    QString description = QString("MatterLeast " PROJECT_VER "<br/>"
+                                 "An unofficial native Mattermost client using the Qt framework.<br/>") +
 R"(
 <br/>
 MatterLeast development and maintenance:<br/>
@@ -354,6 +356,14 @@ GNU Lesser General Public License for more details.<br/>
 You should have received a copy of the GNU Lesser General Public License
 along with MatterLeast. If not, see <a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.<br/>
 )");
+    const QString buildId = qApp->property("matterleast-build-id").toString();
+    if (!buildId.isEmpty()) {
+        description.insert(description.indexOf(QStringLiteral("<br/>")),
+                           QStringLiteral("<br/><b>Build:</b> %1")
+                               .arg(buildId.toHtmlEscaped()));
+    }
+    return description;
+}
 
 void MainWindow::setupChannelTabs()
 {
@@ -847,7 +857,13 @@ void MainWindow::createMenu()
             const auto state = updater->state();
             const bool busy = updater->isBusy();
             const bool available = state != WindowsUpdateController::State::Unavailable;
-            channelLabel->setText(tr("Channel: %1").arg(updater->checkChannel()));
+            const QString buildId = qApp->property("matterleast-build-id").toString();
+            channelLabel->setText(
+                tr("Installed: %1%2\nChannel: %3")
+                    .arg(QCoreApplication::applicationVersion(),
+                         buildId.isEmpty() ? QString()
+                            : QStringLiteral(" (%1)").arg(buildId),
+                         updater->checkChannel()));
             const auto activeChannel = updater->checkChannel() == QLatin1String("nightly")
                 ? Mattermost::UpdateChannel::Nightly : Mattermost::UpdateChannel::Stable;
             sourceLabel->setText(tr("Manifest: %1").arg(
@@ -927,7 +943,7 @@ void MainWindow::createMenu()
 #endif
 	helpMenu->addAction("About MatterLeast", [this] {
 		auto* msgBox = new QMessageBox(QMessageBox::Information,
-		                               "About MatterLeast", infoText);
+		                               "About MatterLeast", infoText());
 		msgBox->setIconPixmap(windowIcon().pixmap(QSize(64, 64)));
 		msgBox->setTextFormat(Qt::RichText);
 		msgBox->setStandardButtons(QMessageBox::Ok);
