@@ -46,3 +46,40 @@ add_executable(update-download-probe
     "${REPO_ROOT}/sources/options/MLOptions.cpp")
 target_include_directories(update-download-probe PRIVATE "${REPO_ROOT}/sources")
 target_link_libraries(update-download-probe PRIVATE Qt6::Core Qt6::Network matterleast-miniz)
+
+# Signed-update transport smoke uses the exact pinned Windows QCA3 revision
+# with native CNG wincrypto. The public GitHub test above remains unsigned.
+include(FetchContent)
+file(READ "${REPO_ROOT}/dependencies.lock.json" _matterleast_deps)
+string(JSON _qca_master_sha GET "${_matterleast_deps}" qca_windows commit)
+set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
+set(BUILD_TESTS OFF CACHE BOOL "QCA internal tests" FORCE)
+set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
+set(BUILD_PLUGINS "wincrypto" CACHE STRING "Only QCA native CNG provider" FORCE)
+set(WITH_ossl_PLUGIN "no" CACHE STRING "" FORCE)
+set(WITH_wincrypto_PLUGIN "yes" CACHE STRING "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(LOAD_SHARED_PLUGINS OFF CACHE BOOL "" FORCE)
+set(DEVELOPER_MODE ON CACHE BOOL "" FORCE)
+set(BUILD_WITH_QT6 ON CACHE BOOL "" FORCE)
+FetchContent_Declare(smoke_qca
+    URL "https://codeload.github.com/psi-im/qca/tar.gz/${_qca_master_sha}"
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(smoke_qca)
+target_include_directories(qca3-qt6 PUBLIC
+    "$<BUILD_INTERFACE:${smoke_qca_SOURCE_DIR}/include/QtCrypto>"
+    "$<BUILD_INTERFACE:${smoke_qca_BINARY_DIR}>"
+    "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>")
+target_include_directories(qca-wincrypto PRIVATE "${smoke_qca_BINARY_DIR}")
+
+add_executable(update-signed-probe
+    SmokeSigned.cpp
+    TrustPolicySignedSmoke.cpp
+    "${REPO_ROOT}/sources/update/WindowsUpdateController.cpp"
+    "${REPO_ROOT}/sources/update/WindowsZipInstaller.cpp"
+    "${REPO_ROOT}/sources/crypto/RsaSha256Verifier.cpp"
+    "${REPO_ROOT}/sources/options/MLOptions.cpp")
+target_include_directories(update-signed-probe PRIVATE "${REPO_ROOT}/sources")
+target_compile_definitions(update-signed-probe PRIVATE QCA_STATIC)
+target_link_libraries(update-signed-probe PRIVATE
+    Qt6::Core Qt6::Network matterleast-miniz Qca3::Qca qca-wincrypto)
