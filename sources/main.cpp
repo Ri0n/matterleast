@@ -33,8 +33,10 @@
 
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
 #include "update/WindowsUpdateController.h"
+#include "update/UpdateTrustPolicy.h"
 #include "options/MLOptions.h"
 #include <QAction>
+#include <QSignalBlocker>
 #endif
 
 #include "login/LoginDialog.h"
@@ -105,19 +107,30 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     restart->setEnabled(updater->canApply());
     auto* automatic = updates->addAction(tr("Check automatically"));
     automatic->setCheckable(true);
-    automatic->setChecked(MLOptions::instance()->value<bool>(
-        QStringLiteral("updates/automatic"), true));
-    connect(automatic, &QAction::toggled, updater, [](bool checked) {
-        MLOptions::instance()->setValue(QStringLiteral("updates/automatic"), checked);
+    auto* automaticOption = MLOptions::instance()->optionObject<bool>(
+        QStringLiteral("updates/automatic"), true);
+    automatic->setChecked(automaticOption->value().toBool());
+    connect(automatic, &QAction::toggled, automaticOption,
+            [automaticOption](bool checked) { automaticOption->setValue(checked); });
+    connect(automaticOption, &MLOptionObject::changed, automatic,
+            [automatic](const QVariant& value) {
+        const QSignalBlocker blocker(automatic);
+        automatic->setChecked(value.toBool());
     });
     auto* nightly = updates->addAction(tr("Use nightly update channel"));
     nightly->setCheckable(true);
-    nightly->setChecked(MLOptions::instance()->value<QString>(
-        QStringLiteral("updates/channel"), QStringLiteral("stable")) == QLatin1String("nightly"));
-    connect(nightly, &QAction::toggled, updater, [updater](bool checked) {
-        MLOptions::instance()->setValue(QStringLiteral("updates/channel"),
-            checked ? QStringLiteral("nightly") : QStringLiteral("stable"));
+    auto* channelOption = MLOptions::instance()->optionObject<QString>(
+        QStringLiteral("updates/channel"), defaultUpdateChannelName());
+    nightly->setChecked(channelOption->value().toString() == QLatin1String("nightly"));
+    connect(nightly, &QAction::toggled, updater, [updater, channelOption](bool checked) {
+        channelOption->setValue(checked ? QStringLiteral("nightly")
+                                        : QStringLiteral("stable"));
         updater->checkNow();
+    });
+    connect(channelOption, &MLOptionObject::changed, nightly,
+            [nightly](const QVariant& value) {
+        const QSignalBlocker blocker(nightly);
+        nightly->setChecked(value.toString() == QLatin1String("nightly"));
     });
     connect(updater, &WindowsUpdateController::stateChanged, this,
             [restart, updater](WindowsUpdateController::State) {
