@@ -15,7 +15,7 @@ Copy-Item (Join-Path $build 'MatterLeastLauncher.exe') (Join-Path $root 'MatterL
 Set-Content -Path (Join-Path $root 'current.version') -Value $oldId -NoNewline -Encoding utf8
 
 Write-Host "Disposable installation root: $root"
-Write-Host "Downloading the real current stable GitHub ZIP through WindowsUpdateController..."
+Write-Host "Downloading the current nightly GitHub ZIP through WindowsUpdateController..."
 # Invoke a console-subsystem smoke binary directly so Qt's qCritical
 # output (HTTP response, TLS error, etc.) survives in Actions logs.
 & (Join-Path $bin 'matterleast.exe') 2>&1 | Out-Host
