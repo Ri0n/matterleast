@@ -136,12 +136,8 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
             [restart, updater](WindowsUpdateController::State) {
         restart->setEnabled(updater->canApply());
     });
-    connect(updater, &WindowsUpdateController::updatePrepared, this,
-            [this](const QString& id) {
-        trayIcon->showMessage(tr("MatterLeast update ready"),
-            tr("%1 is ready. Choose Updates → Update and restart.").arg(id),
-            QSystemTrayIcon::Information, 12000);
-    });
+    // The persistent sidebar banner is the unobtrusive update notification.
+    // Do not also raise a system-tray popup for background checks.
     connect(updater, &WindowsUpdateController::errorOccurred, this,
             [this](const QString& error) {
         trayIcon->showMessage(tr("MatterLeast update failed"), error,
