@@ -34,9 +34,9 @@ int main(int argc, char** argv)
     application.setApplicationVersion(QStringLiteral("1.0"));
 
     // This executable is copied to versions/v1.0/MatterLeast/bin/matterleast.exe
-    // in a disposable installation. The downloaded release is newer than 1.0.
+    // in a disposable installation. The current nightly release is newer than 1.0.
     Mattermost::MLOptions::instance()->setValue(
-        QStringLiteral("updates/channel"), QStringLiteral("stable"));
+        QStringLiteral("updates/channel"), QStringLiteral("nightly"));
     Mattermost::MLOptions::instance()->setValue(
         QStringLiteral("updates/automatic"), false);
 
