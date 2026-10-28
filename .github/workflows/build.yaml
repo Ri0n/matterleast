@@ -262,9 +262,23 @@ jobs:
           }
           exit $testExit
 
+      - name: Update controller regression (captured first run)
+        shell: pwsh
+        run: |
+          $log = Join-Path $PWD 'windows-update-feedback-first-run.txt'
+          & ./build/tests/windows-update-feedback-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce an update feedback log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
-        # Both GUI test binaries were run above with durable first-run output.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test)$"
+        # Capture QtTest assertion output from GUI-mode binaries explicitly.
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
