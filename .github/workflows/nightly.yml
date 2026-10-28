@@ -61,6 +61,7 @@ jobs:
     with:
       version: ${{ needs.identity.outputs.version }}
       update_channel: nightly
+      install_id: ${{ needs.identity.outputs.build_id }}
 
   publish:
     name: Stage packages, verify digests, then promote pointer
