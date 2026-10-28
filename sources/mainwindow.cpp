@@ -31,7 +31,10 @@
 #include <QMessageBox>
 #include <QPalette>
 #include <QPointer>
-#include <QProgressDialog>
+#include <QDialog>
+#include <QLabel>
+#include <QProgressBar>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStyle>
@@ -793,52 +796,63 @@ void MainWindow::createMenu()
             updater, &WindowsUpdateController::startUpdateAndRestart);
         restart->setEnabled(updater->canApply());
 
-        // Show a real, non-modal progress window for *manual* checks.
-        // Previously both a same-version response and unsupported installs
-        // could silently do nothing; tray balloons are not reliable feedback.
-        auto* progress = new QProgressDialog(this);
+        // Use explicit widgets, not QProgressDialog: the latter may auto-show
+        // itself on setValue()/setRange() with minimumDuration=0, even during
+        // background checks, and is not reliably legible in the dark palette.
+        // Only manualCheckStarted() is allowed to display this window.
+        auto* progress = new QDialog(this);
         progress->setWindowTitle(tr("MatterLeast updates"));
-        progress->setCancelButton(nullptr);
+        progress->setAttribute(Qt::WA_QuitOnClose, false);
         progress->setWindowModality(Qt::NonModal);
-        progress->setMinimumDuration(0);
-        progress->setAutoClose(false);
-        progress->setAutoReset(false);
+        progress->setMinimumWidth(340);
+        auto* layout = new QVBoxLayout(progress);
+        auto* description = new QLabel(tr("Checking for updates..."), progress);
+        description->setWordWrap(true);
+        layout->addWidget(description);
+        auto* bar = new QProgressBar(progress);
+        bar->setRange(0, 0);
+        bar->setTextVisible(false);
+        layout->addWidget(bar);
+        auto* closeButton = new QPushButton(tr("Hide"), progress);
+        layout->addWidget(closeButton, 0, Qt::AlignRight);
+        connect(closeButton, &QPushButton::clicked, progress, &QDialog::hide);
         progress->hide();
 
         connect(updater, &WindowsUpdateController::manualCheckStarted, this,
-            [this, progress] {
-                progress->setLabelText(tr("Checking for updates..."));
-                progress->setRange(0, 0);
+            [this, progress, description, bar] {
+                description->setText(tr("Checking for updates..."));
+                bar->setRange(0, 0);
                 progress->show();
+                progress->raise();
             });
         connect(updater, &WindowsUpdateController::stateChanged, this,
-            [updater, restart, progress, this](WindowsUpdateController::State state) {
+            [updater, restart, progress, description, bar, this](WindowsUpdateController::State state) {
                 restart->setEnabled(updater->canApply());
-                if (!updater->manualCheckActive())
+                if (!updater->manualCheckActive() || !progress->isVisible())
                     return;
                 if (state == WindowsUpdateController::State::Downloading) {
-                    progress->setLabelText(tr("Downloading update..."));
-                    progress->setRange(0, 100);
-                    progress->setValue(0);
+                    description->setText(tr("Downloading update..."));
+                    bar->setRange(0, 100);
+                    bar->setValue(0);
                 } else if (state == WindowsUpdateController::State::Preparing) {
-                    progress->setLabelText(tr("Preparing update..."));
-                    progress->setRange(0, 0);
+                    description->setText(tr("Verifying and preparing update..."));
+                    bar->setRange(0, 0);
                 }
             });
         connect(updater, &WindowsUpdateController::progressChanged, this,
-            [progress](qint64 received, qint64 total) {
+            [progress, bar](qint64 received, qint64 total) {
                 if (progress->isVisible() && total > 0)
-                    progress->setValue(int(100 * received / total));
+                    bar->setValue(int(100 * received / total));
             });
         connect(updater, &WindowsUpdateController::noUpdateAvailable, this,
-            [this, progress](const QString& description) {
+            [this, progress](const QString& message) {
                 progress->hide();
-                QMessageBox::information(this, tr("MatterLeast updates"), description);
+                QMessageBox::information(this, tr("MatterLeast updates"), message);
             });
         connect(updater, &WindowsUpdateController::errorOccurred, this,
-            [this, progress](const QString& description) {
+            [this, progress](const QString& message) {
                 progress->hide();
-                QMessageBox::warning(this, tr("MatterLeast update failed"), description);
+                QMessageBox::warning(this, tr("MatterLeast update failed"), message);
             });
         connect(updater, &WindowsUpdateController::updatePrepared, this,
             [this, updater, progress](const QString& identity) {
