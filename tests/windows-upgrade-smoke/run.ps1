@@ -81,6 +81,20 @@ if ((Get-Content (Join-Path $root 'previous.version') -Raw).Trim() -ne $oldId) {
 }
 if (Test-Path $preparedPath) { throw 'Prepared state was not cleaned up after healthy start' }
 
+# Exercise the same real GitHub manifest again *from the installed version*.
+# It must report no updates, not download/prepare the identical nightly twice.
+Write-Host "Checking that the installed nightly does not download itself..."
+Copy-Item (Join-Path $build 'update-download-probe.exe') (Join-Path $targetBin 'matterleast.exe') -Force
+& (Join-Path $targetBin 'matterleast.exe') --expect-no-update 2>&1 | Out-Host
+$checkExit = $LASTEXITCODE
+if (Test-Path (Join-Path $targetBin 'smoke.log')) {
+    Get-Content (Join-Path $targetBin 'smoke.log')
+}
+if ($checkExit -ne 0) {
+    throw "Self-update regression: installed nightly re-downloaded itself (exit $checkExit)"
+}
+Copy-Item (Join-Path $build 'update-good-stub.exe') (Join-Path $targetBin 'matterleast.exe') -Force
+
 Write-Host "Checking rollback after deliberately failed new-version startup..."
 Set-Content -Path (Join-Path $root 'current.version') -Value $oldId -NoNewline -Encoding utf8
 Copy-Item (Join-Path $build 'update-bad-stub.exe') (Join-Path $targetBin 'matterleast.exe') -Force
@@ -88,5 +102,5 @@ $code = Invoke-VersionSwitch $id
 if ($code -eq 0) { throw 'Failed startup was incorrectly reported as an upgrade success' }
 if ((Current-Version) -ne $oldId) { throw 'Rollback failed to restore the old version' }
 
-Write-Host "PASS: live download, SHA-256/ZIP preparation, native switch, health probe and rollback."
+Write-Host "PASS: live download, SHA-256/ZIP preparation, native switch, no self-update, health probe and rollback."
 Remove-Item $root -Recurse -Force
