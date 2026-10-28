@@ -207,6 +207,10 @@ jobs:
           key: windows-msvc-qt6.11.2
           max-size: 2G
 
+      - name: Verify Windows NSIS template matches per-user policy
+        shell: pwsh
+        run: python -m unittest discover -s tests -p test_nsis_install_policy.py -v
+
       - name: Configure
         env:
           CCACHE_COMPILERCHECK: content
