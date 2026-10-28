@@ -53,6 +53,7 @@
 #include "SettingsWindow.h"
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
 #include "update/WindowsUpdateController.h"
+#include "update/UpdateTrustPolicy.h"
 #endif
 #include "backend/Backend.h"
 #include "backend/CustomStatusValidation.h"
@@ -807,6 +808,10 @@ void MainWindow::createMenu()
         auto* layout = new QVBoxLayout(statusDialog);
         auto* channelLabel = new QLabel(statusDialog);
         layout->addWidget(channelLabel);
+        auto* sourceLabel = new QLabel(statusDialog);
+        sourceLabel->setWordWrap(true);
+        sourceLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(sourceLabel);
         auto* statusLabel = new QLabel(statusDialog);
         statusLabel->setWordWrap(true);
         layout->addWidget(statusLabel);
@@ -836,13 +841,17 @@ void MainWindow::createMenu()
                 &WindowsUpdateController::startUpdateAndRestart);
         statusDialog->hide();
 
-        const auto refresh = [this, updater, restart, channelLabel,
+        const auto refresh = [this, updater, restart, channelLabel, sourceLabel,
                               statusLabel, lastCheckedLabel, resultLabel,
                               bar, checkButton, applyButton] {
             const auto state = updater->state();
             const bool busy = updater->isBusy();
             const bool available = state != WindowsUpdateController::State::Unavailable;
             channelLabel->setText(tr("Channel: %1").arg(updater->checkChannel()));
+            const auto activeChannel = updater->checkChannel() == QLatin1String("nightly")
+                ? Mattermost::UpdateChannel::Nightly : Mattermost::UpdateChannel::Stable;
+            sourceLabel->setText(tr("Manifest: %1").arg(
+                Mattermost::updateManifestUrl(activeChannel)));
 
             QString status;
             switch (state) {
