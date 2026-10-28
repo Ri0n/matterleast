@@ -52,6 +52,8 @@ target_link_libraries(update-download-probe PRIVATE Qt6::Core Qt6::Network matte
 include(FetchContent)
 file(READ "${REPO_ROOT}/dependencies.lock.json" _matterleast_deps)
 string(JSON _qca_release_sha GET "${_matterleast_deps}" qca commit)
+string(JSON _qca_release_tag GET "${_matterleast_deps}" qca tag)
+set(QCA_VERSION "${_qca_release_tag}" CACHE STRING "Pinned released QCA" FORCE)
 set(CMAKE_DISABLE_FIND_PACKAGE_Doxygen TRUE)
 set(BUILD_TESTS OFF CACHE BOOL "QCA internal tests" FORCE)
 set(BUILD_TOOLS OFF CACHE BOOL "QCA tools" FORCE)
