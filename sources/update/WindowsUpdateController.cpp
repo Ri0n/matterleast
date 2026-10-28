@@ -139,16 +139,38 @@ void WindowsUpdateController::checkNow()
 
 void WindowsUpdateController::check(bool automatic)
 {
-    if (!installedLayout() || !updateChecksCompiled()
-        || _state == State::Unavailable || _state == State::Checking
-        || _state == State::Downloading || _state == State::Preparing
-        || _state == State::Ready || _reply)
-        return;
     if (automatic && !MLOptions::instance()->value<bool>(
             QStringLiteral("updates/automatic"), true)) return;
 
+    if (!updateChecksCompiled() || !installedLayout() || _state == State::Unavailable) {
+        if (!automatic) {
+            emit errorOccurred(tr("Updates are unavailable for this installation. "
+                                  "Launch MatterLeast via MatterLeastLauncher.exe "
+                                  "from a versioned installation. Windows Store builds "
+                                  "and legacy installations cannot self-update."));
+        }
+        return;
+    }
+    if (_state == State::Ready) {
+        if (!automatic) {
+            // An automatic check may already have prepared a version. A
+            // subsequent Help-menu click must still show the ready dialog.
+            _automatic = false;
+            emit updatePrepared(_identity);
+        }
+        return;
+    }
+    if (_state == State::Checking || _state == State::Downloading
+        || _state == State::Preparing || _reply) {
+        if (!automatic)
+            emit errorOccurred(tr("An update check or download is already in progress."));
+        return;
+    }
+
     _automatic = automatic;
     setState(State::Checking);
+    if (!automatic)
+        emit manualCheckStarted();
     const auto channel = activeChannel() == QLatin1String("nightly")
         ? UpdateChannel::Nightly : UpdateChannel::Stable;
     const QUrl original(updateManifestUrl(channel));
@@ -277,18 +299,30 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
     const QVersionNumber running = QVersionNumber::fromString(
         QCoreApplication::applicationVersion());
     const QVersionNumber available = QVersionNumber::fromString(version);
+    // A completed manual check must always report its result, including a
+    // same-version/downgrade response. Automatic checks remain silent.
+    const auto noUpdate = [this, channel, version, id] {
+        setState(State::Idle);
+        if (!_automatic) {
+            emit noUpdateAvailable(tr("No updates available on the %1 channel.\n"
+                                      "Installed version: %2\n"
+                                      "Latest published version: %3 (%4)")
+                                       .arg(channel, QCoreApplication::applicationVersion(),
+                                            version, id));
+        }
+    };
     // Never auto-downgrade the numeric release, even when switching channels.
     if (!running.isNull() && QVersionNumber::compare(available, running) < 0) {
-        setState(State::Idle);
+        noUpdate();
         return;
     }
     if (channel == QLatin1String("stable")) {
         if (!running.isNull() && QVersionNumber::compare(available, running) <= 0) {
-            setState(State::Idle);
+            noUpdate();
             return;
         }
     } else if (installed.startsWith(QStringLiteral("nightly-")) && id <= installed) {
-        setState(State::Idle);
+        noUpdate();
         return;
     }
     _identity = id;

@@ -31,6 +31,7 @@
 #include <QMessageBox>
 #include <QPalette>
 #include <QPointer>
+#include <QProgressDialog>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStyle>
@@ -791,9 +792,62 @@ void MainWindow::createMenu()
         QAction* restart = helpMenu->addAction(tr("Update and restart"),
             updater, &WindowsUpdateController::startUpdateAndRestart);
         restart->setEnabled(updater->canApply());
+
+        // Show a real, non-modal progress window for *manual* checks.
+        // Previously both a same-version response and unsupported installs
+        // could silently do nothing; tray balloons are not reliable feedback.
+        auto* progress = new QProgressDialog(this);
+        progress->setWindowTitle(tr("MatterLeast updates"));
+        progress->setCancelButton(nullptr);
+        progress->setWindowModality(Qt::NonModal);
+        progress->setMinimumDuration(0);
+        progress->setAutoClose(false);
+        progress->setAutoReset(false);
+        progress->hide();
+
+        connect(updater, &WindowsUpdateController::manualCheckStarted, this,
+            [this, progress] {
+                progress->setLabelText(tr("Checking for updates..."));
+                progress->setRange(0, 0);
+                progress->show();
+            });
         connect(updater, &WindowsUpdateController::stateChanged, this,
-            [updater, restart](WindowsUpdateController::State) {
+            [updater, restart, progress, this](WindowsUpdateController::State state) {
                 restart->setEnabled(updater->canApply());
+                if (!updater->manualCheckActive())
+                    return;
+                if (state == WindowsUpdateController::State::Downloading) {
+                    progress->setLabelText(tr("Downloading update..."));
+                    progress->setRange(0, 100);
+                    progress->setValue(0);
+                } else if (state == WindowsUpdateController::State::Preparing) {
+                    progress->setLabelText(tr("Preparing update..."));
+                    progress->setRange(0, 0);
+                }
+            });
+        connect(updater, &WindowsUpdateController::progressChanged, this,
+            [progress](qint64 received, qint64 total) {
+                if (progress->isVisible() && total > 0)
+                    progress->setValue(int(100 * received / total));
+            });
+        connect(updater, &WindowsUpdateController::noUpdateAvailable, this,
+            [this, progress](const QString& description) {
+                progress->hide();
+                QMessageBox::information(this, tr("MatterLeast updates"), description);
+            });
+        connect(updater, &WindowsUpdateController::errorOccurred, this,
+            [this, progress](const QString& description) {
+                progress->hide();
+                QMessageBox::warning(this, tr("MatterLeast update failed"), description);
+            });
+        connect(updater, &WindowsUpdateController::updatePrepared, this,
+            [this, updater, progress](const QString& identity) {
+                if (!updater->manualCheckActive())
+                    return;
+                progress->hide();
+                QMessageBox::information(this, tr("MatterLeast update ready"),
+                    tr("Version %1 is ready. Choose Help → Update and restart "
+                       "to install it.").arg(identity));
             });
     }
 #endif

@@ -502,6 +502,13 @@ if(WIN32 AND QT_VERSION_MAJOR EQUAL 6)
 endif()
 
 if(WIN32)
+  # qt_deploy_runtime_dependencies handles Qt DLLs, but it does not
+  # consistently bundle the native OpenSSL DLLs required by static qca-ossl.
+  # Resolve the actual import dependencies and stage them before moving bin/.
+  configure_file(cmake/WindowsDeployOpenSSL.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/WindowsDeployOpenSSL.cmake" @ONLY)
+  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/WindowsDeployOpenSSL.cmake"
+    COMPONENT Runtime)
   install(TARGETS MatterLeastLauncher RUNTIME DESTINATION "." COMPONENT Runtime)
   install(TARGETS MatterLeastUpdater RUNTIME DESTINATION "bin" COMPONENT Runtime)
   configure_file(cmake/WindowsVersionedInstall.cmake.in
@@ -587,9 +594,16 @@ endif()
 
 if(WIN32)
 	set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PRODUCT_NAME}")
-    # Automatic updates require a writable per-user install tree. Legacy
-    # Program Files installs are migrated only by running the new NSIS setup.
-    set(CPACK_NSIS_INSTALL_ROOT "$LOCALAPPDATA")
+    # Native updater needs a writable per-user install root outside any
+    # OneDrive-redirected Documents folder. Stock CPack NSIS .onInit ignores
+    # INSTALL_ROOT for JustMe; generate a corrected CMake-matched template.
+    set(CPACK_NSIS_INSTALL_ROOT "$LOCALAPPDATA\\\\Programs")
+    include(cmake/MatterLeastPerUserNsis.cmake)
+    set(_matterleast_nsis_templates "${CMAKE_BINARY_DIR}/cpack-per-user")
+    matterleast_prepare_per_user_nsis_template("${_matterleast_nsis_templates}")
+    set(CPACK_MODULE_PATH "${_matterleast_nsis_templates}")
+    # SDK files remain available but unchecked in typical installs.
+    set(CPACK_COMPONENT_DEVELOPMENT_DISABLED TRUE)
 	set(CPACK_NSIS_DISPLAY_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_PACKAGE_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
@@ -611,7 +625,6 @@ if(WIN32)
 	# into project.nsi, so quotes required by NSIS need to survive one extra layer.
 	string(ASCII 92 34 MATTERLEAST_NSIS_QUOTE)
 	string(CONCAT CPACK_NSIS_BRANDING_TEXT_CODE
-		"RequestExecutionLevel user\n"
 		"BrandingText /TRIMLEFT ${MATTERLEAST_NSIS_QUOTE}${PRODUCT_NAME} ${PROJECT_VERSION}${MATTERLEAST_NSIS_QUOTE}\n"
 		"VIProductVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"
 		"VIFileVersion ${MATTERLEAST_WINDOWS_FILE_VERSION}\n"

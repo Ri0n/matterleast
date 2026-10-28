@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p test_dependency_lock.py -v
           python3 -m unittest discover -s tests -p test_qca_system_selection.py -v
+          python3 -m unittest discover -s tests -p test_nsis_install_policy.py -v
 
   update-manifest:
     name: Windows update manifest contract
@@ -206,6 +207,10 @@ jobs:
           key: windows-msvc-qt6.11.2
           max-size: 2G
 
+      - name: Verify Windows NSIS template matches per-user policy
+        shell: pwsh
+        run: python -m unittest discover -s tests -p test_nsis_install_policy.py -v
+
       - name: Configure
         env:
           CCACHE_COMPILERCHECK: content
@@ -276,6 +281,22 @@ jobs:
               "$runtime/plugins/platforms/qwindows.dll")) {
             if (-not (Test-Path $p)) { throw "Versioned deployment missing $p" }
           }
+          # Verify imported native OpenSSL libraries are present next to the
+          # executable. GitHub runners have them on PATH; users generally don't.
+          $exe = Join-Path $runtime "bin/matterleast.exe"
+          $imports = & dumpbin.exe /DEPENDENTS "$exe" | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed to inspect dependencies" }
+          $opensslDlls = @([regex]::Matches($imports,
+              '(?im)^\s*((?:libssl|libcrypto|libtls|ssleay|libeay)[\w.-]*\.dll)\s*$') |
+              ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+          foreach ($name in $opensslDlls) {
+            $dll = Join-Path $runtime "bin/$name"
+            if (-not (Test-Path -LiteralPath $dll)) {
+              throw "Required OpenSSL DLL absent from Windows package: $name"
+            }
+          }
+          Write-Host "Packaged imported OpenSSL DLLs: $($opensslDlls -join ', ')"
+
           # The update ZIP contract requires exactly one MatterLeast/
           # root, not the CI-only stage/ name. Match packages.yml verbatim.
           $portable = Join-Path $env:RUNNER_TEMP "MatterLeast"
@@ -300,6 +321,51 @@ jobs:
           if ($contents | Where-Object { $_ -notmatch '^MatterLeast/' }) {
             throw "Update ZIP must contain only paths below MatterLeast/"
           }
+
+      - name: Package and inspect per-user NSIS installer on Windows
+        shell: pwsh
+        run: |
+          $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
+          $makensis = Join-Path $nsisDir "makensis.exe"
+          if (-not (Test-Path $makensis)) {
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $makensis)) {
+              throw "NSIS is unavailable for installer contract testing"
+            }
+          }
+          $nsisDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:PATH = "$nsisDir;$env:PATH"
+          cpack --config build/CPackConfig.cmake -G NSIS -B package
+          if ($LASTEXITCODE -ne 0) { throw "NSIS packaging failed" }
+          $nsi = Get-ChildItem package -Filter project.nsi -Recurse -File |
+            Select-Object -First 1
+          if (-not $nsi) { throw "Generated NSIS project.nsi not found" }
+          $body = Get-Content -LiteralPath $nsi.FullName -Raw
+          foreach ($line in @(
+            'InstallDir "$LOCALAPPDATA\Programs\MatterLeast"',
+            'RequestExecutionLevel user',
+            'SetShellVarContext current')) {
+            if (-not $body.Contains($line)) {
+              throw "NSIS install script missing per-user contract: $line"
+            }
+          }
+          if (-not ($body -match 'Section\s+/o\s+"Development"')) {
+            throw "Development component must be unchecked by default in NSIS"
+          }
+          if ($body.Contains('StrCpy $INSTDIR "$DOCUMENTS') -or
+              $body.Contains('SetShellVarContext all') -or
+              $body.Contains('RequestExecutionLevel admin')) {
+            throw "NSIS installer would use Documents, all-users shortcuts, or require elevation"
+          }
+          if (-not (Get-ChildItem package -File -Filter "*.exe" |
+                Select-Object -First 1)) { throw "NSIS installer missing" }
+
+      - name: Upload installer for PR testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterleast-windows-x64-installer-pr
+          path: package/*.exe
+          if-no-files-found: error
 
       - name: Upload portable ZIP for PR testing
         uses: actions/upload-artifact@v4
