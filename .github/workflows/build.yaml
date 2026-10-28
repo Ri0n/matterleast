@@ -311,21 +311,14 @@ jobs:
               "$runtime/plugins/platforms/qwindows.dll")) {
             if (-not (Test-Path $p)) { throw "Versioned deployment missing $p" }
           }
-          # Verify imported native OpenSSL libraries are present next to the
-          # executable. GitHub runners have them on PATH; users generally don't.
+          # The bundled Windows provider is now native CNG/wincrypto.
+          # A reintroduced libssl/libcrypto import would break portable builds.
           $exe = Join-Path $runtime "bin/matterleast.exe"
           $imports = & dumpbin.exe /DEPENDENTS "$exe" | Out-String
-          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed to inspect dependencies" }
-          $opensslDlls = @([regex]::Matches($imports,
-              '(?im)^\s*((?:libssl|libcrypto|libtls|ssleay|libeay)[\w.-]*\.dll)\s*$') |
-              ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-          foreach ($name in $opensslDlls) {
-            $dll = Join-Path $runtime "bin/$name"
-            if (-not (Test-Path -LiteralPath $dll)) {
-              throw "Required OpenSSL DLL absent from Windows package: $name"
-            }
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed" }
+          if ($imports -match '(?im)^\s*(?:libssl|libcrypto|libtls|ssleay|libeay)[\w.-]*\.dll\s*$') {
+            throw "Windows CNG build unexpectedly imports OpenSSL DLLs"
           }
-          Write-Host "Packaged imported OpenSSL DLLs: $($opensslDlls -join ', ')"
 
           # The update ZIP contract requires exactly one MatterLeast/
           # root, not the CI-only stage/ name. Match packages.yml verbatim.
