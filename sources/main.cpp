@@ -202,6 +202,11 @@ int main( int argc, char *argv[])
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 
     Mattermost::MattermostApplication app(argc, argv);
+#ifdef MATTERLEAST_BUILD_ID
+    // Embedded at build time. The mutable current.version pointer can be
+    // repaired or switched by the launcher, so it is NOT the build identity.
+    app.setProperty("matterleast-build-id", QStringLiteral(MATTERLEAST_BUILD_ID));
+#endif
 
     // Lock ownership is per OS user, not per working directory or binary
     // installation. Unlike QSingleApplication, QLockFile checks the PID and

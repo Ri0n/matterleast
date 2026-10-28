@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MatterLeastWindowsUpgradeSmoke LANGUAGES CXX)
+project(MatterLeastWindowsUpgradeSmoke LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This integration test runs on Windows only")
@@ -11,6 +11,15 @@ set(CMAKE_AUTOMOC ON)
 
 get_filename_component(REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 find_package(Qt6 REQUIRED COMPONENTS Core Network)
+
+add_library(matterleast-miniz STATIC
+    "${REPO_ROOT}/third_party/miniz/miniz.c"
+    "${REPO_ROOT}/third_party/miniz/miniz_tinfl.c"
+    "${REPO_ROOT}/third_party/miniz/miniz_zip.c")
+target_include_directories(matterleast-miniz PUBLIC
+    "${REPO_ROOT}/third_party/miniz")
+target_compile_definitions(matterleast-miniz PRIVATE
+    MINIZ_NO_DEFLATE_APIS MINIZ_NO_ARCHIVE_WRITING_APIS MINIZ_NO_ZLIB_APIS)
 
 # Use the production Win32 sources, not imitations of the launcher/switcher.
 set(MATTERLEAST_INSTALL_ID "v1.0")
@@ -36,4 +45,4 @@ add_executable(update-download-probe
     "${REPO_ROOT}/sources/update/WindowsZipInstaller.cpp"
     "${REPO_ROOT}/sources/options/MLOptions.cpp")
 target_include_directories(update-download-probe PRIVATE "${REPO_ROOT}/sources")
-target_link_libraries(update-download-probe PRIVATE Qt6::Core Qt6::Network)
+target_link_libraries(update-download-probe PRIVATE Qt6::Core Qt6::Network matterleast-miniz)

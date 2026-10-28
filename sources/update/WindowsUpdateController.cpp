@@ -3,6 +3,7 @@
 #ifdef Q_OS_WIN
 #include "WindowsZipInstaller.h"
 #include "UpdateTrustPolicy.h"
+#include "WindowsUpdateVersionPolicy.h"
 #include "options/MLOptions.h"
 
 #include <QCoreApplication>
@@ -366,17 +367,9 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
         if (!_automatic)
             emit noUpdateAvailable(description);
     };
-    // Never auto-downgrade the numeric release, even when switching channels.
-    if (!running.isNull() && QVersionNumber::compare(available, running) < 0) {
-        noUpdate();
-        return;
-    }
-    if (channel == QLatin1String("stable")) {
-        if (!running.isNull() && QVersionNumber::compare(available, running) <= 0) {
-            noUpdate();
-            return;
-        }
-    } else if (installed.startsWith(QStringLiteral("nightly-")) && id <= installed) {
+    // A packaged nightly has the manifest buildId as its installed identity.
+    // Never fetch the same build, even if the user changes the update channel.
+    if (windowsUpdateAlreadyCurrentOrOlder(channel, installed, id, running, available)) {
         noUpdate();
         return;
     }
@@ -437,14 +430,47 @@ void WindowsUpdateController::beginPackageDownload()
             if (_received <= _size && _packageFile.write(last) == last.size())
                 _digest.addData(last);
         }
-        const bool ok = isHttpSuccess(reply) && _received == _size
-            && QString::fromLatin1(_digest.result().toHex()) == _sha256
+        const bool httpOk = isHttpSuccess(reply);
+        const int httpStatus = reply->attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QString networkError = reply->errorString();
+        const QString actualSha256 = QString::fromLatin1(_digest.result().toHex());
+        const bool sizeOk = _received == _size;
+        const bool digestOk = actualSha256 == _sha256;
+        const bool ioOk = _packageFile.error() == QFileDevice::NoError
             && _packageFile.flush();
+        const QString fileError = _packageFile.errorString();
         reply->deleteLater();
         _packageFile.close();
-        if (!ok || !QFile::rename(_packageFile.fileName(), finalPath)) {
+
+        QString failure;
+        if (!httpOk) {
+            failure = tr("Update download failed (HTTP %1): %2")
+                .arg(httpStatus).arg(networkError);
+        } else if (!sizeOk) {
+            failure = tr("Incomplete update download: received %1 of %2 bytes.")
+                .arg(_received).arg(_size);
+        } else if (!digestOk) {
+            failure = tr("Downloaded ZIP SHA-256 mismatch: expected %1, received %2.")
+                .arg(_sha256, actualSha256);
+        } else if (!ioOk) {
+            failure = tr("Cannot write downloaded update ZIP: %1").arg(fileError);
+        } else {
+            // The ZIP may be left behind by an earlier successful download
+            // followed by failed extraction (e.g. Wine without tar.exe).
+            // QFile::rename() never overwrites an existing file on Windows.
+            // Replace it only *after* verifying the new archive's digest.
+            if (QFileInfo::exists(finalPath) && !QFile::remove(finalPath)) {
+                failure = tr("Cannot replace previously downloaded ZIP: %1")
+                    .arg(finalPath);
+            } else if (!QFile::rename(_packageFile.fileName(), finalPath)) {
+                failure = tr("Cannot finalize verified update ZIP: %1")
+                    .arg(finalPath);
+            }
+        }
+        if (!failure.isEmpty()) {
             QFile::remove(_packageFile.fileName());
-            setState(State::Failed, tr("Downloaded ZIP failed size, SHA-256 or I/O verification"));
+            setState(State::Failed, failure);
             return;
         }
         startPreparing(finalPath);

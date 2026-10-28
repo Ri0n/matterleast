@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtEndian>
 #include "update/WindowsZipInstaller.h"
@@ -78,7 +79,8 @@ QList<Entry> regularFiles()
     return {
         { QByteArray("MatterLeast/MatterLeastLauncher.exe") },
         { QByteArray("MatterLeast/versions/v1.9/MatterLeast/bin/matterleast.exe") },
-        { QByteArray("MatterLeast/versions/v1.9/MatterLeast/bin/MatterLeastUpdater.exe") }
+        { QByteArray("MatterLeast/versions/v1.9/MatterLeast/bin/MatterLeastUpdater.exe") },
+        { QByteArray("MatterLeast/versions/v1.9/MatterLeast/bin/Qt6Core.dll") }
     };
 }
 }
@@ -88,6 +90,7 @@ class WindowsZipPolicyTest : public QObject
     Q_OBJECT
 private slots:
     void acceptsCanonicalZip();
+    void extractsCanonicalZipWithoutExternalTar();
     void blocksTraversal();
     void blocksLinks();
     void blocksCaseInsensitiveDuplicate();
@@ -108,6 +111,27 @@ void WindowsZipPolicyTest::acceptsCanonicalZip()
     output.close();
     QString error;
     QVERIFY2(Mattermost::auditWindowsUpdateZip(path, &error), qPrintable(error));
+}
+
+void WindowsZipPolicyTest::extractsCanonicalZipWithoutExternalTar()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+    const QString packagePath = temp.filePath(QStringLiteral("package.zip"));
+    QFile output(packagePath);
+    QVERIFY(output.open(QIODevice::WriteOnly));
+    const QByteArray contents = zip(regularFiles());
+    QCOMPARE(output.write(contents), qint64(contents.size()));
+    output.close();
+    QString error;
+    QVERIFY2(Mattermost::prepareWindowsUpdateZip(
+        packagePath, temp.path(), QStringLiteral("v1.9"), &error), qPrintable(error));
+    QVERIFY(QFileInfo::exists(temp.filePath(
+        QStringLiteral("versions/v1.9/MatterLeast/bin/matterleast.exe"))));
+    QVERIFY(QFileInfo::exists(temp.filePath(
+        QStringLiteral("versions/v1.9/MatterLeast/bin/Qt6Core.dll"))));
+#endif
 }
 
 void WindowsZipPolicyTest::blocksTraversal()

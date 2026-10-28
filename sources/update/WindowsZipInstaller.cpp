@@ -5,6 +5,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QSaveFile>
+#include <QtGlobal>
+
+#ifdef Q_OS_WIN
+#include "miniz.h"
+#include <limits>
+#endif
 #include <QSet>
 #include <QStringList>
 #include <QtEndian>
@@ -153,6 +160,131 @@ bool auditZip(const QString& filename, QString* error)
     return true;
 }
 
+#ifdef Q_OS_WIN
+// Extract with an embedded ZIP reader rather than spawning tar.exe. Wine
+// commonly does not provide the Windows system tar.exe executable at all.
+// The central directory is audited separately before this function runs.
+bool extractAuditedZip(const QString& zipPath, const QString& stage, QString* error)
+{
+    QFile source(zipPath);
+    if (!source.open(QIODevice::ReadOnly))
+        return (*error = QStringLiteral("Cannot open verified ZIP for extraction"), false);
+
+    mz_zip_archive zip {};
+    zip.m_pIO_opaque = &source;
+    zip.m_pRead = [](void* opaque, mz_uint64 offset, void* buffer, size_t bytes) -> size_t {
+        auto* file = static_cast<QFile*>(opaque);
+        if (offset > mz_uint64(std::numeric_limits<qint64>::max())
+            || bytes > size_t(std::numeric_limits<qint64>::max())
+            || !file->seek(qint64(offset))) return 0;
+        const qint64 read = file->read(static_cast<char*>(buffer), qint64(bytes));
+        return read > 0 ? size_t(read) : 0;
+    };
+    if (!mz_zip_reader_init(&zip, mz_uint64(source.size()), 0)) {
+        *error = QStringLiteral("Cannot initialize embedded ZIP reader: %1")
+            .arg(QString::fromLatin1(mz_zip_get_error_string(mz_zip_get_last_error(&zip))));
+        mz_zip_reader_end(&zip);
+        return false;
+    }
+    const auto finish = [&zip] { mz_zip_reader_end(&zip); };
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    if (count == 0 || count > MaxFiles) {
+        *error = QStringLiteral("ZIP entry count is outside safety limits");
+        finish();
+        return false;
+    }
+    for (mz_uint i = 0; i < count; ++i) {
+        mz_zip_archive_file_stat info {};
+        if (!mz_zip_reader_file_stat(&zip, i, &info) || !info.m_is_supported) {
+            *error = QStringLiteral("Unsupported or unsafe ZIP entry at index %1").arg(i);
+            finish();
+            return false;
+        }
+        const mz_uint nameSize = mz_zip_reader_get_filename(&zip, i, nullptr, 0);
+        if (!nameSize || nameSize > 4096) {
+            *error = QStringLiteral("ZIP entry filename is missing or too long");
+            finish();
+            return false;
+        }
+        QByteArray rawName(int(nameSize) + 1, '\0');
+        if (!mz_zip_reader_get_filename(&zip, i, rawName.data(), mz_uint(rawName.size()))) {
+            *error = QStringLiteral("Cannot retrieve ZIP entry filename");
+            finish();
+            return false;
+        }
+        const QString name = (info.m_bit_flag & (1 << 11))
+            ? QString::fromUtf8(rawName.constData())
+            : QString::fromLatin1(rawName.constData());
+        const QString prefix = QStringLiteral("MatterLeast/");
+        if (!name.startsWith(prefix) || name.contains(QLatin1Char('\\'))
+            || name.contains(QChar::ReplacementCharacter)) {
+            *error = QStringLiteral("Unsafe extracted ZIP path: %1").arg(name);
+            finish();
+            return false;
+        }
+        const QStringList parts = name.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (parts.isEmpty() || parts.front() != QLatin1String("MatterLeast")) {
+            *error = QStringLiteral("Unsafe extracted ZIP root: %1").arg(name);
+            finish();
+            return false;
+        }
+        for (const QString& part : parts) {
+            if (!validWindowsPart(part)) {
+                *error = QStringLiteral("Unsafe extracted ZIP component: %1").arg(name);
+                finish();
+                return false;
+            }
+        }
+        const QString destination = QDir(stage).filePath(name);
+        if (info.m_is_directory) {
+            if (!QDir().mkpath(destination)) {
+                *error = QStringLiteral("Cannot create ZIP directory: %1").arg(name);
+                finish();
+                return false;
+            }
+            continue;
+        }
+        if (!QDir().mkpath(QFileInfo(destination).absolutePath())) {
+            *error = QStringLiteral("Cannot create ZIP parent directory: %1").arg(name);
+            finish();
+            return false;
+        }
+        QSaveFile output(destination);
+        if (!output.open(QIODevice::WriteOnly)) {
+            *error = QStringLiteral("Cannot write extracted file %1: %2")
+                .arg(name, output.errorString());
+            finish();
+            return false;
+        }
+        const auto write = [](void* opaque, mz_uint64 offset,
+                              const void* data, size_t length) -> size_t {
+            auto* file = static_cast<QSaveFile*>(opaque);
+            if (offset != mz_uint64(file->pos())
+                || length > size_t(std::numeric_limits<qint64>::max()))
+                return 0;
+            return file->write(static_cast<const char*>(data), qint64(length))
+                    == qint64(length) ? length : 0;
+        };
+        if (!mz_zip_reader_extract_to_callback(&zip, i, write, &output, 0)) {
+            *error = QStringLiteral("ZIP decompression/CRC failed for %1: %2")
+                .arg(name, QString::fromLatin1(
+                    mz_zip_get_error_string(mz_zip_get_last_error(&zip))));
+            output.cancelWriting();
+            finish();
+            return false;
+        }
+        if (!output.commit()) {
+            *error = QStringLiteral("Cannot commit extracted file %1: %2")
+                .arg(name, output.errorString());
+            finish();
+            return false;
+        }
+    }
+    finish();
+    return true;
+}
+#endif
+
 bool subtreeWithoutLinks(const QString& root)
 {
     // No symlinks or reparse points are allowed in the version payload.
@@ -194,15 +326,26 @@ bool prepareWindowsUpdateZip(const QString& zipPath, const QString& root,
         return fail(QStringLiteral("Cannot clear interrupted update staging"));
     if (!QDir().mkpath(stage)) return fail(QStringLiteral("Cannot create update staging"));
 
+#ifdef Q_OS_WIN
+    QString extractionError;
+    const bool extracted = extractAuditedZip(zipPath, stage, &extractionError);
+    if (!extracted || !subtreeWithoutLinks(stage)) {
+        QDir(stage).removeRecursively();
+        return fail(extracted ? QStringLiteral("ZIP extraction contained a link or unsafe file type")
+                              : extractionError);
+    }
+#else
+    // Non-Windows tools and tests keep their previous extraction path.
     QProcess tar;
-    tar.start(QStringLiteral("tar.exe"), {QStringLiteral("-xf"), zipPath,
+    tar.start(QStringLiteral("tar"), {QStringLiteral("-xf"), zipPath,
               QStringLiteral("-C"), stage});
     if (!tar.waitForStarted(10000) || !tar.waitForFinished(180000)
         || tar.exitStatus() != QProcess::NormalExit || tar.exitCode() != 0
         || !subtreeWithoutLinks(stage)) {
         QDir(stage).removeRecursively();
-        return fail(QStringLiteral("Windows ZIP extraction failed or contained unsafe file types"));
+        return fail(QStringLiteral("ZIP extraction failed"));
     }
+#endif
 
     const QString versions = QDir(stage).filePath(QStringLiteral("MatterLeast/versions"));
     const QStringList dirs = QDir(versions).entryList(QDir::Dirs | QDir::NoDotAndDotDot);

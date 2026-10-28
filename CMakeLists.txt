@@ -52,7 +52,18 @@ matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)
 matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)
 
 if(WIN32)
-	enable_language(RC)
+    enable_language(C RC)
+    # Static archive reader supports Win32 and Wine without tar.exe.
+    add_library(matterleast-miniz STATIC
+        third_party/miniz/miniz.c
+        third_party/miniz/miniz_tinfl.c
+        third_party/miniz/miniz_zip.c)
+    target_include_directories(matterleast-miniz PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz")
+    target_compile_definitions(matterleast-miniz PRIVATE
+        MINIZ_NO_DEFLATE_APIS
+        MINIZ_NO_ARCHIVE_WRITING_APIS
+        MINIZ_NO_ZLIB_APIS)
 endif()
 
 configure_file(build-config.h.in ${CMAKE_CURRENT_SOURCE_DIR}/sources/build-config.h)
@@ -450,7 +461,17 @@ else()
     set_property(TARGET ${APPID} PROPERTY WIN32_EXECUTABLE true)
 
     # A permanent Win32 launcher and a version-owned atomic switcher.
-    set(MATTERLEAST_INSTALL_ID "v${PROJECT_VERSION}")
+    # For nightly packages, this identity must equal the manifest buildId
+    # (not v${PROJECT_VERSION}, which is shared by every nightly).
+    include(cmake/MatterLeastWindowsInstallIdentity.cmake)
+    matterleast_resolve_windows_install_identity(
+      "${PROJECT_VERSION}" "${MATTERLEAST_UPDATE_DEFAULT_CHANNEL}")
+    file(WRITE "${CMAKE_BINARY_DIR}/matterleast-install-id.txt"
+      "${MATTERLEAST_INSTALL_ID}\n")
+    message(STATUS "MatterLeast Windows install identity: ${MATTERLEAST_INSTALL_ID}")
+    target_compile_definitions(${APPID} PRIVATE
+      MATTERLEAST_BUILD_ID="${MATTERLEAST_INSTALL_ID}")
+    target_link_libraries(matterleast-core PRIVATE matterleast-miniz)
     configure_file(sources/update/win/LauncherVersion.h.in
       "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.h" @ONLY)
     add_executable(MatterLeastLauncher WIN32 sources/update/win/launcher.cpp)

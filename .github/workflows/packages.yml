@@ -13,6 +13,10 @@ on:
         type: choice
         options: [stable, nightly]
         default: stable
+      install_id:
+        description: Optional nightly buildId (required for nightly packages)
+        required: false
+        type: string
   workflow_call:
     inputs:
       version:
@@ -24,6 +28,11 @@ on:
         required: false
         type: string
         default: stable
+      install_id:
+        description: Optional Windows versioned install identity (nightly buildId)
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -608,6 +617,8 @@ jobs:
       - name: Configure
         env:
           CCACHE_COMPILERCHECK: content
+          MATTERLEAST_BUILD_INSTALL_ID: ${{ inputs.install_id }}
+          MATTERLEAST_BUILD_UPDATE_CHANNEL: ${{ inputs.update_channel || 'stable' }}
         run: |
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
@@ -615,7 +626,8 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DQT_6=ON `
             -DMATTERLEAST_USE_KEYCHAIN=ON `
-            -DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=${{ inputs.update_channel || 'stable' }} `
+            -DMATTERLEAST_UPDATE_DEFAULT_CHANNEL="$env:MATTERLEAST_BUILD_UPDATE_CHANNEL" `
+            -DMATTERLEAST_INSTALL_ID="$env:MATTERLEAST_BUILD_INSTALL_ID" `
             -DBUILD_TESTING=ON `
             -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -687,7 +699,21 @@ jobs:
           cmake --install build --prefix "$stage"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
-          $runtime = Join-Path $stage "versions/v$version/MatterLeast"
+          $installId = (Get-Content build/matterleast-install-id.txt -Raw).Trim()
+          $expectedId = "${{ inputs.install_id }}"
+          $channel = "${{ inputs.update_channel || 'stable' }}"
+          if ($expectedId) {
+            if ($installId -ne $expectedId) {
+              throw "Packaged install identity '$installId' differs from published buildId '$expectedId'"
+            }
+          } elseif ($installId -ne "v$version") {
+            throw "Unexpected stable install identity '$installId'"
+          }
+          if ($channel -eq 'nightly' -and
+              $installId -notmatch '^nightly-[0-9]{8}-[0-9]{6}-[a-f0-9]{7,40}$') {
+            throw "Nightly package must embed a unique buildId: '$installId'"
+          }
+          $runtime = Join-Path $stage "versions/$installId/MatterLeast"
           $required = @(
             (Join-Path $stage "MatterLeastLauncher.exe"),
             (Join-Path $runtime "bin/matterleast.exe"),
@@ -724,6 +750,7 @@ jobs:
         id: portable
         run: |
           $version = (Get-Content build/matterleast-version.txt -Raw).Trim()
+          $installId = (Get-Content build/matterleast-install-id.txt -Raw).Trim()
           $stage = Join-Path $env:GITHUB_WORKSPACE "stage"
           $portable = Join-Path $env:RUNNER_TEMP "MatterLeast"
           New-Item -ItemType Directory -Force -Path $portable | Out-Null
@@ -731,7 +758,7 @@ jobs:
           # Qt runtime so direct ZIP updates can atomically replace versions.
           Copy-Item (Join-Path $stage "*") $portable -Recurse -Force
           if (-not (Test-Path (Join-Path $portable "MatterLeastLauncher.exe")) -or
-              -not (Test-Path (Join-Path $portable "versions/v$version/MatterLeast/bin/matterleast.exe"))) {
+              -not (Test-Path (Join-Path $portable "versions/$installId/MatterLeast/bin/matterleast.exe"))) {
             throw "Portable archive lacks launcher or versioned application"
           }
           New-Item -ItemType Directory -Force -Path package | Out-Null
