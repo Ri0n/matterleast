@@ -3,11 +3,32 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QFile>
+#include <QDir>
+#include <cstdio>
+
+namespace {
+QFile* smokeLog = nullptr;
+void logMessage(QtMsgType, const QMessageLogContext&, const QString& message)
+{
+    const QByteArray line = message.toUtf8() + '\n';
+    if (smokeLog) {
+        smokeLog->write(line);
+        smokeLog->flush();
+    }
+    std::fwrite(line.constData(), 1, size_t(line.size()), stderr);
+    std::fflush(stderr);
+}
+} // namespace
 #include <QTimer>
 
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    QFile outputLog(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("smoke.log")));
+    if (!outputLog.open(QIODevice::WriteOnly | QIODevice::Truncate)) return 25;
+    smokeLog = &outputLog;
+    qInstallMessageHandler(logMessage);
     application.setOrganizationName(QStringLiteral("MatterLeastUpgradeSmoke"));
     application.setApplicationName(QStringLiteral("MatterLeastUpgradeSmoke"));
     application.setApplicationVersion(QStringLiteral("1.0"));
@@ -25,6 +46,10 @@ int main(int argc, char** argv)
         return 2;
     }
 
+    QObject::connect(&updater, &Mattermost::WindowsUpdateController::stateChanged,
+                     &application, [](Mattermost::WindowsUpdateController::State state) {
+        qInfo() << "Updater state:" << int(state);
+    });
     bool receivedPayload = false;
     QObject::connect(&updater, &Mattermost::WindowsUpdateController::progressChanged,
                      &application, [&receivedPayload](qint64 current, qint64 total) {
