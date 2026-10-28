@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QFile>
 #include <QNetworkAccessManager>
 #include <QPointer>
@@ -34,6 +35,16 @@ public:
     QString lastError() const { return _error; }
     bool canApply() const { return _state == State::Ready; }
     bool manualCheckActive() const { return !_automatic; }
+    bool isBusy() const
+    {
+        return _state == State::Checking || _state == State::Downloading
+            || _state == State::Preparing;
+    }
+    QString checkChannel() const;
+    QDateTime lastCheckTime() const;
+    QString lastCheckResult() const;
+    qint64 downloadedBytes() const { return _received; }
+    qint64 downloadTotalBytes() const { return _size; }
 
 public slots:
     void checkNow();
@@ -46,6 +57,7 @@ signals:
     void errorOccurred(const QString& description);
     void manualCheckStarted();
     void noUpdateAvailable(const QString& description);
+    void checkHistoryChanged();
 
 private:
     void check(bool automatic);
@@ -57,6 +69,7 @@ private:
     void startPreparing(const QString& verifiedPackagePath);
     void restorePrepared();
     void setState(State state, const QString& error = {});
+    void recordCheckResult(const QString& result);
     QString currentIdentity() const;
     bool installedLayout() const;
 
@@ -67,6 +80,7 @@ private:
     QCryptographicHash _digest { QCryptographicHash::Sha256 };
     QByteArray _rawManifest;
     QString _root;
+    QString _checkChannel;
     QString _identity;
     QString _sha256;
     QUrl _packageUrl;
