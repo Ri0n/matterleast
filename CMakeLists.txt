@@ -590,11 +590,13 @@ if(WIN32)
     # Native updater needs a writable per-user install root outside any
     # OneDrive-redirected Documents folder. Stock CPack NSIS .onInit ignores
     # INSTALL_ROOT for JustMe; generate a corrected CMake-matched template.
-    set(CPACK_NSIS_INSTALL_ROOT "$LOCALAPPDATA\\Programs")
+    set(CPACK_NSIS_INSTALL_ROOT "$LOCALAPPDATA\\\\Programs")
     include(cmake/MatterLeastPerUserNsis.cmake)
     set(_matterleast_nsis_templates "${CMAKE_BINARY_DIR}/cpack-per-user")
     matterleast_prepare_per_user_nsis_template("${_matterleast_nsis_templates}")
     set(CPACK_MODULE_PATH "${_matterleast_nsis_templates}")
+    # SDK files remain available but unchecked in typical installs.
+    set(CPACK_COMPONENT_DEVELOPMENT_DISABLED TRUE)
 	set(CPACK_NSIS_DISPLAY_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_PACKAGE_NAME "${PRODUCT_NAME}")
 	set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/matterleast.ico")
