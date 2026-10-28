@@ -4,6 +4,7 @@
 
 namespace Mattermost {
 bool updateChecksCompiled() { return true; }
+QString defaultUpdateChannelName() { return QStringLiteral("nightly"); }
 bool updateManifestSignatureRequired() { return false; }
 QString updateManifestUrl(UpdateChannel channel)
 {
