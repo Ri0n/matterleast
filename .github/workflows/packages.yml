@@ -13,6 +13,10 @@ on:
         type: choice
         options: [stable, nightly]
         default: stable
+      install_id:
+        description: Optional nightly buildId (required for nightly packages)
+        required: false
+        type: string
   workflow_call:
     inputs:
       version:
