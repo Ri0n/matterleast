@@ -31,6 +31,9 @@ namespace Mattermost {
 namespace {
 constexpr qint64 MaxPackage = 900LL * 1024 * 1024;
 constexpr int MaxManifest = 128 * 1024;
+// Metadata is tiny: never leave a manual check waiting for Qt's 120-second
+// transfer stall timeout (or an indefinitely active TLS connection).
+constexpr int MetadataTimeoutMs = 15000;
 constexpr int Protocol = 1;
 
 bool safeIdentity(const QString& identity)
@@ -123,10 +126,41 @@ QString WindowsUpdateController::currentIdentity() const
     return safeIdentity(id) ? id : QString();
 }
 
+QString WindowsUpdateController::checkChannel() const
+{
+    return isBusy() && !_checkChannel.isEmpty() ? _checkChannel : activeChannel();
+}
+
+QDateTime WindowsUpdateController::lastCheckTime() const
+{
+    const QString value = MLOptions::instance()->value<QString>(
+        QStringLiteral("updates/lastCheck/%1/time").arg(checkChannel()));
+    return QDateTime::fromString(value, Qt::ISODate);
+}
+
+QString WindowsUpdateController::lastCheckResult() const
+{
+    return MLOptions::instance()->value<QString>(
+        QStringLiteral("updates/lastCheck/%1/result").arg(checkChannel()));
+}
+
+void WindowsUpdateController::recordCheckResult(const QString& result)
+{
+    const QString channel = _checkChannel.isEmpty() ? activeChannel() : _checkChannel;
+    MLOptions::instance()->setValue(
+        QStringLiteral("updates/lastCheck/%1/time").arg(channel),
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    MLOptions::instance()->setValue(
+        QStringLiteral("updates/lastCheck/%1/result").arg(channel), result);
+    emit checkHistoryChanged();
+}
+
 void WindowsUpdateController::setState(State state, const QString& error)
 {
     _state = state;
     _error = error;
+    if (state == State::Failed)
+        recordCheckResult(error);
     emit stateChanged(state);
     if (state == State::Failed && !_automatic)
         emit errorOccurred(error);
@@ -151,15 +185,6 @@ void WindowsUpdateController::check(bool automatic)
         }
         return;
     }
-    if (_state == State::Ready) {
-        if (!automatic) {
-            // An automatic check may already have prepared a version. A
-            // subsequent Help-menu click must still show the ready dialog.
-            _automatic = false;
-            emit updatePrepared(_identity);
-        }
-        return;
-    }
     if (_state == State::Checking || _state == State::Downloading
         || _state == State::Preparing || _reply) {
         if (!automatic)
@@ -168,10 +193,13 @@ void WindowsUpdateController::check(bool automatic)
     }
 
     _automatic = automatic;
+    _checkChannel = activeChannel();
+    _received = 0;
+    _size = 0;
     setState(State::Checking);
     if (!automatic)
         emit manualCheckStarted();
-    const auto channel = activeChannel() == QLatin1String("nightly")
+    const auto channel = _checkChannel == QLatin1String("nightly")
         ? UpdateChannel::Nightly : UpdateChannel::Stable;
     const QUrl original(updateManifestUrl(channel));
     if (!original.isValid() || original.scheme() != QLatin1String("https")) {
@@ -199,19 +227,45 @@ void WindowsUpdateController::downloadBytes(
     QNetworkReply* reply = _network.get(requestFor(url));
     _reply = reply;
     const auto collected = QSharedPointer<QByteArray>::create();
+    // A hard wall-clock timeout is necessary for a usable manual check:
+    // transferTimeout() only covers inactivity and the connection may never
+    // finish when a proxy/TLS handshake stalls.
+    QTimer::singleShot(MetadataTimeoutMs, reply, [reply] {
+        if (!reply->isFinished()) {
+            reply->setProperty("matterleastTimedOut", true);
+            reply->abort();
+        }
+    });
     connect(reply, &QIODevice::readyRead, this, [reply, collected, limit] {
         collected->append(reply->readAll());
-        if (collected->size() > limit) reply->abort();
+        if (collected->size() > limit)
+            reply->abort();
     });
     connect(reply, &QNetworkReply::finished, this,
             [this, reply, collected, limit, done] {
         collected->append(reply->readAll());
         if (_reply == reply) _reply.clear();
         const bool valid = isHttpSuccess(reply) && collected->size() <= limit;
-        const QString error = reply->errorString();
+        const bool timedOut = reply->property("matterleastTimedOut").toBool();
+        const int httpStatus = reply->attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QString networkError = reply->errorString();
+        const QString host = reply->url().host();
         reply->deleteLater();
         if (!valid) {
-            setState(State::Failed, tr("Could not retrieve signed update metadata: %1").arg(error));
+            if (timedOut) {
+                setState(State::Failed,
+                    tr("Update server %1 did not respond within %2 seconds. "
+                       "Check your connection, proxy or firewall.")
+                        .arg(host).arg(MetadataTimeoutMs / 1000));
+            } else if (collected->size() > limit) {
+                setState(State::Failed, tr("Update metadata exceeds the size limit."));
+            } else {
+                setState(State::Failed,
+                    tr("Could not fetch update metadata from %1 "
+                       "(HTTP %2): %3")
+                        .arg(host).arg(httpStatus).arg(networkError));
+            }
             return;
         }
         done(*collected);
@@ -229,7 +283,7 @@ void WindowsUpdateController::manifestReceived(const QByteArray& raw)
         return;
     }
     _rawManifest = raw;
-    const auto channel = activeChannel() == QLatin1String("nightly")
+    const auto channel = _checkChannel == QLatin1String("nightly")
         ? UpdateChannel::Nightly : UpdateChannel::Stable;
     const QUrl signatureUrl(updateManifestUrl(channel) + QStringLiteral(".sig"));
     downloadBytes(signatureUrl, 1024, [this](QByteArray signature) {
@@ -251,7 +305,7 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
         return;
     }
     const QJsonObject doc = json.object();
-    const QString channel = activeChannel();
+    const QString channel = _checkChannel;
     const QString version = doc.value(QStringLiteral("version")).toString();
     const QString tag = doc.value(QStringLiteral("releaseTag")).toString();
     const QString id = channel == QLatin1String("nightly")
@@ -302,14 +356,15 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
     // A completed manual check must always report its result, including a
     // same-version/downgrade response. Automatic checks remain silent.
     const auto noUpdate = [this, channel, version, id] {
+        const QString description = tr(
+            "No updates available on the %1 channel.\n"
+            "Installed version: %2\n"
+            "Latest published version: %3 (%4)")
+            .arg(channel, QCoreApplication::applicationVersion(), version, id);
+        recordCheckResult(description);
         setState(State::Idle);
-        if (!_automatic) {
-            emit noUpdateAvailable(tr("No updates available on the %1 channel.\n"
-                                      "Installed version: %2\n"
-                                      "Latest published version: %3 (%4)")
-                                       .arg(channel, QCoreApplication::applicationVersion(),
-                                            version, id));
-        }
+        if (!_automatic)
+            emit noUpdateAvailable(description);
     };
     // Never auto-downgrade the numeric release, even when switching channels.
     if (!running.isNull() && QVersionNumber::compare(available, running) < 0) {
@@ -325,6 +380,7 @@ void WindowsUpdateController::authenticatedManifest(const QByteArray& raw)
         noUpdate();
         return;
     }
+    recordCheckResult(tr("Update found: %1 (%2)").arg(version, id));
     _identity = id;
     _size = qint64(size);
     _sha256 = sha;
