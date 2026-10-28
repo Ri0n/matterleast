@@ -33,6 +33,8 @@
 
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
 #include "update/WindowsUpdateController.h"
+#include "update/UpdateTrustPolicy.h"
+#include <QSignalBlocker>
 #include "options/MLOptions.h"
 #include <QAction>
 #endif
@@ -112,12 +114,20 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     });
     auto* nightly = updates->addAction(tr("Use nightly update channel"));
     nightly->setCheckable(true);
-    nightly->setChecked(MLOptions::instance()->value<QString>(
-        QStringLiteral("updates/channel"), QStringLiteral("stable")) == QLatin1String("nightly"));
-    connect(nightly, &QAction::toggled, updater, [updater](bool checked) {
-        MLOptions::instance()->setValue(QStringLiteral("updates/channel"),
+    auto* channelSetting = MLOptions::instance()->optionObject<QString>(
+        QStringLiteral("updates/channel"), defaultUpdateChannel());
+    nightly->setChecked(channelSetting->value().toString() == QLatin1String("nightly"));
+    connect(nightly, &QAction::toggled, updater, [updater, channelSetting](bool checked) {
+        channelSetting->setValue(
             checked ? QStringLiteral("nightly") : QStringLiteral("stable"));
         updater->checkNow();
+    });
+    // Settings -> Updates can also change the channel. Reflect that choice
+    // without retriggering the tray action or launching another check.
+    connect(channelSetting, &MLOptionObject::changed, nightly,
+            [nightly](const QVariant& value) {
+        const QSignalBlocker blocker(nightly);
+        nightly->setChecked(value.toString() == QLatin1String("nightly"));
     });
     connect(updater, &WindowsUpdateController::stateChanged, this,
             [restart, updater](WindowsUpdateController::State) {
