@@ -6,6 +6,16 @@
 option(MATTERLEAST_ENABLE_UPDATE_CHECKS
     "Compile support for checking for MatterLeast updates" ON)
 
+# Nightly installers should start on the nightly feed. An explicit user
+# preference in QSettings takes precedence and survives future upgrades.
+set(MATTERLEAST_UPDATE_DEFAULT_CHANNEL "stable" CACHE STRING
+    "Default Windows update channel for new installations (stable or nightly)")
+set_property(CACHE MATTERLEAST_UPDATE_DEFAULT_CHANNEL PROPERTY STRINGS stable nightly)
+if(NOT MATTERLEAST_UPDATE_DEFAULT_CHANNEL MATCHES "^(stable|nightly)$")
+    message(FATAL_ERROR
+        "MATTERLEAST_UPDATE_DEFAULT_CHANNEL must be stable or nightly")
+endif()
+
 set(_matterleast_default_update_url
     "https://github.com/Ri0n/matterleast/releases/download/updates-{channel}/windows-x64.json")
 set(MATTERLEAST_UPDATE_MANIFEST_URL "${_matterleast_default_update_url}" CACHE STRING
@@ -83,6 +93,7 @@ configure_file(
     "${CMAKE_BINARY_DIR}/generated/UpdateTrustConfig.h" @ONLY)
 
 message(STATUS "MatterLeast update checks: ${MATTERLEAST_ENABLE_UPDATE_CHECKS}")
+message(STATUS "MatterLeast default update channel: ${MATTERLEAST_UPDATE_DEFAULT_CHANNEL}")
 if(MATTERLEAST_ENABLE_UPDATE_CHECKS)
     message(STATUS "MatterLeast update source: ${MATTERLEAST_UPDATE_MANIFEST_URL}")
 endif()

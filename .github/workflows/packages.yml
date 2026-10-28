@@ -7,12 +7,23 @@ on:
         description: Optional MatterLeast version override (for example 1.0)
         required: false
         type: string
+      update_channel:
+        description: Default Windows update channel
+        required: false
+        type: choice
+        options: [stable, nightly]
+        default: stable
   workflow_call:
     inputs:
       version:
         description: Optional MatterLeast version override (for example 1.0)
         required: false
         type: string
+      update_channel:
+        description: Default Windows update channel
+        required: false
+        type: string
+        default: stable
 
 permissions:
   contents: read
@@ -604,6 +615,7 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DQT_6=ON `
             -DMATTERLEAST_USE_KEYCHAIN=ON `
+            -DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=${{ inputs.update_channel || 'stable' }} `
             -DBUILD_TESTING=ON `
             -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -9,6 +9,8 @@ enum class UpdateChannel { Stable, Nightly };
 // These values are build-time fixed: corporate URL/key cannot be overridden
 // by network content or a local untrusted preference.
 bool updateChecksCompiled();
+// Build-specific default; only used when the user has not chosen a channel.
+QString defaultUpdateChannelName();
 bool updateManifestSignatureRequired();
 QString updateManifestUrl(UpdateChannel channel);
 

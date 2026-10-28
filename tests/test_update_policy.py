@@ -47,6 +47,15 @@ class UpdatePolicyTests(unittest.TestCase):
         self.assertIn("updates-nightly/windows-x64.json", code)
         self.assertIn("checksCompiled = 1", code)
         self.assertIn("signaturesRequired = 0", code)
+        self.assertIn('defaultChannel = "stable"', code)
+
+    def test_nightly_build_defaults_to_nightly(self):
+        code = self.cmake(["-DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=nightly"])
+        self.assertIn('defaultChannel = "nightly"', code)
+
+    def test_invalid_default_channel_is_rejected(self):
+        error = self.cmake(["-DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=preview"], False)
+        self.assertIn("MATTERLEAST_UPDATE_DEFAULT_CHANNEL must be stable or nightly", error)
 
     def test_custom_url_is_embedded_for_both_channels(self):
         code = self.cmake([

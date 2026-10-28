@@ -19,6 +19,10 @@
 
 #include "SettingsWindow.h"
 
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+#include "update/UpdateTrustPolicy.h"
+#endif
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
@@ -162,6 +166,40 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
            "Shift+Enter always inserts a new line.")));
     composerLayout->addStretch(1);
     tabs->addTab(composerPage, tr("Composer"));
+
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+    if (updateChecksCompiled()) {
+        auto* updatesPage = new QWidget(tabs);
+        auto* updatesLayout = new QVBoxLayout(updatesPage);
+        updatesLayout->setContentsMargins(12, 12, 12, 12);
+        updatesLayout->setSpacing(8);
+
+        _updatesAutomatic = new QCheckBox(
+            tr("Check for updates automatically"), updatesPage);
+        _updatesAutomatic->setObjectName(QStringLiteral("updatesAutomatic"));
+        _updatesAutomatic->setChecked(options->value<bool>(
+            QStringLiteral("updates/automatic"), true));
+        updatesLayout->addWidget(_updatesAutomatic);
+
+        auto* channelLabel = new QLabel(tr("Update channel:"), updatesPage);
+        updatesLayout->addWidget(channelLabel);
+        _updatesChannel = new QComboBox(updatesPage);
+        _updatesChannel->setObjectName(QStringLiteral("updatesChannel"));
+        _updatesChannel->addItem(tr("Stable"), QStringLiteral("stable"));
+        _updatesChannel->addItem(tr("Nightly"), QStringLiteral("nightly"));
+        const QString savedChannel = options->value<QString>(
+            QStringLiteral("updates/channel"), defaultUpdateChannelName());
+        const int selectedChannel = _updatesChannel->findData(savedChannel);
+        _updatesChannel->setCurrentIndex(selectedChannel >= 0 ? selectedChannel : 0);
+        updatesLayout->addWidget(_updatesChannel);
+        updatesLayout->addWidget(makeDescription(
+            updatesPage,
+            tr("Nightly builds receive newer, less-tested updates. "
+               "Your explicit channel selection is preserved across updates.")));
+        updatesLayout->addStretch(1);
+        tabs->addTab(updatesPage, tr("Updates"));
+    }
+#endif
 
     auto* sidebarPage = new QWidget(tabs);
     auto* sidebarLayout = new QVBoxLayout(sidebarPage);
@@ -476,6 +514,15 @@ void SettingsWindow::reject()
 void SettingsWindow::applyNewSettings ()
 {
     auto* options = MLOptions::instance();
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+    if (_updatesAutomatic && _updatesChannel) {
+        options->optionObject<bool>(QStringLiteral("updates/automatic"), true)
+            ->setValue(_updatesAutomatic->isChecked());
+        options->optionObject<QString>(QStringLiteral("updates/channel"),
+                                      defaultUpdateChannelName())
+            ->setValue(_updatesChannel->currentData().toString());
+    }
+#endif
     options->optionObject<QString>(
         DOWNLOAD_LOCATION,
         QStandardPaths::writableLocation(QStandardPaths::DownloadLocation))

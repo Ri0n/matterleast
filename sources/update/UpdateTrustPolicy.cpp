@@ -5,6 +5,11 @@
 
 namespace Mattermost {
 
+QString defaultUpdateChannelName()
+{
+    return QString::fromLatin1(UpdateTrustConfig::defaultChannel);
+}
+
 bool updateChecksCompiled()
 {
     return UpdateTrustConfig::checksCompiled;

@@ -1,0 +1,46 @@
+name: Windows update download/install smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-upgrade-smoke.yml'
+      - 'tests/windows-upgrade-smoke/**'
+      - 'sources/update/**'
+      - 'sources/options/MLOptions.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade-smoke:
+    name: Real GitHub download, install and rollback (minimal C++)
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install minimal Qt modules
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.2'
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
+          cache: true
+      - name: Enable MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build only updater/launcher, ZIP installer and download controller
+        shell: pwsh
+        run: |
+          cmake -S tests/windows-upgrade-smoke -B build-upgrade-smoke -G Ninja -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build-upgrade-smoke --parallel 4
+          exit $LASTEXITCODE
+      - name: Download published release and exercise real version switching
+        shell: pwsh
+        run: |
+          ./tests/windows-upgrade-smoke/run.ps1 -BuildDir build-upgrade-smoke

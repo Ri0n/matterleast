@@ -60,6 +60,7 @@ jobs:
     uses: ./.github/workflows/packages.yml
     with:
       version: ${{ needs.identity.outputs.version }}
+      update_channel: nightly
 
   publish:
     name: Stage packages, verify digests, then promote pointer

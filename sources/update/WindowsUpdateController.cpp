@@ -74,7 +74,7 @@ bool packagedByStore()
 QString activeChannel()
 {
     const QString configured = MLOptions::instance()->value<QString>(
-        QStringLiteral("updates/channel"), QStringLiteral("stable"));
+        QStringLiteral("updates/channel"), defaultUpdateChannelName());
     return configured == QLatin1String("nightly")
         ? QStringLiteral("nightly") : QStringLiteral("stable");
 }
