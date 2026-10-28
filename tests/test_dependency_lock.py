@@ -19,7 +19,7 @@ class DependencyLockContract(unittest.TestCase):
         cls.lock = json.loads((ROOT / "dependencies.lock.json").read_text(encoding="utf-8"))
 
     def test_locked_dependencies_have_verified_version_shape(self):
-        self.assertEqual(set(self.lock), {"qca", "qca_windows", "qtkeychain"})
+        self.assertEqual(set(self.lock), {"qca", "qtkeychain"})
         for name, entry in self.lock.items():
             with self.subTest(name=name):
                 self.assertEqual(set(entry), {"tag", "commit", "minimum_version"})
@@ -37,7 +37,8 @@ class DependencyLockContract(unittest.TestCase):
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn("include(cmake/MatterLeastDependencyLock.cmake)", cmake)
         self.assertIn("matterleast_load_dependency(qca MATTERLEAST_QCA_LOCK)", cmake)
-        self.assertIn("matterleast_load_dependency(qca_windows MATTERLEAST_QCA_LOCK)", cmake)
+        self.assertNotIn("matterleast_load_dependency(qca_windows", cmake)
+        self.assertEqual(self.lock["qca"]["tag"], "v3.1.0")
         self.assertIn("matterleast_load_dependency(qtkeychain MATTERLEAST_QTKEYCHAIN_LOCK)", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QCA_LOCK_COMMIT}", cmake)
         self.assertIn("tar.gz/\u0024{MATTERLEAST_QTKEYCHAIN_LOCK_COMMIT}", cmake)
