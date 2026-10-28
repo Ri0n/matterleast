@@ -617,6 +617,8 @@ jobs:
       - name: Configure
         env:
           CCACHE_COMPILERCHECK: content
+          MATTERLEAST_BUILD_INSTALL_ID: ${{ inputs.install_id }}
+          MATTERLEAST_BUILD_UPDATE_CHANNEL: ${{ inputs.update_channel || 'stable' }}
         run: |
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
@@ -624,8 +626,8 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DQT_6=ON `
             -DMATTERLEAST_USE_KEYCHAIN=ON `
-            -DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=${{ inputs.update_channel || 'stable' }} `
-            -DMATTERLEAST_INSTALL_ID=${{ inputs.install_id }} `
+            -DMATTERLEAST_UPDATE_DEFAULT_CHANNEL="$env:MATTERLEAST_BUILD_UPDATE_CHANNEL" `
+            -DMATTERLEAST_INSTALL_ID="$env:MATTERLEAST_BUILD_INSTALL_ID" `
             -DBUILD_TESTING=ON `
             -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
