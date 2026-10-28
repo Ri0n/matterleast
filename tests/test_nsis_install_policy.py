@@ -37,7 +37,7 @@ class PerUserNsisTemplateTest(unittest.TestCase):
 
     def test_project_selects_local_programs_and_custom_cpack_module_path(self):
         root_cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-        self.assertIn('set(CPACK_NSIS_INSTALL_ROOT "$LOCALAPPDATA\\\\\\Programs")', root_cmake)
+        self.assertIn('set(CPACK_NSIS_INSTALL_ROOT "$LOCALAPPDATA\\\\\\\\Programs")', root_cmake)
         self.assertIn('set(CPACK_MODULE_PATH "${_matterleast_nsis_templates}")', root_cmake)
         self.assertIn('matterleast_prepare_per_user_nsis_template(', root_cmake)
         self.assertIn('set(CPACK_COMPONENT_DEVELOPMENT_DISABLED TRUE)', root_cmake)
