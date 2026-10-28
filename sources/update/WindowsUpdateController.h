@@ -33,6 +33,7 @@ public:
     QString availableVersion() const { return _identity; }
     QString lastError() const { return _error; }
     bool canApply() const { return _state == State::Ready; }
+    bool manualCheckActive() const { return !_automatic; }
 
 public slots:
     void checkNow();
@@ -43,6 +44,8 @@ signals:
     void progressChanged(qint64 received, qint64 total);
     void updatePrepared(const QString& identity);
     void errorOccurred(const QString& description);
+    void manualCheckStarted();
+    void noUpdateAvailable(const QString& description);
 
 private:
     void check(bool automatic);
