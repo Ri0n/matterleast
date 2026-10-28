@@ -54,6 +54,7 @@
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
 #include "update/WindowsUpdateController.h"
 #include "update/UpdateTrustPolicy.h"
+#include "ui/SidebarUpdateBanner.h"
 #endif
 #include "backend/Backend.h"
 #include "backend/CustomStatusValidation.h"
@@ -422,6 +423,89 @@ void MainWindow::setupChannelTabs()
 	sidebarFilterLayout->addWidget(sidebarFilterEdit, 1);
 	leftLayout->addWidget(sidebarFilterRow);
 	leftLayout->addWidget(channelTabs, 1);
+
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+    // One persistent footer shared by Channels, Following and Attention.
+    // The updater belongs to the application and can discover updates before
+    // the main window exists; initialize from its current state as well.
+    if (auto* updater = qApp->findChild<WindowsUpdateController*>()) {
+        _updateBanner = new SidebarUpdateBanner(leftSidebar);
+        leftLayout->addWidget(_updateBanner);
+
+        const auto refreshBanner = [this, updater] {
+            if (!_updateBanner) return;
+            using State = WindowsUpdateController::State;
+            using Phase = SidebarUpdateBanner::Phase;
+            const State state = updater->state();
+
+            switch (state) {
+            case State::Downloading: {
+                _updateOfferVisible = true;
+                const qint64 total = updater->downloadTotalBytes();
+                const int percentage = total > 0
+                    ? int(100 * updater->downloadedBytes() / total) : -1;
+                _updateBanner->showUpdate(Phase::Downloading,
+                    updater->availableVersion(), percentage, _updateRestartRequested);
+                break;
+            }
+            case State::Preparing:
+                _updateOfferVisible = true;
+                _updateBanner->showUpdate(Phase::Preparing,
+                    updater->availableVersion(), -1, _updateRestartRequested);
+                break;
+            case State::Ready:
+                _updateOfferVisible = true;
+                _updateBanner->showUpdate(Phase::Ready,
+                    updater->availableVersion());
+                if (_updateRestartRequested) {
+                    _updateRestartRequested = false;
+                    // Do not destroy the running app from a stateChanged()
+                    // callback; wait until preparation has finished emitting.
+                    QTimer::singleShot(0, updater, [updater] {
+                        if (updater->canApply())
+                            updater->startUpdateAndRestart();
+                    });
+                }
+                break;
+            case State::Failed:
+                _updateRestartRequested = false;
+                if (_updateOfferVisible) {
+                    _updateBanner->showUpdate(Phase::Failed,
+                        updater->availableVersion(), -1, false, updater->lastError());
+                } else {
+                    _updateBanner->clearUpdate();
+                }
+                break;
+            case State::Unavailable:
+            case State::Idle:
+            case State::Checking:
+                _updateOfferVisible = false;
+                _updateRestartRequested = false;
+                _updateBanner->clearUpdate();
+                break;
+            }
+        };
+
+        connect(_updateBanner, &SidebarUpdateBanner::activated, this,
+                [this, updater, refreshBanner] {
+            using State = WindowsUpdateController::State;
+            if (updater->canApply()) {
+                updater->startUpdateAndRestart();
+            } else if (updater->state() == State::Downloading
+                       || updater->state() == State::Preparing) {
+                _updateRestartRequested = true;
+                refreshBanner();
+            } else if (updater->state() == State::Failed) {
+                updater->checkNow();
+            }
+        });
+        connect(updater, &WindowsUpdateController::stateChanged, this,
+                [refreshBanner](WindowsUpdateController::State) { refreshBanner(); });
+        connect(updater, &WindowsUpdateController::progressChanged, this,
+                [refreshBanner](qint64, qint64) { refreshBanner(); });
+        refreshBanner();
+    }
+#endif
 
 	sidebarSplitter = new ThinSplitter(Qt::Horizontal, ui->centralwidget);
 	sidebarSplitter->setChildrenCollapsible(false);

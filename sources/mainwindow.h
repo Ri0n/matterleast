@@ -49,6 +49,7 @@ class BackendTeam;
 class ChannelQuickList;
 class NotificationManager;
 class PostCollectionView;
+class SidebarUpdateBanner;
 
 class MainWindow: public QMainWindow {
 	Q_OBJECT
@@ -112,6 +113,11 @@ private:
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;
 	QLineEdit*							sidebarFilterEdit = nullptr;
+#if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
+    SidebarUpdateBanner*                _updateBanner = nullptr;
+    bool                                _updateOfferVisible = false;
+    bool                                _updateRestartRequested = false;
+#endif
 	QToolButton*						unreadFilterButton = nullptr;
 	ChannelQuickList*					recentChannels = nullptr;
 	AttentionList*						attentionList = nullptr;
