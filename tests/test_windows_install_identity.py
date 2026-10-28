@@ -48,6 +48,19 @@ class WindowsInstallIdentityTests(unittest.TestCase):
             "-DMATTERLEAST_INSTALL_ID=" + bid,
         ]), bid)
 
+    def test_ci_build_has_a_unique_id(self):
+        ident = "ci-20261028-203000-090bc3c6d046"
+        self.assertEqual(self.configure([
+            "-DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=stable",
+            "-DMATTERLEAST_INSTALL_ID=" + ident,
+        ]), ident)
+
+    def test_invalid_ci_id_is_rejected(self):
+        self.assertIn("Invalid CI", self.configure([
+            "-DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=stable",
+            "-DMATTERLEAST_INSTALL_ID=ci-20261028-203000-a",
+        ], False))
+
     def test_nightly_without_identity_fails(self):
         output = self.configure([
             "-DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=nightly",
