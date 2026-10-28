@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p test_dependency_lock.py -v
           python3 -m unittest discover -s tests -p test_qca_system_selection.py -v
+          python3 -m unittest discover -s tests -p test_nsis_install_policy.py -v
 
   update-manifest:
     name: Windows update manifest contract
