@@ -20,6 +20,14 @@ Write-Host "Downloading the real current stable GitHub ZIP through WindowsUpdate
 # output (HTTP response, TLS error, etc.) survives in Actions logs.
 & (Join-Path $bin 'matterleast.exe') 2>&1 | Out-Host
 $probeExit = $LASTEXITCODE
+$diagnostics = Join-Path $bin 'smoke.log'
+if (Test-Path $diagnostics) {
+    Write-Host '----- Native updater diagnostic log -----'
+    Get-Content $diagnostics
+    Write-Host '----- End native updater diagnostic log -----'
+} else {
+    Write-Warning 'No native updater diagnostics produced'
+}
 if ($probeExit -ne 0) {
     throw "WindowsUpdateController failed to download/prepare the published update (exit $probeExit)"
 }
