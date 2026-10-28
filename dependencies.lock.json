@@ -8,5 +8,10 @@
     "tag": "0.17.0",
     "commit": "875f77d9f61bd97fd84cca47ce3bc71186dfbd09",
     "minimum_version": "0.13.0"
+  },
+  "qca_windows": {
+    "tag": "v3.0.12",
+    "commit": "3723935c5a2d46da339db457128d21c567ae8bc1",
+    "minimum_version": "3.0.12"
   }
 }
