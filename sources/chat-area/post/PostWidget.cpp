@@ -316,7 +316,8 @@ PostWidget::PostWidget(Backend& backend,
         });
 
         moreAffordance_ = makeActionButton(
-            QIcon(), QString::fromUtf8("⋯"), tr("More actions"));
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/more-horizontal")),
+            QString(), tr("More actions"));
         connect(moreAffordance_, &QPushButton::clicked, this, [this] {
             if (moreAffordance_) {
                 showPostContextMenu(moreAffordance_->mapToGlobal(
