@@ -415,7 +415,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build qt6-base-dev \
+          sudo apt-get install -y build-essential ninja-build qt6-base-dev qt6-svg-dev \
             qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins libssl-dev openssl
       - name: Configure ephemeral corporate signing policy
         shell: bash
