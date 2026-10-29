@@ -69,7 +69,8 @@ private slots:
         QCoreApplication::setLibraryPaths({});
         const QStringList resources {
             QStringLiteral("emoji"), QStringLiteral("message-balloon"),
-            QStringLiteral("bookmark"), QStringLiteral("link"),
+            QStringLiteral("bookmark"), QStringLiteral("more-horizontal"),
+            QStringLiteral("link"),
             QStringLiteral("image"), QStringLiteral("format-bullet-list"),
             QStringLiteral("format-numbered-list"),
             QStringLiteral("message-priority"), QStringLiteral("add"),
