@@ -69,6 +69,10 @@ void PresenceAvatarLabel::setConnectionIndicatorState(ConnectionIndicatorState s
         connectionState != ConnectionIndicatorState::None;
 
     if (wasAnimating != isAnimating) {
+        // A fresh connection starts in the usual direction, regardless of
+        // how many forced reconnects were requested in the previous attempt.
+        _connectionAnimationDirection = 1;
+        _connectionAnimationOffset = 0;
         if (isAnimating) {
             BusyIndicator::Animation::instance().acquire(*this);
         } else {
@@ -114,6 +118,17 @@ void PresenceAvatarLabel::mouseReleaseEvent(QMouseEvent* event)
                                           BadgeHitMargin, BadgeHitMargin)
                .contains(event->pos())) {
         QLabel::mouseReleaseEvent(event);
+
+        // Reverse only this connection indicator to acknowledge a manual
+        // immediate reconnect. Keep the shared clock and avoid a phase jump.
+        auto& animation = BusyIndicator::Animation::instance();
+        const int currentPhase = connectionAnimationPhase();
+        _connectionAnimationDirection = -_connectionAnimationDirection;
+        const int nextPhase = currentPhase + _connectionAnimationDirection;
+        _connectionAnimationOffset =
+            (nextPhase - _connectionAnimationDirection * animation.phase()
+             + 2 * BusyIndicator::AnimationSteps) % BusyIndicator::AnimationSteps;
+
         update();
         emit reconnectRequested();
         return;
@@ -151,7 +166,8 @@ void PresenceAvatarLabel::paintEvent(QPaintEvent* event)
     const int spinnerExtent = std::max(
         1, qRound(badge.width() - 2.0 * inset));
     const QPixmap frame = BusyIndicator::Animation::instance().frame(
-        spinnerExtent, spinnerColor, penWidth, devicePixelRatioF());
+        spinnerExtent, spinnerColor, penWidth, devicePixelRatioF(),
+        connectionAnimationPhase());
     painter.drawPixmap(
         QPointF(badge.left() + inset, badge.top() + inset),
         frame);
@@ -161,6 +177,15 @@ void PresenceAvatarLabel::resizeEvent(QResizeEvent* event)
 {
     ClickableLabel::resizeEvent(event);
     refreshPixmap();
+}
+
+int PresenceAvatarLabel::connectionAnimationPhase() const
+{
+    const int steps = BusyIndicator::AnimationSteps;
+    const int phase = _connectionAnimationDirection
+                      * BusyIndicator::Animation::instance().phase()
+                      + _connectionAnimationOffset;
+    return (phase % steps + steps) % steps;
 }
 
 QRectF PresenceAvatarLabel::connectionBadgeRect() const

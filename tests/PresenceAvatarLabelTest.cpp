@@ -102,6 +102,49 @@ private slots:
         QCOMPARE(renderLabel(label), presence);
     }
 
+    void clickingReconnectReversesOnlyItsSpinner()
+    {
+        PresenceAvatarLabel label;
+        label.setFixedSize(144, 144);
+        QPixmap avatar(144, 144);
+        avatar.fill(Qt::gray);
+        label.setPixmap(avatar);
+        label.setStatus(QStringLiteral("online"));
+        label.setConnectionIndicatorState(
+            PresenceAvatarLabel::ConnectionIndicatorState::Connecting);
+        label.show();
+        QCoreApplication::processEvents();
+
+        QSignalSpy reconnectSpy(&label, &PresenceAvatarLabel::reconnectRequested);
+        QVERIFY(!label.isConnectionAnimationReversed());
+        const QImage initial = renderLabel(label);
+
+        // The large badge makes a single 30-degree phase visually distinct.
+        const QPoint badgeCenter(125, 125);
+        QTest::mouseClick(&label, Qt::LeftButton, Qt::NoModifier, badgeCenter);
+        QCOMPARE(reconnectSpy.count(), 1);
+        QVERIFY(label.isConnectionAnimationReversed());
+        QVERIFY(renderLabel(label) != initial);
+
+        // A repeated manual reconnect reverses the direction again.
+        QTest::mouseClick(&label, Qt::LeftButton, Qt::NoModifier, badgeCenter);
+        QCOMPARE(reconnectSpy.count(), 2);
+        QVERIFY(!label.isConnectionAnimationReversed());
+
+        QTest::mouseClick(&label, Qt::LeftButton, Qt::NoModifier, badgeCenter);
+        QVERIFY(label.isConnectionAnimationReversed());
+        label.setConnectionIndicatorState(
+            PresenceAvatarLabel::ConnectionIndicatorState::WaitingForReconnect);
+        QVERIFY(label.isConnectionAnimationReversed());
+
+        label.setConnectionIndicatorState(
+            PresenceAvatarLabel::ConnectionIndicatorState::None);
+        QVERIFY(!label.isConnectionAnimationReversed());
+        label.setConnectionIndicatorState(
+            PresenceAvatarLabel::ConnectionIndicatorState::Connecting);
+        QVERIFY(!label.isConnectionAnimationReversed());
+    }
+
     void reconnectRequestComesFromConnectionBadge()
     {
         PresenceAvatarLabel label;

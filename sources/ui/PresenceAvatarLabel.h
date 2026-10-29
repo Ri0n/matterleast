@@ -56,6 +56,7 @@ public:
     void setStatus(const QString& status);
     void setConnectionIndicatorState(ConnectionIndicatorState state);
     ConnectionIndicatorState connectionIndicatorState() const { return connectionState; }
+    bool isConnectionAnimationReversed() const { return _connectionAnimationDirection < 0; }
 
     static bool isPresenceStatus(const QString& text);
 
@@ -70,12 +71,15 @@ protected:
 
 private:
     QRectF connectionBadgeRect() const;
+    int connectionAnimationPhase() const;
     void refreshPixmap();
 
     QPixmap sourcePixmap;
     QString presenceStatus;
     QColor renderedBackground;
     ConnectionIndicatorState connectionState = ConnectionIndicatorState::None;
+    int _connectionAnimationDirection = 1;
+    int _connectionAnimationOffset = 0;
 };
 
 /**
