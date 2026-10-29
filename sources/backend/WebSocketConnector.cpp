@@ -43,6 +43,7 @@
 #include <QtWebSockets/QWebSocket>
 
 #include "backend/WebSocketEventHandler.h"
+#include "backend/PresenceWebSocketPayload.h"
 #include "log.h"
 
 namespace Mattermost {
