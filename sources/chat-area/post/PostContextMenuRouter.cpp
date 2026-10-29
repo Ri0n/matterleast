@@ -18,13 +18,14 @@ namespace {
 PostWidget* enclosingPost(QWidget* widget)
 {
     for (QWidget* current = widget; current; current = current->parentWidget()) {
-        // Qt keeps the parentWidget() chain across top-level child dialogs.
-        // A press inside a profile window is not a press on its parent post.
-        if (current->isWindow()) {
-            break;
-        }
         if (auto* post = qobject_cast<PostWidget*>(current)) {
             return post;
+        }
+        // Qt keeps the parentWidget() chain across top-level child dialogs.
+        // A press inside a profile window is not a press on its parent post.
+        // Check the post itself first: tests may create a top-level PostWidget.
+        if (current->isWindow()) {
+            break;
         }
     }
     return nullptr;
@@ -49,11 +50,11 @@ bool isPostDragControl(QWidget* widget, const PostWidget* post)
 ChatLogWidget* enclosingLog(QWidget* widget)
 {
     for (QWidget* current = widget; current; current = current->parentWidget()) {
-        if (current->isWindow()) {
-            break;
-        }
         if (auto* log = qobject_cast<ChatLogWidget*>(current)) {
             return log;
+        }
+        if (current->isWindow()) {
+            break;
         }
     }
     return nullptr;
