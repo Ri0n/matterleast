@@ -75,7 +75,9 @@ qint64 UserActivityMonitor::systemIdleTimeMs() const
 #elif defined(MATTERLEAST_HAVE_XSS)
     // XScreenSaver only observes the real X11 session. An XWayland display
     // under Wayland is not a reliable whole-desktop idle timer.
-    if (QGuiApplication::platformName() == QLatin1String("xcb")) {
+    if (QGuiApplication::platformName() == QLatin1String("xcb")
+        && qEnvironmentVariable("XDG_SESSION_TYPE").compare(
+               QLatin1String("wayland"), Qt::CaseInsensitive) != 0) {
         static Display* display = XOpenDisplay(nullptr);
         if (display) {
             XScreenSaverInfo* info = XScreenSaverAllocInfo();
