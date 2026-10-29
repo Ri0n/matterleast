@@ -10,6 +10,18 @@ class PresenceActivityPolicyTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void automaticWebSocketPresenceNeverOverridesManualStatus()
+    {
+        const QJsonObject online = Mattermost::automaticPresenceData(true);
+        const QJsonObject idle = Mattermost::automaticPresenceData(false);
+        QCOMPARE(online.value(QStringLiteral("user_is_active")).toBool(), true);
+        QCOMPARE(online.value(QStringLiteral("manual")).toBool(), false);
+        QCOMPARE(idle.value(QStringLiteral("user_is_active")).toBool(), false);
+        QCOMPARE(idle.value(QStringLiteral("manual")).toBool(), false);
+        QCOMPARE(online.size(), 2);
+        QCOMPARE(idle.size(), 2);
+    }
+
     void sendsOncePerMinuteWhileActive()
     {
         PresenceActivityPolicy policy;
