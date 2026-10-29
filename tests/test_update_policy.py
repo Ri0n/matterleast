@@ -49,6 +49,35 @@ class UpdatePolicyTests(unittest.TestCase):
         self.assertIn("signaturesRequired = 0", code)
         self.assertIn('defaultChannel = "stable"', code)
 
+    def test_configure_logs_resolved_update_urls(self):
+        # CMake diagnostics must describe the actual compiled endpoints,
+        # not the {channel} template the user passed in.
+        for name, options, stable, nightly in (
+            ("default", [],
+             "https://github.com/Ri0n/matterleast/releases/download/updates-stable/windows-x64.json",
+             "https://github.com/Ri0n/matterleast/releases/download/updates-nightly/windows-x64.json"),
+            ("corporate", [
+                "-DMATTERLEAST_UPDATE_MANIFEST_URL=https://updates.example.test/{channel}/manifest.json"
+            ],
+             "https://updates.example.test/stable/manifest.json",
+             "https://updates.example.test/nightly/manifest.json"),
+            ("fixed", [
+                "-DMATTERLEAST_UPDATE_MANIFEST_URL=https://updates.example.test/manifest.json"
+            ],
+             "https://updates.example.test/manifest.json",
+             "https://updates.example.test/manifest.json"),
+        ):
+            with self.subTest(name=name):
+                proc = subprocess.run(
+                    ["cmake", "-S", str(self.source), "-B", str(self.root / ("build-log-" + name)), *options],
+                    capture_output=True, text=True, timeout=30)
+                output = proc.stdout + proc.stderr
+                self.assertEqual(proc.returncode, 0, output)
+                self.assertIn("MatterLeast stable update source: " + stable, output)
+                self.assertIn("MatterLeast nightly update source: " + nightly, output)
+                self.assertNotIn("MatterLeast update source: ", output)
+                self.assertNotIn("{channel}", output)
+
     def test_nightly_build_defaults_to_nightly(self):
         code = self.cmake(["-DMATTERLEAST_UPDATE_DEFAULT_CHANNEL=nightly"])
         self.assertIn('defaultChannel = "nightly"', code)
