@@ -63,6 +63,7 @@ private:
 	// until every window and tray object that can reference it is gone, and keep
 	// the tray menu alive until after QSystemTrayIcon releases its menu pointer.
 	Backend								backend;
+    UserActivityMonitor                   _activityMonitor;
 	std::unique_ptr<QMenu>				trayIconMenu;
 	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
 	std::unique_ptr<MainWindow>			mainWindow;
