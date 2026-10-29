@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "backend/PresenceActivityPolicy.h"
+#include "backend/PresenceWebSocketPayload.h"
 
 using Mattermost::PresenceActivityPolicy;
 
