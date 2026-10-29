@@ -1,0 +1,58 @@
+name: Initiate MatterLeast v2.1 release
+# One-shot initiator: the tagged commit itself does not include this helper.
+# The existing Release workflow builds immutable artifacts and promotes stable.
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/release-v2.1-dispatch.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  initiate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tag target and its history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify release candidate is tested and create immutable tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=v2.1
+          target=cf62ec447d22337b0cfa4b0f506ddb343982509f
+          ci_run=40881084468
+
+          git cat-file -e "$target^{commit}"
+          git merge-base --is-ancestor "$target" HEAD
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" --jq '.head_sha')" = "$target"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run" --jq '.conclusion')" = "success"
+
+          git fetch --force --tags origin
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            test "$(git rev-list -n1 "$tag")" = "$target" || {
+              echo "::error::$tag already points to a different commit"
+              exit 1
+            }
+          else
+            git config user.name github-actions
+            git config user.email github-actions@users.noreply.github.com
+            git tag -a "$tag" "$target" -m "MatterLeast 2.1 stable release"
+            git push origin "refs/tags/$tag"
+          fi
+
+      - name: Dispatch existing release packaging and stable promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml --ref v2.1 --repo "$GITHUB_REPOSITORY"
+          echo "Started MatterLeast v2.1 immutable release and stable update-channel promotion"
