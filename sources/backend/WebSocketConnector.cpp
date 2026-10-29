@@ -586,10 +586,7 @@ void WebSocketConnector::reportUserActivity(bool active)
         return;
     }
 
-    const QJsonObject data {
-        {QStringLiteral("user_is_active"), active},
-        {QStringLiteral("manual"), false},
-    };
+    const QJsonObject data = automaticPresenceData(active);
     const QJsonDocument request(QJsonObject {
         {QStringLiteral("seq"), d->responseSequence++},
         {QStringLiteral("action"), QStringLiteral("user_update_active_status")},
