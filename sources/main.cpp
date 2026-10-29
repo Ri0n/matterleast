@@ -42,6 +42,7 @@
 #include "login/LoginDialog.h"
 #include "mainwindow.h"
 #include "backend/Backend.h"
+#include "backend/UserActivityMonitor.h"
 #include "backend/CustomEmojiService.h"
 #include "config/Config.h"
 #include "ui/IconUtils.h"
