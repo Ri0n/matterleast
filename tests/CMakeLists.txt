@@ -280,6 +280,7 @@ target_link_libraries(sidebar-item-delegate-test
     PRIVATE
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Svg
 )
 
 add_test(NAME sidebar-item-delegate-test COMMAND sidebar-item-delegate-test)
