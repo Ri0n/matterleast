@@ -443,6 +443,11 @@ else()
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets
     Qt${QT_VERSION_MAJOR}::Svg qsourcehighlite
     matterleast-plugin-api)
+  if(WIN32)
+    # GetLastInputInfo is exported from user32.dll, not the Qt GUI DLLs.
+    target_link_libraries(matterleast-core PUBLIC user32)
+  endif()
+
   # Electron's powerMonitor reads system-wide idle time. XScreenSaver is the
   # corresponding desktop-wide mechanism for MatterLeast on native X11.
   # Optional for custom/headless/Wayland environments: Qt input monitoring
