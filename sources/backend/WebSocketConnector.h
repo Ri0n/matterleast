@@ -55,6 +55,8 @@ public:
     ConnectionState connectionState() const;
     QString connectionId() const;
     void reconnectNow();
+    // Official desktop presence request; manual is always false for activity.
+    void reportUserActivity(bool active);
 signals:
 	void onConnect (bool isReconnect, bool needsHttpResync);
 	void reliableResumeFailed();

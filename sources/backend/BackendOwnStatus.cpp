@@ -27,6 +27,12 @@ QString failureMessage(const QNetworkReply& reply)
 
 } // namespace
 
+void Backend::reportUserActivity(bool active)
+{
+    if (isLoggedIn)
+        webSocketConnector.reportUserActivity(active);
+}
+
 void Backend::setOwnAvailability(const QString& status, StatusUpdateResult callback)
 {
     if (status != QLatin1String("online") && status != QLatin1String("away")

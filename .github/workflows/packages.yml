@@ -87,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          packages=(build-essential dpkg-dev fakeroot)
+          packages=(build-essential dpkg-dev fakeroot libxss-dev)
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
             packages+=(qt6-base-dev qt6-svg-dev qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins)
           else
@@ -185,7 +185,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqca-qt6-dev libqca-qt6-plugins
+            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqca-qt6-dev libqca-qt6-plugins libxss-dev
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -276,6 +276,7 @@ jobs:
             file \
             libgl1-mesa-dev \
             libssl-dev \
+            libxss-dev \
             libxcb-cursor0 \
             libxcb-icccm4 \
             libxcb-image0 \
@@ -465,6 +466,7 @@ jobs:
             qt6-qtbase-devel \
             qt6-qtsvg-devel \
             qt6-qtsvg \
+            libXScrnSaver-devel \
             qt6-qtwebsockets-devel \
             qca-qt6-devel \
             qca-qt6-ossl

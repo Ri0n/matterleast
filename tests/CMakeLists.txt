@@ -1,3 +1,11 @@
+# Official Mattermost desktop activity cadence, independent of WebSocket and OS.
+add_executable(presence-activity-policy-test PresenceActivityPolicyTest.cpp)
+target_include_directories(presence-activity-policy-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(presence-activity-policy-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME presence-activity-policy-test COMMAND presence-activity-policy-test)
+
 add_executable(root-notification-policy-test
     RootNotificationPolicyTest.cpp
 )

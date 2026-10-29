@@ -443,6 +443,30 @@ else()
     Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets
     Qt${QT_VERSION_MAJOR}::Svg qsourcehighlite
     matterleast-plugin-api)
+  if(WIN32)
+    # GetLastInputInfo is exported from user32.dll, not the Qt GUI DLLs.
+    target_link_libraries(matterleast-core PUBLIC user32)
+  endif()
+
+  # Electron's powerMonitor reads system-wide idle time. XScreenSaver is the
+  # corresponding desktop-wide mechanism for MatterLeast on native X11.
+  # Optional for custom/headless/Wayland environments: Qt input monitoring
+  # remains available even when X11 development files are absent.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(X11 QUIET)
+    find_path(MATTERLEAST_XSS_INCLUDE_DIR X11/extensions/scrnsaver.h)
+    find_library(MATTERLEAST_XSS_LIBRARY NAMES Xss)
+    if(X11_FOUND AND MATTERLEAST_XSS_INCLUDE_DIR AND MATTERLEAST_XSS_LIBRARY)
+      target_include_directories(matterleast-core PRIVATE
+        ${X11_INCLUDE_DIR} ${MATTERLEAST_XSS_INCLUDE_DIR})
+      target_link_libraries(matterleast-core PUBLIC
+        ${X11_LIBRARIES} ${MATTERLEAST_XSS_LIBRARY})
+      target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_HAVE_XSS)
+      message(STATUS "MatterLeast presence: X11 desktop-wide idle monitoring enabled")
+    else()
+      message(STATUS "MatterLeast presence: Qt input fallback (no XScreenSaver)")
+    endif()
+  endif()
   if(BUILD_MULTIMEDIA)
     # matterleast-core compiles the multimedia-aware production sources. Keep
     # those Qt modules in its public link interface so integration tests that

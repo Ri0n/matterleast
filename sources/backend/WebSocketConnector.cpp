@@ -43,6 +43,7 @@
 #include <QtWebSockets/QWebSocket>
 
 #include "backend/WebSocketEventHandler.h"
+#include "backend/PresenceWebSocketPayload.h"
 #include "log.h"
 
 namespace Mattermost {
@@ -575,6 +576,23 @@ void WebSocketConnector::openSocket ()
 	request.setRawHeader("Cache-Control", "no-cache");
 	d->connectionAttemptTimer.start(ConnectionAttemptTimeoutMs);
 	d->webSocket.open (request);
+}
+
+void WebSocketConnector::reportUserActivity(bool active)
+{
+    if (d->connectionState != ConnectionState::Connected
+        || d->webSocket.state() != QAbstractSocket::ConnectedState
+        || d->token.isEmpty()) {
+        return;
+    }
+
+    const QJsonObject data = automaticPresenceData(active);
+    const QJsonDocument request(QJsonObject {
+        {QStringLiteral("seq"), d->responseSequence++},
+        {QStringLiteral("action"), QStringLiteral("user_update_active_status")},
+        {QStringLiteral("data"), data},
+    });
+    d->webSocket.sendTextMessage(request.toJson(QJsonDocument::Compact));
 }
 
 void WebSocketConnector::doHandshake ()
