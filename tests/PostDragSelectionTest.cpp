@@ -3,7 +3,10 @@
 #include <QBuffer>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QDialogButtonBox>
 #include <QLabel>
+#include <QPlainTextEdit>
+#include <QScrollBar>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTextBlock>
@@ -18,6 +21,7 @@
 #include "chat-area/ChatLogWidget.h"
 #include "chat-area/post/PostWidget.h"
 #include "chat-area/post/attachments/AttachedImageFile.h"
+#include "info-dialogs/UserProfileDialog.h"
 #include "preview-window/FilePreview.h"
 
 using namespace Mattermost;
@@ -355,6 +359,69 @@ private slots:
         QVERIFY(thread.rootPost->wholeMessageSelected());
         QVERIFY(!thread.secondPost->wholeMessageSelected());
         QTest::mouseRelease(window, Qt::LeftButton, {}, onRootText);
+    }
+
+    void draggingProfileCloseDoesNotSelectPosts()
+    {
+        Thread thread;
+        openThread(thread, QStringLiteral("second message"), false);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+        BackendUser* user = thread.backend->getStorage().getUserById(QStringLiteral("user"));
+        QVERIFY(user);
+
+        // A profile is a separate window even though it is parented to a post.
+        UserProfileDialog profile(*thread.backend, *user, thread.rootPost);
+        profile.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&profile));
+        auto* buttons = profile.findChild<QDialogButtonBox*>();
+        QVERIFY(buttons);
+        QPushButton* closeButton = buttons->button(QDialogButtonBox::Close);
+        QVERIFY(closeButton);
+
+        const QPoint start = closeButton->mapTo(
+            &profile, closeButton->rect().center());
+        QWindow* window = profile.windowHandle();
+        QVERIFY(window);
+        QTest::mousePress(window, Qt::LeftButton, {}, start);
+        QTest::mouseMove(window, start + QPoint(0, -8));
+        QVERIFY(!thread.log->isMessageSelectionMode());
+        QTest::mouseMove(window, start + QPoint(0, -18));
+        QVERIFY(!thread.log->isMessageSelectionMode());
+        QTest::mouseRelease(window, Qt::LeftButton, {}, start + QPoint(0, -18));
+        QVERIFY(!thread.log->isMessageSelectionMode());
+    }
+
+    void draggingCodeBlockScrollbarDoesNotSelectPosts()
+    {
+        Thread thread;
+        const QString code = QStringLiteral("```cpp\n")
+            + QString(400, QLatin1Char('W')) + QStringLiteral("\n```");
+        openThread(thread, code, false);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+
+        auto* editor = thread.secondPost->findChild<QPlainTextEdit*>(
+            QStringLiteral("messageCodeBlock"));
+        QVERIFY(editor);
+        QScrollBar* scrollbar = editor->horizontalScrollBar();
+        QVERIFY(scrollbar);
+        QTRY_VERIFY(scrollbar->isVisible() && scrollbar->maximum() > 0);
+        const QPoint origin = scrollbar->mapTo(
+            thread.area.get(), scrollbar->rect().center());
+        const QPoint otherPost = thread.rootPost->mapTo(
+            thread.area.get(), thread.rootPost->rect().center());
+
+        QWindow* window = thread.area->windowHandle();
+        QTest::mousePress(window, Qt::LeftButton, {}, origin);
+        QTest::mouseMove(window, origin + QPoint(12, 0));
+        QVERIFY(!thread.log->isMessageSelectionMode());
+        QTest::mouseMove(window, otherPost);
+        QVERIFY(!thread.log->isMessageSelectionMode());
+        QTest::mouseRelease(window, Qt::LeftButton, {}, otherPost);
+        QVERIFY(!thread.log->isMessageSelectionMode());
     }
 
     void clickOnImageStillOpensPreview()

@@ -1,3 +1,5 @@
+#include <QAbstractButton>
+#include <QAbstractSlider>
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QCoreApplication>
@@ -16,6 +18,11 @@ namespace {
 PostWidget* enclosingPost(QWidget* widget)
 {
     for (QWidget* current = widget; current; current = current->parentWidget()) {
+        // Qt keeps the parentWidget() chain across top-level child dialogs.
+        // A press inside a profile window is not a press on its parent post.
+        if (current->isWindow()) {
+            break;
+        }
         if (auto* post = qobject_cast<PostWidget*>(current)) {
             return post;
         }
@@ -23,9 +30,28 @@ PostWidget* enclosingPost(QWidget* widget)
     return nullptr;
 }
 
+bool isPostDragControl(QWidget* widget, const PostWidget* post)
+{
+    // Scrollbars inside code blocks belong to the post's widget tree, but
+    // dragging them must never initiate cross-post selection. Likewise, a
+    // button or another slider owns its own mouse interaction.
+    for (QWidget* current = widget; current && current != post;
+         current = current->parentWidget()) {
+        if (current->isWindow()
+            || qobject_cast<QAbstractSlider*>(current)
+            || qobject_cast<QAbstractButton*>(current)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 ChatLogWidget* enclosingLog(QWidget* widget)
 {
     for (QWidget* current = widget; current; current = current->parentWidget()) {
+        if (current->isWindow()) {
+            break;
+        }
         if (auto* log = qobject_cast<ChatLogWidget*>(current)) {
             return log;
         }
@@ -78,13 +104,18 @@ protected:
             if (mouse->button() == Qt::LeftButton) {
                 PostWidget* post = enclosingPost(widget);
                 ChatLogWidget* log = post ? enclosingLog(post) : nullptr;
-                // An ignored press propagates past the post to the list
-                // viewport; that step must not forget the origin post.
-                if (post && log && !log->isMessageSelectionMode()) {
+                // An ignored press can propagate from a post into its
+                // viewport. Keep that valid origin only for the *same* press
+                // inside the original post, never for a new press elsewhere.
+                if (post && log && !log->isMessageSelectionMode()
+                    && !isPostDragControl(widget, post)) {
                     dragOrigin_ = post;
                     dragLog_ = log;
                     wholePostDrag_ = false;
-                } else if (post) {
+                } else if (post || !dragOrigin_
+                           || !widget->isAncestorOf(dragOrigin_.data())
+                           || !dragOrigin_->rect().contains(
+                                  dragOrigin_->mapFromGlobal(globalMousePosition(mouse)))) {
                     clearDrag();
                 }
             }
