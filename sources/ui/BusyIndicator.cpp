@@ -102,15 +102,21 @@ void Animation::updateRunningState()
 QPixmap Animation::frame(int extent,
                          const QColor& color,
                          qreal penWidth,
-                         qreal devicePixelRatio)
+                         qreal devicePixelRatio,
+                         int phaseOverride)
 {
     extent = std::max(1, extent);
     devicePixelRatio = std::max<qreal>(1.0, devicePixelRatio);
-    const QString key = QStringLiteral("%1:%2:%3:%4")
+    // An individual consumer may rotate backwards while all others continue
+    // to share the same timer and cached frames.
+    const int framePhase = phaseOverride < 0
+        ? phase_ : phaseOverride % AnimationSteps;
+    const QString key = QStringLiteral("%1:%2:%3:%4:%5")
         .arg(extent)
         .arg(color.rgba())
         .arg(qRound(penWidth * 100.0))
-        .arg(qRound(devicePixelRatio * 100.0));
+        .arg(qRound(devicePixelRatio * 100.0))
+        .arg(framePhase);
 
     const auto cached = frameCache_.constFind(key);
     if (cached != frameCache_.cend()) {
@@ -124,7 +130,7 @@ QPixmap Animation::frame(int extent,
     pixmap.fill(Qt::transparent);
 
     QPainter painter(&pixmap);
-    draw(painter, QRectF(0, 0, extent, extent), phase_, color, penWidth);
+    draw(painter, QRectF(0, 0, extent, extent), framePhase, color, penWidth);
 
     frameCache_.insert(key, pixmap);
     return pixmap;

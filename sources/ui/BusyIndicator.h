@@ -49,7 +49,8 @@ public:
     QPixmap frame(int extent,
                   const QColor& color,
                   qreal penWidth = 2.0,
-                  qreal devicePixelRatio = 1.0);
+                  qreal devicePixelRatio = 1.0,
+                  int phaseOverride = -1);
 
     bool isRunning() const { return timer_.isActive(); }
     int phase() const { return phase_; }

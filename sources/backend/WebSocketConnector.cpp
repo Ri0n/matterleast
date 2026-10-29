@@ -348,20 +348,37 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 #if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
     if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
         if (QNetworkInformation* networkInformation = QNetworkInformation::instance()) {
-            auto networkChanged = [this] {
+            auto networkChanged = [this, networkInformation] {
                 if (d->connectionState == ConnectionState::Disconnected) {
                     return;
                 }
+
+                LOG_DEBUG("Network state changed (reachability="
+                          << static_cast<int>(networkInformation->reachability())
+                          << ", medium="
+                          << static_cast<int>(networkInformation->transportMedium())
+                          << ", websocket_state="
+                          << static_cast<int>(d->connectionState) << ")");
 
                 // REST and realtime use independent transports. A WebSocket can
                 // survive a VPN/route change while QNetworkAccessManager is
                 // still bound to dead connections, so rotate HTTP immediately.
                 HTTPConnector::restartAllTransports();
 
-                if (d->connectionState == ConnectionState::WaitingForReconnect
-                    || d->connectionState == ConnectionState::Connecting) {
-                    LOG_DEBUG("Network state changed while reconnecting");
+                if (d->connectionState == ConnectionState::WaitingForReconnect) {
+                    LOG_DEBUG("Network state changed while waiting to reconnect");
                     reconnectNow();
+                    return;
+                }
+
+                if (d->connectionState == ConnectionState::Connecting) {
+                    // On Windows, QNetworkInformation can report transient
+                    // reachability/medium changes even while a connection is
+                    // succeeding. Aborting each in-flight WebSocket handshake
+                    // can keep the UI spinning indefinitely. Let the existing
+                    // 15-second attempt timeout handle a truly dead route.
+                    LOG_DEBUG("Network changed during WebSocket handshake; "
+                              "allowing the current attempt to finish");
                     return;
                 }
 
