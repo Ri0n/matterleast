@@ -280,6 +280,7 @@ target_link_libraries(sidebar-item-delegate-test
     PRIVATE
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Svg
 )
 
 add_test(NAME sidebar-item-delegate-test COMMAND sidebar-item-delegate-test)
@@ -597,7 +598,7 @@ add_executable(theme-icon-widgets-test
     "${CMAKE_SOURCE_DIR}/resource.qrc"
 )
 target_include_directories(theme-icon-widgets-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(theme-icon-widgets-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+target_link_libraries(theme-icon-widgets-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Svg)
 add_test(NAME theme-icon-widgets-test COMMAND theme-icon-widgets-test)
 set_tests_properties(theme-icon-widgets-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 

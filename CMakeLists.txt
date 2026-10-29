@@ -150,6 +150,10 @@ find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Widgets REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Sql REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS WebSockets REQUIRED)
+# Symbolic icons are rasterized with QSvgRenderer, not the optional
+# imageformats/qsvg plugin. Require QtSvg at build time so a custom/minimal
+# Qt installation cannot silently produce blank icon-only controls.
+find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Svg REQUIRED)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	find_package(Qt${QT_VERSION_MAJOR} COMPONENTS DBus QUIET)
@@ -436,7 +440,8 @@ else()
   target_link_libraries(matterleast-core PUBLIC
     matterleast-crypto
     Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network
-    Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite
+    Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets
+    Qt${QT_VERSION_MAJOR}::Svg qsourcehighlite
     matterleast-plugin-api)
   if(BUILD_MULTIMEDIA)
     # matterleast-core compiles the multimedia-aware production sources. Keep
@@ -511,7 +516,7 @@ if(BUILD_TESTING)
 	add_subdirectory(tests/plugins)
 endif()
 
-target_link_libraries (${APPID} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets qsourcehighlite)
+target_link_libraries (${APPID} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::WebSockets Qt${QT_VERSION_MAJOR}::Svg qsourcehighlite)
 
 if(TARGET Qt${QT_VERSION_MAJOR}::DBus)
 	target_link_libraries(${APPID} PRIVATE Qt${QT_VERSION_MAJOR}::DBus)

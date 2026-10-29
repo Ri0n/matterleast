@@ -5,7 +5,8 @@
 
 #include <QDateTime>
 #include <QHash>
-#include <QImageReader>
+#include <QPainter>
+#include <QSvgRenderer>
 #include <QPixmap>
 #include <QSize>
 #include <QString>
@@ -60,17 +61,21 @@ public:
             return it->pixmap;
         }
 
-        QImageReader reader(resource);
-        // qrc aliases intentionally omit the .svg suffix. Inspect the payload
-        // so the SVG image-format plugin is selected by content.
-        reader.setDecideFormatFromContent(true);
-        reader.setScaledSize(physicalSize);
-        QImage image = reader.read();
-        if (image.isNull()) {
+        // Use QtSvg directly, not the optional qsvg imageformat plugin.
+        // Minimal/custom Qt installations (e.g. Debian 12 Qt6) can have
+        // QtWidgets but no SVG imageformat plugin. QImageReader then silently
+        // returns an empty pixmap, leaving icon-only controls invisible.
+        QSvgRenderer renderer(resource);
+        if (!renderer.isValid()) {
             return {};
         }
 
-        QPixmap pixmap = QPixmap::fromImage(image);
+        QPixmap pixmap(physicalSize);
+        pixmap.fill(Qt::transparent);
+        {
+            QPainter painter(&pixmap);
+            renderer.render(&painter);
+        }
         pixmap.setDevicePixelRatio(dpr);
 
         const qint64 cost = static_cast<qint64>(pixmap.width())

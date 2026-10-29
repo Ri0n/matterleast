@@ -61,6 +61,46 @@ class ThemeIconWidgetsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void iconsRenderWithoutAnyImageformatPlugins()
+    {
+        // Reproduce a minimal Debian/Qt installation with no qsvg plugin.
+        // The QPA plugin is already loaded by QApplication at this point.
+        const QStringList originalPaths = QCoreApplication::libraryPaths();
+        QCoreApplication::setLibraryPaths({});
+        const QStringList resources {
+            QStringLiteral("emoji"), QStringLiteral("message-balloon"),
+            QStringLiteral("bookmark"), QStringLiteral("more-horizontal"),
+            QStringLiteral("link"),
+            QStringLiteral("image"), QStringLiteral("format-bullet-list"),
+            QStringLiteral("format-numbered-list"),
+            QStringLiteral("message-priority"), QStringLiteral("add"),
+            QStringLiteral("search"), QStringLiteral("members"),
+            QStringLiteral("burger"), QStringLiteral("filter-variant"),
+            QStringLiteral("pin")
+        };
+        for (const QString& name : resources) {
+            const QString path = QStringLiteral(":/icons/") + name;
+            const QIcon icon = IconUtils::tintedSymbolicIcon(path, Qt::black);
+            QVERIFY2(!icon.isNull(), qPrintable(path));
+            const QImage rendered = icon.pixmap(24, 24).toImage();
+            QVERIFY2(!rendered.isNull(), qPrintable(path));
+            bool hasVisiblePixel = false;
+            for (int y = 0; y < rendered.height() && !hasVisiblePixel; ++y) {
+                for (int x = 0; x < rendered.width(); ++x) {
+                    if (rendered.pixelColor(x, y).alpha() > 100) {
+                        hasVisiblePixel = true;
+                        break;
+                    }
+                }
+            }
+            QVERIFY2(hasVisiblePixel, qPrintable(path));
+        }
+        const QPixmap svg = SvgRasterCache::instance().raster(
+            QStringLiteral(":/icons/link"), QSize(20, 20), 1.5);
+        QVERIFY(!svg.isNull());
+        QCoreApplication::setLibraryPaths(originalPaths);
+    }
+
     void unreadFilterUsesCompassSvgInsteadOfSystemFonts()
     {
         const QString path = QStringLiteral(":/icons/filter-variant");

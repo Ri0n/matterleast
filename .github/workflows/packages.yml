@@ -89,9 +89,9 @@ jobs:
           sudo apt-get update
           packages=(build-essential dpkg-dev fakeroot)
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
-            packages+=(qt6-base-dev qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins)
+            packages+=(qt6-base-dev qt6-svg-dev qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins)
           else
-            packages+=(qtbase5-dev libqt5websockets5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
+            packages+=(qtbase5-dev libqt5svg5-dev libqt5websockets5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
           fi
           read -r -a runtime_packages <<< "${{ matrix.build-runtime-packages }}"
           packages+=("${runtime_packages[@]}")
@@ -185,7 +185,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqca-qt6-dev libqca-qt6-plugins
+            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqca-qt6-dev libqca-qt6-plugins
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -463,6 +463,7 @@ jobs:
             make \
             rpm-build \
             qt6-qtbase-devel \
+            qt6-qtsvg-devel \
             qt6-qtsvg \
             qt6-qtwebsockets-devel \
             qca-qt6-devel \

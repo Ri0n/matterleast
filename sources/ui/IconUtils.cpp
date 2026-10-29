@@ -20,6 +20,7 @@
  */
 
 #include "IconUtils.h"
+#include "SvgRasterCache.h"
 
 #include <algorithm>
 
@@ -76,7 +77,27 @@ QIcon IconUtils::tintedIcon(const QIcon& source, const QColor& color)
 
 QIcon IconUtils::tintedSymbolicIcon(const QString& path, const QColor& color)
 {
-    return tintedIcon(QIcon(path), color);
+    if (path.isEmpty() || !color.isValid()) {
+        return {};
+    }
+
+    // QIcon(":/icons/name") depends on the optional Qt SVG imageformat
+    // plugin even when the SVG is embedded in qrc. Render through QtSvg
+    // directly so icon-only controls never disappear on minimal systems.
+    QIcon result;
+    for (int size : {16, 20, 22, 24, 32, 48}) {
+        QPixmap pixmap = SvgRasterCache::instance().raster(
+            path, QSize(size, size), 1.0);
+        if (pixmap.isNull()) {
+            continue;
+        }
+        QPainter painter(&pixmap);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        painter.fillRect(pixmap.rect(), color);
+        painter.end();
+        result.addPixmap(pixmap);
+    }
+    return result;
 }
 
 QIcon IconUtils::symbolicIcon(const QString& path)
