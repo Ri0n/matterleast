@@ -95,7 +95,11 @@ configure_file(
 message(STATUS "MatterLeast update checks: ${MATTERLEAST_ENABLE_UPDATE_CHECKS}")
 message(STATUS "MatterLeast default update channel: ${MATTERLEAST_UPDATE_DEFAULT_CHANNEL}")
 if(MATTERLEAST_ENABLE_UPDATE_CHECKS)
-    message(STATUS "MatterLeast update source: ${MATTERLEAST_UPDATE_MANIFEST_URL}")
+    # The configured source can contain the runtime {channel} placeholder.
+    # Print the resolved endpoints that will actually be compiled into the
+    # client, not the unresolved input template.
+    message(STATUS "MatterLeast stable update source: ${_matterleast_stable_url}")
+    message(STATUS "MatterLeast nightly update source: ${_matterleast_nightly_url}")
 endif()
 if(MATTERLEAST_UPDATE_SIGNATURE_REQUIRED)
     message(STATUS "MatterLeast update signatures: required (RSA/SHA-256)")
