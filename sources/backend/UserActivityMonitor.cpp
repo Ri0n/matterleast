@@ -16,6 +16,10 @@
 #if defined(MATTERLEAST_HAVE_XSS)
 #include <X11/Xlib.h>
 #include <X11/extensions/scrnsaver.h>
+// Xlib exposes KeyPress as a preprocessor macro, colliding with QEvent.
+#ifdef KeyPress
+#undef KeyPress
+#endif
 #endif
 
 namespace Mattermost {
