@@ -73,6 +73,7 @@ private:
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
+,_activityMonitor(backend, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 ,currentWindow (nullptr)
