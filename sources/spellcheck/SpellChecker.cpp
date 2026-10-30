@@ -192,7 +192,9 @@ void SpellHighlighter::highlightBlock(const QString& line)
         return;
     }
     setCurrentBlockState(0);
-    if (!SpellChecker::instance().available())
+    if (!MLOptions::instance()->value<bool>(
+            SPELLCHECK_ENABLED, SPELLCHECK_ENABLED_DEFAULT)
+        || !SpellChecker::instance().available())
         return;
     QTextCharFormat format;
     format.setUnderlineStyle(QTextCharFormat::SpellCheckUnderline);

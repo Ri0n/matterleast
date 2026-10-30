@@ -68,15 +68,18 @@ public:
     bool correct(const QString& word) const override
     {
         const std::wstring value = word.toStdWString();
+        bool checked = false;
         for (const auto& checker : _checkers) {
             ComPtr<IEnumSpellingError> errors;
             if (FAILED(checker->Check(value.c_str(), errors.GetAddressOf())) || !errors)
                 continue;
+            checked = true;
             ComPtr<ISpellingError> error;
             if (errors->Next(error.GetAddressOf()) != S_OK)
                 return true;
         }
-        return false;
+        // COM/provider failures must not turn every word red.
+        return !checked;
     }
     QStringList suggestions(const QString& word) const override
     {
