@@ -125,7 +125,25 @@ QStringList SpellChecker::selectedLanguages() const
 {
     const QStringList saved =
         MLOptions::instance()->value<QStringList>(SPELLCHECK_LANGUAGES);
-    return saved.isEmpty() ? defaultLanguages() : saved;
+    const QStringList wanted = saved.isEmpty() ? defaultLanguages() : saved;
+    const QStringList installedLanguages = languages();
+    QStringList result;
+    for (QString wantedLanguage : wanted) {
+        wantedLanguage.replace(QLatin1Char('-'), QLatin1Char('_'));
+        for (const QString& installed : installedLanguages) {
+            QString normalized = installed;
+            normalized.replace(QLatin1Char('-'), QLatin1Char('_'));
+            if (normalized.compare(wantedLanguage, Qt::CaseInsensitive) == 0
+                || (saved.isEmpty() &&
+                    normalized.left(2).compare(wantedLanguage.left(2),
+                                              Qt::CaseInsensitive) == 0)) {
+                if (!result.contains(installed))
+                    result.append(installed);
+                break;
+            }
+        }
+    }
+    return result;
 }
 void SpellChecker::setSelectedLanguages(const QStringList& languages)
 {
