@@ -39,7 +39,7 @@ QString mcpConfiguration()
     // JSON-escaped string literals are valid as YAML double-quoted scalars.
     const QString escaped = QString::fromUtf8(
         QJsonDocument(QJsonArray {bridge}).toJson(QJsonDocument::Compact));
-    return QStringLiteral("mcp_servers:\n  matterleast:\n    command: %1\n")
+    return QStringLiteral("mcp_servers:\n  matterleast:\n    command: %1\n"                         "    env:\n"                         "      MATTERLEAST_MCP_SOCKET: \"${MATTERLEAST_MCP_SOCKET}\"\n"                         "      MATTERLEAST_MCP_TOKEN: \"${MATTERLEAST_MCP_TOKEN}\"\n")
         .arg(escaped.mid(1, escaped.size() - 2));
 }
 }

@@ -10,6 +10,9 @@ Hermes Agent must be installed and authenticated. The MatterLeast build installs
 mcp_servers:
   matterleast:
     command: "/absolute/path/to/matterleast-mcp-stdio"
+    env:
+      MATTERLEAST_MCP_SOCKET: "${MATTERLEAST_MCP_SOCKET}"
+      MATTERLEAST_MCP_TOKEN: "${MATTERLEAST_MCP_TOKEN}"
 ```
 
 The AI window has a **Copy MCP setup** button with the correct path for the current installation. Alternatively register it via Hermes' own command (`hermes mcp add matterleast --command /absolute/path/to/matterleast-mcp-stdio`). The bridge is intentionally unavailable to CLI processes started outside the AI window: the host sets ephemeral session credentials only for its own Hermes subprocess.
