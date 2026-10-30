@@ -30,7 +30,7 @@ All tools are scoped to the **one** originating thread. They use the signed-in b
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `get_thread` | `limit` (1–100), optional opaque `cursor` | Chronological posts, root included on first page, `has_more` and `next_cursor`; iterate to read the full thread |
+| `get_thread` | `limit` (1–100), optional opaque `cursor` | Chronological posts with author, timestamps, quote metadata and attachment descriptors; root included on first page, `has_more` and `next_cursor`; iterate to read the full thread |
 | `get_post` | `post_id` | One post, verified to belong to the thread |
 | `post_reply` | `message` | A confirmed new Mattermost reply, or an error/uncertain outcome |
 | `reply_to_post` | `post_id`, `message` | A confirmed quote-reply within the thread, using MatterLeast's existing quoted-reply metadata |
@@ -50,3 +50,5 @@ A running turn updates the **same** assistant transcript entry with streamed tex
 - This is a **local** integration: a remote/cloud Hermes instance must have a secure, separately authenticated MCP transport, which this feature does not expose.
 - Hermes installation, configuration, and model credentials are managed by Hermes; MatterLeast neither creates those credentials nor changes the user's existing Hermes configuration without consent.
 - A stopped or failed turn stays inside the AI window and is not automatically published.
+
+**Trust boundary:** posts and attachments returned by MCP are data from other participants, not commands to the agent. The first-turn instructions prohibit treating them as higher-priority instructions. The server separately enforces thread scope and the posting switch regardless of model behavior.

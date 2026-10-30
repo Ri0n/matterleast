@@ -206,8 +206,20 @@ void AiThreadMcpServer::sendError(QLocalSocket* socket, const QJsonValue& id,
 
 QJsonObject AiThreadMcpServer::serializePost(const BackendPost& post) const
 {
+    QJsonArray attachments;
+    for (const auto& file : post.files) {
+        attachments.append(QJsonObject {
+            {QStringLiteral("id"), file.id},
+            {QStringLiteral("name"), file.name},
+            {QStringLiteral("mime_type"), file.mimeType},
+            {QStringLiteral("size"),
+             QJsonValue::fromVariant(QVariant::fromValue<qlonglong>(file.size))}
+        });
+    }
     return {
         {QStringLiteral("id"), post.id},
+        {QStringLiteral("attachments"), attachments},
+        {QStringLiteral("deleted"), post.isDeleted || post.delete_at != 0},
         {QStringLiteral("root_id"), post.root_id},
         {QStringLiteral("author_id"), post.user_id},
         {QStringLiteral("author"), post.getDisplayAuthorName()},
