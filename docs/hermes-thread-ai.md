@@ -14,7 +14,7 @@ mcp_servers:
 
 The AI window has a **Copy MCP setup** button with the correct path for the current installation. Alternatively register it via Hermes' own command (`hermes mcp add matterleast --command /absolute/path/to/matterleast-mcp-stdio`). The bridge is intentionally unavailable to CLI processes started outside the AI window: the host sets ephemeral session credentials only for its own Hermes subprocess.
 
-The default program is `hermes` from PATH. It can be changed using the MLOptions key `ai/hermes/command` (an absolute executable path or a program on PATH). A custom executable/script may wrap the same Hermes CLI argv. Input is supplied as UTF-8 through stdin via `--query-file -`, never via command-line interpolation. The full contract for a wrapper is:
+The default program is `hermes` from PATH. The window's **Select Hermes or hook…** button selects a custom CLI-compatible executable/script and persists it using the MLOptions key `ai/hermes/command` (an absolute executable path or a program on PATH). A custom executable/script may wrap the same Hermes CLI argv. Input is supplied as UTF-8 through stdin via `--query-file -`, never via command-line interpolation. The full contract for a wrapper is:
 
 - Arguments are `chat --oneshot --query-file - --format stream-json --source tool` and, from turn 2, `--resume <session-id>`.
 - Stdin contains the first-turn instruction and user text, or just the user's new message for subsequent turns.

@@ -243,11 +243,10 @@ void AiThreadMcpServer::processLine(QLocalSocket* socket, const QByteArray& byte
         || method == QStringLiteral("notifications/cancelled"))
         return;
     if (method == QStringLiteral("initialize")) {
-        const QString requested = rpc.value(QStringLiteral("params")).toObject()
-            .value(QStringLiteral("protocolVersion")).toString();
+        // Negotiate the MCP version this implementation actually supports,
+        // rather than claiming every arbitrary client version is implemented.
         sendResponse(socket, id, {
-            {QStringLiteral("protocolVersion"),
-             requested.isEmpty() ? QStringLiteral("2025-03-26") : requested},
+            {QStringLiteral("protocolVersion"), QStringLiteral("2025-03-26")},
             {QStringLiteral("capabilities"), QJsonObject {
                  {QStringLiteral("tools"), QJsonObject {}}
              }},

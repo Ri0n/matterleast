@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -83,6 +84,9 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     auto* setup = new QPushButton(tr("Copy MCP setup"), this);
     setup->setToolTip(tr("Copy the Hermes YAML configuration for MatterLeast MCP"));
     buttons->addWidget(setup);
+    auto* chooseHermes = new QPushButton(tr("Select Hermes or hook…"), this);
+    chooseHermes->setObjectName(QStringLiteral("hermesChooseExecutable"));
+    buttons->addWidget(chooseHermes);
     buttons->addStretch();
     _cancel = new QPushButton(tr("Stop"), this);
     _cancel->setEnabled(false);
@@ -96,7 +100,7 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     _token = mcp.createSession(_channelId, _rootId);
     _status->setText(_token.isEmpty()
         ? tr("Local MCP is unavailable. Sign in and reopen this thread.")
-        : tr("Hermes is connected to the selected thread. Publishing is disabled until enabled below."));
+        : tr("Local MCP ready. Register the bridge in Hermes once using Copy MCP setup. Posting is disabled."));
     _send->setEnabled(!_token.isEmpty());
 
     connect(_allowPosting, &QCheckBox::toggled, this, [this](bool value) {
@@ -104,6 +108,15 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     });
     connect(setup, &QPushButton::clicked, this, [] {
         QGuiApplication::clipboard()->setText(mcpConfiguration());
+    });
+    connect(chooseHermes, &QPushButton::clicked, this, [this] {
+        const QString program = QFileDialog::getOpenFileName(
+            this, tr("Hermes executable or CLI-compatible hook"),
+            executablePath());
+        if (!program.isEmpty()) {
+            MLOptions::instance()->setValue<QString>(HermesCommandKey, program);
+            _status->setText(tr("Hermes command configured: %1").arg(program));
+        }
     });
     connect(_send, &QPushButton::clicked, this, &HermesThreadChatDialog::submit);
     connect(_cancel, &QPushButton::clicked, this, [this] {
@@ -131,8 +144,7 @@ HermesThreadChatDialog::HermesThreadChatDialog(
         }
     });
 
-    if (_token.isEmpty())
-        showSetupInstructions();
+    showSetupInstructions();
 }
 
 HermesThreadChatDialog::~HermesThreadChatDialog()
@@ -191,8 +203,7 @@ void HermesThreadChatDialog::submit()
         return;
     const QString executable = executablePath();
     if (executable.isEmpty()) {
-        _status->setText(tr("Hermes executable not found on PATH. "
-                            "Configure ai/hermes/command in MatterLeast options."));
+        _status->setText(tr("Hermes executable not found. Use Select Hermes or hook to choose it."));
         showSetupInstructions();
         return;
     }
