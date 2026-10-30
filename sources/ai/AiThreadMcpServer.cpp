@@ -7,9 +7,11 @@
 #include <QNetworkReply>
 #include <QPointer>
 #include <QTimer>
+#include <QVariant>
 #include <QUuid>
 
 #include "backend/Backend.h"
+#include "backend/NetworkRequest.h"
 #include "backend/PostCreateService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
@@ -135,8 +137,17 @@ QString AiThreadMcpServer::createSession(const QString& channelId, const QString
         return {};
     }
     const QString token = newToken();
-    _sessions.insert(token, Session {channelId, rootId, false, {}});
+    _sessions.insert(token, Session {channelId, rootId,
+        _backend.getLoginUser().id, NetworkRequest::host(), false, {}});
     return token;
+}
+
+bool AiThreadMcpServer::authorized(const QString& token) const
+{
+    const auto it = _sessions.constFind(token);
+    return _backend.isLoggedIn && it != _sessions.cend()
+        && it->loginUserId == _backend.getLoginUser().id
+        && it->serverHost == NetworkRequest::host();
 }
 
 void AiThreadMcpServer::revokeSession(const QString& token)
@@ -201,8 +212,10 @@ QJsonObject AiThreadMcpServer::serializePost(const BackendPost& post) const
         {QStringLiteral("author_id"), post.user_id},
         {QStringLiteral("author"), post.getDisplayAuthorName()},
         {QStringLiteral("message"), post.message},
-        {QStringLiteral("created_at"), static_cast<qint64>(post.create_at)},
-        {QStringLiteral("edited_at"), static_cast<qint64>(post.edit_at)},
+        {QStringLiteral("created_at"),
+         QJsonValue::fromVariant(QVariant::fromValue<qlonglong>(post.create_at))},
+        {QStringLiteral("edited_at"),
+         QJsonValue::fromVariant(QVariant::fromValue<qlonglong>(post.edit_at))},
         {QStringLiteral("reply_to_post_id"),
          post.props.toObject().value(QString::fromLatin1(PostProps::ReplyToPostId))}
     };
@@ -219,7 +232,7 @@ void AiThreadMcpServer::processLine(QLocalSocket* socket, const QByteArray& byte
     const QJsonObject rpc = wrapped.value(QStringLiteral("mcp")).toObject();
     const QJsonValue id = rpc.value(QStringLiteral("id"));
     const QString token = wrapped.value(QStringLiteral("token")).toString();
-    if (!_backend.isLoggedIn || !_sessions.contains(token)) {
+    if (!authorized(token)) {
         if (!id.isUndefined())
             sendError(socket, id, -32001, QStringLiteral("MCP session expired or unauthorized"));
         return;
@@ -293,7 +306,7 @@ void AiThreadMcpServer::readThread(QLocalSocket* socket, const QJsonValue& id,
     PostRepository::instance(_backend).loadThreadPage(
         *channel, root, limit, cursor.postId, cursor.createAt,
         [this, peer, token, id, root, channelId](const PostRepository::Page& page) {
-        if (!peer || !_sessions.contains(token)
+        if (!peer || !authorized(token)
             || !_backend.isLoggedIn) return;
         BackendChannel* valid = _backend.getStorage().getChannelById(channelId);
         if (!page.success || !valid) {
@@ -337,7 +350,7 @@ void AiThreadMcpServer::readPost(QLocalSocket* socket, const QJsonValue& id,
     QPointer<QLocalSocket> peer(socket);
     PostRepository::instance(_backend).loadPost(
         postId, [this, peer, id, token, session](const PostRepository::PostResult& result) {
-        if (!peer || !_sessions.contains(token)) return;
+        if (!peer || !authorized(token)) return;
         BackendChannel* channel = _backend.getStorage().getChannelById(session.channelId);
         BackendPost* post = channel ? channel->postIdToPost.value(result.postId, nullptr) : nullptr;
         if (!result.success || !post ||
@@ -374,7 +387,7 @@ void AiThreadMcpServer::postReply(QLocalSocket* socket, const QJsonValue& id,
     QPointer<QLocalSocket> peer(socket);
     const auto create = [this, peer, id, token, channelId, rootId, message](
                             const BackendPost* quoted) {
-        if (!peer || !_sessions.contains(token) || !_sessions[token].writeEnabled)
+        if (!peer || !authorized(token) || !_sessions[token].writeEnabled)
             return;
         BackendChannel* target = _backend.getStorage().getChannelById(channelId);
         if (!target) return;
@@ -392,7 +405,7 @@ void AiThreadMcpServer::postReply(QLocalSocket* socket, const QJsonValue& id,
         PostCreateService::instance(_backend).createPostDetailed(
             *target, wireMessage, {}, rootId, props, pending,
             [this, peer, id, token](PostCreateService::CreatePostResult result) {
-                if (!peer || !_sessions.contains(token)) return;
+                if (!peer || !authorized(token)) return;
                 if (!result.success()) {
                     sendToolResult(peer, id, {
                         {QStringLiteral("error"),
@@ -418,7 +431,7 @@ void AiThreadMcpServer::postReply(QLocalSocket* socket, const QJsonValue& id,
     PostRepository::instance(_backend).loadPost(
         quoteId, [this, peer, token, id, rootId, channelId, create](
                      const PostRepository::PostResult& result) {
-        if (!peer || !_sessions.contains(token)) return;
+        if (!peer || !authorized(token)) return;
         BackendChannel* channel = _backend.getStorage().getChannelById(channelId);
         BackendPost* quoted = channel
             ? channel->postIdToPost.value(result.postId, nullptr) : nullptr;

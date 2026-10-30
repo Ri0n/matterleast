@@ -33,10 +33,13 @@ private:
     struct Session {
         QString channelId;
         QString rootId;
+        QString loginUserId;
+        QString serverHost;
         bool writeEnabled = false;
         QHash<QString, Cursor> cursors;
     };
 
+    bool authorized(const QString& token) const;
     void processLine(QLocalSocket* socket, const QByteArray& bytes);
     void sendResponse(QLocalSocket* socket, const QJsonValue& id,
                       const QJsonObject& result);

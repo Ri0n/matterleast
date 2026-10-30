@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -233,13 +234,12 @@ void HermesThreadChatDialog::submit()
     _hermes->setProcessEnvironment(env);
     _hermes->setProgram(executable);
     _hermes->setArguments(args);
+    const QString prompt = _sessionId.isEmpty()
+        ? makeInitialPrompt(message) : message;
     _hermes->start();
-    if (_hermes->waitForStarted(100)) {
-        const QString prompt = _sessionId.isEmpty()
-            ? makeInitialPrompt(message) : message;
-        _hermes->write(prompt.toUtf8());
-        _hermes->closeWriteChannel();
-    }
+    // QProcess queues stdin writes while the interpreter is starting.
+    _hermes->write(prompt.toUtf8());
+    _hermes->closeWriteChannel();
 }
 
 void HermesThreadChatDialog::readOutput()
