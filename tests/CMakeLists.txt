@@ -968,3 +968,13 @@ if(WIN32 AND MATTERLEAST_ENABLE_UPDATE_CHECKS AND TARGET matterleast-core)
         matterleast-core Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME windows-update-feedback-test COMMAND windows-update-feedback-test)
 endif()
+
+# Spell-check source tokenization and Markdown exclusions on both Qt 5 and 6.
+if(TARGET matterleast-core)
+    add_executable(spellcheck-test SpellCheckTest.cpp)
+    target_link_libraries(spellcheck-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME spellcheck-test COMMAND spellcheck-test)
+    set_tests_properties(spellcheck-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

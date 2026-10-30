@@ -31,6 +31,7 @@
 #include <QRegularExpression>
 #include <QResizeEvent>
 #include <QStringList>
+#include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTimer>
@@ -39,6 +40,7 @@
 
 #include "Settings.h"
 #include "options/MLOptions.h"
+#include "spellcheck/SpellChecker.h"
 
 namespace Mattermost {
 namespace {
@@ -216,6 +218,11 @@ MessageTextEditWidget::MessageTextEditWidget(QWidget* parent)
     viewport()->setBackgroundRole(QPalette::Window);
     viewport()->setAutoFillBackground(true);
     document()->setDocumentMargin(3.0);
+    auto* spellHighlighter = new SpellHighlighter(document());
+    auto* spellEnabled = MLOptions::instance()->optionObject<bool>(
+        SPELLCHECK_ENABLED, SPELLCHECK_ENABLED_DEFAULT);
+    connect(spellEnabled, &MLOptionObject::changed, this,
+            [spellHighlighter](const QVariant&) { spellHighlighter->rehighlight(); });
 
     connect(this, &QTextEdit::textChanged, this, [this] {
         updateHeightToContents();
@@ -474,6 +481,71 @@ void MessageTextEditWidget::contextMenuEvent(QContextMenuEvent* event)
     if (!menu) {
         return;
     }
+
+    auto* spellEnabled = MLOptions::instance()->optionObject<bool>(
+        SPELLCHECK_ENABLED, SPELLCHECK_ENABLED_DEFAULT);
+    SpellChecker& checker = SpellChecker::instance();
+    const QTextCursor pointed = cursorForPosition(event->pos());
+    const QTextBlock block = pointed.block();
+    const SpellingWord word = (block.isValid() && block.userState() != 1)
+        ? spellingWordAt(block.text(), pointed.position() - block.position())
+        : SpellingWord{};
+    if (spellEnabled->value().toBool() && checker.available()
+        && !word.text.isEmpty() && !checker.correct(word.text)) {
+        const int begin = block.position() + word.start;
+        const QString original = word.text;
+        const QStringList suggestions = checker.suggestions(original);
+        for (const QString& suggestion : suggestions) {
+            QAction* action = menu->addAction(suggestion);
+            connect(action, &QAction::triggered, this, [this, begin, original, suggestion] {
+                QTextCursor cursor(document());
+                cursor.setPosition(begin);
+                cursor.setPosition(begin + original.size(), QTextCursor::KeepAnchor);
+                if (cursor.selectedText() == original) {
+                    cursor.insertText(suggestion);
+                    setTextCursor(cursor);
+                }
+            });
+        }
+        if (suggestions.isEmpty())
+            menu->addAction(tr("No spelling suggestions"))->setEnabled(false);
+        menu->addSeparator();
+        menu->addAction(tr("Ignore word"), this, [original] {
+            SpellChecker::instance().ignore(original);
+        });
+        menu->addAction(tr("Add to MatterLeast dictionary"), this, [original] {
+            SpellChecker::instance().addToDictionary(original);
+        });
+        menu->addSeparator();
+    }
+    QAction* spellAction = menu->addAction(tr("Check spelling"));
+    spellAction->setCheckable(true);
+    spellAction->setChecked(spellEnabled->value().toBool());
+    spellAction->setEnabled(checker.available());
+    connect(spellAction, &QAction::toggled, this,
+            [spellEnabled](bool enabled) { spellEnabled->setValue(enabled); });
+    const QStringList languages = checker.languages();
+    if (!languages.isEmpty()) {
+        QMenu* languageMenu = menu->addMenu(tr("Spelling languages"));
+        for (const QString& language : languages) {
+            QAction* action = languageMenu->addAction(language);
+            action->setCheckable(true);
+            const QStringList selected = checker.selectedLanguages();
+            const bool checked = selected.contains(language, Qt::CaseInsensitive);
+            action->setChecked(checked);
+            action->setEnabled(!checked || selected.size() > 1);
+            connect(action, &QAction::toggled, this, [language](bool checked) {
+                SpellChecker& spell = SpellChecker::instance();
+                QStringList selected = spell.selectedLanguages();
+                if (checked && !selected.contains(language, Qt::CaseInsensitive))
+                    selected.append(language);
+                if (!checked)
+                    selected.removeAll(language);
+                spell.setSelectedLanguages(selected);
+            });
+        }
+    }
+    menu->addSeparator();
 
     const QTextCursor current = textCursor();
     const MarkdownLinkMatch link = markdownLinkAt(
