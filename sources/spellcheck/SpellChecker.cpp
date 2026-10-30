@@ -13,7 +13,7 @@ QList<SpellingWord> wordsInLine(const QString& line)
 {
     QVector<bool> excluded(line.size(), false);
     const auto mask = [&excluded, &line](int begin, int length) {
-        const int end = qMin(begin + length, line.size());
+        const int end = qMin(begin + length, int(line.size()));
         for (int i = qMax(0, begin); i < end; ++i)
             excluded[i] = true;
     };
