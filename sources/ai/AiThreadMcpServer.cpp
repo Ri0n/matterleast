@@ -1,5 +1,6 @@
 #include "AiThreadMcpServer.h"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -412,7 +413,10 @@ void AiThreadMcpServer::postReply(QLocalSocket* socket, const QJsonValue& id,
         }
         // A server-side acknowledgement is required. Never return success when
         // the request was only enqueued or failed after transmission.
-        const QString pending = newToken();
+        // Match the existing composer pending_post_id convention. This keeps
+        // Mattermost's create deduplication behavior consistent.
+        const QString pending = _backend.getLoginUser().id + QLatin1Char(':')
+            + QString::number(QDateTime::currentMSecsSinceEpoch());
         PostCreateService::instance(_backend).createPostDetailed(
             *target, wireMessage, {}, rootId, props, pending,
             [this, peer, id, token](PostCreateService::CreatePostResult result) {
