@@ -43,6 +43,9 @@ project(matterleast VERSION ${version}
     DESCRIPTION "Native Qt client for Mattermost"
     HOMEPAGE_URL "https://github.com/Ri0n/matterleast"
     LANGUAGES CXX)
+if(APPLE AND NOT ANDROID)
+    enable_language(OBJCXX)
+endif()
 file(WRITE "${CMAKE_BINARY_DIR}/matterleast-version.txt" "${PROJECT_VERSION}\n")
 message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
@@ -156,7 +159,11 @@ find_package(Qt${QT_VERSION_MAJOR} COMPONENTS WebSockets REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Svg REQUIRED)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	find_package(Qt${QT_VERSION_MAJOR} COMPONENTS DBus QUIET)
+    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS DBus QUIET)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(MATTERLEAST_HUNSPELL QUIET IMPORTED_TARGET hunspell)
+    endif()
 endif()
 
 include(CTest)
@@ -416,12 +423,41 @@ else()
   if(NOT WIN32 OR NOT MATTERLEAST_ENABLE_UPDATE_CHECKS)
     list(FILTER SOURCES EXCLUDE REGEX "(^|/)update/WindowsUpdateController\\.cpp$")
   endif()
+  # Build the spell checker once and share its real implementation between
+  # the application and isolated composer tests. The former standalone test
+  # compiled MessageTextEditWidget.cpp without its SpellChecker definitions,
+  # producing undefined symbols on Linux and Windows.
+  add_library(matterleast-spellcheck STATIC
+    sources/spellcheck/SpellChecker.cpp
+    sources/spellcheck/SpellChecker.h
+    sources/spellcheck/SpellBackendFallback.cpp
+    sources/spellcheck/SpellBackendHunspell.cpp
+    sources/spellcheck/SpellBackendWindows.cpp)
+  target_include_directories(matterleast-spellcheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/sources")
+  target_link_libraries(matterleast-spellcheck PUBLIC Qt${QT_VERSION_MAJOR}::Widgets)
+  if(APPLE)
+    target_sources(matterleast-spellcheck PRIVATE sources/spellcheck/SpellBackendMac.mm)
+    target_link_libraries(matterleast-spellcheck PUBLIC "-framework AppKit")
+  elseif(WIN32)
+    target_link_libraries(matterleast-spellcheck PUBLIC ole32)
+  elseif(TARGET PkgConfig::MATTERLEAST_HUNSPELL)
+    target_link_libraries(matterleast-spellcheck PUBLIC PkgConfig::MATTERLEAST_HUNSPELL)
+    target_compile_definitions(matterleast-spellcheck PRIVATE MATTERLEAST_HAVE_HUNSPELL)
+    message(STATUS "MatterLeast spell check: Hunspell enabled")
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(WARNING "Hunspell development files not found: spell check disabled")
+  endif()
+
+  # Avoid compiling the same spellcheck translation units twice when the
+  # application and standalone tests consume the shared target.
+  list(FILTER SOURCES EXCLUDE REGEX "(^|/)spellcheck/")
   # Share the production implementation with integration tests, including the
   # real repository, HTTP connector and source/widget signal wiring.
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
   # Separate stdio bridge has a different main(), exclude it from the GUI core.
   list(FILTER SOURCES EXCLUDE REGEX "(^|/)ai/McpStdioBridge\\.cpp$")
   add_library(matterleast-core OBJECT ${SOURCES})
+  target_link_libraries(matterleast-core PUBLIC matterleast-spellcheck)
   if(MATTERLEAST_DEBUG_UPLOAD_HEADERS)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_DEBUG_UPLOAD_HEADERS)
   endif()
