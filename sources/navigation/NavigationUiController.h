@@ -156,6 +156,8 @@ private:
     void detachThread(ChatArea* area);
     void updateThreadButton(ChatArea* area);
     void syncSplitterEdgeGutters();
+    void rememberThreadPaneWidth();
+    void persistThreadPaneWidth();
 
     Backend* backend() const;
 
@@ -180,6 +182,9 @@ private:
     bool switchingTabs = false;
     bool replayingHistory = false;
     bool threadSplitterStateRestored = false;
+    int _preferredThreadPaneWidth = 0;
+    QByteArray _legacyThreadSplitterState;
+    QTimer* _threadPaneSaveTimer = nullptr;
     QTimer* sessionSaveTimer = nullptr;
     bool sessionRestored = false;
     bool restoringSession = false;
