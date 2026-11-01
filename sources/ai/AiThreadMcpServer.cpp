@@ -132,7 +132,7 @@ AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
 
 QString AiThreadMcpServer::createSession(const QString& channelId, const QString& rootId)
 {
-    if (!_server.isListening() || !_backend.isLoggedIn
+    if (!_server.isListening() || !_backend.loggedIn()
         || channelId.isEmpty() || rootId.isEmpty()
         || !_backend.getStorage().getChannelById(channelId)) {
         return {};
@@ -146,7 +146,7 @@ QString AiThreadMcpServer::createSession(const QString& channelId, const QString
 bool AiThreadMcpServer::authorized(const QString& token) const
 {
     const auto it = _sessions.constFind(token);
-    return _backend.isLoggedIn && it != _sessions.cend()
+    return _backend.loggedIn() && it != _sessions.cend()
         && it->loginUserId == _backend.getLoginUser().id
         && it->serverHost == NetworkRequest::host();
 }
@@ -319,7 +319,7 @@ void AiThreadMcpServer::readThread(QLocalSocket* socket, const QJsonValue& id,
         *channel, root, limit, cursor.postId, cursor.createAt,
         [this, peer, token, id, root, channelId](const PostRepository::Page& page) {
         if (!peer || !authorized(token)
-            || !_backend.isLoggedIn) return;
+            || !_backend.loggedIn()) return;
         BackendChannel* valid = _backend.getStorage().getChannelById(channelId);
         if (!page.success || !valid) {
             sendToolResult(peer, id, {{QStringLiteral("error"), QStringLiteral("Thread retrieval failed")}}, true);
