@@ -254,6 +254,15 @@ void HermesThreadChatDialog::submit()
     }
     const QString providerEnv = MLOptions::instance()->value<QString>(
         AI_HERMES_PROVIDER_ENV);
+    // stream-json must not guess a provider when a key was selected explicitly.
+    if (providerEnv == QStringLiteral("OPENROUTER_API_KEY"))
+        args << QStringLiteral("--provider") << QStringLiteral("openrouter");
+    else if (providerEnv == QStringLiteral("ANTHROPIC_API_KEY"))
+        args << QStringLiteral("--provider") << QStringLiteral("anthropic");
+    else if (providerEnv == QStringLiteral("OPENAI_API_KEY"))
+        args << QStringLiteral("--provider") << QStringLiteral("openai-api");
+    else if (providerEnv == QStringLiteral("GEMINI_API_KEY"))
+        args << QStringLiteral("--provider") << QStringLiteral("gemini");
     const auto launch = [this, executable, args, message, providerEnv](
                             const QString& credential) {
         if (!_running || _token.isEmpty()
