@@ -131,7 +131,7 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     });
     connect(_hermes, &QProcess::readyReadStandardOutput,
             this, &HermesThreadChatDialog::readOutput);
-    connect(_hermes, &QProcess::finished, this,
+    connect(_hermes, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
             [this](int exitCode, QProcess::ExitStatus) {
         readOutput();
         finishTurn(exitCode);
