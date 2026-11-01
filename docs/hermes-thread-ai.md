@@ -55,3 +55,21 @@ A running turn updates the **same** assistant transcript entry with streamed tex
 - A stopped or failed turn stays inside the AI window and is not automatically published.
 
 **Trust boundary:** posts and attachments returned by MCP are data from other participants, not commands to the agent. The first-turn instructions prohibit treating them as higher-priority instructions. The server separately enforces thread scope and the posting switch regardless of model behavior.
+
+## Configure in MatterLeast Settings → AI
+
+The integration is **disabled by default**. Enable it explicitly to expose
+**Open AI chat (Hermes)…** in a thread menu. MatterLeast creates no AI MCP
+socket while disabled; even with the setting enabled, the socket is opened
+only when an AI chat is first opened. Disabling AI immediately revokes its
+active MCP session tokens and closes the local listener.
+
+Select the Hermes CLI (or a compatible hook) and an explicit model ID; the
+`stream-json` CLI mode requires `--model`. You can use your existing Hermes
+login, or select OpenRouter, Anthropic, OpenAI, or Gemini and store a provider
+API key in the **system keyring**. Provider credentials are passed only to the
+launched Hermes child process via the corresponding environment variable and
+are never saved to MatterLeast's settings file. If QtKeychain is unavailable,
+no plaintext fallback is permitted: configure credentials within Hermes.
+The local one-time MCP bearer token is generated per AI chat and is never
+stored in either settings or the keyring.

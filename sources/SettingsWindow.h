@@ -25,6 +25,8 @@
 class QCheckBox;
 class QComboBox;
 class QShowEvent;
+class QLineEdit;
+class QLabel;
 class QSpinBox;
 
 namespace Ui {
@@ -51,6 +53,12 @@ private:
     Ui::SettingsWindow *ui;
 
     QCheckBox* sendWithCtrlEnter = nullptr;
+    QCheckBox* _aiEnabled = nullptr;
+    QLineEdit* _aiCommand = nullptr;
+    QLineEdit* _aiModel = nullptr;
+    QComboBox* _aiProvider = nullptr;
+    QLineEdit* _aiCredential = nullptr;
+    QLabel* _aiCredentialStatus = nullptr;
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
     QComboBox* _channelRootNotificationMode = nullptr;
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
