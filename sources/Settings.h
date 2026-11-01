@@ -38,6 +38,10 @@ static constexpr bool COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT = false;
 static constexpr const char* COMPOSER_FORMATTING_TOOLBAR_VISIBLE =
     "composer/formattingToolbarVisible";
 static constexpr bool COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT = true;
+static constexpr const char* SPELLCHECK_ENABLED = "composer/spellCheckEnabled";
+static constexpr bool SPELLCHECK_ENABLED_DEFAULT = true;
+static constexpr const char* SPELLCHECK_LANGUAGES = "composer/spellLanguages";
+static constexpr const char* SPELLCHECK_CUSTOM_WORDS = "composer/spellCustomWords";
 
 // Desktop notifications for new root posts in public/private channels.
 // 0: mentions only; 1: mentions or favorites; 2: all unmuted channels.
