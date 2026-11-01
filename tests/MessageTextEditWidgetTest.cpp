@@ -69,6 +69,20 @@ private slots:
         QCOMPARE(editor.toPlainText(), QStringLiteral("hello `world`"));
     }
 
+    void inlineCodeShortcutWrapsSelection()
+    {
+        MessageTextEditWidget editor;
+        editor.show();
+        editor.setFocus();
+        editor.setPlainText(QStringLiteral("hello world"));
+        selectRange(editor, 6, 11);
+
+        QTest::keyClick(&editor, Qt::Key_C,
+                        Qt::ControlModifier | Qt::AltModifier);
+        QCOMPARE(editor.toPlainText(), QStringLiteral("hello `world`"));
+        QCOMPARE(editor.textCursor().selectedText(), QStringLiteral("world"));
+    }
+
     void markdownBlockHelpersPrefixSelectedLines()
     {
         MessageTextEditWidget editor;
