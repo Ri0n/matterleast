@@ -365,6 +365,7 @@ target_include_directories(message-text-edit-widget-test
 
 target_link_libraries(message-text-edit-widget-test
     PRIVATE
+        matterleast-spellcheck
         Qt${QT_VERSION_MAJOR}::Test
         Qt${QT_VERSION_MAJOR}::Widgets
 )
