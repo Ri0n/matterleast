@@ -7,6 +7,8 @@
 #include <qt6keychain/keychain.h>
 #elif __has_include(<qt5keychain/keychain.h>)
 #include <qt5keychain/keychain.h>
+#elif __has_include(<qtkeychain/keychain.h>)
+#include <qtkeychain/keychain.h>
 #else
 #include <keychain.h>
 #endif
