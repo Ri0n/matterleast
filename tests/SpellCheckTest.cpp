@@ -53,6 +53,9 @@ private slots:
         QTextDocument doc;
         SpellHighlighter highlighter(&doc);
         doc.setPlainText(QStringLiteral("before\n```cpp\nbroken\n```\nafter"));
+        // QSyntaxHighlighter schedules block updates; force them before
+        // asserting the fence state rather than relying on event-loop timing.
+        highlighter.rehighlight();
         QTextBlock block = doc.begin();
         QCOMPARE(block.userState(), 0);
         block = block.next();
