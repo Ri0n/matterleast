@@ -3,7 +3,6 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QCoreApplication>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -22,12 +21,13 @@
 #include <QVBoxLayout>
 
 #include "AiThreadMcpServer.h"
+#include "HermesCredentialStore.h"
+#include "Settings.h"
 #include "options/MLOptions.h"
 
 namespace Mattermost {
 namespace {
 constexpr int MaxAnswerLength = 3000;
-const QString HermesCommandKey = QStringLiteral("ai/hermes/command");
 
 QString mcpConfiguration()
 {
@@ -84,9 +84,6 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     auto* setup = new QPushButton(tr("Copy MCP setup"), this);
     setup->setToolTip(tr("Copy the Hermes YAML configuration for MatterLeast MCP"));
     buttons->addWidget(setup);
-    auto* chooseHermes = new QPushButton(tr("Select Hermes or hook…"), this);
-    chooseHermes->setObjectName(QStringLiteral("hermesChooseExecutable"));
-    buttons->addWidget(chooseHermes);
     buttons->addStretch();
     _cancel = new QPushButton(tr("Stop"), this);
     _cancel->setEnabled(false);
@@ -96,6 +93,12 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     buttons->addWidget(_send);
     layout->addLayout(buttons);
 
+    if (!MLOptions::instance()->value<bool>(
+            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)) {
+        _status->setText(tr("AI integration is disabled in Settings."));
+        _send->setEnabled(false);
+        return;
+    }
     auto& mcp = AiThreadMcpServer::instance(_backend);
     _token = mcp.createSession(_channelId, _rootId);
     _status->setText(_token.isEmpty()
@@ -109,16 +112,18 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     connect(setup, &QPushButton::clicked, this, [] {
         QGuiApplication::clipboard()->setText(mcpConfiguration());
     });
-    connect(chooseHermes, &QPushButton::clicked, this, [this] {
-        const QString program = QFileDialog::getOpenFileName(
-            this, tr("Hermes executable or CLI-compatible hook"),
-            executablePath());
-        if (!program.isEmpty()) {
-            MLOptions::instance()->setValue<QString>(HermesCommandKey, program);
-            _status->setText(tr("Hermes command configured: %1").arg(program));
-        }
-    });
     connect(_send, &QPushButton::clicked, this, &HermesThreadChatDialog::submit);
+    connect(MLOptions::instance()->optionObject<bool>(
+                AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT),
+            &MLOptionObject::changed, this, [this](const QVariant& value) {
+        if (value.toBool()) return;
+        _token.clear();
+        _send->setEnabled(false);
+        _allowPosting->setEnabled(false);
+        if (_hermes->state() != QProcess::NotRunning)
+            _hermes->kill();
+        _status->setText(tr("AI integration was disabled in Settings."));
+    });
     connect(_cancel, &QPushButton::clicked, this, [this] {
         if (_hermes->state() != QProcess::NotRunning) {
             _status->setText(tr("Stopping Hermes…"));
@@ -159,7 +164,7 @@ HermesThreadChatDialog::~HermesThreadChatDialog()
 QString HermesThreadChatDialog::executablePath() const
 {
     const QString configured = MLOptions::instance()->value<QString>(
-        HermesCommandKey, QStringLiteral("hermes")).trimmed();
+        AI_HERMES_COMMAND, QStringLiteral("hermes")).trimmed();
     if (configured.isEmpty())
         return {};
     if (QFileInfo(configured).isAbsolute())
@@ -201,15 +206,23 @@ QString HermesThreadChatDialog::makeInitialPrompt(const QString& userMessage) co
 void HermesThreadChatDialog::submit()
 {
     const QString message = _input->toPlainText().trimmed();
-    if (_running || _token.isEmpty() || message.isEmpty())
+    if (_running || _token.isEmpty() || message.isEmpty()
+        || !MLOptions::instance()->value<bool>(
+            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT))
         return;
     const QString executable = executablePath();
     if (executable.isEmpty()) {
-        _status->setText(tr("Hermes executable not found. Use Select Hermes or hook to choose it."));
+        _status->setText(tr("Hermes executable not found. Configure its path in Settings → AI."));
         showSetupInstructions();
         return;
     }
 
+    const QString model = MLOptions::instance()->value<QString>(
+        AI_HERMES_MODEL).trimmed();
+    if (model.isEmpty()) {
+        _status->setText(tr("Select an explicit Hermes model in Settings → AI."));
+        return;
+    }
     _running = true;
     _hasResult = false;
     _resultText.clear();
@@ -233,26 +246,54 @@ void HermesThreadChatDialog::submit()
         QStringLiteral("--oneshot"),
         QStringLiteral("--query-file"), QStringLiteral("-"),
         QStringLiteral("--format"), QStringLiteral("stream-json"),
-        QStringLiteral("--source"), QStringLiteral("tool")
+        QStringLiteral("--source"), QStringLiteral("tool"),
+        QStringLiteral("--model"), model
     };
     if (!_sessionId.isEmpty()) {
         args << QStringLiteral("--resume") << _sessionId;
     }
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("MATTERLEAST_MCP_SOCKET"),
-               AiThreadMcpServer::instance(_backend).endpoint());
-    env.insert(QStringLiteral("MATTERLEAST_MCP_TOKEN"), _token);
-    env.insert(QStringLiteral("MATTERLEAST_THREAD_CHANNEL_ID"), _channelId);
-    env.insert(QStringLiteral("MATTERLEAST_THREAD_ROOT_ID"), _rootId);
-    _hermes->setProcessEnvironment(env);
-    _hermes->setProgram(executable);
-    _hermes->setArguments(args);
-    const QString prompt = _sessionId.isEmpty()
-        ? makeInitialPrompt(message) : message;
-    _hermes->start();
-    // QProcess queues stdin writes while the interpreter is starting.
-    _hermes->write(prompt.toUtf8());
-    _hermes->closeWriteChannel();
+    const QString providerEnv = MLOptions::instance()->value<QString>(
+        AI_HERMES_PROVIDER_ENV);
+    const auto launch = [this, executable, args, message, providerEnv](
+                            const QString& credential) {
+        if (!_running || _token.isEmpty()
+            || !MLOptions::instance()->value<bool>(
+                AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)) return;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("MATTERLEAST_MCP_SOCKET"),
+                   AiThreadMcpServer::instance(_backend).endpoint());
+        env.insert(QStringLiteral("MATTERLEAST_MCP_TOKEN"), _token);
+        env.insert(QStringLiteral("MATTERLEAST_THREAD_CHANNEL_ID"), _channelId);
+        env.insert(QStringLiteral("MATTERLEAST_THREAD_ROOT_ID"), _rootId);
+        if (!providerEnv.isEmpty() && !credential.isEmpty())
+            env.insert(providerEnv, credential);
+        _hermes->setProcessEnvironment(env);
+        _hermes->setProgram(executable);
+        _hermes->setArguments(args);
+        const QString prompt = _sessionId.isEmpty()
+            ? makeInitialPrompt(message) : message;
+        _hermes->start();
+        _hermes->write(prompt.toUtf8());
+        _hermes->closeWriteChannel();
+    };
+    if (providerEnv.isEmpty()) {
+        launch(QString());
+    } else {
+        _status->setText(tr("Reading provider key from system keyring…"));
+        HermesCredentialStore::read(providerEnv, this,
+            [this, launch](bool ok, const QString& key, const QString& error) {
+                if (!_running) return;
+                if (!ok || key.isEmpty()) {
+                    _status->setText(ok
+                        ? tr("No key saved for this provider. Save it in Settings → AI.")
+                        : tr("Cannot access the system keyring: %1").arg(error));
+                    finishTurn(1);
+                    return;
+                }
+                _status->setText(tr("Hermes is working…"));
+                launch(key);
+            });
+    }
 }
 
 void HermesThreadChatDialog::readOutput()
@@ -313,8 +354,10 @@ void HermesThreadChatDialog::finishTurn(int exitCode)
         return;
     _running = false;
     _cancel->setEnabled(false);
-    _send->setEnabled(!_token.isEmpty());
-    _allowPosting->setEnabled(true);
+    _send->setEnabled(!_token.isEmpty()
+        && MLOptions::instance()->value<bool>(
+            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT));
+    _allowPosting->setEnabled(!_token.isEmpty());
     if (!_hasResult || exitCode != 0) {
         _status->setText(tr("Hermes failed or was interrupted. Check its installation and MCP configuration."));
         if (_streamedText.isEmpty())

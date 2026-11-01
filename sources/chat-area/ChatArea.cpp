@@ -43,6 +43,8 @@
 #include "PostFilterPolicy.h"
 #include "ThreadPostSource.h"
 #include "ai/HermesThreadChatDialog.h"
+#include "Settings.h"
+#include "options/MLOptions.h"
 #include "backend/Backend.h"
 #include "backend/PendingPostService.h"
 #include "backend/NetworkRequest.h"
@@ -406,7 +408,15 @@ void ChatArea::setupHeaderUi()
         chatActionsMenu->addSeparator();
         QAction* action = chatActionsMenu->addAction(tr("Open AI chat (Hermes)…"));
         action->setObjectName(QStringLiteral("openHermesThreadChatAction"));
+        const auto refreshAiAction = [action] {
+            action->setVisible(MLOptions::instance()->value<bool>(
+                AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT));
+        };
+        connect(chatActionsMenu, &QMenu::aboutToShow, action, refreshAiAction);
+        refreshAiAction();
         connect(action, &QAction::triggered, this, [this] {
+            if (!MLOptions::instance()->value<bool>(
+                    AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)) return;
             auto* dialog = new HermesThreadChatDialog(
                 backend, channel.id, root_id, window());
             dialog->show();

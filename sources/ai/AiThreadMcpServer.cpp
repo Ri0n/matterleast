@@ -20,6 +20,8 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/QuotedReplyFormat.h"
+#include "Settings.h"
+#include "options/MLOptions.h"
 
 namespace Mattermost {
 namespace {
@@ -97,11 +99,22 @@ AiThreadMcpServer& AiThreadMcpServer::instance(Backend& backend)
 AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
     : QObject(&backend), _backend(backend)
 {
-    _endpoint = QStringLiteral("matterleast-ai-") + newToken();
-    // The endpoint and credentials are ephemeral; no listening TCP port.
+    // Never listen as a side effect of constructing the UI. The endpoint is
+    // created lazily, only after explicit user opt-in and opening an AI chat.
     _server.setSocketOptions(QLocalServer::UserAccessOption);
-    if (!_server.listen(_endpoint))
-        qWarning("MatterLeast AI MCP: cannot create local socket");
+    auto* enableOption = MLOptions::instance()->optionObject<bool>(
+        AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT);
+    connect(enableOption, &MLOptionObject::changed, this,
+            [this](const QVariant& value) {
+        if (value.toBool()) return;
+        // Revocation is immediate even if an AI chat or subprocess remains open.
+        _sessions.clear();
+        for (QLocalSocket* socket : _buffers.keys()) {
+            if (socket) socket->disconnectFromServer();
+        }
+        _server.close();
+        _endpoint.clear();
+    });
 
     connect(&_server, &QLocalServer::newConnection, this, [this] {
         while (QLocalSocket* socket = _server.nextPendingConnection()) {
@@ -132,10 +145,19 @@ AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
 
 QString AiThreadMcpServer::createSession(const QString& channelId, const QString& rootId)
 {
-    if (!_server.isListening() || !_backend.loggedIn()
-        || channelId.isEmpty() || rootId.isEmpty()
+    if (!MLOptions::instance()->value<bool>(
+            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)
+        || !_backend.loggedIn() || channelId.isEmpty() || rootId.isEmpty()
         || !_backend.getStorage().getChannelById(channelId)) {
         return {};
+    }
+    if (!_server.isListening()) {
+        _endpoint = QStringLiteral("matterleast-ai-") + newToken();
+        if (!_server.listen(_endpoint)) {
+            qWarning("MatterLeast AI MCP: cannot create local socket");
+            _endpoint.clear();
+            return {};
+        }
     }
     const QString token = newToken();
     _sessions.insert(token, Session {channelId, rootId,
@@ -146,7 +168,10 @@ QString AiThreadMcpServer::createSession(const QString& channelId, const QString
 bool AiThreadMcpServer::authorized(const QString& token) const
 {
     const auto it = _sessions.constFind(token);
-    return _backend.loggedIn() && it != _sessions.cend()
+    return MLOptions::instance()->value<bool>(
+               AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)
+        && _server.isListening() && _backend.loggedIn()
+        && it != _sessions.cend()
         && it->loginUserId == _backend.getLoginUser().id
         && it->serverHost == NetworkRequest::host();
 }
@@ -159,7 +184,7 @@ void AiThreadMcpServer::revokeSession(const QString& token)
 void AiThreadMcpServer::setWriteEnabled(const QString& token, bool enabled)
 {
     auto it = _sessions.find(token);
-    if (it != _sessions.end())
+    if (it != _sessions.end() && authorized(token))
         it->writeEnabled = enabled;
 }
 

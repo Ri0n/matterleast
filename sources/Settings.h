@@ -59,6 +59,14 @@ static constexpr const char* EMOJI_DEFAULT_SKIN_TONE =
     "emoji/defaultSkinTone";
 static constexpr int EMOJI_DEFAULT_SKIN_TONE_DEFAULT = 0;
 
+// AI integration is opt-in. These are non-secret settings only; provider
+// credentials belong exclusively to the platform credential manager.
+static constexpr const char* AI_HERMES_ENABLED = "ai/hermes/enabled";
+static constexpr bool AI_HERMES_ENABLED_DEFAULT = false;
+static constexpr const char* AI_HERMES_COMMAND = "ai/hermes/command";
+static constexpr const char* AI_HERMES_MODEL = "ai/hermes/model";
+static constexpr const char* AI_HERMES_PROVIDER_ENV = "ai/hermes/providerEnv";
+
 // Text filtering can temporarily suspend the Channels unread gate so a
 // known read channel can still be found by name.
 static constexpr const char* UNREAD_MODE_IGNORE_WHILE_FILTERING =
