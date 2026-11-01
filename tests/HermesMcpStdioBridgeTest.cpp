@@ -18,7 +18,7 @@ private slots:
         env.remove(QStringLiteral("MATTERLEAST_MCP_SOCKET"));
         env.remove(QStringLiteral("MATTERLEAST_MCP_TOKEN"));
         bridge.setProcessEnvironment(env);
-        bridge.start(QStringLiteral(MATTERLEAST_MCP_BRIDGE_EXECUTABLE));
+        bridge.start(QStringLiteral(MATTERLEAST_MCP_BRIDGE_EXECUTABLE), {});
         QVERIFY(bridge.waitForFinished(5000));
         QCOMPARE(bridge.exitCode(), 1);
         QVERIFY(bridge.readAllStandardOutput().isEmpty());
@@ -38,7 +38,7 @@ private slots:
                    QStringLiteral("test-capability"));
         bridge.setProcessEnvironment(env);
         QSignalSpy connections(&server, &QLocalServer::newConnection);
-        bridge.start(QStringLiteral(MATTERLEAST_MCP_BRIDGE_EXECUTABLE));
+        bridge.start(QStringLiteral(MATTERLEAST_MCP_BRIDGE_EXECUTABLE), {});
         QVERIFY(bridge.waitForStarted(5000));
         if (!server.hasPendingConnections())
             QVERIFY(connections.wait(5000));
