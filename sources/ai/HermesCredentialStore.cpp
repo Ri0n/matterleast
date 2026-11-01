@@ -14,6 +14,7 @@
 
 namespace Mattermost {
 namespace HermesCredentialStore {
+#ifdef MATTERLEAST_HAVE_KEYCHAIN
 namespace {
 const QString Service = QStringLiteral("MatterLeast Hermes AI");
 
@@ -22,6 +23,7 @@ QString entry(const QString& variable)
     return QStringLiteral("provider/") + variable;
 }
 } // namespace
+#endif
 
 bool available()
 {
