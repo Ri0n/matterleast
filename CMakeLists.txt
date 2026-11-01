@@ -454,6 +454,8 @@ else()
   # Share the production implementation with integration tests, including the
   # real repository, HTTP connector and source/widget signal wiring.
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
+  # Separate stdio bridge has a different main(), exclude it from the GUI core.
+  list(FILTER SOURCES EXCLUDE REGEX "(^|/)ai/McpStdioBridge\\.cpp$")
   add_library(matterleast-core OBJECT ${SOURCES})
   target_link_libraries(matterleast-core PUBLIC matterleast-spellcheck)
   if(MATTERLEAST_DEBUG_UPLOAD_HEADERS)
@@ -516,6 +518,12 @@ else()
     target_link_libraries(matterleast-core PUBLIC Qt${QT_VERSION_MAJOR}::DBus)
     target_compile_definitions(matterleast-core PRIVATE MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS)
   endif()
+  include(GNUInstallDirs)
+  add_executable(matterleast-mcp-stdio sources/ai/McpStdioBridge.cpp)
+  target_link_libraries(matterleast-mcp-stdio PRIVATE
+    Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+  install(TARGETS matterleast-mcp-stdio RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+          COMPONENT Runtime)
   add_executable(${APPID} sources/main.cpp resource.qrc)
   target_link_libraries(${APPID} PRIVATE matterleast-core)
   target_compile_definitions(${APPID} PRIVATE MATTERLEAST_BUILD_VERSION="${PROJECT_VERSION}")

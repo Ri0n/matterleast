@@ -979,3 +979,15 @@ if(TARGET matterleast-core)
     set_tests_properties(spellcheck-test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# Hermes MCP JSON-RPC stdio proxy: no GUI, account or network credentials.
+if(TARGET matterleast-mcp-stdio)
+    add_executable(hermes-mcp-stdio-bridge-test HermesMcpStdioBridgeTest.cpp)
+    target_compile_definitions(hermes-mcp-stdio-bridge-test PRIVATE
+        MATTERLEAST_MCP_BRIDGE_EXECUTABLE="$<TARGET_FILE:matterleast-mcp-stdio>")
+    target_link_libraries(hermes-mcp-stdio-bridge-test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network
+        Qt${QT_VERSION_MAJOR}::Test)
+    add_dependencies(hermes-mcp-stdio-bridge-test matterleast-mcp-stdio)
+    add_test(NAME hermes-mcp-stdio-bridge-test COMMAND hermes-mcp-stdio-bridge-test)
+endif()

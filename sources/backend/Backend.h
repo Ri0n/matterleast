@@ -57,6 +57,7 @@ public:
 
 	bool autoLoginEnabled ();
     bool lastLoginFailureTransient() const { return _lastLoginFailureTransient; }
+    bool loggedIn() const { return isLoggedIn; }
 
 	void reset ();
 

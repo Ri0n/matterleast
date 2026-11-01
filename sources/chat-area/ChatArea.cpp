@@ -42,6 +42,7 @@
 #include "OutboxPostSource.h"
 #include "PostFilterPolicy.h"
 #include "ThreadPostSource.h"
+#include "ai/HermesThreadChatDialog.h"
 #include "backend/Backend.h"
 #include "backend/PendingPostService.h"
 #include "backend/NetworkRequest.h"
@@ -400,6 +401,19 @@ void ChatArea::setupHeaderUi()
     connect(searchAction, &QAction::triggered, this, [this] {
         emit searchInConversationRequested(channel.id);
     });
+
+    if (isThread) {
+        chatActionsMenu->addSeparator();
+        QAction* action = chatActionsMenu->addAction(tr("Open AI chat (Hermes)…"));
+        action->setObjectName(QStringLiteral("openHermesThreadChatAction"));
+        connect(action, &QAction::triggered, this, [this] {
+            auto* dialog = new HermesThreadChatDialog(
+                backend, channel.id, root_id, window());
+            dialog->show();
+            dialog->raise();
+            dialog->activateWindow();
+        });
+    }
 
     chatActionsMenu->addSeparator();
     QAction* copyReferenceAction = chatActionsMenu->addAction(tr("Copy reference"));
