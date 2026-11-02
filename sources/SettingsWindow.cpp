@@ -36,6 +36,8 @@
 #include <QHBoxLayout>
 #include <QIntValidator>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QSlider>
 #include <QSpinBox>
@@ -44,6 +46,7 @@
 #include <QVBoxLayout>
 
 #include "Settings.h"
+#include "ai/HermesCredentialStore.h"
 #include "backend/emoji/EmojiDefs.h"
 #include "options/MLOptions.h"
 #include "notifications/RootNotificationPolicy.h"
@@ -166,6 +169,136 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
            "Shift+Enter always inserts a new line.")));
     composerLayout->addStretch(1);
     tabs->addTab(composerPage, tr("Composer"));
+
+    auto* aiPage = new QWidget(tabs);
+    auto* aiLayout = new QVBoxLayout(aiPage);
+    aiLayout->setContentsMargins(12, 12, 12, 12);
+    aiLayout->setSpacing(10);
+
+    _aiEnabled = new QCheckBox(tr("Enable Hermes AI integration"), aiPage);
+    _aiEnabled->setObjectName(QStringLiteral("aiHermesEnabled"));
+    _aiEnabled->setChecked(options->value<bool>(
+        AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT));
+    aiLayout->addWidget(_aiEnabled);
+    aiLayout->addWidget(makeDescription(aiPage,
+        tr("Off by default. When disabled, MatterLeast does not create an AI "
+           "MCP socket or expose the AI thread action. Enabling the integration "
+           "only starts the local socket when an AI chat is opened.")));
+
+    auto* aiForm = new QFormLayout;
+    auto* executableRow = new QWidget(aiPage);
+    auto* executableLayout = new QHBoxLayout(executableRow);
+    executableLayout->setContentsMargins(0, 0, 0, 0);
+    _aiCommand = new QLineEdit(executableRow);
+    _aiCommand->setObjectName(QStringLiteral("aiHermesCommand"));
+    _aiCommand->setText(options->value<QString>(
+        AI_HERMES_COMMAND, QStringLiteral("hermes")));
+    auto* browseHermes = new QPushButton(tr("Browse…"), executableRow);
+    executableLayout->addWidget(_aiCommand, 1);
+    executableLayout->addWidget(browseHermes);
+    aiForm->addRow(tr("Hermes or hook:"), executableRow);
+    connect(browseHermes, &QPushButton::clicked, this, [this] {
+        const QString path = QFileDialog::getOpenFileName(
+            this, tr("Select Hermes CLI or compatible hook"),
+            _aiCommand->text());
+        if (!path.isEmpty()) _aiCommand->setText(path);
+    });
+
+    _aiModel = new QLineEdit(aiPage);
+    _aiModel->setObjectName(QStringLiteral("aiHermesModel"));
+    _aiModel->setPlaceholderText(tr("e.g. anthropic/claude-sonnet-4.6"));
+    _aiModel->setText(options->value<QString>(AI_HERMES_MODEL));
+    aiForm->addRow(tr("Model:"), _aiModel);
+
+    _aiProvider = new QComboBox(aiPage);
+    _aiProvider->setObjectName(QStringLiteral("aiHermesProvider"));
+    _aiProvider->addItem(tr("Use existing Hermes credentials"), QString());
+    _aiProvider->addItem(tr("OpenRouter"), QStringLiteral("OPENROUTER_API_KEY"));
+    _aiProvider->addItem(tr("Anthropic"), QStringLiteral("ANTHROPIC_API_KEY"));
+    _aiProvider->addItem(tr("OpenAI"), QStringLiteral("OPENAI_API_KEY"));
+    _aiProvider->addItem(tr("Google Gemini"), QStringLiteral("GEMINI_API_KEY"));
+    const QString storedProvider = options->value<QString>(AI_HERMES_PROVIDER_ENV);
+    const int providerIndex = _aiProvider->findData(storedProvider);
+    _aiProvider->setCurrentIndex(providerIndex < 0 ? 0 : providerIndex);
+    aiForm->addRow(tr("API key provider:"), _aiProvider);
+    aiLayout->addLayout(aiForm);
+
+    auto* credentials = new QGroupBox(tr("System credential store"), aiPage);
+    auto* credentialsLayout = new QVBoxLayout(credentials);
+    _aiCredential = new QLineEdit(credentials);
+    _aiCredential->setObjectName(QStringLiteral("aiHermesApiKey"));
+    _aiCredential->setEchoMode(QLineEdit::Password);
+    _aiCredential->setPlaceholderText(tr("Paste a new key (never displayed again)"));
+    credentialsLayout->addWidget(_aiCredential);
+    auto* credentialButtons = new QHBoxLayout;
+    auto* saveCredential = new QPushButton(tr("Save key to keyring"), credentials);
+    auto* deleteCredential = new QPushButton(tr("Delete saved key"), credentials);
+    credentialButtons->addWidget(saveCredential);
+    credentialButtons->addWidget(deleteCredential);
+    credentialButtons->addStretch(1);
+    credentialsLayout->addLayout(credentialButtons);
+    _aiCredentialStatus = makeDescription(credentials,
+        tr("No API keys are saved to MatterLeast settings. "
+           "Keys are stored separately per provider."));
+    _aiCredentialStatus->setObjectName(QStringLiteral("aiHermesCredentialStatus"));
+    credentialsLayout->addWidget(_aiCredentialStatus);
+    aiLayout->addWidget(credentials);
+
+    const auto refreshAiControls = [this, executableRow, browseHermes,
+                                    saveCredential, deleteCredential] {
+        const bool active = _aiEnabled->isChecked();
+        const bool provider = !_aiProvider->currentData().toString().isEmpty();
+        const bool keychain = HermesCredentialStore::available();
+        executableRow->setEnabled(active);
+        browseHermes->setEnabled(active);
+        _aiModel->setEnabled(active);
+        _aiProvider->setEnabled(active);
+        _aiCredential->setEnabled(active && provider && keychain);
+        saveCredential->setEnabled(active && provider && keychain);
+        deleteCredential->setEnabled(active && provider && keychain);
+        if (!keychain) {
+            _aiCredentialStatus->setText(tr(
+                "System keyring support is not available in this build. "
+                "Configure credentials directly in Hermes instead; "
+                "MatterLeast will never store API keys in plaintext."));
+        }
+    };
+    connect(_aiEnabled, &QCheckBox::toggled, this, refreshAiControls);
+    connect(_aiProvider, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [refreshAiControls](int) { refreshAiControls(); });
+    connect(saveCredential, &QPushButton::clicked, this, [this] {
+        const QString provider = _aiProvider->currentData().toString();
+        if (_aiCredential->text().isEmpty() || provider.isEmpty()) return;
+        const QString key = _aiCredential->text();
+        _aiCredential->clear();
+        _aiCredentialStatus->setText(tr("Saving key in system keyring…"));
+        HermesCredentialStore::write(provider, key, this,
+            [this](bool ok, const QString& error) {
+                _aiCredentialStatus->setText(ok
+                    ? tr("Key stored securely in system keyring.")
+                    : tr("Could not save key: %1").arg(error));
+            });
+    });
+    connect(deleteCredential, &QPushButton::clicked, this, [this] {
+        const QString provider = _aiProvider->currentData().toString();
+        if (provider.isEmpty()) return;
+        _aiCredential->clear();
+        _aiCredentialStatus->setText(tr("Removing key from system keyring…"));
+        HermesCredentialStore::remove(provider, this,
+            [this](bool ok, const QString& error) {
+                _aiCredentialStatus->setText(ok
+                    ? tr("Key removed from system keyring.")
+                    : tr("Could not remove key: %1").arg(error));
+            });
+    });
+    refreshAiControls();
+    aiLayout->addWidget(makeDescription(aiPage,
+        tr("Hermes stream-json mode requires an explicit model. "
+           "If no provider is selected, existing Hermes authentication is used. "
+           "An API key stored here is only supplied to the launched Hermes "
+           "process, never saved in MatterLeast preferences.")));
+    aiLayout->addStretch(1);
+    tabs->addTab(aiPage, tr("AI"));
 
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
     if (updateChecksCompiled()) {
@@ -535,6 +668,14 @@ void SettingsWindow::applyNewSettings ()
     options->optionObject<int>(
         DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)
         ->setValue(ui->imageMaxHeightValue->text().toInt());
+    options->optionObject<QString>(AI_HERMES_COMMAND, QStringLiteral("hermes"))
+        ->setValue(_aiCommand->text().trimmed());
+    options->optionObject<QString>(AI_HERMES_MODEL, QString())
+        ->setValue(_aiModel->text().trimmed());
+    options->optionObject<QString>(AI_HERMES_PROVIDER_ENV, QString())
+        ->setValue(_aiProvider->currentData().toString());
+    options->optionObject<bool>(AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)
+        ->setValue(_aiEnabled->isChecked());
     options->optionObject<bool>(
         COMPOSER_SEND_WITH_CTRL_ENTER,
         COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
