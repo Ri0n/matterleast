@@ -54,7 +54,7 @@ void read(const QString& variable, QObject* receiver, ReadCallback callback)
     auto* job = new QKeychain::ReadPasswordJob(Service, receiver);
     job->setKey(entry(variable));
     job->setInsecureFallback(false);
-    connect(job, &QKeychain::Job::finished, receiver,
+    QObject::connect(job, &QKeychain::Job::finished, receiver,
             [job, callback](QKeychain::Job*) {
         const auto error = job->error();
         const bool ok = error == QKeychain::NoError
@@ -82,7 +82,7 @@ void write(const QString& variable, const QString& secret,
     job->setKey(entry(variable));
     job->setTextData(secret);
     job->setInsecureFallback(false);
-    connect(job, &QKeychain::Job::finished, receiver,
+    QObject::connect(job, &QKeychain::Job::finished, receiver,
             [job, callback](QKeychain::Job*) {
         const bool ok = job->error() == QKeychain::NoError;
         const QString detail = ok ? QString() : job->errorString();
@@ -105,7 +105,7 @@ void remove(const QString& variable, QObject* receiver, StatusCallback callback)
     auto* job = new QKeychain::DeletePasswordJob(Service, receiver);
     job->setKey(entry(variable));
     job->setInsecureFallback(false);
-    connect(job, &QKeychain::Job::finished, receiver,
+    QObject::connect(job, &QKeychain::Job::finished, receiver,
             [job, callback](QKeychain::Job*) {
         const bool ok = job->error() == QKeychain::NoError
             || job->error() == QKeychain::EntryNotFound;
