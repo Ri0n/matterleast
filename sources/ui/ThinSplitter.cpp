@@ -6,6 +6,7 @@
 
 #include "ThinSplitter.h"
 
+#include <QColor>
 #include <QPainter>
 #include <QPalette>
 #include <QRegion>
@@ -14,6 +15,23 @@
 
 namespace Mattermost {
 namespace {
+
+QColor separatorColor(const QPalette& palette)
+{
+    const QColor mid = palette.color(QPalette::Mid);
+    const QColor background = palette.color(QPalette::Window);
+    if (background.lightness() >= 128)
+        return mid; // Preserve the existing appearance for light themes.
+
+    // Some dark system palettes make Mid nearly identical to Window. Blend
+    // toward the theme's text color to keep a one-pixel edge discernible.
+    const QColor foreground = palette.color(QPalette::WindowText);
+    const auto mix = [](int bg, int fg) { return (bg * 7 + fg * 3 + 5) / 10; };
+    const QColor candidate(mix(background.red(), foreground.red()),
+                           mix(background.green(), foreground.green()),
+                           mix(background.blue(), foreground.blue()));
+    return candidate.lightness() > mid.lightness() ? candidate : mid;
+}
 
 class ThinSplitterHandle final : public QSplitterHandle
 {
@@ -55,7 +73,7 @@ protected:
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
-        painter.fillRect(contentsRect(), palette().color(QPalette::Mid));
+        painter.fillRect(contentsRect(), separatorColor(palette()));
     }
 
 private:

@@ -1,6 +1,8 @@
 #include <QtTest>
 
 #include <QCoreApplication>
+#include <QImage>
+#include <QPalette>
 #include <QSplitter>
 #include <QSplitterHandle>
 #include <QWidget>
@@ -65,6 +67,42 @@ private slots:
                  ThinSplitter::TrailingHitPadding);
         QCOMPARE(handle->mask().boundingRect(), handle->contentsRect());
         QVERIFY(handle->testAttribute(Qt::WA_MouseNoMask));
+    }
+
+    void separatorStaysVisibleInDarkTheme()
+    {
+        ThinSplitter splitter(Qt::Horizontal);
+        splitter.addWidget(new QWidget);
+        splitter.addWidget(new QWidget);
+        splitter.resize(420, 160);
+
+        QPalette dark = splitter.palette();
+        dark.setColor(QPalette::Window, QColor(24, 25, 26));
+        dark.setColor(QPalette::WindowText, QColor(220, 222, 224));
+        dark.setColor(QPalette::Mid, QColor(34, 35, 36));
+        splitter.setPalette(dark);
+        splitter.show();
+        QCoreApplication::processEvents();
+
+        QSplitterHandle* handle = splitter.handle(1);
+        QVERIFY(handle);
+        const QImage darkLine = handle->grab(handle->contentsRect()).toImage();
+        QVERIFY(!darkLine.isNull());
+        const QColor darkColor = darkLine.pixelColor(0, darkLine.height() / 2);
+        QVERIFY2(darkColor.lightness() > dark.color(QPalette::Mid).lightness() + 25,
+                 "Dark theme separator should be more visible than QPalette::Mid");
+        QCOMPARE(handle->contentsRect().width(), ThinSplitter::VisibleHandleExtent);
+
+        QPalette light = dark;
+        light.setColor(QPalette::Window, QColor(245, 245, 245));
+        light.setColor(QPalette::WindowText, QColor(35, 35, 35));
+        light.setColor(QPalette::Mid, QColor(175, 175, 175));
+        splitter.setPalette(light);
+        QCoreApplication::processEvents();
+        const QImage lightLine = handle->grab(handle->contentsRect()).toImage();
+        QVERIFY(!lightLine.isNull());
+        QCOMPARE(lightLine.pixelColor(0, lightLine.height() / 2),
+                 light.color(QPalette::Mid));
     }
 
     void legacyHandleWidthStateCannotWidenLayoutHandle()
