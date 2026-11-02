@@ -108,11 +108,6 @@ NavigationUiController::NavigationUiController(MainWindow& mainWindow)
     , window(mainWindow)
 {
     setObjectName(QStringLiteral("navigationUiController"));
-    _threadPaneSaveTimer = new QTimer(this);
-    _threadPaneSaveTimer->setSingleShot(true);
-    _threadPaneSaveTimer->setInterval(350);
-    connect(_threadPaneSaveTimer, &QTimer::timeout,
-            this, &NavigationUiController::persistThreadPaneWidth);
     sessionSaveTimer = new QTimer(this);
     sessionSaveTimer->setSingleShot(true);
     sessionSaveTimer->setInterval(500);
@@ -345,7 +340,6 @@ void NavigationUiController::setupThreadPane()
     connect(contentSplitter, &QSplitter::splitterMoved, this,
             [this] {
         rememberThreadPaneWidth();
-        _threadPaneSaveTimer->start();
     });
     // QSplitter persists handle width in its state; do not let legacy 4 px
     // states reintroduce layout space between channel and thread panes.
