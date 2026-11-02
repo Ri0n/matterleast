@@ -27,7 +27,9 @@ The default program is `hermes` from PATH. The window's **Select Hermes or hookâ
 
 ## MCP server
 
-MatterLeast runs a **QLocalServer**, not a remotely reachable HTTP listener. It restricts connections to the local user where supported by Qt, and requires a randomly generated capability for every request. A separate console executable proxies stdio MCP JSON-RPC frames to this authenticated server. When the window closes, its capability is revoked.
+MatterLeast runs a **QLocalServer**, not a remotely reachable HTTP listener. It restricts connections to the local user where supported by Qt, and requires a randomly generated capability for every request. A separate console executable proxies stdio MCP JSON-RPC frames to this authenticated server. When the window closes, its capability is revoked. The listener is shared by all
+active AI chats and closes (along with any remaining local connections) when the
+last chat closes. Opening a new AI chat starts a new listener and endpoint.
 
 All tools are scoped to the **one** originating thread. They use the signed-in backend's existing HTTP transport and caches rather than creating a second network session.
 

@@ -109,11 +109,7 @@ AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
         if (value.toBool()) return;
         // Revocation is immediate even if an AI chat or subprocess remains open.
         _sessions.clear();
-        for (QLocalSocket* socket : _buffers.keys()) {
-            if (socket) socket->disconnectFromServer();
-        }
-        _server.close();
-        _endpoint.clear();
+        stopListening();
     });
 
     connect(&_server, &QLocalServer::newConnection, this, [this] {
@@ -178,7 +174,20 @@ bool AiThreadMcpServer::authorized(const QString& token) const
 
 void AiThreadMcpServer::revokeSession(const QString& token)
 {
-    _sessions.remove(token);
+    if (_sessions.remove(token) && _sessions.isEmpty())
+        stopListening();
+}
+
+void AiThreadMcpServer::stopListening()
+{
+    _server.close();
+    _endpoint.clear();
+    // Stop existing connections as well as rejecting new ones. All
+    // per-window credentials have already been revoked at this point.
+    for (QLocalSocket* socket : _buffers.keys()) {
+        if (socket)
+            socket->abort();
+    }
 }
 
 void AiThreadMcpServer::setWriteEnabled(const QString& token, bool enabled)

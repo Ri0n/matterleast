@@ -40,6 +40,7 @@ private:
     };
 
     bool authorized(const QString& token) const;
+    void stopListening();
     void processLine(QLocalSocket* socket, const QByteArray& bytes);
     void sendResponse(QLocalSocket* socket, const QJsonValue& id,
                       const QJsonObject& result);
