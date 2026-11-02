@@ -383,7 +383,7 @@ public:
         QTextDocument* target = document();
         target->setDefaultFont(font());
         MessageFormatter::buildMarkdownDocument(
-            *target, markdown, _emojiRegistry);
+            *target, markdown, _emojiRegistry, palette().color(QPalette::Text));
         finishContent(jumboEmoji);
     }
 #endif
@@ -1381,7 +1381,7 @@ void MessageContentWidget::addMarkdownContent(const QString& message)
     QTextDocument document;
     document.setDefaultFont(font());
     MessageFormatter::buildMarkdownDocument(
-        document, message, _emojiRegistry);
+        document, message, _emojiRegistry, palette().color(QPalette::Text));
 
     int richStart = 0;
     QTextBlock block = document.begin();

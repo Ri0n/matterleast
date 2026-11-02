@@ -3,6 +3,8 @@
 #include <algorithm>
 
 #include <QFontDatabase>
+#include <QGuiApplication>
+#include <QPalette>
 #include <QVector>
 
 #include <QTextBlock>
@@ -422,12 +424,12 @@ QString promoteMultilineCodeSpans(const QString& text)
     return result;
 }
 
-void forceInlineCodeFont(QTextDocument& document)
+void forceInlineCodeFont(QTextDocument& document, const QColor& background)
 {
     // Qt's Markdown parser marks code spans as fixed-pitch, but on Qt 5 it
     // can retain the generic "monospace" family without resolving the actual
-    // installed typewriter font. Resolve it ourselves without changing the
-    // code span's size, background, or other formatting.
+    // installed typewriter font. Resolve it while preserving the span's size
+    // and foreground; apply only a subtle, palette-derived background.
     const QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     QTextCharFormat codeFormat;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -436,9 +438,16 @@ void forceInlineCodeFont(QTextDocument& document)
     codeFormat.setFontFamily(fixedFont.family());
 #endif
     codeFormat.setFontFixedPitch(true);
+    codeFormat.setBackground(background);
 
     QVector<QPair<int, int>> spans;
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        const QTextBlockFormat blockFormat = block.blockFormat();
+        if (blockFormat.nonBreakableLines()
+            || blockFormat.hasProperty(QTextFormat::BlockCodeFence)
+            || blockFormat.hasProperty(QTextFormat::BlockCodeLanguage)) {
+            continue; // Fenced code has its own editor and background.
+        }
         for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
             const QTextFragment fragment = it.fragment();
             if (!fragment.isValid()) {
@@ -468,7 +477,8 @@ void forceInlineCodeFont(QTextDocument& document)
 
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-void restoreQt5InlineCodeFont(QTextDocument& document, const QString& markdown)
+void restoreQt5InlineCodeFont(QTextDocument& document, const QString& markdown,
+                              const QColor& background)
 {
     // Qt 5.15's Markdown parser removes inline backticks but loses the code
     // character format on some builds. Restore it from Markdown's delimiters,
@@ -478,6 +488,7 @@ void restoreQt5InlineCodeFont(QTextDocument& document, const QString& markdown)
     QTextCharFormat codeFont;
     codeFont.setFontFamily(fixedFont.family());
     codeFont.setFontFixedPitch(true);
+    codeFont.setBackground(background);
 
     int searchFrom = 0;
     for (int i = 0; i < markdown.size();) {
@@ -541,7 +552,7 @@ void restoreQt5InlineCodeFont(QTextDocument& document, const QString& markdown)
                 QTextCursor cursor(&document);
                 cursor.setPosition(start);
                 cursor.setPosition(start + content.size(), QTextCursor::KeepAnchor);
-                // Do not overwrite background/foreground or other formatting.
+                // Preserve the foreground and other character formatting.
                 cursor.mergeCharFormat(codeFont);
                 searchFrom = start + content.size();
             }
@@ -794,7 +805,7 @@ void separateLargeImages(QTextDocument& document)
 } // namespace
 
 void buildMarkdownDocument(QTextDocument& document, const QString& text,
-                           EmojiRegistry* registry)
+                           EmojiRegistry* registry, const QColor& inlineCodeTextColor)
 {
     // QTextDocument::clear() is allowed to reset document-level state. Preserve
     // the caller's base font explicitly because Markdown heading sizes are
@@ -812,9 +823,14 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text,
     features.setFlag(QTextDocument::MarkdownNoHTML);
     const QString markdown = promoteMultilineCodeSpans(text);
     document.setMarkdown(preserveUserLineBreaks(markdown), features);
-    forceInlineCodeFont(document);
+    // Use a translucent text-color overlay so the tint follows both dark and
+    // light themes, including differently colored chat bubbles and quotes.
+    QColor inlineBackground = inlineCodeTextColor.isValid()
+        ? inlineCodeTextColor : QGuiApplication::palette().color(QPalette::Text);
+    inlineBackground.setAlpha(22);
+    forceInlineCodeFont(document, inlineBackground);
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    restoreQt5InlineCodeFont(document, markdown);
+    restoreQt5InlineCodeFont(document, markdown, inlineBackground);
 #endif
 
     // Qt's GFM autolinker still misses some valid long percent-encoded URLs.

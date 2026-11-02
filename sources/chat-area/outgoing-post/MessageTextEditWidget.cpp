@@ -619,6 +619,12 @@ void MessageTextEditWidget::keyPressEvent(QKeyEvent* event)
             event->accept();
             return;
         }
+        if (modifiers == (Qt::ControlModifier | Qt::AltModifier)
+            && event->key() == Qt::Key_C) {
+            toggleInlineCode();
+            event->accept();
+            return;
+        }
         if (hasPrimaryModifier(modifiers)
             && event->key() == Qt::Key_K
             && !modifiers.testFlag(Qt::AltModifier)) {

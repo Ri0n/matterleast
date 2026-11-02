@@ -121,10 +121,7 @@ NavigationUiController::~NavigationUiController()
     if (qApp) {
         qApp->removeEventFilter(this);
     }
-    if (contentSplitter) {
-        MLOptions::instance()->setValue(
-            QStringLiteral("content_splitter_state"), contentSplitter->saveState());
-    }
+    persistThreadPaneWidth();
 }
 
 void NavigationUiController::setupMainWindow()
@@ -197,10 +194,7 @@ void NavigationUiController::setupMainWindow()
 
     connect(qApp, &QApplication::aboutToQuit, this, [this] {
         saveSession();
-        if (contentSplitter) {
-            MLOptions::instance()->setValue(
-                QStringLiteral("content_splitter_state"), contentSplitter->saveState());
-        }
+        persistThreadPaneWidth();
     });
 
     updateIdentityTooltip();
@@ -337,11 +331,16 @@ void NavigationUiController::setupThreadPane()
     navigationSurfaceStack->show();
     mainStack->show();
 
-    const QByteArray state = MLOptions::instance()->value<QByteArray>(
+    // Restore the right-pane width only after the thread is visible.
+    // Restoring QSplitter state here would use a hidden child with width zero.
+    _preferredThreadPaneWidth = MLOptions::instance()->value<int>(
+        QStringLiteral("content_thread_width"), 0);
+    _legacyThreadSplitterState = MLOptions::instance()->value<QByteArray>(
         QStringLiteral("content_splitter_state"));
-    if (!state.isEmpty()) {
-        threadSplitterStateRestored = contentSplitter->restoreState(state);
-    }
+    connect(contentSplitter, &QSplitter::splitterMoved, this,
+            [this] {
+        rememberThreadPaneWidth();
+    });
     // QSplitter persists handle width in its state; do not let legacy 4 px
     // states reintroduce layout space between channel and thread panes.
     contentSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
@@ -1002,6 +1001,7 @@ void NavigationUiController::tabifyThread(ChatArea* area, int tabIndex)
     if (threadStack && threadStack->indexOf(area) >= 0) {
         threadStack->removeWidget(area);
         if (wasDockedCurrent) {
+            persistThreadPaneWidth();
             threadStack->hide();
         }
     }
@@ -1596,6 +1596,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
                 area->hide();
                 threadStack->removeWidget(area);
                 if (wasDockedCurrent) {
+                    persistThreadPaneWidth();
                     threadStack->hide();
                 }
             }
@@ -1693,9 +1694,15 @@ void NavigationUiController::attachThread(ChatArea* area)
     area->show();
     syncSplitterEdgeGutters();
 
-    if (ensureThreadPaneExpanded(*contentSplitter, !threadSplitterStateRestored)) {
-        threadSplitterStateRestored = true;
+    bool restored = restoreThreadPaneWidth(*contentSplitter,
+                                           _preferredThreadPaneWidth);
+    if (!restored && !threadSplitterStateRestored
+        && !_legacyThreadSplitterState.isEmpty()) {
+        restored = contentSplitter->restoreState(_legacyThreadSplitterState);
     }
+    ensureThreadPaneExpanded(*contentSplitter,
+                             !restored && !threadSplitterStateRestored);
+    threadSplitterStateRestored = true;
     updateThreadButton(area);
     recordArea(area);
 }
@@ -1730,6 +1737,7 @@ void NavigationUiController::detachThread(ChatArea* area)
     }
 
     if (wasCurrent) {
+        persistThreadPaneWidth();
         threadStack->hide();
     }
     syncSplitterEdgeGutters();
@@ -1737,6 +1745,33 @@ void NavigationUiController::detachThread(ChatArea* area)
     area->raise();
     area->activateWindow();
     recordArea(area);
+}
+
+void NavigationUiController::rememberThreadPaneWidth()
+{
+    if (!contentSplitter) {
+        return;
+    }
+    const int width = expandedThreadPaneWidth(*contentSplitter);
+    if (width > 0) {
+        _preferredThreadPaneWidth = width;
+    }
+}
+
+void NavigationUiController::persistThreadPaneWidth()
+{
+    rememberThreadPaneWidth();
+    if (_preferredThreadPaneWidth > 0) {
+        MLOptions::instance()->setValue(QStringLiteral("content_thread_width"),
+                                        _preferredThreadPaneWidth);
+    }
+    // Keep the legacy splitter state only when both panes have real widths.
+    // This avoids replacing a good layout with a collapsed, hidden thread.
+    if (contentSplitter && expandedThreadPaneWidth(*contentSplitter) > 0) {
+        MLOptions::instance()->setValue(
+            QStringLiteral("content_splitter_state"),
+            contentSplitter->saveState());
+    }
 }
 
 void NavigationUiController::syncSplitterEdgeGutters()

@@ -991,3 +991,13 @@ if(TARGET matterleast-mcp-stdio)
     add_dependencies(hermes-mcp-stdio-bridge-test matterleast-mcp-stdio)
     add_test(NAME hermes-mcp-stdio-bridge-test COMMAND hermes-mcp-stdio-bridge-test)
 endif()
+
+# Retain the last useful docked-thread width even while its pane is hidden.
+add_executable(thread-pane-width-test ThreadPaneWidthTest.cpp)
+target_include_directories(thread-pane-width-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(thread-pane-width-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME thread-pane-width-test COMMAND thread-pane-width-test)
+set_tests_properties(thread-pane-width-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
