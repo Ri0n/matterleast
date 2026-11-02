@@ -171,6 +171,42 @@ private slots:
 #endif
     }
 
+    void inlineCodeBackgroundFollowsPalette()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        MessageContentWidget widget;
+        QPalette custom = widget.palette();
+        const QColor firstColor(35, 45, 55);
+        custom.setColor(QPalette::Text, firstColor);
+        widget.setPalette(custom);
+        widget.setMessage(QStringLiteral("Normal `inline()` text"));
+        showAndSettle(widget);
+
+        const auto checkCode = [&widget](const QColor& expected) {
+            auto* browser = widget.findChild<QTextBrowser*>(
+                QStringLiteral("messageRichText"));
+            if (!browser) return false;
+            QTextCursor code = browser->document()->find(QStringLiteral("inline()"));
+            QTextCursor normal = browser->document()->find(QStringLiteral("Normal"));
+            if (code.isNull() || normal.isNull()) return false;
+            code.setPosition(code.selectionStart() + 1);
+            normal.setPosition(normal.selectionStart() + 1);
+            QColor wanted = expected;
+            wanted.setAlpha(22);
+            return code.charFormat().background().color() == wanted
+                && normal.charFormat().background().style() == Qt::NoBrush;
+        };
+        QVERIFY(checkCode(firstColor));
+
+        const QColor nextColor(215, 225, 235);
+        custom.setColor(QPalette::Text, nextColor);
+        widget.setPalette(custom);
+        QTRY_VERIFY(checkCode(nextColor));
+#else
+        QSKIP("Markdown code spans need Qt 5.14 or newer");
+#endif
+    }
+
     void longPlainTokenWrapsAnywhere()
     {
         MessageContentWidget widget;
