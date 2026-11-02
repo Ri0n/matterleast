@@ -65,3 +65,13 @@ Routine membership join/leave churn is not a desktop notification.
 `MainWindow::messageNotify` now checks `shouldShowMainTimelinePost`, excluding
 routine membership posts unless they explicitly concern the current user.
 This does not change mention policy or muted-channel suppression.
+
+## Taskbar attention and window focus
+
+Incoming notifications never raise or activate MatterLeast windows. Desktop
+notifications remain eligible while the user works in another visible window,
+including a detached MatterLeast thread. The taskbar/window attention hint is
+requested only when the whole application is inactive, and is targeted at the
+main window, not at every top-level dialog or detached thread. Clicking an
+actual desktop notification still activates MatterLeast and navigates to the
+post as an explicit user action.

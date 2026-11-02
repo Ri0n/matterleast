@@ -1237,7 +1237,12 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 
 	notificationManager->show(title, post.message,
 	                          NotificationTarget {channel.id, post.id, post.root_id});
-	qApp->alert(nullptr, 0);
+    // A null alert target marks *all* MatterLeast top-level windows for
+    // attention, including detached threads and dialogs. Some window managers
+    // then raise the main window over the window the user is working in.
+    // Only flash the main taskbar entry while the entire app is inactive.
+    if (QApplication::applicationState() != Qt::ApplicationActive)
+        QApplication::alert(this, 0);
 }
 
 void MainWindow::unreadMessagesNotify(const BackendChannel& channel)
