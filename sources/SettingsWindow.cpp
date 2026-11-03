@@ -46,7 +46,9 @@
 #include <QVBoxLayout>
 
 #include "Settings.h"
+#ifdef MATTERLEAST_ENABLE_AI
 #include "ai/HermesCredentialStore.h"
+#endif
 #include "backend/emoji/EmojiDefs.h"
 #include "options/MLOptions.h"
 #include "notifications/RootNotificationPolicy.h"
@@ -170,6 +172,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     composerLayout->addStretch(1);
     tabs->addTab(composerPage, tr("Composer"));
 
+#ifdef MATTERLEAST_ENABLE_AI
     auto* aiPage = new QWidget(tabs);
     auto* aiLayout = new QVBoxLayout(aiPage);
     aiLayout->setContentsMargins(12, 12, 12, 12);
@@ -299,6 +302,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
            "process, never saved in MatterLeast preferences.")));
     aiLayout->addStretch(1);
     tabs->addTab(aiPage, tr("AI"));
+#endif
 
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
     if (updateChecksCompiled()) {
@@ -668,6 +672,7 @@ void SettingsWindow::applyNewSettings ()
     options->optionObject<int>(
         DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)
         ->setValue(ui->imageMaxHeightValue->text().toInt());
+#ifdef MATTERLEAST_ENABLE_AI
     options->optionObject<QString>(AI_HERMES_COMMAND, QStringLiteral("hermes"))
         ->setValue(_aiCommand->text().trimmed());
     options->optionObject<QString>(AI_HERMES_MODEL, QString())
@@ -676,6 +681,7 @@ void SettingsWindow::applyNewSettings ()
         ->setValue(_aiProvider->currentData().toString());
     options->optionObject<bool>(AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)
         ->setValue(_aiEnabled->isChecked());
+#endif
     options->optionObject<bool>(
         COMPOSER_SEND_WITH_CTRL_ENTER,
         COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
