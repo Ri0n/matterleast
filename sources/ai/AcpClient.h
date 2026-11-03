@@ -31,7 +31,7 @@ public:
     explicit AcpClient(QObject* parent = nullptr);
     ~AcpClient() override;
 
-    void start(const Configuration& configuration);
+    void start(const Configuration& configuration, const QString& restoreSessionId = {});
     bool prompt(const QString& text);
     void cancel();
     void stop();
