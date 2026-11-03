@@ -464,7 +464,9 @@ else()
   endif()
   add_library(matterleast-core OBJECT ${SOURCES})
   if(MATTERLEAST_ENABLE_AI)
-    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_ENABLE_AI)
+    # SettingsWindow.h has feature-dependent members: propagate the definition
+    # to all consumers of the object library to preserve class layout.
+    target_compile_definitions(matterleast-core PUBLIC MATTERLEAST_ENABLE_AI)
   endif()
   target_link_libraries(matterleast-core PUBLIC matterleast-spellcheck)
   if(MATTERLEAST_DEBUG_UPLOAD_HEADERS)
