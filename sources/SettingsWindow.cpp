@@ -46,9 +46,6 @@
 #include <QVBoxLayout>
 
 #include "Settings.h"
-#ifdef MATTERLEAST_ENABLE_AI
-#include "ai/AgentCredentialStore.h"
-#endif
 #include "backend/emoji/EmojiDefs.h"
 #include "options/MLOptions.h"
 #include "notifications/RootNotificationPolicy.h"
@@ -185,9 +182,9 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
         AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT));
     aiLayout->addWidget(_aiEnabled);
     aiLayout->addWidget(makeDescription(aiPage,
-        tr("Off by default. When disabled, MatterLeast does not create an AI "
-           "MCP socket or expose the AI thread action. Enabling the integration "
-           "only starts the local socket when an AI chat is opened.")));
+        tr("Disabled by default. The ACP agent is launched only from an AI thread "
+           "window. MatterLeast passes a thread-scoped MCP server to the agent "
+           "automatically via session/new; no manual MCP configuration is required.")));
 
     auto* aiForm = new QFormLayout;
     auto* executableRow = new QWidget(aiPage);
@@ -200,107 +197,34 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* browseAgent = new QPushButton(tr("Browse…"), executableRow);
     executableLayout->addWidget(_aiCommand, 1);
     executableLayout->addWidget(browseAgent);
-    aiForm->addRow(tr("Agent CLI or hook:"), executableRow);
+    aiForm->addRow(tr("ACP agent executable:"), executableRow);
     connect(browseAgent, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
-            this, tr("Select agent CLI or compatible hook"),
-            _aiCommand->text());
-        if (!path.isEmpty()) _aiCommand->setText(path);
+            this, tr("Select ACP agent executable"), _aiCommand->text());
+        if (!path.isEmpty())
+            _aiCommand->setText(path);
     });
 
-    _aiModel = new QLineEdit(aiPage);
-    _aiModel->setObjectName(QStringLiteral("aiAgentModel"));
-    _aiModel->setPlaceholderText(tr("e.g. anthropic/claude-sonnet-4.6"));
-    _aiModel->setText(options->value<QString>(AI_AGENT_MODEL));
-    aiForm->addRow(tr("Model:"), _aiModel);
-
-    _aiProvider = new QComboBox(aiPage);
-    _aiProvider->setObjectName(QStringLiteral("aiAgentProvider"));
-    _aiProvider->addItem(tr("Use existing Hermes credentials"), QString());
-    _aiProvider->addItem(tr("OpenRouter"), QStringLiteral("OPENROUTER_API_KEY"));
-    _aiProvider->addItem(tr("Anthropic"), QStringLiteral("ANTHROPIC_API_KEY"));
-    _aiProvider->addItem(tr("OpenAI"), QStringLiteral("OPENAI_API_KEY"));
-    _aiProvider->addItem(tr("Google Gemini"), QStringLiteral("GEMINI_API_KEY"));
-    const QString storedProvider = options->value<QString>(AI_AGENT_PROVIDER_ENV);
-    const int providerIndex = _aiProvider->findData(storedProvider);
-    _aiProvider->setCurrentIndex(providerIndex < 0 ? 0 : providerIndex);
-    aiForm->addRow(tr("API key provider:"), _aiProvider);
+    _aiArguments = new QLineEdit(aiPage);
+    _aiArguments->setObjectName(QStringLiteral("aiAgentArguments"));
+    _aiArguments->setText(options->value<QString>(
+        AI_AGENT_ARGUMENTS, QStringLiteral("acp")));
+    _aiArguments->setPlaceholderText(tr("e.g. acp"));
+    aiForm->addRow(tr("Arguments:"), _aiArguments);
     aiLayout->addLayout(aiForm);
 
-    auto* credentials = new QGroupBox(tr("System credential store"), aiPage);
-    auto* credentialsLayout = new QVBoxLayout(credentials);
-    _aiCredential = new QLineEdit(credentials);
-    _aiCredential->setObjectName(QStringLiteral("aiAgentApiKey"));
-    _aiCredential->setEchoMode(QLineEdit::Password);
-    _aiCredential->setPlaceholderText(tr("Paste a new key (never displayed again)"));
-    credentialsLayout->addWidget(_aiCredential);
-    auto* credentialButtons = new QHBoxLayout;
-    auto* saveCredential = new QPushButton(tr("Save key to keyring"), credentials);
-    auto* deleteCredential = new QPushButton(tr("Delete saved key"), credentials);
-    credentialButtons->addWidget(saveCredential);
-    credentialButtons->addWidget(deleteCredential);
-    credentialButtons->addStretch(1);
-    credentialsLayout->addLayout(credentialButtons);
-    _aiCredentialStatus = makeDescription(credentials,
-        tr("No API keys are saved to MatterLeast settings. "
-           "Keys are stored separately per provider."));
-    _aiCredentialStatus->setObjectName(QStringLiteral("aiAgentCredentialStatus"));
-    credentialsLayout->addWidget(_aiCredentialStatus);
-    aiLayout->addWidget(credentials);
-
-    const auto refreshAiControls = [this, executableRow, browseAgent,
-                                    saveCredential, deleteCredential] {
+    const auto refreshAiControls = [this, browseAgent] {
         const bool active = _aiEnabled->isChecked();
-        const bool provider = !_aiProvider->currentData().toString().isEmpty();
-        const bool keychain = AgentCredentialStore::available();
-        executableRow->setEnabled(active);
+        _aiCommand->setEnabled(active);
+        _aiArguments->setEnabled(active);
         browseAgent->setEnabled(active);
-        _aiModel->setEnabled(active);
-        _aiProvider->setEnabled(active);
-        _aiCredential->setEnabled(active && provider && keychain);
-        saveCredential->setEnabled(active && provider && keychain);
-        deleteCredential->setEnabled(active && provider && keychain);
-        if (!keychain) {
-            _aiCredentialStatus->setText(tr(
-                "System keyring support is not available in this build. "
-                "Configure credentials directly in Hermes instead; "
-                "MatterLeast will never store API keys in plaintext."));
-        }
     };
     connect(_aiEnabled, &QCheckBox::toggled, this, refreshAiControls);
-    connect(_aiProvider, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [refreshAiControls](int) { refreshAiControls(); });
-    connect(saveCredential, &QPushButton::clicked, this, [this] {
-        const QString provider = _aiProvider->currentData().toString();
-        if (_aiCredential->text().isEmpty() || provider.isEmpty()) return;
-        const QString key = _aiCredential->text();
-        _aiCredential->clear();
-        _aiCredentialStatus->setText(tr("Saving key in system keyring…"));
-        AgentCredentialStore::write(provider, key, this,
-            [this](bool ok, const QString& error) {
-                _aiCredentialStatus->setText(ok
-                    ? tr("Key stored securely in system keyring.")
-                    : tr("Could not save key: %1").arg(error));
-            });
-    });
-    connect(deleteCredential, &QPushButton::clicked, this, [this] {
-        const QString provider = _aiProvider->currentData().toString();
-        if (provider.isEmpty()) return;
-        _aiCredential->clear();
-        _aiCredentialStatus->setText(tr("Removing key from system keyring…"));
-        AgentCredentialStore::remove(provider, this,
-            [this](bool ok, const QString& error) {
-                _aiCredentialStatus->setText(ok
-                    ? tr("Key removed from system keyring.")
-                    : tr("Could not remove key: %1").arg(error));
-            });
-    });
     refreshAiControls();
     aiLayout->addWidget(makeDescription(aiPage,
-        tr("Hermes stream-json mode requires an explicit model. "
-           "If no provider is selected, existing Hermes authentication is used. "
-           "An API key stored here is only supplied to the launched Hermes "
-           "process, never saved in MatterLeast preferences.")));
+        tr("Example: hermes + acp. Agent credentials, providers and models are "
+           "configured in the agent itself; MatterLeast does not read or store "
+           "any API keys. ACP v1 uses newline-delimited JSON-RPC on stdio.")));
     aiLayout->addStretch(1);
     tabs->addTab(aiPage, tr("AI"));
 #endif
@@ -676,10 +600,8 @@ void SettingsWindow::applyNewSettings ()
 #ifdef MATTERLEAST_ENABLE_AI
     options->optionObject<QString>(AI_AGENT_COMMAND, QStringLiteral("hermes"))
         ->setValue(_aiCommand->text().trimmed());
-    options->optionObject<QString>(AI_AGENT_MODEL, QString())
-        ->setValue(_aiModel->text().trimmed());
-    options->optionObject<QString>(AI_AGENT_PROVIDER_ENV, QString())
-        ->setValue(_aiProvider->currentData().toString());
+    options->optionObject<QString>(AI_AGENT_ARGUMENTS, QStringLiteral("acp"))
+        ->setValue(_aiArguments->text().trimmed());
     options->optionObject<bool>(AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)
         ->setValue(_aiEnabled->isChecked());
 #endif

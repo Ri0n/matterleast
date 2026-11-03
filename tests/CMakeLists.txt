@@ -991,6 +991,24 @@ if(TARGET matterleast-core)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+# Verify ACP JSON-RPC over a persistent stdio subprocess.
+# Qt5/Qt6 share a fake agent; no external model or credentials are needed.
+if(MATTERLEAST_ENABLE_AI AND TARGET matterleast-core)
+    add_executable(acp-fake-agent AcpFakeAgent.cpp)
+    target_link_libraries(acp-fake-agent PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+
+    add_executable(acp-client-test AcpClientTest.cpp)
+    target_include_directories(acp-client-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+    target_compile_definitions(acp-client-test PRIVATE
+        ACP_TEST_AGENT_PATH="$<TARGET_FILE:acp-fake-agent>")
+    target_link_libraries(acp-client-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_dependencies(acp-client-test acp-fake-agent)
+    add_test(NAME acp-client-test COMMAND acp-client-test)
+    set_tests_properties(acp-client-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # MCP JSON-RPC stdio proxy is agent-independent: no GUI or account credentials.
 if(TARGET matterleast-mcp-stdio)
     add_executable(mcp-stdio-bridge-test McpStdioBridgeTest.cpp)

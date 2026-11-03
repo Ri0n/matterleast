@@ -1,88 +1,123 @@
-# AI agent integration: thread-scoped chat
+# ACP agent integration: thread-scoped AI chat
 
-> **Build-time option:** The experimental AI integration is excluded from
-> standard builds. Enable it when configuring MatterLeast with
-> `-DMATTERLEAST_ENABLE_AI=ON` (default: `OFF`). When disabled, the AI
-> settings tab and thread action are absent, and AI implementation files and
-> the `matterleast-mcp-stdio` helper are not compiled or installed. Enabling the build option does not enable
-> AI at runtime: the separate Settings → AI checkbox remains opt-in.
+## Build and enable
 
-The **Open AI chat…** action is available only from a thread header's hamburger menu. It opens a standalone MatterLeast window. The agent converses with the user privately; nothing is published to Mattermost unless the agent calls one of the two write tools and the user has enabled posting in that window.
+The agent client is an experimental, **compile-time opt-in** feature:
 
-The current backend still uses the Hermes CLI and its stream-json protocol.
-Generic class/file names prepare for an ACP transport, but do not make other agents
-compatible with the existing Hermes-specific launch contract.
-
-## One-time Hermes setup
-
-Hermes Agent must be installed and authenticated. The MatterLeast build installs a console executable `matterleast-mcp-stdio` alongside the GUI executable. In your existing `~/.hermes/config.yaml`, merge (rather than overwrite) the following:
-
-```yaml
-mcp_servers:
-  matterleast:
-    command: "/absolute/path/to/matterleast-mcp-stdio"
-    env:
-      MATTERLEAST_MCP_SOCKET: "${MATTERLEAST_MCP_SOCKET}"
-      MATTERLEAST_MCP_TOKEN: "${MATTERLEAST_MCP_TOKEN}"
+```cmake
+-DMATTERLEAST_ENABLE_AI=ON
 ```
 
-The AI window has a **Copy MCP setup** button with the correct path for the current installation. Alternatively register it via Hermes' own command (`hermes mcp add matterleast --command /absolute/path/to/matterleast-mcp-stdio`). The bridge is intentionally unavailable to CLI processes started outside the AI window: the host sets ephemeral session credentials only for its own Hermes subprocess.
+The default is **OFF**: agent C++ sources and the `matterleast-mcp-stdio`
+bridge are not compiled, and no AI tab or menu action is shown. Even when the
+feature is compiled, **Settings → AI → Enable AI agent integration** is disabled
+by default. No local AI listener or subprocess is started until an AI thread
+window is opened after explicit opt-in.
 
-The default program is `hermes` from PATH. Configure the **Agent CLI or hook** in MatterLeast **Settings → AI**; its program path is saved under the agent-neutral MLOptions key `ai/agent/command`. The value may be an absolute executable path or a program on PATH. A custom executable/script may wrap the same Hermes CLI argv. Input is supplied as UTF-8 through stdin via `--query-file -`, never via command-line interpolation. The full contract for a wrapper is:
+Configure an **ACP v1 stdio agent executable** and its arguments in Settings → AI.
+For a local Hermes ACP installation, use:
 
-- Arguments are `chat --oneshot --query-file - --format stream-json --source tool` and, from turn 2, `--resume <session-id>`.
-- Stdin contains the first-turn instruction and user text, or just the user's new message for subsequent turns.
-- Environment includes `MATTERLEAST_MCP_SOCKET`, `MATTERLEAST_MCP_TOKEN`, `MATTERLEAST_THREAD_CHANNEL_ID`, and `MATTERLEAST_THREAD_ROOT_ID`.
-- Stdout is Hermes JSONL (`system`, `text`, `tool_use`, `tool_result`, `result`). The UI consumes it incrementally. stderr is not used for protocol data.
-- The subprocess gets only the temporary per-window capability; it never receives the Mattermost authentication token.
+```text
+Executable: hermes
+Arguments:  acp
+```
 
-## MCP server
+Hermes requires its ACP dependencies to be installed. Other ACP-compatible
+agents can be selected without changing the MatterLeast binary. MatterLeast
+does not choose a model or store model-provider credentials: use the agent's
+own configuration and authentication workflow.
 
-MatterLeast runs a **QLocalServer**, not a remotely reachable HTTP listener. It restricts connections to the local user where supported by Qt, and requires a randomly generated capability for every request. A separate console executable proxies stdio MCP JSON-RPC frames to this authenticated server. When the window closes, its capability is revoked. The listener is shared by all
-active AI chats and closes (along with any remaining local connections) when the
-last chat closes. Opening a new AI chat starts a new listener and endpoint.
+## Protocol and lifecycle
 
-All tools are scoped to the **one** originating thread. They use the signed-in backend's existing HTTP transport and caches rather than creating a second network session.
+MatterLeast launches one ACP subprocess per AI thread window and uses UTF-8,
+newline-delimited JSON-RPC 2.0 on stdio. `stdout` is protocol only;
+`stderr` is diagnostics, not interpreted as ACP.
 
-| Tool | Arguments | Result |
+1. `initialize` negotiates the stable ACP protocol version **1**. MatterLeast
+   advertises no file or terminal capabilities; arbitrary requests for such
+   operations receive JSON-RPC `-32601`.
+2. `session/new` uses a dedicated local application-data working directory
+   and supplies `mcpServers` with a single named `matterleast` stdio server.
+3. `session/prompt` sends a text content block. The subprocess and session
+   remain alive across consecutive turns; no `--oneshot` or Hermes JSONL flags.
+4. `session/update` message chunks update one assistant transcript entry in
+   place. Tool status and thought updates affect the status line rather than
+   inserting extra replies. The full final response is shown with a 3,000
+   character display limit; a longer response is visibly truncated.
+5. `session/request_permission` creates an explicit permission dialog.
+   MatterLeast never automatically grants agent-requested operations. On user
+   denial, cancellation or window closure, pending requests are cancelled.
+6. **Stop** sends `session/cancel`, waits for the prompt completion result,
+   then allows another turn. Closing the dialog stops its subprocess and
+   revokes the thread-scoped MCP token. A stalled cancellation fails closed.
+7. **Reconnect** may use `session/resume` or `session/load`, only when
+   those capabilities are advertised by the agent, with the same MCP
+   configuration. Unavailable or failed resumption is reported rather than
+   silently dropping the old session context.
+
+The supported wire format is ACP **v1**. ACP v2 is still a draft with breaking
+protocol changes and is not negotiated by this implementation.
+
+## MCP server attachment (automatic)
+
+The user **does not** need to register MatterLeast MCP manually in Hermes.
+Every ACP `session/new` (and resume/load when supported) includes:
+
+```json
+{
+  "cwd": "/absolute/application/data/agent-workspace",
+  "mcpServers": [
+    {
+      "name": "matterleast",
+      "command": "/absolute/path/to/matterleast-mcp-stdio",
+      "args": [],
+      "env": [
+        { "name": "MATTERLEAST_MCP_SOCKET", "value": "<local socket>" },
+        { "name": "MATTERLEAST_MCP_TOKEN", "value": "<per-dialog token>" }
+      ]
+    }
+  ]
+}
+```
+
+The example paths and token are schematic. Actual values are generated for the
+current MatterLeast installation and active AI thread.
+
+The installed `matterleast-mcp-stdio` executable proxies MCP stdio JSON-RPC
+to MatterLeast's `QLocalServer`; it does not load the account login token.
+The socket uses local-user access where supported. Each request is checked
+against a random capability, signed-in user, server identity, selected channel,
+selected thread root and the separate write-permission toggle.
+
+| MCP tool | Arguments | Scope |
 | --- | --- | --- |
-| `get_thread` | `limit` (1–100), optional opaque `cursor` | Chronological posts with author, timestamps, quote metadata and attachment descriptors; root included on first page, `has_more` and `next_cursor`; iterate to read the full thread |
-| `get_post` | `post_id` | One post, verified to belong to the thread |
-| `post_reply` | `message` | A confirmed new Mattermost reply, or an error/uncertain outcome |
-| `reply_to_post` | `post_id`, `message` | A confirmed quote-reply within the thread, using MatterLeast's existing quoted-reply metadata |
+| `get_thread` | `limit` (1–100), optional `cursor` | Chronological paginated thread with root post |
+| `get_post` | `post_id` | A single post belonging to the thread |
+| `post_reply` | `message` | Write a reply only after explicit write opt-in |
+| `reply_to_post` | `post_id`, `message` | Write a quoted thread reply only after write opt-in |
 
-The write toggle is **off by default** and is enforced by the MCP server, not merely by a prompt instruction. Requests are checked for membership in the selected thread. All writes use `PostCreateService::createPostDetailed`; an enqueue is not reported as successful publication. If a response might have been lost, Hermes must re-read the thread before retrying, to avoid duplicate posts.
+The agent's ACP permission prompt is distinct from MatterLeast's MCP write
+toggle. Neither bypasses the other. The server enforces scope regardless of
+prompt instructions. Thread content returned to the agent is untrusted data.
 
-## Session and context policy
+## Remote and corporate agents
 
-On the first turn, send a compact protocol instruction, channel ID, root post ID, tools/usage policy, 3,000-character single-message summary limit, and the user's text. Do not attach the full thread transcript: Hermes can request it via `get_thread` as needed. Thereafter resume **the same Hermes session ID** and send the new user text only. The MCP credential is re-established per subprocess through environment variables. This works even if posts arrive between turns.
+ACP v1 standardizes **local stdio** agent-to-client transport. A corporate
+Docker image exposing only a web page is **not** an ACP endpoint. To use such an
+agent, the corporation must provide an ACP-compatible local command/helper or
+an explicitly implemented remote ACP tunnel. A remote container also cannot
+connect to a local `QLocalServer` without a transport bridge: the MCP
+command specified in `session/new` runs on the *agent's host*, and paths must
+be accessible there. This implementation does **not** open a network-reachable
+unauthenticated MCP listener.
 
-A running turn updates the **same** assistant transcript entry with streamed text or tool status. The final `result.text` replaces the preview, so no chain of thought or repeated intermediate messages are published. The prompt explicitly asks for a concise one-message summary and no hidden reasoning. If Hermes exceeds 3,000 characters, the UI shows a warning and trims the displayed response.
+ACP subprocesses may have their own file/network tools. Passing a working
+directory is *not* an operating-system sandbox. Do not use an untrusted agent
+or grant sensitive permissions without reviewing its behavior.
 
-## Boundaries
+## Test coverage
 
-- A capability belongs to one window, one selected thread, and the current signed-in account.
-- The bridge has no access to other channels or to the backend's authentication secrets.
-- This is a **local** integration: a remote/cloud Hermes instance must have a secure, separately authenticated MCP transport, which this feature does not expose.
-- Hermes installation, configuration, and model credentials are managed by Hermes; MatterLeast neither creates those credentials nor changes the user's existing Hermes configuration without consent.
-- A stopped or failed turn stays inside the AI window and is not automatically published.
-
-**Trust boundary:** posts and attachments returned by MCP are data from other participants, not commands to the agent. The first-turn instructions prohibit treating them as higher-priority instructions. The server separately enforces thread scope and the posting switch regardless of model behavior.
-
-## Configure in MatterLeast Settings → AI
-
-The integration is **disabled by default**. Enable it explicitly to expose
-**Open AI chat…** in a thread menu. MatterLeast creates no AI MCP
-socket while disabled; even with the setting enabled, the socket is opened
-only when an AI chat is first opened. Disabling AI immediately revokes its
-active MCP session tokens and closes the local listener.
-
-Select the Hermes CLI (or a compatible hook) and an explicit model ID; the
-`stream-json` CLI mode requires `--model`. You can use your existing Hermes
-login, or select OpenRouter, Anthropic, OpenAI, or Gemini and store a provider
-API key in the **system keyring**. Provider credentials are passed only to the
-launched Hermes child process via the corresponding environment variable and
-are never saved to MatterLeast's settings file. If QtKeychain is unavailable,
-no plaintext fallback is permitted: configure credentials within Hermes.
-The local one-time MCP bearer token is generated per AI chat and is never
-stored in either settings or the keyring.
+CI builds the standard AI=OFF variant and an explicit AI=ON variant. The
+AI=ON tests start a deterministic fake ACP subprocess and verify initialization,
+MCP configuration, streaming, permission approval, refusal of unadvertised
+client methods, cancellation, and session resume without model credentials.
