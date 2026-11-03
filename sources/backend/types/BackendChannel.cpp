@@ -37,7 +37,12 @@ namespace Mattermost {
 
 uint32_t BackendChannel::getChannelType (const QJsonObject& jsonObject)
 {
-	switch (jsonObject.value("type").toString()[0].unicode()) {
+	const QString type = jsonObject.value("type").toString();
+	if (type.size() != 1) {
+		return unknown;
+	}
+
+	switch (type.at(0).unicode()) {
 	case 'O':
 		return publicChannel;
 	case 'P':

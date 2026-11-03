@@ -32,6 +32,7 @@
 #include <QtWebSockets/QWebSocket>
 #include <QNetworkCookie>
 #include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QPointer>
 #include <QSslCipher>
 #include <QSslConfiguration>
@@ -984,28 +985,44 @@ void Backend::retrieveChannel (BackendTeam& team,
                                QString channelID,
                                std::function<void(BackendChannel&)> callback)
 {
-	NetworkRequest request ("channels/" + channelID);
-
-	LOG_DEBUG ("retrieveChannel '" << channelID << "' of team '" << team.name << "'");
+    NetworkRequest request("channels/" + channelID);
+    LOG_DEBUG("retrieveChannel '" << channelID << "' of team '" << team.name << "'");
 
     QPointer<BackendTeam> teamGuard(&team);
-	httpConnector.get(request, HttpResponseCallback(
-        [this, teamGuard, callback = std::move(callback)](const QJsonDocument& doc) mutable {
-        LOG_DEBUG ("retrieveChannel reply");
-        if (!teamGuard || !doc.isObject()) {
+    httpConnector.get(request, HttpResponseCallback(
+        [this, teamGuard, channelID, callback = std::move(callback)]
+        (const QJsonDocument& doc, const QNetworkReply& reply) mutable {
+        if (!teamGuard) {
             return;
         }
 
-        BackendChannel* channel = storage.addTeamChannel(*teamGuard, doc.object());
+        const int httpStatus =
+            reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply.error() != QNetworkReply::NoError
+            || httpStatus < 200 || httpStatus >= 300 || !doc.isObject()) {
+            qWarning() << "retrieveChannel failed:" << channelID
+                       << "HTTP" << httpStatus << "network error" << reply.error();
+            return;
+        }
+
+        const QJsonObject channelData = doc.object();
+        const auto channelType = BackendChannel::getChannelType(channelData);
+        if (channelData.value("id").toString() != channelID
+            || (channelType != BackendChannel::publicChannel
+                && channelType != BackendChannel::privateChannel)) {
+            qWarning() << "retrieveChannel: invalid channel data for" << channelID;
+            return;
+        }
+
+        BackendChannel* channel = storage.addTeamChannel(*teamGuard, channelData);
         if (!channel) {
-            channel = storage.getChannelById(
-                doc.object().value(QStringLiteral("id")).toString());
+            channel = storage.getChannelById(channelID);
         }
         if (!channel) {
             return;
         }
 
-        LOG_DEBUG ("\tChannel available: " << channel->id << " " << channel->display_name);
+        LOG_DEBUG("\tChannel available: " << channel->id << " " << channel->display_name);
         emit teamGuard->onNewChannel(*channel);
         if (callback) {
             callback(*channel);
@@ -1015,29 +1032,39 @@ void Backend::retrieveChannel (BackendTeam& team,
 
 void Backend::retrieveDirectChannel (QString channelID)
 {
-	NetworkRequest request ("channels/" + channelID);
+    NetworkRequest request("channels/" + channelID);
+    LOG_DEBUG("retrieveDirectChannel " << channelID);
 
-	LOG_DEBUG ("retrieveChannel " << channelID);
+    httpConnector.get(request, HttpResponseCallback(
+        [this, channelID](const QJsonDocument& doc, const QNetworkReply& reply) {
+        const int httpStatus =
+            reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply.error() != QNetworkReply::NoError
+            || httpStatus < 200 || httpStatus >= 300 || !doc.isObject()) {
+            qWarning() << "retrieveDirectChannel failed:" << channelID
+                       << "HTTP" << httpStatus << "network error" << reply.error();
+            return;
+        }
 
-	httpConnector.get (request, HttpResponseCallback ([this] (const QJsonDocument& doc) {
-		LOG_DEBUG ("retrieveChannel reply");
+        const QJsonObject channelData = doc.object();
+        if (channelData.value("id").toString() != channelID
+            || BackendChannel::getChannelType(channelData)
+                != BackendChannel::directChannel) {
+            qWarning() << "retrieveDirectChannel: invalid channel data for" << channelID;
+            return;
+        }
 
-#if 0
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		std::cout << "retrieveChannel reply: " <<  jsonString.toStdString() << std::endl;
-#endif
+        BackendChannel* channel = storage.addDirectChannel(channelData);
+        if (!channel) {
+            qWarning() << "retrieveDirectChannel: rejected invalid channel" << channelID;
+            return;
+        }
 
-		BackendChannel* channel =  storage.addDirectChannel (doc.object());
-		LOG_DEBUG ("\tNew Channel added: " << channel->id << " " << channel->display_name);
+        LOG_DEBUG("\tNew Channel added: " << channel->id << " " << channel->display_name);
+        emit storage.directChannels.onNewChannel(*channel);
 
-		emit storage.directChannels.onNewChannel (*channel);
-
-		/*
-		 * The channel is created, but the official Mattermost client requires
-		 * that the 'direct_channel_show' property is set for this channel,
-		 * in order for the channel to be visible there
-		 */
-		updateUserPreferences(BackendUserPreferences {"direct_channel_show", channel->name, "true"});
+        // Match official client visibility for opened direct messages.
+        updateUserPreferences(BackendUserPreferences {"direct_channel_show", channel->name, "true"});
     }));
 }
 
