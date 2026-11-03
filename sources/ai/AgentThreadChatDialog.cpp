@@ -125,7 +125,10 @@ AgentThreadChatDialog::AgentThreadChatDialog(
             this, &AgentThreadChatDialog::finishTurn);
     connect(_client, &AcpClient::failed, this,
             [this](const QString& description) {
-        _savedSessionId = _client->sessionId();
+        // A failed resume/load must not discard the previous session ID:
+        // the next reconnect should not silently create a fresh conversation.
+        if (!_client->sessionId().isEmpty())
+            _savedSessionId = _client->sessionId();
         _running = false;
         closePermissionDialogs();
         _status->setText(description);
