@@ -1001,3 +1001,15 @@ target_link_libraries(thread-pane-width-test PRIVATE
 add_test(NAME thread-pane-width-test COMMAND thread-pane-width-test)
 set_tests_properties(thread-pane-width-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# A permissions error is JSON but not a channel. Never create a bogus DM or abort.
+if(TARGET matterleast-core)
+    add_executable(channel-retrieval-response-test ChannelRetrievalResponseTest.cpp)
+    target_link_libraries(channel-retrieval-response-test PRIVATE
+        matterleast-core
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Network)
+    add_test(NAME channel-retrieval-response-test COMMAND channel-retrieval-response-test)
+    set_tests_properties(channel-retrieval-response-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
