@@ -18,8 +18,7 @@ namespace Mattermost {
 namespace AgentCredentialStore {
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
 namespace {
-// Preserve the old service so already-saved provider keys remain accessible.
-const QString Service = QStringLiteral("MatterLeast Hermes AI");
+const QString Service = QStringLiteral("MatterLeast AI Agent");
 
 QString entry(const QString& variable)
 {
