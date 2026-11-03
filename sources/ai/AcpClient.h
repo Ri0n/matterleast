@@ -74,6 +74,8 @@ private:
     QByteArray _stdout;
     QHash<qint64, Request> _requests;
     QHash<QString, QJsonValue> _permissions;
+    QHash<QString, QString> _toolTitles;
+    quint64 _cancelEpoch = 0;
     qint64 _nextId = 1;
     QString _sessionId;
     QString _restoreSessionId;
