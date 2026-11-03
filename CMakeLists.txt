@@ -107,7 +107,7 @@ option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(MATTERLEAST_DEBUG_UPLOAD_HEADERS
     "Compile verbose HTTP upload header logging (may expose sensitive server-specific values)" OFF)
 # Keep experimental AI integration out of standard builds until the ACP migration.
-option(MATTERLEAST_ENABLE_AI "Build AI agent chat and the MatterLeast MCP bridge" OFF)
+option(MATTERLEAST_ENABLE_AI "Build ACP agent chat and the MatterLeast MCP bridge" OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 	add_compile_options(-Wall -Wextra)
