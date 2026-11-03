@@ -273,7 +273,11 @@ void AgentThreadChatDialog::appendAssistantChunk(const QString& text)
 {
     if (!_running)
         return;
-    _streamedText += text;
+    // Do not retain arbitrarily large agent streams in memory when the
+    // transcript intentionally displays only a bounded summary.
+    const int space = MaxAnswerLength + 1 - _streamedText.size();
+    if (space > 0)
+        _streamedText += text.left(space);
     replaceAssistant(_streamedText.left(MaxAnswerLength));
 }
 
