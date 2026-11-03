@@ -174,6 +174,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
 
 #ifdef MATTERLEAST_ENABLE_AI
     auto* aiPage = new QWidget(tabs);
+    aiPage->setObjectName(QStringLiteral("aiSettingsTab"));
     auto* aiLayout = new QVBoxLayout(aiPage);
     aiLayout->setContentsMargins(12, 12, 12, 12);
     aiLayout->setSpacing(10);
