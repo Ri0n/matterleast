@@ -47,7 +47,7 @@
 
 #include "Settings.h"
 #ifdef MATTERLEAST_ENABLE_AI
-#include "ai/HermesCredentialStore.h"
+#include "ai/AgentCredentialStore.h"
 #endif
 #include "backend/emoji/EmojiDefs.h"
 #include "options/MLOptions.h"
@@ -179,10 +179,10 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     aiLayout->setContentsMargins(12, 12, 12, 12);
     aiLayout->setSpacing(10);
 
-    _aiEnabled = new QCheckBox(tr("Enable Hermes AI integration"), aiPage);
-    _aiEnabled->setObjectName(QStringLiteral("aiHermesEnabled"));
+    _aiEnabled = new QCheckBox(tr("Enable AI agent integration"), aiPage);
+    _aiEnabled->setObjectName(QStringLiteral("aiAgentEnabled"));
     _aiEnabled->setChecked(options->value<bool>(
-        AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT));
+        AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT));
     aiLayout->addWidget(_aiEnabled);
     aiLayout->addWidget(makeDescription(aiPage,
         tr("Off by default. When disabled, MatterLeast does not create an AI "
@@ -194,34 +194,34 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* executableLayout = new QHBoxLayout(executableRow);
     executableLayout->setContentsMargins(0, 0, 0, 0);
     _aiCommand = new QLineEdit(executableRow);
-    _aiCommand->setObjectName(QStringLiteral("aiHermesCommand"));
+    _aiCommand->setObjectName(QStringLiteral("aiAgentCommand"));
     _aiCommand->setText(options->value<QString>(
-        AI_HERMES_COMMAND, QStringLiteral("hermes")));
-    auto* browseHermes = new QPushButton(tr("Browse…"), executableRow);
+        AI_AGENT_COMMAND, QStringLiteral("hermes")));
+    auto* browseAgent = new QPushButton(tr("Browse…"), executableRow);
     executableLayout->addWidget(_aiCommand, 1);
-    executableLayout->addWidget(browseHermes);
-    aiForm->addRow(tr("Hermes or hook:"), executableRow);
-    connect(browseHermes, &QPushButton::clicked, this, [this] {
+    executableLayout->addWidget(browseAgent);
+    aiForm->addRow(tr("Agent CLI or hook:"), executableRow);
+    connect(browseAgent, &QPushButton::clicked, this, [this] {
         const QString path = QFileDialog::getOpenFileName(
-            this, tr("Select Hermes CLI or compatible hook"),
+            this, tr("Select agent CLI or compatible hook"),
             _aiCommand->text());
         if (!path.isEmpty()) _aiCommand->setText(path);
     });
 
     _aiModel = new QLineEdit(aiPage);
-    _aiModel->setObjectName(QStringLiteral("aiHermesModel"));
+    _aiModel->setObjectName(QStringLiteral("aiAgentModel"));
     _aiModel->setPlaceholderText(tr("e.g. anthropic/claude-sonnet-4.6"));
-    _aiModel->setText(options->value<QString>(AI_HERMES_MODEL));
+    _aiModel->setText(options->value<QString>(AI_AGENT_MODEL));
     aiForm->addRow(tr("Model:"), _aiModel);
 
     _aiProvider = new QComboBox(aiPage);
-    _aiProvider->setObjectName(QStringLiteral("aiHermesProvider"));
+    _aiProvider->setObjectName(QStringLiteral("aiAgentProvider"));
     _aiProvider->addItem(tr("Use existing Hermes credentials"), QString());
     _aiProvider->addItem(tr("OpenRouter"), QStringLiteral("OPENROUTER_API_KEY"));
     _aiProvider->addItem(tr("Anthropic"), QStringLiteral("ANTHROPIC_API_KEY"));
     _aiProvider->addItem(tr("OpenAI"), QStringLiteral("OPENAI_API_KEY"));
     _aiProvider->addItem(tr("Google Gemini"), QStringLiteral("GEMINI_API_KEY"));
-    const QString storedProvider = options->value<QString>(AI_HERMES_PROVIDER_ENV);
+    const QString storedProvider = options->value<QString>(AI_AGENT_PROVIDER_ENV);
     const int providerIndex = _aiProvider->findData(storedProvider);
     _aiProvider->setCurrentIndex(providerIndex < 0 ? 0 : providerIndex);
     aiForm->addRow(tr("API key provider:"), _aiProvider);
@@ -230,7 +230,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     auto* credentials = new QGroupBox(tr("System credential store"), aiPage);
     auto* credentialsLayout = new QVBoxLayout(credentials);
     _aiCredential = new QLineEdit(credentials);
-    _aiCredential->setObjectName(QStringLiteral("aiHermesApiKey"));
+    _aiCredential->setObjectName(QStringLiteral("aiAgentApiKey"));
     _aiCredential->setEchoMode(QLineEdit::Password);
     _aiCredential->setPlaceholderText(tr("Paste a new key (never displayed again)"));
     credentialsLayout->addWidget(_aiCredential);
@@ -244,17 +244,17 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     _aiCredentialStatus = makeDescription(credentials,
         tr("No API keys are saved to MatterLeast settings. "
            "Keys are stored separately per provider."));
-    _aiCredentialStatus->setObjectName(QStringLiteral("aiHermesCredentialStatus"));
+    _aiCredentialStatus->setObjectName(QStringLiteral("aiAgentCredentialStatus"));
     credentialsLayout->addWidget(_aiCredentialStatus);
     aiLayout->addWidget(credentials);
 
-    const auto refreshAiControls = [this, executableRow, browseHermes,
+    const auto refreshAiControls = [this, executableRow, browseAgent,
                                     saveCredential, deleteCredential] {
         const bool active = _aiEnabled->isChecked();
         const bool provider = !_aiProvider->currentData().toString().isEmpty();
-        const bool keychain = HermesCredentialStore::available();
+        const bool keychain = AgentCredentialStore::available();
         executableRow->setEnabled(active);
-        browseHermes->setEnabled(active);
+        browseAgent->setEnabled(active);
         _aiModel->setEnabled(active);
         _aiProvider->setEnabled(active);
         _aiCredential->setEnabled(active && provider && keychain);
@@ -276,7 +276,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
         const QString key = _aiCredential->text();
         _aiCredential->clear();
         _aiCredentialStatus->setText(tr("Saving key in system keyring…"));
-        HermesCredentialStore::write(provider, key, this,
+        AgentCredentialStore::write(provider, key, this,
             [this](bool ok, const QString& error) {
                 _aiCredentialStatus->setText(ok
                     ? tr("Key stored securely in system keyring.")
@@ -288,7 +288,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
         if (provider.isEmpty()) return;
         _aiCredential->clear();
         _aiCredentialStatus->setText(tr("Removing key from system keyring…"));
-        HermesCredentialStore::remove(provider, this,
+        AgentCredentialStore::remove(provider, this,
             [this](bool ok, const QString& error) {
                 _aiCredentialStatus->setText(ok
                     ? tr("Key removed from system keyring.")
@@ -674,13 +674,13 @@ void SettingsWindow::applyNewSettings ()
         DOWNLOAD_IMAGE_MAX_HEIGHT, DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT)
         ->setValue(ui->imageMaxHeightValue->text().toInt());
 #ifdef MATTERLEAST_ENABLE_AI
-    options->optionObject<QString>(AI_HERMES_COMMAND, QStringLiteral("hermes"))
+    options->optionObject<QString>(AI_AGENT_COMMAND, QStringLiteral("hermes"))
         ->setValue(_aiCommand->text().trimmed());
-    options->optionObject<QString>(AI_HERMES_MODEL, QString())
+    options->optionObject<QString>(AI_AGENT_MODEL, QString())
         ->setValue(_aiModel->text().trimmed());
-    options->optionObject<QString>(AI_HERMES_PROVIDER_ENV, QString())
+    options->optionObject<QString>(AI_AGENT_PROVIDER_ENV, QString())
         ->setValue(_aiProvider->currentData().toString());
-    options->optionObject<bool>(AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)
+    options->optionObject<bool>(AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)
         ->setValue(_aiEnabled->isChecked());
 #endif
     options->optionObject<bool>(

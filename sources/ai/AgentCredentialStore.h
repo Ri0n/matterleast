@@ -6,7 +6,7 @@
 class QObject;
 
 namespace Mattermost {
-namespace HermesCredentialStore {
+namespace AgentCredentialStore {
 using ReadCallback = std::function<void(bool, const QString&, const QString&)>;
 using StatusCallback = std::function<void(bool, const QString&)>;
 
@@ -16,5 +16,5 @@ void read(const QString& variable, QObject* receiver, ReadCallback callback);
 void write(const QString& variable, const QString& secret,
            QObject* receiver, StatusCallback callback);
 void remove(const QString& variable, QObject* receiver, StatusCallback callback);
-} // namespace HermesCredentialStore
+} // namespace AgentCredentialStore
 } // namespace Mattermost

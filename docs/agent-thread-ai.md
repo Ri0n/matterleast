@@ -1,4 +1,4 @@
-# Hermes integration: thread-scoped AI chat
+# AI agent integration: thread-scoped chat
 
 > **Build-time option:** The experimental AI integration is excluded from
 > standard builds. Enable it when configuring MatterLeast with
@@ -7,7 +7,11 @@
 > the `matterleast-mcp-stdio` helper are not compiled or installed. Enabling the build option does not enable
 > AI at runtime: the separate Settings → AI checkbox remains opt-in.
 
-The **Open AI chat (Hermes)…** action is available only from a thread header's hamburger menu. It opens a standalone MatterLeast window. The agent converses with the user privately; nothing is published to Mattermost unless the agent calls one of the two write tools and the user has enabled posting in that window.
+The **Open AI chat…** action is available only from a thread header's hamburger menu. It opens a standalone MatterLeast window. The agent converses with the user privately; nothing is published to Mattermost unless the agent calls one of the two write tools and the user has enabled posting in that window.
+
+The current backend still uses the Hermes CLI and its stream-json protocol.
+Generic class/file names prepare for an ACP transport, but do not make other agents
+compatible with the existing Hermes-specific launch contract.
 
 ## One-time Hermes setup
 
@@ -68,7 +72,7 @@ A running turn updates the **same** assistant transcript entry with streamed tex
 ## Configure in MatterLeast Settings → AI
 
 The integration is **disabled by default**. Enable it explicitly to expose
-**Open AI chat (Hermes)…** in a thread menu. MatterLeast creates no AI MCP
+**Open AI chat…** in a thread menu. MatterLeast creates no AI MCP
 socket while disabled; even with the setting enabled, the socket is opened
 only when an AI chat is first opened. Disabling AI immediately revokes its
 active MCP session tokens and closes the local listener.

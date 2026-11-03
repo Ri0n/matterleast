@@ -43,7 +43,7 @@
 #include "PostFilterPolicy.h"
 #include "ThreadPostSource.h"
 #ifdef MATTERLEAST_ENABLE_AI
-#include "ai/HermesThreadChatDialog.h"
+#include "ai/AgentThreadChatDialog.h"
 #endif
 #include "Settings.h"
 #include "options/MLOptions.h"
@@ -409,18 +409,18 @@ void ChatArea::setupHeaderUi()
 #ifdef MATTERLEAST_ENABLE_AI
     if (isThread) {
         chatActionsMenu->addSeparator();
-        QAction* action = chatActionsMenu->addAction(tr("Open AI chat (Hermes)…"));
-        action->setObjectName(QStringLiteral("openHermesThreadChatAction"));
+        QAction* action = chatActionsMenu->addAction(tr("Open AI chat…"));
+        action->setObjectName(QStringLiteral("openAgentThreadChatAction"));
         const auto refreshAiAction = [action] {
             action->setVisible(MLOptions::instance()->value<bool>(
-                AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT));
+                AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT));
         };
         connect(chatActionsMenu, &QMenu::aboutToShow, action, refreshAiAction);
         refreshAiAction();
         connect(action, &QAction::triggered, this, [this] {
             if (!MLOptions::instance()->value<bool>(
-                    AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)) return;
-            auto* dialog = new HermesThreadChatDialog(
+                    AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)) return;
+            auto* dialog = new AgentThreadChatDialog(
                 backend, channel.id, root_id, window());
             dialog->show();
             dialog->raise();

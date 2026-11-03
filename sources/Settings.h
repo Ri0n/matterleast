@@ -61,11 +61,12 @@ static constexpr int EMOJI_DEFAULT_SKIN_TONE_DEFAULT = 0;
 
 // AI integration is opt-in. These are non-secret settings only; provider
 // credentials belong exclusively to the platform credential manager.
-static constexpr const char* AI_HERMES_ENABLED = "ai/hermes/enabled";
-static constexpr bool AI_HERMES_ENABLED_DEFAULT = false;
-static constexpr const char* AI_HERMES_COMMAND = "ai/hermes/command";
-static constexpr const char* AI_HERMES_MODEL = "ai/hermes/model";
-static constexpr const char* AI_HERMES_PROVIDER_ENV = "ai/hermes/providerEnv";
+// Persisted ai/hermes/* keys remain stable for backward compatibility.
+static constexpr const char* AI_AGENT_ENABLED = "ai/hermes/enabled";
+static constexpr bool AI_AGENT_ENABLED_DEFAULT = false;
+static constexpr const char* AI_AGENT_COMMAND = "ai/hermes/command";
+static constexpr const char* AI_AGENT_MODEL = "ai/hermes/model";
+static constexpr const char* AI_AGENT_PROVIDER_ENV = "ai/hermes/providerEnv";
 
 // Text filtering can temporarily suspend the Channels unread gate so a
 // known read channel can still be found by name.

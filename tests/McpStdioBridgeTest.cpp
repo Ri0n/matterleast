@@ -7,7 +7,7 @@
 #include <QProcessEnvironment>
 #include <QUuid>
 
-class HermesMcpStdioBridgeTest final : public QObject
+class McpStdioBridgeTest final : public QObject
 {
     Q_OBJECT
 private slots:
@@ -93,5 +93,5 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(HermesMcpStdioBridgeTest)
-#include "HermesMcpStdioBridgeTest.moc"
+QTEST_GUILESS_MAIN(McpStdioBridgeTest)
+#include "McpStdioBridgeTest.moc"
