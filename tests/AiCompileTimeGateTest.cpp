@@ -14,14 +14,8 @@ private slots:
     void aiSettingsMatchBuildFlag()
     {
         SettingsWindow dialog;
-        bool foundAiTab = false;
-        for (QTabWidget* tabs : dialog.findChildren<QTabWidget*>()) {
-            for (int i = 0; i < tabs->count(); ++i) {
-                if (tabs->tabText(i) == QStringLiteral("AI")) {
-                    foundAiTab = true;
-                }
-            }
-        }
+        const bool foundAiTab =
+            dialog.findChild<QWidget*>(QStringLiteral("aiSettingsTab")) != nullptr;
 #ifdef MATTERLEAST_ENABLE_AI
         QVERIFY2(foundAiTab, "AI settings must exist in opt-in builds");
 #else
