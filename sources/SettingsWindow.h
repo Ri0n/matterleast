@@ -53,12 +53,14 @@ private:
     Ui::SettingsWindow *ui;
 
     QCheckBox* sendWithCtrlEnter = nullptr;
+#ifdef MATTERLEAST_ENABLE_AI
     QCheckBox* _aiEnabled = nullptr;
     QLineEdit* _aiCommand = nullptr;
     QLineEdit* _aiModel = nullptr;
     QComboBox* _aiProvider = nullptr;
     QLineEdit* _aiCredential = nullptr;
     QLabel* _aiCredentialStatus = nullptr;
+#endif
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
     QComboBox* _channelRootNotificationMode = nullptr;
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
