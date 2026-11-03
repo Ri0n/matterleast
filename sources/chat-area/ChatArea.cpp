@@ -42,7 +42,9 @@
 #include "OutboxPostSource.h"
 #include "PostFilterPolicy.h"
 #include "ThreadPostSource.h"
+#ifdef MATTERLEAST_ENABLE_AI
 #include "ai/HermesThreadChatDialog.h"
+#endif
 #include "Settings.h"
 #include "options/MLOptions.h"
 #include "backend/Backend.h"
@@ -404,6 +406,7 @@ void ChatArea::setupHeaderUi()
         emit searchInConversationRequested(channel.id);
     });
 
+#ifdef MATTERLEAST_ENABLE_AI
     if (isThread) {
         chatActionsMenu->addSeparator();
         QAction* action = chatActionsMenu->addAction(tr("Open AI chat (Hermes)…"));
@@ -424,6 +427,7 @@ void ChatArea::setupHeaderUi()
             dialog->activateWindow();
         });
     }
+#endif
 
     chatActionsMenu->addSeparator();
     QAction* copyReferenceAction = chatActionsMenu->addAction(tr("Copy reference"));
