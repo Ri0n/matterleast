@@ -3,6 +3,7 @@
 #include <QDialog>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QList>
 #include <QPointer>
 #include <QString>
 
