@@ -172,11 +172,12 @@ BackendChannel* Storage::addChannel (BackendTeam& team, const QJsonObject& json)
 
 BackendChannel* Storage::addTeamChannel (BackendTeam& team, const QJsonObject& json)
 {
-	//get channel type in order to check if a channel has to be created
-	uint32_t channelType = BackendChannel::getChannelType (json);
-
-	if (channelType == BackendChannel::directChannel) {
-		LOG_DEBUG ("Storage::addNonDirectChannel called for direct channel " << json.value("id").toString());
+	// Only team channels belong here. Never store an error object as a channel.
+	const uint32_t channelType = BackendChannel::getChannelType(json);
+	if ((channelType != BackendChannel::publicChannel
+	     && channelType != BackendChannel::privateChannel)
+	    || json.value("id").toString().isEmpty()) {
+		LOG_DEBUG("Storage::addTeamChannel: invalid channel response");
 		return nullptr;
 	}
 
@@ -194,7 +195,13 @@ BackendChannel* Storage::addDirectChannel (const QJsonObject& json)
 	 * a direct channel may appear multiple times. We create only one channel
 	 * instance for such duplicate channels and they are displayed only once
 	 */
-	QString channelId = json.value("id").toString();
+	const QString channelId = json.value("id").toString();
+	if (channelId.isEmpty()
+	    || BackendChannel::getChannelType(json) != BackendChannel::directChannel
+	    || json.value("name").toString().isEmpty()) {
+		LOG_DEBUG("Storage::addDirectChannel: invalid channel response");
+		return nullptr;
+	}
 
 	BackendChannel* existingChannel = getChannelById (channelId);
 
