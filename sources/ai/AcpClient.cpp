@@ -85,6 +85,8 @@ void AcpClient::start(const Configuration& configuration,
     _stdout.clear();
     _requests.clear();
     _permissions.clear();
+    _toolTitles.clear();
+    ++_cancelEpoch;
     _queuedPrompt.clear();
     _nextId = 1;
     _canResume = false;
@@ -348,6 +350,7 @@ void AcpClient::handleResult(Request kind, const QJsonObject& result)
     } else if (kind == Request::Prompt) {
         _busy = false;
         _cancelled = false;
+        ++_cancelEpoch;
         const QString reason = result.value(QStringLiteral("stopReason")).toString();
         emit turnFinished(reason.isEmpty() ? QStringLiteral("unknown") : reason);
     }
@@ -368,8 +371,13 @@ void AcpClient::handleUpdate(const QJsonObject& update)
             emit thoughtChunk(content.value(QStringLiteral("text")).toString());
     } else if (kind == QStringLiteral("tool_call") ||
                kind == QStringLiteral("tool_call_update")) {
-        emit toolChanged(update.value(QStringLiteral("title")).toString(),
-                         update.value(QStringLiteral("status")).toString());
+        const QString toolId = update.value(QStringLiteral("toolCallId")).toString();
+        QString title = update.value(QStringLiteral("title")).toString();
+        if (!title.isEmpty() && !toolId.isEmpty())
+            _toolTitles.insert(toolId, title);
+        if (title.isEmpty())
+            title = _toolTitles.value(toolId);
+        emit toolChanged(title, update.value(QStringLiteral("status")).toString());
     } else if (kind == QStringLiteral("current_mode_update")) {
         emit statusChanged(tr("Agent mode: %1")
                                .arg(update.value(QStringLiteral("currentModeId")).toString()));
@@ -427,8 +435,9 @@ void AcpClient::cancel()
     notify(QStringLiteral("session/cancel"),
            QJsonObject{{QStringLiteral("sessionId"), _sessionId}});
     emit statusChanged(tr("Cancelling agent turn…"));
-    QTimer::singleShot(15000, this, [this] {
-        if (_cancelled && _busy && !_failed)
+    const quint64 cancelEpoch = ++_cancelEpoch;
+    QTimer::singleShot(15000, this, [this, cancelEpoch] {
+        if (_cancelEpoch == cancelEpoch && _cancelled && _busy && !_failed)
             fail(tr("ACP agent did not acknowledge cancellation."));
     });
 }
@@ -453,6 +462,8 @@ void AcpClient::stop()
     }
     _requests.clear();
     _permissions.clear();
+    _toolTitles.clear();
+    ++_cancelEpoch;
     _ready = false;
     _busy = false;
     _cancelled = false;
