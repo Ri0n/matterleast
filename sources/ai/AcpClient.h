@@ -38,6 +38,7 @@ public:
     void answerPermission(const QJsonValue& requestId, const QString& optionId);
 
     bool ready() const { return _ready; }
+    bool active() const { return _process.state() != QProcess::NotRunning && !_failed; }
     bool busy() const { return _busy; }
     QString sessionId() const { return _sessionId; }
 
