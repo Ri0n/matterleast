@@ -372,7 +372,7 @@ void AgentThreadChatDialog::updateControls()
     _send->setEnabled(allowed && !_running && _client->ready());
     _cancel->setEnabled(allowed && _running);
     _allowPosting->setEnabled(allowed);
-    _restart->setEnabled(allowed && !_running && !_client->ready());
+    _restart->setEnabled(allowed && !_running && !_client->active());
 }
 
 } // namespace Mattermost
