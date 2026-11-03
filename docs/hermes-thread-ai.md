@@ -1,5 +1,12 @@
 # Hermes integration: thread-scoped AI chat
 
+> **Build-time option:** The experimental AI integration is excluded from
+> standard builds. Enable it when configuring MatterLeast with
+> `-DMATTERLEAST_ENABLE_AI=ON` (default: `OFF`). When disabled, the AI
+> settings tab, thread action, agent processes, and `matterleast-mcp-stdio`
+> helper are not built or installed. Enabling the build option does not enable
+> AI at runtime: the separate Settings → AI checkbox remains opt-in.
+
 The **Open AI chat (Hermes)…** action is available only from a thread header's hamburger menu. It opens a standalone MatterLeast window. The agent converses with the user privately; nothing is published to Mattermost unless the agent calls one of the two write tools and the user has enabled posting in that window.
 
 ## One-time Hermes setup
