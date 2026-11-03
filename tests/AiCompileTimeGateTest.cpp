@@ -1,6 +1,6 @@
 #include <QtTest>
 
-#include <QTabWidget>
+#include <QWidget>
 
 #include "SettingsWindow.h"
 
