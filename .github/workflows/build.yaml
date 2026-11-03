@@ -98,7 +98,7 @@ jobs:
           if-no-files-found: error
 
   ubuntu-2404:
-    name: Qt 6.4.2 + Multimedia / Ubuntu 24.04
+    name: Qt 6.4.2 + Multimedia + AI / Ubuntu 24.04
     runs-on: ubuntu-24.04
 
     steps:
@@ -133,6 +133,7 @@ jobs:
           -DQT_6=ON
           -DBUILD_MULTIMEDIA=ON
           -DBUILD_TESTING=ON
+          -DMATTERLEAST_ENABLE_AI=ON
           -DWARNINGS_AS_ERRORS=ON
 
       - name: Build

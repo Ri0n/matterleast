@@ -103,7 +103,7 @@ AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
     // created lazily, only after explicit user opt-in and opening an AI chat.
     _server.setSocketOptions(QLocalServer::UserAccessOption);
     auto* enableOption = MLOptions::instance()->optionObject<bool>(
-        AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT);
+        AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT);
     connect(enableOption, &MLOptionObject::changed, this,
             [this](const QVariant& value) {
         if (value.toBool()) return;
@@ -142,7 +142,7 @@ AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
 QString AiThreadMcpServer::createSession(const QString& channelId, const QString& rootId)
 {
     if (!MLOptions::instance()->value<bool>(
-            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)
+            AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)
         || !_backend.loggedIn() || channelId.isEmpty() || rootId.isEmpty()
         || !_backend.getStorage().getChannelById(channelId)) {
         return {};
@@ -165,7 +165,7 @@ bool AiThreadMcpServer::authorized(const QString& token) const
 {
     const auto it = _sessions.constFind(token);
     return MLOptions::instance()->value<bool>(
-               AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)
+               AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)
         && _server.isListening() && _backend.loggedIn()
         && it != _sessions.cend()
         && it->loginUserId == _backend.getLoginUser().id

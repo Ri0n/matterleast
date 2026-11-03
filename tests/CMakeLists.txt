@@ -980,16 +980,27 @@ if(TARGET matterleast-core)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
-# Hermes MCP JSON-RPC stdio proxy: no GUI, account or network credentials.
+# The AI settings tab must disappear entirely in default (AI=OFF) builds.
+# In opt-in builds the same test verifies that the tab is available.
+if(TARGET matterleast-core)
+    add_executable(ai-compile-time-gate-test AiCompileTimeGateTest.cpp)
+    target_link_libraries(ai-compile-time-gate-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME ai-compile-time-gate-test COMMAND ai-compile-time-gate-test)
+    set_tests_properties(ai-compile-time-gate-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+# MCP JSON-RPC stdio proxy is agent-independent: no GUI or account credentials.
 if(TARGET matterleast-mcp-stdio)
-    add_executable(hermes-mcp-stdio-bridge-test HermesMcpStdioBridgeTest.cpp)
-    target_compile_definitions(hermes-mcp-stdio-bridge-test PRIVATE
+    add_executable(mcp-stdio-bridge-test McpStdioBridgeTest.cpp)
+    target_compile_definitions(mcp-stdio-bridge-test PRIVATE
         MATTERLEAST_MCP_BRIDGE_EXECUTABLE="$<TARGET_FILE:matterleast-mcp-stdio>")
-    target_link_libraries(hermes-mcp-stdio-bridge-test PRIVATE
+    target_link_libraries(mcp-stdio-bridge-test PRIVATE
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network
         Qt${QT_VERSION_MAJOR}::Test)
-    add_dependencies(hermes-mcp-stdio-bridge-test matterleast-mcp-stdio)
-    add_test(NAME hermes-mcp-stdio-bridge-test COMMAND hermes-mcp-stdio-bridge-test)
+    add_dependencies(mcp-stdio-bridge-test matterleast-mcp-stdio)
+    add_test(NAME mcp-stdio-bridge-test COMMAND mcp-stdio-bridge-test)
 endif()
 
 # Retain the last useful docked-thread width even while its pane is hidden.

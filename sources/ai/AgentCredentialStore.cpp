@@ -1,4 +1,4 @@
-#include "HermesCredentialStore.h"
+#include "AgentCredentialStore.h"
 
 #include <QObject>
 
@@ -15,10 +15,10 @@
 #endif
 
 namespace Mattermost {
-namespace HermesCredentialStore {
+namespace AgentCredentialStore {
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
 namespace {
-const QString Service = QStringLiteral("MatterLeast Hermes AI");
+const QString Service = QStringLiteral("MatterLeast AI Agent");
 
 QString entry(const QString& variable)
 {
@@ -118,5 +118,5 @@ void remove(const QString& variable, QObject* receiver, StatusCallback callback)
     callback(false, QStringLiteral("QtKeychain is not enabled in this build"));
 #endif
 }
-} // namespace HermesCredentialStore
+} // namespace AgentCredentialStore
 } // namespace Mattermost

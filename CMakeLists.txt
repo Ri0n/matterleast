@@ -106,6 +106,8 @@ endforeach()
 option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(MATTERLEAST_DEBUG_UPLOAD_HEADERS
     "Compile verbose HTTP upload header logging (may expose sensitive server-specific values)" OFF)
+# Keep experimental AI integration out of standard builds until the ACP migration.
+option(MATTERLEAST_ENABLE_AI "Build AI agent chat and the MatterLeast MCP bridge" OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 	add_compile_options(-Wall -Wextra)
@@ -456,7 +458,16 @@ else()
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp")
   # Separate stdio bridge has a different main(), exclude it from the GUI core.
   list(FILTER SOURCES EXCLUDE REGEX "(^|/)ai/McpStdioBridge\\.cpp$")
+  # This is a compile-time feature gate, not merely a hidden UI setting.
+  if(NOT MATTERLEAST_ENABLE_AI)
+    list(FILTER SOURCES EXCLUDE REGEX "(^|/)ai/")
+  endif()
   add_library(matterleast-core OBJECT ${SOURCES})
+  if(MATTERLEAST_ENABLE_AI)
+    # SettingsWindow.h has feature-dependent members: propagate the definition
+    # to all consumers of the object library to preserve class layout.
+    target_compile_definitions(matterleast-core PUBLIC MATTERLEAST_ENABLE_AI)
+  endif()
   target_link_libraries(matterleast-core PUBLIC matterleast-spellcheck)
   if(MATTERLEAST_DEBUG_UPLOAD_HEADERS)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_DEBUG_UPLOAD_HEADERS)
@@ -519,11 +530,13 @@ else()
     target_compile_definitions(matterleast-core PRIVATE MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS)
   endif()
   include(GNUInstallDirs)
-  add_executable(matterleast-mcp-stdio sources/ai/McpStdioBridge.cpp)
-  target_link_libraries(matterleast-mcp-stdio PRIVATE
-    Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
-  install(TARGETS matterleast-mcp-stdio RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-          COMPONENT Runtime)
+  if(MATTERLEAST_ENABLE_AI)
+    add_executable(matterleast-mcp-stdio sources/ai/McpStdioBridge.cpp)
+    target_link_libraries(matterleast-mcp-stdio PRIVATE
+      Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+    install(TARGETS matterleast-mcp-stdio RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            COMPONENT Runtime)
+  endif()
   add_executable(${APPID} sources/main.cpp resource.qrc)
   target_link_libraries(${APPID} PRIVATE matterleast-core)
   target_compile_definitions(${APPID} PRIVATE MATTERLEAST_BUILD_VERSION="${PROJECT_VERSION}")

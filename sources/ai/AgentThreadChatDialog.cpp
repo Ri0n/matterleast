@@ -1,4 +1,4 @@
-#include "HermesThreadChatDialog.h"
+#include "AgentThreadChatDialog.h"
 
 #include <QCheckBox>
 #include <QClipboard>
@@ -21,7 +21,7 @@
 #include <QVBoxLayout>
 
 #include "AiThreadMcpServer.h"
-#include "HermesCredentialStore.h"
+#include "AgentCredentialStore.h"
 #include "Settings.h"
 #include "options/MLOptions.h"
 
@@ -44,39 +44,39 @@ QString mcpConfiguration()
 }
 }
 
-HermesThreadChatDialog::HermesThreadChatDialog(
+AgentThreadChatDialog::AgentThreadChatDialog(
     Backend& backend, QString channelId, QString rootId, QWidget* parent)
     : QDialog(parent)
     , _backend(backend)
     , _channelId(std::move(channelId))
     , _rootId(std::move(rootId))
-    , _hermes(new QProcess(this))
+    , _agentProcess(new QProcess(this))
 {
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowFlag(Qt::Window, true);
-    setObjectName(QStringLiteral("hermesThreadChatDialog"));
-    setWindowTitle(tr("Hermes AI · Thread"));
+    setObjectName(QStringLiteral("agentThreadChatDialog"));
+    setWindowTitle(tr("AI agent · Thread"));
     resize(640, 580);
 
     auto* layout = new QVBoxLayout(this);
     _status = new QLabel(this);
-    _status->setObjectName(QStringLiteral("hermesStatus"));
+    _status->setObjectName(QStringLiteral("agentStatus"));
     _status->setWordWrap(true);
     layout->addWidget(_status);
 
     _messages = new QTextBrowser(this);
-    _messages->setObjectName(QStringLiteral("hermesTranscript"));
+    _messages->setObjectName(QStringLiteral("agentTranscript"));
     _messages->setOpenExternalLinks(false);
     layout->addWidget(_messages, 1);
 
-    _allowPosting = new QCheckBox(tr("Allow Hermes to post replies in the Mattermost thread"), this);
-    _allowPosting->setObjectName(QStringLiteral("hermesAllowPosting"));
+    _allowPosting = new QCheckBox(tr("Allow the agent to post replies in the Mattermost thread"), this);
+    _allowPosting->setObjectName(QStringLiteral("agentAllowPosting"));
     _allowPosting->setChecked(false);
     layout->addWidget(_allowPosting);
 
     _input = new QPlainTextEdit(this);
-    _input->setObjectName(QStringLiteral("hermesPrompt"));
-    _input->setPlaceholderText(tr("Ask Hermes about this thread…"));
+    _input->setObjectName(QStringLiteral("agentPrompt"));
+    _input->setPlaceholderText(tr("Ask the agent about this thread…"));
     _input->setMaximumHeight(110);
     layout->addWidget(_input);
 
@@ -87,14 +87,14 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     buttons->addStretch();
     _cancel = new QPushButton(tr("Stop"), this);
     _cancel->setEnabled(false);
-    _send = new QPushButton(tr("Send to Hermes"), this);
+    _send = new QPushButton(tr("Send to agent"), this);
     _send->setDefault(true);
     buttons->addWidget(_cancel);
     buttons->addWidget(_send);
     layout->addLayout(buttons);
 
     if (!MLOptions::instance()->value<bool>(
-            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)) {
+            AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)) {
         _status->setText(tr("AI integration is disabled in Settings."));
         _send->setEnabled(false);
         return;
@@ -112,36 +112,36 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     connect(setup, &QPushButton::clicked, this, [] {
         QGuiApplication::clipboard()->setText(mcpConfiguration());
     });
-    connect(_send, &QPushButton::clicked, this, &HermesThreadChatDialog::submit);
+    connect(_send, &QPushButton::clicked, this, &AgentThreadChatDialog::submit);
     connect(MLOptions::instance()->optionObject<bool>(
-                AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT),
+                AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT),
             &MLOptionObject::changed, this, [this](const QVariant& value) {
         if (value.toBool()) return;
         _token.clear();
         _send->setEnabled(false);
         _allowPosting->setEnabled(false);
-        if (_hermes->state() != QProcess::NotRunning)
-            _hermes->kill();
+        if (_agentProcess->state() != QProcess::NotRunning)
+            _agentProcess->kill();
         _status->setText(tr("AI integration was disabled in Settings."));
     });
     connect(_cancel, &QPushButton::clicked, this, [this] {
-        if (_hermes->state() != QProcess::NotRunning) {
+        if (_agentProcess->state() != QProcess::NotRunning) {
             _status->setText(tr("Stopping Hermes…"));
-            _hermes->terminate();
-            QTimer::singleShot(3000, _hermes, [this] {
-                if (_hermes->state() != QProcess::NotRunning)
-                    _hermes->kill();
+            _agentProcess->terminate();
+            QTimer::singleShot(3000, _agentProcess, [this] {
+                if (_agentProcess->state() != QProcess::NotRunning)
+                    _agentProcess->kill();
             });
         }
     });
-    connect(_hermes, &QProcess::readyReadStandardOutput,
-            this, &HermesThreadChatDialog::readOutput);
-    connect(_hermes, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+    connect(_agentProcess, &QProcess::readyReadStandardOutput,
+            this, &AgentThreadChatDialog::readOutput);
+    connect(_agentProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
             [this](int exitCode, QProcess::ExitStatus) {
         readOutput();
         finishTurn(exitCode);
     });
-    connect(_hermes, &QProcess::errorOccurred, this,
+    connect(_agentProcess, &QProcess::errorOccurred, this,
             [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
             _status->setText(tr("Hermes could not start. Check that Hermes is installed."));
@@ -152,19 +152,19 @@ HermesThreadChatDialog::HermesThreadChatDialog(
     showSetupInstructions();
 }
 
-HermesThreadChatDialog::~HermesThreadChatDialog()
+AgentThreadChatDialog::~AgentThreadChatDialog()
 {
-    if (_hermes->state() != QProcess::NotRunning) {
-        _hermes->kill();
-        _hermes->waitForFinished(1000);
+    if (_agentProcess->state() != QProcess::NotRunning) {
+        _agentProcess->kill();
+        _agentProcess->waitForFinished(1000);
     }
     AiThreadMcpServer::instance(_backend).revokeSession(_token);
 }
 
-QString HermesThreadChatDialog::executablePath() const
+QString AgentThreadChatDialog::executablePath() const
 {
     const QString configured = MLOptions::instance()->value<QString>(
-        AI_HERMES_COMMAND, QStringLiteral("hermes")).trimmed();
+        AI_AGENT_COMMAND, QStringLiteral("hermes")).trimmed();
     if (configured.isEmpty())
         return {};
     if (QFileInfo(configured).isAbsolute())
@@ -172,7 +172,7 @@ QString HermesThreadChatDialog::executablePath() const
     return QStandardPaths::findExecutable(configured);
 }
 
-void HermesThreadChatDialog::showSetupInstructions()
+void AgentThreadChatDialog::showSetupInstructions()
 {
     _messages->append(tr("Hermes must have a one-time MCP registration. "
                          "Add the copied YAML under mcp_servers in ~/.hermes/config.yaml "
@@ -181,10 +181,10 @@ void HermesThreadChatDialog::showSetupInstructions()
                          "to the Hermes process."));
 }
 
-QString HermesThreadChatDialog::makeInitialPrompt(const QString& userMessage) const
+QString AgentThreadChatDialog::makeInitialPrompt(const QString& userMessage) const
 {
     return QStringLiteral(
-        "You are Hermes assisting a user with ONE Mattermost thread in MatterLeast.\n"
+        "You are an AI agent assisting a user with ONE Mattermost thread in MatterLeast.\n"
         "MCP server name: matterleast. Tools: get_thread(cursor,limit), "
         "get_post(post_id), post_reply(message), reply_to_post(post_id,message).\n"
         "The MCP session is scoped to this single thread; do not use other channels.\n"
@@ -203,12 +203,12 @@ QString HermesThreadChatDialog::makeInitialPrompt(const QString& userMessage) co
         .arg(_channelId, _rootId, userMessage);
 }
 
-void HermesThreadChatDialog::submit()
+void AgentThreadChatDialog::submit()
 {
     const QString message = _input->toPlainText().trimmed();
     if (_running || _token.isEmpty() || message.isEmpty()
         || !MLOptions::instance()->value<bool>(
-            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT))
+            AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT))
         return;
     const QString executable = executablePath();
     if (executable.isEmpty()) {
@@ -218,7 +218,7 @@ void HermesThreadChatDialog::submit()
     }
 
     const QString model = MLOptions::instance()->value<QString>(
-        AI_HERMES_MODEL).trimmed();
+        AI_AGENT_MODEL).trimmed();
     if (model.isEmpty()) {
         _status->setText(tr("Select an explicit Hermes model in Settings → AI."));
         return;
@@ -232,11 +232,11 @@ void HermesThreadChatDialog::submit()
     _send->setEnabled(false);
     _cancel->setEnabled(true);
     _allowPosting->setEnabled(false);
-    _status->setText(tr("Hermes is working…"));
+    _status->setText(tr("Agent is working…"));
 
     QTextCursor cursor = _messages->textCursor();
     cursor.movePosition(QTextCursor::End);
-    cursor.insertText(QStringLiteral("\nYou:\n") + message + QStringLiteral("\n\nHermes:\n"));
+    cursor.insertText(QStringLiteral("\nYou:\n") + message + QStringLiteral("\n\nAgent:\n"));
     _assistantStart = cursor.position();
     cursor.insertText(tr("Working…"));
     _messages->setTextCursor(cursor);
@@ -253,7 +253,7 @@ void HermesThreadChatDialog::submit()
         args << QStringLiteral("--resume") << _sessionId;
     }
     const QString providerEnv = MLOptions::instance()->value<QString>(
-        AI_HERMES_PROVIDER_ENV);
+        AI_AGENT_PROVIDER_ENV);
     // stream-json must not guess a provider when a key was selected explicitly.
     if (providerEnv == QStringLiteral("OPENROUTER_API_KEY"))
         args << QStringLiteral("--provider") << QStringLiteral("openrouter");
@@ -267,7 +267,7 @@ void HermesThreadChatDialog::submit()
                             const QString& credential) {
         if (!_running || _token.isEmpty()
             || !MLOptions::instance()->value<bool>(
-                AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT)) return;
+                AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)) return;
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         env.insert(QStringLiteral("MATTERLEAST_MCP_SOCKET"),
                    AiThreadMcpServer::instance(_backend).endpoint());
@@ -276,20 +276,20 @@ void HermesThreadChatDialog::submit()
         env.insert(QStringLiteral("MATTERLEAST_THREAD_ROOT_ID"), _rootId);
         if (!providerEnv.isEmpty() && !credential.isEmpty())
             env.insert(providerEnv, credential);
-        _hermes->setProcessEnvironment(env);
-        _hermes->setProgram(executable);
-        _hermes->setArguments(args);
+        _agentProcess->setProcessEnvironment(env);
+        _agentProcess->setProgram(executable);
+        _agentProcess->setArguments(args);
         const QString prompt = _sessionId.isEmpty()
             ? makeInitialPrompt(message) : message;
-        _hermes->start();
-        _hermes->write(prompt.toUtf8());
-        _hermes->closeWriteChannel();
+        _agentProcess->start();
+        _agentProcess->write(prompt.toUtf8());
+        _agentProcess->closeWriteChannel();
     };
     if (providerEnv.isEmpty()) {
         launch(QString());
     } else {
         _status->setText(tr("Reading provider key from system keyring…"));
-        HermesCredentialStore::read(providerEnv, this,
+        AgentCredentialStore::read(providerEnv, this,
             [this, launch](bool ok, const QString& key, const QString& error) {
                 if (!_running) return;
                 if (!ok || key.isEmpty()) {
@@ -299,17 +299,17 @@ void HermesThreadChatDialog::submit()
                     finishTurn(1);
                     return;
                 }
-                _status->setText(tr("Hermes is working…"));
+                _status->setText(tr("Agent is working…"));
                 launch(key);
             });
     }
 }
 
-void HermesThreadChatDialog::readOutput()
+void AgentThreadChatDialog::readOutput()
 {
-    _outputBuffer += _hermes->readAllStandardOutput();
+    _outputBuffer += _agentProcess->readAllStandardOutput();
     if (_outputBuffer.size() > 8 * 1024 * 1024) {
-        _hermes->kill();
+        _agentProcess->kill();
         return;
     }
     while (true) {
@@ -324,7 +324,7 @@ void HermesThreadChatDialog::readOutput()
     }
 }
 
-void HermesThreadChatDialog::handleEvent(const QJsonObject& event)
+void AgentThreadChatDialog::handleEvent(const QJsonObject& event)
 {
     const QString type = event.value(QStringLiteral("type")).toString();
     if (type == QStringLiteral("text")) {
@@ -345,7 +345,7 @@ void HermesThreadChatDialog::handleEvent(const QJsonObject& event)
     }
 }
 
-void HermesThreadChatDialog::updateAssistant(const QString& content)
+void AgentThreadChatDialog::updateAssistant(const QString& content)
 {
     if (_assistantStart < 0)
         return;
@@ -357,7 +357,7 @@ void HermesThreadChatDialog::updateAssistant(const QString& content)
     _messages->ensureCursorVisible();
 }
 
-void HermesThreadChatDialog::finishTurn(int exitCode)
+void AgentThreadChatDialog::finishTurn(int exitCode)
 {
     if (!_running)
         return;
@@ -365,10 +365,10 @@ void HermesThreadChatDialog::finishTurn(int exitCode)
     _cancel->setEnabled(false);
     _send->setEnabled(!_token.isEmpty()
         && MLOptions::instance()->value<bool>(
-            AI_HERMES_ENABLED, AI_HERMES_ENABLED_DEFAULT));
+            AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT));
     _allowPosting->setEnabled(!_token.isEmpty());
     if (!_hasResult || exitCode != 0) {
-        _status->setText(tr("Hermes failed or was interrupted. Check its installation and MCP configuration."));
+        _status->setText(tr("Agent failed or was interrupted. Check its installation and MCP configuration."));
         if (_streamedText.isEmpty())
             updateAssistant(tr("No completed response. See Hermes diagnostics."));
         return;
@@ -377,7 +377,7 @@ void HermesThreadChatDialog::finishTurn(int exitCode)
     if (finalText.size() > MaxAnswerLength) {
         finalText.truncate(MaxAnswerLength - 1);
         finalText += QChar(0x2026);
-        _status->setText(tr("Hermes exceeded the single-message summary limit; the display was truncated."));
+        _status->setText(tr("Agent exceeded the single-message summary limit; the display was truncated."));
     } else {
         _status->setText(tr("Ready"));
     }

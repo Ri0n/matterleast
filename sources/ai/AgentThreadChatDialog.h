@@ -15,13 +15,13 @@ class QTextBrowser;
 namespace Mattermost {
 class Backend;
 
-class HermesThreadChatDialog final : public QDialog
+class AgentThreadChatDialog final : public QDialog
 {
     Q_OBJECT
 public:
-    HermesThreadChatDialog(Backend& backend, QString channelId,
+    AgentThreadChatDialog(Backend& backend, QString channelId,
                            QString rootId, QWidget* parent = nullptr);
-    ~HermesThreadChatDialog() override;
+    ~AgentThreadChatDialog() override;
 
 private:
     void submit();
@@ -38,7 +38,7 @@ private:
     QString _rootId;
     QString _token;
     QString _sessionId;
-    QProcess* _hermes = nullptr;
+    QProcess* _agentProcess = nullptr;
     QTextBrowser* _messages = nullptr;
     QPlainTextEdit* _input = nullptr;
     QLabel* _status = nullptr;

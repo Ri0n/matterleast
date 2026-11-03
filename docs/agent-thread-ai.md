@@ -1,6 +1,17 @@
-# Hermes integration: thread-scoped AI chat
+# AI agent integration: thread-scoped chat
 
-The **Open AI chat (Hermes)…** action is available only from a thread header's hamburger menu. It opens a standalone MatterLeast window. The agent converses with the user privately; nothing is published to Mattermost unless the agent calls one of the two write tools and the user has enabled posting in that window.
+> **Build-time option:** The experimental AI integration is excluded from
+> standard builds. Enable it when configuring MatterLeast with
+> `-DMATTERLEAST_ENABLE_AI=ON` (default: `OFF`). When disabled, the AI
+> settings tab and thread action are absent, and AI implementation files and
+> the `matterleast-mcp-stdio` helper are not compiled or installed. Enabling the build option does not enable
+> AI at runtime: the separate Settings → AI checkbox remains opt-in.
+
+The **Open AI chat…** action is available only from a thread header's hamburger menu. It opens a standalone MatterLeast window. The agent converses with the user privately; nothing is published to Mattermost unless the agent calls one of the two write tools and the user has enabled posting in that window.
+
+The current backend still uses the Hermes CLI and its stream-json protocol.
+Generic class/file names prepare for an ACP transport, but do not make other agents
+compatible with the existing Hermes-specific launch contract.
 
 ## One-time Hermes setup
 
@@ -17,7 +28,7 @@ mcp_servers:
 
 The AI window has a **Copy MCP setup** button with the correct path for the current installation. Alternatively register it via Hermes' own command (`hermes mcp add matterleast --command /absolute/path/to/matterleast-mcp-stdio`). The bridge is intentionally unavailable to CLI processes started outside the AI window: the host sets ephemeral session credentials only for its own Hermes subprocess.
 
-The default program is `hermes` from PATH. The window's **Select Hermes or hook…** button selects a custom CLI-compatible executable/script and persists it using the MLOptions key `ai/hermes/command` (an absolute executable path or a program on PATH). A custom executable/script may wrap the same Hermes CLI argv. Input is supplied as UTF-8 through stdin via `--query-file -`, never via command-line interpolation. The full contract for a wrapper is:
+The default program is `hermes` from PATH. Configure the **Agent CLI or hook** in MatterLeast **Settings → AI**; its program path is saved under the agent-neutral MLOptions key `ai/agent/command`. The value may be an absolute executable path or a program on PATH. A custom executable/script may wrap the same Hermes CLI argv. Input is supplied as UTF-8 through stdin via `--query-file -`, never via command-line interpolation. The full contract for a wrapper is:
 
 - Arguments are `chat --oneshot --query-file - --format stream-json --source tool` and, from turn 2, `--resume <session-id>`.
 - Stdin contains the first-turn instruction and user text, or just the user's new message for subsequent turns.
@@ -61,7 +72,7 @@ A running turn updates the **same** assistant transcript entry with streamed tex
 ## Configure in MatterLeast Settings → AI
 
 The integration is **disabled by default**. Enable it explicitly to expose
-**Open AI chat (Hermes)…** in a thread menu. MatterLeast creates no AI MCP
+**Open AI chat…** in a thread menu. MatterLeast creates no AI MCP
 socket while disabled; even with the setting enabled, the socket is opened
 only when an AI chat is first opened. Disabling AI immediately revokes its
 active MCP session tokens and closes the local listener.
