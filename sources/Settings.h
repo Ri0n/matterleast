@@ -59,13 +59,12 @@ static constexpr const char* EMOJI_DEFAULT_SKIN_TONE =
     "emoji/defaultSkinTone";
 static constexpr int EMOJI_DEFAULT_SKIN_TONE_DEFAULT = 0;
 
-// AI integration is opt-in. These are non-secret settings only; provider
-// credentials belong exclusively to the platform credential manager.
+// AI is excluded at compile time by default, and separately opt-in at runtime.
+// Model selection and authentication belong to the selected ACP agent.
 static constexpr const char* AI_AGENT_ENABLED = "ai/agent/enabled";
 static constexpr bool AI_AGENT_ENABLED_DEFAULT = false;
 static constexpr const char* AI_AGENT_COMMAND = "ai/agent/command";
-static constexpr const char* AI_AGENT_MODEL = "ai/agent/model";
-static constexpr const char* AI_AGENT_PROVIDER_ENV = "ai/agent/providerEnv";
+static constexpr const char* AI_AGENT_ARGUMENTS = "ai/agent/arguments";
 
 // Text filtering can temporarily suspend the Channels unread gate so a
 // known read channel can still be found by name.
