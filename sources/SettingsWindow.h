@@ -56,10 +56,7 @@ private:
 #ifdef MATTERLEAST_ENABLE_AI
     QCheckBox* _aiEnabled = nullptr;
     QLineEdit* _aiCommand = nullptr;
-    QLineEdit* _aiModel = nullptr;
-    QComboBox* _aiProvider = nullptr;
-    QLineEdit* _aiCredential = nullptr;
-    QLabel* _aiCredentialStatus = nullptr;
+    QLineEdit* _aiArguments = nullptr;
 #endif
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
     QComboBox* _channelRootNotificationMode = nullptr;
