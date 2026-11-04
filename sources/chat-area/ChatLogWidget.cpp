@@ -702,11 +702,11 @@ bool ChatLogWidget::shouldContinueAuthorRun(int index) const
 
 void ChatLogWidget::applyAuthorRunPresentation(int index, PostWidget& widget)
 {
-    // Main channel/DM/GM timelines show a locale-formatted day divider at
-    // the first post of each local calendar day. Thread timelines retain
-    // their existing compact/relative time presentation.
+    // All conversation timelines, including threads, show the first post of
+    // each local calendar day with a date divider. Timestamp presentation is
+    // independent: threads continue to show their relative post times.
     QDate boundary;
-    if (chatArea && !chatArea->isThread && postSource
+    if (chatArea && postSource
         && index >= 0 && index < postSource->itemCount()
         && postSource->isAvailable(index)) {
         const BackendPost* previous = index > 0 && postSource->isAvailable(index - 1)

@@ -14,8 +14,11 @@ the message body with bold weight. Do not reintroduce Designer's old 8 pt /
 Timestamps intentionally use a smaller font derived from the author label.
 
 Timestamp presentation follows the surface: channel/DM/GM posts show a
-locale-formatted clock and a visually distinct local-calendar date divider at
-the beginning of each day; thread posts retain relative timestamps.
+locale-formatted clock, while thread posts retain relative timestamps.
+All conversation timelines, including threads, show a visually distinct
+local-calendar date divider at the beginning of each day.
+The avatar/text gap matches the row's left avatar inset rather than inheriting
+the zero spacing of the outer post/day-separator layout.
 Search, Saved, Drafts, Recent Mentions and Pinned collections display a
 full system-locale date *and* time for every post, without requiring hover.
 A date divider belongs to the presentation of the first post in a day,
