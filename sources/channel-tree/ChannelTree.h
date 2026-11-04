@@ -152,6 +152,7 @@ protected:
 	void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void startDrag(Qt::DropActions supportedActions) override;
     void dragLeaveEvent(QDragLeaveEvent* event) override;
 	void dragMoveEvent(QDragMoveEvent* event) override;
@@ -208,6 +209,9 @@ private:
                                    QTreeWidgetItem*& targetCategoryItem,
                                    bool& afterTarget) const;
     void prepareCategoryDragBoundaries(QTreeWidgetItem* source);
+    bool updateDragTargetAt(const QPoint& viewportPos);
+    void tickDragAutoScroll();
+    void scrollDuringDrag(int scrollUnits, const QPoint& viewportPos);
     const CategoryDragBoundary* nearestCategoryDragBoundary(int probe) const;
     void updateDragVisuals(QTreeWidgetItem* source, QTreeWidgetItem* gapAnchor,
                            bool gapAfter);
@@ -259,6 +263,9 @@ private:
     int                                 draggedRowExtent = 0;
     int                                 draggedBlockHotSpotY = 0;
     int                                 dragStartPointerY = 0;
+    // Cumulative pixel offset, not scrollbar item units: category reorder
+    // probes must track the content moving beneath a stationary pointer.
+    int                                 dragViewportScrollPixels = 0;
     int                                 draggedBlockStartLogicalY = 0;
     QVector<CategoryDragBoundary>       categoryDragBoundaries;
     QSet<QString>                       pendingSidebarReconcileTeams;
