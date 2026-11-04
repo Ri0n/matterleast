@@ -1042,3 +1042,15 @@ if(TARGET matterleast-core)
     set_tests_properties(channel-retrieval-response-test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# Channel topics are Markdown channel headers. Verify header-only server
+# mutations, forbidden users, and the editor's input/error behavior.
+if(TARGET matterleast-core)
+    add_executable(channel-topic-test ChannelTopicTest.cpp)
+    target_link_libraries(channel-topic-test
+        PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME channel-topic-test COMMAND channel-topic-test)
+    set_tests_properties(channel-topic-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
