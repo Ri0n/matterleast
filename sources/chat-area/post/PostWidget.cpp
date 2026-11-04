@@ -867,12 +867,15 @@ void PostWidget::setDayBoundary(const QDate& day)
         dayBoundaryLabel_ = new QLabel(dayBoundaryWidget_);
         dayBoundaryLabel_->setObjectName(QStringLiteral("postDayBoundaryLabel"));
         dayBoundaryLabel_->setAlignment(Qt::AlignCenter);
-        dayBoundaryLabel_->setForegroundRole(QPalette::Mid);
+        // QPalette::Mid is a frame/shadow role, not a text color. In dark
+        // themes it can resolve to black even when WindowText is light.
+        dayBoundaryLabel_->setForegroundRole(QPalette::WindowText);
         dayLayout->addWidget(dayBoundaryLabel_);
         addRule();
         ui->postRootLayout->insertWidget(0, dayBoundaryWidget_);
         dayBoundaryWidget_->hide();
         dayBoundaryLabel_->setFont(chatFont_);
+        updateTimestampPalette();
     }
     if (!dayBoundaryWidget_)
         return;
@@ -997,6 +1000,15 @@ void PostWidget::updateTimestampPalette()
         continuationPalette.setColor(QPalette::WindowText, continuationMuted);
         continuationPalette.setColor(QPalette::Text, continuationMuted);
         continuationTime_->setPalette(continuationPalette);
+    }
+
+    if (dayBoundaryLabel_) {
+        // Follow the current post/theme foreground, including live palette
+        // changes. Do not use Mid/Midlight as a label foreground role.
+        QPalette dividerPalette = dayBoundaryLabel_->palette();
+        dividerPalette.setColor(QPalette::WindowText, muted);
+        dividerPalette.setColor(QPalette::Text, muted);
+        dayBoundaryLabel_->setPalette(dividerPalette);
     }
 }
 
