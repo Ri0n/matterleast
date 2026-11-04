@@ -16,6 +16,7 @@
 #include "backend/types/BackendPost.h"
 #include "chat-area/post/PostAuthorRunPolicy.h"
 #include "chat-area/post/PostTimestampPresentation.h"
+#include "chat-area/post/PostDateBoundaryPresentation.h"
 #include "chat-area/post/PostWidget.h"
 
 using namespace Mattermost;
@@ -119,6 +120,86 @@ private slots:
             PostTimestampPresentation::threadRelativeTime(
                 now - 2 * 24 * 60 * 60 * 1000, now, locale),
             QStringLiteral("2 days ago"));
+    }
+
+    void dateBoundaryUsesLocalCalendarAndIsResilientToSparseHistory()
+    {
+        Storage storage;
+        const auto first = makePost(storage, QStringLiteral("aaaa"),
+            QStringLiteral("user"),
+            localMs(QDate(2026, 11, 3), QTime(23, 59)));
+        const auto sameDay = makePost(storage, QStringLiteral("bbbb"),
+            QStringLiteral("user"),
+            localMs(QDate(2026, 11, 3), QTime(23, 59, 30)));
+        const auto nextDay = makePost(storage, QStringLiteral("cccc"),
+            QStringLiteral("user"),
+            localMs(QDate(2026, 11, 4), QTime(0, 1)));
+        const QDate firstDay(2026, 11, 3);
+        const QDate secondDay(2026, 11, 4);
+        QCOMPARE(PostDateBoundaryPresentation::boundaryDate(first, nullptr, true),
+                 firstDay);
+        QVERIFY(!PostDateBoundaryPresentation::boundaryDate(
+            sameDay, &first, false).isValid());
+        QCOMPARE(PostDateBoundaryPresentation::boundaryDate(
+            nextDay, &sameDay, false), secondDay);
+        // A sparse page cannot prove a date change yet.
+        QVERIFY(!PostDateBoundaryPresentation::boundaryDate(
+            nextDay, nullptr, false).isValid());
+        const QLocale locale(QStringLiteral("be_BY"));
+        QCOMPARE(PostDateBoundaryPresentation::label(secondDay, locale),
+                 locale.toString(secondDay, QLocale::LongFormat));
+    }
+
+    void collectionUsesVisibleRegionalFullTimestamp()
+    {
+        Backend backend;
+        const qint64 timestamp = localMs(QDate(2026, 11, 4), QTime(9, 45));
+        auto post = makePost(backend.getStorage(), QStringLiteral("tttt"),
+                             QStringLiteral("user"), timestamp);
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        auto* label = widget.findChild<QLabel*>(QStringLiteral("time"));
+        QVERIFY(label);
+        const QLocale locale = QLocale::system();
+        const QString full = PostTimestampPresentation::fullTimestamp(
+            timestamp, locale);
+        QCOMPARE(label->text(), PostTimestampPresentation::absoluteTime(
+            timestamp, locale));
+        widget.setShowFullTimestamp(true);
+        QCOMPARE(label->text(), full);
+        QCOMPARE(label->toolTip(), full);
+        widget.setShowFullTimestamp(false);
+        QCOMPARE(label->text(), PostTimestampPresentation::absoluteTime(
+            timestamp, locale));
+    }
+
+    void dayDividerIsPresentationOnlyAndCanBeReclassified()
+    {
+        Backend backend;
+        auto post = makePost(backend.getStorage(), QStringLiteral("dddd"),
+                             QStringLiteral("user"),
+                             localMs(QDate(2026, 11, 4), QTime(12, 0)));
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        auto* divider = widget.findChild<QWidget*>(
+            QStringLiteral("postDayBoundary"));
+        auto* label = widget.findChild<QLabel*>(
+            QStringLiteral("postDayBoundaryLabel"));
+        QVERIFY(divider);
+        QVERIFY(label);
+        QVERIFY(divider->isHidden());
+        const int originalHeight = widget.sizeHint().height();
+        QSignalSpy changed(&widget, &PostWidget::dimensionsChanged);
+        widget.setDayBoundary(QDate(2026, 11, 4));
+        QVERIFY(!divider->isHidden());
+        QCOMPARE(label->text(), PostDateBoundaryPresentation::label(
+            QDate(2026, 11, 4)));
+        QVERIFY(widget.sizeHint().height() > originalHeight);
+        QCOMPARE(changed.count(), 1);
+        widget.setDayBoundary(QDate(2026, 11, 4));
+        QCOMPARE(changed.count(), 1);
+        widget.setDayBoundary({});
+        QVERIFY(divider->isHidden());
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(widget.sizeHint().height(), originalHeight);
     }
 
     void meaningfulBoundariesBreakRun()
