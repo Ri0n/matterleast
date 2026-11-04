@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "ChannelTopicPolicy.h"
+#include "QByteArrayCreator.h"
 #include "NetworkRequest.h"
 #include "types/BackendChannel.h"
 
