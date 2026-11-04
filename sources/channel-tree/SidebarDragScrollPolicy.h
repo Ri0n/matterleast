@@ -26,7 +26,7 @@ struct SidebarDragScrollPolicy
             return 0;
         }
 
-        const int edge = qMin(EdgePixels, qMax(12, viewport.height() / 4));
+        const int edge = qMin(EdgePixels, qMax(1, viewport.height() / 4));
         int depth = 0;
         int direction = 0;
         if (pointer.y() < edge) {
@@ -58,6 +58,12 @@ struct SidebarDragScrollPolicy
         }
         return -angleDelta.y() * qMax(1, singleStep)
             * qMax(1, wheelLines) / 120;
+    }
+
+    static int categoryProbe(int sourceLogicalY, int pointerY,
+                             int startPointerY, int scrollPixels)
+    {
+        return sourceLogicalY + (pointerY - startPointerY) + scrollPixels;
     }
 
     static QPoint clampToViewport(const QPoint& pointer, const QSize& viewport)
