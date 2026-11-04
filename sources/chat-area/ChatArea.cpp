@@ -407,6 +407,20 @@ void ChatArea::setupHeaderUi()
         emit searchInConversationRequested(channel.id);
     });
 
+    // Match Mattermost's Channel Settings: 'topic' is the Markdown header,
+    // not the channel purpose. Never show this on a thread (which shares its
+    // parent channel's header). The server authorizes the PATCH itself.
+    if (!isThread && channel.type != BackendChannel::unknown) {
+        QAction* topicAction = chatActionsMenu->addAction(
+            tr("Edit channel topic…"));
+        topicAction->setObjectName(QStringLiteral("editChannelTopicAction"));
+        connect(topicAction, &QAction::triggered, this, [this] {
+            auto* dialog = new ChannelTopicEditDialog(backend, channel, window());
+            dialog->setAttribute(Qt::WA_DeleteOnClose);
+            dialog->open();
+        });
+    }
+
 #ifdef MATTERLEAST_ENABLE_AI
     if (isThread) {
         chatActionsMenu->addSeparator();
