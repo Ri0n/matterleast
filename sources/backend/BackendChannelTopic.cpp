@@ -5,6 +5,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <utility>
 
 #include "ChannelTopicPolicy.h"
 #include "NetworkRequest.h"
