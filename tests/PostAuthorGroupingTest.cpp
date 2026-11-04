@@ -206,6 +206,38 @@ private slots:
         QCOMPARE(widget.sizeHint().height(), originalHeight);
     }
 
+    void dateDividerCaptionFollowsLightAndDarkPalettes()
+    {
+        Backend backend;
+        auto post = makePost(backend.getStorage(),
+            QStringLiteral("zzzzzzzzzzzzzzzzzzzzzzzzzz"),
+            QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
+            localMs(QDate(2026, 11, 4), QTime(13, 0)));
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+
+        // A dark theme can define Mid as black even though its text is light.
+        QPalette dark = widget.palette();
+        dark.setColor(QPalette::WindowText, QColor(235, 236, 239));
+        dark.setColor(QPalette::Mid, QColor(0, 0, 0));
+        widget.setPalette(dark);
+        widget.setDayBoundary(QDate(2026, 11, 4));
+        auto* caption = widget.findChild<QLabel*>(
+            QStringLiteral("postDayBoundaryLabel"));
+        QVERIFY(caption);
+        QCOMPARE(caption->foregroundRole(), QPalette::WindowText);
+        QCOMPARE(caption->palette().color(QPalette::WindowText).rgb(),
+                 QColor(235, 236, 239).rgb());
+
+        // Changing theme while a materialized post remains visible must
+        // update its caption without rematerializing the post.
+        QPalette light = widget.palette();
+        light.setColor(QPalette::WindowText, QColor(34, 35, 38));
+        light.setColor(QPalette::Mid, QColor(250, 250, 250));
+        widget.setPalette(light);
+        QCOMPARE(caption->palette().color(QPalette::WindowText).rgb(),
+                 QColor(34, 35, 38).rgb());
+    }
+
     void meaningfulBoundariesBreakRun()
     {
         Storage storage;
