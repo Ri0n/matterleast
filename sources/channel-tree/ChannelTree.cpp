@@ -41,6 +41,7 @@
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/SidebarChannelMovePolicy.h"
+#include "channel-tree/SidebarDragScrollPolicy.h"
 #include "channel-tree/channel-item/DirectChannelItem.h"
 #include "channel-tree/team-item/GroupTeamItem.h"
 #include "log.h"
@@ -1345,8 +1346,9 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
     // source. Nearest-boundary selection means a neighbour moves once the
     // leading edge has crossed half of that neighbour's extent. Moving up and
     // down therefore naturally use the two different half-overlap thresholds.
-    const int probe = draggedBlockStartLogicalY + (pos.y() - dragStartPointerY)
-        + dragViewportScrollPixels;
+    const int probe = SidebarDragScrollPolicy::categoryProbe(
+        draggedBlockStartLogicalY, pos.y(), dragStartPointerY,
+        dragViewportScrollPixels);
     const CategoryDragBoundary* boundary = nearestCategoryDragBoundary(probe);
     if (!boundary || !boundary->targetCategory.isValid()) {
         return false;
