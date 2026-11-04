@@ -122,6 +122,30 @@ private slots:
             QStringLiteral("2 days ago"));
     }
 
+    void fullTimestampContainsOnlyLocalDateAndTime()
+    {
+        const QLocale ru(QStringLiteral("ru_RU"));
+        const QDate date(2026, 9, 30);
+        const QTime time(12, 47, 18);
+        const qint64 stamp = localMs(date, time);
+        const QString formatted =
+            PostTimestampPresentation::fullTimestamp(stamp, ru);
+        QCOMPARE(formatted,
+                 ru.toString(date, QLocale::ShortFormat)
+                     + QStringLiteral(" ")
+                     + ru.toString(time, QLocale::ShortFormat));
+        QVERIFY(!formatted.contains(QStringLiteral("среда"),
+                                     Qt::CaseInsensitive));
+        QVERIFY(!formatted.contains(QStringLiteral("Москва"),
+                                     Qt::CaseInsensitive));
+        // A locale with 12-hour clocks must still use its local conventions.
+        const QLocale us(QStringLiteral("en_US"));
+        QCOMPARE(PostTimestampPresentation::fullTimestamp(stamp, us),
+                 us.toString(date, QLocale::ShortFormat)
+                     + QStringLiteral(" ")
+                     + us.toString(time, QLocale::ShortFormat));
+    }
+
     void dateBoundaryUsesLocalCalendarAndIsResilientToSparseHistory()
     {
         Storage storage;
@@ -147,7 +171,7 @@ private slots:
             nextDay, nullptr, false).isValid());
         const QLocale locale(QStringLiteral("be_BY"));
         QCOMPARE(PostDateBoundaryPresentation::label(secondDay, locale),
-                 locale.toString(secondDay, QLocale::LongFormat));
+                 locale.toString(secondDay, QLocale::ShortFormat));
     }
 
     void collectionUsesVisibleRegionalFullTimestamp()
@@ -369,9 +393,9 @@ private slots:
         QCOMPARE(time->text(),
                  locale.toString(postTime.time(), QLocale::ShortFormat));
         QCOMPARE(time->toolTip(),
-                 locale.toString(postTime.date(), QLocale::LongFormat)
+                 locale.toString(postTime.date(), QLocale::ShortFormat)
                      + QStringLiteral(" ")
-                     + locale.toString(postTime.time(), QLocale::LongFormat));
+                     + locale.toString(postTime.time(), QLocale::ShortFormat));
 
         QVERIFY(!widget.authorRunContinuation());
         QCOMPARE(avatar->minimumHeight(), 48);
