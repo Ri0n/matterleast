@@ -181,16 +181,18 @@ private slots:
                              QStringLiteral("user"),
                              localMs(QDate(2026, 11, 4), QTime(12, 0)));
         PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        // Ordinary rows must not eagerly allocate hidden separator widgets.
+        QVERIFY(!widget.findChild<QWidget*>(
+            QStringLiteral("postDayBoundary")));
+        const int originalHeight = widget.sizeHint().height();
+        QSignalSpy changed(&widget, &PostWidget::dimensionsChanged);
+        widget.setDayBoundary(QDate(2026, 11, 4));
         auto* divider = widget.findChild<QWidget*>(
             QStringLiteral("postDayBoundary"));
         auto* label = widget.findChild<QLabel*>(
             QStringLiteral("postDayBoundaryLabel"));
         QVERIFY(divider);
         QVERIFY(label);
-        QVERIFY(divider->isHidden());
-        const int originalHeight = widget.sizeHint().height();
-        QSignalSpy changed(&widget, &PostWidget::dimensionsChanged);
-        widget.setDayBoundary(QDate(2026, 11, 4));
         QVERIFY(!divider->isHidden());
         QCOMPARE(label->text(), PostDateBoundaryPresentation::label(
             QDate(2026, 11, 4)));
