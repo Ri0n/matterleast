@@ -47,7 +47,7 @@ public:
                          const QLocale& locale = QLocale::system())
     {
         return date.isValid()
-            ? locale.toString(date, QLocale::LongFormat) : QString();
+            ? locale.toString(date, QLocale::ShortFormat) : QString();
     }
 };
 
