@@ -13,6 +13,17 @@ the message body with bold weight. Do not reintroduce Designer's old 8 pt /
 16 px maximum-height constraints, which clip larger configured chat fonts.
 Timestamps intentionally use a smaller font derived from the author label.
 
+Timestamp presentation follows the surface: channel/DM/GM posts show a
+locale-formatted clock and a visually distinct local-calendar date divider at
+the beginning of each day; thread posts retain relative timestamps.
+Search, Saved, Drafts, Recent Mentions and Pinned collections display a
+full system-locale date *and* time for every post, without requiring hover.
+A date divider belongs to the presentation of the first post in a day,
+not to the source model: it must not introduce an extra row index, phantom
+post ID, unread cursor or navigation anchor. On sparse source paging, only
+show a boundary when its preceding post is known (or the row is index zero).
+Recalculate dividers whenever author grouping is recalculated.
+
 Fenced code is rendered in `CodeBlockEdit`, a non-wrapping plain-text editor.
 It uses the system fixed font with a typewriter/fixed-pitch hint while matching
 the chat point size. Inline Markdown code spans remain in QTextDocument; after

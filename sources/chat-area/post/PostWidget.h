@@ -21,6 +21,7 @@
 
 #include <functional>
 
+#include <QDate>
 #include <QFont>
 #include <QMargins>
 #include <QPushButton>
@@ -112,6 +113,9 @@ public:
      * widget without recreating the post itself.
      */
     void setAuthorRunContinuation(bool continuation);
+    // List-only date separator. Does not create or affect a semantic post.
+    void setDayBoundary(const QDate& day);
+    void setShowFullTimestamp(bool enabled);
     bool authorRunContinuation() const { return authorRunContinuation_; }
 
     bool wholeMessageSelectionMode() const { return wholeMessageSelectionMode_; }
@@ -251,6 +255,10 @@ private:
     QPushButton*                       saveAffordance_ = nullptr;
     QPushButton*                       moreAffordance_ = nullptr;
     QLabel*                            continuationTime_ = nullptr;
+    QWidget*                           dayBoundaryWidget_ = nullptr;
+    QLabel*                            dayBoundaryLabel_ = nullptr;
+    QDate                              dayBoundaryDate_;
+    bool                               fullTimestampVisible_ = false;
     QGraphicsOpacityEffect*            hoverActionsOpacity_ = nullptr;
     QPropertyAnimation*                hoverActionsAnimation_ = nullptr;
     QTimer*                            hoverActionsHideTimer_ = nullptr;

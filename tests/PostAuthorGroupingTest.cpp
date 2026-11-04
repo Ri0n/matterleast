@@ -16,6 +16,7 @@
 #include "backend/types/BackendPost.h"
 #include "chat-area/post/PostAuthorRunPolicy.h"
 #include "chat-area/post/PostTimestampPresentation.h"
+#include "chat-area/post/PostDateBoundaryPresentation.h"
 #include "chat-area/post/PostWidget.h"
 
 using namespace Mattermost;
@@ -119,6 +120,146 @@ private slots:
             PostTimestampPresentation::threadRelativeTime(
                 now - 2 * 24 * 60 * 60 * 1000, now, locale),
             QStringLiteral("2 days ago"));
+    }
+
+    void fullTimestampContainsOnlyLocalDateAndTime()
+    {
+        const QLocale ru(QStringLiteral("ru_RU"));
+        const QDate date(2026, 9, 30);
+        const QTime time(12, 47, 18);
+        const qint64 stamp = localMs(date, time);
+        const QString formatted =
+            PostTimestampPresentation::fullTimestamp(stamp, ru);
+        QCOMPARE(formatted,
+                 ru.toString(date, QLocale::ShortFormat)
+                     + QStringLiteral(" ")
+                     + ru.toString(time, QLocale::ShortFormat));
+        QVERIFY(!formatted.contains(QStringLiteral("среда"),
+                                     Qt::CaseInsensitive));
+        QVERIFY(!formatted.contains(QStringLiteral("Москва"),
+                                     Qt::CaseInsensitive));
+        // A locale with 12-hour clocks must still use its local conventions.
+        const QLocale us(QStringLiteral("en_US"));
+        QCOMPARE(PostTimestampPresentation::fullTimestamp(stamp, us),
+                 us.toString(date, QLocale::ShortFormat)
+                     + QStringLiteral(" ")
+                     + us.toString(time, QLocale::ShortFormat));
+    }
+
+    void dateBoundaryUsesLocalCalendarAndIsResilientToSparseHistory()
+    {
+        Storage storage;
+        const auto first = makePost(storage, QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            QStringLiteral("user"),
+            localMs(QDate(2026, 11, 3), QTime(23, 59)));
+        const auto sameDay = makePost(storage, QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            QStringLiteral("user"),
+            localMs(QDate(2026, 11, 3), QTime(23, 59, 30)));
+        const auto nextDay = makePost(storage, QStringLiteral("cccccccccccccccccccccccccc"),
+            QStringLiteral("user"),
+            localMs(QDate(2026, 11, 4), QTime(0, 1)));
+        const QDate firstDay(2026, 11, 3);
+        const QDate secondDay(2026, 11, 4);
+        QCOMPARE(PostDateBoundaryPresentation::boundaryDate(first, nullptr, true),
+                 firstDay);
+        QVERIFY(!PostDateBoundaryPresentation::boundaryDate(
+            sameDay, &first, false).isValid());
+        QCOMPARE(PostDateBoundaryPresentation::boundaryDate(
+            nextDay, &sameDay, false), secondDay);
+        // A sparse page cannot prove a date change yet.
+        QVERIFY(!PostDateBoundaryPresentation::boundaryDate(
+            nextDay, nullptr, false).isValid());
+        const QLocale locale(QStringLiteral("be_BY"));
+        QCOMPARE(PostDateBoundaryPresentation::label(secondDay, locale),
+                 locale.toString(secondDay, QLocale::ShortFormat));
+    }
+
+    void collectionUsesVisibleRegionalFullTimestamp()
+    {
+        Backend backend;
+        const qint64 timestamp = localMs(QDate(2026, 11, 4), QTime(9, 45));
+        auto post = makePost(backend.getStorage(), QStringLiteral("tttttttttttttttttttttttttt"),
+                             QStringLiteral("user"), timestamp);
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        auto* label = widget.findChild<QLabel*>(QStringLiteral("time"));
+        QVERIFY(label);
+        const QLocale locale = QLocale::system();
+        const QString full = PostTimestampPresentation::fullTimestamp(
+            timestamp, locale);
+        QCOMPARE(label->text(), PostTimestampPresentation::absoluteTime(
+            timestamp, locale));
+        widget.setShowFullTimestamp(true);
+        QVERIFY(label->wordWrap());
+        QCOMPARE(label->text(), full);
+        QCOMPARE(label->toolTip(), full);
+        widget.setShowFullTimestamp(false);
+        QVERIFY(!label->wordWrap());
+        QCOMPARE(label->text(), PostTimestampPresentation::absoluteTime(
+            timestamp, locale));
+    }
+
+    void dayDividerIsPresentationOnlyAndCanBeReclassified()
+    {
+        Backend backend;
+        auto post = makePost(backend.getStorage(), QStringLiteral("dddddddddddddddddddddddddd"),
+                             QStringLiteral("user"),
+                             localMs(QDate(2026, 11, 4), QTime(12, 0)));
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        // Ordinary rows must not eagerly allocate hidden separator widgets.
+        QVERIFY(!widget.findChild<QWidget*>(
+            QStringLiteral("postDayBoundary")));
+        const int originalHeight = widget.sizeHint().height();
+        QSignalSpy changed(&widget, &PostWidget::dimensionsChanged);
+        widget.setDayBoundary(QDate(2026, 11, 4));
+        auto* divider = widget.findChild<QWidget*>(
+            QStringLiteral("postDayBoundary"));
+        auto* label = widget.findChild<QLabel*>(
+            QStringLiteral("postDayBoundaryLabel"));
+        QVERIFY(divider);
+        QVERIFY(label);
+        QVERIFY(!divider->isHidden());
+        QCOMPARE(label->text(), PostDateBoundaryPresentation::label(
+            QDate(2026, 11, 4)));
+        QVERIFY(widget.sizeHint().height() > originalHeight);
+        QCOMPARE(changed.count(), 1);
+        widget.setDayBoundary(QDate(2026, 11, 4));
+        QCOMPARE(changed.count(), 1);
+        widget.setDayBoundary({});
+        QVERIFY(divider->isHidden());
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(widget.sizeHint().height(), originalHeight);
+    }
+
+    void dateDividerCaptionFollowsLightAndDarkPalettes()
+    {
+        Backend backend;
+        auto post = makePost(backend.getStorage(),
+            QStringLiteral("zzzzzzzzzzzzzzzzzzzzzzzzzz"),
+            QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
+            localMs(QDate(2026, 11, 4), QTime(13, 0)));
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+
+        // A dark theme can define Mid as black even though its text is light.
+        QPalette dark = widget.palette();
+        dark.setColor(QPalette::WindowText, QColor(235, 236, 239));
+        dark.setColor(QPalette::Mid, QColor(0, 0, 0));
+        widget.setPalette(dark);
+        widget.setDayBoundary(QDate(2026, 11, 4));
+        auto* caption = widget.findChild<QLabel*>(
+            QStringLiteral("postDayBoundaryLabel"));
+        QVERIFY(caption);
+        QCOMPARE(caption->foregroundRole(), QPalette::WindowText);
+        QCOMPARE(caption->palette().color(QPalette::WindowText).rgb(),
+                 QColor(235, 236, 239).rgb());
+
+        // Changing theme while a materialized post remains visible must
+        // update its caption without rematerializing the post.
+        QPalette light = widget.palette();
+        light.setColor(QPalette::WindowText, QColor(34, 35, 38));
+        light.setColor(QPalette::Mid, QColor(250, 250, 250));
+        widget.setPalette(light);
+        QCOMPARE(caption->palette().color(QPalette::WindowText).rgb(),
+                 QColor(34, 35, 38).rgb());
     }
 
     void meaningfulBoundariesBreakRun()
@@ -252,9 +393,9 @@ private slots:
         QCOMPARE(time->text(),
                  locale.toString(postTime.time(), QLocale::ShortFormat));
         QCOMPARE(time->toolTip(),
-                 locale.toString(postTime.date(), QLocale::LongFormat)
+                 locale.toString(postTime.date(), QLocale::ShortFormat)
                      + QStringLiteral(" ")
-                     + locale.toString(postTime.time(), QLocale::LongFormat));
+                     + locale.toString(postTime.time(), QLocale::ShortFormat));
 
         QVERIFY(!widget.authorRunContinuation());
         QCOMPARE(avatar->minimumHeight(), 48);

@@ -27,9 +27,12 @@ public:
                                  const QLocale& locale = QLocale::system())
     {
         const QDateTime value = QDateTime::fromMSecsSinceEpoch(timestamp);
-        return locale.toString(value.date(), QLocale::LongFormat)
+        // The long formats may append a weekday and a named time zone.
+        // Posts are always displayed in the user's local time zone, so a
+        // compact regional calendar date and clock time are sufficient.
+        return locale.toString(value.date(), QLocale::ShortFormat)
             + QStringLiteral(" ")
-            + locale.toString(value.time(), QLocale::LongFormat);
+            + locale.toString(value.time(), QLocale::ShortFormat);
     }
 
     static QString threadRelativeTime(

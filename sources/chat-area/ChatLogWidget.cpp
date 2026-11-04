@@ -27,6 +27,7 @@
 #include "backend/types/BackendTeam.h"
 #include "post/InteractivePostWidget.h"
 #include "post/PostAuthorRunPolicy.h"
+#include "post/PostDateBoundaryPresentation.h"
 #include "post/PostWidget.h"
 #include "post/PostSelectionPolicy.h"
 #include "ui/IconUtils.h"
@@ -701,6 +702,19 @@ bool ChatLogWidget::shouldContinueAuthorRun(int index) const
 
 void ChatLogWidget::applyAuthorRunPresentation(int index, PostWidget& widget)
 {
+    // Main channel/DM/GM timelines show a locale-formatted day divider at
+    // the first post of each local calendar day. Thread timelines retain
+    // their existing compact/relative time presentation.
+    QDate boundary;
+    if (chatArea && !chatArea->isThread && postSource
+        && index >= 0 && index < postSource->itemCount()
+        && postSource->isAvailable(index)) {
+        const BackendPost* previous = index > 0 && postSource->isAvailable(index - 1)
+            ? postSource->postAt(index - 1) : nullptr;
+        boundary = PostDateBoundaryPresentation::boundaryDate(
+            widget.post, previous, index == 0);
+    }
+    widget.setDayBoundary(boundary);
     widget.setAuthorRunContinuation(shouldContinueAuthorRun(index));
 }
 

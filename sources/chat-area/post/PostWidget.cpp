@@ -64,6 +64,7 @@
 #include "PostPermalinkUtils.h"
 #include "PostQuoteFrame.h"
 #include "PostTimestampPresentation.h"
+#include "PostDateBoundaryPresentation.h"
 #include "ReactionChipStyle.h"
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
@@ -692,7 +693,11 @@ void PostWidget::paintEvent(QPaintEvent* event)
     QColor selected = palette().color(QPalette::Highlight);
     selected.setAlpha(34);
     QPainter painter(this);
-    painter.fillRect(rect(), selected);
+    QRect selectedArea = rect();
+    // The date divider is not part of the selected message chrome.
+    if (dayBoundaryWidget_ && !dayBoundaryWidget_->isHidden())
+        selectedArea.setTop(dayBoundaryWidget_->sizeHint().height());
+    painter.fillRect(selectedArea, selected);
 }
 
 ChatLogWidget* PostWidget::chatLog() const
@@ -834,6 +839,69 @@ void PostWidget::setAuthorRunContinuation(bool continuation)
     emit dimensionsChanged();
 }
 
+void PostWidget::setDayBoundary(const QDate& day)
+{
+    if (dayBoundaryDate_ == day)
+        return;
+    dayBoundaryDate_ = day;
+
+    // Most posts are not date boundaries (and threads/collections have none).
+    // Materialize this decorative surface only for an actual day transition.
+    if (!dayBoundaryWidget_ && day.isValid()) {
+        // Date headers share their post's virtualized row, keeping source indices,
+        // post IDs, paging, unread cursors and navigation anchors unchanged.
+        dayBoundaryWidget_ = new QWidget(this);
+        dayBoundaryWidget_->setObjectName(QStringLiteral("postDayBoundary"));
+        auto* dayLayout = new QHBoxLayout(dayBoundaryWidget_);
+        dayLayout->setContentsMargins(12, 8, 12, 4);
+        dayLayout->setSpacing(12);
+        const auto addRule = [dayLayout, this] {
+            auto* rule = new QFrame(dayBoundaryWidget_);
+            rule->setFrameShape(QFrame::HLine);
+            rule->setFrameShadow(QFrame::Plain);
+            rule->setForegroundRole(QPalette::Mid);
+            rule->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            dayLayout->addWidget(rule, 1);
+        };
+        addRule();
+        dayBoundaryLabel_ = new QLabel(dayBoundaryWidget_);
+        dayBoundaryLabel_->setObjectName(QStringLiteral("postDayBoundaryLabel"));
+        dayBoundaryLabel_->setAlignment(Qt::AlignCenter);
+        // QPalette::Mid is a frame/shadow role, not a text color. In dark
+        // themes it can resolve to black even when WindowText is light.
+        dayBoundaryLabel_->setForegroundRole(QPalette::WindowText);
+        dayLayout->addWidget(dayBoundaryLabel_);
+        addRule();
+        ui->postRootLayout->insertWidget(0, dayBoundaryWidget_);
+        dayBoundaryWidget_->hide();
+        dayBoundaryLabel_->setFont(chatFont_);
+        updateTimestampPalette();
+    }
+    if (!dayBoundaryWidget_)
+        return;
+
+    dayBoundaryLabel_->setText(PostDateBoundaryPresentation::label(day));
+    dayBoundaryWidget_->setVisible(day.isValid());
+    ui->postRootLayout->invalidate();
+    positionHoverActions();
+    updateGeometry();
+    emit dimensionsChanged();
+}
+
+void PostWidget::setShowFullTimestamp(bool enabled)
+{
+    if (fullTimestampVisible_ == enabled)
+        return;
+    fullTimestampVisible_ = enabled;
+    // Long regional dates must remain readable even in a narrow collection
+    // pane; allow the timestamp label to wrap instead of clipping its date.
+    ui->time->setWordWrap(enabled);
+    updateTimestampPresentation();
+    ui->horizontalLayout->invalidate();
+    updateGeometry();
+    emit dimensionsChanged();
+}
+
 void PostWidget::clearTextSelection()
 {
     if (messageContent) {
@@ -891,12 +959,13 @@ void PostWidget::updateTimestampPresentation()
 {
     const qint64 timestamp = static_cast<qint64>(post.create_at);
     const QLocale locale = QLocale::system();
-    const QString visibleTime = usesRelativeTimestamp()
-        ? PostTimestampPresentation::threadRelativeTime(timestamp,
-            QDateTime::currentMSecsSinceEpoch(), locale)
-        : PostTimestampPresentation::absoluteTime(timestamp, locale);
     const QString fullTimestamp =
         PostTimestampPresentation::fullTimestamp(timestamp, locale);
+    const QString visibleTime = fullTimestampVisible_ ? fullTimestamp
+        : usesRelativeTimestamp()
+            ? PostTimestampPresentation::threadRelativeTime(timestamp,
+                QDateTime::currentMSecsSinceEpoch(), locale)
+            : PostTimestampPresentation::absoluteTime(timestamp, locale);
 
     ui->time->setText(visibleTime);
     ui->time->setToolTip(fullTimestamp);
@@ -931,6 +1000,15 @@ void PostWidget::updateTimestampPalette()
         continuationPalette.setColor(QPalette::WindowText, continuationMuted);
         continuationPalette.setColor(QPalette::Text, continuationMuted);
         continuationTime_->setPalette(continuationPalette);
+    }
+
+    if (dayBoundaryLabel_) {
+        // Follow the current post/theme foreground, including live palette
+        // changes. Do not use Mid/Midlight as a label foreground role.
+        QPalette dividerPalette = dayBoundaryLabel_->palette();
+        dividerPalette.setColor(QPalette::WindowText, muted);
+        dividerPalette.setColor(QPalette::Text, muted);
+        dayBoundaryLabel_->setPalette(dividerPalette);
     }
 }
 
@@ -969,8 +1047,12 @@ void PostWidget::updateHoverActionsPalette()
 
 void PostWidget::positionHoverActions()
 {
+    // The date header is a presentation adornment, not part of the post
+    // itself. Anchor floating actions to the actual message, below the date.
+    const int contentTop = dayBoundaryWidget_ && !dayBoundaryWidget_->isHidden()
+        ? dayBoundaryWidget_->sizeHint().height() : 0;
     if (continuationTime_) {
-        continuationTime_->move(normalRowMargins_.left(), 0);
+        continuationTime_->move(normalRowMargins_.left(), contentTop);
     }
 
     if (_pendingIndicatorOverlay && pendingDeliveryIndicator_) {
@@ -979,7 +1061,7 @@ void PostWidget::positionHoverActions()
         pendingDeliveryIndicator_->move(
             std::max(0, width() - normalRowMargins_.right()
                             - pendingDeliveryIndicator_->width()),
-            0);
+            contentTop);
         pendingDeliveryIndicator_->raise();
     }
 
@@ -997,7 +1079,7 @@ void PostWidget::positionHoverActions()
         0, std::min(rowTopLeft.x() + width() - hoverActions_->width() - 8,
                     maxX));
     const int y = std::max(
-        0, std::min(rowTopLeft.y() - hoverActions_->height() / 2, maxY));
+        0, std::min(rowTopLeft.y() + contentTop - hoverActions_->height() / 2, maxY));
     hoverActions_->move(x, y);
 }
 
@@ -1549,6 +1631,8 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     }
 
     chatFont_ = nextFont;
+    if (dayBoundaryLabel_)
+        dayBoundaryLabel_->setFont(chatFont_);
 
     // The designer's legacy 8 pt / 16 px author label truncated larger chat
     // fonts. The nickname uses the same body size, only with bold weight.
