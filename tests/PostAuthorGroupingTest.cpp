@@ -368,6 +368,51 @@ private slots:
         QVERIFY(indicator->isVisible());
     }
 
+    void avatarToTextGapMatchesLeftInset()
+    {
+        Backend backend;
+        auto post = makePost(
+            backend.getStorage(),
+            QStringLiteral("avatarspacingtestpost000001"),
+            QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
+            localMs(QDate(2026, 11, 4), QTime(12, 0)));
+        PostWidget widget(backend, post);
+        auto* row = widget.findChild<QHBoxLayout*>(
+            QStringLiteral("horizontalLayout_2"));
+        auto* avatar = widget.findChild<QWidget*>(
+            QStringLiteral("authorAvatar"));
+        auto* author = widget.findChild<QLabel*>(
+            QStringLiteral("authorName"));
+        QVERIFY(row);
+        QVERIFY(avatar);
+        QVERIFY(author);
+        const int leftInset = row->contentsMargins().left();
+        QVERIFY(leftInset > 0);
+        QCOMPARE(row->spacing(), leftInset);
+
+        widget.resize(700, 180);
+        widget.show();
+        QCoreApplication::processEvents();
+        const auto visibleGap = [&] {
+            return author->mapTo(&widget, QPoint(0, 0)).x()
+                - avatar->mapTo(&widget, QPoint(0, 0)).x()
+                - avatar->width();
+        };
+        QCOMPARE(visibleGap(), leftInset);
+
+        // A day separator wraps this very same row, without changing its
+        // horizontal geometry or the alignment of continuation messages.
+        widget.setDayBoundary(QDate(2026, 11, 4));
+        QCoreApplication::processEvents();
+        QCOMPARE(visibleGap(), leftInset);
+        widget.setAuthorRunContinuation(true);
+        QCoreApplication::processEvents();
+        QCOMPARE(row->spacing(), leftInset);
+        widget.setAuthorRunContinuation(false);
+        QCoreApplication::processEvents();
+        QCOMPARE(visibleGap(), leftInset);
+    }
+
     void widgetCanMutateBetweenHeadAndContinuation()
     {
         Backend backend;
