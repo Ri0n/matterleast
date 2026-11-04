@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QDateTime>
+#include <QLabel>
 #include <QCryptographicHash>
 #include <QLoggingCategory>
 #include <QStandardPaths>
@@ -25,6 +27,8 @@
 #include "channel-tree/FollowingNavigation.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
+#include "chat-area/post/PostWidget.h"
+#include "chat-area/post/PostTimestampPresentation.h"
 #include "chat-area/ThreadPostSource.h"
 #include "mainwindow.h"
 #include "navigation/AppNavigationService.h"
@@ -1474,6 +1478,74 @@ private slots:
             QVERIFY(PostRepository::instance(backend).isPostLeased(channel->id, root));
         }
         QVERIFY(!PostRepository::instance(backend).isPostLeased(channel->id, root));
+    }
+
+    void threadTimelineHasDaySeparatorsAndRetainsRelativeTimestamps()
+    {
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(
+            QJsonObject{{"id", "user"}, {"username", "tester"}}, true);
+        auto* channel = storage.addGroupChannel(
+            QJsonObject{{"id", "channel"}, {"type", "G"}});
+        QVERIFY(channel);
+
+        const int thread = 719;
+        const QDate firstDate(2026, 11, 3);
+        const QDate nextDate = firstDate.addDays(1);
+        const qint64 rootTime =
+            QDateTime(firstDate, QTime(23, 57)).toMSecsSinceEpoch();
+        const qint64 firstReplyTime =
+            QDateTime(firstDate, QTime(23, 59)).toMSecsSinceEpoch();
+        const qint64 secondReplyTime =
+            QDateTime(nextDate, QTime(0, 1)).toMSecsSinceEpoch();
+
+        auto root = post(thread);
+        root.insert("create_at", double(rootTime));
+        root.insert("update_at", double(rootTime));
+        root.insert("reply_count", 2);
+        root.insert("last_reply_at", double(secondReplyTime));
+        channel->addPost(root);
+
+        auto first = post(thread, 1);
+        first.insert("create_at", double(firstReplyTime));
+        first.insert("update_at", double(firstReplyTime));
+        channel->addPost(first);
+
+        auto second = post(thread, 2);
+        second.insert("create_at", double(secondReplyTime));
+        second.insert("update_at", double(secondReplyTime));
+        channel->addPost(second);
+
+        ChatArea area(backend, *channel, rootId(thread), nullptr);
+        area.resize(850, 650);
+        area.show();
+        auto* list = area.findChild<ChatLogWidget*>(
+            QStringLiteral("listWidget"));
+        QVERIFY(list);
+        QTRY_COMPARE(list->itemCount(), 3);
+        QTRY_VERIFY(list->findPost(rootId(thread)));
+        QTRY_VERIFY(list->findPost(replyId(thread, 1)));
+        QTRY_VERIFY(list->findPost(replyId(thread, 2)));
+
+        const auto dateCaption = [](PostWidget* widget) {
+            auto* label = widget->findChild<QLabel*>(
+                QStringLiteral("postDayBoundaryLabel"));
+            return label && !label->isHidden() ? label->text() : QString();
+        };
+        QCOMPARE(dateCaption(list->findPost(rootId(thread))),
+                 QLocale::system().toString(firstDate, QLocale::ShortFormat));
+        QVERIFY(dateCaption(list->findPost(replyId(thread, 1))).isEmpty());
+        QCOMPARE(dateCaption(list->findPost(replyId(thread, 2))),
+                 QLocale::system().toString(nextDate, QLocale::ShortFormat));
+
+        // A date divider must not change the thread's relative timestamp mode.
+        auto* replyTime = list->findPost(replyId(thread, 2))
+            ->findChild<QLabel*>(QStringLiteral("time"));
+        QVERIFY(replyTime);
+        QCOMPARE(replyTime->text(),
+                 PostTimestampPresentation::threadRelativeTime(secondReplyTime));
+        QCOMPARE(list->source()->indexOfPost(replyId(thread, 2)), 2);
     }
 
     void coldThreadSummaryPreservesNavigationIntent_data()
