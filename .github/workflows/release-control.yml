@@ -161,14 +161,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.request.outputs.tag }}
+          REPLACE_EXISTING: ${{ steps.request.outputs.move }}
         run: |
           set -euo pipefail
           # A tag pushed with GITHUB_TOKEN does not emit another push-triggered
           # Actions run. workflow_dispatch is the supported exception, so invoke
-          # Release explicitly at the tag we just created or moved.
+          # Release explicitly at the tag we just created or moved. Overwriting
+          # published assets is only permitted with an explicit tag-move request.
           gh workflow run release.yml \
             --repo "$GITHUB_REPOSITORY" \
-            --ref "$TAG"
+            --ref "$TAG" \
+            -f "replace_existing=$REPLACE_EXISTING"
 
       - name: Close successful command issue
         if: success() && github.event_name == 'issues'
