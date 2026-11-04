@@ -5,13 +5,20 @@
 
 #include "ChannelTree.h"
 
+#include <QApplication>
 #include <QCursor>
 #include <QDrag>
 #include <QDragLeaveEvent>
 #include <QEasingCurve>
+#include <QEvent>
 #include <QMimeData>
+#include <QScrollBar>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QVariantAnimation>
+#include <QWheelEvent>
+
+#include "SidebarDragScrollPolicy.h"
 
 namespace Mattermost {
 namespace {
@@ -104,14 +111,102 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
     }
 
     sidebarDragActive = true;
+    dragViewportScrollPixels = 0;
     ensureDragSourceVisuals(source);
     dragStartPointerY = cursorInViewport.y();
+
+    // QTreeWidget's built-in autoscroll is driven by its dragMoveEvent(), which
+    // we deliberately don't call. Poll the global pointer during QDrag::exec()
+    // so scrolling continues when the pointer stays still at/outside an edge,
+    // including when native DnD stops sending dragMove events.
+    QTimer autoScrollTimer;
+    autoScrollTimer.setInterval(35);
+    connect(&autoScrollTimer, &QTimer::timeout,
+            this, &ChannelTree::tickDragAutoScroll);
+    // Native drag operations can route wheel input to a child or the window
+    // instead of the viewport. Intercept any Qt-delivered wheel event only
+    // for the duration of this drag.
+    qApp->installEventFilter(this);
+    autoScrollTimer.start();
     drag.exec(Qt::MoveAction, Qt::MoveAction);
+    autoScrollTimer.stop();
+    qApp->removeEventFilter(this);
+
     if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
         resetDragVisuals(false);
     }
     sidebarDragActive = false;
+    dragViewportScrollPixels = 0;
     flushDeferredSidebarReconciles();
+}
+
+void ChannelTree::scrollDuringDrag(int scrollUnits, const QPoint& viewportPos)
+{
+    if (!sidebarDragActive || scrollUnits == 0) {
+        return;
+    }
+
+    QScrollBar* scroll = verticalScrollBar();
+    if (!scroll || scroll->minimum() == scroll->maximum()) {
+        return;
+    }
+
+    const int previousOffset = verticalOffset();
+    scroll->setValue(qBound(scroll->minimum(), scroll->value() + scrollUnits,
+                            scroll->maximum()));
+    const int offsetChange = verticalOffset() - previousOffset;
+    if (!offsetChange) {
+        return;
+    }
+
+    // The category drop probe is in logical content pixels (not scrollbar
+    // items). A stationary cursor must therefore keep advancing past
+    // off-screen categories as the tree scrolls underneath it.
+    dragViewportScrollPixels += offsetChange;
+    updateDragTargetAt(SidebarDragScrollPolicy::clampToViewport(
+        viewportPos, viewport()->size()));
+}
+
+void ChannelTree::tickDragAutoScroll()
+{
+    if (!sidebarDragActive) {
+        return;
+    }
+    QScrollBar* scroll = verticalScrollBar();
+    if (!scroll) {
+        return;
+    }
+    const QPoint pointer = viewport()->mapFromGlobal(QCursor::pos());
+    scrollDuringDrag(SidebarDragScrollPolicy::edgeStep(
+        pointer, viewport()->size(), scroll->singleStep()), pointer);
+}
+
+bool ChannelTree::eventFilter(QObject* watched, QEvent* event)
+{
+    if (sidebarDragActive && event->type() == QEvent::Wheel) {
+        auto* wheel = static_cast<QWheelEvent*>(event);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const QPoint global = wheel->globalPosition().toPoint();
+#else
+        const QPoint global = wheel->globalPos();
+#endif
+        const QPoint pointer = viewport()->mapFromGlobal(global);
+        const QRect active = viewport()->rect().adjusted(-24, -96, 24, 96);
+        if (active.contains(pointer)) {
+            QScrollBar* scroll = verticalScrollBar();
+            const int step = scroll
+                ? SidebarDragScrollPolicy::wheelStep(
+                    wheel->pixelDelta(), wheel->angleDelta(),
+                    scroll->singleStep(), QApplication::wheelScrollLines())
+                : 0;
+            if (step) {
+                scrollDuringDrag(step, pointer);
+                wheel->accept();
+                return true;
+            }
+        }
+    }
+    return QTreeWidget::eventFilter(watched, event);
 }
 
 void ChannelTree::dragLeaveEvent(QDragLeaveEvent* event)
