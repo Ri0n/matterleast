@@ -693,7 +693,11 @@ void PostWidget::paintEvent(QPaintEvent* event)
     QColor selected = palette().color(QPalette::Highlight);
     selected.setAlpha(34);
     QPainter painter(this);
-    painter.fillRect(rect(), selected);
+    QRect selectedArea = rect();
+    // The date divider is not part of the selected message chrome.
+    if (dayBoundaryWidget_ && !dayBoundaryWidget_->isHidden())
+        selectedArea.setTop(dayBoundaryWidget_->sizeHint().height());
+    painter.fillRect(selectedArea, selected);
 }
 
 ChatLogWidget* PostWidget::chatLog() const
@@ -1030,8 +1034,12 @@ void PostWidget::updateHoverActionsPalette()
 
 void PostWidget::positionHoverActions()
 {
+    // The date header is a presentation adornment, not part of the post
+    // itself. Anchor floating actions to the actual message, below the date.
+    const int contentTop = dayBoundaryWidget_ && !dayBoundaryWidget_->isHidden()
+        ? dayBoundaryWidget_->sizeHint().height() : 0;
     if (continuationTime_) {
-        continuationTime_->move(normalRowMargins_.left(), 0);
+        continuationTime_->move(normalRowMargins_.left(), contentTop);
     }
 
     if (_pendingIndicatorOverlay && pendingDeliveryIndicator_) {
@@ -1040,7 +1048,7 @@ void PostWidget::positionHoverActions()
         pendingDeliveryIndicator_->move(
             std::max(0, width() - normalRowMargins_.right()
                             - pendingDeliveryIndicator_->width()),
-            0);
+            contentTop);
         pendingDeliveryIndicator_->raise();
     }
 
@@ -1058,7 +1066,7 @@ void PostWidget::positionHoverActions()
         0, std::min(rowTopLeft.x() + width() - hoverActions_->width() - 8,
                     maxX));
     const int y = std::max(
-        0, std::min(rowTopLeft.y() - hoverActions_->height() / 2, maxY));
+        0, std::min(rowTopLeft.y() + contentTop - hoverActions_->height() / 2, maxY));
     hoverActions_->move(x, y);
 }
 
