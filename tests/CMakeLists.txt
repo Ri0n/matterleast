@@ -1064,3 +1064,12 @@ target_link_libraries(sidebar-drag-scroll-policy-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME sidebar-drag-scroll-policy-test
     COMMAND sidebar-drag-scroll-policy-test)
+
+if(TARGET matterleast-core)
+    add_executable(channel-tree-drag-scroll-test ChannelTreeDragScrollTest.cpp)
+    target_link_libraries(channel-tree-drag-scroll-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME channel-tree-drag-scroll-test COMMAND channel-tree-drag-scroll-test)
+    set_tests_properties(channel-tree-drag-scroll-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
