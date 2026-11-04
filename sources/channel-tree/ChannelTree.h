@@ -162,6 +162,7 @@ protected:
                       const QModelIndex& index) const override;
 
 private:
+    friend class ChannelTreeDragScrollTest;
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
 	void showContextMenu (const QPoint& pos);
 	void handleChannelLeave();
