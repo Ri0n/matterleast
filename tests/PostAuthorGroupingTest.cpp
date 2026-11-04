@@ -125,13 +125,13 @@ private slots:
     void dateBoundaryUsesLocalCalendarAndIsResilientToSparseHistory()
     {
         Storage storage;
-        const auto first = makePost(storage, QStringLiteral("aaaa"),
+        const auto first = makePost(storage, QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaa"),
             QStringLiteral("user"),
             localMs(QDate(2026, 11, 3), QTime(23, 59)));
-        const auto sameDay = makePost(storage, QStringLiteral("bbbb"),
+        const auto sameDay = makePost(storage, QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbb"),
             QStringLiteral("user"),
             localMs(QDate(2026, 11, 3), QTime(23, 59, 30)));
-        const auto nextDay = makePost(storage, QStringLiteral("cccc"),
+        const auto nextDay = makePost(storage, QStringLiteral("cccccccccccccccccccccccccc"),
             QStringLiteral("user"),
             localMs(QDate(2026, 11, 4), QTime(0, 1)));
         const QDate firstDay(2026, 11, 3);
@@ -154,7 +154,7 @@ private slots:
     {
         Backend backend;
         const qint64 timestamp = localMs(QDate(2026, 11, 4), QTime(9, 45));
-        auto post = makePost(backend.getStorage(), QStringLiteral("tttt"),
+        auto post = makePost(backend.getStorage(), QStringLiteral("tttttttttttttttttttttttttt"),
                              QStringLiteral("user"), timestamp);
         PostWidget widget(backend, post, nullptr, nullptr, nullptr);
         auto* label = widget.findChild<QLabel*>(QStringLiteral("time"));
@@ -165,9 +165,11 @@ private slots:
         QCOMPARE(label->text(), PostTimestampPresentation::absoluteTime(
             timestamp, locale));
         widget.setShowFullTimestamp(true);
+        QVERIFY(label->wordWrap());
         QCOMPARE(label->text(), full);
         QCOMPARE(label->toolTip(), full);
         widget.setShowFullTimestamp(false);
+        QVERIFY(!label->wordWrap());
         QCOMPARE(label->text(), PostTimestampPresentation::absoluteTime(
             timestamp, locale));
     }
@@ -175,7 +177,7 @@ private slots:
     void dayDividerIsPresentationOnlyAndCanBeReclassified()
     {
         Backend backend;
-        auto post = makePost(backend.getStorage(), QStringLiteral("dddd"),
+        auto post = makePost(backend.getStorage(), QStringLiteral("dddddddddddddddddddddddddd"),
                              QStringLiteral("user"),
                              localMs(QDate(2026, 11, 4), QTime(12, 0)));
         PostWidget widget(backend, post, nullptr, nullptr, nullptr);
