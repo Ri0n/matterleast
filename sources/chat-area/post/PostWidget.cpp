@@ -173,6 +173,10 @@ PostWidget::PostWidget(Backend& backend,
 {
 	ui->setupUi(this);
     normalRowMargins_ = ui->horizontalLayout_2->contentsMargins();
+    // postRootLayout has zero spacing for day dividers. Qt inherits that zero
+    // for this nested row unless explicitly overridden, placing text flush
+    // against the 48px avatar. Match the existing left avatar inset.
+    ui->horizontalLayout_2->setSpacing(normalRowMargins_.left());
 
     // Match Mattermost header geometry: author and timestamp form one compact
     // left-aligned cluster, with the remaining width trailing after them.
