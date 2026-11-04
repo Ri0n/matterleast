@@ -64,6 +64,7 @@
 #include "PostPermalinkUtils.h"
 #include "PostQuoteFrame.h"
 #include "PostTimestampPresentation.h"
+#include "PostDateBoundaryPresentation.h"
 #include "ReactionChipStyle.h"
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
@@ -172,6 +173,31 @@ PostWidget::PostWidget(Backend& backend,
 {
 	ui->setupUi(this);
     normalRowMargins_ = ui->horizontalLayout_2->contentsMargins();
+
+    // Date headers share their post's virtualized row, keeping source indices,
+    // post IDs, paging, unread cursors and navigation anchors unchanged.
+    dayBoundaryWidget_ = new QWidget(this);
+    dayBoundaryWidget_->setObjectName(QStringLiteral("postDayBoundary"));
+    auto* dayLayout = new QHBoxLayout(dayBoundaryWidget_);
+    dayLayout->setContentsMargins(12, 8, 12, 4);
+    dayLayout->setSpacing(12);
+    const auto addRule = [dayLayout, this] {
+        auto* rule = new QFrame(dayBoundaryWidget_);
+        rule->setFrameShape(QFrame::HLine);
+        rule->setFrameShadow(QFrame::Plain);
+        rule->setForegroundRole(QPalette::Mid);
+        rule->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        dayLayout->addWidget(rule, 1);
+    };
+    addRule();
+    dayBoundaryLabel_ = new QLabel(dayBoundaryWidget_);
+    dayBoundaryLabel_->setObjectName(QStringLiteral("postDayBoundaryLabel"));
+    dayBoundaryLabel_->setAlignment(Qt::AlignCenter);
+    dayBoundaryLabel_->setForegroundRole(QPalette::Mid);
+    dayLayout->addWidget(dayBoundaryLabel_);
+    addRule();
+    ui->postRootLayout->insertWidget(0, dayBoundaryWidget_);
+    dayBoundaryWidget_->hide();
 
     // Match Mattermost header geometry: author and timestamp form one compact
     // left-aligned cluster, with the remaining width trailing after them.
@@ -834,6 +860,29 @@ void PostWidget::setAuthorRunContinuation(bool continuation)
     emit dimensionsChanged();
 }
 
+void PostWidget::setDayBoundary(const QDate& day)
+{
+    if (dayBoundaryDate_ == day)
+        return;
+    dayBoundaryDate_ = day;
+    dayBoundaryLabel_->setText(PostDateBoundaryPresentation::label(day));
+    dayBoundaryWidget_->setVisible(day.isValid());
+    ui->postRootLayout->invalidate();
+    updateGeometry();
+    emit dimensionsChanged();
+}
+
+void PostWidget::setShowFullTimestamp(bool enabled)
+{
+    if (fullTimestampVisible_ == enabled)
+        return;
+    fullTimestampVisible_ = enabled;
+    updateTimestampPresentation();
+    ui->horizontalLayout->invalidate();
+    updateGeometry();
+    emit dimensionsChanged();
+}
+
 void PostWidget::clearTextSelection()
 {
     if (messageContent) {
@@ -891,12 +940,13 @@ void PostWidget::updateTimestampPresentation()
 {
     const qint64 timestamp = static_cast<qint64>(post.create_at);
     const QLocale locale = QLocale::system();
-    const QString visibleTime = usesRelativeTimestamp()
-        ? PostTimestampPresentation::threadRelativeTime(timestamp,
-            QDateTime::currentMSecsSinceEpoch(), locale)
-        : PostTimestampPresentation::absoluteTime(timestamp, locale);
     const QString fullTimestamp =
         PostTimestampPresentation::fullTimestamp(timestamp, locale);
+    const QString visibleTime = fullTimestampVisible_ ? fullTimestamp
+        : usesRelativeTimestamp()
+            ? PostTimestampPresentation::threadRelativeTime(timestamp,
+                QDateTime::currentMSecsSinceEpoch(), locale)
+            : PostTimestampPresentation::absoluteTime(timestamp, locale);
 
     ui->time->setText(visibleTime);
     ui->time->setToolTip(fullTimestamp);
@@ -1549,6 +1599,8 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     }
 
     chatFont_ = nextFont;
+    if (dayBoundaryLabel_)
+        dayBoundaryLabel_->setFont(chatFont_);
 
     // The designer's legacy 8 pt / 16 px author label truncated larger chat
     // fonts. The nickname uses the same body size, only with bold weight.
