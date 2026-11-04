@@ -226,7 +226,7 @@ private slots:
         const QString submitted = QStringLiteral("Keep **this** edit");
         editor->setPlainText(submitted);
         QVERIFY(save->isEnabled());
-        QTest::mouseClick(save, Qt::LeftButton);
+        save->click();
         QTRY_COMPARE(server.requests, 1);
         QTRY_VERIFY(!error->isHidden());
         QVERIFY(error->text().contains(
@@ -253,7 +253,7 @@ private slots:
         QVERIFY(save);
         editor->setPlainText(server.returnedHeader);
         QVERIFY(save->isEnabled());
-        QTest::mouseClick(save, Qt::LeftButton);
+        save->click();
         QTRY_COMPARE(dialog.result(), int(QDialog::Accepted));
         QCOMPARE(channel->header, server.returnedHeader);
     }
