@@ -376,7 +376,7 @@ private slots:
             QStringLiteral("avatarspacingtestpost000001"),
             QStringLiteral("uuuuuuuuuuuuuuuuuuuuuuuuuu"),
             localMs(QDate(2026, 11, 4), QTime(12, 0)));
-        PostWidget widget(backend, post);
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
         auto* row = widget.findChild<QHBoxLayout*>(
             QStringLiteral("horizontalLayout_2"));
         auto* avatar = widget.findChild<QWidget*>(
