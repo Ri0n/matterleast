@@ -174,31 +174,6 @@ PostWidget::PostWidget(Backend& backend,
 	ui->setupUi(this);
     normalRowMargins_ = ui->horizontalLayout_2->contentsMargins();
 
-    // Date headers share their post's virtualized row, keeping source indices,
-    // post IDs, paging, unread cursors and navigation anchors unchanged.
-    dayBoundaryWidget_ = new QWidget(this);
-    dayBoundaryWidget_->setObjectName(QStringLiteral("postDayBoundary"));
-    auto* dayLayout = new QHBoxLayout(dayBoundaryWidget_);
-    dayLayout->setContentsMargins(12, 8, 12, 4);
-    dayLayout->setSpacing(12);
-    const auto addRule = [dayLayout, this] {
-        auto* rule = new QFrame(dayBoundaryWidget_);
-        rule->setFrameShape(QFrame::HLine);
-        rule->setFrameShadow(QFrame::Plain);
-        rule->setForegroundRole(QPalette::Mid);
-        rule->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        dayLayout->addWidget(rule, 1);
-    };
-    addRule();
-    dayBoundaryLabel_ = new QLabel(dayBoundaryWidget_);
-    dayBoundaryLabel_->setObjectName(QStringLiteral("postDayBoundaryLabel"));
-    dayBoundaryLabel_->setAlignment(Qt::AlignCenter);
-    dayBoundaryLabel_->setForegroundRole(QPalette::Mid);
-    dayLayout->addWidget(dayBoundaryLabel_);
-    addRule();
-    ui->postRootLayout->insertWidget(0, dayBoundaryWidget_);
-    dayBoundaryWidget_->hide();
-
     // Match Mattermost header geometry: author and timestamp form one compact
     // left-aligned cluster, with the remaining width trailing after them.
     ui->authorName->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
@@ -865,6 +840,39 @@ void PostWidget::setDayBoundary(const QDate& day)
     if (dayBoundaryDate_ == day)
         return;
     dayBoundaryDate_ = day;
+
+    // Most posts are not date boundaries (and threads/collections have none).
+    // Materialize this decorative surface only for an actual day transition.
+    if (!dayBoundaryWidget_ && day.isValid()) {
+        // Date headers share their post's virtualized row, keeping source indices,
+        // post IDs, paging, unread cursors and navigation anchors unchanged.
+        dayBoundaryWidget_ = new QWidget(this);
+        dayBoundaryWidget_->setObjectName(QStringLiteral("postDayBoundary"));
+        auto* dayLayout = new QHBoxLayout(dayBoundaryWidget_);
+        dayLayout->setContentsMargins(12, 8, 12, 4);
+        dayLayout->setSpacing(12);
+        const auto addRule = [dayLayout, this] {
+            auto* rule = new QFrame(dayBoundaryWidget_);
+            rule->setFrameShape(QFrame::HLine);
+            rule->setFrameShadow(QFrame::Plain);
+            rule->setForegroundRole(QPalette::Mid);
+            rule->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            dayLayout->addWidget(rule, 1);
+        };
+        addRule();
+        dayBoundaryLabel_ = new QLabel(dayBoundaryWidget_);
+        dayBoundaryLabel_->setObjectName(QStringLiteral("postDayBoundaryLabel"));
+        dayBoundaryLabel_->setAlignment(Qt::AlignCenter);
+        dayBoundaryLabel_->setForegroundRole(QPalette::Mid);
+        dayLayout->addWidget(dayBoundaryLabel_);
+        addRule();
+        ui->postRootLayout->insertWidget(0, dayBoundaryWidget_);
+        dayBoundaryWidget_->hide();
+        dayBoundaryLabel_->setFont(chatFont_);
+    }
+    if (!dayBoundaryWidget_)
+        return;
+
     dayBoundaryLabel_->setText(PostDateBoundaryPresentation::label(day));
     dayBoundaryWidget_->setVisible(day.isValid());
     ui->postRootLayout->invalidate();
