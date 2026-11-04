@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      replace_existing:
+        description: Explicitly replace assets in an already-published release after a moved tag
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -120,19 +126,51 @@ jobs:
           fi
           ls -lh release-assets
 
-      - name: Create GitHub release
+      - name: Create or replace GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing || 'false' }}
         run: |
           set -euo pipefail
-          gh release create "$TAG" release-assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --generate-notes \
-            --title "MatterLeast $VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [[ "$REPLACE_EXISTING" != "true" ]]; then
+              echo "::error::$TAG is already published. Explicit replace_existing=true is required to overwrite it."
+              exit 1
+            fi
+
+            # Release assets are not tag-relative. A forced tag move alone
+            # leaves the old binary packages and stale checksums in place.
+            # Replace the complete, previously verified asset set; only then
+            # let the update-channel job publish its new SHA-256 manifest.
+            gh release upload "$TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+
+            # Regenerate notes against the moved tag so the follow-up fixes
+            # appear in the same release rather than retaining old notes.
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+              --jq '.body' > "$RUNNER_TEMP/release-notes.md"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "MatterLeast $VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "MatterLeast $VERSION"
+          fi
+
+          # A successful upload must not leave outdated or extraneous assets
+          # that could be mistaken for packages from the moved tag.
+          find release-assets -maxdepth 1 -type f -printf '%f\n' | sort > expected-assets.txt
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | sort > actual-assets.txt
+          diff -u expected-assets.txt actual-assets.txt
 
   update_channel:
     name: Promote stable Windows update pointer
