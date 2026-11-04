@@ -38,6 +38,7 @@
 #include "AbstractPostSource.h"
 #include "ChannelPostSource.h"
 #include "ChatLogWidget.h"
+#include "ChannelTopicEditDialog.h"
 #include "FilteredPostSource.h"
 #include "OutboxPostSource.h"
 #include "PostFilterPolicy.h"
