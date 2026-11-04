@@ -877,6 +877,9 @@ void PostWidget::setShowFullTimestamp(bool enabled)
     if (fullTimestampVisible_ == enabled)
         return;
     fullTimestampVisible_ = enabled;
+    // Long regional dates must remain readable even in a narrow collection
+    // pane; allow the timestamp label to wrap instead of clipping its date.
+    ui->time->setWordWrap(enabled);
     updateTimestampPresentation();
     ui->horizontalLayout->invalidate();
     updateGeometry();
