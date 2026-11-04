@@ -1054,3 +1054,13 @@ if(TARGET matterleast-core)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+
+# The sidebar owns drag geometry instead of invoking QTreeWidget::dragMoveEvent.
+# Keep continuous edge scrolling, wheel deltas and category probes covered.
+add_executable(sidebar-drag-scroll-policy-test SidebarDragScrollPolicyTest.cpp)
+target_include_directories(sidebar-drag-scroll-policy-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(sidebar-drag-scroll-policy-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME sidebar-drag-scroll-policy-test
+    COMMAND sidebar-drag-scroll-policy-test)
