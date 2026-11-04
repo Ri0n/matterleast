@@ -880,6 +880,7 @@ void PostWidget::setDayBoundary(const QDate& day)
     dayBoundaryLabel_->setText(PostDateBoundaryPresentation::label(day));
     dayBoundaryWidget_->setVisible(day.isValid());
     ui->postRootLayout->invalidate();
+    positionHoverActions();
     updateGeometry();
     emit dimensionsChanged();
 }
