@@ -172,6 +172,12 @@ public:
 	//edit channel properties (PUT /channels/{channel_id})
 	void editChannelProperties (BackendChannel& channel, const BackendChannelProperties& newProperties);
 
+    // Edit only the Markdown channel topic. The server decides whether the
+    // user has manage_*_channel_properties permission (or DM/GM membership).
+    // On success, update the canonical channel and emit onUpdated.
+    void editChannelHeader(BackendChannel& channel, const QString& header,
+                           StatusUpdateResult callback);
+
 	//add new post in a channel (/posts)
 	void addPost (BackendChannel& channel, const QString& message, const QList<QString>& attachments, const QString& rootID = "");
 	void addPost (BackendChannel& channel, const QString& message, const QList<QString>& attachments,
