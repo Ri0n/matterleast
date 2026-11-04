@@ -95,10 +95,8 @@ void ChannelTopicEditDialog::save()
         if (ok) {
             guard->accept();
         } else {
-            guard->_error->setText(error);
-            guard->_error->show();
             guard->refreshValidation();
-            // refreshValidation hides stale errors; restore the real response.
+            guard->_error->setText(error);
             guard->_error->show();
         }
     });
