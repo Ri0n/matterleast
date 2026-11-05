@@ -16,6 +16,7 @@
 
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
+#include "backend/QByteArrayCreator.h"
 #include "backend/types/BackendChannel.h"
 
 namespace Mattermost {
@@ -137,7 +138,7 @@ void UserProfileService::loadChannelMemberRolesByIds(
     QPointer<UserProfileService> guard(this);
     NetworkRequest request(QStringLiteral("channels/") + channel.id
                            + QStringLiteral("/members/ids"));
-    httpConnector.post(request, pendingIds, HttpResponseCallback(
+    httpConnector.post(request, QByteArrayCreator(pendingIds), HttpResponseCallback(
         [guard, channelGuard, seen, callback = std::move(callback)](
             QVariant status, const QJsonDocument& doc) mutable {
             if (guard && channelGuard
