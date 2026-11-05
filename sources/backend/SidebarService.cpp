@@ -446,6 +446,15 @@ void SidebarService::applyServerChannelViewed(const BackendChannel& channel,
     emit channelActivityChanged(channel.id);
 }
 
+uint64_t SidebarService::channelUnreadMessageCount(
+    const BackendChannel& channel) const
+{
+    return activityTracker.unreadCount(
+        channel.id,
+        static_cast<uint64_t>(std::max(0, channel.total_msg_count)),
+        static_cast<uint64_t>(std::max(0, channel.total_msg_count_root)));
+}
+
 void SidebarService::markPostUnread(const QString& postId,
                                            std::function<void(bool)> callback)
 {
