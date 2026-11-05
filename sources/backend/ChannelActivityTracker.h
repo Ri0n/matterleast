@@ -26,13 +26,13 @@ public:
         uint64_t mentionCount = 0;
         uint64_t rootMentionCount = 0;
 
-        // Own posts and intentionally hidden routine membership events can
-        // advance server channel counts without representing unread messages.
-        // Keep credits against the last known membership counters, consuming
-        // them when those counters catch up. Real foreign posts independently
-        // retain runtime unread state.
-        uint64_t pendingNonUnreadMessageCount = 0;
-        uint64_t pendingNonUnreadRootMessageCount = 0;
+        // A websocket own-post event can arrive before Mattermost advances the
+        // membership read counters. Keep those already-read posts as a local
+        // count credit so a later channel snapshot cannot resurrect them as
+        // unread. A membership/read acknowledgement consumes the credit once
+        // its absolute counter advances.
+        uint64_t pendingOwnMessageCount = 0;
+        uint64_t pendingOwnRootMessageCount = 0;
         bool membershipInitialized = false;
         bool rootMembershipInitialized = false;
 
@@ -61,10 +61,6 @@ public:
                             bool hasTotalRootMessageCount, bool collapsedThreadsEnabled);
     void recordPost(const QString& channelId, uint64_t createdAt, bool ownPost,
                     bool threadReply, bool mentioned);
-    // For own and hidden system posts: preserve recency and server-count
-    // accounting without raising runtime unread/mention flags.
-    void recordNonUnreadPost(const QString& channelId, uint64_t createdAt,
-                             bool threadReply);
     void recordViewed(const QString& channelId, uint64_t viewedAt,
                       uint64_t totalMessageCount, uint64_t totalRootMessageCount,
                       bool hasTotalRootMessageCount);
