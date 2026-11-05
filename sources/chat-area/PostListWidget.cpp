@@ -223,9 +223,12 @@ void PostListWidget::ensureHoverActions()
     connect(toolbarHideTimer_, &QTimer::timeout, this, [this] {
         // underMouse() can remain stale when a Leave is lost. Recheck the
         // real pointer position against the current toolbar geometry instead.
-        const bool inside = toolbar_ && toolbar_->isVisible()
+        const bool insideToolbar = toolbar_ && toolbar_->isVisible()
             && toolbar_->rect().contains(toolbar_->mapFromGlobal(QCursor::pos()));
-        if (!inside) {
+        // A toolbar Leave does not end the post hover session. Moving downward
+        // from the reaction button into the same post may not produce a new
+        // row Enter, so keeping the panel depends on its actual row geometry.
+        if (!insideToolbar && !cursorOverActivePost()) {
             animateToolbar(false);
         }
     });
@@ -326,6 +329,17 @@ void PostListWidget::animateToolbar(bool visible, bool immediate)
     toolbarAnimation_->setStartValue(toolbarOpacity_->opacity());
     toolbarAnimation_->setEndValue(toolbarWanted_ ? 1.0 : 0.0);
     toolbarAnimation_->start();
+}
+
+bool PostListWidget::cursorOverActivePost() const
+{
+    const auto* post = toolbarPost_.data();
+    if (!post || !post->isVisible() || !viewport()->isVisible()) {
+        return false;
+    }
+    const QPoint global = QCursor::pos();
+    return viewport()->rect().contains(viewport()->mapFromGlobal(global))
+        && post->rect().contains(post->mapFromGlobal(global));
 }
 
 void PostListWidget::hideToolbar(bool immediate)
@@ -448,10 +462,12 @@ bool PostListWidget::eventFilter(QObject* watched, QEvent* event)
             clearActiveHover(true);
             hideToolbar(true);
         } else if (event->type() == QEvent::Enter) {
-            // Some window systems do not deliver the matching Leave when the
-            // application loses activation. Never forget an old hover owner
-            // without first hiding its viewport-owned floating toolbar.
-            clearActiveHover(true);
+            // Enter on the viewport may be a return from the floating toolbar
+            // into the same post. There is no guaranteed subsequent row Enter
+            // to restore hover, so don't clear a still-physically-hovered post.
+            if (!cursorOverActivePost()) {
+                clearActiveHover(true);
+            }
         } else if (event->type() == QEvent::Leave) {
             clearActiveHover();
         } else if (event->type() == QEvent::Wheel) {
