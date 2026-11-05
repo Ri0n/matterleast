@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLoggingCategory>
 #include <QPointer>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -60,6 +61,7 @@ public:
     int ordinaryCount = 19;
     int hiddenCount = 16;
     int requests = 0;
+    QStringList requestUrls;
 
     HiddenHistoryServer()
     {
@@ -82,6 +84,8 @@ public:
                     ++requests;
 
                     const QUrl url(QString::fromUtf8(received.split(' ').value(1)));
+                    requestUrls.push_back(url.toString());
+                    qInfo().noquote() << "HIDDEN_HISTORY_HTTP" << url.toString();
                     const QUrlQuery query(url);
                     const int page = qMax(0, query.queryItemValue(
                         QStringLiteral("page")).toInt());
@@ -159,6 +163,8 @@ private slots:
     void initTestCase()
     {
         QStandardPaths::setTestModeEnabled(true);
+        QLoggingCategory::setFilterRules(QStringLiteral(
+            "mattermost.timeline.channel.debug=true"));
     }
 
     void paginationAfterFilteringExhaustsTheViewport_data()
@@ -200,7 +206,13 @@ private slots:
         visible.requestRange(newestFirst, ordinaryCount - 1,
                              AbstractPostSource::RequestReason::Scroll, 0);
         QTRY_VERIFY(visible.itemCount() <= ordinaryCount - 11);
-        visible.requestRange(0, qMin(ordinaryCount - 12, visible.itemCount() - 1),
+        const int rangeLast = qMin(ordinaryCount - 12, visible.itemCount() - 1);
+        qInfo() << "HIDDEN_HISTORY_SECOND_REQUEST"
+                << "raw" << raw.itemCount()
+                << "visible" << visible.itemCount()
+                << "sourceFirst" << raw.postIdAt(0)
+                << "requestedLast" << rangeLast;
+        visible.requestRange(0, rangeLast,
                              AbstractPostSource::RequestReason::Scroll, 0);
 
         // A full page near the reported oldest edge is not proof of the real
