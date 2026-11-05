@@ -92,7 +92,23 @@ public:
                     const int perPage = qMax(1, query.queryItemValue(
                         QStringLiteral("per_page")).toInt());
                     const int total = ordinaryCount + hiddenCount;
-                    const int offset = page * perPage;
+                    int offset = page * perPage;
+                    if (query.hasQueryItem(QStringLiteral("before"))) {
+                        const QString anchor = query.queryItemValue(
+                            QStringLiteral("before"));
+                        int anchorIndex = -1;
+                        for (int i = 0; i < total; ++i) {
+                            if (postId(i) == anchor) {
+                                anchorIndex = i;
+                                break;
+                            }
+                        }
+                        if (anchorIndex >= 0) {
+                            // Mattermost's before-cursor starts immediately
+                            // older than the anchor, not at page zero.
+                            offset = total - anchorIndex;
+                        }
+                    }
 
                     QJsonObject posts;
                     QJsonArray order;
