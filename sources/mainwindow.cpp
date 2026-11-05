@@ -1172,6 +1172,14 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 		return;
 	}
 
+    const BackendUser* loginUser = backend.getStorage().loginUser;
+    if (!shouldShowMainTimelinePost(post.type, post.props.toObject(),
+                                    loginUser ? loginUser->username : QString())) {
+        // Also keep suppressed membership events out of the explicit mention
+        // path, not just the desktop notification path.
+        return;
+    }
+
 	auto& sidebar = SidebarService::instance(backend);
     // SidebarService::recordChannelPost() already tracks reply mentions in
     // the thread domain. Never promote a reply mention to a root-channel
@@ -1183,12 +1191,6 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 	if (sidebar.isChannelMuted(channel)) {
 		return;
 	}
-
-    const BackendUser* loginUser = backend.getStorage().loginUser;
-    if (!shouldShowMainTimelinePost(post.type, post.props.toObject(),
-                                    loginUser ? loginUser->username : QString())) {
-        return;
-    }
 
 	const bool directConversation = channel.type == BackendChannel::directChannel
 		|| channel.type == BackendChannel::groupChannel;
