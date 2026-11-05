@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QMap>
+#include <QPointer>
 #include <QPersistentModelIndex>
 #include <QSet>
 #include <QTreeWidget>
@@ -38,6 +39,8 @@ class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
 class QMouseEvent;
+class QLabel;
+class QTimer;
 class QPainter;
 class QStackedWidget;
 class QTreeWidgetItem;
@@ -151,6 +154,7 @@ protected:
 	void currentChanged(const QModelIndex& current, const QModelIndex& previous) override;
 	void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
     void startDrag(Qt::DropActions supportedActions) override;
@@ -212,6 +216,8 @@ private:
     void prepareCategoryDragBoundaries(QTreeWidgetItem* source);
     bool updateDragTargetAt(const QPoint& viewportPos);
     void tickDragAutoScroll();
+    void updateInternalDragPointer(const QPoint& viewportPos);
+    void finishInternalDrag(const QPoint& viewportPos, bool commit);
     void scrollDuringDrag(int scrollUnits, const QPoint& viewportPos);
     const CategoryDragBoundary* nearestCategoryDragBoundary(int probe) const;
     void updateDragVisuals(QTreeWidgetItem* source, QTreeWidgetItem* gapAnchor,
@@ -247,9 +253,12 @@ private:
 	Backend*							backendForSidebar;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
-    // True for the complete nested QDrag::exec() lifetime. Structural sidebar
+    // True during an internal sidebar mouse drag. Structural sidebar
     // mutations from network/realtime callbacks are deferred while this is set.
     bool                                sidebarDragActive = false;
+    QPointer<QLabel>                    dragPreview;
+    QTimer*                             dragScrollTimer = nullptr;
+    QPoint                             dragPreviewHotSpot;
     QPersistentModelIndex               categoryActionHoverIndex;
     bool                                categoryActionHovered = false;
     QVariantAnimation*                  sourceCollapseAnimation = nullptr;
