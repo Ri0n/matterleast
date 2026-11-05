@@ -26,6 +26,14 @@
         <file alias="message-priority">img/message-priority.svg</file>
         <file alias="unread">img/unread.svg</file>
         <file alias="filter-variant">img/filter-variant.svg</file>
+        <file alias="menu-folder">img/menu-folder.svg</file>
+        <file alias="menu-power">img/menu-power.svg</file>
+        <file alias="menu-logout">img/menu-logout.svg</file>
+        <file alias="menu-settings">img/menu-settings.svg</file>
+        <file alias="menu-help">img/menu-help.svg</file>
+        <file alias="menu-info">img/menu-info.svg</file>
+        <file alias="menu-file">img/menu-file.svg</file>
+        <file alias="menu-poll">img/menu-poll.svg</file>
         <file>img/quote-arrow.png</file>
     </qresource>
     <qresource prefix="/">
