@@ -86,6 +86,10 @@ public:
     void markChannelViewedLocally(const BackendChannel& channel);
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
     void markPostUnread(const QString& postId, std::function<void(bool)> callback = {});
+    /** Persist a partial cursor through the NEXT unread post; one in flight per channel. */
+    void checkpointChannelRead(const QString& channelId,
+                               const QString& nextUnreadPostId,
+                               std::function<void(bool)> callback = {});
     /** Apply the server's post_unread event to this client's read watermark. */
     void applyServerPostUnread(const QString& channelId, const QJsonObject& data);
     void synchronizeChannelActivity();
@@ -151,6 +155,13 @@ private:
     QString _conversationSearchTerm;
     QMap<QString, SidebarTeamState> sidebarByTeam;
     ChannelActivityTracker activityTracker;
+
+    struct PendingReadCheckpoint {
+        QString postId;
+        bool fullReadRequested = false;
+    };
+    QHash<QString, PendingReadCheckpoint> pendingReadCheckpoints_;
+    QSet<QString> recentReadCheckpointIds_;
 
     QMap<QString, bool> directChannelVisibility;
     QMap<QString, bool> groupChannelVisibility;
