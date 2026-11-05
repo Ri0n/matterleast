@@ -51,6 +51,12 @@ private slots:
         QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6),
                  uint64_t(3));
 
+        // Channel root-only timelines show only root posts even when CRT is
+        // disabled and replies count for channel notifications.
+        synchronize(tracker, 2000, 11, 6, true, false);
+        QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6, true),
+                 uint64_t(3));
+
         // The count is a server membership fact, independent of mute policy.
         tracker.setMuted(QStringLiteral("channel"), true);
         QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6),

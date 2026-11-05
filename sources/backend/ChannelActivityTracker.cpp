@@ -320,17 +320,20 @@ bool ChannelActivityTracker::isUnread(const QString& channelId) const
 
 uint64_t ChannelActivityTracker::unreadCount(const QString& channelId,
                                              uint64_t totalMessages,
-                                             uint64_t totalRootMessages) const
+                                             uint64_t totalRootMessages,
+                                             bool rootsOnly) const
 {
     const auto it = entries.constFind(channelId);
     if (it == entries.cend() || !it->tracked) {
         return 0;
     }
     const Entry& entry = *it;
-    const uint64_t total = entry.rootUnreadMode ? totalRootMessages : totalMessages;
-    const uint64_t read = entry.rootUnreadMode
+    const bool useRootCounts = (rootsOnly && entry.hasReadRootMessageCount)
+        || entry.rootUnreadMode;
+    const uint64_t total = useRootCounts ? totalRootMessages : totalMessages;
+    const uint64_t read = useRootCounts
         ? entry.readRootMessageCount : entry.readMessageCount;
-    const uint64_t ownCredit = entry.rootUnreadMode
+    const uint64_t ownCredit = useRootCounts
         ? entry.pendingOwnRootMessageCount : entry.pendingOwnMessageCount;
     return total > read + std::min(ownCredit, total - read)
         ? total - read - std::min(ownCredit, total - read) : 0;

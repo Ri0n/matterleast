@@ -685,7 +685,7 @@ uint64_t ChatLogWidget::unreadEdgeCount() const
     uint64_t count = chatArea->isThread
         ? (entry ? static_cast<uint64_t>(std::max(0, entry->unreadReplies)) : 0)
         : SidebarService::instance(*backend).channelUnreadMessageCount(
-              chatArea->getChannel());
+              chatArea->getChannel(), true);
 
     // Local viewport progress wins over a server count that has not yet been
     // sent/acknowledged. Source rows represent real server posts except for
