@@ -109,6 +109,7 @@ PostListWidget::PostListWidget(QWidget* parent)
             || OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(
                 *this, QCursor::pos())) {
             navigationHoverSuppressed_ = true;
+            setHoverHighlightSuppressed(true);
             clearActiveHover(true);
             return;
         }
@@ -181,6 +182,7 @@ void PostListWidget::handlePointerOverNavigation(
             *this, globalPosition);
     if (excluded) {
         navigationHoverSuppressed_ = true;
+        setHoverHighlightSuppressed(true);
         // No 160ms leave delay or fade: the toolbar must stop intercepting
         // clicks before the pointer reaches the quick-scroll button.
         clearActiveHover(true);
@@ -192,6 +194,7 @@ void PostListWidget::handlePointerOverNavigation(
     }
 
     navigationHoverSuppressed_ = false;
+    setHoverHighlightSuppressed(false);
     // A row may never receive a fresh Enter when the pointer merely crosses
     // this invisible exclusion contour while remaining inside that row.
     if (auto* post = postAtPointer(receiver, globalPosition)) {
