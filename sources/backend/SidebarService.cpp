@@ -455,6 +455,32 @@ uint64_t SidebarService::channelUnreadMessageCount(
         static_cast<uint64_t>(std::max(0, channel.total_msg_count_root)));
 }
 
+void SidebarService::applyServerPostUnread(const QString& channelId,
+                                          const QJsonObject& data)
+{
+    if (channelId.isEmpty()) {
+        return;
+    }
+    const auto field = [&data](const char* key) -> uint64_t {
+        return data.value(QString::fromLatin1(key)).toVariant().toULongLong();
+    };
+    const bool wasMentioned = activityTracker.hasMention(channelId);
+    activityTracker.markUnread(
+        channelId,
+        field("last_viewed_at"),
+        field("msg_count"),
+        field("msg_count_root"),
+        data.contains(QStringLiteral("msg_count_root")),
+        field("mention_count"),
+        field("mention_count_root"),
+        data.contains(QStringLiteral("mention_count_root")));
+    if (wasMentioned != activityTracker.hasMention(channelId)) {
+        emit channelMentionedChanged(channelId,
+                                     activityTracker.hasMention(channelId));
+    }
+    emit channelActivityChanged(channelId);
+}
+
 void SidebarService::markPostUnread(const QString& postId,
                                            std::function<void(bool)> callback)
 {
@@ -488,28 +514,7 @@ void SidebarService::markPostUnread(const QString& postId,
                 return;
             }
 
-            const auto nonNegative = [&object](const char* name) -> uint64_t {
-                const qint64 value = object.value(QString::fromLatin1(name))
-                    .toVariant().toLongLong();
-                return value > 0 ? static_cast<uint64_t>(value) : 0;
-            };
-
-            const bool wasMentioned = activityTracker.hasMention(channelId);
-            activityTracker.markUnread(
-                channelId,
-                nonNegative("last_viewed_at"),
-                nonNegative("msg_count"),
-                nonNegative("msg_count_root"),
-                object.contains(QStringLiteral("msg_count_root")),
-                nonNegative("mention_count"),
-                nonNegative("mention_count_root"),
-                object.contains(QStringLiteral("mention_count_root")));
-
-            const bool isMentioned = activityTracker.hasMention(channelId);
-            if (wasMentioned != isMentioned) {
-                emit channelMentionedChanged(channelId, isMentioned);
-            }
-            emit channelActivityChanged(channelId);
+            applyServerPostUnread(channelId, object);
             if (callback) {
                 callback(true);
             }
