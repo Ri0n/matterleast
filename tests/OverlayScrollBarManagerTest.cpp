@@ -2,6 +2,7 @@
 
 #include <QAbstractScrollArea>
 #include <QApplication>
+#include <QLabel>
 #include <QScrollBar>
 #include <QToolButton>
 #include <QWidget>
@@ -18,6 +19,25 @@ void settleEvents(int rounds = 6)
 }
 
 } // namespace
+
+class InterceptedScrollArea : public QAbstractScrollArea
+{
+public:
+    int intercepted = 0;
+    bool handleBottomAction = true;
+
+protected:
+    bool event(QEvent* event) override
+    {
+        if (event->type() == Mattermost::OverlayScrollToEndEvent::eventType()
+            && handleBottomAction) {
+            ++intercepted;
+            event->accept();
+            return true;
+        }
+        return QAbstractScrollArea::event(event);
+    }
+};
 
 class OverlayScrollBarManagerTest : public QObject
 {
@@ -66,6 +86,46 @@ private slots:
         settleEvents();
         QCOMPARE(area.verticalScrollBar()->value(),
                  area.verticalScrollBar()->minimum());
+    }
+
+    void customEndActionAndGenericBadgeDoNotChangeOrdinaryScrollAreas()
+    {
+        InterceptedScrollArea area;
+        area.resize(320, 240);
+        area.verticalScrollBar()->setRange(0, 100);
+        area.verticalScrollBar()->setValue(25);
+        area.show();
+        settleEvents();
+
+        auto* button = area.findChild<QToolButton*>(
+            QStringLiteral("mattermostOverlayScrollToEndButton"));
+        auto* badge = area.findChild<QLabel*>(
+            QStringLiteral("mattermostOverlayBottomBadge"));
+        QVERIFY(button);
+        QVERIFY(badge);
+        QVERIFY(button->isVisible());
+        QVERIFY(!badge->isVisible());
+
+        area.setProperty("mattermostOverlayBottomBadgeText",
+                         QStringLiteral("128"));
+        settleEvents();
+        QCOMPARE(badge->text(), QStringLiteral("128"));
+        QVERIFY(badge->isVisible());
+        QVERIFY(badge->geometry().bottom() <
+                button->mapTo(badge->parentWidget(), QPoint(0, 0)).y());
+
+        QTest::mouseClick(button, Qt::LeftButton);
+        settleEvents();
+        QCOMPARE(area.intercepted, 1);
+        QCOMPARE(area.verticalScrollBar()->value(), 25);
+
+        area.handleBottomAction = false;
+        QTest::mouseClick(button, Qt::LeftButton);
+        settleEvents();
+        QCOMPARE(area.verticalScrollBar()->value(), 100);
+        QVERIFY(!badge->isVisible());
+        area.setProperty("mattermostOverlayBottomBadgeText", QString());
+        QCOMPARE(badge->text(), QString());
     }
 
     void edgeButtonGuardsInterceptTheSurroundingArea()
