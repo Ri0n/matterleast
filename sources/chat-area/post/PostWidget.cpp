@@ -82,6 +82,7 @@
 #include "backend/types/BackendTeam.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
+#include "chat-area/PostListWidget.h"
 #include "chat-area/QuotedPostPreview.h"
 #include "chat-area/QuotedReplyController.h"
 #include "chat-area/QuotedReplyFormat.h"
@@ -217,6 +218,9 @@ PostWidget::PostWidget(Backend& backend,
     });
 
     if (presentationMode_ == PresentationMode::Interactive) {
+        if (!postListWidget()) {
+        // Standalone post widgets retain their local action surface. Rows in
+        // PostListWidget use its one shared, viewport-owned toolbar instead.
         // Post actions are an overlay, not part of row geometry. Parent the
         // surface to the LongList viewport so it may float slightly above this
         // row without being clipped by PostWidget.
@@ -364,6 +368,8 @@ PostWidget::PostWidget(Backend& backend,
             hoverActionsAnimation_->setEndValue(0.0);
             hoverActionsAnimation_->start();
         });
+
+        }
 
         continuationTime_ = new QLabel(this);
         continuationTime_->setObjectName(QStringLiteral("continuationTime"));
@@ -599,7 +605,12 @@ PostWidget::~PostWidget()
     if (hoverActionsAnimation_) {
         hoverActionsAnimation_->stop();
     }
-    delete hoverActions_;
+    // The list-owned bar is borrowed only while this row is its active target.
+    // It outlives materialized rows and must never be deleted by them.
+    if (hoverActions_
+        && !hoverActions_->property("matterleastSharedPostHoverActions").toBool()) {
+        delete hoverActions_;
+    }
     hoverActions_ = nullptr;
 	delete ui;
 }
@@ -707,6 +718,16 @@ void PostWidget::paintEvent(QPaintEvent* event)
 ChatLogWidget* PostWidget::chatLog() const
 {
     return qobject_cast<ChatLogWidget*>(parentWidget() ? parentWidget()->parentWidget() : nullptr);
+}
+
+PostListWidget* PostWidget::postListWidget() const
+{
+    for (QWidget* parent = parentWidget(); parent; parent = parent->parentWidget()) {
+        if (auto* list = dynamic_cast<PostListWidget*>(parent)) {
+            return list;
+        }
+    }
+    return nullptr;
 }
 
 void PostWidget::moveEvent(QMoveEvent* event)
@@ -930,6 +951,10 @@ void PostWidget::animateHoverActions(bool visible, bool immediate)
         }
     }
 
+    if (auto* list = postListWidget()) {
+        list->showPostHoverActions(*this, visible, immediate);
+        return;
+    }
     if (!hoverActions_ || !hoverActionsOpacity_ || !hoverActionsAnimation_) {
         return;
     }
@@ -1018,6 +1043,10 @@ void PostWidget::updateTimestampPalette()
 
 void PostWidget::updateHoverActionsPalette()
 {
+    if (auto* list = postListWidget()) {
+        list->updatePostHoverActionsPalette(*this);
+        return;
+    }
     if (!hoverActions_) {
         return;
     }
@@ -1069,6 +1098,10 @@ void PostWidget::positionHoverActions()
         pendingDeliveryIndicator_->raise();
     }
 
+    if (auto* list = postListWidget()) {
+        list->positionPostHoverActions(*this);
+        return;
+    }
     if (!hoverActions_ || !hoverActions_->parentWidget()) {
         return;
     }

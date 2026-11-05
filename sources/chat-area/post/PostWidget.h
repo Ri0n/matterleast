@@ -64,6 +64,7 @@ class PostReactionList;
 class PostPoll;
 class ChatArea;
 class ChatLogWidget;
+class PostListWidget;
 class KTalkMeetingWidget;
 class ReactionQuickBarController;
 class ThreadSummaryWidget;
@@ -198,11 +199,13 @@ protected:
 
 private:
     friend class ReactionQuickBarController;
+    friend class PostListWidget;
 
     void showPostContextMenu(const QPoint& globalPos);
     void animateHoverActions(bool visible, bool immediate = false);
     void positionHoverActions();
     void updateHoverActionsPalette();
+    PostListWidget* postListWidget() const;
     void updateTimestampPresentation();
     void updateTimestampPalette();
     bool usesRelativeTimestamp() const;

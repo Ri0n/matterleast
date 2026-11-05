@@ -2,6 +2,8 @@
 
 #include <QApplication>
 #include <QFontMetrics>
+#include <QFrame>
+#include <QPushButton>
 #include <QImage>
 #include <QLabel>
 #include <QRegularExpression>
@@ -15,17 +17,88 @@
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/post/PostWidget.h"
+#include "chat-area/PostListWidget.h"
 #include "chat-area/post/ReactionChipStyle.h"
 #include "chat-area/post/reactions/PostReaction.h"
 #include "chat-area/post/reactions/PostReactionList.h"
 
 using namespace Mattermost;
 
+class HoverTestList final : public PostListWidget
+{
+protected:
+    QWidget* createItemWidget(int) override { return nullptr; }
+};
+
 class PostReactionInteractionTest : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void oneFloatingToolbarFollowsTheHoveredPost()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+        BackendPost first(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("aaaaabbbbbcccccdddddeeeee")},
+                {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+                {QStringLiteral("create_at"), 1},
+                {QStringLiteral("message"), QStringLiteral("first")},
+            }, storage);
+        BackendPost second(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("fffffggggghhhhhiiiiijjjjj")},
+                {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+                {QStringLiteral("create_at"), 2},
+                {QStringLiteral("message"), QStringLiteral("second")},
+            }, storage);
+
+        HoverTestList list;
+        list.resize(450, 360);
+        list.show();
+        auto* one = new PostWidget(backend, first, list.viewport(), nullptr, nullptr);
+        auto* two = new PostWidget(backend, second, list.viewport(), nullptr, nullptr);
+        one->resize(400, 100);
+        two->resize(400, 100);
+        two->move(0, 120);
+        one->show();
+        two->show();
+        QApplication::processEvents();
+
+        // Materializing rows must not create any toolbar at all.
+        QCOMPARE(list.viewport()->findChildren<QFrame*>(
+            QStringLiteral("postHoverActions"), Qt::FindDirectChildrenOnly).size(), 0);
+
+        one->setHovered(true, true);
+        auto bars = list.viewport()->findChildren<QFrame*>(
+            QStringLiteral("postHoverActions"), Qt::FindDirectChildrenOnly);
+        QCOMPARE(bars.size(), 1);
+        QFrame* bar = bars.first();
+        QVERIFY(bar->isVisible());
+        auto* reaction = bar->findChild<QPushButton*>();
+        QVERIFY(reaction);
+        QCOMPARE(reaction->property("matterleastPostOwner").value<QObject*>(),
+                 static_cast<QObject*>(one));
+
+        // Simulate a lost Leave on the previous row: physically there is
+        // still just one toolbar, and its actions now belong to the new post.
+        two->setHovered(true, true);
+        QCOMPARE(list.viewport()->findChildren<QFrame*>(
+            QStringLiteral("postHoverActions"), Qt::FindDirectChildrenOnly).size(), 1);
+        QCOMPARE(reaction->property("matterleastPostOwner").value<QObject*>(),
+                 static_cast<QObject*>(two));
+        QVERIFY(bar->isVisible());
+
+        delete one; // Virtualization of a formerly hovered row.
+        QVERIFY(bar->isVisible());
+        delete two; // Virtualization of the active target.
+        QApplication::processEvents();
+        QVERIFY(!bar->isVisible());
+        QCOMPARE(reaction->property("matterleastPostOwner").value<QObject*>(),
+                 static_cast<QObject*>(nullptr));
+    }
+
     void reactionCountTracksInheritedChatFont()
     {
         Backend backend;
