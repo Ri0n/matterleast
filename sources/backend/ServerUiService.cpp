@@ -7,6 +7,11 @@
 
 #include "Backend.h"
 
+#include <QPointer>
+#include <QVector>
+
+#include <utility>
+
 namespace Mattermost {
 
 ServerUiService& ServerUiService::instance(Backend& backend)
@@ -30,6 +35,48 @@ void ServerUiService::requestInteractiveDialog(const QJsonObject& dialog,
                                                const QString& teamId)
 {
     emit interactiveDialogRequested(dialog, url, channelId, teamId);
+}
+
+void ServerUiService::registerEphemeralPostHandler(
+    QObject* owner, std::function<bool(const QJsonObject&)> handler)
+{
+    if (!owner || !handler) {
+        return;
+    }
+    if (!ephemeralHandlers_.contains(owner)) {
+        connect(owner, &QObject::destroyed, this, [this, owner] {
+            ephemeralHandlers_.remove(owner);
+        });
+    }
+    ephemeralHandlers_.insert(owner, std::move(handler));
+}
+
+void ServerUiService::unregisterEphemeralPostHandler(QObject* owner)
+{
+    ephemeralHandlers_.remove(owner);
+}
+
+bool ServerUiService::dispatchEphemeralPost(const QJsonObject& post)
+{
+    bool handled = false;
+
+    // Snapshot guarded owners: one view may destroy another while handling.
+    // Callback storage remains in the registration table.
+    QVector<QPointer<QObject>> owners;
+    owners.reserve(ephemeralHandlers_.size());
+    for (auto it = ephemeralHandlers_.cbegin(); it != ephemeralHandlers_.cend(); ++it) {
+        owners.push_back(QPointer<QObject>(it.key()));
+    }
+    for (const auto& owner : owners) {
+        if (!owner) {
+            continue;
+        }
+        const auto it = ephemeralHandlers_.constFind(owner.data());
+        if (it != ephemeralHandlers_.cend() && it.value()(post)) {
+            handled = true;
+        }
+    }
+    return handled;
 }
 
 void ServerUiService::notifyEphemeralMessage(const QString& message)
