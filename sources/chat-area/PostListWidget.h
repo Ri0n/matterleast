@@ -31,6 +31,7 @@ class PostListWidget : public LongListWidget
 {
 public:
     explicit PostListWidget(QWidget* parent = nullptr);
+    ~PostListWidget() override;
 
 protected:
     /** All post-based LongLists use the semantic post ID as their stable row key. */
