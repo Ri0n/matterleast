@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <utility>
 
 #include <QEvent>
@@ -699,15 +700,23 @@ void ViewChannelMembersListDialog::performSearch()
                 }
             }
 
-            UserProfileService::instance(guard->backend).ensureStatuses(
-                userIds,
-                [guard, generation, users = std::move(users)]() mutable {
-                    if (!guard || generation != guard->searchGeneration
-                        || guard->searchTerm.isEmpty()) {
+            // Presence and uncached channel roles are independent requests.
+            // Complete both before displaying results so the role label does
+            // not momentarily show Unknown for otherwise valid members.
+            auto pending = std::make_shared<int>(2);
+            const auto complete =
+                [guard, generation, users = std::move(users), pending]() mutable {
+                    if (--*pending != 0) {
                         return;
                     }
-                    guard->showSearchResults(std::move(users));
-                });
+                    if (guard && generation == guard->searchGeneration
+                        && !guard->searchTerm.isEmpty()) {
+                        guard->showSearchResults(std::move(users));
+                    }
+                };
+            auto& profiles = UserProfileService::instance(guard->backend);
+            profiles.ensureStatuses(userIds, complete);
+            profiles.loadChannelMemberRolesByIds(guard->channel, userIds, complete);
         });
 }
 
