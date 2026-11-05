@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QJsonArray>
 #include <QAction>
+#include <QComboBox>
+#include <QTimer>
 #include <QMenu>
 #include <QPushButton>
 #include <QJsonDocument>
@@ -34,6 +36,8 @@
 #include "chat-area/post/PostTimestampPresentation.h"
 #include "chat-area/ThreadPostSource.h"
 #include "mainwindow.h"
+#include "Settings.h"
+#include "SettingsWindow.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/NavigationUiController.h"
 #include "ui/IconUtils.h"
@@ -1583,6 +1587,11 @@ private slots:
 
     void threadTimelineHasDaySeparatorsAndRetainsRelativeTimestamps()
     {
+        auto* formatOption = MLOptions::instance()->optionObject<bool>(
+            THREAD_RELATIVE_TIMESTAMPS, THREAD_RELATIVE_TIMESTAMPS_DEFAULT);
+        const bool originalFormat = formatOption->value().toBool();
+        formatOption->setValue(true);
+
         Backend backend;
         auto& storage = backend.getStorage();
         storage.addUser(
@@ -1647,6 +1656,69 @@ private slots:
         QCOMPARE(replyTime->text(),
                  PostTimestampPresentation::threadRelativeTime(secondReplyTime));
         QCOMPARE(list->source()->indexOfPost(replyId(thread, 2)), 2);
+
+        auto* refreshTimer = list->findPost(replyId(thread, 2))
+            ->findChild<QTimer*>(QStringLiteral("threadTimestampRefreshTimer"));
+        QVERIFY(refreshTimer);
+        QVERIFY(refreshTimer->isActive());
+
+        // An existing thread (and every currently materialized post in it)
+        // switches immediately, without rematerializing or changing indices.
+        PostWidget* existingReply = list->findPost(replyId(thread, 2));
+        formatOption->setValue(false);
+        QCOMPARE(list->findPost(replyId(thread, 2)), existingReply);
+        QCOMPARE(replyTime->text(),
+                 PostTimestampPresentation::absoluteTime(secondReplyTime));
+        QCOMPARE(replyTime->toolTip(),
+                 PostTimestampPresentation::fullTimestamp(secondReplyTime));
+        QVERIFY(!refreshTimer->isActive());
+        QCOMPARE(list->source()->indexOfPost(replyId(thread, 2)), 2);
+
+        // The full-date override and the relative refresh timer remain
+        // independent of the user's thread-format preference.
+        existingReply->setShowFullTimestamp(true);
+        QCOMPARE(replyTime->text(),
+                 PostTimestampPresentation::fullTimestamp(secondReplyTime));
+        formatOption->setValue(true);
+        QCOMPARE(replyTime->text(),
+                 PostTimestampPresentation::fullTimestamp(secondReplyTime));
+        QVERIFY(!refreshTimer->isActive());
+        existingReply->setShowFullTimestamp(false);
+        QCOMPARE(replyTime->text(),
+                 PostTimestampPresentation::threadRelativeTime(secondReplyTime));
+        QVERIFY(refreshTimer->isActive());
+        formatOption->setValue(originalFormat);
+    }
+
+    void threadTimestampAppearanceSettingPersists()
+    {
+        auto* formatOption = MLOptions::instance()->optionObject<bool>(
+            THREAD_RELATIVE_TIMESTAMPS, THREAD_RELATIVE_TIMESTAMPS_DEFAULT);
+        const bool originalFormat = formatOption->value().toBool();
+        formatOption->setValue(true);
+
+        SettingsWindow settings;
+        auto* selector = settings.findChild<QComboBox*>(
+            QStringLiteral("threadTimestampFormat"));
+        QVERIFY(selector);
+        QCOMPARE(selector->count(), 2);
+        QCOMPARE(selector->currentData().toBool(), true);
+        selector->setCurrentIndex(selector->findData(false));
+        // Editing the dropdown alone must not change the persisted option.
+        QCOMPARE(formatOption->value().toBool(), true);
+        settings.applyNewSettings();
+        QCOMPARE(formatOption->value().toBool(), false);
+
+        SettingsWindow reopened;
+        auto* reopenedSelector = reopened.findChild<QComboBox*>(
+            QStringLiteral("threadTimestampFormat"));
+        QVERIFY(reopenedSelector);
+        QCOMPARE(reopenedSelector->currentData().toBool(), false);
+
+        reopenedSelector->setCurrentIndex(reopenedSelector->findData(true));
+        reopened.applyNewSettings();
+        QCOMPARE(formatOption->value().toBool(), true);
+        formatOption->setValue(originalFormat);
     }
 
     void coldThreadSummaryPreservesNavigationIntent_data()
