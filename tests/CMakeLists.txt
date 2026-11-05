@@ -1086,3 +1086,16 @@ if(TARGET matterleast-core)
     set_tests_properties(sidebar-hidden-membership-unread-test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# The Mattermost root message counter excludes membership system posts, but
+# /posts pages include them. A full filtered tail must never hide older history.
+if(TARGET matterleast-core)
+    add_executable(channel-post-source-hidden-history-test
+        ChannelPostSourceHiddenHistoryTest.cpp)
+    target_link_libraries(channel-post-source-hidden-history-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME channel-post-source-hidden-history-test
+        COMMAND channel-post-source-hidden-history-test)
+    set_tests_properties(channel-post-source-hidden-history-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

@@ -28,10 +28,10 @@ speculative request.
 failure releases suppression but does not immediately reschedule itself, avoiding a tight retry
 loop.
 
-Concrete post sources may additionally attach overlapping/adjacent logical waiters to an exact
+Concrete post sources may additionally attach fully covered logical waiters to an exact
 in-flight edge/cursor request through `PostSourceRequestGate`. That gate does not expand the expected
-coverage or create a FIFO prefetch queue; demand that has moved farther away is free to start
-independently. Physical-equivalent HTTP coalescing remains in `PostTimelineService`.
+coverage or create a FIFO prefetch queue; adjacent or partially uncovered demand is free to start
+independently. See [projection and boundary requests](../post-sources/projection-and-boundaries.md). Physical-equivalent HTTP coalescing remains in `PostTimelineService`.
 
 The widget must not know whether a result came from an already materialized model object, RAM cache,
 SQLite or HTTP.

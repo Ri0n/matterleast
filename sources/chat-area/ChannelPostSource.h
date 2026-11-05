@@ -100,7 +100,8 @@ private:
     void resyncAfterReconnect();
     void resyncAfterCursor(const QString& cursor);
     void removeLogicalRange(int first, int count);
-    void placePage(int page, const QStringList& chronologicalIds);
+    void placePage(int page, const QStringList& chronologicalIds,
+                   const QString& prevPostId);
     void probeEstimatedOldestBoundary(std::function<void()> completion);
     void resolveOldestBoundary(int emptyPage, std::function<void()> completion);
     void resolveOldestBoundaryFromNonEmpty(int nonEmptyPage,

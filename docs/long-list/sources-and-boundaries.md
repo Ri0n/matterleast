@@ -185,8 +185,8 @@ Domain integration additionally needs tests that:
 - an ordinary channel/thread open at the newest edge can satisfy a multi-block-sized desired range
   with one demand-sized edge request;
 - a following adjacent range continues from an authoritative before/after cursor;
-- an overlapping/adjacent request can attach to compatible in-flight boundary work while a distant
-  fast-scroll request remains independent;
+- only a fully covered request can attach to in-flight boundary work; adjacent, partially uncovered
+  and distant fast-scroll requests remain independent;
 - a provisional permalink target can move to an authoritative index without moving the semantic
   viewport away from that post;
 - clearing a provisional source slot clears list availability even if no widget existed there;
