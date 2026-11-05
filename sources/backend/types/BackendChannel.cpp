@@ -111,6 +111,10 @@ BackendChannel::BackendChannel (Storage& storage, const QJsonObject& jsonObject)
 	creator = storage.getUserById (jsonObject.value("creator_id").toString());
 	scheme_id = jsonObject.value("scheme_id").toVariant();
 	props = jsonObject.value("props").toVariant();
+    membershipPolicyEnforced = jsonObject.contains("policy_actions")
+        ? jsonObject.value("policy_actions").toObject()
+              .value("membership").toBool()
+        : jsonObject.value("policy_enforced").toBool();
 	referenceCount = 1;
 }
 
