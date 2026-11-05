@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <QEvent>
 #include <QHash>
 #include <QObject>
 
@@ -20,6 +21,23 @@ class QEvent;
 class QWidget;
 
 namespace Mattermost {
+
+/**
+ * Generic, opt-in hook for an overlay's scroll-to-bottom action.
+ * A consumer may accept this synchronous event to perform semantic
+ * navigation; otherwise the standard SliderToMaximum action is used.
+ */
+class OverlayScrollToEndEvent final : public QEvent
+{
+public:
+    OverlayScrollToEndEvent() : QEvent(eventType()) { ignore(); }
+
+    static QEvent::Type eventType()
+    {
+        static const int registered = QEvent::registerEventType();
+        return static_cast<QEvent::Type>(registered);
+    }
+};
 
 /**
  * Replaces scroll-area chrome with thin translucent scroll bars layered on top
@@ -53,6 +71,13 @@ public:
      */
     static void setEdgeNavigationButtonsEnabled(QAbstractScrollArea& area,
                                                 bool enabled);
+
+    /**
+     * Optional generic badge: set the area's "mattermostOverlayBottomBadgeText"
+     * dynamic property to a label (empty hides it). Rendering and hit testing
+     * remain managed here; the caller owns the meaning and updates the value.
+     * A consumer can handle OverlayScrollToEndEvent for custom navigation.
+     */
 
     /** True for an edge-jump button or its invisible mouse exclusion zone. */
     static bool isEdgeNavigationExclusion(const QObject* object);
