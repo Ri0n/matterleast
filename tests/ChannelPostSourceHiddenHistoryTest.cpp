@@ -15,6 +15,7 @@
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
+#include "backend/types/BackendPost.h"
 #include "chat-area/ChannelPostSource.h"
 #include "chat-area/FilteredPostSource.h"
 #include "chat-area/PostFilterPolicy.h"
