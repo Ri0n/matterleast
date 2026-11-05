@@ -43,6 +43,60 @@ private slots:
         tree.sidebarDragActive = false;
     }
 
+    void dropKeepsTheScrolledViewportInsteadOfReturningToSource()
+    {
+        ChannelTree tree;
+        tree.resize(300, 180);
+        tree.setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+
+        auto* team = new QTreeWidgetItem(&tree);
+        team->setData(0, ChannelTree::ItemKindRole,
+                      int(ChannelTree::TeamItemKind));
+        team->setText(0, QStringLiteral("Team"));
+        team->setExpanded(true);
+
+        QTreeWidgetItem* source = nullptr;
+        for (int i = 0; i < 45; ++i) {
+            auto* category = new QTreeWidgetItem(team);
+            category->setText(0, QStringLiteral("Group %1").arg(i));
+            category->setData(0, ChannelTree::ItemKindRole,
+                              int(ChannelTree::CategoryItemKind));
+            category->setData(0, ChannelTree::ItemIdRole,
+                              QStringLiteral("cat%1").arg(i));
+            category->setExpanded(true);
+
+            auto* channel = new QTreeWidgetItem(category);
+            channel->setText(0, QStringLiteral("Contact %1").arg(i));
+            channel->setData(0, ChannelTree::ItemKindRole,
+                             int(ChannelTree::ChannelItemKind));
+            channel->setData(0, ChannelTree::ItemIdRole,
+                             QStringLiteral("contact%1").arg(i));
+            if (i == 1) source = channel;
+        }
+        QVERIFY(source);
+        tree.show();
+        QCoreApplication::processEvents();
+        tree.setCurrentItem(source);
+        tree.scrollToItem(source);
+        QCoreApplication::processEvents();
+
+        tree.startDrag(Qt::MoveAction);
+        QVERIFY(tree.sidebarDragActive);
+        auto* scroll = tree.verticalScrollBar();
+        QVERIFY(scroll);
+        QVERIFY(scroll->maximum() > 200);
+
+        // Move multiple screens away while dragging. Re-exposing the selected
+        // source and reconciling the model must not snap back to that source.
+        tree.scrollDuringDrag(280, QPoint(70, 120));
+        const int destination = scroll->value();
+        QVERIFY(destination > 100);
+        tree.finishInternalDrag(QPoint(75, 110), true);
+        QCOMPARE(scroll->value(), destination);
+        QCoreApplication::processEvents();
+        QCOMPARE(scroll->value(), destination);
+    }
+
     void wheelEventsAreInterceptedOnlyDuringDrag()
     {
         ChannelTree tree;
