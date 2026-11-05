@@ -13,6 +13,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPoint>
 
 class QApplication;
 class QAbstractScrollArea;
@@ -53,6 +54,15 @@ public:
      */
     static void setEdgeNavigationButtonsEnabled(QAbstractScrollArea& area,
                                                 bool enabled);
+
+    /**
+     * Hover exclusion zone around visible top/bottom quick-scroll buttons.
+     * Each edge gets one button width/height of transparent padding. The zone
+     * exists only while that button is visible, so end-of-log post actions
+     * are unaffected.
+     */
+    static bool isNearVisibleEdgeNavigationButton(
+        const QAbstractScrollArea& area, const QPoint& globalPosition);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
