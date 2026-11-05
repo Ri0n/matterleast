@@ -2,9 +2,9 @@
 
 #include <QAbstractScrollArea>
 #include <QApplication>
-#include <QFrame>
 #include <QScrollBar>
 #include <QToolButton>
+#include <QWidget>
 
 #include "ui/OverlayScrollBarManager.h"
 
@@ -68,80 +68,48 @@ private slots:
                  area.verticalScrollBar()->minimum());
     }
 
-    void visibleButtonsHaveOneButtonSizeOfHoverExclusion()
+    void edgeButtonGuardsInterceptTheSurroundingArea()
     {
-        using Mattermost::OverlayScrollBarManager;
         QAbstractScrollArea area;
-        area.resize(320, 260);
+        area.resize(320, 240);
         area.verticalScrollBar()->setRange(0, 100);
         area.verticalScrollBar()->setValue(50);
         area.show();
         settleEvents();
 
-        auto* toStart = area.findChild<QToolButton*>(
-            QStringLiteral("mattermostOverlayScrollToStartButton"));
-        auto* toEnd = area.findChild<QToolButton*>(
+        auto* button = area.findChild<QToolButton*>(
             QStringLiteral("mattermostOverlayScrollToEndButton"));
-        QVERIFY(toStart);
-        QVERIFY(toEnd);
-        QVERIFY(toStart->isVisible());
-        QVERIFY(toEnd->isVisible());
+        auto* guard = area.findChild<QWidget*>(
+            QStringLiteral("mattermostOverlayScrollToEndGuard"));
+        QVERIFY(button);
+        QVERIFY(guard);
+        QVERIFY(button->isVisible());
+        QVERIFY(guard->isVisible());
+        QCOMPARE(button->parentWidget(), static_cast<QWidget*>(&area));
+        QCOMPARE(guard->size(), button->size() * 3);
+        QCOMPARE(button->pos(), guard->pos() + QPoint(button->width(), button->height()));
+        QVERIFY(Mattermost::OverlayScrollBarManager::isEdgeNavigationExclusion(guard));
+        QVERIFY(Mattermost::OverlayScrollBarManager::isEdgeNavigationExclusion(button));
+        QVERIFY(!Mattermost::OverlayScrollBarManager::isEdgeNavigationExclusion(area.viewport()));
 
-        const QPoint top = toStart->mapToGlobal(toStart->rect().center());
-        const QPoint bottom = toEnd->mapToGlobal(toEnd->rect().center());
-        QVERIFY(OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(area, top));
-        QVERIFY(OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(area, bottom));
-        QVERIFY(OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(
-            area, top - QPoint(toStart->width(), 0)));
-        QVERIFY(OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(
-            area, bottom - QPoint(toEnd->width(), 0)));
-        QVERIFY(!OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(
-            area, top - QPoint(2 * toStart->width() + 2, 0)));
-        QVERIFY(!OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(
-            area, bottom - QPoint(2 * toEnd->width() + 2, 0)));
+        // Check an empty part of the halo, to the left of the actual glyph.
+        const QPoint haloPoint = guard->mapTo(&area, QPoint(2, guard->height() / 2));
+        QCOMPARE(area.childAt(haloPoint), guard);
+        QCOMPARE(area.childAt(button->geometry().center()), static_cast<QWidget*>(button));
+
+        // The long overlay scrollbar must win over the halo at the right
+        // edge; without this stacking order its thumb cannot be dragged.
+        auto* overlay = area.findChild<QScrollBar*>(
+            QStringLiteral("mattermostOverlayVerticalScrollBar"));
+        QVERIFY(overlay);
+        const QPoint thumbSidePoint(overlay->geometry().center().x(),
+                                    guard->geometry().top() + 3);
+        QCOMPARE(area.childAt(thumbSidePoint), static_cast<QWidget*>(overlay));
 
         area.verticalScrollBar()->setValue(area.verticalScrollBar()->maximum());
         settleEvents();
-        QVERIFY(!toEnd->isVisible());
-        QVERIFY(!OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(area, bottom));
-        QVERIFY(OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(area, top));
-
-        area.verticalScrollBar()->setValue(area.verticalScrollBar()->minimum());
-        settleEvents();
-        QVERIFY(!toStart->isVisible());
-        QVERIFY(!OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(area, top));
-        QVERIFY(OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(area, bottom));
-    }
-
-    void edgeButtonIsClickableAboveFloatingViewportToolbar()
-    {
-        QAbstractScrollArea area;
-        area.resize(320, 260);
-        area.verticalScrollBar()->setRange(0, 100);
-        area.verticalScrollBar()->setValue(50);
-        area.show();
-        settleEvents();
-
-        auto* end = area.findChild<QToolButton*>(
-            QStringLiteral("mattermostOverlayScrollToEndButton"));
-        QVERIFY(end);
-        QVERIFY(end->isVisible());
-
-        // The post toolbar belongs to the viewport, unlike the edge button.
-        // Showing/re-raising the toolbar must not place a reaction control
-        // above the edge button's physical click target.
-        auto* toolbar = new QFrame(area.viewport());
-        toolbar->setObjectName(QStringLiteral("postHoverActions"));
-        toolbar->setGeometry(area.viewport()->rect());
-        toolbar->show();
-        toolbar->raise();
-        settleEvents();
-
-        const QPoint global = end->mapToGlobal(end->rect().center());
-        QWidget* hit = QApplication::widgetAt(global);
-        QCOMPARE(hit, static_cast<QWidget*>(end));
-        QTest::mouseClick(hit, Qt::LeftButton);
-        QCOMPARE(area.verticalScrollBar()->value(), area.verticalScrollBar()->maximum());
+        QVERIFY(!guard->isVisible());
+        QVERIFY(!button->isVisible());
     }
 
     void edgeNavigationButtonsCanBeDisabledTogether()

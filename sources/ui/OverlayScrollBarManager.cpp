@@ -65,6 +65,9 @@ constexpr char VerticalObjectName[] = "mattermostOverlayVerticalScrollBar";
 constexpr char HorizontalObjectName[] = "mattermostOverlayHorizontalScrollBar";
 constexpr char ScrollToStartObjectName[] = "mattermostOverlayScrollToStartButton";
 constexpr char ScrollToEndObjectName[] = "mattermostOverlayScrollToEndButton";
+constexpr char ScrollToStartGuardName[] = "mattermostOverlayScrollToStartGuard";
+constexpr char ScrollToEndGuardName[] = "mattermostOverlayScrollToEndGuard";
+constexpr char EdgeButtonExclusionProperty[] = "mattermostOverlayEdgeButtonExclusion";
 
 QString cssRgba(const QColor& color)
 {
@@ -151,12 +154,28 @@ QFont edgeButtonFont(const QAbstractScrollArea& area)
     return font;
 }
 
+QWidget* createEdgeButtonGuard(QAbstractScrollArea& area, const char* objectName)
+{
+    auto* guard = new QWidget(&area);
+    guard->setObjectName(QString::fromLatin1(objectName));
+    guard->setProperty(EdgeButtonExclusionProperty, true);
+    guard->setAttribute(Qt::WA_NoSystemBackground);
+    guard->setMouseTracking(true);
+    // Let post-based scroll areas end their hover session immediately when
+    // the pointer enters the guard instead of waiting for the toolbar timeout.
+    guard->installEventFilter(&area);
+    guard->hide();
+    return guard;
+}
+
 QToolButton* createEdgeButton(QAbstractScrollArea& area,
                               const QString& text,
                               const char* objectName,
                               const QString& label)
 {
     auto* button = new QToolButton(&area);
+    button->setProperty(EdgeButtonExclusionProperty, true);
+    button->installEventFilter(&area);
     button->setObjectName(QString::fromLatin1(objectName));
     button->setText(text);
     button->setFont(edgeButtonFont(area));
@@ -228,6 +247,8 @@ struct OverlayScrollBarManager::State {
     QScrollBar* sourceHorizontal = nullptr;
     QScrollBar* overlayVertical = nullptr;
     QScrollBar* overlayHorizontal = nullptr;
+    QWidget* scrollToStartGuard = nullptr;
+    QWidget* scrollToEndGuard = nullptr;
     QToolButton* scrollToStartButton = nullptr;
     QToolButton* scrollToEndButton = nullptr;
     QGraphicsOpacityEffect* verticalOpacity = nullptr;
@@ -262,26 +283,9 @@ void OverlayScrollBarManager::setEdgeNavigationButtonsEnabled(
     area.setProperty(EdgeButtonsEnabledProperty, enabled);
 }
 
-bool OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(
-    const QAbstractScrollArea& area, const QPoint& globalPosition)
+bool OverlayScrollBarManager::isEdgeNavigationExclusion(const QObject* object)
 {
-    if (!area.isVisible()) {
-        return false;
-    }
-    const QPoint position = area.mapFromGlobal(globalPosition);
-    const auto nearButton = [&area, &position](const char* objectName) {
-        const QToolButton* button = area.findChild<QToolButton*>(
-            QString::fromLatin1(objectName), Qt::FindDirectChildrenOnly);
-        if (!button || !button->isVisible() || !button->isEnabled()) {
-            return false;
-        }
-        const QRect hit = button->geometry().adjusted(
-            -button->width(), -button->height(),
-            button->width(), button->height());
-        return hit.contains(position);
-    };
-    return nearButton(ScrollToStartObjectName)
-        || nearButton(ScrollToEndObjectName);
+    return object && object->property(EdgeButtonExclusionProperty).toBool();
 }
 
 OverlayScrollBarManager::OverlayScrollBarManager(QApplication& application)
@@ -330,6 +334,10 @@ void OverlayScrollBarManager::registerArea(QAbstractScrollArea* area)
     if (state->verticalEnabled) {
         state->overlayVertical = createOverlay(*area, Qt::Vertical, VerticalObjectName);
         setupOverlay(state->overlayVertical, state->verticalOpacity, state->verticalAnimation);
+        state->scrollToStartGuard = createEdgeButtonGuard(
+            *area, ScrollToStartGuardName);
+        state->scrollToEndGuard = createEdgeButtonGuard(
+            *area, ScrollToEndGuardName);
         state->scrollToStartButton = createEdgeButton(
             *area,
             QString::fromUtf8("\xE2\xAC\x86\xEF\xB8\x8F"),
@@ -498,19 +506,21 @@ void OverlayScrollBarManager::sync(State& state)
     if (state.scrollToStartButton) {
         const bool awayFromStart =
             state.sourceVertical->value() > state.sourceVertical->minimum();
-        state.scrollToStartButton->setVisible(
-            verticalScrollable
+        const bool visible = verticalScrollable
             && edgeButtonsEnabled(*state.area)
             && scrollToStartButtonEnabled(*state.area)
-            && awayFromStart);
+            && awayFromStart;
+        state.scrollToStartGuard->setVisible(visible);
+        state.scrollToStartButton->setVisible(visible);
     }
     if (state.scrollToEndButton) {
         const bool awayFromEnd =
             state.sourceVertical->value() < state.sourceVertical->maximum();
-        state.scrollToEndButton->setVisible(
-            verticalScrollable
+        const bool visible = verticalScrollable
             && edgeButtonsEnabled(*state.area)
-            && awayFromEnd);
+            && awayFromEnd;
+        state.scrollToEndGuard->setVisible(visible);
+        state.scrollToEndButton->setVisible(visible);
     }
 }
 
@@ -563,20 +573,31 @@ void OverlayScrollBarManager::layout(State& state)
         // active end-position thumb.
         const int outerInset = ScrollBarEndInset + EdgeButtonGap;
         const int x = viewportRect.right() - outerInset - extent + 1;
+        // Keep the glyph and its mouse halo as area siblings. The viewport
+        // remains below the halo, but the scrollbar stays above it, so the
+        // larger zone does not block thumb dragging near either edge. Finally
+        // raise the actual glyph above both; it remains fully clickable.
+        const auto placeGuard = [extent, x](QWidget* guard,
+                                            QToolButton* button, int y) {
+            if (!guard || !button) {
+                return;
+            }
+            guard->setGeometry(x - extent, y - extent,
+                               extent * 3, extent * 3);
+            button->setGeometry(x, y, extent, extent);
+            guard->raise();
+        };
+        placeGuard(state.scrollToStartGuard, state.scrollToStartButton,
+                   viewportRect.top() + outerInset);
+        placeGuard(state.scrollToEndGuard, state.scrollToEndButton,
+                   viewportRect.bottom() - bottomCut - outerInset - extent + 1);
+        if (state.overlayVertical) {
+            state.overlayVertical->raise();
+        }
         if (state.scrollToStartButton) {
-            state.scrollToStartButton->setGeometry(
-                x,
-                viewportRect.top() + outerInset,
-                extent,
-                extent);
             state.scrollToStartButton->raise();
         }
         if (state.scrollToEndButton) {
-            state.scrollToEndButton->setGeometry(
-                x,
-                viewportRect.bottom() - bottomCut - outerInset - extent + 1,
-                extent,
-                extent);
             state.scrollToEndButton->raise();
         }
     }
@@ -679,13 +700,13 @@ bool OverlayScrollBarManager::cursorOverOverlay(const State& state) const
     const auto containsBar = [local](const QScrollBar* bar) {
         return bar && scrollable(bar) && bar->geometry().contains(local);
     };
-    const auto containsButton = [local](const QToolButton* button) {
-        return button && button->isVisible() && button->geometry().contains(local);
+    const auto containsGuard = [local](const QWidget* guard) {
+        return guard && guard->isVisible() && guard->geometry().contains(local);
     };
     return containsBar(state.overlayVertical)
         || containsBar(state.overlayHorizontal)
-        || containsButton(state.scrollToStartButton)
-        || containsButton(state.scrollToEndButton);
+        || containsGuard(state.scrollToStartGuard)
+        || containsGuard(state.scrollToEndGuard);
 }
 
 bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
@@ -769,29 +790,28 @@ bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
     QWidget* widget = qobject_cast<QWidget*>(watched);
     State* state = widget ? stateForWidget(widget) : nullptr;
     if (state) {
+        const bool edgeGuard = widget == state->scrollToStartGuard
+            || widget == state->scrollToEndGuard;
         const bool overlayWidget = widget == state->overlayVertical
             || widget == state->overlayHorizontal
             || widget == state->scrollToStartButton
-            || widget == state->scrollToEndButton;
+            || widget == state->scrollToEndButton
+            || edgeGuard;
         const bool areaBoundary = widget == state->area
             || (state->area && widget == state->area->viewport());
 
-        // A post toolbar belongs to the viewport, while the edge-jump
-        // controls are direct children of the scroll area. Keep the latter
-        // above all floating post content in the actual hit-test stack, not
-        // just visually transparent on top.
-        if (widget->objectName() == QLatin1String("postHoverActions")
-            && (event->type() == QEvent::Show
-                || event->type() == QEvent::ZOrderChange)) {
-            if (state->scrollToStartButton) {
-                state->scrollToStartButton->raise();
-            }
-            if (state->scrollToEndButton) {
-                state->scrollToEndButton->raise();
-            }
-        }
-
         switch (event->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonRelease:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::ContextMenu:
+            // Consume input on the invisible halo, never pass it through to a
+            // viewport-owned post action. The nested actual button still
+            // receives its normal mouse events and emits clicked().
+            if (edgeGuard) {
+                return true;
+            }
+            break;
         case QEvent::Enter:
             if (widget == state->scrollToStartButton
                 || widget == state->scrollToEndButton) {

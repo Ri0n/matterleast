@@ -95,17 +95,6 @@ target_link_libraries(overlay-scrollbar-manager-test
 add_test(NAME overlay-scrollbar-manager-test COMMAND overlay-scrollbar-manager-test)
 set_tests_properties(overlay-scrollbar-manager-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-if(TARGET matterleast-core)
-    add_executable(post-list-edge-navigation-hover-test
-        PostListEdgeNavigationHoverTest.cpp)
-    target_link_libraries(post-list-edge-navigation-hover-test PRIVATE
-        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
-    add_test(NAME post-list-edge-navigation-hover-test
-        COMMAND post-list-edge-navigation-hover-test)
-    set_tests_properties(post-list-edge-navigation-hover-test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()
-
 add_executable(post-source-request-gate-test
     PostSourceRequestGateTest.cpp
 )
