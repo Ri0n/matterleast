@@ -540,8 +540,16 @@ void OverlayScrollBarManager::sync(State& state)
         if (state.scrollToEndBadge) {
             const QString label = state.area->property(BottomBadgeProperty)
                                       .toString();
-            state.scrollToEndBadge->setText(label);
-            state.scrollToEndBadge->setVisible(visible && !label.isEmpty());
+            // QLabel::setText invalidates size hints and can schedule a parent
+            // layout request. Avoid retriggering layout while processing the
+            // same overlay area's DynamicPropertyChange event.
+            if (state.scrollToEndBadge->text() != label) {
+                state.scrollToEndBadge->setText(label);
+            }
+            const bool badgeVisible = visible && !label.isEmpty();
+            if (state.scrollToEndBadge->isHidden() == badgeVisible) {
+                state.scrollToEndBadge->setVisible(badgeVisible);
+            }
         }
     }
 }
