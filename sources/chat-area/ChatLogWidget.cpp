@@ -234,22 +234,8 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
         if (!chatArea || chatArea->getChannel().id != id) {
             return;
         }
-        const uint64_t serverBoundary =
+        lastServerBoundarySeen_ =
             SidebarService::instance(*backend).channelLastViewedTime(id);
-        // Mark as unread from another client can move the authoritative
-        // boundary backwards. Discard this viewport's previous local high
-        // water so the newly unread posts are not suppressed by the badge.
-        if (serverBoundary < lastServerBoundarySeen_) {
-            observedReadAt_ = 0;
-            observedReadPostId_.clear();
-            readProgressSentAt_ = 0;
-            autoUnreadHeadConsumed_ = false;
-            manualUnreadTail_ = false;
-            ++readProgressGeneration_;
-            readProgressInFlight_ = false;
-            readProgressTimer_->stop();
-        }
-        lastServerBoundarySeen_ = serverBoundary;
         refreshUnreadEdgeBadge();
     });
     connect(&sidebar, &SidebarService::channelUnreadRewound, this,
@@ -258,6 +244,14 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
             || chatArea->getChannel().id != channelId) {
             return;
         }
+        // Unlike a partial read checkpoint, a real mark-as-unread rewinds
+        // the cursor and invalidates any previously observed high-water.
+        observedReadAt_ = 0;
+        observedReadPostId_.clear();
+        readProgressSentAt_ = 0;
+        ++readProgressGeneration_;
+        readProgressInFlight_ = false;
+        readProgressTimer_->stop();
         manualUnreadTail_ = true;
         autoUnreadHeadConsumed_ = false;
         manualUnreadGate_.markUnread(
@@ -1248,9 +1242,11 @@ void ChatLogWidget::flushReadProgress()
                 }
             }
         }
-        if (guard->observedReadAt_ > timestamp
-            && guard->postSource && !guard->isAtEnd()) {
-            guard->readProgressTimer_->start();
+        if (guard->postSource && !guard->isAtEnd()
+            && (!success || guard->observedReadAt_ > timestamp)) {
+            // Back off and retry one coalesced checkpoint after a network
+            // error or another view's in-flight request.
+            guard->readProgressTimer_->start(3000);
         }
     };
 
@@ -1283,7 +1279,7 @@ void ChatLogWidget::flushReadProgress()
     // not a partial read-through endpoint. Choosing the NEXT unread post
     // moves the server's single read watermark forward without consuming
     // the unread suffix. Throttle this path; never call it per wheel tick.
-    sidebar.markPostUnread(nextUnread->id, completed);
+    sidebar.checkpointChannelRead(channelId, nextUnread->id, completed);
 }
 
 void ChatLogWidget::markPostUnread(const QString& postId)
