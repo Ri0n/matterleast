@@ -24,12 +24,14 @@
 
 #include <algorithm>
 
+#include <QAction>
 #include <QApplication>
 #include <QColor>
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QPainter>
+#include <QMenu>
 #include <QPalette>
 #include <QPixmap>
 
@@ -105,6 +107,26 @@ QIcon IconUtils::symbolicIcon(const QString& path)
     const QColor color = QGuiApplication::palette().color(QPalette::WindowText);
     QIcon icon = tintedSymbolicIcon(path, color);
     return icon.isNull() ? QIcon(path) : icon;
+}
+
+void IconUtils::setMenuActionIcon(QAction& action, const QString& path)
+{
+    action.setProperty("matterleastMenuIconPath", path);
+    action.setIcon(symbolicIcon(path));
+}
+
+void IconUtils::refreshMenuActionIcons(QMenu& menu)
+{
+    for (QAction* action : menu.actions()) {
+        const QString iconPath = action->property(
+            "matterleastMenuIconPath").toString();
+        if (!iconPath.isEmpty()) {
+            action->setIcon(symbolicIcon(iconPath));
+        }
+        if (QMenu* submenu = action->menu()) {
+            refreshMenuActionIcons(*submenu);
+        }
+    }
 }
 
 QIcon IconUtils::applicationIcon(uint32_t notificationCount)
