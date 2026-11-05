@@ -161,16 +161,25 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
     }
 
+    void paginationAfterFilteringExhaustsTheViewport_data()
+    {
+        QTest::addColumn<int>("ordinaryCount");
+        QTest::addColumn<int>("hiddenCount");
+        QTest::newRow("nineteen-rows") << 19 << 16;
+        QTest::newRow("estimated-prefix-drift") << 21 << 19;
+    }
+
     void paginationAfterFilteringExhaustsTheViewport()
     {
-        // The production trace first requests the newest eleven slots
-        // [8,18]. It then removes hidden posts, and the view requests [0,7].
-        // This differs critically from loading all nineteen slots in one
-        // request: the underlying source must reconcile page numbering as
-        // the FilteredPostSource is simultaneously removing rows.
+        QFETCH(int, ordinaryCount);
+        QFETCH(int, hiddenCount);
+        // Production requests the newest viewport first, then the remaining
+        // filtered items. Do NOT bulk-request the entire initial source: that
+        // would mask page-number/estimate drift and reproduce the earlier
+        // insufficient test instead of the actual failure.
         HiddenHistoryServer server;
-        server.ordinaryCount = 19;
-        server.hiddenCount = 16;
+        server.ordinaryCount = ordinaryCount;
+        server.hiddenCount = hiddenCount;
         QVERIFY(server.start());
 
         Backend backend;
@@ -178,26 +187,30 @@ private slots:
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
         }, true);
-        BackendChannel channel(backend.getStorage(), channelJson(19, 16));
+        BackendChannel channel(
+            backend.getStorage(), channelJson(ordinaryCount, hiddenCount));
         ChannelPostSource raw(backend, channel);
         FilteredPostSource visible(raw, [](const BackendPost& post) {
             return shouldShowMainTimelinePost(
                 post.type, post.props.toObject(), QStringLiteral("self"));
         });
 
-        QCOMPARE(raw.itemCount(), 19);
-        visible.requestRange(8, 18, AbstractPostSource::RequestReason::Scroll, 0);
-        QTRY_VERIFY(visible.itemCount() <= 8);
-        visible.requestRange(0, qMin(7, visible.itemCount() - 1),
+        QCOMPARE(raw.itemCount(), ordinaryCount);
+        const int newestFirst = ordinaryCount - 11;
+        visible.requestRange(newestFirst, ordinaryCount - 1,
+                             AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_VERIFY(visible.itemCount() <= ordinaryCount - 11);
+        visible.requestRange(0, qMin(ordinaryCount - 12, visible.itemCount() - 1),
                              AbstractPostSource::RequestReason::Scroll, 0);
 
-        // The filter may end up with only three (or zero) materializable
-        // messages after both server pages. The raw source is responsible for
-        // continuing past the misleading message count, without another user
-        // scroll/request from the filtered timeline.
-        QTRY_VERIFY_WITH_TIMEOUT(raw.itemCount() >= 35, 20000);
+        // A full page near the reported oldest edge is not proof of the real
+        // boundary. The source must continue without the view requesting an
+        // additional range (which can be impossible once all items are hidden).
+        const int actualCount = ordinaryCount + hiddenCount;
+        QTRY_VERIFY_WITH_TIMEOUT(raw.itemCount() >= actualCount, 20000);
         QTRY_VERIFY_WITH_TIMEOUT(
             visible.indexOfPost(postId(0)) >= 0, 20000);
+        QVERIFY(visible.postAt(0));
         QCOMPARE(visible.postAt(0)->id, postId(0));
     }
 
