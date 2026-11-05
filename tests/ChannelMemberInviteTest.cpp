@@ -540,6 +540,67 @@ private slots:
         QCOMPARE(fallbackSpy.count(), 4);
     }
 
+    void ephemeralHandlerOwnersAreGuardedDuringDispatch()
+    {
+        Backend backend;
+        auto& ui = ServerUiService::instance(backend);
+        const QJsonObject post {
+            {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+        };
+
+        QObject first;
+        QPointer<QObject> deletedOwner(new QObject);
+        QObject unregisteredOwner;
+        QObject last;
+        int deletedCalls = 0;
+        int unregisteredCalls = 0;
+        int lastCalls = 0;
+
+        ui.registerEphemeralPostHandler(&first, [&](const QJsonObject&) {
+            delete deletedOwner.data();
+            ui.unregisterEphemeralPostHandler(&unregisteredOwner);
+            return false;
+        });
+        ui.registerEphemeralPostHandler(deletedOwner.data(),
+            [&](const QJsonObject&) {
+                ++deletedCalls;
+                return true;
+            });
+        ui.registerEphemeralPostHandler(&unregisteredOwner,
+            [&](const QJsonObject&) {
+                ++unregisteredCalls;
+                return true;
+            });
+        ui.registerEphemeralPostHandler(&last, [&](const QJsonObject&) {
+            ++lastCalls;
+            return true;
+        });
+
+        QVERIFY(ui.dispatchEphemeralPost(post));
+        QVERIFY(deletedOwner.isNull());
+        QCOMPARE(deletedCalls, 0);
+        QCOMPARE(unregisteredCalls, 0);
+        QCOMPARE(lastCalls, 1);
+
+        // A later dispatch must remain valid after QObject destruction and
+        // explicit unregistration, and must not resurrect stale callbacks.
+        QVERIFY(ui.dispatchEphemeralPost(post));
+        QCOMPARE(deletedCalls, 0);
+        QCOMPARE(unregisteredCalls, 0);
+        QCOMPARE(lastCalls, 2);
+
+        QObject temporary;
+        int temporaryCalls = 0;
+        ui.registerEphemeralPostHandler(&temporary,
+            [&](const QJsonObject&) {
+                ++temporaryCalls;
+                return false;
+            });
+        ui.unregisterEphemeralPostHandler(&temporary);
+        QVERIFY(ui.dispatchEphemeralPost(post));
+        QCOMPARE(temporaryCalls, 0);
+    }
+
     void groupConstrainedMentionHasNoInviteAction()
     {
         MemberServer server;
