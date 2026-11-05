@@ -1053,6 +1053,11 @@ void ChatLogWidget::updateReadCursorFromVisibility()
             manualUnreadHighWaterPostId_.clear();
             manualUnreadHighWaterCreateAt_ = 0;
             manualUnreadExitedViewport_ = false;
+            // The server represents an explicit unread marker as the start of
+            // the same continuous unread suffix. Once the visibility gate
+            // releases the marker, subsequent navigation uses the ordinary
+            // automatic-head rule rather than a separate unread island.
+            manualUnreadTail_ = false;
         }
     }
 
