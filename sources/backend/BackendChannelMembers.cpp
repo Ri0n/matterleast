@@ -128,6 +128,89 @@ void Backend::canManageChannelRoles(BackendChannel& channel,
                           std::move(callback));
 }
 
+void Backend::setChannelMemberAdmin(BackendChannel& channel,
+                                    const QString& userId,
+                                    bool admin,
+                                    StatusUpdateResult callback)
+{
+    if (!teamChannel(channel) || userId.isEmpty()
+        || !channel.members.contains(userId)) {
+        if (callback) {
+            callback(false, tr("Invalid channel member."));
+        }
+        return;
+    }
+
+    const QString channelId = channel.id;
+    const QString currentUserId = getLoginUser().id;
+    const QString host = NetworkRequest::host();
+    QPointer<Backend> backendGuard(this);
+    QPointer<BackendChannel> channelGuard(&channel);
+    const auto fail = [callback](const QJsonDocument& doc, const QNetworkReply& reply) {
+        const QString message = doc.object().value(QStringLiteral("message")).toString();
+        if (callback) {
+            callback(false, !message.isEmpty() ? message
+                : reply.errorString().isEmpty()
+                    ? QObject::tr("Could not change the channel member's role.")
+                    : reply.errorString());
+        }
+    };
+
+    NetworkRequest request(QStringLiteral("channels/") + channelId
+                           + QStringLiteral("/members/") + userId
+                           + QStringLiteral("/schemeRoles"));
+    const QJsonObject body {
+        {QStringLiteral("scheme_user"), true},
+        {QStringLiteral("scheme_admin"), admin}
+    };
+    httpConnector.put(request, body, HttpResponseCallback(
+        [backendGuard, channelGuard, channelId, userId, admin, currentUserId,
+         host, callback = std::move(callback), fail]
+        (const QJsonDocument& response, const QNetworkReply& reply) {
+        if (!backendGuard || !channelGuard
+            || backendGuard->getLoginUser().id != currentUserId
+            || NetworkRequest::host() != host) {
+            return;
+        }
+        const int code = reply.attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply.error() != QNetworkReply::NoError || code < 200 || code >= 300) {
+            fail(response, reply);
+            return;
+        }
+
+        // PUT returns only {"status":"OK"}, not the updated member.
+        // Read it back before updating the canonical role and the row.
+        NetworkRequest getMember(QStringLiteral("channels/") + channelId
+                                 + QStringLiteral("/members/") + userId);
+        backendGuard->httpConnector.get(getMember, HttpResponseCallback(
+            [backendGuard, channelGuard, channelId, userId, admin, currentUserId,
+             host, callback](const QJsonDocument& memberDoc,
+                             const QNetworkReply& memberReply) {
+            if (!backendGuard || !channelGuard
+                || backendGuard->getLoginUser().id != currentUserId
+                || NetworkRequest::host() != host) {
+                return;
+            }
+            const QJsonObject member = memberDoc.object();
+            if (memberReply.error() != QNetworkReply::NoError
+                || member.value(QStringLiteral("channel_id")).toString() != channelId
+                || member.value(QStringLiteral("user_id")).toString() != userId
+                || member.value(QStringLiteral("scheme_admin")).toBool() != admin) {
+                if (callback) {
+                    callback(false, QObject::tr(
+                        "The server did not confirm the updated channel role."));
+                }
+                return;
+            }
+            channelGuard->addMember(backendGuard->getStorage(), member);
+            if (callback) {
+                callback(true, {});
+            }
+        }));
+    }));
+}
+
 void Backend::addChannelMember(BackendChannel& channel, const QString& userId,
                                StatusUpdateResult callback)
 {
