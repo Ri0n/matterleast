@@ -810,6 +810,15 @@ void LongListWidget::setHoverHighlightEnabled(bool enabled)
     viewport()->update();
 }
 
+void LongListWidget::setHoverHighlightSuppressed(bool suppressed)
+{
+    if (hoverHighlightSuppressed == suppressed) {
+        return;
+    }
+    hoverHighlightSuppressed = suppressed;
+    viewport()->update();
+}
+
 void LongListWidget::setHoverHighlightOverride(QWidget* widget)
 {
     if (widget && !widgetIndexes.contains(widget)) {
@@ -1318,8 +1327,8 @@ void LongListWidget::paintEvent(QPaintEvent* event)
 
     QWidget* highlightWidget = hoverHighlightOverride
         ? hoverHighlightOverride.data() : hoveredWidget.data();
-    if (!hoverHighlightEnabled || !highlightWidget
-        || !highlightWidget->isVisible()) {
+    if (!hoverHighlightEnabled || hoverHighlightSuppressed
+        || !highlightWidget || !highlightWidget->isVisible()) {
         return;
     }
 
