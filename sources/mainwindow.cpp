@@ -854,41 +854,66 @@ void MainWindow::openDirectMessageSearch()
 
 void MainWindow::createMenu()
 {
-	mainMenu = new QMenu(ui->toolButton);
+    mainMenu = new QMenu(ui->toolButton);
+    mainMenu->setObjectName(QStringLiteral("sidebarMainMenu"));
+    connect(mainMenu, &QMenu::aboutToShow, mainMenu, [this] {
+        IconUtils::refreshMenuActionIcons(*mainMenu);
+    });
 
-	QMenu* fileMenu = mainMenu->addMenu("File");
+    QMenu* fileMenu = mainMenu->addMenu("File");
+    fileMenu->setObjectName(QStringLiteral("sidebarFileMenu"));
+    IconUtils::setMenuActionIcon(*fileMenu->menuAction(),
+                                 QStringLiteral(":/icons/menu-folder"));
     QAction* quitAction = fileMenu->addAction(tr("Quit"), qApp, &QApplication::quit);
+    quitAction->setObjectName(QStringLiteral("sidebarQuitAction"));
+    IconUtils::setMenuActionIcon(*quitAction,
+                                 QStringLiteral(":/icons/menu-power"));
     quitAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Q")));
     quitAction->setShortcutContext(Qt::ApplicationShortcut);
     quitAction->setMenuRole(QAction::QuitRole);
     addAction(quitAction);
-	fileMenu->addAction("Logout", [this] {
+    QAction* logoutAction = fileMenu->addAction("Logout", [this] {
 		backend.logout([this] {
 			doDeinit = true;
 			QMainWindow::close();
 			LOG_DEBUG("Logout done");
-		});
-	});
+        });
+    });
+    logoutAction->setObjectName(QStringLiteral("sidebarLogoutAction"));
+    IconUtils::setMenuActionIcon(*logoutAction,
+                                 QStringLiteral(":/icons/menu-logout"));
 
-	mainMenu->addAction(tr("User groups…"), [this] {
+    QAction* groupsAction = mainMenu->addAction(tr("User groups…"), [this] {
         auto* dialog = new UserGroupsDialog(backend, this);
         dialog->show();
     });
+    groupsAction->setObjectName(QStringLiteral("sidebarUserGroupsAction"));
+    IconUtils::setMenuActionIcon(*groupsAction,
+                                 QStringLiteral(":/icons/members"));
 
-	mainMenu->addAction("Settings", [this] {
+    QAction* settingsAction = mainMenu->addAction("Settings", [this] {
 		auto* settingsWindow = new SettingsWindow(this);
 		settingsWindow->setAttribute(Qt::WA_DeleteOnClose);
 		connect(settingsWindow, &QDialog::accepted, settingsWindow,
 		        [settingsWindow] { settingsWindow->applyNewSettings(); });
-		settingsWindow->show();
-	});
+        settingsWindow->show();
+    });
+    settingsAction->setObjectName(QStringLiteral("sidebarSettingsAction"));
+    IconUtils::setMenuActionIcon(*settingsAction,
+                                 QStringLiteral(":/icons/menu-settings"));
 
-	QMenu* helpMenu = mainMenu->addMenu("Help");
+    QMenu* helpMenu = mainMenu->addMenu("Help");
+    helpMenu->setObjectName(QStringLiteral("sidebarHelpMenu"));
+    IconUtils::setMenuActionIcon(*helpMenu->menuAction(),
+                                 QStringLiteral(":/icons/menu-help"));
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
     if (auto* updater = qApp->findChild<WindowsUpdateController*>()) {
         QAction* restart = helpMenu->addAction(tr("Update and restart"),
             updater, &WindowsUpdateController::startUpdateAndRestart);
         restart->setEnabled(updater->canApply());
+        restart->setObjectName(QStringLiteral("sidebarUpdateRestartAction"));
+        IconUtils::setMenuActionIcon(*restart,
+                                     QStringLiteral(":/icons/refresh"));
 
         // Opening Help -> Check for updates is a read-only view of the
         // existing controller. The automatic check never creates or shows a
@@ -1006,13 +1031,17 @@ void MainWindow::createMenu()
             restart->setEnabled(updater->canApply());
         };
 
-        helpMenu->addAction(tr("Check for updates"), this,
-            [statusDialog, refresh] {
+        QAction* checkUpdatesAction = helpMenu->addAction(
+            tr("Check for updates"), this, [statusDialog, refresh] {
                 refresh(); // Snapshot of any background work already underway.
                 statusDialog->show();
                 statusDialog->raise();
                 statusDialog->activateWindow();
             });
+        checkUpdatesAction->setObjectName(
+            QStringLiteral("sidebarCheckUpdatesAction"));
+        IconUtils::setMenuActionIcon(*checkUpdatesAction,
+                                     QStringLiteral(":/icons/refresh"));
         connect(updater, &WindowsUpdateController::stateChanged, this,
             [refresh](WindowsUpdateController::State) { refresh(); });
         connect(updater, &WindowsUpdateController::progressChanged, this,
@@ -1025,21 +1054,28 @@ void MainWindow::createMenu()
                 [refresh](const QVariant&) { refresh(); });
     }
 #endif
-	helpMenu->addAction("About MatterLeast", [this] {
+    QAction* aboutMatterLeastAction = helpMenu->addAction("About MatterLeast", [this] {
 		auto* msgBox = new QMessageBox(QMessageBox::Information,
 		                               "About MatterLeast", infoText());
 		msgBox->setIconPixmap(windowIcon().pixmap(QSize(64, 64)));
 		msgBox->setTextFormat(Qt::RichText);
 		msgBox->setStandardButtons(QMessageBox::Ok);
 		msgBox->setDefaultButton(QMessageBox::Ok);
-		msgBox->open();
-	});
+        msgBox->open();
+    });
+    aboutMatterLeastAction->setObjectName(
+        QStringLiteral("sidebarAboutMatterLeastAction"));
+    IconUtils::setMenuActionIcon(*aboutMatterLeastAction,
+                                 QStringLiteral(":/icons/menu-info"));
 
-	helpMenu->addAction("About QT", [this] {
-		QMessageBox::aboutQt(this, "About QT");
-	});
+    QAction* aboutQtAction = helpMenu->addAction("About QT", [this] {
+        QMessageBox::aboutQt(this, "About QT");
+    });
+    aboutQtAction->setObjectName(QStringLiteral("sidebarAboutQtAction"));
+    IconUtils::setMenuActionIcon(*aboutQtAction,
+                                 QStringLiteral(":/icons/menu-info"));
 
-	ui->toolButton->setMenu(mainMenu);
+    ui->toolButton->setMenu(mainMenu);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
@@ -1064,6 +1100,9 @@ void MainWindow::refreshMenuButtonIcon()
 	ui->toolButton->setIcon(IconUtils::tintedSymbolicIcon(
 		QStringLiteral(":/icons/burger"),
 		ui->toolButton->palette().color(QPalette::ButtonText)));
+    if (QMenu* menu = ui->toolButton->menu()) {
+        IconUtils::refreshMenuActionIcons(*menu);
+    }
 }
 
 void MainWindow::refreshSearchButtonIcon()
