@@ -383,12 +383,14 @@ void ViewChannelMembersListDialog::refreshRolePermission()
 {
     const int generation = ++rolePermissionGeneration;
     canEditRoles = false;
+    setProperty("channelRolePermissionReady", false);
     QPointer<ViewChannelMembersListDialog> guard(this);
     backend.canManageChannelRoles(channel, [guard, generation](bool allowed) {
         if (!guard || generation != guard->rolePermissionGeneration) {
             return;
         }
         guard->canEditRoles = allowed;
+        guard->setProperty("channelRolePermissionReady", true);
     });
 }
 
