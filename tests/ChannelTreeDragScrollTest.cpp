@@ -1,6 +1,8 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QLabel>
+#include <QTimer>
 #include <QMouseEvent>
 #include <QScrollBar>
 #include <QWheelEvent>
