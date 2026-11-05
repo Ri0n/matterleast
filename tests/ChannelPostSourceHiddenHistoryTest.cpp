@@ -8,6 +8,7 @@
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -66,6 +67,7 @@ public:
     int requests = 0;
     QStringList requestUrls;
     bool failNextCursor = false;
+    int viewportResponseDelayMs = 0;
 
     HiddenHistoryServer()
     {
@@ -103,8 +105,12 @@ public:
                         + QByteArrayLiteral("Content-Length: ")
                         + QByteArray::number(body.size())
                         + QByteArrayLiteral("\r\n\r\n") + body;
-                    socket->write(response);
-                    socket->disconnectFromHost();
+                    const int delay = QUrlQuery(url).queryItemValue("per_page") == "11"
+                        ? viewportResponseDelayMs : 0;
+                    QTimer::singleShot(delay, socket, [socket, response] {
+                        socket->write(response);
+                        socket->disconnectFromHost();
+                    });
                 });
             }
         });
@@ -333,6 +339,8 @@ private slots:
         HiddenHistoryServer server;
         server.ordinaryCount = ordinaryCount;
         server.hiddenCount = hiddenCount;
+        // Force the background ten-row cache validation to arrive first.
+        server.viewportResponseDelayMs = 50;
         QVERIFY(server.start());
         Backend backend;
         backend.getStorage().addUser(QJsonObject {
@@ -345,11 +353,13 @@ private slots:
         QSignalSpy finished(&visible, &AbstractPostSource::rangeRequestFinished);
 
         bool requestedOlder = false;
-        // Issue [0,7] synchronously from the first availability notification,
+        // Issue [0,7] synchronously from the viewport availability notification,
         // while [8,18]'s gate is still active. A queued second request would
         // miss the original uncovered-adjacent-attachment regression.
-        connect(&raw, &AbstractPostSource::rangeAvailable, &visible, [&] {
-            if (requestedOlder) return;
+        connect(&raw, &AbstractPostSource::rangeAvailable, &visible, [&](int first, int last) {
+            // Startup cache validation can publish a ten-row suffix first.
+            // Reenter only for the eleven-row viewport response under test.
+            if (requestedOlder || first != ordinaryCount - 11 || last != ordinaryCount - 1) return;
             requestedOlder = true;
             QCOMPARE(visible.itemCount(), ordinaryCount - 11);
             visible.requestRange(0, visible.itemCount() - 1,
@@ -388,8 +398,8 @@ private slots:
         FilteredPostSource visible(raw, mainTimelinePost);
         QSignalSpy finished(&visible, &AbstractPostSource::rangeRequestFinished);
         bool requestedPredecessor = false;
-        connect(&raw, &AbstractPostSource::rangeAvailable, &visible, [&] {
-            if (requestedPredecessor) return;
+        connect(&raw, &AbstractPostSource::rangeAvailable, &visible, [&](int first, int last) {
+            if (requestedPredecessor || last - first + 1 != 19) return;
             requestedPredecessor = true;
             QCOMPARE(visible.itemCount(), 1);
             QVERIFY(!visible.isAvailable(0));
