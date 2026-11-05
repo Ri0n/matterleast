@@ -34,6 +34,7 @@ BackendChannelMember::BackendChannelMember (const Storage& storage, const QJsonO
 ,msg_count (jsonObject.value("msg_count").toVariant().toULongLong())
 ,mention_count (jsonObject.value("mention_count").toVariant().toULongLong())
 ,userId (jsonObject.value("user_id").toString())
+,roles (jsonObject.value("roles").toString())
 ,user (storage.getUserById (userId))
 ,isAdmin (jsonObject.value("scheme_admin").toBool())
 {

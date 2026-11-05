@@ -229,6 +229,12 @@ public:
 
     // Resolve effective system/team/channel role permissions from the server.
     void canAddChannelMembers(BackendChannel& channel, std::function<void(bool)> callback);
+    // Requires manage_channel_roles plus the channel member-management right.
+    void canManageChannelRoles(BackendChannel& channel,
+                               std::function<void(bool)> callback);
+    // Update scheme-admin role, then refresh canonical membership from server.
+    void setChannelMemberAdmin(BackendChannel& channel, const QString& userId,
+                               bool admin, StatusUpdateResult callback);
     // Report failures and update canonical membership before completing.
     void addChannelMember(BackendChannel& channel, const QString& userId,
                           StatusUpdateResult callback);
@@ -336,6 +342,8 @@ signals:
     void onWebSocketConnectionStateChanged(WebSocketConnector::ConnectionState state);
 private:
     void loginSuccess (const QJsonDocument& data, const QNetworkReply& reply, std::function<void(const QString&)> callback);
+    void hasChannelPermissions(BackendChannel& channel, const QStringList& required,
+                               std::function<void(bool)> callback);
 private:
     Storage							storage;
     EmojiRegistry                   _emojiRegistry;

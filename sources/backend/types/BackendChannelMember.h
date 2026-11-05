@@ -41,6 +41,7 @@ public:
 	uint32_t			msg_count;
 	uint32_t			mention_count;
 	QString				userId;
+    QString             roles;
 	const BackendUser*	user;
 	bool				isAdmin;
 };

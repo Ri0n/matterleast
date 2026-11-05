@@ -1430,7 +1430,13 @@ void NavigationUiController::ensureTabPinAction(ChatArea* area)
     if (!action) {
         action = new QAction(area);
         action->setObjectName(QStringLiteral("tabPinAction"));
-        action->setCheckable(true);
+        // A checkable QAction makes QMenu reserve a checkmark column,
+        // shifting every other menu item. Use the existing pin-tab icon
+        // and a Pin/Unpin label instead.
+        action->setIcon(IconUtils::symbolicIcon(
+            QStringLiteral(":/icons/tab-pin")));
+        action->setProperty("matterleastMenuIconPath",
+                            QStringLiteral(":/icons/tab-pin"));
 
         QAction* before = nullptr;
         for (QAction* candidate : menu->actions()) {
@@ -1447,11 +1453,11 @@ void NavigationUiController::ensureTabPinAction(ChatArea* area)
         }
 
         connect(action, &QAction::triggered, this,
-                [this, area](bool checked) {
+                [this, area] {
             const int index = tabModel.findDestination(
                 area->getChannel().id, QString());
-            if (index >= 0) {
-                tabModel.setPinned(index, checked);
+            if (const auto* entry = tabModel.at(index)) {
+                tabModel.setPinned(index, !entry->pinned);
                 scheduleSessionSave();
             }
             updateTabPinAction(area);
@@ -1477,10 +1483,8 @@ void NavigationUiController::updateTabPinAction(ChatArea* area)
     const bool available = entry && entry->rootId.isEmpty();
     const bool pinned = available && entry->pinned;
 
-    QSignalBlocker blocker(action);
     action->setVisible(available);
     action->setEnabled(available);
-    action->setChecked(pinned);
     action->setText(pinned ? tr("Unpin tab") : tr("Pin tab"));
 }
 

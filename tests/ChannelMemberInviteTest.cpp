@@ -2,6 +2,12 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMenu>
+#include <QAction>
+#include <QDialog>
+#include <QContextMenuEvent>
+#include <QApplication>
+#include <QTimer>
 #include <QLabel>
 #include <QLineEdit>
 #include <QToolButton>
@@ -40,6 +46,7 @@ class MemberServer : public QTcpServer
 public:
     QString grantingRole = QStringLiteral("custom_channel");
     QString permission = QStringLiteral("manage_private_channel_members");
+    QStringList extraPermissions;
     bool failRoles = false;
     bool deletedRole = false;
     bool malformedMember = false;
@@ -51,6 +58,29 @@ public:
     QSet<QString> existingMembers;
     QJsonArray requestedRoles;
     int count = 1;
+    bool roleFixture = false;
+    int roleBatchRequests = 0;
+    QJsonArray roleBatchIds;
+    int roleMutations = 0;
+    bool denyRoleChange = false;
+    QHash<QString, bool> adminOverrides;
+
+    QJsonObject memberRecord(const QString& userId) const
+    {
+        const bool admin = adminOverrides.value(userId,
+            userId == QStringLiteral("person00")
+                || userId == QStringLiteral("person04"));
+        const bool guest = userId == QStringLiteral("person01");
+        return QJsonObject {
+            {QStringLiteral("user_id"), userId},
+            {QStringLiteral("channel_id"), QStringLiteral("channel")},
+            {QStringLiteral("scheme_admin"), admin},
+            {QStringLiteral("roles"), admin
+                ? QStringLiteral("channel_admin")
+                : guest ? QStringLiteral("channel_guest")
+                        : QStringLiteral("channel_user")}
+        };
+    }
 
     MemberServer()
     {
@@ -82,10 +112,16 @@ public:
                         requestedRoles = input.array();
                         QJsonArray roles;
                         for (const auto& name : requestedRoles) {
+                            QJsonArray permissions;
+                            if (name.toString() == grantingRole) {
+                                permissions.append(permission);
+                                for (const QString& extra : extraPermissions) {
+                                    permissions.append(extra);
+                                }
+                            }
                             roles.append(QJsonObject {
                                 {"name", name}, {"delete_at", deletedRole ? 1 : 0},
-                                {"permissions", name.toString() == grantingRole
-                                    ? QJsonArray {permission} : QJsonArray {}}
+                                {"permissions", permissions}
                             });
                         }
                         response = QJsonDocument(roles);
@@ -96,6 +132,20 @@ public:
                             {"team_id", "team"}, {"scheme_admin", true},
                             {"roles", path.contains("/teams/") ? "custom_team" : "custom_channel"}
                         });
+                    } else if (path.endsWith("/schemeRoles")
+                               && request.value(0) == "PUT") {
+                        ++roleMutations;
+                        const QString id = path.split(QLatin1Char('/')).value(6);
+                        if (denyRoleChange) {
+                            status = 403;
+                            response = QJsonDocument(QJsonObject {
+                                {"message", "Role change permission denied"}});
+                        } else {
+                            adminOverrides.insert(id,
+                                input.object().value("scheme_admin").toBool());
+                            response = QJsonDocument(QJsonObject {
+                                {"status", "OK"}});
+                        }
                     } else if (path.endsWith("/users/search")) {
                         search = input.object();
                         searches.push_back(search);
@@ -107,6 +157,20 @@ public:
                             users.append(user(id));
                         }
                         response = QJsonDocument(users);
+                    } else if (roleFixture && path.contains("/members/person")
+                               && request.value(0) == "GET") {
+                        const QString id = path.split(QLatin1Char('/')).last();
+                        response = QJsonDocument(memberRecord(id));
+                    } else if (path.endsWith("/members/ids")) {
+                        ++roleBatchRequests;
+                        roleBatchIds = input.array();
+                        QJsonArray members;
+                        for (const QJsonValue& id : roleBatchIds) {
+                            if (roleFixture) {
+                                members.append(memberRecord(id.toString()));
+                            }
+                        }
+                        response = QJsonDocument(members);
                     } else if (path.endsWith("/members") && request.value(0) == "POST") {
                         const QString id = input.object().value("user_id").toString();
                         additions.append(id);
@@ -124,10 +188,29 @@ public:
                     } else if (path.endsWith("/stats")) {
                         response = QJsonDocument(QJsonObject {{"member_count", count}});
                     } else if (path.endsWith("/members")) {
-                        response = QJsonDocument(QJsonArray {QJsonObject {{"user_id", "self"}}});
+                        if (roleFixture) {
+                            response = QJsonDocument(QJsonArray {
+                                memberRecord(QStringLiteral("person00")),
+                                memberRecord(QStringLiteral("person01")),
+                                memberRecord(QStringLiteral("person02")),
+                                memberRecord(QStringLiteral("person03"))
+                            });
+                        } else {
+                            response = QJsonDocument(QJsonArray {
+                                QJsonObject {{QStringLiteral("user_id"),
+                                              QStringLiteral("self")}}
+                            });
+                        }
                     } else if (path.endsWith("/users/ids")) {
                         QJsonArray users;
-                        for (const auto& id : input.array()) users.append(user(id.toString()));
+                        for (const auto& id : input.array()) {
+                            QJsonObject profile = user(id.toString());
+                            if (roleFixture && id.toString() == QStringLiteral("person02")) {
+                                profile.insert(QStringLiteral("roles"),
+                                               QStringLiteral("system_admin system_user"));
+                            }
+                            users.append(profile);
+                        }
                         response = QJsonDocument(users);
                     } else if (path.contains("/status/ids")) {
                         response = QJsonDocument(QJsonArray {});
@@ -258,6 +341,217 @@ private slots:
         QVERIFY(picker->findChild<QPushButton*>("addSelectedMembersButton"));
         QVERIFY(!picker->findChild<QPushButton*>("newConversationButton"));
         picker->reject();
+    }
+
+    void channelMemberListDisplaysMembershipRoles()
+    {
+        MemberServer server;
+        server.roleFixture = true;
+        server.count = 4;
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
+        dialog.resize(800, 520);
+        dialog.show();
+
+        auto* header = dialog.findChild<QLabel*>(
+            QStringLiteral("memberRoleHeader"));
+        QVERIFY(header);
+        QCOMPARE(header->text(), QStringLiteral("Role"));
+
+        const auto labels = [&dialog] {
+            QStringList result;
+            const auto roles = dialog.findChildren<QLabel*>(
+                QStringLiteral("memberRole"));
+            for (const auto* label : roles) {
+                result.append(label->text());
+            }
+            result.sort();
+            return result;
+        };
+        const QStringList expected {
+            QStringLiteral("Channel admin"), QStringLiteral("Guest"),
+            QStringLiteral("Member"), QStringLiteral("System admin")
+        };
+        QTRY_COMPARE(labels(), expected);
+        QCOMPARE(server.roleBatchRequests, 0); // Paged membership already has roles.
+        const auto admin = channel->members.constFind(QStringLiteral("person00"));
+        QVERIFY(admin != channel->members.cend());
+        QVERIFY(admin.value().isAdmin);
+        const auto guest = channel->members.constFind(QStringLiteral("person01"));
+        QVERIFY(guest != channel->members.cend());
+        QCOMPARE(guest.value().roles, QStringLiteral("channel_guest"));
+        // The original custom status column is still present.
+        QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("memberCustomStatus")));
+    }
+
+    void searchLoadsUncachedChannelRolesInOneBatch()
+    {
+        MemberServer server;
+        server.roleFixture = true;
+        server.existingMembers.insert(QStringLiteral("person04"));
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
+        dialog.resize(800, 520);
+        dialog.show();
+        QVERIFY(!channel->members.contains(QStringLiteral("person04")));
+
+        auto* filter = dialog.findChild<QLineEdit*>(
+            QStringLiteral("filterLineEdit"));
+        QVERIFY(filter);
+        filter->setFocus();
+        QTest::keyClicks(filter, "person04");
+
+        QTRY_COMPARE(server.roleBatchRequests, 1);
+        QCOMPARE(server.roleBatchIds,
+                 QJsonArray {QStringLiteral("person04")});
+        QTRY_VERIFY(dialog.findChild<QLabel*>(
+            QStringLiteral("memberRole")));
+        QTRY_COMPARE(dialog.findChild<QLabel*>(
+                         QStringLiteral("memberRole"))->text(),
+                     QStringLiteral("Channel admin"));
+        QVERIFY(channel->members.contains(QStringLiteral("person04")));
+    }
+
+    void channelRolePermissionRequiresBothRights_data()
+    {
+        QTest::addColumn<QString>("permissions");
+        QTest::addColumn<bool>("allowed");
+        QTest::newRow("both") << "manage_private_channel_members manage_channel_roles" << true;
+        QTest::newRow("members-only") << "manage_private_channel_members" << false;
+        QTest::newRow("roles-only") << "manage_channel_roles" << false;
+        QTest::newRow("neither") << "read_channel" << false;
+    }
+
+    void channelRolePermissionRequiresBothRights()
+    {
+        QFETCH(QString, permissions);
+        QFETCH(bool, allowed);
+        MemberServer server;
+        const QStringList granted = permissions.split(QLatin1Char(' '));
+        server.permission = granted.first();
+        server.extraPermissions = granted.mid(1);
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+        bool resolved = false;
+        bool canEdit = !allowed;
+        backend.canManageChannelRoles(*channel, [&](bool permitted) {
+            canEdit = permitted;
+            resolved = true;
+        });
+        QTRY_VERIFY(resolved);
+        QCOMPARE(canEdit, allowed);
+    }
+
+    void channelMemberContextMenuChangesAdminRole()
+    {
+        MemberServer server;
+        server.roleFixture = true;
+        server.count = 4;
+        server.extraPermissions.append(QStringLiteral("manage_channel_roles"));
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
+        dialog.resize(800, 520);
+        dialog.show();
+        QTRY_VERIFY(dialog.property("channelRolePermissionReady").toBool());
+
+        const auto rowFor = [&dialog](const QString& id) -> QWidget* {
+            for (QWidget* row : dialog.findChildren<QWidget*>(
+                     QStringLiteral("channelMemberRow"))) {
+                if (row->property("memberUserId").toString() == id) {
+                    return row;
+                }
+            }
+            return nullptr;
+        };
+        const auto roleFor = [&dialog](const QString& id) -> QString {
+            for (QLabel* role : dialog.findChildren<QLabel*>(
+                     QStringLiteral("memberRole"))) {
+                if (role->parentWidget()
+                    && role->parentWidget()->property(
+                           "memberUserId").toString() == id) {
+                    return role->text();
+                }
+            }
+            return {};
+        };
+        QTRY_VERIFY(rowFor(QStringLiteral("person03")));
+        QCOMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
+
+        const auto popupActionFor = [&](const QString& userId,
+                                        const QString& name,
+                                        bool trigger) {
+            QWidget* row = rowFor(userId);
+            if (!row) {
+                return false;
+            }
+            bool found = false;
+            QTimer::singleShot(0, &dialog, [&] {
+                auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                if (!menu) {
+                    return;
+                }
+                for (QAction* action : menu->actions()) {
+                    if (action->objectName() == name) {
+                        found = true;
+                        if (trigger) {
+                            action->trigger();
+                        }
+                        break;
+                    }
+                }
+                menu->close();
+            });
+            const QPoint local = row->rect().center();
+            QContextMenuEvent event(QContextMenuEvent::Mouse,
+                                    local, row->mapToGlobal(local));
+            QApplication::sendEvent(row, &event);
+            return found;
+        };
+
+        QVERIFY(popupActionFor(QStringLiteral("person03"),
+                              QStringLiteral("makeChannelAdminAction"), true));
+        QTRY_COMPARE(server.roleMutations, 1);
+        QTRY_COMPARE(roleFor(QStringLiteral("person03")),
+                     QStringLiteral("Channel admin"));
+        QVERIFY(channel->members.constFind(QStringLiteral("person03")).value().isAdmin);
+
+        QVERIFY(popupActionFor(QStringLiteral("person03"),
+                              QStringLiteral("makeChannelMemberAction"), true));
+        QTRY_COMPARE(server.roleMutations, 2);
+        QTRY_COMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
+        QVERIFY(!channel->members.constFind(QStringLiteral("person03")).value().isAdmin);
+
+        // A guest's system role cannot be changed in a channel-specific menu.
+        QVERIFY(!popupActionFor(QStringLiteral("person01"),
+                               QStringLiteral("makeChannelAdminAction"), false));
+
+        // Server rejection must not update the locally displayed role.
+        server.denyRoleChange = true;
+        bool finished = false;
+        bool succeeded = true;
+        backend.setChannelMemberAdmin(*channel, QStringLiteral("person03"), true,
+            [&](bool result, const QString&) {
+                succeeded = result;
+                finished = true;
+            });
+        QTRY_VERIFY(finished);
+        QVERIFY(!succeeded);
+        QCOMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
+        QCOMPARE(server.roleMutations, 3);
     }
 
     void existingMembersOutsideTheCacheRemainVisibleAndCannotBeAdded()
@@ -698,6 +992,93 @@ private slots:
         QVERIFY(button);
         QVERIFY(button->isHidden());
         QVERIFY(server.additions.isEmpty());
+    }
+
+    void headerMembersDialogIsReusedAndCanReopen()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr);
+        area.resize(700, 500);
+        area.show();
+        auto* membersButton = area.findChild<QToolButton*>(
+            QStringLiteral("usersButton"));
+        QVERIFY(membersButton);
+
+        membersButton->click();
+        // The concrete dialog subclass has no Q_OBJECT; QObject::findChild<T>
+        // requires a meta-object on T. Query by its stable name as a QDialog.
+        const QString dialogName = QStringLiteral("channelMembersDialog");
+        const auto dialogs = [&area, &dialogName] {
+            return area.findChildren<QDialog*>(
+                dialogName, Qt::FindDirectChildrenOnly);
+        };
+        QTRY_COMPARE(dialogs().size(), 1);
+        QPointer<QDialog> dialog = dialogs().first();
+        QVERIFY(dialog);
+        QVERIFY(dialog->isVisible());
+
+        // Clicking the header again must activate the same dialog rather
+        // than instantiate another virtualized list and launch new requests.
+        membersButton->click();
+        QApplication::processEvents();
+        QCOMPARE(dialogs().size(), 1);
+        QCOMPARE(dialogs().first(), dialog.data());
+
+        dialog->close();
+        QTRY_VERIFY(dialog.isNull());
+        membersButton->click();
+        QTRY_COMPARE(dialogs().size(), 1);
+        auto* reopened = dialogs().first();
+        QVERIFY(reopened);
+        QVERIFY(reopened->isVisible());
+        reopened->close();
+    }
+
+    void chatAndThreadMenusHaveResourceIcons()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ChatArea chat(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        const auto verifyIcon = [](QMenu* menu, const QString& name) {
+            if (!menu) {
+                return false;
+            }
+            for (QAction* action : menu->actions()) {
+                if (action->objectName() == name) {
+                    return !action->icon().isNull();
+                }
+            }
+            return false;
+        };
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("searchConversationAction")));
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("editChannelTopicAction")));
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("copyConversationReferenceAction")));
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("copyConversationLinkAction")));
+
+        ChatArea thread(backend, *channel, QStringLiteral("thread-root"), nullptr);
+        QVERIFY(verifyIcon(thread.headerActionsMenu(),
+            QStringLiteral("searchConversationAction")));
+        QVERIFY(verifyIcon(thread.headerActionsMenu(),
+            QStringLiteral("copyConversationReferenceAction")));
+        QVERIFY(verifyIcon(thread.headerActionsMenu(),
+            QStringLiteral("copyConversationLinkAction")));
+        QVERIFY(!thread.headerActionsMenu()->findChild<QAction*>(
+            QStringLiteral("editChannelTopicAction")));
     }
 
     void malformedSuccessDoesNotAdmitMembership()

@@ -558,7 +558,12 @@ if(TARGET matterleast-core)
     add_test(NAME team-toolbar-test COMMAND team-toolbar-test)
     set_tests_properties(team-toolbar-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    add_executable(thread-tabs-integration-test ThreadTabsIntegrationTest.cpp)
+    # The GUI links resource.qrc separately from matterleast-core. This
+    # integration test constructs the same menus/icons and must load their
+    # embedded SVGs too, including on Windows where Qt SVG plugins are optional.
+    add_executable(thread-tabs-integration-test
+        ThreadTabsIntegrationTest.cpp
+        "${CMAKE_SOURCE_DIR}/resource.qrc")
     target_link_libraries(thread-tabs-integration-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME thread-tabs-integration-test COMMAND thread-tabs-integration-test)
     set_tests_properties(thread-tabs-integration-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -1101,7 +1106,11 @@ if(TARGET matterleast-core)
 endif()
 
 if(TARGET matterleast-core)
-    add_executable(channel-member-invite-test ChannelMemberInviteTest.cpp)
+    # Channel member integration tests also exercise chat-header QAction SVG
+    # icons. The GUI resources are linked into the app, not matterleast-core.
+    add_executable(channel-member-invite-test
+        ChannelMemberInviteTest.cpp
+        "${CMAKE_SOURCE_DIR}/resource.qrc")
     target_link_libraries(channel-member-invite-test PRIVATE
         matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME channel-member-invite-test COMMAND channel-member-invite-test)

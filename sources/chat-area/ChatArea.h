@@ -58,6 +58,7 @@ class BackendUser;
 class ChannelItem;
 class PostCollectionView;
 class ThemeIconButton;
+class ViewChannelMembersListDialog;
 
 class ChatArea: public QWidget {
 	Q_OBJECT
@@ -179,6 +180,7 @@ private:
 	ThemeIconButton* threadFollowButton = nullptr;
     QToolButton* chatActionsButton = nullptr;
     QMenu* chatActionsMenu = nullptr;
+    QPointer<ViewChannelMembersListDialog> channelMembersDialog;
 	QStackedWidget* contentStack = nullptr;
 	PostCollectionView* pinnedPostsView = nullptr;
 	int pendingMessageLoads = 0;
