@@ -281,6 +281,13 @@ public:
 
 	//retrieve list of users that have any relation with logged in user
 	void retrieveKnownUsers(std::function<void()> callback);
+
+    /**
+     * Offer raw websocket ephemeral data to synchronous transient UI handlers.
+     * Returns true only when a handler accepts it; unhandled text falls back
+     * to the regular ephemeral notification.
+     */
+    bool handleEphemeralMessage(const QJsonObject& data);
 signals:
 
 	/**
@@ -301,8 +308,6 @@ signals:
 	 * @param post post
 	 */
 	void onNewPost (BackendChannel& channel, const BackendPost& post);
-    /** Server-originated transient post: never store in persistent history. */
-    void onEphemeralPost(const QJsonObject& post);
     void onAllUsers ();
 
     /**
