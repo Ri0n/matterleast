@@ -335,8 +335,11 @@ uint64_t ChannelActivityTracker::unreadCount(const QString& channelId,
         ? entry.readRootMessageCount : entry.readMessageCount;
     const uint64_t ownCredit = useRootCounts
         ? entry.pendingOwnRootMessageCount : entry.pendingOwnMessageCount;
-    return total > read + std::min(ownCredit, total - read)
-        ? total - read - std::min(ownCredit, total - read) : 0;
+    if (total <= read) {
+        return 0;
+    }
+    const uint64_t gap = total - read;
+    return gap - std::min(gap, ownCredit);
 }
 
 bool ChannelActivityTracker::hasMention(const QString& channelId) const
