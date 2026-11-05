@@ -167,6 +167,8 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
     // LongListWidget releases it and the viewportLockReleased handler below
     // clears the same semantic state.
     connect(this, &LongListWidget::userScrollStarted, this, [this] {
+        // A physical user gesture always supersedes a deferred unread seek.
+        pendingUnreadIndex_ = -1;
         if (!navigationLockPending) {
             return;
         }
@@ -754,7 +756,14 @@ bool ChatLogWidget::navigateToUnreadEdge()
         return false;
     }
     pendingUnreadIndex_ = first;
-    scrollToIndex(first, Alignment::Bottom);
+    auto* target = qobject_cast<PostWidget*>(itemWidget(first));
+    // An unloaded row has only an estimated height. Start at its top so a
+    // potentially oversized post is never prematurely consumed at its bottom;
+    // once measured, finalizeUnreadEdgeTarget places fitting posts at bottom.
+    const Alignment initialAlignment = !target
+        || target->height() > viewport()->height()
+        ? Alignment::Top : Alignment::Bottom;
+    scrollToIndex(first, initialAlignment);
     QTimer::singleShot(0, this, &ChatLogWidget::finalizeUnreadEdgeTarget);
     return true;
 }
@@ -993,6 +1002,7 @@ void ChatLogWidget::updateReadCursorFromVisibility()
         const int gatedIndex = postSource->indexOfPost(gatedPostId);
         if (gatedIndex < 0) {
             manualUnreadGate_.clear();
+            manualUnreadTail_ = false;
             manualUnreadHighWaterPostId_.clear();
             manualUnreadHighWaterCreateAt_ = 0;
             manualUnreadExitedViewport_ = false;
