@@ -71,7 +71,7 @@ private slots:
                              int(ChannelTree::ChannelItemKind));
             channel->setData(0, ChannelTree::ItemIdRole,
                              QStringLiteral("contact%1").arg(i));
-            if (i == 1) source = channel;
+            if (i == 1) source = category;
         }
         QVERIFY(source);
         tree.show();
@@ -86,8 +86,8 @@ private slots:
         QVERIFY(scroll);
         QVERIFY(scroll->maximum() > 200);
 
-        // Move multiple screens away while dragging. Re-exposing the selected
-        // source and reconciling the model must not snap back to that source.
+        // Move multiple screens away while dragging a whole category.
+        // Re-exposing its selected rows must not snap back to the source.
         tree.scrollDuringDrag(280, QPoint(70, 120));
         const int destination = scroll->value();
         QVERIFY(destination > 100);
