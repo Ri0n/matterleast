@@ -53,6 +53,7 @@
 #include <QList>
 
 #include "NetworkRequest.h"
+#include "ServerUiService.h"
 #include "CustomEmojiService.h"
 #include "UploadTrace.h"
 #include "AvatarImage.h"
@@ -70,6 +71,29 @@ enum type {
 	channelMember,
 	teamMember,
 };
+}
+
+bool Backend::handleEphemeralMessage(const QJsonObject& data)
+{
+    // Mattermost encodes websocket "post" as a JSON string. Decode at the
+    // backend boundary rather than the event/transport adapter.
+    const QJsonValue postValue = data.value(QStringLiteral("post"));
+    QJsonObject post;
+    if (postValue.isString()) {
+        post = QJsonDocument::fromJson(postValue.toString().toUtf8()).object();
+    } else if (postValue.isObject()) {
+        post = postValue.toObject();
+    }
+    if (post.isEmpty()) {
+        return false;
+    }
+
+    auto& ui = ServerUiService::instance(*this);
+    const bool handled = ui.dispatchEphemeralPost(post);
+    if (!handled) {
+        ui.notifyEphemeralMessage(post.value(QStringLiteral("message")).toString());
+    }
+    return handled;
 }
 
 Backend::Backend(QObject *parent)
