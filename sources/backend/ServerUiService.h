@@ -6,6 +6,9 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
+
+#include <functional>
 #include <QJsonObject>
 #include <QString>
 
@@ -23,6 +26,13 @@ public:
                                   const QString& channelId,
                                   const QString& teamId);
     void notifyEphemeralMessage(const QString& message);
+
+    // Registered by each view. Multiple chat/thread views can synchronously
+    // accept the same transient post without storing it in persistent history.
+    void registerEphemeralPostHandler(
+        QObject* owner, std::function<bool(const QJsonObject&)> handler);
+    void unregisterEphemeralPostHandler(QObject* owner);
+    bool dispatchEphemeralPost(const QJsonObject& post);
     void notifyCustomWebSocketEvent(const QString& eventName,
                                     const QJsonObject& data,
                                     const QJsonObject& broadcast);
@@ -39,6 +49,7 @@ signals:
 
 private:
     explicit ServerUiService(Backend& backend);
+    QHash<QObject*, std::function<bool(const QJsonObject&)>> ephemeralHandlers_;
 };
 
 } // namespace Mattermost
