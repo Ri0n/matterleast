@@ -124,6 +124,8 @@ signals:
     void channelMutedChanged(const QString& channelId, bool muted);
     void channelMentionedChanged(const QString& channelId, bool mentioned);
     void channelActivityChanged(const QString& channelId);
+    /** Server watermark moved backwards (possibly from another device). */
+    void channelUnreadRewound(const QString& channelId, const QString& postId);
     void channelActivityReset();
     void categoriesChanged(const QString& teamId);
 
