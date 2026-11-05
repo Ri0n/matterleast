@@ -234,6 +234,16 @@ bool PostListWidget::eventFilter(QObject* watched, QEvent* event)
         case QEvent::MouseButtonRelease: {
             const QPoint global = eventGlobalPosition(event);
             handlePointerOverNavigation(global, receiver);
+            // A queued Enter can still be delivered to the old floating
+            // toolbar after the row was suppressed. Prevent PostWidget's
+            // toolbar/quick-reaction Enter handlers from reopening it.
+            if (navigationHoverSuppressed_
+                && isFloatingPostAction(receiver)
+                && (event->type() == QEvent::Enter
+                    || event->type() == QEvent::HoverMove
+                    || event->type() == QEvent::MouseMove)) {
+                return true;
+            }
             if ((event->type() == QEvent::MouseButtonPress
                  || event->type() == QEvent::MouseButtonRelease)
                 && navigationHoverSuppressed_
