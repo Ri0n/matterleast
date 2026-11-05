@@ -153,6 +153,12 @@ void ChannelTree::finishInternalDrag(const QPoint& viewportPos, bool commit)
         return;
     }
 
+    // Clearing the animated insertion gap, unhiding the source, and applying
+    // the deferred category/channel reorder all relayout QTreeWidget. Qt may
+    // scroll back to the still-current source row during those updates. The
+    // viewport reached by dragging/wheeling is the user's intended position.
+    const int viewportScroll = verticalScrollBar()->value();
+
     if (dragScrollTimer) {
         dragScrollTimer->stop();
         dragScrollTimer->deleteLater();
@@ -180,6 +186,16 @@ void ChannelTree::finishInternalDrag(const QPoint& viewportPos, bool commit)
     dragViewportScrollPixels = 0;
     setState(QAbstractItemView::NoState);
     flushDeferredSidebarReconciles();
+
+    // Apply the layout now rather than restoring against drag-only gap
+    // geometry. A further layout can be queued by the view/model, so restore
+    // once more in the next event-loop turn. Never scroll to the source item.
+    doItemsLayout();
+    verticalScrollBar()->setValue(viewportScroll);
+    QTimer::singleShot(0, this, [this, viewportScroll] {
+        doItemsLayout();
+        verticalScrollBar()->setValue(viewportScroll);
+    });
 }
 
 void ChannelTree::scrollDuringDrag(int scrollUnits, const QPoint& viewportPos)
