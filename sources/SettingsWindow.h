@@ -65,6 +65,7 @@ private:
     QComboBox* _updatesChannel = nullptr;
 #endif
     QComboBox* emojiDefaultSkinTone_ = nullptr;
+    QComboBox* threadTimestampFormat_ = nullptr;
     QString originalChatFont;
     QString _originalCodeFontFamily;
     QSpinBox* attachmentCacheSizeMB = nullptr;

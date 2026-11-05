@@ -372,6 +372,18 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     chatTextSizeLayout->addWidget(chatTextSizeSpin);
     chatFontForm->addRow(tr("Size:"), chatTextSizeEditor);
 
+    threadTimestampFormat_ = new QComboBox(chatFontGroup);
+    threadTimestampFormat_->setObjectName(
+        QStringLiteral("threadTimestampFormat"));
+    threadTimestampFormat_->addItem(tr("Relative (e.g. 5 minutes ago)"), true);
+    threadTimestampFormat_->addItem(tr("Clock time (same as channels)"), false);
+    const bool threadRelative = options->optionObject<bool>(
+        THREAD_RELATIVE_TIMESTAMPS, THREAD_RELATIVE_TIMESTAMPS_DEFAULT)
+        ->value().toBool();
+    threadTimestampFormat_->setCurrentIndex(
+        threadTimestampFormat_->findData(threadRelative));
+    chatFontForm->addRow(tr("Time in threads:"), threadTimestampFormat_);
+
     appearanceLayout->addWidget(chatFontGroup);
 
     auto* codeFontGroup = new QGroupBox(tr("Code blocks"), appearancePage);
@@ -616,6 +628,9 @@ void SettingsWindow::applyNewSettings ()
     options->optionObject<int>(
         CHANNEL_ROOT_NOTIFICATION_MODE, CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT)
         ->setValue(_channelRootNotificationMode->currentData().toInt());
+    options->optionObject<bool>(
+        THREAD_RELATIVE_TIMESTAMPS, THREAD_RELATIVE_TIMESTAMPS_DEFAULT)
+        ->setValue(threadTimestampFormat_->currentData().toBool());
 
     options->optionObject<int>(
         EMOJI_DEFAULT_SKIN_TONE,
