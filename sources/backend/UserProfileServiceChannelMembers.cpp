@@ -7,7 +7,10 @@
 
 #include <algorithm>
 
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QNetworkReply>
+#include <QSet>
 #include <QJsonObject>
 #include <QPointer>
 
@@ -104,6 +107,55 @@ void UserProfileService::loadChannelMembersPage(
                     }
                     ensureStatuses(userIds);
                 });
+        }));
+}
+
+void UserProfileService::loadChannelMemberRolesByIds(
+    BackendChannel& channel,
+    const QStringList& userIds,
+    std::function<void()> callback)
+{
+    QJsonArray pendingIds;
+    QSet<QString> seen;
+    for (const QString& userId : userIds) {
+        if (userId.isEmpty() || seen.contains(userId)) {
+            continue;
+        }
+        seen.insert(userId);
+        if (!channel.members.contains(userId)) {
+            pendingIds.append(userId);
+        }
+    }
+    if (pendingIds.isEmpty()) {
+        if (callback) {
+            callback();
+        }
+        return;
+    }
+
+    QPointer<BackendChannel> channelGuard(&channel);
+    QPointer<UserProfileService> guard(this);
+    NetworkRequest request(QStringLiteral("channels/") + channel.id
+                           + QStringLiteral("/members/ids"));
+    httpConnector.post(request, pendingIds, HttpResponseCallback(
+        [guard, channelGuard, seen, callback = std::move(callback)](
+            QVariant status, const QJsonDocument& doc) mutable {
+            if (guard && channelGuard
+                && status.toInt() == QNetworkReply::NoError && doc.isArray()) {
+                for (const QJsonValue& value : doc.array()) {
+                    const QJsonObject member = value.toObject();
+                    const QString userId = member.value(
+                        QStringLiteral("user_id")).toString();
+                    if (seen.contains(userId)
+                        && member.value(QStringLiteral("channel_id")).toString()
+                               == channelGuard->id) {
+                        channelGuard->addMember(guard->backend.getStorage(), member);
+                    }
+                }
+            }
+            if (callback) {
+                callback();
+            }
         }));
 }
 
