@@ -123,6 +123,13 @@ PostListWidget::PostListWidget(QWidget* parent)
     });
 }
 
+PostListWidget::~PostListWidget()
+{
+    if (qApp) {
+        qApp->removeEventFilter(this);
+    }
+}
+
 void PostListWidget::activateHoverPost(PostWidget* current, bool immediate)
 {
     if (!current) {
