@@ -2025,22 +2025,33 @@ void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds)
     // publisher emits nothing unless the identity mapping actually changed.
     publishExactWindow(assignExactWindow(first, pageIds));
 
-    // A message-count estimate is NOT a /posts row count: join/leave events
-    // do not increment total_msg_count_root, but occupy server history slots.
-    // A full server page reaching the estimated index zero may still have
-    // older real messages. Probe the actual oldest boundary once even for
-    // small channels, where the existing 3%-of-count top-edge heuristic does
-    // not run. This is triggered by the source itself rather than a filtered
-    // view's top-edge request: filtering may remove every returned row, in
-    // which case no further view request would ever arrive.
+    // The reported root message count excludes join/leave system posts.
+    // Therefore a full server page at the *estimated* oldest edge does not
+    // prove the channel's actual oldest boundary. Trigger an independent
+    // boundary search even if the oldest logical slot is still unresolved:
+    // its identity can remain empty after count adjustment, while a filtered
+    // view may already have run out of visible rows and cannot request it.
+    //
+    // Absolute page numbering uses fixed ten-post pages, except for the
+    // viewport-sized page-zero bootstrap which can span the entire estimate.
+    const bool reachedEstimatedOldest = page >= pageForIndex(0)
+        || (page == 0 && returned >= postIds.size());
     if (!oldestBoundaryFastPathTried && !oldestBoundaryProbeInFlight
-        && returned >= ServerPageSize && !postIds.isEmpty()
-        && !postIds.first().isEmpty()) {
+        && returned >= ServerPageSize && reachedEstimatedOldest) {
         oldestBoundaryFastPathTried = true;
+        qCDebug(lcTimelineChannel).nospace()
+            << "ESTIMATED_OLDEST_IS_FULL page=" << page
+            << " returned=" << returned
+            << " rawCount=" << postIds.size()
+            << " oldestSlotKnown=" << !postIds.first().isEmpty();
         QPointer<ChannelPostSource> guard(this);
-        QTimer::singleShot(0, this, [guard] {
+        QTimer::singleShot(0, this, [guard, page] {
             if (guard) {
-                guard->probeEstimatedOldestBoundary({});
+                if (page == 0) {
+                    guard->probeEstimatedOldestBoundary({});
+                } else {
+                    guard->resolveOldestBoundaryFromNonEmpty(page, {});
+                }
             }
         });
     }
