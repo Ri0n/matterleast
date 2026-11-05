@@ -1185,7 +1185,7 @@ bool ChatLogWidget::isPostLowerEdgeVisible(const QString& postId) const
 void ChatLogWidget::queueReadProgress(const BackendPost& post, int index)
 {
     if (!backend || !chatArea || !postSource || manualUnreadGate_.active()
-        || readProgressInFlight_
+        || readProgressInFlight_ || unreadEdgeCount() == 0
         || index >= postSource->authoritativeItemCount() - 1) {
         // Reaching the authoritative tail already uses the full-read API.
         if (readProgressTimer_
