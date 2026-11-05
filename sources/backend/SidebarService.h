@@ -85,6 +85,8 @@ public:
     void markChannelViewedLocally(const BackendChannel& channel);
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
     void markPostUnread(const QString& postId, std::function<void(bool)> callback = {});
+    /** Apply the server's post_unread event to this client's read watermark. */
+    void applyServerPostUnread(const QString& channelId, const QJsonObject& data);
     void synchronizeChannelActivity();
     /** Mirror webapp loadNewDM/GMIfNeeded for a realtime posted event. */
     void resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt);
