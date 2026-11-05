@@ -47,6 +47,7 @@
 #include "backend/types/BackendTeam.h"
 #include "backend/types/BackendUser.h"
 #include "integrations/KTalkIntegration.h"
+#include "ui/IconUtils.h"
 #include "ui/ThemeIconWidgets.h"
 #include "ui_ChatArea.h"
 
@@ -126,8 +127,15 @@ void ChatArea::setupComposerUi()
     // menu from the button's pressed path using QMenu::popup(), so this does not
     // introduce a nested event loop.
     auto* attachMenu = new QMenu(ui->attachButton);
+    attachMenu->setObjectName(QStringLiteral("composerAttachMenu"));
     QAction* fileAction = attachMenu->addAction(tr("File…"));
+    fileAction->setObjectName(QStringLiteral("composerAttachFileAction"));
+    IconUtils::setMenuActionIcon(*fileAction,
+                                 QStringLiteral(":/icons/menu-file"));
     QAction* pollAction = attachMenu->addAction(tr("Poll…"));
+    pollAction->setObjectName(QStringLiteral("composerAttachPollAction"));
+    IconUtils::setMenuActionIcon(*pollAction,
+                                 QStringLiteral(":/icons/menu-poll"));
     connect(fileAction, &QAction::triggered,
             ui->outgoingPostCreator, &OutgoingPostCreator::onAttachButtonClick);
     connect(pollAction, &QAction::triggered,
@@ -139,6 +147,7 @@ void ChatArea::setupComposerUi()
     // meeting post appears in the context from which it was started.
     auto* ktalk = &KTalkIntegration::instance(backend);
     QAction* ktalkAction = attachMenu->addAction(ktalk->icon(), tr("KTalk Meeting…"));
+    ktalkAction->setObjectName(QStringLiteral("composerKTalkAction"));
     ktalkAction->setVisible(ktalk->isAvailable());
     connect(ktalk, &KTalkIntegration::availabilityChanged,
             attachMenu, [ktalkAction](bool available) {
@@ -154,6 +163,11 @@ void ChatArea::setupComposerUi()
                             isThread ? root_id : QString());
     });
 
+    // Recreate palette-tinted icons before popup even if an inactive chat has
+    // missed the OS theme transition. KTalk keeps its plugin-owned icon.
+    connect(attachMenu, &QMenu::aboutToShow, attachMenu, [attachMenu] {
+        IconUtils::refreshMenuActionIcons(*attachMenu);
+    });
     ui->attachButton->setMenu(attachMenu);
 
     configureActionButton(*ui->sendButton);
@@ -690,6 +704,9 @@ void ChatArea::changeEvent(QEvent* event)
             ui->addEmojiButton->update();
             ui->attachButton->update();
             ui->sendButton->update();
+            if (QMenu* menu = ui->attachButton->menu()) {
+                IconUtils::refreshMenuActionIcons(*menu);
+            }
             refreshHeaderActionIcons();
         }
     }
