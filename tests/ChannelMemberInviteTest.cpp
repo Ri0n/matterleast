@@ -525,6 +525,54 @@ private slots:
         QVERIFY(server.additions.isEmpty());
     }
 
+    void membershipPolicySuppressesMentionInvite()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        channel->membershipPolicyEnforced = true;
+        BackendPost* original = channel->addPost(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("eeeeeeeeeeeeeeeeeeeeeeeeee")},
+            {QStringLiteral("user_id"), QStringLiteral("self")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("create_at"), 30000},
+            {QStringLiteral("message"), QStringLiteral("@person02")},
+        });
+        QVERIFY(original);
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        auto* list = area.findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(list);
+        PostWidget widget(backend, *original, list->viewport(), &area, nullptr);
+        widget.setEphemeralMentionNotice(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("ffffffffffffffffffffffffff")},
+            {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("root_id"), QString()},
+            {QStringLiteral("create_at"), 30001},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("add_channel_member"), QJsonObject {
+                    {QStringLiteral("not_in_channel_user_ids"), QJsonArray {
+                        QStringLiteral("person02")}},
+                    {QStringLiteral("not_in_channel_usernames"), QJsonArray {
+                        QStringLiteral("person02")}},
+                }},
+            }},
+        });
+        auto* label = widget.findChild<QLabel*>(
+            QStringLiteral("ephemeralMentionText"));
+        QVERIFY(label);
+        QVERIFY(label->text().contains(QStringLiteral("@person02")));
+        QVERIFY(label->text().contains(QStringLiteral("membership policy")));
+        auto* button = widget.findChild<QPushButton*>(
+            QStringLiteral("inviteMentionedUsersButton"));
+        QVERIFY(button);
+        QVERIFY(button->isHidden());
+        QVERIFY(server.additions.isEmpty());
+    }
+
     void malformedSuccessDoesNotAdmitMembership()
     {
         MemberServer server;
