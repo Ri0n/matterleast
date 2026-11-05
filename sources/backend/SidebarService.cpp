@@ -425,6 +425,12 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
 
 void SidebarService::markChannelViewedLocally(const BackendChannel& channel)
 {
+    if (auto it = pendingReadCheckpoints_.find(channel.id);
+        it != pendingReadCheckpoints_.end()) {
+        // A late set_unread response must never undo a newer full-view action.
+        // Repeat the authoritative full-read request after it completes.
+        it->fullReadRequested = true;
+    }
     recordChannelViewed(channel);
 }
 
@@ -481,13 +487,57 @@ void SidebarService::applyServerPostUnread(const QString& channelId,
                                      activityTracker.hasMention(channelId));
     }
     emit channelActivityChanged(channelId);
-    if (activityTracker.lastViewedTime(channelId) < previousBoundary) {
+    const bool ownReadCheckpoint = recentReadCheckpointIds_.contains(
+        data.value(QStringLiteral("post_id")).toString());
+    if (!ownReadCheckpoint
+        && activityTracker.lastViewedTime(channelId) < previousBoundary) {
         const QString postId = data.value(
             QStringLiteral("post_id")).toString();
         if (!postId.isEmpty()) {
             emit channelUnreadRewound(channelId, postId);
         }
     }
+}
+
+void SidebarService::checkpointChannelRead(
+    const QString& channelId, const QString& nextUnreadPostId,
+    std::function<void(bool)> callback)
+{
+    if (channelId.isEmpty() || nextUnreadPostId.isEmpty()
+        || pendingReadCheckpoints_.contains(channelId)) {
+        if (callback) {
+            callback(false);
+        }
+        return;
+    }
+
+    pendingReadCheckpoints_.insert(channelId,
+        PendingReadCheckpoint {nextUnreadPostId, false});
+    recentReadCheckpointIds_.insert(nextUnreadPostId);
+    // WebSocket echo and REST response may arrive in either order. Keep the
+    // origin tag briefly after completion to distinguish a read checkpoint
+    // from a user's explicit mark-as-unread on another device.
+    QTimer::singleShot(60000, this, [this, nextUnreadPostId] {
+        recentReadCheckpointIds_.remove(nextUnreadPostId);
+    });
+
+    markPostUnread(nextUnreadPostId,
+        [this, channelId, callback = std::move(callback)](bool success) mutable {
+        const PendingReadCheckpoint pending =
+            pendingReadCheckpoints_.take(channelId);
+        // Even if the originating ChatLogWidget was closed, complete a
+        // full-read transition that overtook the older partial checkpoint.
+        if (pending.fullReadRequested) {
+            if (BackendChannel* channel =
+                    backend.getStorage().getChannelById(channelId)) {
+                markChannelViewedLocally(*channel);
+                backend.markChannelAsViewed(*channel);
+            }
+        }
+        if (callback) {
+            callback(success);
+        }
+    });
 }
 
 void SidebarService::markPostUnread(const QString& postId,
