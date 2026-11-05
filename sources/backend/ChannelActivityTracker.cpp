@@ -44,9 +44,9 @@ void ChannelActivityTracker::setMembership(const QString& channelId, uint64_t la
 
     if (entry.membershipInitialized
         && readMessageCount > previousReadMessageCount
-        && entry.pendingNonUnreadMessageCount > 0) {
+        && entry.pendingOwnMessageCount > 0) {
         const uint64_t acknowledged = readMessageCount - previousReadMessageCount;
-        entry.pendingNonUnreadMessageCount -= std::min(entry.pendingNonUnreadMessageCount, acknowledged);
+        entry.pendingOwnMessageCount -= std::min(entry.pendingOwnMessageCount, acknowledged);
     }
     entry.readMessageCount = std::max(previousReadMessageCount, readMessageCount);
     entry.membershipInitialized = true;
@@ -54,10 +54,10 @@ void ChannelActivityTracker::setMembership(const QString& channelId, uint64_t la
     if (hasReadRootMessageCount) {
         if (entry.rootMembershipInitialized
             && readRootMessageCount > previousReadRootMessageCount
-            && entry.pendingNonUnreadRootMessageCount > 0) {
+            && entry.pendingOwnRootMessageCount > 0) {
             const uint64_t acknowledged = readRootMessageCount - previousReadRootMessageCount;
-            entry.pendingNonUnreadRootMessageCount -= std::min(
-                entry.pendingNonUnreadRootMessageCount, acknowledged);
+            entry.pendingOwnRootMessageCount -= std::min(
+                entry.pendingOwnRootMessageCount, acknowledged);
         }
         entry.readRootMessageCount = std::max(
             previousReadRootMessageCount, readRootMessageCount);
@@ -93,16 +93,18 @@ void ChannelActivityTracker::synchronizeChannel(const QString& channelId, uint64
         && hasTotalRootMessageCount;
     const uint64_t readCount = entry.rootUnreadMode
         ? entry.readRootMessageCount : entry.readMessageCount;
-    const uint64_t nonUnreadCredit = entry.rootUnreadMode
-        ? entry.pendingNonUnreadRootMessageCount : entry.pendingNonUnreadMessageCount;
+    const uint64_t ownReadCredit = entry.rootUnreadMode
+        ? entry.pendingOwnRootMessageCount : entry.pendingOwnMessageCount;
     const uint64_t totalCount = entry.rootUnreadMode
         ? totalRootMessageCount : totalMessageCount;
 
-    // Own and suppressed membership posts are not unread, although the
-    // channel's total_msg_count can include them before msg_count catches up.
-    // A real foreign post still sets independent runtime unread state.
+    // Own posts are already read from the user's point of view even when a
+    // membership snapshot still carries the pre-send msg_count. Count only the
+    // part of the server gap that cannot be explained by locally observed own
+    // posts. Runtime foreign-post state remains independent and therefore still
+    // wins if another user's post arrived before or after the own post.
     entry.serverUnreadActivity = totalCount > readCount
-        && totalCount - readCount > nonUnreadCredit;
+        && totalCount - readCount > ownReadCredit;
     entry.serverMentioned = entry.rootUnreadMode && entry.hasRootMentionCount
         ? entry.rootMentionCount > 0
         : entry.mentionCount > 0;
@@ -120,7 +122,16 @@ void ChannelActivityTracker::recordPost(const QString& channelId, uint64_t creat
     entry.lastActivityAt = std::max(entry.lastActivityAt, createdAt);
 
     if (ownPost) {
-        recordNonUnreadPost(channelId, createdAt, threadReply);
+        // Credit an own post only when it can be anchored to a known absolute
+        // read counter. Before the first membership snapshot there is no safe
+        // way to distinguish a stale count from one that already includes this
+        // post, and carrying an unanchored credit could hide a later real unread.
+        if (entry.membershipInitialized) {
+            ++entry.pendingOwnMessageCount;
+        }
+        if (!threadReply && entry.rootMembershipInitialized) {
+            ++entry.pendingOwnRootMessageCount;
+        }
         return;
     }
 
@@ -140,29 +151,6 @@ void ChannelActivityTracker::recordPost(const QString& channelId, uint64_t creat
         entry.runtimeReplyUnreadActivity = true;
     } else {
         entry.runtimeUnreadActivity = true;
-    }
-}
-
-void ChannelActivityTracker::recordNonUnreadPost(const QString& channelId,
-                                                  uint64_t createdAt, bool threadReply)
-{
-    if (channelId.isEmpty()) {
-        return;
-    }
-
-    Entry& entry = entries[channelId];
-    entry.tracked = true;
-    entry.lastActivityAt = std::max(entry.lastActivityAt, createdAt);
-
-    // These posts do not warrant attention, but Mattermost can still include
-    // them in total_msg_count. Anchor the credit to an existing membership
-    // baseline exactly as for own messages. Never invent a credit before the
-    // first authoritative membership response.
-    if (entry.membershipInitialized) {
-        ++entry.pendingNonUnreadMessageCount;
-    }
-    if (!threadReply && entry.rootMembershipInitialized) {
-        ++entry.pendingNonUnreadRootMessageCount;
     }
 }
 
@@ -189,7 +177,7 @@ void ChannelActivityTracker::recordViewed(const QString& channelId, uint64_t vie
                 entry.readRootMessageCount, totalRootMessageCount);
             entry.hasReadRootMessageCount = true;
             entry.rootMembershipInitialized = true;
-            entry.pendingNonUnreadRootMessageCount = 0;
+            entry.pendingOwnRootMessageCount = 0;
         }
         entry.rootMentionCount = 0;
         entry.serverUnreadActivity = false;
@@ -201,12 +189,12 @@ void ChannelActivityTracker::recordViewed(const QString& channelId, uint64_t vie
 
     entry.readMessageCount = std::max(entry.readMessageCount, totalMessageCount);
     entry.membershipInitialized = true;
-    entry.pendingNonUnreadMessageCount = 0;
+    entry.pendingOwnMessageCount = 0;
     if (hasTotalRootMessageCount) {
         entry.readRootMessageCount = std::max(entry.readRootMessageCount, totalRootMessageCount);
         entry.hasReadRootMessageCount = true;
         entry.rootMembershipInitialized = true;
-        entry.pendingNonUnreadRootMessageCount = 0;
+        entry.pendingOwnRootMessageCount = 0;
     }
 
     entry.mentionCount = 0;
@@ -237,17 +225,17 @@ void ChannelActivityTracker::markUnread(const QString& channelId,
 
     // Unlike ordinary membership refreshes, set_unread is explicitly allowed
     // to move the user's read watermark backwards. It also supersedes any
-    // optimistic non-unread post credits from the old watermark.
+    // optimistic own-post credits from the old watermark.
     entry.lastViewedAt = lastViewedAt;
     entry.readMessageCount = readMessageCount;
     entry.membershipInitialized = true;
-    entry.pendingNonUnreadMessageCount = 0;
+    entry.pendingOwnMessageCount = 0;
     if (hasReadRootMessageCount) {
         entry.readRootMessageCount = readRootMessageCount;
         entry.hasReadRootMessageCount = true;
         entry.rootMembershipInitialized = true;
     }
-    entry.pendingNonUnreadRootMessageCount = 0;
+    entry.pendingOwnRootMessageCount = 0;
 
     entry.mentionCount = mentionCount;
     entry.rootMentionCount = rootMentionCount;
