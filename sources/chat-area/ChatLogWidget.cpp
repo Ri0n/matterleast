@@ -252,6 +252,17 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
         lastServerBoundarySeen_ = serverBoundary;
         refreshUnreadEdgeBadge();
     });
+    connect(&sidebar, &SidebarService::channelUnreadRewound, this,
+            [this](const QString& channelId, const QString& postId) {
+        if (!chatArea || chatArea->isThread
+            || chatArea->getChannel().id != channelId) {
+            return;
+        }
+        manualUnreadTail_ = true;
+        autoUnreadHeadConsumed_ = false;
+        manualUnreadGate_.markUnread(
+            postId, isPostLowerEdgeVisible(postId));
+    });
     connect(&FollowingModel::instance(backendInstance),
             &FollowingModel::changed, this,
             &ChatLogWidget::refreshUnreadEdgeBadge);
