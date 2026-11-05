@@ -94,6 +94,11 @@ public:
                                 int perPage,
                                 std::function<void(QStringList)> callback);
 
+    /** Fetch only missing channel membership records for search matches in one request. */
+    void loadChannelMemberRolesByIds(BackendChannel& channel,
+                                     const QStringList& userIds,
+                                     std::function<void()> callback);
+
     void ensureTeamMembers(BackendTeam& team,
                            std::function<void()> callback = {});
     /** Load a group DM's small member set and rebuild its client-side title. */
