@@ -98,13 +98,11 @@ void ChannelActivityTracker::synchronizeChannel(const QString& channelId, uint64
     const uint64_t totalCount = entry.rootUnreadMode
         ? totalRootMessageCount : totalMessageCount;
 
-    // Own or invisible routine membership posts are not unread for this user even when a
-    // membership snapshot still carries the pre-send msg_count. Count only the
-    // part of the server gap that cannot be explained by locally observed non-unread
-    // posts. Runtime foreign-post state remains independent and therefore still
-    // wins if another user's post arrived before or after the own post.
+    // Own and suppressed membership posts are not unread, although the
+    // channel's total_msg_count can include them before msg_count catches up.
+    // A real foreign post still sets independent runtime unread state.
     entry.serverUnreadActivity = totalCount > readCount
-        && totalCount - readCount > ownReadCredit;
+        && totalCount - readCount > nonUnreadCredit;
     entry.serverMentioned = entry.rootUnreadMode && entry.hasRootMentionCount
         ? entry.rootMentionCount > 0
         : entry.mentionCount > 0;
