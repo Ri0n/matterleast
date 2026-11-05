@@ -161,6 +161,46 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
     }
 
+    void paginationAfterFilteringExhaustsTheViewport()
+    {
+        // The production trace first requests the newest eleven slots
+        // [8,18]. It then removes hidden posts, and the view requests [0,7].
+        // This differs critically from loading all nineteen slots in one
+        // request: the underlying source must reconcile page numbering as
+        // the FilteredPostSource is simultaneously removing rows.
+        HiddenHistoryServer server;
+        server.ordinaryCount = 19;
+        server.hiddenCount = 16;
+        QVERIFY(server.start());
+
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("self")},
+            {QStringLiteral("username"), QStringLiteral("self")}
+        }, true);
+        BackendChannel channel(backend.getStorage(), channelJson(19, 16));
+        ChannelPostSource raw(backend, channel);
+        FilteredPostSource visible(raw, [](const BackendPost& post) {
+            return shouldShowMainTimelinePost(
+                post.type, post.props.toObject(), QStringLiteral("self"));
+        });
+
+        QCOMPARE(raw.itemCount(), 19);
+        visible.requestRange(8, 18, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_VERIFY(visible.itemCount() <= 8);
+        visible.requestRange(0, qMin(7, visible.itemCount() - 1),
+                             AbstractPostSource::RequestReason::Scroll, 0);
+
+        // The filter may end up with only three (or zero) materializable
+        // messages after both server pages. The raw source is responsible for
+        // continuing past the misleading message count, without another user
+        // scroll/request from the filtered timeline.
+        QTRY_VERIFY_WITH_TIMEOUT(raw.itemCount() >= 35, 20000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            visible.indexOfPost(postId(0)) >= 0, 20000);
+        QCOMPARE(visible.postAt(0)->id, postId(0));
+    }
+
     void discoversNormalMessagesBeforeBuriedMembershipEvents_data()
     {
         QTest::addColumn<int>("ordinaryCount");
