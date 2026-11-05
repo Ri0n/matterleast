@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include <QHash>
+#include <QJsonObject>
 #include <QPointer>
 #include <QSet>
 #include <QString>
@@ -74,6 +75,9 @@ public:
     /** Keep the locally confirmed outgoing post at the live edge of the log. */
     void followOwnPost(const QString& postId);
 
+    /** Consume transient mention guidance without changing source row indices. */
+    void receiveEphemeralMention(const QJsonObject& ephemeralPost);
+
     /**
      * Re-evaluate read progress from the current viewport. This never treats the
      * caller/navigation action itself as a read; the lower edge of a concrete
@@ -137,6 +141,7 @@ private:
     void positionSelectionToolbar();
     void copySelectedPosts();
     void deleteSelectedOwnPosts();
+    void attachEphemeralMention(PostWidget& widget);
     bool isLocalPresentationIndex(int index) const;
     bool isLocalPresentationId(const QString& postId) const;
     void applyPendingPresentation(PostWidget& widget,
@@ -146,6 +151,9 @@ private:
     ChatArea* chatArea = nullptr;
     QPointer<AbstractPostSource> postSource;
     QPointer<PostWidget> editedPostWidget;
+    // Ephemeral post.create_at = original post.create_at + 1 in Mattermost.
+    // Keep a bounded session-only overlay map, never in PostRepository.
+    QHash<quint64, QJsonObject> ephemeralMentions_;
     // Destroyed before LongListWidget tears down materialized post widgets.
     std::unique_ptr<AttentionFlashLifetime> _attentionFlashLifetime;
     QVector<QMetaObject::Connection> sourceConnections;
