@@ -25,8 +25,9 @@ bool teamChannel(const BackendChannel& channel)
 
 } // namespace
 
-void Backend::canAddChannelMembers(BackendChannel& channel,
-                                   std::function<void(bool)> callback)
+void Backend::hasChannelPermissions(BackendChannel& channel,
+                                    const QStringList& required,
+                                    std::function<void(bool)> callback)
 {
     if (!teamChannel(channel)) {
         callback(false);
@@ -42,13 +43,10 @@ void Backend::canAddChannelMembers(BackendChannel& channel,
         QLatin1Char(' '), Qt::SkipEmptyParts);
     const QString userId = getLoginUser().id;
     const QString host = NetworkRequest::host();
-    const QString permission = channel.type == BackendChannel::publicChannel
-        ? QStringLiteral("manage_public_channel_members")
-        : QStringLiteral("manage_private_channel_members");
     QPointer<Backend> guard(this);
     QPointer<BackendChannel> channelGuard(&channel);
     const auto membershipLoaded =
-        [guard, channelGuard, state, userId, host, permission, callback]
+        [guard, channelGuard, state, userId, host, required, callback]
         (QVariant status, const QJsonDocument& doc) {
         if (!guard || !channelGuard) return;
         if (status.toInt() == QNetworkReply::NoError && doc.isObject()
@@ -74,21 +72,29 @@ void Backend::canAddChannelMembers(BackendChannel& channel,
         for (const QString& name : std::as_const(state->names)) names.append(name);
         NetworkRequest request(QStringLiteral("roles/names"));
         guard->httpConnector.post(request, names, HttpResponseCallback(
-            [guard, channelGuard, userId, host, permission, callback]
+            [guard, channelGuard, userId, host, required, callback]
             (QVariant roleStatus, const QJsonDocument& roles) {
             if (!guard || !channelGuard) return;
-            bool allowed = false;
+            QSet<QString> granted;
             if (guard->getLoginUser().id == userId && NetworkRequest::host() == host
                 && teamChannel(*channelGuard)
                 && roleStatus.toInt() == QNetworkReply::NoError && roles.isArray()) {
                 for (const QJsonValue& value : roles.array()) {
                     const auto role = value.toObject();
-                    if (role.value(QStringLiteral("delete_at")).toDouble() == 0
-                        && role.value(QStringLiteral("permissions")).toArray()
-                               .contains(permission)) {
-                        allowed = true;
-                        break;
+                    if (role.value(QStringLiteral("delete_at")).toDouble() != 0) {
+                        continue;
                     }
+                    for (const QJsonValue& permission :
+                         role.value(QStringLiteral("permissions")).toArray()) {
+                        granted.insert(permission.toString());
+                    }
+                }
+            }
+            bool allowed = true;
+            for (const QString& permission : required) {
+                if (!granted.contains(permission)) {
+                    allowed = false;
+                    break;
                 }
             }
             callback(allowed);
@@ -100,6 +106,26 @@ void Backend::canAddChannelMembers(BackendChannel& channel,
     NetworkRequest teamRequest(QStringLiteral("teams/") + channel.team->id
         + QStringLiteral("/members/") + userId);
     httpConnector.get(teamRequest, HttpResponseCallback(membershipLoaded));
+}
+
+void Backend::canAddChannelMembers(BackendChannel& channel,
+                                   std::function<void(bool)> callback)
+{
+    const QString membersPermission = channel.type == BackendChannel::publicChannel
+        ? QStringLiteral("manage_public_channel_members")
+        : QStringLiteral("manage_private_channel_members");
+    hasChannelPermissions(channel, {membersPermission}, std::move(callback));
+}
+
+void Backend::canManageChannelRoles(BackendChannel& channel,
+                                    std::function<void(bool)> callback)
+{
+    const QString membersPermission = channel.type == BackendChannel::publicChannel
+        ? QStringLiteral("manage_public_channel_members")
+        : QStringLiteral("manage_private_channel_members");
+    hasChannelPermissions(channel,
+                          {membersPermission, QStringLiteral("manage_channel_roles")},
+                          std::move(callback));
 }
 
 void Backend::addChannelMember(BackendChannel& channel, const QString& userId,
