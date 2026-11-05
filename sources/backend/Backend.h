@@ -300,6 +300,8 @@ signals:
 	 * @param post post
 	 */
 	void onNewPost (BackendChannel& channel, const BackendPost& post);
+    /** Server-originated transient post: never store in persistent history. */
+    void onEphemeralPost(const QJsonObject& post);
     void onAllUsers ();
 
     /**
