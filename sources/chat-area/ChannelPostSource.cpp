@@ -2034,7 +2034,13 @@ void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds)
     //
     // Absolute page numbering uses fixed ten-post pages, except for the
     // viewport-sized page-zero bootstrap which can span the entire estimate.
-    const bool reachedEstimatedOldest = page >= pageForIndex(0)
+    // The estimate can move while a page is being ingested (for example,
+    // another metadata update or a one/two-slot prefix adjustment). Treat
+    // the penultimate physical page as near the boundary, too, so a complete
+    // page cannot be mistaken for proof that the invisible prefix ended.
+    const int oldestEstimatedPage = pageForIndex(0);
+    const bool reachedEstimatedOldest =
+        (page > 0 && page + 1 >= oldestEstimatedPage)
         || (page == 0 && returned >= postIds.size());
     if (!oldestBoundaryFastPathTried && !oldestBoundaryProbeInFlight
         && returned >= ServerPageSize && reachedEstimatedOldest) {
