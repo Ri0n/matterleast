@@ -226,12 +226,31 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
 
     // Both the badge and semantic bottom-action are generic overlay hooks.
     // ChatLogWidget supplies the meaning, not OverlayScrollBarManager.
-    connect(&SidebarService::instance(backendInstance),
-            &SidebarService::channelActivityChanged, this,
+    auto& sidebar = SidebarService::instance(backendInstance);
+    lastServerBoundarySeen_ = sidebar.channelLastViewedTime(
+        chatAreaInstance.getChannel().id);
+    connect(&sidebar, &SidebarService::channelActivityChanged, this,
             [this](const QString& id) {
-        if (chatArea && chatArea->getChannel().id == id) {
-            refreshUnreadEdgeBadge();
+        if (!chatArea || chatArea->getChannel().id != id) {
+            return;
         }
+        const uint64_t serverBoundary =
+            SidebarService::instance(*backend).channelLastViewedTime(id);
+        // Mark as unread from another client can move the authoritative
+        // boundary backwards. Discard this viewport's previous local high
+        // water so the newly unread posts are not suppressed by the badge.
+        if (serverBoundary < lastServerBoundarySeen_) {
+            observedReadAt_ = 0;
+            observedReadPostId_.clear();
+            readProgressSentAt_ = 0;
+            autoUnreadHeadConsumed_ = false;
+            manualUnreadTail_ = false;
+            ++readProgressGeneration_;
+            readProgressInFlight_ = false;
+            readProgressTimer_->stop();
+        }
+        lastServerBoundarySeen_ = serverBoundary;
+        refreshUnreadEdgeBadge();
     });
     connect(&FollowingModel::instance(backendInstance),
             &FollowingModel::changed, this,
