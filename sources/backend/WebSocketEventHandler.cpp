@@ -99,6 +99,26 @@ void WebSocketEventHandler::handleEvent(const MultipleChannelsViewedEvent& event
     }
 }
 
+void WebSocketEventHandler::handlePostUnreadEvent(
+    const QJsonObject& data, const QJsonObject& broadcast)
+{
+    if (!storage.loginUser) {
+        return;
+    }
+    const QString recipient = broadcast.value(
+        QStringLiteral("user_id")).toString();
+    if (!recipient.isEmpty() && recipient != storage.loginUser->id) {
+        return;
+    }
+    const QString channelId = broadcast.value(
+        QStringLiteral("channel_id")).toString();
+    if (channelId.isEmpty() || !storage.getChannelById(channelId)) {
+        return;
+    }
+    SidebarService::instance(backend).applyServerPostUnread(channelId, data);
+    FollowingModel::instance(backend).refresh();
+}
+
 void WebSocketEventHandler::handleDraftEvent(
     const QJsonObject& data,
     bool deleted)
