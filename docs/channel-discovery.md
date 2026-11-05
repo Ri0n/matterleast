@@ -57,6 +57,9 @@ One selected remote participant creates/opens a DM. Two or more use `POST /chann
 
 ## Adding channel members
 
+The channel-member list shows names and presence only. Do not display other users' `last_viewed_at`:
+Mattermost sanitizes this private field, and its placeholder is not a meaningful viewing date.
+
 `ViewChannelMembersListDialog` exposes **Add members…** for active public/private team channels when
 `Backend::canAddChannelMembers()` resolves the corresponding `manage_public_channel_members` or
 `manage_private_channel_members` permission. It reads the current user's effective channel/team

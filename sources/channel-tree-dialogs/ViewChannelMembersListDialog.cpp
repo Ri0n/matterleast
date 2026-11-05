@@ -31,7 +31,6 @@
 #include <functional>
 #include <utility>
 
-#include <QDateTime>
 #include <QEvent>
 #include <QFont>
 #include <QHBoxLayout>
@@ -78,19 +77,6 @@ QString memberDisplayName(const BackendUser* user, const QString& fallback)
     return name;
 }
 
-QString lastViewedText(uint64_t timestamp)
-{
-    if (timestamp == 0) {
-        return {};
-    }
-    const QDate currentDate = QDateTime::currentDateTime().date();
-    const QDateTime targetTime = QDateTime::fromMSecsSinceEpoch(timestamp);
-    const QString format = currentDate.year() != targetTime.date().year()
-        ? QStringLiteral("dd MMM yyyy, hh:mm:ss")
-        : QStringLiteral("dd MMM, hh:mm:ss");
-    return targetTime.toString(format);
-}
-
 bool matchesUser(const BackendUser& user, const QString& term)
 {
     return term.isEmpty()
@@ -106,7 +92,6 @@ public:
     ChannelMemberRow(Backend& backend,
                      const BackendUser* user,
                      QString fallbackName,
-                     uint64_t lastViewedAt,
                      std::function<void(const BackendUser*, const QPoint&)> contextMenu,
                      QWidget* parent = nullptr)
         : QWidget(parent)
@@ -135,10 +120,6 @@ public:
         status_ = new QLabel(this);
         status_->setTextInteractionFlags(Qt::NoTextInteraction);
         layout->addWidget(status_, 1);
-
-        lastViewed_ = new QLabel(lastViewedText(lastViewedAt), this);
-        lastViewed_->setTextInteractionFlags(Qt::NoTextInteraction);
-        layout->addWidget(lastViewed_, 2);
 
         connect(this, &QWidget::customContextMenuRequested, this,
                 [this](const QPoint& pos) {
@@ -198,7 +179,6 @@ private:
     QLabel* avatar_ = nullptr;
     QLabel* name_ = nullptr;
     QLabel* status_ = nullptr;
-    QLabel* lastViewed_ = nullptr;
 };
 
 class ChannelMemberLongList final : public LongListWidget
@@ -347,7 +327,6 @@ QWidget* ViewChannelMembersListDialog::createHeaderRow()
     };
     addHeader(tr("Full Name"), 3);
     addHeader(tr("Status"), 1);
-    addHeader(tr("Channel was last viewed"), 2);
     return header;
 }
 
@@ -552,16 +531,8 @@ QWidget* ViewChannelMembersListDialog::createMemberRow(int index)
         userId = memberIds.at(index);
     }
 
-    uint64_t lastViewedAt = 0;
-    if (!userId.isEmpty()) {
-        const auto memberIt = channel.members.constFind(userId);
-        if (memberIt != channel.members.cend()) {
-            lastViewedAt = memberIt->last_viewed_at;
-        }
-    }
-
     return new ChannelMemberRow(
-        backend, user, userId, lastViewedAt,
+        backend, user, userId,
         [this](const BackendUser* rowUser, const QPoint& globalPos) {
             showMemberContextMenu(rowUser, globalPos);
         });
