@@ -2,6 +2,9 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMenu>
+#include <QAction>
+#include <QDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QToolButton>
@@ -698,6 +701,93 @@ private slots:
         QVERIFY(button);
         QVERIFY(button->isHidden());
         QVERIFY(server.additions.isEmpty());
+    }
+
+    void headerMembersDialogIsReusedAndCanReopen()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr);
+        area.resize(700, 500);
+        area.show();
+        auto* membersButton = area.findChild<QToolButton*>(
+            QStringLiteral("usersButton"));
+        QVERIFY(membersButton);
+
+        membersButton->click();
+        // The concrete dialog subclass has no Q_OBJECT; QObject::findChild<T>
+        // requires a meta-object on T. Query by its stable name as a QDialog.
+        const QString dialogName = QStringLiteral("channelMembersDialog");
+        const auto dialogs = [&area, &dialogName] {
+            return area.findChildren<QDialog*>(
+                dialogName, Qt::FindDirectChildrenOnly);
+        };
+        QTRY_COMPARE(dialogs().size(), 1);
+        QPointer<QDialog> dialog = dialogs().first();
+        QVERIFY(dialog);
+        QVERIFY(dialog->isVisible());
+
+        // Clicking the header again must activate the same dialog rather
+        // than instantiate another virtualized list and launch new requests.
+        membersButton->click();
+        QApplication::processEvents();
+        QCOMPARE(dialogs().size(), 1);
+        QCOMPARE(dialogs().first(), dialog.data());
+
+        dialog->close();
+        QTRY_VERIFY(dialog.isNull());
+        membersButton->click();
+        QTRY_COMPARE(dialogs().size(), 1);
+        auto* reopened = dialogs().first();
+        QVERIFY(reopened);
+        QVERIFY(reopened->isVisible());
+        reopened->close();
+    }
+
+    void chatAndThreadMenusHaveResourceIcons()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ChatArea chat(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        const auto verifyIcon = [](QMenu* menu, const QString& name) {
+            if (!menu) {
+                return false;
+            }
+            for (QAction* action : menu->actions()) {
+                if (action->objectName() == name) {
+                    return !action->icon().isNull();
+                }
+            }
+            return false;
+        };
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("searchConversationAction")));
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("editChannelTopicAction")));
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("copyConversationReferenceAction")));
+        QVERIFY(verifyIcon(chat.headerActionsMenu(),
+            QStringLiteral("copyConversationLinkAction")));
+
+        ChatArea thread(backend, *channel, QStringLiteral("thread-root"), nullptr);
+        QVERIFY(verifyIcon(thread.headerActionsMenu(),
+            QStringLiteral("searchConversationAction")));
+        QVERIFY(verifyIcon(thread.headerActionsMenu(),
+            QStringLiteral("copyConversationReferenceAction")));
+        QVERIFY(verifyIcon(thread.headerActionsMenu(),
+            QStringLiteral("copyConversationLinkAction")));
+        QVERIFY(!thread.headerActionsMenu()->findChild<QAction*>(
+            QStringLiteral("editChannelTopicAction")));
     }
 
     void malformedSuccessDoesNotAdmitMembership()

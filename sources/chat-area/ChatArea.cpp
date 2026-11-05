@@ -401,8 +401,21 @@ void ChatArea::setupHeaderUi()
     chatActionsMenu = new QMenu(this);
     chatActionsMenu->setObjectName(QStringLiteral("chatActionsMenu"));
 
-    QAction* searchAction = chatActionsMenu->addAction(tr("Search in conversation"));
-    searchAction->setObjectName(QStringLiteral("searchConversationAction"));
+    // Keep menu icon sources alongside their actions. refreshHeaderActionIcons()
+    // can then recreate palette-tinted icons after a system theme switch.
+    const auto addMenuAction = [this](const QString& title,
+                                     const QString& name,
+                                     const QString& iconPath) {
+        QAction* action = chatActionsMenu->addAction(title);
+        action->setObjectName(name);
+        action->setProperty("matterleastMenuIconPath", iconPath);
+        return action;
+    };
+
+    QAction* searchAction = addMenuAction(
+        tr("Search in conversation"),
+        QStringLiteral("searchConversationAction"),
+        QStringLiteral(":/icons/search"));
     connect(searchAction, &QAction::triggered, this, [this] {
         emit searchInConversationRequested(channel.id);
     });
@@ -411,9 +424,10 @@ void ChatArea::setupHeaderUi()
     // not the channel purpose. Never show this on a thread (which shares its
     // parent channel's header). The server authorizes the PATCH itself.
     if (!isThread && channel.type != BackendChannel::unknown) {
-        QAction* topicAction = chatActionsMenu->addAction(
-            tr("Edit channel topic…"));
-        topicAction->setObjectName(QStringLiteral("editChannelTopicAction"));
+        QAction* topicAction = addMenuAction(
+            tr("Edit channel topic…"),
+            QStringLiteral("editChannelTopicAction"),
+            QStringLiteral(":/icons/edit"));
         connect(topicAction, &QAction::triggered, this, [this] {
             auto* dialog = new ChannelTopicEditDialog(backend, channel, window());
             dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -424,8 +438,10 @@ void ChatArea::setupHeaderUi()
 #ifdef MATTERLEAST_ENABLE_AI
     if (isThread) {
         chatActionsMenu->addSeparator();
-        QAction* action = chatActionsMenu->addAction(tr("Open AI chat…"));
-        action->setObjectName(QStringLiteral("openAgentThreadChatAction"));
+        QAction* action = addMenuAction(
+            tr("Open AI chat…"),
+            QStringLiteral("openAgentThreadChatAction"),
+            QStringLiteral(":/icons/message-balloon"));
         const auto refreshAiAction = [action] {
             action->setVisible(MLOptions::instance()->value<bool>(
                 AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT));
@@ -445,10 +461,14 @@ void ChatArea::setupHeaderUi()
 #endif
 
     chatActionsMenu->addSeparator();
-    QAction* copyReferenceAction = chatActionsMenu->addAction(tr("Copy reference"));
-    copyReferenceAction->setObjectName(QStringLiteral("copyConversationReferenceAction"));
-    QAction* copyLinkAction = chatActionsMenu->addAction(tr("Copy link to chat"));
-    copyLinkAction->setObjectName(QStringLiteral("copyConversationLinkAction"));
+    QAction* copyReferenceAction = addMenuAction(
+        tr("Copy reference"),
+        QStringLiteral("copyConversationReferenceAction"),
+        QStringLiteral(":/icons/copy"));
+    QAction* copyLinkAction = addMenuAction(
+        tr("Copy link to chat"),
+        QStringLiteral("copyConversationLinkAction"),
+        QStringLiteral(":/icons/link"));
 
     auto refreshClipboardActions = [this, copyReferenceAction, copyLinkAction] {
         const QString reference = ConversationReference::copyText(backend, channel);
@@ -490,7 +510,9 @@ void ChatArea::setupHeaderUi()
     connect(ui->titleLabel, &QWidget::customContextMenuRequested,
             this, [this](const QPoint& pos) {
         QMenu menu(this);
-        QAction* copyLinkAction = menu.addAction(tr("Copy link to chat"));
+        QAction* copyLinkAction = menu.addAction(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/link")),
+            tr("Copy link to chat"));
         const QString link = channelWebUrl(this->backend, this->channel);
         copyLinkAction->setEnabled(!link.isEmpty());
         if (menu.exec(ui->titleLabel->mapToGlobal(pos)) == copyLinkAction
@@ -565,6 +587,15 @@ void ChatArea::refreshHeaderActionIcons()
     if (chatActionsButton) {
         chatActionsButton->setIcon(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/burger")));
+    }
+    if (chatActionsMenu) {
+        for (QAction* action : chatActionsMenu->actions()) {
+            const QString iconPath = action->property(
+                "matterleastMenuIconPath").toString();
+            if (!iconPath.isEmpty()) {
+                action->setIcon(IconUtils::symbolicIcon(iconPath));
+            }
+        }
     }
     if (threadFollowButton) {
         const bool following = threadFollowButton->property("following").toBool();
@@ -777,8 +808,21 @@ void ChatArea::init()
 
         signalConnections.push_back(connect(ui->usersButton, &QToolButton::clicked,
                                             this, [this] {
-            auto* dialog = new ViewChannelMembersListDialog(backend, channel, this);
-            dialog->show();
+            if (!channelMembersDialog) {
+                channelMembersDialog =
+                    new ViewChannelMembersListDialog(backend, channel, this);
+                channelMembersDialog->setObjectName(
+                    QStringLiteral("channelMembersDialog"));
+                // FilterListDialog uses WA_DeleteOnClose; the QPointer becomes
+                // null when the dialog closes, so a later click can reopen it.
+            }
+            if (channelMembersDialog->isMinimized()) {
+                channelMembersDialog->showNormal();
+            } else {
+                channelMembersDialog->show();
+            }
+            channelMembersDialog->raise();
+            channelMembersDialog->activateWindow();
         }));
 
         signalConnections.push_back(connect(ui->pinnedPostsButton,
