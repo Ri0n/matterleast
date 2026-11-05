@@ -15,7 +15,6 @@
 
 #include "backend/Backend.h"
 #include "backend/PostTimelineService.h"
-#include "backend/PostVisibilityPolicy.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 
@@ -2025,62 +2024,6 @@ void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds)
     // Re-fetching an already known page is deliberately a no-op. The shared
     // publisher emits nothing unless the identity mapping actually changed.
     publishExactWindow(assignExactWindow(first, pageIds));
-
-    // The reported root message count excludes join/leave system posts.
-    // Therefore a full server page at the *estimated* oldest edge does not
-    // prove the channel's actual oldest boundary. Trigger an independent
-    // boundary search even if the oldest logical slot is still unresolved:
-    // its identity can remain empty after count adjustment, while a filtered
-    // view may already have run out of visible rows and cannot request it.
-    //
-    // Absolute page numbering uses fixed ten-post pages, except for the
-    // viewport-sized page-zero bootstrap which can span the entire estimate.
-    // The estimate can move while a page is being ingested (for example,
-    // another metadata update or a one/two-slot prefix adjustment). Treat
-    // the penultimate physical page as near the boundary, too.
-    const int oldestEstimatedPage = pageForIndex(0);
-    const bool reachedEstimatedOldest =
-        (page > 0 && page + 1 >= oldestEstimatedPage)
-        || (page == 0 && returned >= postIds.size());
-
-    // More importantly, a newest-page burst of join/leave events proves the
-    // counter is missing rows right now, but may erase the entire *filtered*
-    // viewport before it asks for the next raw page. Detect that evidence at
-    // the authoritative source and probe independently. Limit this proactive
-    // path to small timelines; large ones keep their lazy top-edge search.
-    int excludedMembershipPosts = 0;
-    if (page == 0 && postIds.size() <= 256 && returned >= ServerPageSize) {
-        for (const QString& id : pageIds) {
-            const BackendPost* post = channel.postIdToPost.value(id, nullptr);
-            if (post && isRoutineMembershipPostType(post->type)) {
-                ++excludedMembershipPosts;
-            }
-        }
-    }
-    const bool hiddenMembershipBurst = page == 0
-        && excludedMembershipPosts >= std::max(3, returned / 2);
-
-    if (!oldestBoundaryFastPathTried && !oldestBoundaryProbeInFlight
-        && returned >= ServerPageSize
-        && (reachedEstimatedOldest || hiddenMembershipBurst)) {
-        oldestBoundaryFastPathTried = true;
-        qCDebug(lcTimelineChannel).nospace()
-            << "ROOT_COUNT_NEEDS_BOUNDARY_PROOF page=" << page
-            << " returned=" << returned
-            << " rawCount=" << postIds.size()
-            << " excludedMembershipPosts=" << excludedMembershipPosts
-            << " oldestSlotKnown=" << !postIds.first().isEmpty();
-        QPointer<ChannelPostSource> guard(this);
-        QTimer::singleShot(0, this, [guard, page] {
-            if (guard) {
-                if (page == 0) {
-                    guard->probeEstimatedOldestBoundary({});
-                } else {
-                    guard->resolveOldestBoundaryFromNonEmpty(page, {});
-                }
-            }
-        });
-    }
 }
 
 void ChannelPostSource::prependDiscovered(const QStringList& chronologicalIds)
