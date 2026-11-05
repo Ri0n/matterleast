@@ -5,6 +5,8 @@
 #include <QMenu>
 #include <QAction>
 #include <QDialog>
+#include <QContextMenuEvent>
+#include <QTimer>
 #include <QLabel>
 #include <QLineEdit>
 #include <QToolButton>
@@ -43,6 +45,7 @@ class MemberServer : public QTcpServer
 public:
     QString grantingRole = QStringLiteral("custom_channel");
     QString permission = QStringLiteral("manage_private_channel_members");
+    QStringList extraPermissions;
     bool failRoles = false;
     bool deletedRole = false;
     bool malformedMember = false;
@@ -57,11 +60,15 @@ public:
     bool roleFixture = false;
     int roleBatchRequests = 0;
     QJsonArray roleBatchIds;
+    int roleMutations = 0;
+    bool denyRoleChange = false;
+    QHash<QString, bool> adminOverrides;
 
     QJsonObject memberRecord(const QString& userId) const
     {
-        const bool admin = userId == QStringLiteral("person00")
-            || userId == QStringLiteral("person04");
+        const bool admin = adminOverrides.value(userId,
+            userId == QStringLiteral("person00")
+                || userId == QStringLiteral("person04"));
         const bool guest = userId == QStringLiteral("person01");
         return QJsonObject {
             {QStringLiteral("user_id"), userId},
@@ -104,10 +111,16 @@ public:
                         requestedRoles = input.array();
                         QJsonArray roles;
                         for (const auto& name : requestedRoles) {
+                            QJsonArray permissions;
+                            if (name.toString() == grantingRole) {
+                                permissions.append(permission);
+                                for (const QString& extra : extraPermissions) {
+                                    permissions.append(extra);
+                                }
+                            }
                             roles.append(QJsonObject {
                                 {"name", name}, {"delete_at", deletedRole ? 1 : 0},
-                                {"permissions", name.toString() == grantingRole
-                                    ? QJsonArray {permission} : QJsonArray {}}
+                                {"permissions", permissions}
                             });
                         }
                         response = QJsonDocument(roles);
@@ -118,6 +131,20 @@ public:
                             {"team_id", "team"}, {"scheme_admin", true},
                             {"roles", path.contains("/teams/") ? "custom_team" : "custom_channel"}
                         });
+                    } else if (path.endsWith("/schemeRoles")
+                               && request.value(0) == "PUT") {
+                        ++roleMutations;
+                        const QString id = path.split(QLatin1Char('/')).value(6);
+                        if (denyRoleChange) {
+                            status = 403;
+                            response = QJsonDocument(QJsonObject {
+                                {"message", "Role change permission denied"}});
+                        } else {
+                            adminOverrides.insert(id,
+                                input.object().value("scheme_admin").toBool());
+                            response = QJsonDocument(QJsonObject {
+                                {"status", "OK"}});
+                        }
                     } else if (path.endsWith("/users/search")) {
                         search = input.object();
                         searches.push_back(search);
@@ -129,6 +156,10 @@ public:
                             users.append(user(id));
                         }
                         response = QJsonDocument(users);
+                    } else if (roleFixture && path.contains("/members/person")
+                               && request.value(0) == "GET") {
+                        const QString id = path.split(QLatin1Char('/')).last();
+                        response = QJsonDocument(memberRecord(id));
                     } else if (path.endsWith("/members/ids")) {
                         ++roleBatchRequests;
                         roleBatchIds = input.array();
