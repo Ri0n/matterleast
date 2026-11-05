@@ -438,7 +438,7 @@ PostWidget::PostWidget(Backend& backend,
             if (usesRelativeTimestamp() && !fullTimestampVisible_) {
                 timestampRefreshTimer_->start(
                     PostTimestampPresentation::threadRefreshIntervalMs(
-                        static_cast<qint64>(post.create_at)));
+                        static_cast<qint64>(this->post.create_at)));
             } else {
                 timestampRefreshTimer_->stop();
             }
