@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QJsonArray>
+#include <QAction>
 #include <QJsonDocument>
 #include <QDateTime>
 #include <QLabel>
@@ -370,6 +371,18 @@ private slots:
             auto& ui = NavigationUiController::instance(window);
             auto& navigation = AppNavigationService::instance(backend);
             navigation.openChannelInTab("channel");
+            // A checkable menu action adds a checkmark column that shifts all
+            // header-menu icons. Pin state must be expressed by icon + label.
+            auto* pinAction = window.findChild<QAction*>(
+                QStringLiteral("tabPinAction"));
+            QVERIFY(pinAction);
+            QVERIFY(!pinAction->isCheckable());
+            QVERIFY(!pinAction->icon().isNull());
+            QCOMPARE(pinAction->text(), QStringLiteral("Pin tab"));
+            pinAction->trigger();
+            QCOMPARE(pinAction->text(), QStringLiteral("Unpin tab"));
+            pinAction->trigger();
+            QCOMPARE(pinAction->text(), QStringLiteral("Pin tab"));
             navigation.openThreadInTab("channel", rootId(201));
             navigation.openThreadInTab("channel", rootId(202));
             auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
