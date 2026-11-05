@@ -319,13 +319,6 @@ protected:
      * enter/leave events.
      */
     void setHoverHighlightOverride(QWidget* widget);
-
-    /**
-     * Temporarily suppress painting the hover surface without resetting
-     * physical row hover tracking or the caller's hover-highlight preference.
-     * Used while the pointer is inside overlay navigation chrome.
-     */
-    void setHoverHighlightSuppressed(bool suppressed);
     QWidget* hoverHighlightOverrideWidget() const
     {
         return hoverHighlightOverride.data();
@@ -477,7 +470,6 @@ private:
     bool userScrollActionPending = false;
     bool scrollAnimationApplying = false;
     bool hoverHighlightEnabled = true;
-    bool hoverHighlightSuppressed = false;
 
     quint64 seekGeneration = 0;
     int seekTarget = -1;
