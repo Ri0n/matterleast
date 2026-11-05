@@ -464,6 +464,7 @@ void SidebarService::applyServerPostUnread(const QString& channelId,
     const auto field = [&data](const char* key) -> uint64_t {
         return data.value(QString::fromLatin1(key)).toVariant().toULongLong();
     };
+    const uint64_t previousBoundary = activityTracker.lastViewedTime(channelId);
     const bool wasMentioned = activityTracker.hasMention(channelId);
     activityTracker.markUnread(
         channelId,
@@ -479,6 +480,13 @@ void SidebarService::applyServerPostUnread(const QString& channelId,
                                      activityTracker.hasMention(channelId));
     }
     emit channelActivityChanged(channelId);
+    if (activityTracker.lastViewedTime(channelId) < previousBoundary) {
+        const QString postId = data.value(
+            QStringLiteral("post_id")).toString();
+        if (!postId.isEmpty()) {
+            emit channelUnreadRewound(channelId, postId);
+        }
+    }
 }
 
 void SidebarService::markPostUnread(const QString& postId,
