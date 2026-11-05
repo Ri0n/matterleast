@@ -29,6 +29,7 @@
 #include <QPainter>
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QIcon>
