@@ -150,10 +150,23 @@ private slots:
         settleEvents();
         QVERIFY(!actions->isVisible());
 
-        // The physical icon must remain the click target even if the toolbar
-        // was raised earlier and the mouse passes over its old location.
+        // Moving back into the SAME row must restore hover even without
+        // another Qt row Enter event (the row itself never lost mouse focus).
+        QCursor::setPos(rowPoint);
+        QTest::mouseMove(post, post->rect().center());
+        QTRY_VERIFY(actions->isVisible());
+
+        // Crossing the contour again hides it without waiting for the
+        // floating toolbar's normal leave-delay timer.
         const QPoint globalButton =
             end->mapToGlobal(end->rect().center());
+        QCursor::setPos(globalButton);
+        QTest::mouseMove(end, end->rect().center());
+        settleEvents();
+        QVERIFY(!actions->isVisible());
+
+        // The physical icon must remain the click target even if the toolbar
+        // was raised earlier and the mouse passes over its old location.
         QCursor::setPos(globalButton);
         settleEvents();
         QCOMPARE(QApplication::widgetAt(globalButton),
