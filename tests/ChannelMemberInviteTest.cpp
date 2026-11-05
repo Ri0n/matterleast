@@ -346,10 +346,12 @@ private slots:
         };
         QTRY_COMPARE(labels(), expected);
         QCOMPARE(server.roleBatchRequests, 0); // Paged membership already has roles.
-        QVERIFY(channel->members.contains(QStringLiteral("person00")));
-        QVERIFY(channel->members.value(QStringLiteral("person00")).isAdmin);
-        QCOMPARE(channel->members.value(QStringLiteral("person01")).roles,
-                 QStringLiteral("channel_guest"));
+        const auto admin = channel->members.constFind(QStringLiteral("person00"));
+        QVERIFY(admin != channel->members.cend());
+        QVERIFY(admin.value().isAdmin);
+        const auto guest = channel->members.constFind(QStringLiteral("person01"));
+        QVERIFY(guest != channel->members.cend());
+        QCOMPARE(guest.value().roles, QStringLiteral("channel_guest"));
         // The original custom status column is still present.
         QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("memberCustomStatus")));
     }
