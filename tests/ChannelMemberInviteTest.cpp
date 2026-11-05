@@ -6,6 +6,7 @@
 #include <QAction>
 #include <QDialog>
 #include <QContextMenuEvent>
+#include <QApplication>
 #include <QTimer>
 #include <QLabel>
 #include <QLineEdit>
@@ -417,6 +418,140 @@ private slots:
                          QStringLiteral("memberRole"))->text(),
                      QStringLiteral("Channel admin"));
         QVERIFY(channel->members.contains(QStringLiteral("person04")));
+    }
+
+    void channelRolePermissionRequiresBothRights_data()
+    {
+        QTest::addColumn<QString>("permissions");
+        QTest::addColumn<bool>("allowed");
+        QTest::newRow("both") << "manage_private_channel_members manage_channel_roles" << true;
+        QTest::newRow("members-only") << "manage_private_channel_members" << false;
+        QTest::newRow("roles-only") << "manage_channel_roles" << false;
+        QTest::newRow("neither") << "read_channel" << false;
+    }
+
+    void channelRolePermissionRequiresBothRights()
+    {
+        QFETCH(QString, permissions);
+        QFETCH(bool, allowed);
+        MemberServer server;
+        const QStringList granted = permissions.split(QLatin1Char(' '));
+        server.permission = granted.first();
+        server.extraPermissions = granted.mid(1);
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+        bool resolved = false;
+        bool canEdit = !allowed;
+        backend.canManageChannelRoles(*channel, [&](bool permitted) {
+            canEdit = permitted;
+            resolved = true;
+        });
+        QTRY_VERIFY(resolved);
+        QCOMPARE(canEdit, allowed);
+    }
+
+    void channelMemberContextMenuChangesAdminRole()
+    {
+        MemberServer server;
+        server.roleFixture = true;
+        server.count = 4;
+        server.extraPermissions.append(QStringLiteral("manage_channel_roles"));
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
+        dialog.resize(800, 520);
+        dialog.show();
+        QTRY_VERIFY(dialog.property("channelRolePermissionReady").toBool());
+
+        const auto rowFor = [&dialog](const QString& id) -> QWidget* {
+            for (QWidget* row : dialog.findChildren<QWidget*>(
+                     QStringLiteral("channelMemberRow"))) {
+                if (row->property("memberUserId").toString() == id) {
+                    return row;
+                }
+            }
+            return nullptr;
+        };
+        const auto roleFor = [&dialog](const QString& id) -> QString {
+            for (QLabel* role : dialog.findChildren<QLabel*>(
+                     QStringLiteral("memberRole"))) {
+                if (role->parentWidget()
+                    && role->parentWidget()->property(
+                           "memberUserId").toString() == id) {
+                    return role->text();
+                }
+            }
+            return {};
+        };
+        QTRY_VERIFY(rowFor(QStringLiteral("person03")));
+        QCOMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
+
+        const auto popupActionFor = [&](const QString& userId,
+                                        const QString& name,
+                                        bool trigger) {
+            QWidget* row = rowFor(userId);
+            if (!row) {
+                return false;
+            }
+            bool found = false;
+            QTimer::singleShot(0, &dialog, [&] {
+                auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                if (!menu) {
+                    return;
+                }
+                for (QAction* action : menu->actions()) {
+                    if (action->objectName() == name) {
+                        found = true;
+                        if (trigger) {
+                            action->trigger();
+                        }
+                        break;
+                    }
+                }
+                menu->close();
+            });
+            const QPoint local = row->rect().center();
+            QContextMenuEvent event(QContextMenuEvent::Mouse,
+                                    local, row->mapToGlobal(local));
+            QApplication::sendEvent(row, &event);
+            return found;
+        };
+
+        QVERIFY(popupActionFor(QStringLiteral("person03"),
+                              QStringLiteral("makeChannelAdminAction"), true));
+        QTRY_COMPARE(server.roleMutations, 1);
+        QTRY_COMPARE(roleFor(QStringLiteral("person03")),
+                     QStringLiteral("Channel admin"));
+        QVERIFY(channel->members.constFind(QStringLiteral("person03")).value().isAdmin);
+
+        QVERIFY(popupActionFor(QStringLiteral("person03"),
+                              QStringLiteral("makeChannelMemberAction"), true));
+        QTRY_COMPARE(server.roleMutations, 2);
+        QTRY_COMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
+        QVERIFY(!channel->members.constFind(QStringLiteral("person03")).value().isAdmin);
+
+        // A guest's system role cannot be changed in a channel-specific menu.
+        QVERIFY(!popupActionFor(QStringLiteral("person01"),
+                               QStringLiteral("makeChannelAdminAction"), false));
+
+        // Server rejection must not update the locally displayed role.
+        server.denyRoleChange = true;
+        bool finished = false;
+        bool succeeded = true;
+        backend.setChannelMemberAdmin(*channel, QStringLiteral("person03"), true,
+            [&](bool result, const QString&) {
+                succeeded = result;
+                finished = true;
+            });
+        QTRY_VERIFY(finished);
+        QVERIFY(!succeeded);
+        QCOMPARE(roleFor(QStringLiteral("person03")), QStringLiteral("Member"));
+        QCOMPARE(server.roleMutations, 3);
     }
 
     void existingMembersOutsideTheCacheRemainVisibleAndCannotBeAdded()
