@@ -306,8 +306,8 @@ void ChannelPostSource::requestRange(int first,
     const bool exactPagingAllowed = !provisionalWindow.isValid();
 
     // Attach only demand that the current exact request is expected to satisfy
-    // or directly extend. We deliberately do not extend the gate itself: if the
-    // user scrolls farther before the response arrives, that distant demand is
+    // in full. We deliberately do not extend the gate itself: if the user
+    // scrolls farther before the response arrives, that distant demand is
     // free to start independently rather than forming a stale request queue.
     if (exactPagingAllowed && boundaryRequestGate.isActive()
         && reason != RequestReason::Seek
@@ -697,8 +697,12 @@ void ChannelPostSource::requestRange(int first,
                     bool safeToPublish = currentAnchorIndex >= 0;
                     const int count = static_cast<int>(result.postIds.size());
 
-                    if (safeToPublish && count > currentAnchorIndex) {
-                        guard->insertLogicalPrefix(count - currentAnchorIndex);
+                    // A predecessor cursor proves at least one more raw row
+                    // exists. Keep that unresolved position demandable even if
+                    // filtering removes every post in this response.
+                    const int requiredPrefix = count + (result.prevPostId.isEmpty() ? 0 : 1);
+                    if (safeToPublish && requiredPrefix > currentAnchorIndex) {
+                        guard->insertLogicalPrefix(requiredPrefix - currentAnchorIndex);
                         currentAnchorIndex = guard->indexOfPost(anchorId);
                     }
 
@@ -808,12 +812,7 @@ void ChannelPostSource::requestRange(int first,
                     if (result.postIds.empty()) {
                         guard->reconcileRootCount(0);
                     } else {
-                        // placePage() normally grows by its fixed absolute-page
-                        // unit. A viewport-sized page zero can be larger, so make
-                        // room first while still keeping the newest edge fixed.
-                        guard->ensureMinimumRootCount(
-                            static_cast<int>(result.postIds.size()));
-                        guard->placePage(0, result.postIds);
+                        guard->placePage(0, result.postIds, result.prevPostId);
                     }
                 }
                 if (gated) {
@@ -867,7 +866,7 @@ void ChannelPostSource::requestRange(int first,
                     return;
                 }
 
-                guard->placePage(page, result.postIds);
+                guard->placePage(page, result.postIds, result.prevPostId);
 
                 // For small estimates we deliberately take the normal ten-post
                 // path first. If the estimated oldest page is full, however,
@@ -1180,12 +1179,12 @@ void ChannelPostSource::loadOldestBoundaryPage(int page)
                 guard->oldestBoundaryNonEmptyPage, page);
             const int returned = static_cast<int>(result.postIds.size());
             if (returned < ServerPageSize) {
-                guard->placePage(page, result.postIds);
+                guard->placePage(page, result.postIds, result.prevPostId);
                 guard->finishOldestBoundaryProbe();
                 return;
             }
 
-            guard->placePage(page, result.postIds);
+            guard->placePage(page, result.postIds, result.prevPostId);
             guard->oldestBoundaryMaterializedFullPage = page;
             if (guard->oldestBoundaryEmptyPage == page + 1) {
                 guard->reconcileRootCount((page + 1) * ServerPageSize);
@@ -1296,6 +1295,7 @@ void ChannelPostSource::insertLogicalPrefix(int count)
         return;
     }
 
+    boundaryRequestGate.invalidateCoverage();
     if (provisionalWindow.isValid()) {
         provisionalWindow.first += count;
     }
@@ -1899,7 +1899,7 @@ void ChannelPostSource::validateCachedTail()
                 guard->reconcileRootCount(0);
                 return;
             }
-            guard->placePage(0, result.postIds);
+            guard->placePage(0, result.postIds, result.prevPostId);
         });
 }
 
@@ -1912,6 +1912,7 @@ void ChannelPostSource::removeLogicalRange(int first, int count)
     }
 
     const int last = first + count - 1;
+    boundaryRequestGate.invalidateCoverage();
 
     if (provisionalWindow.isValid()) {
         const int oldFirst = provisionalWindow.first;
@@ -1947,7 +1948,8 @@ void ChannelPostSource::removeLogicalRange(int first, int count)
     eraseLogicalSlots(first, count);
 }
 
-void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds)
+void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds,
+                                  const QString& prevPostId)
 {
     if (!hasRootCountEstimate || postIds.isEmpty() || chronologicalIds.isEmpty()) {
         return;
@@ -1955,15 +1957,19 @@ void ChannelPostSource::placePage(int page, const QStringList& chronologicalIds)
 
     const int returned = static_cast<int>(chronologicalIds.size());
 
-    // Absolute /posts pages are the timeline authority. A short page proves the
-    // exact oldest boundary. A full page only proves a minimum count; grow at
-    // the oldest side so already known newest-anchored page mappings keep their
-    // indices. This handles total_msg_count_root underestimates caused by system
-    // roots that are visible in /posts but excluded from channel message counts.
-    if (returned < ServerPageSize) {
+    // The predecessor cursor is stronger than the count estimate: reserve
+    // its still-unloaded position before publishing/filtering the page. This
+    // keeps ordinary viewport demand alive at an underestimated oldest edge,
+    // including when the entire response is rejected by a projection. No
+    // transport is started until the view actually demands that position.
+    if (!prevPostId.isEmpty()) {
+        ensureMinimumRootCount(page * ServerPageSize + returned + 1);
+    } else if (returned < ServerPageSize) {
         reconcileRootCount(page * ServerPageSize + returned);
     } else {
-        ensureMinimumRootCount((page + 1) * ServerPageSize);
+        // Page zero can be sized to a viewport larger than the absolute-page
+        // unit; all returned identities still need their own logical slots.
+        ensureMinimumRootCount(page * ServerPageSize + returned);
     }
 
     const int first = std::max(0,

@@ -32,7 +32,7 @@ public:
 
     bool canAttach(int first, int last) const
     {
-        if (!isActive() || last < first) {
+        if (!isActive() || !coverageCurrent || last < first) {
             return false;
         }
         return first >= expected.first && last <= expected.last;
@@ -43,11 +43,16 @@ public:
                int requestFirst,
                int requestLast)
     {
+        coverageCurrent = true;
         expected.first = std::min(expectedFirst, expectedLast);
         expected.last = std::max(expectedFirst, expectedLast);
         waiters.clear();
         attach(requestFirst, requestLast);
     }
+
+    // Structural remaps invalidate numeric coverage, but original request
+    // coordinates must survive until the owning transport finishes.
+    void invalidateCoverage() { coverageCurrent = false; }
 
     void attach(int first, int last)
     {
@@ -67,6 +72,7 @@ public:
     }
 
 private:
+    bool coverageCurrent = true;
     Range expected;
     QVector<Range> waiters;
 };

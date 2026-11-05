@@ -56,6 +56,21 @@ private slots:
         QVERIFY(!gate.canAttach(170, 160));
     }
 
+    void structuralRemapInvalidatesCoverageButRetainsWaiters()
+    {
+        Mattermost::PostSourceRequestGate gate;
+        gate.begin(0, 18, 0, 18);
+        gate.invalidateCoverage();
+        QVERIFY(gate.isActive());
+        QVERIFY(!gate.canAttach(0, 0));
+        const auto waiters = gate.finish();
+        QCOMPARE(waiters.size(), 1);
+        QCOMPARE(waiters.first().first, 0);
+        QCOMPARE(waiters.first().last, 18);
+        gate.begin(1, 19, 1, 19);
+        QVERIFY(gate.canAttach(1, 19));
+    }
+
     void finishReleasesWaitersAndResetsState()
     {
         Mattermost::PostSourceRequestGate gate;

@@ -38,7 +38,7 @@ filtered logical coordinate system, not transport truth. The wrapped source rema
 server paging, absolute/channel coordinates, count repair, cursor placement and permalink context.
 
 `PostSourceRequestGate` is deliberately a small helper rather than another source base class. Channel
-and thread sources share the mechanics of attaching adjacent logical demand to one exact in-flight
+and thread sources share the mechanics of attaching fully covered logical demand to one exact in-flight
 boundary request, but they do **not** share enough count/boundary semantics to justify hiding their
 transport policy behind inheritance.
 

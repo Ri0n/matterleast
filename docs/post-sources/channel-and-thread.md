@@ -67,6 +67,14 @@ remain represented in the historical counter but are not returned as normal visi
 visible history shorter. The source therefore treats the value as coordinate-estimation input, never
 as proof of the oldest boundary.
 
+When a `/posts` page or a `before` response would fill the estimated oldest slot, a nonempty
+`prev_post_id` proves that at least one more raw position exists. Reserve that unresolved prefix
+**before** publishing the returned identities. This is server evidence, independent of how many
+posts a projection hides. If filtering rejects the entire page, the prefix remains requestable;
+ordinary viewport demand continues from the exact oldest resident identity. A filled viewport stops
+requesting, so opening a channel does not trigger a full-history scan. Do not infer the oldest
+boundary from the message counter or from the absence of visible rows after filtering.
+
 ## Thread source
 
 `ThreadPostSource` maps one root plus replies:

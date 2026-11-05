@@ -78,15 +78,19 @@ to cover plus the logical request waiters attached to it:
 
 ```text
 in-flight expected range: 130..149
-new demand 120..129        -> attach (adjacent)
-new demand 135..145        -> attach (overlap)
+new demand 120..129        -> do not attach (uncovered adjacent range)
+new demand 125..140        -> do not attach (partially uncovered range)
+new demand 135..145        -> attach (fully covered)
 new demand 100..119        -> do not attach; may start independently
 ```
 
 Attaching a waiter does **not** expand the expected range. When the HTTP request completes, the source
 finishes all attached logical requests and lets `LongListWidget` recompute demand from the current
-viewport. There is no source-side FIFO chain that blindly continues loading stale ranges after the user
-has moved elsewhere.
+viewport. A completed request releases pending suppression; it never makes an unresolved row available.
+Structural prefix insertion/removal invalidates the gate's numeric coverage before publishing signals,
+so a reentrant demand in the new coordinates cannot attach to the old response. Original waiter
+coordinates are retained for completion. There is no source-side FIFO chain that blindly continues
+loading stale ranges after the user has moved elsewhere.
 
 Seek requests are not attached to ordinary boundary work: a new random seek has its own generation and
 must be free to supersede old viewport intent.
