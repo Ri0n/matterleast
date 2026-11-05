@@ -29,6 +29,8 @@
 #include <QEasingCurve>
 #include <QEvent>
 #include <QFontMetrics>
+#include <QCoreApplication>
+#include <QLabel>
 #include <QGraphicsOpacityEffect>
 #include <QPalette>
 #include <QPropertyAnimation>
@@ -68,6 +70,8 @@ constexpr char ScrollToEndObjectName[] = "mattermostOverlayScrollToEndButton";
 constexpr char ScrollToStartGuardName[] = "mattermostOverlayScrollToStartGuard";
 constexpr char ScrollToEndGuardName[] = "mattermostOverlayScrollToEndGuard";
 constexpr char EdgeButtonExclusionProperty[] = "mattermostOverlayEdgeButtonExclusion";
+constexpr char BottomBadgeProperty[] = "mattermostOverlayBottomBadgeText";
+constexpr char BottomBadgeObjectName[] = "mattermostOverlayBottomBadge";
 
 QString cssRgba(const QColor& color)
 {
@@ -251,6 +255,7 @@ struct OverlayScrollBarManager::State {
     QWidget* scrollToEndGuard = nullptr;
     QToolButton* scrollToStartButton = nullptr;
     QToolButton* scrollToEndButton = nullptr;
+    QLabel* scrollToEndBadge = nullptr;
     QGraphicsOpacityEffect* verticalOpacity = nullptr;
     QGraphicsOpacityEffect* horizontalOpacity = nullptr;
     QPropertyAnimation* verticalAnimation = nullptr;
@@ -354,12 +359,23 @@ void OverlayScrollBarManager::registerArea(QAbstractScrollArea* area)
                 source->triggerAction(QAbstractSlider::SliderToMinimum);
             }
         });
+        // The post list may implement a semantic "next unread" action.
+        // Non-chat scroll areas do not need to know about this hook.
         connect(state->scrollToEndButton, &QToolButton::clicked, area,
-                [source = state->sourceVertical] {
-            if (source) {
+                [area, source = state->sourceVertical] {
+            OverlayScrollToEndEvent request;
+            QCoreApplication::sendEvent(area, &request);
+            if (!request.isAccepted() && source) {
                 source->triggerAction(QAbstractSlider::SliderToMaximum);
             }
         });
+        state->scrollToEndBadge = new QLabel(state->scrollToEndGuard);
+        state->scrollToEndBadge->setObjectName(
+            QString::fromLatin1(BottomBadgeObjectName));
+        state->scrollToEndBadge->setAlignment(Qt::AlignCenter);
+        state->scrollToEndBadge->setAttribute(
+            Qt::WA_TransparentForMouseEvents);
+        state->scrollToEndBadge->hide();
         area->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     }
     if (state->horizontalEnabled) {
@@ -521,6 +537,12 @@ void OverlayScrollBarManager::sync(State& state)
             && awayFromEnd;
         state.scrollToEndGuard->setVisible(visible);
         state.scrollToEndButton->setVisible(visible);
+        if (state.scrollToEndBadge) {
+            const QString label = state.area->property(BottomBadgeProperty)
+                                      .toString();
+            state.scrollToEndBadge->setText(label);
+            state.scrollToEndBadge->setVisible(visible && !label.isEmpty());
+        }
     }
 }
 
@@ -591,6 +613,16 @@ void OverlayScrollBarManager::layout(State& state)
                    viewportRect.top() + outerInset);
         placeGuard(state.scrollToEndGuard, state.scrollToEndButton,
                    viewportRect.bottom() - bottomCut - outerInset - extent + 1);
+        if (state.scrollToEndBadge && state.scrollToEndGuard) {
+            const QSize hint = state.scrollToEndBadge->sizeHint();
+            const int badgeWidth = std::max(20, hint.width() + 8);
+            const int badgeHeight = std::max(17, hint.height() + 3);
+            state.scrollToEndBadge->setGeometry(
+                (state.scrollToEndGuard->width() - badgeWidth) / 2,
+                extent - badgeHeight - 3,
+                badgeWidth, badgeHeight);
+            state.scrollToEndBadge->raise();
+        }
         if (state.overlayVertical) {
             state.overlayVertical->raise();
         }
@@ -607,6 +639,14 @@ void OverlayScrollBarManager::updatePalette(State& state)
 {
     if (!state.area || !state.area->viewport()) {
         return;
+    }
+    if (state.scrollToEndBadge) {
+        const QPalette palette = state.area->palette();
+        state.scrollToEndBadge->setStyleSheet(QStringLiteral(
+            "QLabel { background: %1; color: %2; border: 0;"
+            " border-radius: 9px; font-weight: 600; padding: 0 3px; }")
+            .arg(cssRgba(palette.color(QPalette::Highlight)),
+                 cssRgba(palette.color(QPalette::HighlightedText))));
     }
 
     QWidget* viewport = state.area->viewport();
