@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QMouseEvent>
 #include <QScrollBar>
 #include <QWheelEvent>
 
@@ -86,7 +87,15 @@ private slots:
         tree.scrollDuringDrag(-2, QPoint(local.x(), -30));
         QVERIFY(scroll->value() < afterWheel);
 
-        tree.finishInternalDrag(QPoint(-40, -40), false);
+        // A real mouse release outside the viewport cancels the internal
+        // drag and must clear preview, timer and application event filter.
+        const QPoint outside(-40, -40);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            QPointF(outside), QPointF(outside),
+                            QPointF(tree.viewport()->mapToGlobal(outside)),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(tree.viewport(), &release);
+        QVERIFY(release.isAccepted());
         QVERIFY(!tree.sidebarDragActive);
         QVERIFY(!tree.dragScrollTimer);
         QVERIFY(!tree.dragPreview);
