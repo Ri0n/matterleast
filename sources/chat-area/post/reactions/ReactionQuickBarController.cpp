@@ -39,7 +39,9 @@ protected:
 
         const QEvent::Type type = event->type();
 
-        if (activePost_ && watched == activePost_->hoverActions_) {
+        // The toolbar may outlive its materialized PostWidget. Clear the
+        // expansion when that *surface* hides even if its old target died.
+        if (activeSlot_ && watched == activeSlot_->parentWidget()) {
             if (type == QEvent::Hide || type == QEvent::Destroy) {
                 clearQuickBar();
             }
