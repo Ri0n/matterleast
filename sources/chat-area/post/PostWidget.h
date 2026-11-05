@@ -22,6 +22,9 @@
 #include <functional>
 
 #include <QDate>
+#include <QJsonObject>
+#include <QVector>
+#include <QPair>
 #include <QFont>
 #include <QMargins>
 #include <QPushButton>
@@ -107,6 +110,8 @@ public:
     void setWholeMessageSelectionMode(bool enabled);
     void setWholeMessageSelected(bool selected);
     void setHovered(bool hovered, bool immediate = false);
+    /** Render a server-originated, session-only out-of-channel mention hint. */
+    void setEphemeralMentionNotice(const QJsonObject& ephemeralPost);
 
     /**
      * Presentation-only grouping state. This is deliberately mutable: source
@@ -188,6 +193,8 @@ signals:
 	void dimensionsChanged ();
     void wholeMessageSelectionToggled(const QString& postId, bool selected);
     void markUnreadRequested(const QString& postId);
+    /** Drop an ephemeral hint from the owning chat after successful invites. */
+    void ephemeralInviteDismissed(quint64 originalCreateAt);
 
 protected:
     void changeEvent(QEvent* event) override;
@@ -202,6 +209,7 @@ private:
     friend class PostListWidget;
 
     void showPostContextMenu(const QPoint& globalPos);
+    void inviteEphemeralMentionedUsers();
     void animateHoverActions(bool visible, bool immediate = false);
     void positionHoverActions();
     void updateHoverActionsPalette();
@@ -246,6 +254,12 @@ private:
     BusyIndicatorWidget*               pendingDeliveryIndicator_ = nullptr;
     bool                               _pendingIndicatorOverlay = false;
     QWidget*                           pendingDeliveryRow_ = nullptr;
+    QWidget*                           ephemeralMentionRow_ = nullptr;
+    QLabel*                            ephemeralMentionLabel_ = nullptr;
+    QLabel*                            ephemeralMentionFeedback_ = nullptr;
+    QPushButton*                       ephemeralMentionInviteButton_ = nullptr;
+    QVector<QPair<QString, QString>>   ephemeralInviteCandidates_;
+    QString                            ephemeralMentionId_;
     QLabel*                            pendingDeliveryLabel_ = nullptr;
     QPushButton*                       pendingRetryButton_ = nullptr;
     QPushButton*                       pendingCancelButton_ = nullptr;
