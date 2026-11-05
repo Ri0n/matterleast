@@ -18,6 +18,7 @@
 #include "channel-tree/AttentionActivationPolicy.h"
 #include "OutboxPostSource.h"
 #include "backend/Backend.h"
+#include "backend/ServerUiService.h"
 #include "backend/FollowingModel.h"
 #include "backend/PendingPostService.h"
 #include "backend/SidebarService.h"
@@ -190,9 +191,10 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
     backend = &backendInstance;
     chatArea = &chatAreaInstance;
 
-    connect(&backendInstance, &Backend::onEphemeralPost,
-            this, &ChatLogWidget::receiveEphemeralMention,
-            Qt::UniqueConnection);
+    ServerUiService::instance(backendInstance).registerEphemeralPostHandler(
+        this, [this](const QJsonObject& post) {
+            return receiveEphemeralMention(post);
+        });
 
     // A main conversation's oldest edge is not a useful permanent destination:
     // channel history keeps extending backwards as it is loaded. Threads are
@@ -1204,7 +1206,7 @@ void ChatLogWidget::attachEphemeralMention(PostWidget& widget)
     });
 }
 
-void ChatLogWidget::receiveEphemeralMention(const QJsonObject& ephemeralPost)
+bool ChatLogWidget::receiveEphemeralMention(const QJsonObject& ephemeralPost)
 {
     if (!backend || !chatArea
         || ephemeralPost.value(QStringLiteral("type")).toString()
@@ -1213,7 +1215,7 @@ void ChatLogWidget::receiveEphemeralMention(const QJsonObject& ephemeralPost)
                != chatArea->channel.id
         || ephemeralPost.value(QStringLiteral("root_id")).toString()
                != (chatArea->isThread ? chatArea->root_id : QString())) {
-        return;
+        return false;
     }
 
     const QJsonObject props = ephemeralPost.value(QStringLiteral("props")).toObject()
@@ -1221,13 +1223,13 @@ void ChatLogWidget::receiveEphemeralMention(const QJsonObject& ephemeralPost)
     if (props.isEmpty()
         || !props.value(QStringLiteral("not_in_channel_user_ids")).isArray()
         || !props.value(QStringLiteral("not_in_channel_usernames")).isArray()) {
-        return;
+        return false;
     }
 
     const quint64 ephemeralAt = static_cast<quint64>(
         ephemeralPost.value(QStringLiteral("create_at")).toDouble());
     if (ephemeralAt == 0) {
-        return;
+        return false;
     }
     const quint64 originalAt = ephemeralAt - 1;
     ephemeralMentions_.insert(originalAt, ephemeralPost);
@@ -1244,14 +1246,14 @@ void ChatLogWidget::receiveEphemeralMention(const QJsonObject& ephemeralPost)
     }
 
     if (!postSource) {
-        return; // Reattach on materialization if the chat tab is inactive.
+        return true; // Reattach on materialization if the chat tab is inactive.
     }
 
     // Only touch materialized rows, never scan the logical (potentially
     // million-message) source and never change its server-backed topology.
     const Range range = materializedRange();
     if (!range.isValid()) {
-        return;
+        return true;
     }
     for (int index = range.first; index <= range.last; ++index) {
         auto* widget = qobject_cast<PostWidget*>(itemWidget(index));
@@ -1260,6 +1262,7 @@ void ChatLogWidget::receiveEphemeralMention(const QJsonObject& ephemeralPost)
             break;
         }
     }
+    return true;
 }
 
 QString ChatLogWidget::itemIdentity(const QWidget* widget) const
