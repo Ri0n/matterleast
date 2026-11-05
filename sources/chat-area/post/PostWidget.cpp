@@ -424,20 +424,38 @@ PostWidget::PostWidget(Backend& backend,
     updateTimestampPresentation();
     updateTimestampPalette();
 
-    if (usesRelativeTimestamp()) {
+    if (parentChatArea && parentChatArea->isThread) {
+        // Every materialized thread row observes the same persistent setting.
+        // Updating a label in place preserves scroll anchors and avoids
+        // reloading any thread history (including detached thread windows).
+        auto* formatOption = MLOptions::instance()->optionObject<bool>(
+            THREAD_RELATIVE_TIMESTAMPS, THREAD_RELATIVE_TIMESTAMPS_DEFAULT);
         timestampRefreshTimer_ = new QTimer(this);
+        timestampRefreshTimer_->setObjectName(
+            QStringLiteral("threadTimestampRefreshTimer"));
         timestampRefreshTimer_->setSingleShot(true);
-        connect(timestampRefreshTimer_, &QTimer::timeout, this, [this] {
-            updateTimestampPresentation();
-            if (timestampRefreshTimer_) {
+        const auto updateRefreshTimer = [this] {
+            if (usesRelativeTimestamp() && !fullTimestampVisible_) {
                 timestampRefreshTimer_->start(
                     PostTimestampPresentation::threadRefreshIntervalMs(
-                        static_cast<qint64>(this->post.create_at)));
+                        static_cast<qint64>(post.create_at)));
+            } else {
+                timestampRefreshTimer_->stop();
             }
+        };
+        connect(timestampRefreshTimer_, &QTimer::timeout, this,
+                [this, updateRefreshTimer] {
+            updateTimestampPresentation();
+            updateRefreshTimer();
         });
-        timestampRefreshTimer_->start(
-            PostTimestampPresentation::threadRefreshIntervalMs(
-                static_cast<qint64>(this->post.create_at)));
+        connect(formatOption, &MLOptionObject::changed, this,
+                [this, updateRefreshTimer](const QVariant&) {
+            updateTimestampPresentation();
+            updateRefreshTimer();
+            ui->horizontalLayout->invalidate();
+            updateGeometry();
+        });
+        updateRefreshTimer();
     }
 
     if (presentationMode_ != PresentationMode::Pending
@@ -925,6 +943,15 @@ void PostWidget::setShowFullTimestamp(bool enabled)
     // pane; allow the timestamp label to wrap instead of clipping its date.
     ui->time->setWordWrap(enabled);
     updateTimestampPresentation();
+    if (timestampRefreshTimer_) {
+        if (usesRelativeTimestamp() && !fullTimestampVisible_) {
+            timestampRefreshTimer_->start(
+                PostTimestampPresentation::threadRefreshIntervalMs(
+                    static_cast<qint64>(post.create_at)));
+        } else {
+            timestampRefreshTimer_->stop();
+        }
+    }
     ui->horizontalLayout->invalidate();
     updateGeometry();
     emit dimensionsChanged();
@@ -984,7 +1011,9 @@ void PostWidget::animateHoverActions(bool visible, bool immediate)
 
 bool PostWidget::usesRelativeTimestamp() const
 {
-    return parentChatArea && parentChatArea->isThread;
+    return parentChatArea && parentChatArea->isThread
+        && MLOptions::instance()->value<bool>(
+            THREAD_RELATIVE_TIMESTAMPS, THREAD_RELATIVE_TIMESTAMPS_DEFAULT);
 }
 
 void PostWidget::updateTimestampPresentation()
