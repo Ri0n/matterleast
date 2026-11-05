@@ -1358,7 +1358,10 @@ void PostWidget::setEphemeralMentionNotice(const QJsonObject& ephemeralPost)
         QStringLiteral("not_in_channel_user_ids")).toArray();
     const QJsonArray usernames = details.value(
         QStringLiteral("not_in_channel_usernames")).toArray();
-    if (ids.size() != usernames.size() || usernames.isEmpty()) {
+    const QJsonArray groupUsernames = details.value(
+        QStringLiteral("not_in_groups_usernames")).toArray();
+    if (ids.size() != usernames.size()
+        || (usernames.isEmpty() && groupUsernames.isEmpty())) {
         return;
     }
 
@@ -1370,8 +1373,7 @@ void PostWidget::setEphemeralMentionNotice(const QJsonObject& ephemeralPost)
         restrictedIds.insert(value.toString());
     }
     QSet<QString> restrictedNames;
-    for (const QJsonValue& value : details.value(
-             QStringLiteral("not_in_groups_usernames")).toArray()) {
+    for (const QJsonValue& value : groupUsernames) {
         restrictedNames.insert(value.toString());
     }
 
@@ -1391,6 +1393,18 @@ void PostWidget::setEphemeralMentionNotice(const QJsonObject& ephemeralPost)
             nonInvitableNames.append(display);
         } else if (!userId.isEmpty()) {
             ephemeralInviteCandidates_.append(qMakePair(userId, username));
+        }
+    }
+    for (const QJsonValue& value : groupUsernames) {
+        const QString username = value.toString();
+        if (!username.isEmpty()) {
+            const QString display = QStringLiteral("@") + username;
+            if (!mentionedNames.contains(display)) {
+                mentionedNames.append(display);
+            }
+            if (!nonInvitableNames.contains(display)) {
+                nonInvitableNames.append(display);
+            }
         }
     }
     if (mentionedNames.isEmpty()) {
