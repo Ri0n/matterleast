@@ -70,6 +70,7 @@ public:
     bool usesRootUnreadCounts(const BackendChannel& channel) const;
     uint64_t channelActivityTime(const BackendChannel& channel) const;
     uint64_t channelRecentTime(const BackendChannel& channel) const;
+    uint64_t channelUnreadMessageCount(const BackendChannel& channel) const;
     uint64_t channelLastViewedTime(const QString& channelId) const
     {
         return activityTracker.lastViewedTime(channelId);
