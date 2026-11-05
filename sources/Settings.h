@@ -50,6 +50,12 @@ static constexpr const char* CHANNEL_ROOT_NOTIFICATION_MODE =
     "notifications/channelRootMode";
 static constexpr int CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT = 1;
 
+// Thread headers may show elapsed time or the same local clock time as channels.
+// Existing installations keep the current relative-time presentation.
+static constexpr const char* THREAD_RELATIVE_TIMESTAMPS =
+    "chat/threadRelativeTimestamps";
+static constexpr bool THREAD_RELATIVE_TIMESTAMPS_DEFAULT = true;
+
 static constexpr const char* CHAT_FONT = "chat/font";
 // Family only. Empty uses the platform's installed system fixed font;
 // code point size continues to track the configured chat font.
