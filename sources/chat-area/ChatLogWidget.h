@@ -76,7 +76,7 @@ public:
     void followOwnPost(const QString& postId);
 
     /** Consume transient mention guidance without changing source row indices. */
-    void receiveEphemeralMention(const QJsonObject& ephemeralPost);
+    bool receiveEphemeralMention(const QJsonObject& ephemeralPost);
 
     /**
      * Re-evaluate read progress from the current viewport. This never treats the
