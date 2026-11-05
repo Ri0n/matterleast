@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QNetworkCookie>
 #include <QObject>
 #include <QList>
