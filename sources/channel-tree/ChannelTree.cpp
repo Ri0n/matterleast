@@ -29,6 +29,7 @@
 #include <QDropEvent>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QLabel>
 #include <QPointer>
 #include <QStackedWidget>
 #include <QTimer>
