@@ -19,12 +19,14 @@
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
 #include "backend/PostUnreadRequest.h"
+#include "backend/PostVisibilityPolicy.h"
 #include "backend/QByteArrayCreator.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
+#include "backend/types/BackendUser.h"
 
 namespace Mattermost {
 
@@ -526,8 +528,22 @@ void SidebarService::synchronizeChannelActivity()
 
 void SidebarService::recordChannelPost(BackendChannel& channel, const BackendPost& post)
 {
-    activityTracker.recordPost(channel.id, post.create_at, post.isOwnPost(),
-                               !post.root_id.isEmpty(), post.currentUserMentioned);
+    const BackendUser* currentUser = backend.getStorage().loginUser;
+    const bool visible = shouldShowMainTimelinePost(
+        post.type, post.props.toObject(),
+        currentUser ? currentUser->username : QString());
+
+    if (visible) {
+        activityTracker.recordPost(channel.id, post.create_at, post.isOwnPost(),
+                                   !post.root_id.isEmpty(), post.currentUserMentioned);
+    } else {
+        // A routine join/leave event still exists in Mattermost's post stream
+        // and can advance the server channel counters. It must not generate a
+        // local unread/mention, nor cause a future count refresh to resurrect
+        // a channel that otherwise contains no unread human messages.
+        activityTracker.recordNonUnreadPost(channel.id, post.create_at,
+                                            !post.root_id.isEmpty());
+    }
     emit channelActivityChanged(channel.id);
 }
 
