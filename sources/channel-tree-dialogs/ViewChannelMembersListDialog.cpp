@@ -38,6 +38,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPalette>
 #include <QPointer>
 #include <QPushButton>
@@ -141,6 +142,8 @@ public:
     {
         setMinimumHeight(MemberRowHeight);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        setObjectName(QStringLiteral("channelMemberRow"));
+        setProperty("memberUserId", user_ ? user_->id : fallbackName_);
         setContextMenuPolicy(Qt::CustomContextMenu);
 
         auto* layout = new QHBoxLayout(this);
@@ -189,6 +192,12 @@ public:
 
         updateText();
         updateAvatar();
+    }
+
+    void setRole(QString role)
+    {
+        role_ = std::move(role);
+        roleLabel_->setText(role_);
     }
 
 protected:
@@ -287,11 +296,18 @@ ViewChannelMembersListDialog::ViewChannelMembersListDialog(
     setupVirtualList();
     resetPagedMembers();
     refreshAddPermission();
-    connect(&channel, &BackendChannel::onUpdated,
-            this, &ViewChannelMembersListDialog::refreshAddPermission);
+    refreshRolePermission();
+    connect(&channel, &BackendChannel::onUpdated, this, [this] {
+        refreshAddPermission();
+        refreshRolePermission();
+    });
 
     connect(&channel, &BackendChannel::onUserRemoved, this,
-            [this](const BackendUser&) { resetPagedMembers(); refreshAddPermission(); });
+            [this](const BackendUser&) {
+                resetPagedMembers();
+                refreshAddPermission();
+                refreshRolePermission();
+            });
     connect(&channel, &BackendChannel::onUserAdded, this,
             [this](const BackendUser&) { resetPagedMembers(); });
 }
@@ -360,6 +376,57 @@ void ViewChannelMembersListDialog::refreshAddPermission()
         if (!guard || generation != guard->permissionGeneration) return;
         guard->addMembersButton->setVisible(allowed);
         guard->addMembersButton->setEnabled(allowed && !guard->memberPicker);
+    });
+}
+
+void ViewChannelMembersListDialog::refreshRolePermission()
+{
+    const int generation = ++rolePermissionGeneration;
+    canEditRoles = false;
+    QPointer<ViewChannelMembersListDialog> guard(this);
+    backend.canManageChannelRoles(channel, [guard, generation](bool allowed) {
+        if (!guard || generation != guard->rolePermissionGeneration) {
+            return;
+        }
+        guard->canEditRoles = allowed;
+    });
+}
+
+void ViewChannelMembersListDialog::setMemberRole(const QString& userId, bool admin)
+{
+    if (!canEditRoles || pendingRoleUpdates.contains(userId)
+        || !channel.members.contains(userId)) {
+        return;
+    }
+    pendingRoleUpdates.insert(userId);
+    QPointer<ViewChannelMembersListDialog> guard(this);
+    backend.setChannelMemberAdmin(channel, userId, admin,
+        [guard, userId](bool success, const QString& error) {
+        if (!guard) {
+            return;
+        }
+        guard->pendingRoleUpdates.remove(userId);
+        if (!success) {
+            QMessageBox::warning(guard, guard->tr("Change channel role"),
+                error.isEmpty() ? guard->tr("Could not change the member's role.")
+                                : error);
+            return;
+        }
+
+        const auto it = guard->channel.members.constFind(userId);
+        if (it == guard->channel.members.cend()) {
+            return;
+        }
+        const BackendUser* user = guard->backend.getStorage().getUserById(userId);
+        const QString role = channelMemberRole(&it.value(), user);
+        // Only rows currently materialized by LongList need updating. Newly
+        // materialized rows will read the canonical channel membership.
+        for (QWidget* row : guard->findChildren<QWidget*>(
+                 QStringLiteral("channelMemberRow"))) {
+            if (row->property("memberUserId").toString() == userId) {
+                static_cast<ChannelMemberRow*>(row)->setRole(role);
+            }
+        }
     });
 }
 
@@ -754,6 +821,29 @@ void ViewChannelMembersListDialog::addContextMenuActions(
     }
 
     UserListDialog::addContextMenuActions(menu, selectedItemData);
+
+    const auto membership = channel.members.constFind(user->id);
+    if (canEditRoles && membership != channel.members.cend()
+        && !pendingRoleUpdates.contains(user->id)) {
+        const QStringList channelRoles = splitRoleNames(membership.value().roles);
+        const QStringList systemRoles = splitRoleNames(
+            user->roles.join(QLatin1Char(' ')));
+        const bool guest = channelRoles.contains(QStringLiteral("channel_guest"))
+            || systemRoles.contains(QStringLiteral("system_guest"));
+        const bool admin = membership.value().isAdmin
+            || channelRoles.contains(QStringLiteral("channel_admin"));
+        if (!guest) {
+            QAction* roleAction = menu.addAction(admin
+                ? tr("Make Channel Member") : tr("Make Channel Admin"));
+            roleAction->setObjectName(admin
+                ? QStringLiteral("makeChannelMemberAction")
+                : QStringLiteral("makeChannelAdminAction"));
+            const QString userId = user->id;
+            connect(roleAction, &QAction::triggered, this,
+                    [this, userId, admin] { setMemberRole(userId, !admin); });
+        }
+    }
+
     menu.addAction(tr("Remove from channel"), [this, user] {
         backend.removeUserFromChannel(channel, user->id);
     });
