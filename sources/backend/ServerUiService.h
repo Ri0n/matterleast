@@ -6,7 +6,8 @@
 #pragma once
 
 #include <QObject>
-#include <QHash>
+#include <QPointer>
+#include <QVector>
 
 #include <functional>
 #include <QJsonObject>
@@ -49,7 +50,13 @@ signals:
 
 private:
     explicit ServerUiService(Backend& backend);
-    QHash<QObject*, std::function<bool(const QJsonObject&)>> ephemeralHandlers_;
+    struct EphemeralHandler {
+        QPointer<QObject> owner;
+        std::function<bool(const QJsonObject&)> callback;
+    };
+
+    void pruneEphemeralPostHandlers();
+    QVector<EphemeralHandler> ephemeralHandlers_;
 };
 
 } // namespace Mattermost
