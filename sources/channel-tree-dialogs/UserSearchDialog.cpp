@@ -6,6 +6,7 @@
 #include "UserSearchDialog.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include <QDialogButtonBox>
@@ -189,7 +190,12 @@ void UserSearchDialog::setupConversationUi()
 
 const BackendUser* UserSearchDialog::getSelectedUser()
 {
-    return handledExistingConversation ? nullptr : UserListDialog::getSelectedUser();
+    const BackendUser* user = UserListDialog::getSelectedUser();
+    if (handledExistingConversation
+        || (mode == Mode::ChannelMembers && user && disabledUserIds.contains(user->id))) {
+        return nullptr;
+    }
+    return user;
 }
 
 void UserSearchDialog::setItemCountLabel(uint32_t count)
@@ -281,28 +287,59 @@ void UserSearchDialog::performSearch()
     const int generation = searchGeneration;
     QPointer<UserSearchDialog> guard(this);
 
-    UserProfileService::instance(backend).searchUsers(
-        options, [guard, generation](QVector<const BackendUser*> users) mutable {
-            if (!guard || generation != guard->searchGeneration) {
-                return;
-            }
+    const auto publish = [guard, generation](QVector<const BackendUser*> users) {
+        if (!guard || generation != guard->searchGeneration) {
+            return;
+        }
 
-            QStringList userIds;
-            userIds.reserve(users.size());
-            for (const BackendUser* user : users) {
-                if (user) {
-                    userIds.push_back(user->id);
+        QStringList userIds;
+        userIds.reserve(users.size());
+        for (const BackendUser* user : users) {
+            if (user) {
+                userIds.push_back(user->id);
+            }
+        }
+
+        UserProfileService::instance(guard->backend).ensureStatuses(
+            userIds, [guard, generation, users = std::move(users)]() mutable {
+                if (!guard || generation != guard->searchGeneration) {
+                    return;
                 }
-            }
+                guard->showUsers(users);
+            });
+    };
 
-            UserProfileService::instance(guard->backend).ensureStatuses(
-                userIds, [guard, generation, users = std::move(users)]() mutable {
-                    if (!guard || generation != guard->searchGeneration) {
-                        return;
-                    }
-                    guard->showUsers(users);
-                });
-        });
+    if (mode == Mode::ChannelMembers) {
+        struct Results {
+            QVector<const BackendUser*> users;
+            int pending = 2;
+        };
+        auto results = std::make_shared<Results>();
+        const auto receive = [guard, generation, results, publish](
+                                 bool members, QVector<const BackendUser*> users) {
+            if (!guard || generation != guard->searchGeneration) return;
+            for (const BackendUser* user : std::as_const(users)) {
+                if (members && user) guard->disabledUserIds.insert(user->id);
+                results->users.push_back(user);
+            }
+            if (--results->pending == 0) publish(std::move(results->users));
+        };
+        // Search both sides of membership instead of hiding existing members.
+        // This also classifies matches outside the paged member-list cache,
+        // while retaining a full bounded page of selectable candidates.
+        UserProfileService::instance(backend).searchUsers(options,
+            [receive](QVector<const BackendUser*> users) mutable {
+                receive(false, std::move(users));
+            });
+        options.inChannelId = options.notInChannelId;
+        options.notInChannelId.clear();
+        UserProfileService::instance(backend).searchUsers(options,
+            [receive](QVector<const BackendUser*> users) mutable {
+                receive(true, std::move(users));
+            });
+        return;
+    }
+    UserProfileService::instance(backend).searchUsers(options, publish);
 }
 
 QStringList UserSearchDialog::participantIdsForChannel(
@@ -449,7 +486,6 @@ void UserSearchDialog::showUsers(const QVector<const BackendUser*>& serverUsers)
         for (const BackendUser* user : serverUsers) {
             if (!user || user->id == currentUserId
                 || addedUserIds.contains(user->id)
-                || (mode == Mode::ChannelMembers && disabledUserIds.contains(user->id))
                 || !matchesSearch(*user)) {
                 continue;
             }
@@ -460,7 +496,9 @@ void UserSearchDialog::showUsers(const QVector<const BackendUser*>& serverUsers)
 
     dataToItemMap.clear();
     ui->tableWidget->clearContents();
-    create(cfg, entries, {QStringLiteral("Full Name"), QStringLiteral("Status")});
+    QStringList columns {tr("Full Name"), tr("Status")};
+    if (mode == Mode::ChannelMembers) columns.append(tr("Channel membership"));
+    create(cfg, entries, columns);
 
     // Give every person row an explicit participant identity. Existing DMs also
     // carry their channel id so the dynamic action area can distinguish "Open"
@@ -473,6 +511,19 @@ void UserSearchDialog::showUsers(const QVector<const BackendUser*>& serverUsers)
             continue;
         }
 
+        if (mode == Mode::ChannelMembers) {
+            const bool member = disabledUserIds.contains(user->id);
+            auto* membership = new QTableWidgetItem(
+                member ? tr("Already in channel") : tr("Not in channel"));
+            ui->tableWidget->setItem(row, 2, membership);
+            if (member) {
+                for (int column = 0; column < ui->tableWidget->columnCount(); ++column) {
+                    auto* cell = ui->tableWidget->item(row, column);
+                    cell->setFlags(cell->flags() & ~Qt::ItemIsSelectable);
+                    cell->setToolTip(tr("Already in channel"));
+                }
+            }
+        }
         item->setData(ParticipantIdsRole, QStringList {user->id});
         const auto directIt =
             backend.getStorage().directChannelsByUser.constFind(user->id);
@@ -698,7 +749,7 @@ void UserSearchDialog::updateConversationActions()
 {
     if (mode == Mode::ChannelMembers) {
         addMembersButton->setEnabled(!addingMembers
-            && (!selectedParticipantIds.isEmpty() || UserListDialog::getSelectedUser()));
+            && (!selectedParticipantIds.isEmpty() || getSelectedUser()));
         return;
     }
     if (mode != Mode::ConversationPicker
@@ -836,7 +887,7 @@ void UserSearchDialog::addSelectedChannelMembers()
 {
     if (addingMembers || !memberChannel) return;
     if (selectedParticipantIds.isEmpty()) {
-        if (const BackendUser* user = UserListDialog::getSelectedUser()) {
+        if (const BackendUser* user = getSelectedUser()) {
             selectedParticipantIds.insert(user->id);
         }
     }

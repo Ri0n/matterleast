@@ -66,8 +66,11 @@ can grant or remove this action. Failed role lookups leave the action hidden. Th
 authoritative if permissions change while the dialog is open.
 
 `UserSearchDialog::Mode::ChannelMembers` reuses the conversation picker's participant chips and
-multi-person selection. It searches team users with `not_in_channel_id`; local DM/GM discovery and
-conversation creation actions do not participate in this mode. It has no GM participant-count limit.
+multi-person selection. It merges bounded team-user searches with `not_in_channel_id` and
+`in_channel_id`, so existing members outside the paged member-list cache are also classified.
+A **Channel membership** column distinguishes **Already in channel** (not selectable) from
+**Not in channel**. Successful additions retain their result rows with the updated membership status.
+Local DM/GM discovery and conversation creation actions do not participate in this mode. It has no GM participant-count limit.
 DM/GM membership is intentionally not changed by this action.
 
 Adds run sequentially through `Backend::addChannelMember()`. A validated success updates canonical

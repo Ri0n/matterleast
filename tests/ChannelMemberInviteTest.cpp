@@ -41,6 +41,8 @@ public:
     QStringList additions;
     QStringList paths;
     QJsonObject search;
+    QVector<QJsonObject> searches;
+    QSet<QString> existingMembers;
     QJsonArray requestedRoles;
     int count = 1;
 
@@ -90,9 +92,13 @@ public:
                         });
                     } else if (path.endsWith("/users/search")) {
                         search = input.object();
+                        searches.push_back(search);
                         QJsonArray users;
                         for (int index = 0; index < 9; ++index) {
-                            users.append(user(QStringLiteral("person%1").arg(index, 2, 10, QLatin1Char('0'))));
+                            const QString id = QStringLiteral("person%1").arg(index, 2, 10, QLatin1Char('0'));
+                            if (search.contains("in_channel_id") && !existingMembers.contains(id)) continue;
+                            if (search.contains("not_in_channel_id") && existingMembers.contains(id)) continue;
+                            users.append(user(id));
                         }
                         response = QJsonDocument(users);
                     } else if (path.endsWith("/members") && request.value(0) == "POST") {
@@ -103,6 +109,7 @@ public:
                             response = QJsonDocument(QJsonObject {{"message", "Permission denied for this person"}});
                         } else {
                             ++count;
+                            existingMembers.insert(id);
                             response = QJsonDocument(QJsonObject {
                                 {"user_id", id}, {"channel_id", malformedMember ? "wrong" : "channel"},
                                 {"roles", "channel_user"}
@@ -247,6 +254,35 @@ private slots:
         picker->reject();
     }
 
+    void existingMembersOutsideTheCacheRemainVisibleAndCannotBeAdded()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        server.existingMembers.insert(QStringLiteral("person03"));
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel->members.isEmpty());
+        QPointer<UserSearchDialog> picker = UserSearchDialog::showChannelMemberPicker(backend, *channel);
+        auto* edit = picker->findChild<QLineEdit*>("filterLineEdit");
+        auto* table = picker->findChild<QTableWidget*>("tableWidget");
+        auto* add = picker->findChild<QPushButton*>("addSelectedMembersButton");
+        QTest::keyClicks(edit, "person");
+        QTRY_COMPARE(table->rowCount(), 9);
+        QCOMPARE(table->columnCount(), 3);
+        QCOMPARE(table->item(3, 0)->text(), QStringLiteral("person03"));
+        QCOMPARE(table->item(3, 2)->text(), QStringLiteral("Already in channel"));
+        table->selectRow(3);
+        emit table->cellDoubleClicked(3, 0);
+        QVERIFY(!add->isEnabled());
+        picker->accept();
+        QVERIFY(server.additions.isEmpty());
+        QVERIFY(picker);
+        table->selectRow(4);
+        QVERIFY(add->isEnabled());
+        QCOMPARE(table->item(4, 2)->text(), QStringLiteral("Not in channel"));
+        picker->reject();
+    }
+
     void multipleAdditionsRetainFailuresAndRetryOnlyRemainingPeople()
     {
         MemberServer server;
@@ -262,7 +298,15 @@ private slots:
         QTest::keyClicks(edit, "person");
         QTRY_COMPARE(table->rowCount(), 9);
         QCOMPARE(server.search.value("team_id").toString(), QStringLiteral("team"));
-        QCOMPARE(server.search.value("not_in_channel_id").toString(), QStringLiteral("channel"));
+        QCOMPARE(server.searches.size(), 2);
+        bool searchedMembers = false;
+        bool searchedNonMembers = false;
+        for (const auto& search : server.searches) {
+            searchedMembers |= search.value("in_channel_id").toString() == "channel";
+            searchedNonMembers |= search.value("not_in_channel_id").toString() == "channel";
+        }
+        QVERIFY(searchedMembers);
+        QVERIFY(searchedNonMembers);
         for (int row = 0; row < 9; ++row) {
             table->selectRow(row);
             emit table->cellDoubleClicked(row, 0);
@@ -275,6 +319,13 @@ private slots:
         QCOMPARE(accepted.size(), 0);
         QCOMPARE(channel->members.size(), 3);
         QCOMPARE(server.additions.size(), 4);
+        QCOMPARE(table->rowCount(), 9);
+        QCOMPARE(table->columnCount(), 3);
+        for (int row = 0; row < 9; ++row) {
+            QCOMPARE(table->item(row, 2)->text(), row < 3
+                ? QStringLiteral("Already in channel") : QStringLiteral("Not in channel"));
+            QCOMPARE(bool(table->item(row, 0)->flags() & Qt::ItemIsSelectable), row >= 3);
+        }
         server.failUser.clear();
         add->click();
         QTRY_COMPARE(accepted.size(), 1);
