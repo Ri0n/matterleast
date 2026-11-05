@@ -5,13 +5,23 @@
 
 #include "ChannelTree.h"
 
+#include <QApplication>
 #include <QCursor>
-#include <QDrag>
 #include <QDragLeaveEvent>
+#include <QDropEvent>
 #include <QEasingCurve>
+#include <QEvent>
+#include <QKeyEvent>
+#include <QLabel>
 #include <QMimeData>
+#include <QMouseEvent>
+#include <QScrollBar>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QVariantAnimation>
+#include <QWheelEvent>
+
+#include "SidebarDragScrollPolicy.h"
 
 namespace Mattermost {
 namespace {
@@ -44,7 +54,7 @@ int gapValue(const QPersistentModelIndex& index, int role)
 
 void ChannelTree::startDrag(Qt::DropActions supportedActions)
 {
-    if (!(supportedActions & Qt::MoveAction)) {
+    if (sidebarDragActive || !(supportedActions & Qt::MoveAction)) {
         return;
     }
 
@@ -57,22 +67,15 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
     if (kind != ChannelItemKind && kind != CategoryItemKind) {
         return;
     }
-
     const QModelIndex sourceIndex = indexFromItem(source, 0);
     if (!sourceIndex.isValid()) {
         return;
     }
 
-    QModelIndexList indexes;
-    indexes.push_back(sourceIndex);
-    QMimeData* mimeData = model()->mimeData(indexes);
-    if (!mimeData) {
-        return;
-    }
-
-    // Capture the drag image before collapsing the source geometry. For an
-    // expanded category the logical dragged block is the category plus all of
-    // its children; the preview shows the visible portion of that subtree.
+    // This reorder stays inside one sidebar: native QDrag::exec() needlessly
+    // takes over mouse input, swallowing wheel events on several platforms and
+    // turning the cursor into "no drop" when it enters the header above us.
+    // Keep the drag in the ordinary Qt mouse event loop instead.
     QRect blockRect = visualItemRect(source);
     if (kind == CategoryItemKind && source->isExpanded()) {
         for (int i = 0; i < source->childCount(); ++i) {
@@ -93,25 +96,204 @@ void ChannelTree::startDrag(Qt::DropActions supportedActions)
         : 0;
 
     const QRect previewRect = blockRect.intersected(viewport()->rect());
-    QDrag drag(this);
-    drag.setMimeData(mimeData);
     if (previewRect.isValid() && !previewRect.isEmpty()) {
-        drag.setPixmap(viewport()->grab(previewRect));
-        QPoint hotSpot = cursorInViewport - previewRect.topLeft();
-        hotSpot.setX(qBound(0, hotSpot.x(), previewRect.width() - 1));
-        hotSpot.setY(qBound(0, hotSpot.y(), previewRect.height() - 1));
-        drag.setHotSpot(hotSpot);
+        auto* preview = new QLabel(window());
+        preview->setObjectName(QStringLiteral("sidebarDragPreview"));
+        preview->setAttribute(Qt::WA_TransparentForMouseEvents);
+        preview->setAttribute(Qt::WA_NoMousePropagation);
+        preview->setPixmap(viewport()->grab(previewRect));
+        preview->setFixedSize(previewRect.size());
+        dragPreviewHotSpot = cursorInViewport - previewRect.topLeft();
+        dragPreviewHotSpot.setX(qBound(0, dragPreviewHotSpot.x(),
+                                     previewRect.width() - 1));
+        dragPreviewHotSpot.setY(qBound(0, dragPreviewHotSpot.y(),
+                                     previewRect.height() - 1));
+        dragPreview = preview;
     }
 
     sidebarDragActive = true;
+    dragViewportScrollPixels = 0;
     ensureDragSourceVisuals(source);
     dragStartPointerY = cursorInViewport.y();
-    drag.exec(Qt::MoveAction, Qt::MoveAction);
+
+    // Half the old polling frequency, with 1-2 scrollbar steps rather than
+    // up to four. Scrolling still continues with a stationary pointer.
+    dragScrollTimer = new QTimer(this);
+    dragScrollTimer->setInterval(70);
+    connect(dragScrollTimer, &QTimer::timeout,
+            this, &ChannelTree::tickDragAutoScroll);
+    qApp->installEventFilter(this);
+    dragScrollTimer->start();
+    updateInternalDragPointer(cursorInViewport);
+}
+
+void ChannelTree::updateInternalDragPointer(const QPoint& viewportPos)
+{
+    if (!sidebarDragActive) {
+        return;
+    }
+    if (dragPreview) {
+        dragPreview->move(window()->mapFromGlobal(viewport()->mapToGlobal(viewportPos))
+                          - dragPreviewHotSpot);
+        if (!dragPreview->isVisible()) {
+            dragPreview->show();
+        }
+        dragPreview->raise();
+    }
+    // While outside, continue scrolling, but do not advertise an invalid drop
+    // or select the header/search control as a target.
+    if (viewport()->rect().contains(viewportPos)) {
+        updateDragTargetAt(viewportPos);
+    }
+}
+
+void ChannelTree::finishInternalDrag(const QPoint& viewportPos, bool commit)
+{
+    if (!sidebarDragActive) {
+        return;
+    }
+
+    // Clearing the animated insertion gap, unhiding the source, and applying
+    // the deferred category/channel reorder all relayout QTreeWidget. Qt may
+    // scroll back to the still-current source row during those updates. The
+    // viewport reached by dragging/wheeling is the user's intended position.
+    const int viewportScroll = verticalScrollBar()->value();
+
+    if (dragScrollTimer) {
+        dragScrollTimer->stop();
+        dragScrollTimer->deleteLater();
+        dragScrollTimer = nullptr;
+    }
+    qApp->removeEventFilter(this);
+    if (dragPreview) {
+        delete dragPreview.data();
+        dragPreview = nullptr;
+    }
+
+    if (commit && viewport()->rect().contains(viewportPos)) {
+        // Reuse the established drop validation, animations and server
+        // mutations. The event is internal; no native DnD target is involved.
+        QMimeData mime;
+        QDropEvent drop(QPointF(viewportPos), Qt::MoveAction, &mime,
+                        Qt::LeftButton, Qt::NoModifier);
+        drop.setDropAction(Qt::MoveAction);
+        dropEvent(&drop);
+    }
     if (!dragSourceIndexes.isEmpty() || !dragGapIndexes.isEmpty()) {
         resetDragVisuals(false);
     }
     sidebarDragActive = false;
+    dragViewportScrollPixels = 0;
+    setState(QAbstractItemView::NoState);
     flushDeferredSidebarReconciles();
+
+    // Apply the layout now rather than restoring against drag-only gap
+    // geometry. A further layout can be queued by the view/model, so restore
+    // once more in the next event-loop turn. Never scroll to the source item.
+    doItemsLayout();
+    verticalScrollBar()->setValue(viewportScroll);
+    QTimer::singleShot(0, this, [this, viewportScroll] {
+        doItemsLayout();
+        verticalScrollBar()->setValue(viewportScroll);
+    });
+}
+
+void ChannelTree::scrollDuringDrag(int scrollUnits, const QPoint& viewportPos)
+{
+    if (!sidebarDragActive || scrollUnits == 0) {
+        return;
+    }
+
+    QScrollBar* scroll = verticalScrollBar();
+    if (!scroll || scroll->minimum() == scroll->maximum()) {
+        return;
+    }
+
+    const int previousOffset = verticalOffset();
+    scroll->setValue(qBound(scroll->minimum(), scroll->value() + scrollUnits,
+                            scroll->maximum()));
+    const int offsetChange = verticalOffset() - previousOffset;
+    if (!offsetChange) {
+        return;
+    }
+
+    // The category drop probe is in logical content pixels (not scrollbar
+    // items). A stationary cursor must therefore keep advancing past
+    // off-screen categories as the tree scrolls underneath it.
+    dragViewportScrollPixels += offsetChange;
+    updateDragTargetAt(SidebarDragScrollPolicy::clampToViewport(
+        viewportPos, viewport()->size()));
+}
+
+void ChannelTree::tickDragAutoScroll()
+{
+    if (!sidebarDragActive) {
+        return;
+    }
+    QScrollBar* scroll = verticalScrollBar();
+    if (!scroll) {
+        return;
+    }
+    const QPoint pointer = viewport()->mapFromGlobal(QCursor::pos());
+    scrollDuringDrag(SidebarDragScrollPolicy::edgeStep(
+        pointer, viewport()->size(), scroll->singleStep()), pointer);
+}
+
+bool ChannelTree::eventFilter(QObject* watched, QEvent* event)
+{
+    if (sidebarDragActive) {
+        if (event->type() == QEvent::MouseMove
+            || event->type() == QEvent::MouseButtonRelease) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QPoint global = mouse->globalPosition().toPoint();
+#else
+            const QPoint global = mouse->screenPos().toPoint();
+#endif
+            const QPoint pointer = viewport()->mapFromGlobal(global);
+            if (event->type() == QEvent::MouseButtonRelease
+                && mouse->button() == Qt::LeftButton) {
+                finishInternalDrag(pointer, true);
+                event->accept();
+                return true;
+            }
+            if (event->type() == QEvent::MouseMove) {
+                updateInternalDragPointer(pointer);
+                event->accept();
+                return true;
+            }
+        }
+
+        if (event->type() == QEvent::KeyPress) {
+            auto* key = static_cast<QKeyEvent*>(event);
+            if (key->key() == Qt::Key_Escape) {
+                finishInternalDrag(QPoint(), false);
+                event->accept();
+                return true;
+            }
+        }
+
+        if (event->type() == QEvent::Wheel) {
+            auto* wheel = static_cast<QWheelEvent*>(event);
+            const QPoint pointer = viewport()->mapFromGlobal(
+                wheel->globalPosition().toPoint());
+            const QRect active = viewport()->rect().adjusted(-24, -96, 24, 96);
+            if (active.contains(pointer)) {
+                QScrollBar* scroll = verticalScrollBar();
+                const int step = scroll
+                    ? SidebarDragScrollPolicy::wheelStep(
+                        wheel->pixelDelta(), wheel->angleDelta(),
+                        scroll->singleStep(), QApplication::wheelScrollLines())
+                    : 0;
+                if (step) {
+                    scrollDuringDrag(step, pointer);
+                    wheel->accept();
+                    return true;
+                }
+            }
+        }
+    }
+    return QTreeWidget::eventFilter(watched, event);
 }
 
 void ChannelTree::dragLeaveEvent(QDragLeaveEvent* event)

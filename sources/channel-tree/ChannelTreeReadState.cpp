@@ -150,6 +150,12 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
 
 void ChannelTree::mouseMoveEvent(QMouseEvent* event)
 {
+    if (sidebarDragActive) {
+        updateInternalDragPointer(event->pos());
+        event->accept();
+        return;
+    }
+
     const QModelIndex index = indexAt(event->pos());
     const bool actionable = index.isValid()
         && index.data(SidebarItem::CategoryActionRole).toBool();
@@ -174,6 +180,16 @@ void ChannelTree::mouseMoveEvent(QMouseEvent* event)
     QTreeWidget::mouseMoveEvent(event);
 }
 
+
+void ChannelTree::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (sidebarDragActive && event->button() == Qt::LeftButton) {
+        finishInternalDrag(event->pos(), true);
+        event->accept();
+        return;
+    }
+    QTreeWidget::mouseReleaseEvent(event);
+}
 
 void ChannelTree::leaveEvent(QEvent* event)
 {

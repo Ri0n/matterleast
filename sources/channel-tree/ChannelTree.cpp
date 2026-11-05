@@ -24,10 +24,12 @@
 
 #include "ChannelTree.h"
 
+#include <QApplication>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QLabel>
 #include <QPointer>
 #include <QStackedWidget>
 #include <QTimer>
@@ -41,6 +43,7 @@
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/SidebarChannelMovePolicy.h"
+#include "channel-tree/SidebarDragScrollPolicy.h"
 #include "channel-tree/channel-item/DirectChannelItem.h"
 #include "channel-tree/team-item/GroupTeamItem.h"
 #include "log.h"
@@ -179,7 +182,19 @@ ChannelTree::ChannelTree (QWidget* parent)
     setDefaultDropAction(Qt::MoveAction);
 }
 
-ChannelTree::~ChannelTree () = default;
+ChannelTree::~ChannelTree()
+{
+    // A sidebar can be destroyed by a workspace/window change while a mouse
+    // drag is active. The preview belongs to the top-level window, not to the
+    // tree, and must not linger after the source view disappears.
+    if (dragScrollTimer) {
+        dragScrollTimer->stop();
+    }
+    if (qApp) {
+        qApp->removeEventFilter(this);
+    }
+    delete dragPreview.data();
+}
 
 bool ChannelTree::isChannelActive (const BackendChannel& channel)
 {
@@ -1345,7 +1360,9 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
     // source. Nearest-boundary selection means a neighbour moves once the
     // leading edge has crossed half of that neighbour's extent. Moving up and
     // down therefore naturally use the two different half-overlap thresholds.
-    const int probe = draggedBlockStartLogicalY + (pos.y() - dragStartPointerY);
+    const int probe = SidebarDragScrollPolicy::categoryProbe(
+        draggedBlockStartLogicalY, pos.y(), dragStartPointerY,
+        dragViewportScrollPixels);
     const CategoryDragBoundary* boundary = nearestCategoryDragBoundary(probe);
     if (!boundary || !boundary->targetCategory.isValid()) {
         return false;
@@ -1358,12 +1375,15 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
         && targetCategoryItem->parent() == source->parent();
 }
 
-void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
+bool ChannelTree::updateDragTargetAt(const QPoint& pos)
 {
-    // ChannelTree owns drag target resolution and structural displacement.
-    // Calling QTreeWidget::dragMoveEvent() here would also update Qt's
-    // InternalMove state from the already modified row geometry, so even a
-    // horizontal-only pointer move could perturb the logical drop target.
+    // Called for both native dragMove events and scrolling driven by our own
+    // timer/wheel handler. Do not call QTreeWidget::dragMoveEvent(): its
+    // internal drop indicator would conflict with our animated structural gap.
+    if (!sidebarDragActive) {
+        return false;
+    }
+
     QTreeWidgetItem* source = nullptr;
     if (!dragSourceIndexes.isEmpty() && dragSourceIndexes.front().isValid()) {
         source = itemFromIndex(dragSourceIndexes.front());
@@ -1372,34 +1392,24 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
         const auto selected = selectedItems();
         source = selected.size() == 1 ? selected.front() : currentItem();
     }
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    const QPoint pos = event->position().toPoint();
-#else
-    const QPoint pos = event->pos();
-#endif
 
     if (source && source->data(0, ItemKindRole).toInt() == CategoryItemKind) {
         QTreeWidgetItem* targetCategoryItem = nullptr;
         bool afterTarget = false;
         if (!resolveCategoryDropTarget(source, pos, targetCategoryItem, afterTarget)) {
             restoreSourceDropGap(true);
-            event->ignore();
-            return;
+            return false;
         }
         if (!categoryDropChangesPosition(source, targetCategoryItem, afterTarget)) {
             ensureDragSourceVisuals(source);
             restoreSourceDropGap(true);
-            event->setDropAction(Qt::MoveAction);
-            event->accept();
-            return;
+            return true;
         }
         bool gapAfter = afterTarget;
         QTreeWidgetItem* anchor = categoryDropGapAnchor(
             targetCategoryItem, afterTarget, gapAfter);
         updateDragVisuals(source, anchor, gapAfter);
-        event->setDropAction(Qt::MoveAction);
-        event->accept();
-        return;
+        return true;
     }
 
     QTreeWidgetItem* targetCategoryItem = nullptr;
@@ -1408,24 +1418,35 @@ void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
     if (!resolveChannelDropTarget(source, pos, targetCategoryItem,
                                   targetChannelId, afterTarget)) {
         restoreSourceDropGap(true);
-        event->ignore();
-        return;
+        return false;
     }
 
     if (!channelDropChangesPosition(source, targetCategoryItem,
                                     targetChannelId, afterTarget)) {
         ensureDragSourceVisuals(source);
         restoreSourceDropGap(true);
-        event->setDropAction(Qt::MoveAction);
-        event->accept();
-        return;
+        return true;
     }
     bool gapAfter = afterTarget;
     QTreeWidgetItem* anchor = channelDropGapAnchor(
         source, targetCategoryItem, targetChannelId, afterTarget, gapAfter);
     updateDragVisuals(source, anchor, gapAfter);
-    event->setDropAction(Qt::MoveAction);
-    event->accept();
+    return true;
+}
+
+void ChannelTree::dragMoveEvent(QDragMoveEvent* event)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPoint pos = event->position().toPoint();
+#else
+    const QPoint pos = event->pos();
+#endif
+    if (updateDragTargetAt(pos)) {
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+    } else {
+        event->ignore();
+    }
 }
 
 void ChannelTree::dropEvent(QDropEvent* event)
