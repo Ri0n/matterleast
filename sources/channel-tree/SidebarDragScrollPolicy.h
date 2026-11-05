@@ -40,8 +40,9 @@ struct SidebarDragScrollPolicy
             return 0;
         }
 
-        // 1x just inside the edge, smoothly rising to 4x outside it.
-        const int acceleration = 1 + qMin(3, (depth - 1) / 30);
+        // Prefer deliberate scrolling over the old four-row jumps:
+        // one scrollbar step at the edge, two at most well outside it.
+        const int acceleration = 1 + qMin(1, (depth - 1) / 40);
         return direction * qMax(1, singleStep) * acceleration;
     }
 
