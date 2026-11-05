@@ -4,6 +4,7 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QToolButton>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -15,8 +16,13 @@
 
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
+#include "backend/WebSocketEventHandler.h"
+#include "backend/ServerUiService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
+#include "chat-area/ChatArea.h"
+#include "chat-area/ChatLogWidget.h"
+#include "chat-area/post/PostWidget.h"
 #include "channel-tree-dialogs/UserSearchDialog.h"
 #include "channel-tree-dialogs/ViewChannelMembersListDialog.h"
 
@@ -387,6 +393,311 @@ private slots:
         QVERIFY(label->text().isEmpty());
         setStatus(QJsonObject {});
         QVERIFY(label->text().isEmpty());
+    }
+
+    void outOfChannelMentionIsTransientAndInvitable()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        BackendPost* original = channel->addPost(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaa")},
+            {QStringLiteral("user_id"), QStringLiteral("self")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("create_at"), 10000},
+            {QStringLiteral("message"), QStringLiteral("Hello @person00")},
+        });
+        QVERIFY(original);
+        QVERIFY(original->isOwnPost());
+
+        const QJsonObject ephemeral {
+            {QStringLiteral("id"), QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbb")},
+            {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("root_id"), QString()},
+            {QStringLiteral("create_at"), 10001},
+            {QStringLiteral("message"), QStringLiteral("User not in channel")},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("add_channel_member"), QJsonObject {
+                    {QStringLiteral("post_id"), QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbb")},
+                    {QStringLiteral("not_in_channel_user_ids"), QJsonArray {
+                        QStringLiteral("person00")}},
+                    {QStringLiteral("not_in_channel_usernames"), QJsonArray {
+                        QStringLiteral("person00")}},
+                    {QStringLiteral("not_in_groups_user_ids"), QJsonArray {}},
+                    {QStringLiteral("not_in_groups_usernames"), QJsonArray {}},
+                }},
+            }},
+        };
+
+        // An unhandled structured event uses the normal notification fallback
+        // rather than silently pretending that a signal was consumed.
+        auto& ui = ServerUiService::instance(backend);
+        QSignalSpy fallbackSpy(&ui, &ServerUiService::ephemeralMessageReceived);
+        const QJsonObject frame {
+            {QStringLiteral("post"), QString::fromUtf8(
+                QJsonDocument(ephemeral).toJson(QJsonDocument::Compact))},
+        };
+        QVERIFY(!backend.handleEphemeralMessage(frame));
+        QCOMPARE(fallbackSpy.count(), 1);
+        QCOMPARE(fallbackSpy.at(0).at(0).toString(),
+                 QStringLiteral("User not in channel"));
+
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        // A matching chat explicitly accepts the event synchronously,
+        // suppressing the generic notification without persisting the post.
+        QVERIFY(backend.handleEphemeralMessage(frame));
+        WebSocketEventHandler handler(backend);
+        handler.handleEphemeralMessage(frame);
+        QCOMPARE(fallbackSpy.count(), 1);
+        QCOMPARE(channel->postIdToPost.size(), 1);
+        area.resize(700, 450);
+        area.show();
+        auto* list = area.findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(list);
+        PostWidget widget(backend, *original, list->viewport(), &area, nullptr);
+        widget.show();
+        widget.setEphemeralMentionNotice(ephemeral);
+        // Replayed websocket data must not duplicate the attached banner.
+        widget.setEphemeralMentionNotice(ephemeral);
+        QCOMPARE(widget.findChildren<QWidget*>(
+            QStringLiteral("ephemeralMentionNotice")).size(), 1);
+        auto* label = widget.findChild<QLabel*>(
+            QStringLiteral("ephemeralMentionText"));
+        QVERIFY(label);
+        QVERIFY(label->text().contains(QStringLiteral("@person00")));
+        auto* button = widget.findChild<QPushButton*>(
+            QStringLiteral("inviteMentionedUsersButton"));
+        QVERIFY(button);
+        QTRY_VERIFY(button->isEnabled());
+
+        QSignalSpy dismissed(&widget, &PostWidget::ephemeralInviteDismissed);
+        button->click();
+        QTRY_COMPARE(dismissed.count(), 1);
+        QCOMPARE(dismissed.at(0).at(0).toULongLong(), qulonglong(10000));
+        QCOMPARE(server.additions, QStringList {QStringLiteral("person00")});
+        QVERIFY(widget.findChild<QWidget*>(
+            QStringLiteral("ephemeralMentionNotice"))->isHidden());
+    }
+
+    void rawEphemeralDispatchReportsRealConsumption()
+    {
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+        auto& ui = ServerUiService::instance(backend);
+        QSignalSpy fallbackSpy(&ui, &ServerUiService::ephemeralMessageReceived);
+
+        const auto frame = [](const QString& channelId, bool hasInvite) {
+            QJsonObject post {
+                {QStringLiteral("id"), QStringLiteral("eeeeeeeeeeeeeeeeeeeeeeeeee")},
+                {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+                {QStringLiteral("channel_id"), channelId},
+                {QStringLiteral("create_at"), 6001},
+                {QStringLiteral("message"), QStringLiteral("System guidance")},
+            };
+            if (hasInvite) {
+                post.insert(QStringLiteral("props"), QJsonObject {
+                    {QStringLiteral("add_channel_member"), QJsonObject {
+                        {QStringLiteral("not_in_channel_user_ids"), QJsonArray {
+                            QStringLiteral("person00")}},
+                        {QStringLiteral("not_in_channel_usernames"), QJsonArray {
+                            QStringLiteral("person00")}},
+                    }},
+                });
+            }
+            return QJsonObject {
+                {QStringLiteral("post"), QString::fromUtf8(
+                    QJsonDocument(post).toJson(QJsonDocument::Compact))}
+            };
+        };
+
+        // No registered UI, no valid payload, and ordinary ephemerals are not
+        // accepted just because a backend signal has listeners.
+        QVERIFY(!backend.handleEphemeralMessage(QJsonObject {
+            {QStringLiteral("post"), QStringLiteral("{invalid json")}
+        }));
+        QCOMPARE(fallbackSpy.count(), 0);
+        QVERIFY(!backend.handleEphemeralMessage(frame(channel->id, true)));
+        QCOMPARE(fallbackSpy.count(), 1);
+
+        auto* area = new ChatArea(
+            backend, *channel, static_cast<ChannelItem*>(nullptr), nullptr, false);
+        QVERIFY(backend.handleEphemeralMessage(frame(channel->id, true)));
+        QCOMPARE(fallbackSpy.count(), 1);
+        QVERIFY(!backend.handleEphemeralMessage(frame(channel->id, false)));
+        QVERIFY(!backend.handleEphemeralMessage(frame(
+            QStringLiteral("another-channel"), true)));
+        QCOMPARE(fallbackSpy.count(), 3);
+
+        // Registration follows QObject lifetime. No dangling callbacks after
+        // a chat is closed, and fallback resumes when nobody accepts.
+        delete area;
+        QVERIFY(!backend.handleEphemeralMessage(frame(channel->id, true)));
+        QCOMPARE(fallbackSpy.count(), 4);
+    }
+
+    void ephemeralHandlerOwnersAreGuardedDuringDispatch()
+    {
+        Backend backend;
+        auto& ui = ServerUiService::instance(backend);
+        const QJsonObject post {
+            {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+        };
+
+        QObject first;
+        QPointer<QObject> deletedOwner(new QObject);
+        QObject unregisteredOwner;
+        QObject last;
+        int deletedCalls = 0;
+        int unregisteredCalls = 0;
+        int lastCalls = 0;
+
+        ui.registerEphemeralPostHandler(&first, [&](const QJsonObject&) {
+            delete deletedOwner.data();
+            ui.unregisterEphemeralPostHandler(&unregisteredOwner);
+            return false;
+        });
+        ui.registerEphemeralPostHandler(deletedOwner.data(),
+            [&](const QJsonObject&) {
+                ++deletedCalls;
+                return true;
+            });
+        ui.registerEphemeralPostHandler(&unregisteredOwner,
+            [&](const QJsonObject&) {
+                ++unregisteredCalls;
+                return true;
+            });
+        ui.registerEphemeralPostHandler(&last, [&](const QJsonObject&) {
+            ++lastCalls;
+            return true;
+        });
+
+        QVERIFY(ui.dispatchEphemeralPost(post));
+        QVERIFY(deletedOwner.isNull());
+        QCOMPARE(deletedCalls, 0);
+        QCOMPARE(unregisteredCalls, 0);
+        QCOMPARE(lastCalls, 1);
+
+        // A later dispatch must remain valid after QObject destruction and
+        // explicit unregistration, and must not resurrect stale callbacks.
+        QVERIFY(ui.dispatchEphemeralPost(post));
+        QCOMPARE(deletedCalls, 0);
+        QCOMPARE(unregisteredCalls, 0);
+        QCOMPARE(lastCalls, 2);
+
+        QObject temporary;
+        int temporaryCalls = 0;
+        ui.registerEphemeralPostHandler(&temporary,
+            [&](const QJsonObject&) {
+                ++temporaryCalls;
+                return false;
+            });
+        ui.unregisterEphemeralPostHandler(&temporary);
+        QVERIFY(ui.dispatchEphemeralPost(post));
+        QCOMPARE(temporaryCalls, 0);
+    }
+
+    void groupConstrainedMentionHasNoInviteAction()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        BackendPost* original = channel->addPost(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("cccccccccccccccccccccccccc")},
+            {QStringLiteral("user_id"), QStringLiteral("self")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("create_at"), 20000},
+            {QStringLiteral("message"), QStringLiteral("Hello @person01")},
+        });
+        QVERIFY(original);
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        auto* list = area.findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(list);
+        PostWidget widget(backend, *original, list->viewport(), &area, nullptr);
+        const QJsonObject ephemeral {
+            {QStringLiteral("id"), QStringLiteral("dddddddddddddddddddddddddd")},
+            {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("root_id"), QString()},
+            {QStringLiteral("create_at"), 20001},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("add_channel_member"), QJsonObject {
+                    {QStringLiteral("post_id"), QStringLiteral("dddddddddddddddddddddddddd")},
+                    {QStringLiteral("not_in_channel_user_ids"), QJsonArray {}},
+                    {QStringLiteral("not_in_channel_usernames"), QJsonArray {}},
+                    {QStringLiteral("not_in_groups_user_ids"), QJsonArray {
+                        QStringLiteral("person01")}},
+                    {QStringLiteral("not_in_groups_usernames"), QJsonArray {
+                        QStringLiteral("person01")}},
+                }},
+            }},
+        };
+        widget.setEphemeralMentionNotice(ephemeral);
+        auto* label = widget.findChild<QLabel*>(
+            QStringLiteral("ephemeralMentionText"));
+        QVERIFY(label);
+        QVERIFY(label->text().contains(QStringLiteral("@person01")));
+        QVERIFY(label->text().contains(QStringLiteral("group restrictions")));
+        auto* button = widget.findChild<QPushButton*>(
+            QStringLiteral("inviteMentionedUsersButton"));
+        QVERIFY(button);
+        QVERIFY(button->isHidden());
+        QVERIFY(server.additions.isEmpty());
+    }
+
+    void membershipPolicySuppressesMentionInvite()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        channel->membershipPolicyEnforced = true;
+        BackendPost* original = channel->addPost(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("eeeeeeeeeeeeeeeeeeeeeeeeee")},
+            {QStringLiteral("user_id"), QStringLiteral("self")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("create_at"), 30000},
+            {QStringLiteral("message"), QStringLiteral("@person02")},
+        });
+        QVERIFY(original);
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        auto* list = area.findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(list);
+        PostWidget widget(backend, *original, list->viewport(), &area, nullptr);
+        widget.setEphemeralMentionNotice(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("ffffffffffffffffffffffffff")},
+            {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("root_id"), QString()},
+            {QStringLiteral("create_at"), 30001},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("add_channel_member"), QJsonObject {
+                    {QStringLiteral("not_in_channel_user_ids"), QJsonArray {
+                        QStringLiteral("person02")}},
+                    {QStringLiteral("not_in_channel_usernames"), QJsonArray {
+                        QStringLiteral("person02")}},
+                }},
+            }},
+        });
+        auto* label = widget.findChild<QLabel*>(
+            QStringLiteral("ephemeralMentionText"));
+        QVERIFY(label);
+        QVERIFY(label->text().contains(QStringLiteral("@person02")));
+        QVERIFY(label->text().contains(QStringLiteral("membership policy")));
+        auto* button = widget.findChild<QPushButton*>(
+            QStringLiteral("inviteMentionedUsersButton"));
+        QVERIFY(button);
+        QVERIFY(button->isHidden());
+        QVERIFY(server.additions.isEmpty());
     }
 
     void malformedSuccessDoesNotAdmitMembership()

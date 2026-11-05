@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QNetworkCookie>
 #include <QObject>
 #include <QList>
@@ -280,6 +281,13 @@ public:
 
 	//retrieve list of users that have any relation with logged in user
 	void retrieveKnownUsers(std::function<void()> callback);
+
+    /**
+     * Offer raw websocket ephemeral data to synchronous transient UI handlers.
+     * Returns true only when a handler accepts it; unhandled text falls back
+     * to the regular ephemeral notification.
+     */
+    bool handleEphemeralMessage(const QJsonObject& data);
 signals:
 
 	/**

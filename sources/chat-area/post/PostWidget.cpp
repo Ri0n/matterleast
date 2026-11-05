@@ -29,6 +29,9 @@
 #include <QPainter>
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QIcon>
 #include <QLabel>
 #include <QCheckBox>
@@ -1335,6 +1338,226 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     update();
 }
 
+void PostWidget::setEphemeralMentionNotice(const QJsonObject& ephemeralPost)
+{
+    if (presentationMode_ != PresentationMode::Interactive || !parentChatArea
+        || post.isDeleted || !post.isOwnPost()) {
+        return;
+    }
+    const QJsonObject details = ephemeralPost.value(QStringLiteral("props"))
+        .toObject().value(QStringLiteral("add_channel_member")).toObject();
+    if (ephemeralPost.value(QStringLiteral("type")).toString()
+            != QStringLiteral("system_ephemeral") || details.isEmpty()) {
+        return;
+    }
+
+    const QString noticeId = ephemeralPost.value(QStringLiteral("id")).toString();
+    if (noticeId.isEmpty() || ephemeralMentionId_ == noticeId) {
+        return;
+    }
+    const QJsonArray ids = details.value(
+        QStringLiteral("not_in_channel_user_ids")).toArray();
+    const QJsonArray usernames = details.value(
+        QStringLiteral("not_in_channel_usernames")).toArray();
+    const QJsonArray groupUsernames = details.value(
+        QStringLiteral("not_in_groups_usernames")).toArray();
+    if (ids.size() != usernames.size()
+        || (usernames.isEmpty() && groupUsernames.isEmpty())) {
+        return;
+    }
+
+    // Server-side group restrictions are not bypassed even when the sender
+    // otherwise has manage_*_channel_members. Never offer to add these users.
+    QSet<QString> restrictedIds;
+    for (const QJsonValue& value : details.value(
+             QStringLiteral("not_in_groups_user_ids")).toArray()) {
+        restrictedIds.insert(value.toString());
+    }
+    QSet<QString> restrictedNames;
+    for (const QJsonValue& value : groupUsernames) {
+        restrictedNames.insert(value.toString());
+    }
+
+    ephemeralMentionId_ = noticeId;
+    ephemeralInviteCandidates_.clear();
+    QStringList mentionedNames;
+    QStringList nonInvitableNames;
+    for (int i = 0; i < ids.size(); ++i) {
+        const QString userId = ids.at(i).toString();
+        const QString username = usernames.at(i).toString();
+        if (username.isEmpty()) {
+            continue;
+        }
+        const QString display = QStringLiteral("@") + username;
+        mentionedNames.append(display);
+        if (restrictedIds.contains(userId) || restrictedNames.contains(username)) {
+            nonInvitableNames.append(display);
+        } else if (!userId.isEmpty()) {
+            ephemeralInviteCandidates_.append(qMakePair(userId, username));
+        }
+    }
+    for (const QJsonValue& value : groupUsernames) {
+        const QString username = value.toString();
+        if (!username.isEmpty()) {
+            const QString display = QStringLiteral("@") + username;
+            if (!mentionedNames.contains(display)) {
+                mentionedNames.append(display);
+            }
+            if (!nonInvitableNames.contains(display)) {
+                nonInvitableNames.append(display);
+            }
+        }
+    }
+    if (mentionedNames.isEmpty()) {
+        return;
+    }
+
+    if (!ephemeralMentionRow_) {
+        ephemeralMentionRow_ = new QWidget(this);
+        ephemeralMentionRow_->setObjectName(QStringLiteral("ephemeralMentionNotice"));
+        auto* rowLayout = new QVBoxLayout(ephemeralMentionRow_);
+        rowLayout->setContentsMargins(0, 4, 0, 4);
+        rowLayout->setSpacing(4);
+
+        ephemeralMentionLabel_ = new QLabel(ephemeralMentionRow_);
+        ephemeralMentionLabel_->setObjectName(QStringLiteral("ephemeralMentionText"));
+        ephemeralMentionLabel_->setWordWrap(true);
+        ephemeralMentionLabel_->setTextFormat(Qt::PlainText);
+        ephemeralMentionLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        rowLayout->addWidget(ephemeralMentionLabel_);
+
+        ephemeralMentionInviteButton_ = new QPushButton(
+            tr("Add to channel"), ephemeralMentionRow_);
+        ephemeralMentionInviteButton_->setObjectName(
+            QStringLiteral("inviteMentionedUsersButton"));
+        ephemeralMentionInviteButton_->setFlat(true);
+        ephemeralMentionInviteButton_->setCursor(Qt::PointingHandCursor);
+        connect(ephemeralMentionInviteButton_, &QPushButton::clicked,
+                this, &PostWidget::inviteEphemeralMentionedUsers);
+
+        auto* actions = new QHBoxLayout;
+        actions->setContentsMargins(0, 0, 0, 0);
+        actions->addWidget(ephemeralMentionInviteButton_, 0, Qt::AlignLeft);
+        actions->addStretch();
+        rowLayout->addLayout(actions);
+
+        ephemeralMentionFeedback_ = new QLabel(ephemeralMentionRow_);
+        ephemeralMentionFeedback_->setObjectName(
+            QStringLiteral("ephemeralMentionFeedback"));
+        ephemeralMentionFeedback_->setTextFormat(Qt::PlainText);
+        ephemeralMentionFeedback_->setWordWrap(true);
+        ephemeralMentionFeedback_->hide();
+        rowLayout->addWidget(ephemeralMentionFeedback_);
+
+        // This is visual chrome *under the original post*, not an additional
+        // source row. The underlying server timeline and read cursor stay intact.
+        ui->verticalLayout->addWidget(ephemeralMentionRow_);
+    }
+
+    ephemeralMentionLabel_->setText(
+        tr("%1 did not get notified by your mention because they are not in this channel.")
+            .arg(mentionedNames.join(QStringLiteral(", "))));
+    if (!nonInvitableNames.isEmpty()) {
+        ephemeralMentionLabel_->setText(
+            ephemeralMentionLabel_->text() + QLatin1Char(' ')
+            + tr("%1 cannot be invited because of the channel's group restrictions.")
+                  .arg(nonInvitableNames.join(QStringLiteral(", "))));
+    }
+    if (parentChatArea->channel.membershipPolicyEnforced) {
+        ephemeralMentionLabel_->setText(
+            ephemeralMentionLabel_->text() + QLatin1Char(' ')
+            + tr("This channel's membership policy prevents direct invitations."));
+    }
+    ephemeralMentionFeedback_->hide();
+    ephemeralMentionInviteButton_->setText(tr("Add to channel"));
+    ephemeralMentionInviteButton_->hide();
+    ephemeralMentionInviteButton_->setEnabled(false);
+    ephemeralMentionRow_->show();
+
+    if (!ephemeralInviteCandidates_.isEmpty()
+        && !parentChatArea->channel.membershipPolicyEnforced) {
+        const QString currentId = ephemeralMentionId_;
+        QPointer<PostWidget> guard(this);
+        backend_.canAddChannelMembers(parentChatArea->channel,
+            [guard, currentId](bool permitted) {
+                if (!guard || guard->ephemeralMentionId_ != currentId
+                    || !guard->ephemeralMentionInviteButton_) {
+                    return;
+                }
+                guard->ephemeralMentionInviteButton_->setVisible(permitted);
+                guard->ephemeralMentionInviteButton_->setEnabled(permitted);
+                guard->ui->verticalLayout->invalidate();
+                guard->updateGeometry();
+                emit guard->dimensionsChanged();
+            });
+    }
+
+    ui->verticalLayout->invalidate();
+    updateGeometry();
+    emit dimensionsChanged();
+}
+
+void PostWidget::inviteEphemeralMentionedUsers()
+{
+    if (!parentChatArea || !ephemeralMentionInviteButton_
+        || ephemeralInviteCandidates_.isEmpty()) {
+        return;
+    }
+    ephemeralMentionInviteButton_->setEnabled(false);
+    ephemeralMentionInviteButton_->setText(tr("Adding…"));
+
+    struct InviteBatch {
+        int remaining = 0;
+        QStringList failures;
+    };
+    auto batch = std::make_shared<InviteBatch>();
+    const auto candidates = ephemeralInviteCandidates_;
+    batch->remaining = candidates.size();
+
+    QPointer<PostWidget> guard(this);
+    const QString noticeId = ephemeralMentionId_;
+    for (const auto& candidate : candidates) {
+        const QString userId = candidate.first;
+        const QString username = candidate.second;
+        backend_.addChannelMember(parentChatArea->channel, userId,
+            [guard, noticeId, batch, userId, username]
+            (bool success, const QString& error) {
+                if (!guard || guard->ephemeralMentionId_ != noticeId) {
+                    return;
+                }
+                if (success) {
+                    auto& remaining = guard->ephemeralInviteCandidates_;
+                    for (int i = remaining.size() - 1; i >= 0; --i) {
+                        if (remaining.at(i).first == userId) {
+                            remaining.removeAt(i);
+                        }
+                    }
+                } else {
+                    batch->failures.append(
+                        QStringLiteral("@%1: %2").arg(username, error));
+                }
+
+                if (--batch->remaining != 0) {
+                    return;
+                }
+                if (guard->ephemeralInviteCandidates_.isEmpty()) {
+                    guard->ephemeralMentionRow_->hide();
+                    emit guard->ephemeralInviteDismissed(guard->post.create_at);
+                } else {
+                    guard->ephemeralMentionInviteButton_->setText(
+                        guard->tr("Retry adding"));
+                    guard->ephemeralMentionInviteButton_->setEnabled(true);
+                    guard->ephemeralMentionFeedback_->setText(
+                        batch->failures.join(QLatin1Char('\n')));
+                    guard->ephemeralMentionFeedback_->show();
+                }
+                guard->ui->verticalLayout->invalidate();
+                guard->updateGeometry();
+                emit guard->dimensionsChanged();
+            });
+    }
+}
+
 void PostWidget::setPendingDeliveryPresentation(
     const QString& statusText,
     bool failed,
@@ -1973,6 +2196,13 @@ void PostWidget::openThreadWindow()
 void PostWidget::markAsDeleted()
 {
 	post.isDeleted = true;
+    // A deleted post no longer admits local ephemeral invite actions. An
+    // in-flight permission reply must not recreate a button for its tombstone.
+    ephemeralMentionId_.clear();
+    ephemeralInviteCandidates_.clear();
+    if (ephemeralMentionRow_) {
+        ephemeralMentionRow_->hide();
+    }
     animateHoverActions(false);
     setAuthorRunContinuation(false);
     if (threadSummary) {

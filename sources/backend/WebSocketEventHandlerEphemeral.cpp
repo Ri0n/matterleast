@@ -1,26 +1,18 @@
 /**
  * @file WebSocketEventHandlerEphemeral.cpp
- * @brief Handling of transient server-side websocket messages.
+ * @brief Forward transient websocket messages to Backend for dispatch.
  */
 
 #include "WebSocketEventHandler.h"
 
-#include <QJsonDocument>
-
-#include "ServerUiService.h"
+#include "Backend.h"
 
 namespace Mattermost {
 
 void WebSocketEventHandler::handleEphemeralMessage(const QJsonObject& data)
 {
-    const QJsonObject post = QJsonDocument::fromJson(
-        data.value(QStringLiteral("post")).toString().toUtf8()).object();
-    const QString message = post.value(QStringLiteral("message")).toString();
-    if (message.isEmpty()) {
-        return;
-    }
-
-    ServerUiService::instance(backend).notifyEphemeralMessage(message);
+    // Transport adapters do not inspect post type, props or display content.
+    backend.handleEphemeralMessage(data);
 }
 
 } // namespace Mattermost
