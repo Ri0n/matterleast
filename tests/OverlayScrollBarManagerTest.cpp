@@ -115,10 +115,14 @@ private slots:
                          QStringLiteral("128"));
         settleEvents();
         qWarning("BADGE_TEST: after property");
+        qWarning("BADGE_TEST: before text assertion");
         QCOMPARE(badge->text(), QStringLiteral("128"));
+        qWarning("BADGE_TEST: after text assertion");
         QVERIFY(badge->isVisible());
+        qWarning("BADGE_TEST: after visibility assertion");
         QVERIFY(badge->geometry().bottom() <
                 button->mapTo(badge->parentWidget(), QPoint(0, 0)).y());
+        qWarning("BADGE_TEST: after geometry assertion");
 
         qWarning("BADGE_TEST: before first click");
         QTest::mouseClick(button, Qt::LeftButton);
