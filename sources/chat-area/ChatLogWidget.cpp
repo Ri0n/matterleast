@@ -267,6 +267,7 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
     observedReadPostId_.clear();
     readProgressSentAt_ = 0;
     ++readProgressGeneration_;
+    readProgressInFlight_ = false;
     readProgressTimer_->stop();
     for (const QMetaObject::Connection& connection : sourceConnections) {
         disconnect(connection);
@@ -1140,6 +1141,119 @@ bool ChatLogWidget::isPostLowerEdgeVisible(const QString& postId) const
     const int index = postSource->indexOfPost(postId);
     return index >= 0
         && itemVisibility(index).testFlag(ItemVisibility::Bottom);
+}
+
+void ChatLogWidget::queueReadProgress(const BackendPost& post, int index)
+{
+    if (!backend || !chatArea || !postSource || manualUnreadGate_.active()
+        || readProgressInFlight_
+        || index >= postSource->authoritativeItemCount() - 1) {
+        // Reaching the authoritative tail already uses the full-read API.
+        if (readProgressTimer_
+            && index >= postSource->authoritativeItemCount() - 1) {
+            readProgressTimer_->stop();
+        }
+        return;
+    }
+    if (post.create_at > readProgressSentAt_) {
+        readProgressTimer_->start();
+    }
+}
+
+void ChatLogWidget::flushReadProgress()
+{
+    if (!backend || !chatArea || !postSource
+        || readProgressInFlight_ || manualUnreadGate_.active()
+        || observedReadPostId_.isEmpty()
+        || observedReadAt_ <= readProgressSentAt_) {
+        return;
+    }
+    const int index = postSource->indexOfPost(observedReadPostId_);
+    if (index < 0 || !postSource->isAuthoritativeRow(index)
+        || index >= postSource->authoritativeItemCount() - 1) {
+        return; // Full read owns tail acknowledgement.
+    }
+
+    const QString channelId = chatArea->getChannel().id;
+    const QString threadId = chatArea->isThread ? chatArea->root_id : QString();
+    const uint64_t timestamp = observedReadAt_;
+    const int generation = readProgressGeneration_;
+    QPointer<ChatLogWidget> guard(this);
+
+    readProgressInFlight_ = true;
+    const auto completed = [guard, timestamp, generation, channelId,
+                            threadId](bool success) {
+        if (!guard || guard->readProgressGeneration_ != generation) {
+            return;
+        }
+        guard->readProgressInFlight_ = false;
+        if (success) {
+            guard->readProgressSentAt_ =
+                std::max(guard->readProgressSentAt_, timestamp);
+            if (guard->backend) {
+                auto& following = FollowingModel::instance(*guard->backend);
+                if (!threadId.isEmpty()) {
+                    following.refreshThreads();
+                } else {
+                    following.refresh();
+                }
+            }
+            guard->refreshUnreadEdgeBadge();
+        }
+
+        // A full-read acknowledgement may have raced this intermediate
+        // checkpoint. If the user is now at the live edge, restore the
+        // full-read server boundary rather than leave it partially unread.
+        if (success && guard->backend && guard->chatArea
+            && guard->postSource && guard->isAtEnd()) {
+            if (threadId.isEmpty()) {
+                acknowledgeChannelRead(*guard->backend,
+                                       guard->chatArea->getChannel());
+            } else if (const auto* entry =
+                FollowingModel::instance(*guard->backend).findEntry(
+                    channelId, threadId)) {
+                if (!entry->teamId.isEmpty()) {
+                    FollowingModel::instance(*guard->backend)
+                        .markThreadRead(entry->teamId, threadId);
+                }
+            }
+        }
+        if (guard->observedReadAt_ > timestamp
+            && guard->postSource && !guard->isAtEnd()) {
+            guard->readProgressTimer_->start();
+        }
+    };
+
+    if (chatArea->isThread) {
+        const auto* entry = FollowingModel::instance(*backend)
+                                .findEntry(channelId, threadId);
+        if (!entry || entry->teamId.isEmpty()
+            || entry->lastViewedAt >= timestamp) {
+            readProgressInFlight_ = false;
+            return;
+        }
+        ThreadFollowService::instance(*backend).markThreadReadThrough(
+            entry->teamId, threadId, timestamp, completed);
+        return;
+    }
+
+    auto& sidebar = SidebarService::instance(*backend);
+    if (sidebar.channelLastViewedTime(channelId) >= timestamp) {
+        readProgressInFlight_ = false;
+        return;
+    }
+    const int nextIndex = index + 1;
+    BackendPost* nextUnread = postSource->postAt(nextIndex);
+    if (!nextUnread || nextUnread->id.isEmpty()
+        || !postSource->isAuthoritativeRow(nextIndex)) {
+        readProgressInFlight_ = false;
+        return; // Do not guess a checkpoint in a sparse timeline.
+    }
+    // Mattermost exposes a channel-wide view API and set_unread(postId),
+    // not a partial read-through endpoint. Choosing the NEXT unread post
+    // moves the server's single read watermark forward without consuming
+    // the unread suffix. Throttle this path; never call it per wheel tick.
+    sidebar.markPostUnread(nextUnread->id, completed);
 }
 
 void ChatLogWidget::markPostUnread(const QString& postId)
