@@ -2,7 +2,6 @@
 
 #include <QAbstractScrollArea>
 #include <QApplication>
-#include <QLabel>
 #include <QScrollBar>
 #include <QToolButton>
 #include <QWidget>
@@ -90,55 +89,44 @@ private slots:
 
     void customEndActionAndGenericBadgeDoNotChangeOrdinaryScrollAreas()
     {
-        qWarning("BADGE_TEST: before area");
         InterceptedScrollArea area;
         area.resize(320, 240);
         area.verticalScrollBar()->setRange(0, 100);
         area.verticalScrollBar()->setValue(25);
-        qWarning("BADGE_TEST: before show");
         area.show();
-        qWarning("BADGE_TEST: after show");
         settleEvents();
-        qWarning("BADGE_TEST: after settle");
 
         auto* button = area.findChild<QToolButton*>(
             QStringLiteral("mattermostOverlayScrollToEndButton"));
-        auto* badge = area.findChild<QLabel*>(
+        auto* badge = area.findChild<QWidget*>(
             QStringLiteral("mattermostOverlayBottomBadge"));
         QVERIFY(button);
         QVERIFY(badge);
         QVERIFY(button->isVisible());
         QVERIFY(!badge->isVisible());
 
-        qWarning("BADGE_TEST: before property");
         area.setProperty("mattermostOverlayBottomBadgeText",
                          QStringLiteral("128"));
         settleEvents();
-        qWarning("BADGE_TEST: after property");
-        qWarning("BADGE_TEST: before text assertion");
-        QCOMPARE(badge->text(), QStringLiteral("128"));
-        qWarning("BADGE_TEST: after text assertion");
+        QCOMPARE(area.property("mattermostOverlayBottomBadgeText").toString(),
+                 QStringLiteral("128"));
         QVERIFY(badge->isVisible());
-        qWarning("BADGE_TEST: after visibility assertion");
         QVERIFY(badge->geometry().bottom() <
                 button->mapTo(badge->parentWidget(), QPoint(0, 0)).y());
-        qWarning("BADGE_TEST: after geometry assertion");
 
-        qWarning("BADGE_TEST: before first click");
         QTest::mouseClick(button, Qt::LeftButton);
         settleEvents();
         QCOMPARE(area.intercepted, 1);
         QCOMPARE(area.verticalScrollBar()->value(), 25);
 
-        qWarning("BADGE_TEST: after first click");
         area.handleBottomAction = false;
         QTest::mouseClick(button, Qt::LeftButton);
         settleEvents();
-        qWarning("BADGE_TEST: after second click");
         QCOMPARE(area.verticalScrollBar()->value(), 100);
         QVERIFY(!badge->isVisible());
         area.setProperty("mattermostOverlayBottomBadgeText", QString());
-        QCOMPARE(badge->text(), QString());
+        QCOMPARE(area.property("mattermostOverlayBottomBadgeText").toString(),
+                 QString());
     }
 
     void edgeButtonGuardsInterceptTheSurroundingArea()
