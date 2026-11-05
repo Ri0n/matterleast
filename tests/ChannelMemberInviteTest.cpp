@@ -54,6 +54,25 @@ public:
     QSet<QString> existingMembers;
     QJsonArray requestedRoles;
     int count = 1;
+    bool roleFixture = false;
+    int roleBatchRequests = 0;
+    QJsonArray roleBatchIds;
+
+    QJsonObject memberRecord(const QString& userId) const
+    {
+        const bool admin = userId == QStringLiteral("person00")
+            || userId == QStringLiteral("person04");
+        const bool guest = userId == QStringLiteral("person01");
+        return QJsonObject {
+            {QStringLiteral("user_id"), userId},
+            {QStringLiteral("channel_id"), QStringLiteral("channel")},
+            {QStringLiteral("scheme_admin"), admin},
+            {QStringLiteral("roles"), admin
+                ? QStringLiteral("channel_admin")
+                : guest ? QStringLiteral("channel_guest")
+                        : QStringLiteral("channel_user")}
+        };
+    }
 
     MemberServer()
     {
@@ -110,6 +129,16 @@ public:
                             users.append(user(id));
                         }
                         response = QJsonDocument(users);
+                    } else if (path.endsWith("/members/ids")) {
+                        ++roleBatchRequests;
+                        roleBatchIds = input.array();
+                        QJsonArray members;
+                        for (const QJsonValue& id : roleBatchIds) {
+                            if (roleFixture) {
+                                members.append(memberRecord(id.toString()));
+                            }
+                        }
+                        response = QJsonDocument(members);
                     } else if (path.endsWith("/members") && request.value(0) == "POST") {
                         const QString id = input.object().value("user_id").toString();
                         additions.append(id);
@@ -127,10 +156,29 @@ public:
                     } else if (path.endsWith("/stats")) {
                         response = QJsonDocument(QJsonObject {{"member_count", count}});
                     } else if (path.endsWith("/members")) {
-                        response = QJsonDocument(QJsonArray {QJsonObject {{"user_id", "self"}}});
+                        if (roleFixture) {
+                            response = QJsonDocument(QJsonArray {
+                                memberRecord(QStringLiteral("person00")),
+                                memberRecord(QStringLiteral("person01")),
+                                memberRecord(QStringLiteral("person02")),
+                                memberRecord(QStringLiteral("person03"))
+                            });
+                        } else {
+                            response = QJsonDocument(QJsonArray {
+                                QJsonObject {{QStringLiteral("user_id"),
+                                              QStringLiteral("self")}}
+                            });
+                        }
                     } else if (path.endsWith("/users/ids")) {
                         QJsonArray users;
-                        for (const auto& id : input.array()) users.append(user(id.toString()));
+                        for (const auto& id : input.array()) {
+                            QJsonObject profile = user(id.toString());
+                            if (roleFixture && id.toString() == QStringLiteral("person02")) {
+                                profile.insert(QStringLiteral("roles"),
+                                               QStringLiteral("system_admin system_user"));
+                            }
+                            users.append(profile);
+                        }
                         response = QJsonDocument(users);
                     } else if (path.contains("/status/ids")) {
                         response = QJsonDocument(QJsonArray {});
@@ -261,6 +309,81 @@ private slots:
         QVERIFY(picker->findChild<QPushButton*>("addSelectedMembersButton"));
         QVERIFY(!picker->findChild<QPushButton*>("newConversationButton"));
         picker->reject();
+    }
+
+    void channelMemberListDisplaysMembershipRoles()
+    {
+        MemberServer server;
+        server.roleFixture = true;
+        server.count = 4;
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
+        dialog.resize(800, 520);
+        dialog.show();
+
+        auto* header = dialog.findChild<QLabel*>(
+            QStringLiteral("memberRoleHeader"));
+        QVERIFY(header);
+        QCOMPARE(header->text(), QStringLiteral("Role"));
+
+        const auto labels = [&dialog] {
+            QStringList result;
+            const auto roles = dialog.findChildren<QLabel*>(
+                QStringLiteral("memberRole"));
+            for (const auto* label : roles) {
+                result.append(label->text());
+            }
+            result.sort();
+            return result;
+        };
+        const QStringList expected {
+            QStringLiteral("Channel admin"), QStringLiteral("Guest"),
+            QStringLiteral("Member"), QStringLiteral("System admin")
+        };
+        QTRY_COMPARE(labels(), expected);
+        QCOMPARE(server.roleBatchRequests, 0); // Paged membership already has roles.
+        QVERIFY(channel->members.contains(QStringLiteral("person00")));
+        QVERIFY(channel->members.value(QStringLiteral("person00")).isAdmin);
+        QCOMPARE(channel->members.value(QStringLiteral("person01")).roles,
+                 QStringLiteral("channel_guest"));
+        // The original custom status column is still present.
+        QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("memberCustomStatus")));
+    }
+
+    void searchLoadsUncachedChannelRolesInOneBatch()
+    {
+        MemberServer server;
+        server.roleFixture = true;
+        server.existingMembers.insert(QStringLiteral("person04"));
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
+        dialog.resize(800, 520);
+        dialog.show();
+        QVERIFY(!channel->members.contains(QStringLiteral("person04")));
+
+        auto* filter = dialog.findChild<QLineEdit*>(
+            QStringLiteral("filterLineEdit"));
+        QVERIFY(filter);
+        filter->setFocus();
+        QTest::keyClicks(filter, "person04");
+
+        QTRY_COMPARE(server.roleBatchRequests, 1);
+        QCOMPARE(server.roleBatchIds,
+                 QJsonArray {QStringLiteral("person04")});
+        QTRY_VERIFY(dialog.findChild<QLabel*>(
+            QStringLiteral("memberRole")));
+        QTRY_COMPARE(dialog.findChild<QLabel*>(
+                         QStringLiteral("memberRole"))->text(),
+                     QStringLiteral("Channel admin"));
+        QVERIFY(channel->members.contains(QStringLiteral("person04")));
     }
 
     void existingMembersOutsideTheCacheRemainVisibleAndCannotBeAdded()
