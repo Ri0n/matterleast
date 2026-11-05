@@ -1,6 +1,8 @@
 #include <algorithm>
 
 #include <QApplication>
+#include <QCursor>
+#include <QEvent>
 #include <QFontMetrics>
 #include <QFrame>
 #include <QPushButton>
@@ -35,6 +37,49 @@ class PostReactionInteractionTest : public QObject
     Q_OBJECT
 
 private slots:
+    void floatingToolbarStaysVisibleWhenPointerReturnsToItsPost()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+        BackendPost post(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("aaaaabbbbbcccccdddddeeeee")},
+                {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+                {QStringLiteral("create_at"), 1},
+                {QStringLiteral("message"), QStringLiteral("hello")},
+            }, storage);
+
+        HoverTestList list;
+        list.resize(450, 350);
+        list.show();
+        auto* row = new PostWidget(backend, post, list.viewport(), nullptr, nullptr);
+        row->resize(400, 140);
+        row->move(0, 10);
+        row->show();
+        QApplication::processEvents();
+        row->setHovered(true, true);
+
+        auto* toolbar = list.viewport()->findChild<QFrame*>(
+            QStringLiteral("postHoverActions"), Qt::FindDirectChildrenOnly);
+        QVERIFY(toolbar);
+        QVERIFY(toolbar->isVisible());
+
+        // The popup reaction animation starts as the cursor enters its icon.
+        // Leaving it for the body of the SAME post must not dismiss the whole
+        // action bar after its 160ms leave grace period.
+        QCursor::setPos(row->mapToGlobal(QPoint(65, 70)));
+        QEvent leaveToolbar(QEvent::Leave);
+        QCoreApplication::sendEvent(toolbar, &leaveToolbar);
+        QTest::qWait(230);
+        QVERIFY2(toolbar->isVisible(),
+                 "Returning from the action bar to its post lost the toolbar");
+
+        // Leaving both the action bar and the post still hides the toolbar.
+        QCursor::setPos(list.viewport()->mapToGlobal(QPoint(440, 280)));
+        QCoreApplication::sendEvent(toolbar, &leaveToolbar);
+        QTRY_VERIFY_WITH_TIMEOUT(!toolbar->isVisible(), 1000);
+    }
+
     void oneFloatingToolbarFollowsTheHoveredPost()
     {
         Backend backend;
