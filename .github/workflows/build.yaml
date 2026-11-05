@@ -310,9 +310,25 @@ jobs:
           }
           exit $testExit
 
+      - name: Channel member roles regression (captured first run)
+        shell: pwsh
+        run: |
+          # Windows GUI-subsystem QtTest executables do not print assertions
+          # via CTest. Capture the first execution and preserve its exit code.
+          $log = Join-Path $PWD 'channel-members-first-run.txt'
+          & ./build/tests/channel-member-invite-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce a channel members log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
-        # Capture QtTest assertion output from GUI-mode binaries explicitly.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test)$"
+        # Tests above already ran exactly once with visible QtTest assertions.
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test|channel-member-invite-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
