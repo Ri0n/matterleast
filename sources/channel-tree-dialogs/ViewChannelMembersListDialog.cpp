@@ -40,6 +40,7 @@
 #include <QPalette>
 #include <QPointer>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSizePolicy>
 #include <QTimer>
 
@@ -79,6 +80,39 @@ QString memberDisplayName(const BackendUser* user, const QString& fallback)
     return name;
 }
 
+QStringList splitRoleNames(const QString& roles)
+{
+    // Mattermost role names are whitespace separated; legacy persisted
+    // profile data may also contain commas.
+    return roles.split(QRegularExpression(QStringLiteral("[\\s,]+")),
+                       Qt::SkipEmptyParts);
+}
+
+QString channelMemberRole(const BackendChannelMember* member,
+                          const BackendUser* user)
+{
+    // Never guess a channel role from an unrelated team/user role if the
+    // channel membership record has not been loaded yet.
+    if (!member) {
+        return QObject::tr("Unknown");
+    }
+
+    if (user && splitRoleNames(user->roles.join(QLatin1Char(' ')))
+                    .contains(QStringLiteral("system_admin"))) {
+        return QObject::tr("System admin");
+    }
+    const QStringList roles = splitRoleNames(member->roles);
+    if (member->isAdmin || roles.contains(QStringLiteral("channel_admin"))) {
+        return QObject::tr("Channel admin");
+    }
+    if (roles.contains(QStringLiteral("channel_guest"))
+        || (user && splitRoleNames(user->roles.join(QLatin1Char(' ')))
+                        .contains(QStringLiteral("system_guest")))) {
+        return QObject::tr("Guest");
+    }
+    return QObject::tr("Member");
+}
+
 bool matchesUser(const BackendUser& user, const QString& term)
 {
     return term.isEmpty()
@@ -94,12 +128,14 @@ public:
     ChannelMemberRow(Backend& backend,
                      const BackendUser* user,
                      QString fallbackName,
+                     QString role,
                      std::function<void(const BackendUser*, const QPoint&)> contextMenu,
                      QWidget* parent = nullptr)
         : QWidget(parent)
         , backend_(backend)
         , user_(user)
         , fallbackName_(std::move(fallbackName))
+        , role_(std::move(role))
         , contextMenu_(std::move(contextMenu))
     {
         setMinimumHeight(MemberRowHeight);
@@ -119,9 +155,10 @@ public:
         name_->setTextInteractionFlags(Qt::NoTextInteraction);
         layout->addWidget(name_, 3);
 
-        status_ = new QLabel(this);
-        status_->setTextInteractionFlags(Qt::NoTextInteraction);
-        layout->addWidget(status_, 1);
+        roleLabel_ = new QLabel(this);
+        roleLabel_->setObjectName(QStringLiteral("memberRole"));
+        roleLabel_->setTextInteractionFlags(Qt::NoTextInteraction);
+        layout->addWidget(roleLabel_, 1);
 
         customStatus_ = new QLabel(this);
         customStatus_->setObjectName(QStringLiteral("memberCustomStatus"));
@@ -168,7 +205,7 @@ private:
     void updateText()
     {
         name_->setText(memberDisplayName(user_, fallbackName_));
-        status_->setText(user_ ? user_->status : QString());
+        roleLabel_->setText(role_);
         customStatus_->clear();
         customStatus_->setToolTip({});
         if (!user_) return;
@@ -206,10 +243,11 @@ private:
     Backend& backend_;
     const BackendUser* user_ = nullptr;
     QString fallbackName_;
+    QString role_;
     std::function<void(const BackendUser*, const QPoint&)> contextMenu_;
     QLabel* avatar_ = nullptr;
     QLabel* name_ = nullptr;
-    QLabel* status_ = nullptr;
+    QLabel* roleLabel_ = nullptr;
     QLabel* customStatus_ = nullptr;
 };
 
@@ -352,13 +390,16 @@ QWidget* ViewChannelMembersListDialog::createHeaderRow()
 
     auto addHeader = [layout, header](const QString& text, int stretch) {
         auto* label = new QLabel(text, header);
+        if (text == QObject::tr("Role")) {
+            label->setObjectName(QStringLiteral("memberRoleHeader"));
+        }
         QFont font = label->font();
         font.setBold(true);
         label->setFont(font);
         layout->addWidget(label, stretch);
     };
     addHeader(tr("Full Name"), 3);
-    addHeader(tr("Status"), 1);
+    addHeader(tr("Role"), 1);
     addHeader(tr("Custom status"), 2);
     return header;
 }
@@ -564,8 +605,11 @@ QWidget* ViewChannelMembersListDialog::createMemberRow(int index)
         userId = memberIds.at(index);
     }
 
+    const auto it = channel.members.constFind(userId);
+    const BackendChannelMember* membership = it == channel.members.cend()
+        ? nullptr : &it.value();
     return new ChannelMemberRow(
-        backend, user, userId,
+        backend, user, userId, channelMemberRole(membership, user),
         [this](const BackendUser* rowUser, const QPoint& globalPos) {
             showMemberContextMenu(rowUser, globalPos);
         });
