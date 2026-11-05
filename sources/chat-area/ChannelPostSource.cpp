@@ -263,13 +263,19 @@ void ChannelPostSource::requestRange(int first,
         return;
     }
 
-    // total_msg_count_root is only an initial coordinate estimate. Deleted
-    // roots can make it too large, while join/leave and other count-excluded
-    // system roots returned by /posts can make it too small. Large top-edge
-    // seeks start 3% inside that estimate and repair the oldest boundary in
-    // either direction before ordinary page placement resumes.
+    // total_msg_count_root counts ordinary messages, not every /posts row:
+    // a burst of join/leave events can consume all estimated slots while
+    // older normal messages still exist. Even for small estimates (< a few
+    // hundred rows), a concrete post at index zero is NOT proof of the oldest
+    // server boundary. Probe once when the viewport asks for that apparent
+    // boundary; otherwise filtering those system rows can leave only a few
+    // visible posts and no way to scroll back in history.
+    //
+    // Large unknown prefixes keep the existing early 3% boundary probe.
+    // Small histories defer it until their estimated first slot is resolved,
+    // avoiding an unnecessary probe before the first server page arrives.
     if (requestedFirst == 0 && !oldestBoundaryFastPathTried
-        && initialBoundaryProbePages() > 1) {
+        && (initialBoundaryProbePages() > 1 || !postIds.first().isEmpty())) {
         oldestBoundaryFastPathTried = true;
         QPointer<ChannelPostSource> guard(this);
         probeEstimatedOldestBoundary([guard, first, last] {
