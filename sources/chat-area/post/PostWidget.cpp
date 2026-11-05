@@ -2190,6 +2190,13 @@ void PostWidget::openThreadWindow()
 void PostWidget::markAsDeleted()
 {
 	post.isDeleted = true;
+    // A deleted post no longer admits local ephemeral invite actions. An
+    // in-flight permission reply must not recreate a button for its tombstone.
+    ephemeralMentionId_.clear();
+    ephemeralInviteCandidates_.clear();
+    if (ephemeralMentionRow_) {
+        ephemeralMentionRow_->hide();
+    }
     animateHoverActions(false);
     setAuthorRunContinuation(false);
     if (threadSummary) {
