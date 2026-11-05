@@ -105,7 +105,12 @@ void BackendUser::updateFrom (const BackendUser& other, QString& resultString)
 	CHECK_AND_UPDATE_PROPERTY (locale);
 	CHECK_AND_UPDATE_PROPERTY (update_at);
 
+    const auto& before = props.customStatus;
+    const auto& after = other.props.customStatus;
+    const bool customChanged = before.text != after.text || before.emoji != after.emoji
+        || before.duration != after.duration || before.expiresAt != after.expiresAt;
 	props.updateFrom (other.props, ss);
+    if (customChanged) emit onCustomStatusChanged();
 
 	resultString += QString::fromStdString (ss.str());
 }

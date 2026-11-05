@@ -8,6 +8,7 @@
 #include <functional>
 
 #include <QMap>
+#include <QPointer>
 #include <QSet>
 #include <QTimer>
 #include <QVector>
@@ -15,7 +16,8 @@
 #include "UserListDialog.h"
 #include "backend/UserProfileService.h"
 
-class QHBoxLayout;
+class QLayout;
+class QLabel;
 class QPushButton;
 class QToolButton;
 class QWidget;
@@ -30,6 +32,7 @@ public:
     enum class Mode {
         UserSelection,
         ConversationPicker,
+        ChannelMembers,
     };
 
     UserSearchDialog(Backend& backend,
@@ -41,6 +44,10 @@ public:
 
     static UserSearchDialog* showConversationPicker(Backend& backend,
                                                     QWidget* parent = nullptr);
+
+    static UserSearchDialog* showChannelMemberPicker(Backend& backend,
+                                                      BackendChannel& channel,
+                                                      QWidget* parent = nullptr);
 
     const BackendUser* getSelectedUser();
     void setItemCountLabel(uint32_t count) override;
@@ -64,6 +71,9 @@ private:
     void updateConversationActions();
     void openSelectedConversation();
     void createConversation();
+    void addSelectedChannelMembers();
+    void addNextChannelMember();
+    void setAddingMembers(bool adding);
 
     QString conversationIdForRow(int row) const;
     QStringList participantIdsForRow(int row) const;
@@ -84,9 +94,14 @@ private:
     Mode mode = Mode::UserSelection;
 
     QWidget* participantHost = nullptr;
-    QHBoxLayout* participantLayout = nullptr;
+    QLayout* participantLayout = nullptr;
     QPushButton* openConversationButton = nullptr;
     QPushButton* newConversationButton = nullptr;
+    QPushButton* addMembersButton = nullptr;
+    QLabel* memberError = nullptr;
+    QPointer<BackendChannel> memberChannel;
+    QStringList memberAddQueue;
+    bool addingMembers = false;
     QSet<QString> selectedParticipantIds;
     QVector<const BackendUser*> lastServerUsers;
     QString preferredConversationId;

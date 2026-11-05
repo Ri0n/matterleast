@@ -226,6 +226,12 @@ public:
 	void createGroupChannel(const QStringList& userIds,
 	                        std::function<void(BackendChannel&)> callback = {});
 
+    // Resolve effective system/team/channel role permissions from the server.
+    void canAddChannelMembers(BackendChannel& channel, std::function<void(bool)> callback);
+    // Report failures and update canonical membership before completing.
+    void addChannelMember(BackendChannel& channel, const QString& userId,
+                          StatusUpdateResult callback);
+
 	//add a user to a channel (/channels/{channel_id}/members)
 	void addUserToChannel (const BackendChannel& channel, const QString& userID,
 	                       std::function<void()> callback = {});

@@ -57,6 +57,7 @@ signals:
 	void onAvatarChanged ();
 
 	void onStatusChanged ();
+    void onCustomStatusChanged();
 public:
 	QString getDisplayName () const;
 	void updateFrom (const BackendUser& other, QString& resultString);
