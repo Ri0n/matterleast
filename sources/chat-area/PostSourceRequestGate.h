@@ -10,11 +10,13 @@ namespace Mattermost {
 /**
  * Coalesces logical demand around one in-flight exact boundary request.
  *
- * The gate deliberately does not queue transport work. Requests that overlap or
- * directly extend the expected result can attach as waiters. Once the physical
- * request completes, callers release all waiters and let LongListWidget decide
- * which still-missing ranges are still relevant to the current viewport. A
- * distant/random request therefore never waits behind a stale scrolling chain.
+ * The gate deliberately does not queue transport work. A request may join
+ * an in-flight operation ONLY when the physical response is guaranteed to
+ * cover the request's entire interval. Merely overlapping/touching intervals
+ * are not enough: if the view filters away some of the first response's rows,
+ * LongListWidget can stop issuing requests, leaving an adjacent uncached
+ * range permanently inaccessible. Uncovered demand must run its own transport.
+ * This also lets distant/random requests bypass stale scrolling chains.
  */
 class PostSourceRequestGate
 {
@@ -33,7 +35,7 @@ public:
         if (!isActive() || last < first) {
             return false;
         }
-        return first <= expected.last + 1 && last >= expected.first - 1;
+        return first >= expected.first && last <= expected.last;
     }
 
     void begin(int expectedFirst,
