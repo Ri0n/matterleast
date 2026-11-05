@@ -262,6 +262,28 @@ void OverlayScrollBarManager::setEdgeNavigationButtonsEnabled(
     area.setProperty(EdgeButtonsEnabledProperty, enabled);
 }
 
+bool OverlayScrollBarManager::isNearVisibleEdgeNavigationButton(
+    const QAbstractScrollArea& area, const QPoint& globalPosition)
+{
+    if (!area.isVisible()) {
+        return false;
+    }
+    const QPoint position = area.mapFromGlobal(globalPosition);
+    const auto nearButton = [&area, &position](const char* objectName) {
+        const QToolButton* button = area.findChild<QToolButton*>(
+            QString::fromLatin1(objectName), Qt::FindDirectChildrenOnly);
+        if (!button || !button->isVisible() || !button->isEnabled()) {
+            return false;
+        }
+        const QRect hit = button->geometry().adjusted(
+            -button->width(), -button->height(),
+            button->width(), button->height());
+        return hit.contains(position);
+    };
+    return nearButton(ScrollToStartObjectName)
+        || nearButton(ScrollToEndObjectName);
+}
+
 OverlayScrollBarManager::OverlayScrollBarManager(QApplication& application)
     : QObject(&application)
 {
@@ -753,6 +775,21 @@ bool OverlayScrollBarManager::eventFilter(QObject* watched, QEvent* event)
             || widget == state->scrollToEndButton;
         const bool areaBoundary = widget == state->area
             || (state->area && widget == state->area->viewport());
+
+        // A post toolbar belongs to the viewport, while the edge-jump
+        // controls are direct children of the scroll area. Keep the latter
+        // above all floating post content in the actual hit-test stack, not
+        // just visually transparent on top.
+        if (widget->objectName() == QLatin1String("postHoverActions")
+            && (event->type() == QEvent::Show
+                || event->type() == QEvent::ZOrderChange)) {
+            if (state->scrollToStartButton) {
+                state->scrollToStartButton->raise();
+            }
+            if (state->scrollToEndButton) {
+                state->scrollToEndButton->raise();
+            }
+        }
 
         switch (event->type()) {
         case QEvent::Enter:
