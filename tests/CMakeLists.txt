@@ -1099,3 +1099,12 @@ if(TARGET matterleast-core)
     set_tests_properties(channel-post-source-hidden-history-test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+if(TARGET matterleast-core)
+    add_executable(channel-member-invite-test ChannelMemberInviteTest.cpp)
+    target_link_libraries(channel-member-invite-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME channel-member-invite-test COMMAND channel-member-invite-test)
+    set_tests_properties(channel-member-invite-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

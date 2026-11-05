@@ -25,6 +25,7 @@
 #include "ViewChannelMembersListDialog.h"
 
 #include "ChannelMemberPagePolicy.h"
+#include "UserSearchDialog.h"
 
 #include <algorithm>
 #include <functional>
@@ -38,6 +39,7 @@
 #include <QMenu>
 #include <QPalette>
 #include <QPointer>
+#include <QPushButton>
 #include <QSizePolicy>
 #include <QTimer>
 
@@ -233,15 +235,21 @@ ViewChannelMembersListDialog::ViewChannelMembersListDialog(
     setProfileBackend(&backend);
     setupVirtualList();
     resetPagedMembers();
+    refreshAddPermission();
+    connect(&channel, &BackendChannel::onUpdated,
+            this, &ViewChannelMembersListDialog::refreshAddPermission);
 
     connect(&channel, &BackendChannel::onUserRemoved, this,
-            [this](const BackendUser&) { resetPagedMembers(); });
+            [this](const BackendUser&) { resetPagedMembers(); refreshAddPermission(); });
     connect(&channel, &BackendChannel::onUserAdded, this,
             [this](const BackendUser&) { resetPagedMembers(); });
 }
 
 ViewChannelMembersListDialog::~ViewChannelMembersListDialog()
 {
+    // Child widgets are deleted by QWidget after our members have been torn
+    // down. Their destroyed callbacks must not touch this derived object then.
+    if (memberPicker) disconnect(memberPicker, nullptr, this, nullptr);
     finishAllRequests();
 }
 
@@ -255,6 +263,11 @@ void ViewChannelMembersListDialog::setupVirtualList()
         QString(),
     };
     FilterListDialog::create(dialogCfg);
+    addMembersButton = ui->buttonBox->addButton(tr("Add members…"), QDialogButtonBox::ActionRole);
+    addMembersButton->setObjectName(QStringLiteral("addChannelMembersButton"));
+    addMembersButton->hide();
+    connect(addMembersButton, &QPushButton::clicked,
+            this, &ViewChannelMembersListDialog::addMembers);
 
     ui->tableWidget->hide();
     const int tableIndex = ui->verticalLayout->indexOf(ui->tableWidget);
@@ -285,6 +298,33 @@ void ViewChannelMembersListDialog::setupVirtualList()
             this, &ViewChannelMembersListDialog::performSearch);
     connect(ui->filterLineEdit, &QLineEdit::textEdited,
             this, &ViewChannelMembersListDialog::filterEdited);
+}
+
+void ViewChannelMembersListDialog::refreshAddPermission()
+{
+    const int generation = ++permissionGeneration;
+    addMembersButton->hide();
+    QPointer<ViewChannelMembersListDialog> guard(this);
+    backend.canAddChannelMembers(channel, [guard, generation](bool allowed) {
+        if (!guard || generation != guard->permissionGeneration) return;
+        guard->addMembersButton->setVisible(allowed);
+        guard->addMembersButton->setEnabled(allowed && !guard->memberPicker);
+    });
+}
+
+void ViewChannelMembersListDialog::addMembers()
+{
+    if (memberPicker) {
+        memberPicker->raise();
+        memberPicker->activateWindow();
+        return;
+    }
+    memberPicker = UserSearchDialog::showChannelMemberPicker(backend, channel, this);
+    addMembersButton->setEnabled(false);
+    connect(memberPicker, &QObject::destroyed, this, [this] {
+        memberPicker.clear();
+        refreshAddPermission();
+    });
 }
 
 QWidget* ViewChannelMembersListDialog::createHeaderRow()

@@ -24,12 +24,14 @@
 
 #pragma once
 
+#include <QPointer>
 #include <QSet>
 #include <QStringList>
 #include <QVector>
 
 #include "UserListDialog.h"
 
+class QPushButton;
 class QTimer;
 class QWidget;
 
@@ -38,6 +40,7 @@ namespace Mattermost {
 class BackendChannel;
 class BackendUser;
 class LongListWidget;
+class UserSearchDialog;
 
 class ViewChannelMembersListDialog: public UserListDialog {
 public:
@@ -56,6 +59,8 @@ private:
                                const QVariant& selectedItemData) override;
 
     void setupVirtualList();
+    void refreshAddPermission();
+    void addMembers();
     void reloadMemberCount();
     void resetPagedMembers();
     void requestMemberRange(int first, int last);
@@ -79,6 +84,9 @@ private:
     Backend& backend;
     LongListWidget* memberList = nullptr;
     QTimer* searchTimer = nullptr;
+    QPushButton* addMembersButton = nullptr;
+    QPointer<UserSearchDialog> memberPicker;
+    int permissionGeneration = 0;
 
     QVector<QString> memberIds;
     QVector<const BackendUser*> searchUsers;

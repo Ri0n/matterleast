@@ -55,6 +55,27 @@ Action rules:
 
 One selected remote participant creates/opens a DM. Two or more use `POST /channels/group`; Mattermost itself canonicalizes the participant set and returns an existing GM when one already exists.
 
+## Adding channel members
+
+`ViewChannelMembersListDialog` exposes **Add members…** for active public/private team channels when
+`Backend::canAddChannelMembers()` resolves the corresponding `manage_public_channel_members` or
+`manage_private_channel_members` permission. It reads the current user's effective channel/team
+membership roles and system roles, then resolves permissions through `/roles/names`. Do not infer
+permission from ownership, `scheme_admin`, or hard-coded built-in role names; custom permission schemes
+can grant or remove this action. Failed role lookups leave the action hidden. The POST endpoint remains
+authoritative if permissions change while the dialog is open.
+
+`UserSearchDialog::Mode::ChannelMembers` reuses the conversation picker's participant chips and
+multi-person selection. It searches team users with `not_in_channel_id`; local DM/GM discovery and
+conversation creation actions do not participate in this mode. It has no GM participant-count limit.
+DM/GM membership is intentionally not changed by this action.
+
+Adds run sequentially through `Backend::addChannelMember()`. A validated success updates canonical
+membership and notifies the member list immediately. If a later addition fails, show the server error
+and retain the failed/unsubmitted chips; retry must not resend successful additions. Closing the picker
+stops further submissions without undoing an already submitted HTTP operation. Disconnect child
+teardown callbacks before destroying the member-list dialog's derived state.
+
 ## Ownership and persistence
 
 Creation helpers in `Backend` materialize successful server responses into `Storage` before invoking UI callbacks. Navigation then goes through `AppNavigationService`, so opening a newly created DM/GM/team channel follows the same sidebar admission and semantic-navigation path as every other open operation.
