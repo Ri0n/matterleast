@@ -19,12 +19,14 @@
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
 #include "backend/PostUnreadRequest.h"
+#include "backend/PostVisibilityPolicy.h"
 #include "backend/QByteArrayCreator.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
+#include "backend/types/BackendUser.h"
 
 namespace Mattermost {
 
@@ -526,6 +528,19 @@ void SidebarService::synchronizeChannelActivity()
 
 void SidebarService::recordChannelPost(BackendChannel& channel, const BackendPost& post)
 {
+    const BackendUser* currentUser = backend.getStorage().loginUser;
+    const bool visible = shouldShowMainTimelinePost(
+        post.type, post.props.toObject(),
+        currentUser ? currentUser->username : QString());
+
+    if (!visible) {
+        // Mattermost stores join/leave posts in channel history but excludes
+        // them from TotalMsgCount (Post::ExcludesFromChannelMessageCount).
+        // Do not create runtime unread/mentions or fabricate count credits.
+        // Real messages retain both websocket and server-count unread paths.
+        return;
+    }
+
     activityTracker.recordPost(channel.id, post.create_at, post.isOwnPost(),
                                !post.root_id.isEmpty(), post.currentUserMentioned);
     emit channelActivityChanged(channel.id);

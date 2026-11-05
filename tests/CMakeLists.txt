@@ -1073,3 +1073,16 @@ if(TARGET matterleast-core)
     set_tests_properties(channel-tree-drag-scroll-test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# Hidden membership system posts must not create runtime unread/mention state,
+# even though they remain in the timeline's underlying post stream.
+if(TARGET matterleast-core)
+    add_executable(sidebar-hidden-membership-unread-test
+        SidebarHiddenMembershipUnreadTest.cpp)
+    target_link_libraries(sidebar-hidden-membership-unread-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME sidebar-hidden-membership-unread-test
+        COMMAND sidebar-hidden-membership-unread-test)
+    set_tests_properties(sidebar-hidden-membership-unread-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
