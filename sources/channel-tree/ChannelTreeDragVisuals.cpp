@@ -185,11 +185,7 @@ bool ChannelTree::eventFilter(QObject* watched, QEvent* event)
 {
     if (sidebarDragActive && event->type() == QEvent::Wheel) {
         auto* wheel = static_cast<QWheelEvent*>(event);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         const QPoint global = wheel->globalPosition().toPoint();
-#else
-        const QPoint global = wheel->globalPos();
-#endif
         const QPoint pointer = viewport()->mapFromGlobal(global);
         const QRect active = viewport()->rect().adjusted(-24, -96, 24, 96);
         if (active.contains(pointer)) {
