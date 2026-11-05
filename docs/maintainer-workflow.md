@@ -41,6 +41,11 @@ The AppImage toolchain is downloaded by immutable GitHub release-asset IDs and c
 
 Linux desktop/AppStream metadata uses the reverse-DNS ID `io.github.Ri0n.MatterLeast` for the desktop file, icon and AppStream component. The AppStream developer ID is separately `io.github.ri0n`: developer IDs must contain only lowercase ASCII letters, digits and punctuation even when the corresponding GitHub login uses uppercase characters. Do not reintroduce screenshots that point at the pre-fork `nuclear868/mattermost-qt` repository; only add AppStream screenshots when the image is maintained at a stable MatterLeast-owned URL. Keep AppStream metadata valid under `appstreamcli` because linuxdeploy's AppImage plugin treats validator warnings as packaging failures.
 
+Windows GUI-mode QtTest binaries can fail without forwarding assertion text to the CI console.
+For captured regression steps, pass an explicit `-o path,txt`, print that file, and propagate the
+original test exit code. Exclude a test from the later CTest pass only when that captured step has
+already executed it; capturing output must not turn a failure into a successful job.
+
 ## Documentation
 
 - Architectural decisions and hard-to-rediscover invariants belong in the repository, not only in chat history.

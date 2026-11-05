@@ -296,9 +296,23 @@ jobs:
           }
           exit $testExit
 
+      - name: Hidden history regression (captured output)
+        shell: pwsh
+        run: |
+          $log = Join-Path $PWD 'windows-hidden-history.txt'
+          & ./build/tests/channel-post-source-hidden-history-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce a hidden history log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
         # Capture QtTest assertion output from GUI-mode binaries explicitly.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test)$"
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
