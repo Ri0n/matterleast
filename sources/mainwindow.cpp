@@ -346,7 +346,7 @@ Based on Mattermost-QT by Lyubomir Filipov, Copyright 2021, 2022.<br/>
 Further development of the predecessor fork by Maksim Turok.<br/>
 <br/>
 More information:<br/>
-<a href='https://github.com/Ri0n/mattermost-qt'>https://github.com/Ri0n/mattermost-qt</a>
+<a href='https://github.com/Ri0n/matterleast'>https://github.com/Ri0n/matterleast</a>
 <br/>
 <br/>
 This program is distributed in the hope that it will be useful,
