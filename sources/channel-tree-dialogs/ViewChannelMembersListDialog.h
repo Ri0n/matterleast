@@ -60,6 +60,8 @@ private:
 
     void setupVirtualList();
     void refreshAddPermission();
+    void refreshRolePermission();
+    void setMemberRole(const QString& userId, bool admin);
     void addMembers();
     void reloadMemberCount();
     void resetPagedMembers();
@@ -87,6 +89,9 @@ private:
     QPushButton* addMembersButton = nullptr;
     QPointer<UserSearchDialog> memberPicker;
     int permissionGeneration = 0;
+    int rolePermissionGeneration = 0;
+    bool canEditRoles = false;
+    QSet<QString> pendingRoleUpdates;
 
     QVector<QString> memberIds;
     QVector<const BackendUser*> searchUsers;
