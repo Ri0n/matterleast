@@ -59,7 +59,11 @@ private slots:
 
         // The count is a server membership fact, independent of mute policy.
         tracker.setMuted(QStringLiteral("channel"), true);
+        // Disabling CRT switches the default to all-post counters; mute
+        // changes attention policy, not membership counts.
         QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6),
+                 uint64_t(6));
+        QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6, true),
                  uint64_t(3));
 
         // An own post not yet reflected in the membership gets one count
