@@ -12,8 +12,11 @@
 #pragma once
 
 #include <QPointer>
+#include <QPoint>
 
 #include "widgets/LongListWidget.h"
+
+class QToolButton;
 
 namespace Mattermost {
 
@@ -36,9 +39,14 @@ protected:
 
 private:
     void clearActiveHover(bool immediate = false);
+    void activateHoverPost(class PostWidget* post, bool immediate = false);
+    void handlePointerOverNavigation(const QPoint& globalPosition, QWidget* receiver);
+    class PostWidget* postAtPointer(QWidget* receiver, const QPoint& globalPosition) const;
 
     QPointer<QWidget> activeHoverPost_;
+    QPointer<QToolButton> interceptedEdgeButton_;
     bool hoverSessionHasPost_ = false;
+    bool navigationHoverSuppressed_ = false;
 };
 
 } // namespace Mattermost
