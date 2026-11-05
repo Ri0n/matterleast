@@ -57,7 +57,8 @@ One selected remote participant creates/opens a DM. Two or more use `POST /chann
 
 ## Adding channel members
 
-The channel-member list shows names and presence only. Do not display other users' `last_viewed_at`:
+The channel-member list shows names, presence and a separate custom-status column (emoji and text).
+Custom-status profile updates refresh existing rows; expired statuses are suppressed when rendered. Do not display other users' `last_viewed_at`:
 Mattermost sanitizes this private field, and its placeholder is not a meaningful viewing date.
 
 `ViewChannelMembersListDialog` exposes **Add members…** for active public/private team channels when

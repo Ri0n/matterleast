@@ -32,6 +32,7 @@
 #include <utility>
 
 #include <QEvent>
+#include <QDateTime>
 #include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -49,6 +50,7 @@
 #include "backend/types/BackendChannelMember.h"
 #include "backend/types/BackendUser.h"
 #include "ui/AvatarUtils.h"
+#include "ui/EmojiPresentation.h"
 #include "ui_FilterListDialog.h"
 #include "widgets/LongListWidget.h"
 
@@ -121,6 +123,13 @@ public:
         status_->setTextInteractionFlags(Qt::NoTextInteraction);
         layout->addWidget(status_, 1);
 
+        customStatus_ = new QLabel(this);
+        customStatus_->setObjectName(QStringLiteral("memberCustomStatus"));
+        customStatus_->setTextFormat(Qt::RichText);
+        customStatus_->setMinimumWidth(0);
+        customStatus_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        layout->addWidget(customStatus_, 2);
+
         connect(this, &QWidget::customContextMenuRequested, this,
                 [this](const QPoint& pos) {
             if (contextMenu_) {
@@ -133,6 +142,10 @@ public:
                     this, [this] { updateAvatar(); });
             connect(user_, &BackendUser::onStatusChanged,
                     this, [this] { updateText(); updateAvatar(); });
+            connect(user_, &BackendUser::onCustomStatusChanged,
+                    this, [this] { updateText(); });
+            connect(&backend_.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
+                    this, [this](const QString&) { updateText(); });
             UserProfileService::instance(backend_).ensureAvatar(*user_);
         }
 
@@ -156,6 +169,24 @@ private:
     {
         name_->setText(memberDisplayName(user_, fallbackName_));
         status_->setText(user_ ? user_->status : QString());
+        customStatus_->clear();
+        customStatus_->setToolTip({});
+        if (!user_) return;
+        const auto& custom = user_->props.customStatus;
+        const auto expiry = QDateTime::fromString(custom.expiresAt, Qt::ISODateWithMs);
+        if (expiry.isValid() && expiry <= QDateTime::currentDateTimeUtc()) return;
+        QString icon;
+        if (!custom.emoji.isEmpty()) {
+            const auto emoji = backend_.emojiRegistry().resolveByName(custom.emoji);
+            icon = emoji ? emoji->unicodeString : QStringLiteral(":%1:").arg(custom.emoji);
+            icon = icon.contains(QStringLiteral("<img"), Qt::CaseInsensitive)
+                ? EmojiPresentation::normalizeHtml(icon, font(), EmojiPresentation::Mode::Reaction,
+                                                   &backend_.emojiRegistry())
+                : icon.toHtmlEscaped();
+        }
+        customStatus_->setText(icon + (icon.isEmpty() || custom.text.isEmpty() ? QString() : QStringLiteral(" "))
+                               + custom.text.toHtmlEscaped());
+        customStatus_->setToolTip(custom.text);
     }
 
     void updateAvatar()
@@ -179,6 +210,7 @@ private:
     QLabel* avatar_ = nullptr;
     QLabel* name_ = nullptr;
     QLabel* status_ = nullptr;
+    QLabel* customStatus_ = nullptr;
 };
 
 class ChannelMemberLongList final : public LongListWidget
@@ -327,6 +359,7 @@ QWidget* ViewChannelMembersListDialog::createHeaderRow()
     };
     addHeader(tr("Full Name"), 3);
     addHeader(tr("Status"), 1);
+    addHeader(tr("Custom status"), 2);
     return header;
 }
 

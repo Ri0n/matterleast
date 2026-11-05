@@ -361,6 +361,34 @@ private slots:
         picker->reject();
     }
 
+    void customStatusColumnUpdatesAndEscapesUserText()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        auto* channel = makeChannel(backend);
+        ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
+        dialog.show();
+        QTRY_VERIFY(dialog.findChild<QLabel*>("memberCustomStatus"));
+        auto* label = dialog.findChild<QLabel*>("memberCustomStatus");
+        auto profile = user(QStringLiteral("self"));
+        const auto setStatus = [&](const QJsonObject& status) {
+            profile.insert("props", QJsonObject {{"customStatus",
+                QString::fromUtf8(QJsonDocument(status).toJson(QJsonDocument::Compact))}});
+            backend.getStorage().addUser(profile);
+        };
+        setStatus(QJsonObject {{"emoji", "coffee"}, {"text", "<focus>"}});
+        QVERIFY(label->text().contains("&lt;focus&gt;"));
+        QVERIFY(!label->text().contains(":coffee:"));
+        QCOMPARE(label->toolTip(), QStringLiteral("<focus>"));
+        setStatus(QJsonObject {{"text", "Updated"}});
+        QCOMPARE(label->text(), QStringLiteral("Updated"));
+        setStatus(QJsonObject {{"text", "Expired"}, {"expiresAt", "2020-01-01T00:00:00.000Z"}});
+        QVERIFY(label->text().isEmpty());
+        setStatus(QJsonObject {});
+        QVERIFY(label->text().isEmpty());
+    }
+
     void malformedSuccessDoesNotAdmitMembership()
     {
         MemberServer server;
