@@ -72,7 +72,13 @@ bool ServerUiService::dispatchEphemeralPost(const QJsonObject& post)
             continue;
         }
         const auto it = ephemeralHandlers_.constFind(owner.data());
-        if (it != ephemeralHandlers_.cend() && it.value()(post)) {
+        if (it == ephemeralHandlers_.cend()) {
+            continue;
+        }
+        // A callback may unregister itself or destroy the owning widget.
+        // Never invoke it directly out of QHash storage that could be erased.
+        const auto handler = it.value();
+        if (handler(post)) {
             handled = true;
         }
     }
