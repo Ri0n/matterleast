@@ -189,6 +189,7 @@ private:
     int previousScrollValue_ = 0;
     int pendingUnreadIndex_ = -1;
     uint64_t observedReadAt_ = 0;
+    uint64_t lastServerBoundarySeen_ = 0;
     QString observedReadPostId_;
     QTimer* readProgressTimer_ = nullptr;
     bool readProgressInFlight_ = false;
