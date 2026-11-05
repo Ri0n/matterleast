@@ -24,6 +24,7 @@
 
 #include "ChannelTree.h"
 
+#include <QApplication>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QHeaderView>
@@ -180,7 +181,19 @@ ChannelTree::ChannelTree (QWidget* parent)
     setDefaultDropAction(Qt::MoveAction);
 }
 
-ChannelTree::~ChannelTree () = default;
+ChannelTree::~ChannelTree()
+{
+    // A sidebar can be destroyed by a workspace/window change while a mouse
+    // drag is active. The preview belongs to the top-level window, not to the
+    // tree, and must not linger after the source view disappears.
+    if (dragScrollTimer) {
+        dragScrollTimer->stop();
+    }
+    if (qApp) {
+        qApp->removeEventFilter(this);
+    }
+    delete dragPreview.data();
+}
 
 bool ChannelTree::isChannelActive (const BackendChannel& channel)
 {
