@@ -463,6 +463,8 @@ private slots:
                                      channel.id, QString());
         QSignalSpy remapped(&raw, &AbstractPostSource::layoutChanged);
         SourceList list(presentation);
+        QSignalSpy demands(&list, &LongListWidget::rangeRequested);
+        QSignalSpy completions(&presentation, &AbstractPostSource::rangeRequestFinished);
         list.resize(500, 440);
         list.show();
         list.scrollToEnd();
@@ -496,10 +498,18 @@ private slots:
             QTRY_COMPARE_WITH_TIMEOUT(visible.postIdAt(0), postId(0), 5000);
             QCOMPARE(visible.itemCount(), ordinaryCount);
         }
+        // A filled viewport may still have earlier prefetch/cache work in
+        // flight. Wait for request completion and a quiet event-loop interval
+        // before asserting the bounded final transport count. Sampling the
+        // count immediately after materialization races platform scheduling.
+        const auto settled = [&] {
+            if (demands.size() != completions.size()) return false;
+            const int requests = server.requests;
+            QTest::qWait(100);
+            return server.requests == requests && demands.size() == completions.size();
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(settled(), 5000);
         QVERIFY(server.requests <= 9);
-        const int settledRequests = server.requests;
-        QTest::qWait(100);
-        QCOMPARE(server.requests, settledRequests);
         QCOMPARE(remapped.size(), 0);
         // All materialized identities remain ordinary and correctly ordered.
         QString previous;
