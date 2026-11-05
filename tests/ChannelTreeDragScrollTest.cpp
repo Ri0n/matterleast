@@ -52,6 +52,18 @@ private slots:
         tree.show();
         QCoreApplication::processEvents();
 
+        // Use the actual internal drag lifecycle rather than artificially
+        // setting the active flag: QDrag::exec would swallow this wheel input.
+        QTreeWidgetItem* source = tree.topLevelItem(2);
+        QVERIFY(source);
+        source->setData(0, ChannelTree::ItemKindRole,
+                        int(ChannelTree::ChannelItemKind));
+        tree.setCurrentItem(source);
+        tree.startDrag(Qt::MoveAction);
+        QVERIFY(tree.sidebarDragActive);
+        QVERIFY(tree.dragScrollTimer);
+        QVERIFY(tree.dragScrollTimer->isActive());
+
         auto* scroll = tree.verticalScrollBar();
         QVERIFY(scroll);
         QVERIFY(scroll->maximum() > 30);
@@ -60,15 +72,24 @@ private slots:
         QWheelEvent wheel(QPointF(local), QPointF(global), QPoint(),
                           QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
                           Qt::ScrollUpdate, false);
-        tree.sidebarDragActive = true;
-        qApp->installEventFilter(&tree);
         const int before = scroll->value();
         QCoreApplication::sendEvent(tree.viewport(), &wheel);
-        qApp->removeEventFilter(&tree);
         QVERIFY(wheel.isAccepted());
         QVERIFY(scroll->value() > before);
         QVERIFY(tree.dragViewportScrollPixels > 0);
-        tree.sidebarDragActive = false;
+
+        // Crossing the top of the viewport does not hand off to native DnD
+        // or turn the drag into an invalid target/cursor.
+        tree.updateInternalDragPointer(QPoint(local.x(), -30));
+        QVERIFY(tree.sidebarDragActive);
+        const int afterWheel = scroll->value();
+        tree.scrollDuringDrag(-2, QPoint(local.x(), -30));
+        QVERIFY(scroll->value() < afterWheel);
+
+        tree.finishInternalDrag(QPoint(-40, -40), false);
+        QVERIFY(!tree.sidebarDragActive);
+        QVERIFY(!tree.dragScrollTimer);
+        QVERIFY(!tree.dragPreview);
     }
 };
 
