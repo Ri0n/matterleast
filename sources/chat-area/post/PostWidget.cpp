@@ -1463,13 +1463,19 @@ void PostWidget::setEphemeralMentionNotice(const QJsonObject& ephemeralPost)
             + tr("%1 cannot be invited because of the channel's group restrictions.")
                   .arg(nonInvitableNames.join(QStringLiteral(", "))));
     }
+    if (parentChatArea->channel.membershipPolicyEnforced) {
+        ephemeralMentionLabel_->setText(
+            ephemeralMentionLabel_->text() + QLatin1Char(' ')
+            + tr("This channel's membership policy prevents direct invitations."));
+    }
     ephemeralMentionFeedback_->hide();
     ephemeralMentionInviteButton_->setText(tr("Add to channel"));
     ephemeralMentionInviteButton_->hide();
     ephemeralMentionInviteButton_->setEnabled(false);
     ephemeralMentionRow_->show();
 
-    if (!ephemeralInviteCandidates_.isEmpty()) {
+    if (!ephemeralInviteCandidates_.isEmpty()
+        && !parentChatArea->channel.membershipPolicyEnforced) {
         const QString currentId = ephemeralMentionId_;
         QPointer<PostWidget> guard(this);
         backend_.canAddChannelMembers(parentChatArea->channel,
