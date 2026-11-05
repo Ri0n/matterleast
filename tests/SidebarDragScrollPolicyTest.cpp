@@ -25,9 +25,9 @@ private slots:
         const QSize view(280, 360);
         QVERIFY(SidebarDragScrollPolicy::edgeStep(QPoint(120, 12), view, 1) < 0);
         QVERIFY(SidebarDragScrollPolicy::edgeStep(QPoint(120, 352), view, 1) > 0);
-        QCOMPARE(SidebarDragScrollPolicy::edgeStep(QPoint(120, -70), view, 1), -4);
-        QCOMPARE(SidebarDragScrollPolicy::edgeStep(QPoint(120, 450), view, 1), 4);
-        // Accelerate smoothly as the pointer travels beyond the viewport.
+        QCOMPARE(SidebarDragScrollPolicy::edgeStep(QPoint(120, -70), view, 1), -2);
+        QCOMPARE(SidebarDragScrollPolicy::edgeStep(QPoint(120, 450), view, 1), 2);
+        // Accelerate once outside the viewport, never exceeding two steps.
         const int near = SidebarDragScrollPolicy::edgeStep(QPoint(120, 350),
                                                             view, 2);
         const int far = SidebarDragScrollPolicy::edgeStep(QPoint(120, 420),
