@@ -56,6 +56,7 @@ private:
     void animateToolbar(bool visible, bool immediate = false);
     void updateToolbarActions();
     void hideToolbar(bool immediate = false);
+    bool cursorOverActivePost() const;
 
     QPointer<PostWidget> toolbarPost_;
     QFrame* toolbar_ = nullptr;
