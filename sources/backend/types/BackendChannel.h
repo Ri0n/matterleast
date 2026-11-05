@@ -187,6 +187,9 @@ public:
     bool								has_total_msg_count_root;
     /** Authoritative /channels/{id}/stats member_count once loaded; -1 means unknown. */
     int                                 member_count = -1;
+    // Mattermost ABAC membership policy: permission alone does not grant
+    // the ability to invite outside the policy.
+    bool                                membershipPolicyEnforced = false;
     int								extra_update_at;
     const BackendUser*				creator;
     QMap<QString, BackendChannelMember> 		members;
