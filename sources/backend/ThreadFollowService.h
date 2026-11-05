@@ -82,6 +82,10 @@ public:
                           std::function<void(bool)> callback = {});
     void markThreadRead(const QString& teamId, const QString& threadId,
                         std::function<void(bool)> callback = {});
+    /** Persist a concrete partial read boundary, without consuming later replies. */
+    void markThreadReadThrough(const QString& teamId, const QString& threadId,
+                               uint64_t lastReadAt,
+                               std::function<void(bool)> callback = {});
 
 signals:
     /**
