@@ -190,6 +190,10 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
     backend = &backendInstance;
     chatArea = &chatAreaInstance;
 
+    connect(&backendInstance, &Backend::onEphemeralPost,
+            this, &ChatLogWidget::receiveEphemeralMention,
+            Qt::UniqueConnection);
+
     // A main conversation's oldest edge is not a useful permanent destination:
     // channel history keeps extending backwards as it is loaded. Threads are
     // bounded semantic conversations, so they keep the generic top-edge action.
@@ -1163,6 +1167,7 @@ QWidget* ChatLogWidget::createItemWidget(int index)
     });
 
     if (!pending) {
+        attachEphemeralMention(*widget);
         widget->setWholeMessageSelectionMode(messageSelectionMode_);
         widget->setWholeMessageSelected(selectedPostIds_.contains(postId));
         connect(widget, &PostWidget::wholeMessageSelectionToggled,
@@ -1177,6 +1182,84 @@ QWidget* ChatLogWidget::createItemWidget(int index)
     }
 
     return widget;
+}
+
+void ChatLogWidget::attachEphemeralMention(PostWidget& widget)
+{
+    if (!chatArea || !backend || !widget.post.isOwnPost()
+        || widget.post.isDeleted || widget.post.channel_id != chatArea->channel.id
+        || widget.post.root_id != (chatArea->isThread ? chatArea->root_id : QString())) {
+        return;
+    }
+
+    const auto it = ephemeralMentions_.constFind(widget.post.create_at);
+    if (it == ephemeralMentions_.cend()) {
+        return;
+    }
+
+    widget.setEphemeralMentionNotice(it.value());
+    connect(&widget, &PostWidget::ephemeralInviteDismissed, this,
+            [this](quint64 sourceCreateAt) {
+        ephemeralMentions_.remove(sourceCreateAt);
+    });
+}
+
+void ChatLogWidget::receiveEphemeralMention(const QJsonObject& ephemeralPost)
+{
+    if (!backend || !chatArea
+        || ephemeralPost.value(QStringLiteral("type")).toString()
+               != QStringLiteral("system_ephemeral")
+        || ephemeralPost.value(QStringLiteral("channel_id")).toString()
+               != chatArea->channel.id
+        || ephemeralPost.value(QStringLiteral("root_id")).toString()
+               != (chatArea->isThread ? chatArea->root_id : QString())) {
+        return;
+    }
+
+    const QJsonObject props = ephemeralPost.value(QStringLiteral("props")).toObject()
+        .value(QStringLiteral("add_channel_member")).toObject();
+    if (props.isEmpty()
+        || !props.value(QStringLiteral("not_in_channel_user_ids")).isArray()
+        || !props.value(QStringLiteral("not_in_channel_usernames")).isArray()) {
+        return;
+    }
+
+    const quint64 ephemeralAt = static_cast<quint64>(
+        ephemeralPost.value(QStringLiteral("create_at")).toDouble());
+    if (ephemeralAt == 0) {
+        return;
+    }
+    const quint64 originalAt = ephemeralAt - 1;
+    ephemeralMentions_.insert(originalAt, ephemeralPost);
+    // These UI hints are meaningful only for the current session and must
+    // not grow indefinitely if many users are mentioned in inactive chats.
+    while (ephemeralMentions_.size() > 64) {
+        auto oldest = ephemeralMentions_.begin();
+        for (auto it = ephemeralMentions_.begin(); it != ephemeralMentions_.end(); ++it) {
+            if (it.key() < oldest.key()) {
+                oldest = it;
+            }
+        }
+        ephemeralMentions_.erase(oldest);
+    }
+
+    if (!postSource) {
+        return; // Reattach on materialization if the chat tab is inactive.
+    }
+
+    // Only touch materialized rows, never scan the logical (potentially
+    // million-message) source and never change its server-backed topology.
+    const Range range = materializedRange();
+    if (!range.isValid()) {
+        return;
+    }
+    for (int index = range.first; index <= range.last; ++index) {
+        auto* widget = qobject_cast<PostWidget*>(itemWidget(index));
+        if (widget && widget->post.create_at == originalAt) {
+            attachEphemeralMention(*widget);
+            break;
+        }
+    }
 }
 
 QString ChatLogWidget::itemIdentity(const QWidget* widget) const
