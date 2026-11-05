@@ -389,10 +389,11 @@ QWidget* ViewChannelMembersListDialog::createHeaderRow()
     avatarSpacer->setFixedWidth(MemberAvatarSize);
     layout->addWidget(avatarSpacer);
 
-    auto addHeader = [layout, header](const QString& text, int stretch) {
+    auto addHeader = [layout, header](
+        const QString& text, int stretch, const QString& objectName = QString()) {
         auto* label = new QLabel(text, header);
-        if (text == QObject::tr("Role")) {
-            label->setObjectName(QStringLiteral("memberRoleHeader"));
+        if (!objectName.isEmpty()) {
+            label->setObjectName(objectName);
         }
         QFont font = label->font();
         font.setBold(true);
@@ -400,7 +401,7 @@ QWidget* ViewChannelMembersListDialog::createHeaderRow()
         layout->addWidget(label, stretch);
     };
     addHeader(tr("Full Name"), 3);
-    addHeader(tr("Role"), 1);
+    addHeader(tr("Role"), 1, QStringLiteral("memberRoleHeader"));
     addHeader(tr("Custom status"), 2);
     return header;
 }
