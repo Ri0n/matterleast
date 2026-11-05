@@ -589,13 +589,7 @@ void ChatArea::refreshHeaderActionIcons()
             IconUtils::symbolicIcon(QStringLiteral(":/icons/burger")));
     }
     if (chatActionsMenu) {
-        for (QAction* action : chatActionsMenu->actions()) {
-            const QString iconPath = action->property(
-                "matterleastMenuIconPath").toString();
-            if (!iconPath.isEmpty()) {
-                action->setIcon(IconUtils::symbolicIcon(iconPath));
-            }
-        }
+        IconUtils::refreshMenuActionIcons(*chatActionsMenu);
     }
     if (threadFollowButton) {
         const bool following = threadFollowButton->property("following").toBool();
