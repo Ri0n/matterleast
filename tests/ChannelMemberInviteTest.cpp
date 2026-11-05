@@ -474,6 +474,57 @@ private slots:
             QStringLiteral("ephemeralMentionNotice"))->isHidden());
     }
 
+    void groupConstrainedMentionHasNoInviteAction()
+    {
+        MemberServer server;
+        QVERIFY(server.start());
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        BackendPost* original = channel->addPost(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("cccccccccccccccccccccccccc")},
+            {QStringLiteral("user_id"), QStringLiteral("self")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("create_at"), 20000},
+            {QStringLiteral("message"), QStringLiteral("Hello @person01")},
+        });
+        QVERIFY(original);
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        auto* list = area.findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
+        QVERIFY(list);
+        PostWidget widget(backend, *original, list->viewport(), &area, nullptr);
+        const QJsonObject ephemeral {
+            {QStringLiteral("id"), QStringLiteral("dddddddddddddddddddddddddd")},
+            {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
+            {QStringLiteral("channel_id"), channel->id},
+            {QStringLiteral("root_id"), QString()},
+            {QStringLiteral("create_at"), 20001},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("add_channel_member"), QJsonObject {
+                    {QStringLiteral("post_id"), QStringLiteral("dddddddddddddddddddddddddd")},
+                    {QStringLiteral("not_in_channel_user_ids"), QJsonArray {}},
+                    {QStringLiteral("not_in_channel_usernames"), QJsonArray {}},
+                    {QStringLiteral("not_in_groups_user_ids"), QJsonArray {
+                        QStringLiteral("person01")}},
+                    {QStringLiteral("not_in_groups_usernames"), QJsonArray {
+                        QStringLiteral("person01")}},
+                }},
+            }},
+        };
+        widget.setEphemeralMentionNotice(ephemeral);
+        auto* label = widget.findChild<QLabel*>(
+            QStringLiteral("ephemeralMentionText"));
+        QVERIFY(label);
+        QVERIFY(label->text().contains(QStringLiteral("@person01")));
+        QVERIFY(label->text().contains(QStringLiteral("group restrictions")));
+        auto* button = widget.findChild<QPushButton*>(
+            QStringLiteral("inviteMentionedUsersButton"));
+        QVERIFY(button);
+        QVERIFY(button->isHidden());
+        QVERIFY(server.additions.isEmpty());
+    }
+
     void malformedSuccessDoesNotAdmitMembership()
     {
         MemberServer server;
