@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QJsonArray>
 #include <QAction>
+#include <QMenu>
+#include <QPushButton>
 #include <QJsonDocument>
 #include <QDateTime>
 #include <QLabel>
@@ -34,6 +36,7 @@
 #include "mainwindow.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/NavigationUiController.h"
+#include "ui/IconUtils.h"
 #include "options/MLOptions.h"
 
 using namespace Mattermost;
@@ -348,6 +351,91 @@ private slots:
         QCOMPARE(replacement->channels.size(), size_t(1));
         QCOMPARE(replacement->channels.front().get(), retained);
         QCOMPARE(storage.getChannelById("retained"), retained);
+    }
+
+    void sidebarAndComposerMenusHaveSymbolicIcons()
+    {
+        Server server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("user")},
+            {QStringLiteral("username"), QStringLiteral("tester")}
+        }, true);
+        auto* team = storage.addTeam(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("team")},
+            {QStringLiteral("name"), QStringLiteral("team")}
+        });
+        QVERIFY(team);
+        auto* channel = storage.addTeamChannel(*team, QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("channel")},
+            {QStringLiteral("team_id"), QStringLiteral("team")},
+            {QStringLiteral("type"), QStringLiteral("O")},
+            {QStringLiteral("name"), QStringLiteral("test")}
+        });
+        QVERIFY(channel);
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        auto* sidebar = window.findChild<QMenu*>(
+            QStringLiteral("sidebarMainMenu"));
+        QVERIFY(sidebar);
+        auto* file = sidebar->findChild<QMenu*>(
+            QStringLiteral("sidebarFileMenu"));
+        auto* help = sidebar->findChild<QMenu*>(
+            QStringLiteral("sidebarHelpMenu"));
+        QVERIFY(file);
+        QVERIFY(help);
+
+        const auto verifyAllIcons = [](QMenu* menu) {
+            QVERIFY(menu);
+            for (QAction* action : menu->actions()) {
+                if (action->isSeparator()) {
+                    continue;
+                }
+                QVERIFY2(!action->icon().isNull(),
+                         qPrintable(action->text()));
+                QVERIFY2(!action->property(
+                    "matterleastMenuIconPath").toString().isEmpty(),
+                    qPrintable(action->text()));
+            }
+        };
+        verifyAllIcons(sidebar);
+        verifyAllIcons(file);
+        verifyAllIcons(help);
+        IconUtils::refreshMenuActionIcons(*sidebar);
+        verifyAllIcons(sidebar);
+        verifyAllIcons(file);
+        verifyAllIcons(help);
+
+        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+                      nullptr, false);
+        auto* attachMenu = area.findChild<QMenu*>(
+            QStringLiteral("composerAttachMenu"));
+        QVERIFY(attachMenu);
+        auto* attachFile = attachMenu->findChild<QAction*>(
+            QStringLiteral("composerAttachFileAction"));
+        auto* attachPoll = attachMenu->findChild<QAction*>(
+            QStringLiteral("composerAttachPollAction"));
+        auto* ktalk = attachMenu->findChild<QAction*>(
+            QStringLiteral("composerKTalkAction"));
+        QVERIFY(attachFile);
+        QVERIFY(attachPoll);
+        QVERIFY(ktalk);
+        QVERIFY(!attachFile->icon().isNull());
+        QVERIFY(!attachPoll->icon().isNull());
+        QVERIFY(attachFile->property("matterleastMenuIconPath")
+                    .toString().endsWith(QStringLiteral("menu-file")));
+        QVERIFY(attachPoll->property("matterleastMenuIconPath")
+                    .toString().endsWith(QStringLiteral("menu-poll")));
+
+        // Resource refresh must not overwrite KTalk's plugin-provided icon.
+        const QIcon ktalkIcon = ktalk->icon();
+        IconUtils::refreshMenuActionIcons(*attachMenu);
+        QCOMPARE(ktalk->icon().cacheKey(), ktalkIcon.cacheKey());
     }
 
     void sessionRestoresTabOrderDockAndDetachedWindow()
