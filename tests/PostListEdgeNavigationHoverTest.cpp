@@ -143,6 +143,13 @@ private slots:
         settleEvents();
         QVERIFY(!actions->isVisible());
 
+        // A late Enter directed at the previously shown floating surface
+        // must not reactivate the toolbar or its ranked emoji controls.
+        QEvent staleToolbarEnter(QEvent::Enter);
+        QCoreApplication::sendEvent(actions, &staleToolbarEnter);
+        settleEvents();
+        QVERIFY(!actions->isVisible());
+
         // The physical icon must remain the click target even if the toolbar
         // was raised earlier and the mouse passes over its old location.
         const QPoint globalButton =
