@@ -177,6 +177,9 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
 
 ChatLogWidget::~ChatLogWidget()
 {
+    if (backend) {
+        ServerUiService::instance(*backend).unregisterEphemeralPostHandler(this);
+    }
     // QObject's automatic receiver cleanup happens only in QObject::~QObject.
     // LongListWidget destroys materialized posts before then, after our C++
     // members have gone away. Disconnect row callbacks while they are alive.
