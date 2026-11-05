@@ -40,6 +40,35 @@ class ChannelActivityTrackerTest : public QObject
     Q_OBJECT
 
 private slots:
+    void unreadBadgeCountsRespectCrtAndOwnPostCredits()
+    {
+        ChannelActivityTracker tracker;
+        setMembership(tracker, 1000, 5, 3);
+        synchronize(tracker, 2000, 11, 6, true, false);
+        QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6),
+                 uint64_t(6));
+        synchronize(tracker, 2000, 11, 6, true, true);
+        QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6),
+                 uint64_t(3));
+
+        // The count is a server membership fact, independent of mute policy.
+        tracker.setMuted(QStringLiteral("channel"), true);
+        QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 11, 6),
+                 uint64_t(3));
+
+        // An own post not yet reflected in the membership gets one count
+        // credit until the server catches up.
+        tracker.recordPost(QStringLiteral("channel"), 2100, true, false, false);
+        synchronize(tracker, 2100, 12, 7, true, true);
+        QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 12, 7),
+                 uint64_t(3));
+
+        tracker.markUnread(QStringLiteral("channel"), 1499,
+                           6, 4, true, 0, 0, true);
+        QCOMPARE(tracker.unreadCount(QStringLiteral("channel"), 12, 7),
+                 uint64_t(3));
+    }
+
     void ordinaryCountsSeedUnreadWhenCrtIsOff()
     {
         ChannelActivityTracker tracker;
