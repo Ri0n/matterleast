@@ -27,6 +27,8 @@
 
 class QColor;
 class QIcon;
+class QAction;
+class QMenu;
 
 namespace Mattermost {
 
@@ -38,6 +40,9 @@ public:
     static QIcon tintedIcon(const QIcon& icon, const QColor& color);
     static QIcon tintedSymbolicIcon(const QString& path, const QColor& color);
     static QIcon symbolicIcon(const QString& path);
+    // Keep the menu's palette-aware resource path on the QAction itself.
+    static void setMenuActionIcon(QAction& action, const QString& path);
+    static void refreshMenuActionIcons(QMenu& menu);
     static QIcon applicationIcon(uint32_t notificationCount = 0);
 };
 
