@@ -13,6 +13,8 @@
 #include <QClipboard>
 #include <QApplication>
 #include <QTimer>
+#include <QScrollBar>
+#include <QEvent>
 
 #include "ChatArea.h"
 #include "channel-tree/AttentionActivationPolicy.h"
@@ -86,6 +88,21 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
 {
     _attentionFlashLifetime = std::make_unique<AttentionFlashLifetime>();
     setDefaultItemHeight(96);
+    readProgressTimer_ = new QTimer(this);
+    readProgressTimer_->setObjectName(
+        QStringLiteral("unreadProgressSyncTimer"));
+    readProgressTimer_->setSingleShot(true);
+    readProgressTimer_->setInterval(1500);
+    connect(readProgressTimer_, &QTimer::timeout,
+            this, &ChatLogWidget::flushReadProgress);
+    previousScrollValue_ = verticalScrollBar()->value();
+    connect(verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this](int value) {
+        if (value < previousScrollValue_) {
+            autoUnreadHeadConsumed_ = false;
+        }
+        previousScrollValue_ = value;
+    });
 
     connect(this, &LongListWidget::rangeRequested, this,
             [this](int first, int last, RequestReason reason, quint64 generation) {
@@ -136,11 +153,13 @@ ChatLogWidget::ChatLogWidget(QWidget* parent)
             _initialScrollBarPulsePending = false;
         }
         scheduleNavigationFinalize();
+        QTimer::singleShot(0, this, &ChatLogWidget::finalizeUnreadEdgeTarget);
     });
 
     connect(this, &LongListWidget::itemVisibilityChanged, this,
             [this](int, ItemVisibilities, VisibilityChangeReason) {
         scheduleReadCursorUpdate();
+        refreshUnreadEdgeBadge();
     });
 
     // A direct user gesture wins even while semantic navigation is waiting for
@@ -204,6 +223,20 @@ void ChatLogWidget::configure(Backend& backendInstance, ChatArea& chatAreaInstan
     // bounded semantic conversations, so they keep the generic top-edge action.
     OverlayScrollBarManager::setScrollToStartButtonEnabled(
         *this, chatAreaInstance.isThread);
+
+    // Both the badge and semantic bottom-action are generic overlay hooks.
+    // ChatLogWidget supplies the meaning, not OverlayScrollBarManager.
+    connect(&SidebarService::instance(backendInstance),
+            &SidebarService::channelActivityChanged, this,
+            [this](const QString& id) {
+        if (chatArea && chatArea->getChannel().id == id) {
+            refreshUnreadEdgeBadge();
+        }
+    });
+    connect(&FollowingModel::instance(backendInstance),
+            &FollowingModel::changed, this,
+            &ChatLogWidget::refreshUnreadEdgeBadge);
+    refreshUnreadEdgeBadge();
 }
 
 void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
@@ -227,6 +260,14 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
     manualUnreadHighWaterPostId_.clear();
     manualUnreadHighWaterCreateAt_ = 0;
     manualUnreadExitedViewport_ = false;
+    manualUnreadTail_ = false;
+    autoUnreadHeadConsumed_ = false;
+    pendingUnreadIndex_ = -1;
+    observedReadAt_ = 0;
+    observedReadPostId_.clear();
+    readProgressSentAt_ = 0;
+    ++readProgressGeneration_;
+    readProgressTimer_->stop();
     for (const QMetaObject::Connection& connection : sourceConnections) {
         disconnect(connection);
     }
@@ -235,6 +276,7 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
 
     setItemCount(postSource ? postSource->itemCount() : 0);
     if (!postSource) {
+        refreshUnreadEdgeBadge();
         return;
     }
 
@@ -246,6 +288,7 @@ void ChatLogWidget::setSource(AbstractPostSource* sourceInstance)
     }
     scheduleAuthorRunRefresh();
     scheduleReadCursorUpdate();
+    refreshUnreadEdgeBadge();
 }
 
 PostWidget* ChatLogWidget::findPost(const QString& postId) const
@@ -586,6 +629,127 @@ void ChatLogWidget::followOwnPost(const QString& postId)
 void ChatLogWidget::refreshReadState()
 {
     scheduleReadCursorUpdate();
+    refreshUnreadEdgeBadge();
+}
+
+bool ChatLogWidget::event(QEvent* event)
+{
+    if (event->type() == OverlayScrollToEndEvent::eventType()
+        && navigateToUnreadEdge()) {
+        event->accept();
+        return true;
+    }
+    return PostListWidget::event(event);
+}
+
+uint64_t ChatLogWidget::unreadEdgeCount() const
+{
+    if (!backend || !chatArea || !postSource) {
+        return 0;
+    }
+    const QString channelId = chatArea->getChannel().id;
+    const FollowingModel::Entry* entry =
+        FollowingModel::instance(*backend).findEntry(
+            channelId, chatArea->isThread ? chatArea->root_id : QString());
+    uint64_t count = chatArea->isThread
+        ? (entry ? static_cast<uint64_t>(std::max(0, entry->unreadReplies)) : 0)
+        : SidebarService::instance(*backend).channelUnreadMessageCount(
+              chatArea->getChannel());
+
+    // Local viewport progress wins over a server count that has not yet been
+    // sent/acknowledged. Source rows represent real server posts except for
+    // transient outbox items, excluded by authoritativeItemCount().
+    if (count && !observedReadPostId_.isEmpty()) {
+        const int index = postSource->indexOfPost(observedReadPostId_);
+        if (index >= 0 && postSource->isAuthoritativeRow(index)) {
+            const int remaining = std::max(0,
+                postSource->authoritativeItemCount() - index - 1);
+            count = std::min(count, static_cast<uint64_t>(remaining));
+        }
+    }
+    return count;
+}
+
+void ChatLogWidget::refreshUnreadEdgeBadge()
+{
+    const uint64_t count = unreadEdgeCount();
+    const QString label = count ? QString::number(count) : QString();
+    if (property("mattermostOverlayBottomBadgeText").toString() != label) {
+        setProperty("mattermostOverlayBottomBadgeText", label);
+    }
+}
+
+int ChatLogWidget::firstUnreadEdgeIndex() const
+{
+    if (!postSource) {
+        return -1;
+    }
+    const uint64_t unreadCount = unreadEdgeCount();
+    const int count = postSource->authoritativeItemCount();
+    if (!unreadCount || !count) {
+        return -1;
+    }
+    if (!observedReadPostId_.isEmpty()) {
+        const int index = postSource->indexOfPost(observedReadPostId_);
+        if (index >= 0 && index + 1 < count) {
+            return index + 1;
+        }
+    }
+    const QString threadId = chatArea && chatArea->isThread
+        ? chatArea->root_id : QString();
+    if (chatArea && backend) {
+        if (const auto* entry = FollowingModel::instance(*backend).findEntry(
+                chatArea->getChannel().id, threadId)) {
+            if (!entry->firstUnreadPostId.isEmpty()) {
+                const int index = postSource->indexOfPost(entry->firstUnreadPostId);
+                if (index >= 0 && postSource->isAuthoritativeRow(index)) {
+                    return index;
+                }
+            }
+        }
+    }
+    return static_cast<int>(
+        count - std::min(static_cast<uint64_t>(count), unreadCount));
+}
+
+bool ChatLogWidget::navigateToUnreadEdge()
+{
+    if (!postSource || !chatArea || unreadEdgeCount() == 0) {
+        return false; // Let the generic overlay jump to the bottom.
+    }
+    if (autoUnreadHeadConsumed_ && !manualUnreadTail_) {
+        pendingUnreadIndex_ = -1;
+        scrollToEnd();
+        scheduleReadCursorUpdate();
+        return true;
+    }
+
+    const int first = firstUnreadEdgeIndex();
+    if (first < 0 || first >= postSource->authoritativeItemCount()) {
+        return false;
+    }
+    pendingUnreadIndex_ = first;
+    scrollToIndex(first, Alignment::Bottom);
+    QTimer::singleShot(0, this, &ChatLogWidget::finalizeUnreadEdgeTarget);
+    return true;
+}
+
+void ChatLogWidget::finalizeUnreadEdgeTarget()
+{
+    if (!postSource || pendingUnreadIndex_ < 0) {
+        return;
+    }
+    const int index = pendingUnreadIndex_;
+    auto* widget = qobject_cast<PostWidget*>(itemWidget(index));
+    BackendPost* post = postSource->postAt(index);
+    if (!widget || !post || !postSource->isAuthoritativeRow(index)) {
+        return;
+    }
+    const Alignment alignment = widget->height() > viewport()->height()
+        ? Alignment::Top : Alignment::Bottom;
+    if (lockNavigationToPost(post->id, alignment, 0)) {
+        pendingUnreadIndex_ = -1;
+    }
 }
 
 bool ChatLogWidget::lockNavigationToPost(const QString& postId,
@@ -871,6 +1035,22 @@ void ChatLogWidget::updateReadCursorFromVisibility()
         return;
     }
 
+    // The automatic unread-head shortcut becomes armed only when that
+    // specific first unread post's lower edge was actually visible. Merely
+    // positioning a newer row in the viewport cannot consume the head.
+    const int firstUnreadIndex = firstUnreadEdgeIndex();
+    if (!manualUnreadTail_ && !autoUnreadHeadConsumed_
+        && firstUnreadIndex >= 0 && firstUnreadIndex <= readIndex
+        && itemVisibility(firstUnreadIndex).testFlag(ItemVisibility::Bottom)) {
+        autoUnreadHeadConsumed_ = true;
+    }
+    if (readPost->create_at > observedReadAt_) {
+        observedReadAt_ = readPost->create_at;
+        observedReadPostId_ = readPost->id;
+    }
+    refreshUnreadEdgeBadge();
+    queueReadProgress(*readPost, readIndex);
+
     BackendChannel& channel = chatArea->getChannel();
     auto& followingModel = FollowingModel::instance(*backend);
     auto& sidebar = SidebarService::instance(*backend);
@@ -979,6 +1159,14 @@ void ChatLogWidget::markPostUnread(const QString& postId)
     manualUnreadHighWaterPostId_.clear();
     manualUnreadHighWaterCreateAt_ = 0;
     manualUnreadExitedViewport_ = false;
+    manualUnreadTail_ = true;
+    autoUnreadHeadConsumed_ = false;
+    pendingUnreadIndex_ = -1;
+    observedReadAt_ = 0;
+    observedReadPostId_.clear();
+    readProgressSentAt_ = 0;
+    ++readProgressGeneration_;
+    readProgressTimer_->stop();
     manualUnreadGate_.markUnread(postId, isPostLowerEdgeVisible(postId));
 
     QPointer<ChatLogWidget> guard(this);
