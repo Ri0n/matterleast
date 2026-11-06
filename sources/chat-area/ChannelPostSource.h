@@ -50,6 +50,9 @@ public:
     bool canRequestBeforeFirst() const override;
     void requestBeforeFirst(RequestReason reason, quint64 generation) override;
 
+    /** Reconcile the server tail without resetting the current viewport. */
+    void resyncAfterReconnect();
+
 private:
     // Absolute page fallback and boundary discovery use ten-post units. Normal
     // sequential scrolling is cursor-based and newest-edge bootstrap is sized
@@ -97,7 +100,6 @@ private:
     void seedUnknownNewestPost();
     void hydrateCachedTail();
     void validateCachedTail();
-    void resyncAfterReconnect();
     void resyncAfterCursor(const QString& cursor);
     void removeLogicalRange(int first, int count);
     void placePage(int page, const QStringList& chronologicalIds,
