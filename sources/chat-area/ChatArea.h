@@ -134,6 +134,8 @@ public:
 
 	/** Re-evaluate read progress from the current concrete timeline viewport. */
 	void refreshReadState ();
+    /** Queue server tail reconciliation; hidden tabs defer it until shown. */
+    void requestTimelineRecovery();
 
 signals:
     /** Emitted before an active channel timeline is detached. */
@@ -184,6 +186,8 @@ private:
 	QStackedWidget* contentStack = nullptr;
 	PostCollectionView* pinnedPostsView = nullptr;
 	int pendingMessageLoads = 0;
+    bool timelineRecoveryPending = false;
+    bool timelineRecoveryScheduled = false;
     int channelMemberCount = -1;
     int defaultOuterLeftMargin = 0;
     int defaultOuterRightMargin = 0;
