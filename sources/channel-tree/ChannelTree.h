@@ -96,7 +96,7 @@ public:
 
 	void addTeam (Backend& backend, BackendTeam& team);
 	void populateSidebars(Backend& backend);
-    /** Re-fetch read state, preferences and server categories after resume. */
+    /** Re-fetch read state, preferences and server categories after reconnect. */
     void refreshServerSnapshot();
     // Reconcile a temporary, non-persistent view of older conversations while
     // the sidebar search field is populated.
