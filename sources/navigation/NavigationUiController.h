@@ -86,6 +86,8 @@ public:
                                const QString& rootId) const;
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
+    /** Whether ordinary thread navigation should first switch the central channel. */
+    bool shouldOpenParentChannelForThread(const QString& channelId) const;
     void openInTab(const QString& channelId,
                    const QString& rootId,
                    const QString& postId,
@@ -112,6 +114,7 @@ private:
     void setupSidebarHeader();
     void setupThreadPane();
     void setupTabShortcuts();
+    void closeThreadDockIfDifferent(const QString& channelId);
     ChatArea* centralTabArea() const;
     void closeActiveTab();
     void activatePreviousTab();

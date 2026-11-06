@@ -10,6 +10,14 @@ add_test(NAME application-font-test COMMAND application-font-test)
 set_tests_properties(application-font-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# A contextual thread pane follows the active conversation unless the tab is pinned.
+add_executable(thread-sidebar-context-policy-test ThreadSidebarContextPolicyTest.cpp)
+target_include_directories(thread-sidebar-context-policy-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(thread-sidebar-context-policy-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME thread-sidebar-context-policy-test COMMAND thread-sidebar-context-policy-test)
+
 # Official Mattermost desktop activity cadence, independent of WebSocket and OS.
 add_executable(presence-activity-policy-test PresenceActivityPolicyTest.cpp)
 target_include_directories(presence-activity-policy-test PRIVATE

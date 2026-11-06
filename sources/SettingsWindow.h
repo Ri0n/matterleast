@@ -60,6 +60,7 @@ private:
     QLineEdit* _aiArguments = nullptr;
 #endif
     QCheckBox* unreadModeIgnoreWhileFiltering = nullptr;
+    QCheckBox* threadSidebarFollowsChannel = nullptr;
     QComboBox* _channelRootNotificationMode = nullptr;
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
     QCheckBox* _updatesAutomatic = nullptr;

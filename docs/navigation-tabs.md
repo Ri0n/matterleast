@@ -69,6 +69,31 @@ model merely to change its presentation.
   may restore a recorded bookmark, but the tab model must not become a second
   post-loading state machine.
 
+## Contextual thread pane option
+
+`Sidebar → Thread sidebar → Keep the thread pane in the current conversation`
+(`navigation/threadSidebarFollowsChannel`, enabled by default) is an optional
+presentation policy. When enabled:
+
+- Selecting a different central channel, DM or GM closes a docked thread from
+  the previous conversation, including its transient post source. This does not
+  change thread read state or dismiss detached windows or independently tabbed
+  threads.
+- Normal left-click thread navigation from Following/Attention or a post
+  automatically opens its parent conversation in the central pane if the
+  currently active channel tab is unpinned and its channel differs.
+- A pinned central tab remains intact. The right pane may temporarily show a
+  thread from another conversation in that exceptional case.
+- Middle-click uses the existing independent tab path and **never** changes
+  the central channel merely to establish thread context.
+- The policy is keyed by the canonical channel ID, so channels and DMs/GMs
+  share exactly the same behavior.
+
+`ThreadSidebarContextPolicy.h` holds the pure decision rules.
+`NavigationUiController` owns presentation/lifetime operations.
+`MainWindow::openChannelPost` owns the asynchronous parent-channel navigation
+and retains the semantic destination until the channel is ready.
+
 ## Opening a new tab
 
 The normal left click preserves existing navigation semantics. A middle click

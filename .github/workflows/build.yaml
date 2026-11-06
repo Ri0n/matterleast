@@ -53,7 +53,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             git ca-certificates cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libxss-dev libssl-dev libhunspell-dev pkg-config
+            qt6-base-dev qt6-svg-dev qt6-websockets-dev qtkeychain-qt6-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libxss-dev libssl-dev libhunspell-dev pkg-config
 
       - name: Checkout
         uses: actions/checkout@v4

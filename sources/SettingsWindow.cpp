@@ -262,6 +262,25 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
            "Clearing the text restores Unread mode.")));
 
     sidebarLayout->addWidget(unreadModeGroup);
+
+    auto* threadPaneGroup = new QGroupBox(tr("Thread sidebar"), sidebarPage);
+    auto* threadPaneLayout = new QVBoxLayout(threadPaneGroup);
+    threadPaneLayout->setSpacing(6);
+    threadSidebarFollowsChannel = new QCheckBox(
+        tr("Keep the thread pane in the current conversation"), threadPaneGroup);
+    threadSidebarFollowsChannel->setObjectName(
+        QStringLiteral("threadSidebarFollowsChannel"));
+    threadSidebarFollowsChannel->setChecked(options->optionObject<bool>(
+        THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+        THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT)->value().toBool());
+    threadPaneLayout->addWidget(threadSidebarFollowsChannel);
+    threadPaneLayout->addWidget(makeDescription(
+        threadPaneGroup,
+        tr("Switching channels or direct/group messages closes an unrelated "
+           "thread pane. Opening a thread also switches to its parent "
+           "conversation unless the active tab is pinned. Middle-click "
+           "continues to open only a separate tab.")));
+    sidebarLayout->addWidget(threadPaneGroup);
     sidebarLayout->addStretch(1);
     tabs->addTab(sidebarPage, tr("Sidebar"));
 
@@ -565,6 +584,10 @@ void SettingsWindow::applyNewSettings ()
         UNREAD_MODE_IGNORE_WHILE_FILTERING,
         UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT)
         ->setValue(unreadModeIgnoreWhileFiltering->isChecked());
+    options->optionObject<bool>(
+        THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+        THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT)
+        ->setValue(threadSidebarFollowsChannel->isChecked());
     options->optionObject<int>(
         CHANNEL_ROOT_NOTIFICATION_MODE, CHANNEL_ROOT_NOTIFICATION_MODE_DEFAULT)
         ->setValue(_channelRootNotificationMode->currentData().toInt());
