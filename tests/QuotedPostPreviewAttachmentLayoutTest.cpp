@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <QToolButton>
 #include <QWheelEvent>
 
 #include "backend/Backend.h"
@@ -21,6 +22,87 @@ class QuotedPostPreviewAttachmentLayoutTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void longQuoteCanExpandAndCollapseWithoutNavigating()
+    {
+        QuotedPostPreview preview(nullptr, 2);
+        QStringList paragraphs;
+        for (int i = 0; i < 16; ++i) {
+            paragraphs << QStringLiteral("Original paragraph %1 with enough words to wrap.").arg(i);
+        }
+        preview.setPreview(QStringLiteral("Replying to Author"),
+                           paragraphs.join(QLatin1Char('\n')));
+        preview.resize(400, 80);
+        preview.show();
+
+        auto* browser = preview.findChild<QTextBrowser*>(
+            QStringLiteral("quotedPostExcerpt"));
+        auto* toggle = preview.findChild<QToolButton*>(
+            QStringLiteral("quotedPostShowMore"));
+        QVERIFY(browser);
+        QVERIFY(toggle);
+        QTRY_VERIFY(!toggle->isHidden());
+        const int collapsedHeight = browser->height();
+        QVERIFY(collapsedHeight > 0);
+        QCOMPARE(toggle->text(), QuotedPostPreview::tr("Show more…"));
+
+        int navigations = 0;
+        preview.setActivatedCallback([&navigations] { ++navigations; });
+        QSignalSpy dimensions(&preview, &QuotedPostPreview::dimensionsChanged);
+        QTest::mouseClick(toggle, Qt::LeftButton);
+        QTRY_VERIFY(browser->height() > collapsedHeight);
+        QCOMPARE(toggle->text(), QuotedPostPreview::tr("Show less"));
+        QVERIFY(dimensions.count() > 0);
+        QCOMPARE(navigations, 0);
+        QVERIFY(browser->toPlainText().contains(QStringLiteral("Original paragraph 15")));
+
+        // An ordinary content refresh must not revoke explicit expansion.
+        preview.setPreview(QStringLiteral("Replying to Author"),
+                           paragraphs.join(QLatin1Char('\n')));
+        QTRY_VERIFY(browser->height() > collapsedHeight);
+        QCOMPARE(toggle->text(), QuotedPostPreview::tr("Show less"));
+
+        // The expanded quote grows the containing row; it must not create
+        // a second scrolling surface inside the chat timeline.
+        QCOMPARE(browser->verticalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+        QCOMPARE(browser->verticalScrollBar()->value(), 0);
+
+        dimensions.clear();
+        QTest::mouseClick(toggle, Qt::LeftButton);
+        QTRY_COMPARE(browser->height(), collapsedHeight);
+        QCOMPARE(toggle->text(), QuotedPostPreview::tr("Show more…"));
+        QVERIFY(dimensions.count() > 0);
+        QCOMPARE(navigations, 0);
+
+        // Ordinary quote clicks continue to navigate to the original.
+        QTest::mouseClick(browser->viewport(), Qt::LeftButton);
+        QCOMPARE(navigations, 1);
+    }
+
+    void shortQuoteNeedsNoShowMoreAndReflowsWithWidth()
+    {
+        QuotedPostPreview preview(nullptr, 2);
+        preview.setPreview(QStringLiteral("Replying to Author"),
+                           QStringLiteral("A short quoted reply."));
+        preview.resize(480, 80);
+        preview.show();
+        auto* toggle = preview.findChild<QToolButton*>(
+            QStringLiteral("quotedPostShowMore"));
+        QVERIFY(toggle);
+        QTRY_VERIFY(toggle->isHidden());
+
+        // The decision depends on rendered lines, not character count.
+        preview.setPreview(QStringLiteral("Replying to Author"),
+            QStringLiteral("A quoted message with enough words to wrap across "
+                           "several lines in a narrow conversation, but whose "
+                           "entire text fits into a single wide line."));
+        preview.resize(1200, 100);
+        QTRY_VERIFY(toggle->isHidden());
+        preview.resize(220, 100);
+        QTRY_VERIFY(!toggle->isHidden());
+        preview.resize(1200, 100);
+        QTRY_VERIFY(toggle->isHidden());
+    }
+
     void permalinkExcerptDoesNotScrollInternally()
     {
         QuotedPostPreview preview(nullptr, 4);

@@ -51,7 +51,9 @@ This separation is required so quoted replies inside existing threads do not acc
 
 When the user chooses **Reply** from a post context menu, the composer stores the target post ID as a dynamic property with the same key. The composer preview is UI-only; the persistent reference is written into post `props` when the message is sent.
 
-Both composer and timeline use the compact `QuotedPostPreview` presentation: muted text, a vertical quote bar and a bounded excerpt. The timeline preview expands to the available post width and is limited to two lines rather than rendering the complete quoted post as rich message content.
+Both composer and timeline use the compact `QuotedPostPreview` presentation: muted text, a vertical quote bar and a bounded excerpt. The timeline preview expands to the available post width and starts at two lines (four for embedded permalink previews). When the rendered text exceeds that limit, a **Show more…** link appears below it. Selecting it shows the full formatted quote in place; **Show less** returns to the bounded excerpt. Neither action navigates to the original message.
+
+The expansion is presentation-local, preserves the surrounding channel/thread and the original quote permalink, and does not modify the stored message or the canonical reply reference. The quoted text never owns its own scrolling surface: the virtualized chat row is remeasured through `QuotedPostPreview::dimensionsChanged` → `PostWidget::dimensionsChanged`, then the outer message list scrolls normally. The toggle is absent for quotes that fit within the current width, and reevaluates when the conversation is resized.
 
 When rendering a post, `PostWidget` first looks for `mattermost_qt_reply_to_post_id` in `props`. If the referenced post is already materialized in the channel it is rendered immediately. Otherwise the exact post is loaded through `PostRepository::loadPost()` and the preview is inserted after retrieval.
 
@@ -74,7 +76,8 @@ Mattermost server-supplied `permalink` embeds. If the embedded post metadata
 contains files, the preview includes an interactive `PostAttachmentList`
 with the normal download/open controls rather than reducing it to an icon.
 
-The permalink message excerpt is capped at four lines. Hiding the two
+The permalink message excerpt starts capped at four lines, with the same
+Show more/less affordance when needed. Hiding the two
 `QTextBrowser` scrollbars does **not** disable internal wheel scrolling: the
 excerpt must ignore wheel input so its surrounding chat log can scroll, and its
 vertical scroll offset is pinned to zero even when the document reflows or

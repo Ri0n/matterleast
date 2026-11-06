@@ -7,7 +7,9 @@
 class QEvent;
 class QLabel;
 class QMouseEvent;
+class QResizeEvent;
 class QTextBrowser;
+class QToolButton;
 class QUrl;
 class QVBoxLayout;
 
@@ -43,19 +45,25 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void changeEvent(QEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void refreshPalette();
     void refreshText();
+    void scheduleTextLayout();
+    void updateTextLayout();
 
     QLabel* authorLabel = nullptr;
     QTextBrowser* messageBrowser = nullptr;
+    QToolButton* expandButton = nullptr;
     QuotedAttachmentSummary* attachmentSummary = nullptr;
     PostAttachmentList* attachmentList = nullptr;
     QVBoxLayout* contentLayout = nullptr;
     QFrame* bar = nullptr;
     QString fullText;
     int maximumLines = 2;
+    bool expanded = false;
+    bool textLayoutScheduled = false;
     std::function<void()> activatedCallback;
     std::function<void(const QUrl&)> linkActivatedCallback;
 };
