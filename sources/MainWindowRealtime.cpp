@@ -9,9 +9,16 @@
 
 #include "mainwindow.h"
 
+#include <memory>
+
+#include <QApplication>
+#include <QDateTime>
+#include <QTimer>
+
 #include "ui_mainwindow.h"
 
 #include "backend/Backend.h"
+#include "backend/ResumeGapDetector.h"
 #include "backend/ServerUiService.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
@@ -24,6 +31,7 @@
 #include "channel-tree/ChannelTree.h"
 #include "chat-area/ChatArea.h"
 #include "navigation/AppNavigationService.h"
+#include "navigation/NavigationUiController.h"
 #include "notifications/NotificationManager.h"
 #include "post-collection/PostCollectionView.h"
 #include "server-dialog/ServerDialog.h"
@@ -55,6 +63,39 @@ void MainWindow::installRealtimeUiSync()
     connect(ui->usericon_label, &PresenceAvatarLabel::reconnectRequested,
             this, [this] { backend.retryWebSocketConnectionNow(); });
     updateConnectionIndicator(backend.webSocketConnectionState());
+
+    // QTimer cannot run during OS sleep. Its delayed wall-clock delivery is
+    // also portable to Linux, whose monotonic clock may exclude suspend time.
+    auto gap = std::make_shared<ResumeGapDetector>();
+    gap->sample(QDateTime::currentMSecsSinceEpoch());
+    auto pendingResume = std::make_shared<bool>(false);
+    auto* wakeProbe = new QTimer(this);
+    wakeProbe->setInterval(5000);
+    connect(wakeProbe, &QTimer::timeout, this, [this, gap, pendingResume] {
+        if (!gap->sample(QDateTime::currentMSecsSinceEpoch())
+            || !backend.loggedIn() || *pendingResume) {
+            return;
+        }
+        *pendingResume = true;
+        backend.reconnectAfterSuspend();
+    });
+    wakeProbe->start();
+
+    // The socket may look connected immediately after wake, but HTTP could
+    // still be bound to a dead route. Wait for a fresh handshake before
+    // updating the server-owned sidebar and visible timelines.
+    connect(&backend, &Backend::onWebSocketConnect, this, [this, pendingResume] {
+        if (!*pendingResume) return;
+        *pendingResume = false;
+        ui->channelList->refreshServerSnapshot();
+        for (QWidget* widget : QApplication::allWidgets()) {
+            auto* area = qobject_cast<ChatArea*>(widget);
+            if (area && &area->getBackend() == &backend) {
+                area->requestTimelineRecovery();
+            }
+        }
+        refreshSidebarViews();
+    });
 
     // Active webapp plugins are the server-owned discovery surface for native
     // integrations too. Keep the manifest snapshot session-local; adapters can
