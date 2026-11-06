@@ -72,7 +72,7 @@ model merely to change its presentation.
 ## Contextual thread pane option
 
 `Sidebar → Thread sidebar → Keep the thread pane in the current conversation`
-(`navigation/threadSidebarFollowsChannel`, disabled by default) is an optional
+(`navigation/threadSidebarFollowsChannel`, enabled by default) is an optional
 presentation policy. When enabled:
 
 - Selecting a different central channel, DM or GM closes a docked thread from
