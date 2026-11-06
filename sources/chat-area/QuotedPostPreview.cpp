@@ -11,6 +11,7 @@
 #include <QListWidget>
 #include <QMouseEvent>
 #include <QPalette>
+#include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QSizePolicy>
@@ -34,6 +35,53 @@ namespace {
 
 // QTextBrowser still scrolls its document when both scrollbars are hidden.
 // A quoted excerpt is a non-scrolling part of the surrounding chat timeline.
+// Text-only interactive link: unlike a native tool button it has no chrome,
+// padding or style-defined text color. Resolve QPalette::Link at paint time so
+// light/dark palette changes propagate without a stylesheet.
+class QuoteExpandLinkButton final : public QToolButton
+{
+public:
+    using QToolButton::QToolButton;
+
+    QSize sizeHint() const override
+    {
+        return fontMetrics().size(Qt::TextShowMnemonic, text());
+    }
+    QSize minimumSizeHint() const override { return sizeHint(); }
+
+protected:
+    bool event(QEvent* event) override
+    {
+        if (event->type() == QEvent::Enter || event->type() == QEvent::Leave
+            || event->type() == QEvent::Hide) {
+            hovered = event->type() == QEvent::Enter;
+            update();
+        } else if (event->type() == QEvent::PaletteChange
+                   || event->type() == QEvent::FocusIn
+                   || event->type() == QEvent::FocusOut) {
+            update();
+        }
+        return QToolButton::event(event);
+    }
+
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        painter.setLayoutDirection(layoutDirection());
+        painter.setPen(palette().color(QPalette::Link));
+        painter.setOpacity(isEnabled() ? (hovered ? 1.0 : 0.8) : 0.4);
+        QFont labelFont = font();
+        labelFont.setUnderline(hasFocus());
+        painter.setFont(labelFont);
+        painter.drawText(rect(),
+                         Qt::AlignLeft | Qt::AlignVCenter | Qt::TextShowMnemonic,
+                         text());
+    }
+
+private:
+    bool hovered = false;
+};
+
 class FixedExcerptBrowser final : public QTextBrowser
 {
 public:
@@ -111,7 +159,7 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
                 }
             });
 
-    expandButton = new QToolButton(this);
+    expandButton = new QuoteExpandLinkButton(this);
     expandButton->setObjectName(QStringLiteral("quotedPostShowMore"));
     expandButton->setAutoRaise(true);
     expandButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
@@ -330,11 +378,7 @@ void QuotedPostPreview::refreshPalette()
     messageBrowser->setPalette(mutedPalette);
     messageBrowser->viewport()->setAutoFillBackground(false);
 
-    if (expandButton) {
-        QPalette linkPalette = expandButton->palette();
-        linkPalette.setColor(QPalette::ButtonText, palette().color(QPalette::Link));
-        expandButton->setPalette(linkPalette);
-    }
+    if (expandButton) expandButton->update();
 
     if (bar) {
         QColor barColor = textColor;
