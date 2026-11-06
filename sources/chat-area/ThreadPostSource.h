@@ -47,6 +47,9 @@ public:
     /** A bounded, renderable context is sufficient to present a permalink. */
     bool isPostReadyForNavigation(const QString& postId) const;
 
+    /** Reconcile the server tail without reconstructing the thread. */
+    void resyncAfterReconnect();
+
 signals:
     /** A failed demand is explicit; a new user request can retry it. */
     void rangeRequestFailed(int first, int last, const QString& error);
@@ -96,7 +99,6 @@ private:
     void placeTail(const QStringList& ids);
     int estimatedIndexForPost(const BackendPost& post) const;
     void appendLiveReply(BackendPost& post);
-    void resyncAfterReconnect();
 
     Backend& backend;
     QString rootId;
