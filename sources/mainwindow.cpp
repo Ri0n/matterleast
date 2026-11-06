@@ -385,6 +385,9 @@ void MainWindow::setupChannelTabs()
 	unreadFilterButton->setObjectName(QStringLiteral("channelsUnreadFilterButton"));
 	unreadFilterButton->setCheckable(true);
 	unreadFilterButton->setAutoRaise(true);
+	unreadFilterButton->setStyleSheet(QStringLiteral(
+		"QToolButton:checked { background-color: palette(highlight); "
+		"color: palette(highlighted-text); border: none; border-radius: 4px; }"));
 	unreadFilterButton->setFixedSize(28, 28);
 	unreadFilterButton->setIconSize(QSize(20, 20));
 	unreadFilterButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
@@ -1125,8 +1128,10 @@ void MainWindow::refreshUnreadFilterIcon()
     // Mattermost client. Never depend on theme icons or private-use fonts:
     // Windows has neither and used to fall back to an information icon.
     const QPalette palette = unreadFilterButton->palette();
+    // Match the explicit checked background instead of relying on native
+    // styles to choose a contrasting foreground for a pre-tinted icon.
     const QColor color = unreadFilterButton->isChecked()
-        ? palette.color(QPalette::Highlight)
+        ? palette.color(QPalette::HighlightedText)
         : palette.color(QPalette::ButtonText);
     unreadFilterButton->setIcon(IconUtils::tintedSymbolicIcon(
         QStringLiteral(":/icons/filter-variant"), color));
