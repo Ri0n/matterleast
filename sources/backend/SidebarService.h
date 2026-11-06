@@ -95,6 +95,8 @@ public:
     void synchronizeChannelActivity();
     /** Require fresh membership/read cursors and preferences on next fetch. */
     void invalidateCachedReads();
+    /** Refresh server channel totals without replacing live BackendChannel objects. */
+    void refreshKnownChannelSummaries(std::function<void()> callback = {});
     /** Mirror webapp loadNewDM/GMIfNeeded for a realtime posted event. */
     void resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt);
 
