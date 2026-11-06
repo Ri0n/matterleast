@@ -77,7 +77,7 @@ static constexpr const char* AI_AGENT_ARGUMENTS = "ai/agent/arguments";
 // the same canonical parent conversation policy.
 static constexpr const char* THREAD_SIDEBAR_FOLLOWS_CHANNEL =
     "navigation/threadSidebarFollowsChannel";
-static constexpr bool THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT = false;
+static constexpr bool THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT = true;
 
 // Text filtering can temporarily suspend the Channels unread gate so a
 // known read channel can still be found by name.
