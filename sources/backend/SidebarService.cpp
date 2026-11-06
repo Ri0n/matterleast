@@ -150,6 +150,76 @@ SidebarService::SidebarService(Backend& backend)
     });
 }
 
+void SidebarService::invalidateCachedReads()
+{
+    // Keep the current snapshot visible until the replacement arrives.
+    // Existing retrieval APIs coalesce concurrent loads.
+    membershipsLoaded = false;
+    preferencesLoaded = false;
+}
+
+void SidebarService::refreshKnownChannelSummaries(std::function<void()> callback)
+{
+    const auto& teams = backend.getStorage().teams;
+    if (teams.empty()) {
+        synchronizeChannelActivity();
+        if (callback) callback();
+        return;
+    }
+
+    // Never call Backend::retrieveOwnChannelMembershipsForTeam() here:
+    // that startup-only method clears team.channels and replaces the
+    // BackendChannel instances owned by every open chat and post source.
+    auto remaining = std::make_shared<int>(static_cast<int>(teams.size()));
+    QPointer<SidebarService> guard(this);
+    for (const auto& entry : teams) {
+        const QString teamId = entry.first;
+        NetworkRequest request(QStringLiteral("users/me/teams/") + teamId
+                               + QStringLiteral("/channels"));
+        httpConnector.get(request, HttpResponseCallback(
+            [guard, remaining, callback, teamId](QVariant status, const QJsonDocument& doc) {
+                if (!guard) return;
+                if (status.toInt() == QNetworkReply::NoError && doc.isArray()) {
+                    Storage& storage = guard->backend.getStorage();
+                    BackendTeam* team = storage.getTeamById(teamId);
+                    for (const QJsonValue& value : doc.array()) {
+                        const QJsonObject object = value.toObject();
+                        const QString id = object.value(QStringLiteral("id")).toString();
+                        if (id.isEmpty() || !object.contains(QStringLiteral("total_msg_count")))
+                            continue;
+                        BackendChannel* channel = storage.getChannelById(id);
+                        if (!channel && team) {
+                            channel = storage.addChannel(*team, object);
+                        }
+                        if (!channel) continue;
+
+                        const uint64_t serverLastPost =
+                            object.value(QStringLiteral("last_post_at")).toVariant().toULongLong();
+                        // A more recent live event might have updated this object
+                        // since the REST request began. Never replace newer counts
+                        // with an older response.
+                        if (serverLastPost < channel->last_post_at) continue;
+                        channel->last_post_at = serverLastPost;
+                        channel->last_root_post_at = object.contains(QStringLiteral("last_root_post_at"))
+                            ? object.value(QStringLiteral("last_root_post_at")).toVariant().toULongLong()
+                            : serverLastPost;
+                        channel->total_msg_count =
+                            object.value(QStringLiteral("total_msg_count")).toInt();
+                        channel->has_total_msg_count_root =
+                            object.contains(QStringLiteral("total_msg_count_root"));
+                        channel->total_msg_count_root = channel->has_total_msg_count_root
+                            ? object.value(QStringLiteral("total_msg_count_root")).toInt()
+                            : channel->total_msg_count;
+                    }
+                }
+                if (--*remaining == 0) {
+                    guard->synchronizeChannelActivity();
+                    if (callback) callback();
+                }
+            }));
+    }
+}
+
 void SidebarService::clear()
 {
     httpConnector.reset();

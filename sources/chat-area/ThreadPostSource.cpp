@@ -1,4 +1,5 @@
 #include "ThreadPostSource.h"
+#include "ChatArea.h"
 
 #include <algorithm>
 #include <cmath>
@@ -199,8 +200,13 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
 
     QTimer::singleShot(0, this, [this] { hydrateCachedTail(); });
 
-    connect(&backend, &Backend::onRealtimeRecovered, this,
-            &ThreadPostSource::resyncAfterReconnect);
+    connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
+        if (auto* area = qobject_cast<ChatArea*>(this->parent())) {
+            area->requestTimelineRecovery();
+        } else {
+            resyncAfterReconnect();
+        }
+    });
 }
 
 bool ThreadPostSource::isAvailable(int index) const

@@ -946,6 +946,29 @@ void ChatArea::handleUserTyping(const BackendUser& user)
                           << user.getDisplayName() << " is typing");
 }
 
+void ChatArea::requestTimelineRecovery()
+{
+    timelineRecoveryPending = true;
+    if (timelineRecoveryScheduled) return;
+    timelineRecoveryScheduled = true;
+
+    // Coalesce repeated WebSocket recovery signals.
+    // Inactive tabs retain a dirty flag rather than issuing HTTP requests.
+    QTimer::singleShot(0, this, [this] {
+        timelineRecoveryScheduled = false;
+        if (!timelineRecoveryPending || !initialized || !isVisible()) return;
+
+        timelineRecoveryPending = false;
+        if (isThread) {
+            if (auto* source = findChild<ThreadPostSource*>()) {
+                source->resyncAfterReconnect();
+            }
+        } else if (auto* source = findChild<ChannelPostSource*>()) {
+            source->resyncAfterReconnect();
+        }
+    });
+}
+
 void ChatArea::onActivate()
 {
     backend.setCurrentChannel(channel);
@@ -957,6 +980,7 @@ void ChatArea::onActivate()
     }
 
     init();
+    if (timelineRecoveryPending) requestTimelineRecovery();
 }
 
 void ChatArea::onDeactivate()

@@ -437,7 +437,6 @@ void WebSocketConnector::reconnectNow()
         || d->connectionState == ConnectionState::Connected) {
         return;
     }
-
     d->reconnectTimer.stop();
     d->connectionAttemptTimer.stop();
     LOG_DEBUG("WebSocket reconnect requested immediately (connection_state="

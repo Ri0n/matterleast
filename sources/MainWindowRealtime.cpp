@@ -12,6 +12,7 @@
 #include "ui_mainwindow.h"
 
 #include "backend/Backend.h"
+#include "backend/FollowingModel.h"
 #include "backend/ServerUiService.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
@@ -55,6 +56,17 @@ void MainWindow::installRealtimeUiSync()
     connect(ui->usericon_label, &PresenceAvatarLabel::reconnectRequested,
             this, [this] { backend.retryWebSocketConnectionNow(); });
     updateConnectionIndicator(backend.webSocketConnectionState());
+
+    // As in the official client, REST projections are reconciled after a
+    // WebSocket reconnect, not after an arbitrary amount of wall-clock time.
+    // The connector itself handles heartbeat timeouts and sequence gaps.
+    connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
+        if (!backend.loggedIn()) return;
+        ui->channelList->refreshServerSnapshot();
+        // The Attention sidebar has an independent CRT/followed-thread snapshot.
+        FollowingModel::instance(backend).noteThreadUpdated();
+        refreshSidebarViews();
+    });
 
     // Active webapp plugins are the server-owned discovery surface for native
     // integrations too. Keep the manifest snapshot session-local; adapters can

@@ -277,6 +277,33 @@ void ChannelTree::populateSidebars(Backend& backend)
     }
 }
 
+void ChannelTree::refreshServerSnapshot()
+{
+    if (!backendForSidebar) return;
+
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    sidebar.invalidateCachedReads();
+    QPointer<ChannelTree> guard(this);
+    sidebar.retrieveChannelMemberships([guard] {
+        if (!guard || !guard->backendForSidebar) return;
+        auto& currentSidebar = SidebarService::instance(*guard->backendForSidebar);
+        currentSidebar.retrieveChannelPreferences([guard] {
+            if (!guard || !guard->backendForSidebar) return;
+            // Read cursors alone cannot update unread status: the comparison
+            // also requires fresh channel total_msg_count/last_post_at values.
+            SidebarService::instance(*guard->backendForSidebar)
+                .refreshKnownChannelSummaries([guard] {
+                    if (!guard) return;
+                    // Preserve selection, ChatAreas and viewport bookmarks.
+                    const QStringList teamIds = guard->teamToItemMap.keys();
+                    for (const QString& teamId : teamIds) {
+                        guard->refreshSidebarTeam(teamId);
+                    }
+                });
+        });
+    });
+}
+
 void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
 {
     const QString teamId = team.id;
