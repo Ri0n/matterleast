@@ -149,7 +149,7 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
     // a safe, bounded page-zero reconciliation path; reuse it without opening
     // inactive channels or shifting the user's scroll position.
     connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
-        if (auto* area = qobject_cast<ChatArea*>(parent())) {
+        if (auto* area = qobject_cast<ChatArea*>(this->parent())) {
             area->requestTimelineRecovery();
         } else {
             // Standalone sources (including tests) are not presentation-gated.
