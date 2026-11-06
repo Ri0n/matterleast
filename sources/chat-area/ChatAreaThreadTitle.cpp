@@ -62,6 +62,7 @@ void ChatArea::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
     focusComposer();
+    if (timelineRecoveryPending) requestTimelineRecovery();
 
     if (!isThread) {
         return;
