@@ -952,7 +952,7 @@ void ChatArea::requestTimelineRecovery()
     if (timelineRecoveryScheduled) return;
     timelineRecoveryScheduled = true;
 
-    // Coalesce both the explicit resume and the WebSocket recovery signals.
+    // Coalesce repeated WebSocket recovery signals.
     // Inactive tabs retain a dirty flag rather than issuing HTTP requests.
     QTimer::singleShot(0, this, [this] {
         timelineRecoveryScheduled = false;
