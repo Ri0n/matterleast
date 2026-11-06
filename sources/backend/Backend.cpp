@@ -125,9 +125,8 @@ Backend::Backend(QObject *parent)
 
 		emit onWebSocketConnect();
 
-        // A resumed websocket only guarantees a live event stream, not that
-        // all HTTP-fed thread projections caught up while the machine slept.
-        // Each instantiated thread source owns its own bounded tail resync.
+        // WebSocket replay alone does not refresh HTTP-backed projections.
+        // Sources reconcile their visible timelines and defer hidden ones.
         if (isReconnect) {
             emit onRealtimeRecovered();
         }
@@ -352,14 +351,6 @@ WebSocketConnector::ConnectionState Backend::webSocketConnectionState() const
 void Backend::retryWebSocketConnectionNow()
 {
     webSocketConnector.reconnectNow();
-}
-
-void Backend::reconnectAfterSuspend()
-{
-    if (!isLoggedIn) return;
-    // HTTP and WS may have survived sleep on different dead network routes.
-    HTTPConnector::restartAllTransports();
-    webSocketConnector.reconnectNow(true);
 }
 
 bool Backend::autoLoginEnabled ()
