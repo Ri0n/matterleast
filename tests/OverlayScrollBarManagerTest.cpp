@@ -111,8 +111,14 @@ private slots:
         QCOMPARE(area.property("mattermostOverlayBottomBadgeText").toString(),
                  QStringLiteral("128"));
         QVERIFY(badge->isVisible());
-        QVERIFY(badge->geometry().bottom() <
-                button->mapTo(badge->parentWidget(), QPoint(0, 0)).y());
+        // QWidget::mapTo(parent) requires an actual ancestor, not a sibling.
+        // The guard and button share the area as their direct parent.
+        auto* guard = badge->parentWidget();
+        QVERIFY(guard);
+        QCOMPARE(guard->parentWidget(), button->parentWidget());
+        const int buttonTopInGuard =
+            button->geometry().top() - guard->geometry().top();
+        QVERIFY(badge->geometry().bottom() < buttonTopInGuard);
 
         QTest::mouseClick(button, Qt::LeftButton);
         settleEvents();
