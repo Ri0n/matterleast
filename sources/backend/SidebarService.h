@@ -93,6 +93,8 @@ public:
     /** Apply the server's post_unread event to this client's read watermark. */
     void applyServerPostUnread(const QString& channelId, const QJsonObject& data);
     void synchronizeChannelActivity();
+    /** Require fresh membership/read cursors and preferences on next fetch. */
+    void invalidateCachedReads();
     /** Mirror webapp loadNewDM/GMIfNeeded for a realtime posted event. */
     void resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt);
 
