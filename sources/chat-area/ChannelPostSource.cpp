@@ -1,6 +1,7 @@
 #include "ChannelPostSource.h"
 
 #include "ChannelGapReconciliation.h"
+#include "ChatArea.h"
 
 #include <algorithm>
 #include <cmath>
@@ -147,8 +148,14 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
     // new stream. The source knows the current logical viewport and already has
     // a safe, bounded page-zero reconciliation path; reuse it without opening
     // inactive channels or shifting the user's scroll position.
-    connect(&backend, &Backend::onRealtimeRecovered,
-            this, &ChannelPostSource::resyncAfterReconnect);
+    connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
+        if (auto* area = qobject_cast<ChatArea*>(parent())) {
+            area->requestTimelineRecovery();
+        } else {
+            // Standalone sources (including tests) are not presentation-gated.
+            resyncAfterReconnect();
+        }
+    });
 }
 
 int ChannelPostSource::ensurePostIndex(const QString& postId)
