@@ -277,6 +277,28 @@ void ChannelTree::populateSidebars(Backend& backend)
     }
 }
 
+void ChannelTree::refreshServerSnapshot()
+{
+    if (!backendForSidebar) return;
+
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    sidebar.invalidateCachedReads();
+    QPointer<ChannelTree> guard(this);
+    sidebar.retrieveChannelMemberships([guard] {
+        if (!guard || !guard->backendForSidebar) return;
+        auto& currentSidebar = SidebarService::instance(*guard->backendForSidebar);
+        currentSidebar.retrieveChannelPreferences([guard] {
+            if (!guard || !guard->backendForSidebar) return;
+            // Reconcile rather than rebuilding the tree: preserve selection,
+            // current ChatAreas, and any saved viewport positions.
+            const QStringList teamIds = guard->teamToItemMap.keys();
+            for (const QString& teamId : teamIds) {
+                guard->refreshSidebarTeam(teamId);
+            }
+        });
+    });
+}
+
 void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
 {
     const QString teamId = team.id;
