@@ -354,6 +354,14 @@ void Backend::retryWebSocketConnectionNow()
     webSocketConnector.reconnectNow();
 }
 
+void Backend::reconnectAfterSuspend()
+{
+    if (!isLoggedIn) return;
+    // HTTP and WS may have survived sleep on different dead network routes.
+    HTTPConnector::restartAllTransports();
+    webSocketConnector.reconnectNow(true);
+}
+
 bool Backend::autoLoginEnabled ()
 {
 	return autoLoginEnabledFlag;
