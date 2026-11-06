@@ -144,8 +144,8 @@ ChannelPostSource::ChannelPostSource(Backend& backendInstance,
         QTimer::singleShot(0, this, [this] { hydrateCachedTail(); });
     }
 
-    // WebSocket replay cannot recover replies/posts when the session moved to a
-    // new stream. The source knows the current logical viewport and already has
+    // WebSocket replay does not refresh every HTTP-backed timeline projection.
+    // The source knows the current logical viewport and already has
     // a safe, bounded page-zero reconciliation path; reuse it without opening
     // inactive channels or shifting the user's scroll position.
     connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
