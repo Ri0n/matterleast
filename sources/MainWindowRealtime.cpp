@@ -18,6 +18,7 @@
 #include "ui_mainwindow.h"
 
 #include "backend/Backend.h"
+#include "backend/FollowingModel.h"
 #include "backend/ResumeGapDetector.h"
 #include "backend/ServerUiService.h"
 #include "backend/SidebarService.h"
@@ -31,7 +32,6 @@
 #include "channel-tree/ChannelTree.h"
 #include "chat-area/ChatArea.h"
 #include "navigation/AppNavigationService.h"
-#include "navigation/NavigationUiController.h"
 #include "notifications/NotificationManager.h"
 #include "post-collection/PostCollectionView.h"
 #include "server-dialog/ServerDialog.h"
@@ -88,6 +88,8 @@ void MainWindow::installRealtimeUiSync()
         if (!*pendingResume) return;
         *pendingResume = false;
         ui->channelList->refreshServerSnapshot();
+        // The Attention sidebar has an independent CRT/followed-thread snapshot.
+        FollowingModel::instance(backend).noteThreadUpdated();
         for (QWidget* widget : QApplication::allWidgets()) {
             auto* area = qobject_cast<ChatArea*>(widget);
             if (area && &area->getBackend() == &backend) {
