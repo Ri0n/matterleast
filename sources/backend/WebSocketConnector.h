@@ -54,7 +54,7 @@ public:
 	void doHandshake ();
     ConnectionState connectionState() const;
     QString connectionId() const;
-    void reconnectNow();
+    void reconnectNow(bool force = false);
     // Official desktop presence request; manual is always false for activity.
     void reportUserActivity(bool active);
 signals:
