@@ -150,6 +150,14 @@ SidebarService::SidebarService(Backend& backend)
     });
 }
 
+void SidebarService::invalidateCachedReads()
+{
+    // Keep the current snapshot visible until the replacement arrives.
+    // Existing retrieval APIs coalesce concurrent loads.
+    membershipsLoaded = false;
+    preferencesLoaded = false;
+}
+
 void SidebarService::clear()
 {
     httpConnector.reset();
