@@ -318,6 +318,30 @@ bool ChannelActivityTracker::isUnread(const QString& channelId) const
     return mentioned || (!entry.muted && unreadActivity);
 }
 
+uint64_t ChannelActivityTracker::unreadCount(const QString& channelId,
+                                             uint64_t totalMessages,
+                                             uint64_t totalRootMessages,
+                                             bool rootsOnly) const
+{
+    const auto it = entries.constFind(channelId);
+    if (it == entries.cend() || !it->tracked) {
+        return 0;
+    }
+    const Entry& entry = *it;
+    const bool useRootCounts = (rootsOnly && entry.hasReadRootMessageCount)
+        || entry.rootUnreadMode;
+    const uint64_t total = useRootCounts ? totalRootMessages : totalMessages;
+    const uint64_t read = useRootCounts
+        ? entry.readRootMessageCount : entry.readMessageCount;
+    const uint64_t ownCredit = useRootCounts
+        ? entry.pendingOwnRootMessageCount : entry.pendingOwnMessageCount;
+    if (total <= read) {
+        return 0;
+    }
+    const uint64_t gap = total - read;
+    return gap - std::min(gap, ownCredit);
+}
+
 bool ChannelActivityTracker::hasMention(const QString& channelId) const
 {
     const auto it = entries.constFind(channelId);

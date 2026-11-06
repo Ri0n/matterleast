@@ -116,6 +116,7 @@ protected:
     bool isModelItemAvailable(int index) const override;
     void destroyItemWidget(int index, QWidget* widget) override;
     void resizeEvent(QResizeEvent* event) override;
+    bool event(QEvent* event) override;
 
 private:
     static AbstractPostSource::RequestReason toSourceReason(RequestReason reason);
@@ -125,6 +126,13 @@ private:
     void scheduleNavigationFinalize();
     void scheduleReadCursorUpdate();
     void updateReadCursorFromVisibility();
+    void refreshUnreadEdgeBadge();
+    uint64_t unreadEdgeCount() const;
+    int firstUnreadEdgeIndex() const;
+    bool navigateToUnreadEdge();
+    void finalizeUnreadEdgeTarget();
+    void queueReadProgress(const BackendPost& post, int index);
+    void flushReadProgress();
     void acknowledgeVisibleLiveThreadPost(const BackendPost& post);
     bool shouldContinueAuthorRun(int index) const;
     void applyAuthorRunPresentation(int index, PostWidget& widget);
@@ -173,6 +181,20 @@ private:
     QString manualUnreadHighWaterPostId_;
     uint64_t manualUnreadHighWaterCreateAt_ = 0;
     bool manualUnreadExitedViewport_ = false;
+
+    // UI navigation state. Only a genuine upward scroll resets the shortcut
+    // from a consumed automatic unread head to the live edge.
+    bool autoUnreadHeadConsumed_ = false;
+    bool manualUnreadTail_ = false;
+    int previousScrollValue_ = 0;
+    int pendingUnreadIndex_ = -1;
+    uint64_t observedReadAt_ = 0;
+    uint64_t lastServerBoundarySeen_ = 0;
+    QString observedReadPostId_;
+    QTimer* readProgressTimer_ = nullptr;
+    bool readProgressInFlight_ = false;
+    uint64_t readProgressSentAt_ = 0;
+    int readProgressGeneration_ = 0;
 
     bool messageSelectionMode_ = false;
     bool messageSelectionDragActive_ = false;

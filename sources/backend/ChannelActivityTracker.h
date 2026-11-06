@@ -77,6 +77,11 @@ public:
 
     bool isTracked(const QString& channelId) const;
     bool isUnread(const QString& channelId) const;
+    /** Server-counted unread posts, excluding known self-post credits. */
+    uint64_t unreadCount(const QString& channelId,
+                         uint64_t totalMessages,
+                         uint64_t totalRootMessages,
+                         bool rootsOnly = false) const;
     bool hasMention(const QString& channelId) const;
     /** Whether CRT root counters, rather than all-message counters, define parent unread state. */
     bool usesRootUnreadCounts(const QString& channelId) const;

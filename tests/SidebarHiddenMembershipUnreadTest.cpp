@@ -1,6 +1,14 @@
 #include <QtTest>
 
 #include <QJsonObject>
+#include <QJsonDocument>
+#include <QHostAddress>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTimer>
+#include <QUrl>
+
+#include "backend/NetworkRequest.h"
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
@@ -49,6 +57,55 @@ void publish(Backend& backend, BackendChannel& channel, const QString& type,
     emit backend.onNewPost(channel, eventPost);
 }
 
+
+class ReadCheckpointHttpServer final : public QTcpServer
+{
+public:
+    int checkpointRequests = 0;
+    int viewRequests = 0;
+
+    ReadCheckpointHttpServer()
+    {
+        connect(this, &QTcpServer::newConnection, this, [this] {
+            while (hasPendingConnections()) {
+                QTcpSocket* socket = nextPendingConnection();
+                connect(socket, &QTcpSocket::disconnected,
+                        socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
+                    QByteArray data = socket->property("requestData").toByteArray();
+                    data += socket->readAll();
+                    socket->setProperty("requestData", data);
+                    if (!data.contains("\r\n\r\n")
+                        || socket->property("answered").toBool()) {
+                        return;
+                    }
+                    socket->setProperty("answered", true);
+                    const QByteArray path = data.split(' ').value(1);
+                    const bool checkpoint = path.contains("/set_unread");
+                    if (checkpoint) {
+                        ++checkpointRequests;
+                    } else if (path.contains("/members/me/view")) {
+                        ++viewRequests;
+                    }
+                    const QByteArray body = checkpoint
+                        ? R"({"channel_id":"channel","last_viewed_at":999,"msg_count":3,"msg_count_root":3,"mention_count":0,"mention_count_root":0})"
+                        : R"({"status":"OK"})";
+                    const QByteArray response = QByteArray(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Connection: close\r\nContent-Length: ")
+                        + QByteArray::number(body.size())
+                        + "\r\n\r\n" + body;
+                    QTimer::singleShot(checkpoint ? 120 : 0, socket,
+                        [socket, response] {
+                        socket->write(response);
+                        socket->disconnectFromHost();
+                    });
+                });
+            }
+        });
+    }
+};
+
 } // namespace
 
 class SidebarHiddenMembershipUnreadTest final : public QObject
@@ -94,6 +151,55 @@ private slots:
         publish(backend, *channel, QStringLiteral("system_join_channel"),
                 QStringLiteral("self"), 2000);
         QVERIFY(sidebar.isChannelUnread(*channel));
+    }
+
+    void readCheckpointFollowedByFullReadPreservesServerOrder()
+    {
+        ReadCheckpointHttpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        channel->last_post_at = 2000;
+        auto& sidebar = SidebarService::instance(backend);
+        QSignalSpy rewinds(&sidebar,
+                           &SidebarService::channelUnreadRewound);
+
+        bool checkpointFinished = false;
+        bool checkpointSucceeded = false;
+        sidebar.checkpointChannelRead(channel->id, QStringLiteral("post-next"),
+            [&](bool success) {
+            checkpointFinished = true;
+            checkpointSucceeded = success;
+        });
+        QTRY_COMPARE(server.checkpointRequests, 1);
+
+        // A newer full read takes priority, including when the originating
+        // viewport has disappeared before the partial request completes.
+        sidebar.markChannelViewedLocally(*channel);
+        backend.markChannelAsViewed(*channel);
+        QTRY_COMPARE(server.viewRequests, 1);
+
+        // The server may deliver post_unread before the REST response. An
+        // echo of our own partial checkpoint is not a manual unread action.
+        sidebar.applyServerPostUnread(channel->id, QJsonObject {
+            {"channel_id", channel->id},
+            {"post_id", "post-next"},
+            {"last_viewed_at", 999.0},
+            {"msg_count", 3},
+            {"msg_count_root", 3},
+            {"mention_count", 0},
+            {"mention_count_root", 0}
+        });
+        QCOMPARE(rewinds.count(), 0);
+
+        QTRY_VERIFY(checkpointFinished);
+        QVERIFY(checkpointSucceeded);
+        QTRY_COMPARE(server.viewRequests, 2);
+        QCOMPARE(sidebar.channelLastViewedTime(channel->id), uint64_t(2000));
     }
 
     void meaningfulSystemChangeIsNotSuppressed()

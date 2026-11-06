@@ -90,6 +90,8 @@ public:
     void handleEvent (const PreferencesDeletedEvent& event);
     void handleEphemeralMessage(const QJsonObject& data);
     void handleDraftEvent(const QJsonObject& data, bool deleted);
+    void handlePostUnreadEvent(const QJsonObject& data,
+                               const QJsonObject& broadcast);
     void handleCustomEvent(const QString& eventName,
                            const QJsonObject& data,
                            const QJsonObject& broadcast);

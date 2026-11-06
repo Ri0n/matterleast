@@ -425,6 +425,12 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
 
 void SidebarService::markChannelViewedLocally(const BackendChannel& channel)
 {
+    if (auto it = pendingReadCheckpoints_.find(channel.id);
+        it != pendingReadCheckpoints_.end()) {
+        // A late set_unread response must never undo a newer full-view action.
+        // Repeat the authoritative full-read request after it completes.
+        it->fullReadRequested = true;
+    }
     recordChannelViewed(channel);
 }
 
@@ -444,6 +450,94 @@ void SidebarService::applyServerChannelViewed(const BackendChannel& channel,
         emit channelMentionedChanged(channel.id, false);
     }
     emit channelActivityChanged(channel.id);
+}
+
+uint64_t SidebarService::channelUnreadMessageCount(
+    const BackendChannel& channel, bool rootsOnly) const
+{
+    return activityTracker.unreadCount(
+        channel.id,
+        static_cast<uint64_t>(std::max(0, channel.total_msg_count)),
+        static_cast<uint64_t>(std::max(0, channel.total_msg_count_root)),
+        rootsOnly && channel.has_total_msg_count_root);
+}
+
+void SidebarService::applyServerPostUnread(const QString& channelId,
+                                          const QJsonObject& data)
+{
+    if (channelId.isEmpty()) {
+        return;
+    }
+    const auto field = [&data](const char* key) -> uint64_t {
+        return data.value(QString::fromLatin1(key)).toVariant().toULongLong();
+    };
+    const uint64_t previousBoundary = activityTracker.lastViewedTime(channelId);
+    const bool wasMentioned = activityTracker.hasMention(channelId);
+    activityTracker.markUnread(
+        channelId,
+        field("last_viewed_at"),
+        field("msg_count"),
+        field("msg_count_root"),
+        data.contains(QStringLiteral("msg_count_root")),
+        field("mention_count"),
+        field("mention_count_root"),
+        data.contains(QStringLiteral("mention_count_root")));
+    if (wasMentioned != activityTracker.hasMention(channelId)) {
+        emit channelMentionedChanged(channelId,
+                                     activityTracker.hasMention(channelId));
+    }
+    emit channelActivityChanged(channelId);
+    const bool ownReadCheckpoint = recentReadCheckpointIds_.contains(
+        data.value(QStringLiteral("post_id")).toString());
+    if (!ownReadCheckpoint
+        && activityTracker.lastViewedTime(channelId) < previousBoundary) {
+        const QString postId = data.value(
+            QStringLiteral("post_id")).toString();
+        if (!postId.isEmpty()) {
+            emit channelUnreadRewound(channelId, postId);
+        }
+    }
+}
+
+void SidebarService::checkpointChannelRead(
+    const QString& channelId, const QString& nextUnreadPostId,
+    std::function<void(bool)> callback)
+{
+    if (channelId.isEmpty() || nextUnreadPostId.isEmpty()
+        || pendingReadCheckpoints_.contains(channelId)) {
+        if (callback) {
+            callback(false);
+        }
+        return;
+    }
+
+    pendingReadCheckpoints_.insert(channelId,
+        PendingReadCheckpoint {nextUnreadPostId, false});
+    recentReadCheckpointIds_.insert(nextUnreadPostId);
+    // WebSocket echo and REST response may arrive in either order. Keep the
+    // origin tag briefly after completion to distinguish a read checkpoint
+    // from a user's explicit mark-as-unread on another device.
+    QTimer::singleShot(60000, this, [this, nextUnreadPostId] {
+        recentReadCheckpointIds_.remove(nextUnreadPostId);
+    });
+
+    markPostUnread(nextUnreadPostId,
+        [this, channelId, callback = std::move(callback)](bool success) mutable {
+        const PendingReadCheckpoint pending =
+            pendingReadCheckpoints_.take(channelId);
+        // Even if the originating ChatLogWidget was closed, complete a
+        // full-read transition that overtook the older partial checkpoint.
+        if (pending.fullReadRequested) {
+            if (BackendChannel* channel =
+                    backend.getStorage().getChannelById(channelId)) {
+                markChannelViewedLocally(*channel);
+                backend.markChannelAsViewed(*channel);
+            }
+        }
+        if (callback) {
+            callback(success);
+        }
+    });
 }
 
 void SidebarService::markPostUnread(const QString& postId,
@@ -479,28 +573,7 @@ void SidebarService::markPostUnread(const QString& postId,
                 return;
             }
 
-            const auto nonNegative = [&object](const char* name) -> uint64_t {
-                const qint64 value = object.value(QString::fromLatin1(name))
-                    .toVariant().toLongLong();
-                return value > 0 ? static_cast<uint64_t>(value) : 0;
-            };
-
-            const bool wasMentioned = activityTracker.hasMention(channelId);
-            activityTracker.markUnread(
-                channelId,
-                nonNegative("last_viewed_at"),
-                nonNegative("msg_count"),
-                nonNegative("msg_count_root"),
-                object.contains(QStringLiteral("msg_count_root")),
-                nonNegative("mention_count"),
-                nonNegative("mention_count_root"),
-                object.contains(QStringLiteral("mention_count_root")));
-
-            const bool isMentioned = activityTracker.hasMention(channelId);
-            if (wasMentioned != isMentioned) {
-                emit channelMentionedChanged(channelId, isMentioned);
-            }
-            emit channelActivityChanged(channelId);
+            applyServerPostUnread(channelId, object);
             if (callback) {
                 callback(true);
             }

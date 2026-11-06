@@ -70,6 +70,8 @@ public:
     bool usesRootUnreadCounts(const BackendChannel& channel) const;
     uint64_t channelActivityTime(const BackendChannel& channel) const;
     uint64_t channelRecentTime(const BackendChannel& channel) const;
+    uint64_t channelUnreadMessageCount(const BackendChannel& channel,
+                                      bool rootsOnly = false) const;
     uint64_t channelLastViewedTime(const QString& channelId) const
     {
         return activityTracker.lastViewedTime(channelId);
@@ -84,6 +86,12 @@ public:
     void markChannelViewedLocally(const BackendChannel& channel);
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
     void markPostUnread(const QString& postId, std::function<void(bool)> callback = {});
+    /** Persist a partial cursor through the NEXT unread post; one in flight per channel. */
+    void checkpointChannelRead(const QString& channelId,
+                               const QString& nextUnreadPostId,
+                               std::function<void(bool)> callback = {});
+    /** Apply the server's post_unread event to this client's read watermark. */
+    void applyServerPostUnread(const QString& channelId, const QJsonObject& data);
     void synchronizeChannelActivity();
     /** Mirror webapp loadNewDM/GMIfNeeded for a realtime posted event. */
     void resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt);
@@ -121,6 +129,8 @@ signals:
     void channelMutedChanged(const QString& channelId, bool muted);
     void channelMentionedChanged(const QString& channelId, bool mentioned);
     void channelActivityChanged(const QString& channelId);
+    /** Server watermark moved backwards (possibly from another device). */
+    void channelUnreadRewound(const QString& channelId, const QString& postId);
     void channelActivityReset();
     void categoriesChanged(const QString& teamId);
 
@@ -145,6 +155,13 @@ private:
     QString _conversationSearchTerm;
     QMap<QString, SidebarTeamState> sidebarByTeam;
     ChannelActivityTracker activityTracker;
+
+    struct PendingReadCheckpoint {
+        QString postId;
+        bool fullReadRequested = false;
+    };
+    QHash<QString, PendingReadCheckpoint> pendingReadCheckpoints_;
+    QSet<QString> recentReadCheckpointIds_;
 
     QMap<QString, bool> directChannelVisibility;
     QMap<QString, bool> groupChannelVisibility;

@@ -542,9 +542,24 @@ void ThreadFollowService::markThreadRead(const QString& teamId,
         return;
     }
 
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    markThreadReadThrough(teamId, threadId,
+        static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch()),
+        std::move(callback));
+}
+
+void ThreadFollowService::markThreadReadThrough(
+    const QString& teamId, const QString& threadId, uint64_t lastReadAt,
+    std::function<void(bool)> callback)
+{
+    if (teamId.isEmpty() || threadId.isEmpty() || !lastReadAt
+        || _backend.getLoginUser().id.isEmpty()) {
+        if (callback) {
+            callback(false);
+        }
+        return;
+    }
     NetworkRequest request(threadPath(teamId, threadId)
-                           + QStringLiteral("/read/") + QString::number(now));
+                           + QStringLiteral("/read/") + QString::number(lastReadAt));
     _httpConnector.put(request, QByteArrayCreator(QJsonObject {}),
                        HttpResponseCallback([this, teamId, threadId, callback = std::move(callback)](
                                                 QVariant status, const QJsonDocument&) mutable {
