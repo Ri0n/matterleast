@@ -46,6 +46,21 @@ For captured regression steps, pass an explicit `-o path,txt`, print that file, 
 original test exit code. Exclude a test from the later CTest pass only when that captured step has
 already executed it; capturing output must not turn a failure into a successful job.
 
+## Windows widget theme compatibility
+
+Qt 6 selects the `windowsvista` widget style on Windows 10. That style
+repaints native controls with a light palette even when Qt correctly detects
+the application's dark system color scheme. At startup MatterLeast selects
+`Fusion` on Windows 10 only, while leaving the native `windows11` style
+untouched on Windows 11. Keep this conditional: forcing a palette or the
+Fusion style globally would regress Windows 11 and Linux desktop integration.
+
+Windows 10 runtime verification requires switching **app mode** (not only the
+taskbar/Windows mode) in Settings → Personalization → Colors while MatterLeast
+is open. Check both directions, including login/settings dialogs and palette-
+derived icons, without restarting the application. Windows CI runs on Windows
+Server 2025 and cannot substitute for this manual Windows 10 check.
+
 ## Documentation
 
 - Architectural decisions and hard-to-rediscover invariants belong in the repository, not only in chat history.
