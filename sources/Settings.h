@@ -73,6 +73,12 @@ static constexpr bool AI_AGENT_ENABLED_DEFAULT = false;
 static constexpr const char* AI_AGENT_COMMAND = "ai/agent/command";
 static constexpr const char* AI_AGENT_ARGUMENTS = "ai/agent/arguments";
 
+// Optional contextual right-hand thread pane. Channels, DMs and GMs share
+// the same canonical parent conversation policy.
+static constexpr const char* THREAD_SIDEBAR_FOLLOWS_CHANNEL =
+    "navigation/threadSidebarFollowsChannel";
+static constexpr bool THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT = false;
+
 // Text filtering can temporarily suspend the Channels unread gate so a
 // known read channel can still be found by name.
 static constexpr const char* UNREAD_MODE_IGNORE_WHILE_FILTERING =

@@ -41,6 +41,8 @@
 #include "options/MLOptions.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ThreadPaneLayout.h"
+#include "navigation/ThreadSidebarContextPolicy.h"
+#include "Settings.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/IconUtils.h"
 #include "ui/ThinSplitter.h"
@@ -132,6 +134,17 @@ void NavigationUiController::setupMainWindow()
     setupSidebarHeader();
     setupThreadPane();
 
+    auto* contextualOption = MLOptions::instance()->optionObject<bool>(
+        THREAD_SIDEBAR_FOLLOWS_CHANNEL, THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+    connect(contextualOption, &MLOptionObject::changed, this,
+            [this](const QVariant& value) {
+        if (!value.toBool() || !mainStack || !navigationSurfaceStack
+            || navigationSurfaceStack->currentWidget() != mainStack) return;
+        if (auto* channelArea = qobject_cast<ChatArea*>(mainStack->currentWidget())) {
+            closeThreadDockIfDifferent(channelArea->getChannel().id);
+        }
+    });
+
     if (Backend* sourceBackend = backend()) {
         auto& sidebar = SidebarService::instance(*sourceBackend);
         connect(&sidebar, &SidebarService::channelActivityChanged,
@@ -151,6 +164,10 @@ void NavigationUiController::setupMainWindow()
             syncSplitterEdgeGutters();
 
             QWidget* page = mainStack->widget(index);
+            if (auto* channelArea = qobject_cast<ChatArea*>(page);
+                channelArea && !channelArea->isThread) {
+                closeThreadDockIfDifferent(channelArea->getChannel().id);
+            }
             const bool chatSurface = qobject_cast<ChatArea*>(page) != nullptr;
             if (!chatSurface) {
                 if (auto* collection = qobject_cast<PostCollectionView*>(page)) {
@@ -1120,6 +1137,7 @@ void NavigationUiController::recordArea(ChatArea* area)
     }
     if (!area->isThread) {
         ensureTabPinAction(area);
+        closeThreadDockIfDifferent(area->getChannel().id);
     }
     scheduleSessionSave();
 
@@ -1808,6 +1826,53 @@ void NavigationUiController::syncSplitterEdgeGutters()
     if (threadArea && threadDocked) {
         threadArea->setSplitterEdgeGutters(true, false);
     }
+}
+
+bool NavigationUiController::shouldOpenParentChannelForThread(
+    const QString& channelId) const
+{
+    if (!MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT)) {
+        return false;
+    }
+
+    const auto* activeTab = tabModel.at(activeTabIndex);
+    const bool pinned = activeTab && activeTab->pinned;
+    const bool centralSurfaceIsMainStack = mainStack && navigationSurfaceStack
+        && navigationSurfaceStack->currentWidget() == mainStack;
+    auto* centralArea = centralSurfaceIsMainStack
+        ? qobject_cast<ChatArea*>(mainStack->currentWidget()) : nullptr;
+    return shouldOpenThreadParentChannel(true, pinned, centralSurfaceIsMainStack,
+                                         centralArea ? centralArea->getChannel().id : QString(),
+                                         channelId);
+}
+
+void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId)
+{
+    if (!threadStack || threadStack->isHidden()) return;
+    auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
+    if (!docked || !shouldCloseThreadDockForChannel(
+            MLOptions::instance()->value<bool>(
+                THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+                THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT),
+            channelId, docked->getChannel().id)) {
+        return;
+    }
+
+    // Closing, rather than merely hiding, releases the old timeline and avoids
+    // restoring an unrelated dock from the session snapshot. Drafts are saved
+    // by the regular ChatArea deactivation path.
+    persistThreadPaneWidth();
+    docked->onDeactivate();
+    docked->setSplitterEdgeGutters(false, false);
+    docked->hide();
+    threadStack->removeWidget(docked);
+    threadStack->hide();
+    if (activeArea == docked) activeArea = nullptr;
+    docked->close();
+    syncSplitterEdgeGutters();
+    scheduleSessionSave();
 }
 
 void NavigationUiController::presentChannel(ChatArea* area)
