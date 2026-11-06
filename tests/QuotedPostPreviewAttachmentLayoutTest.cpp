@@ -40,6 +40,17 @@ private slots:
             QStringLiteral("quotedPostShowMore"));
         QVERIFY(browser);
         QVERIFY(toggle);
+        // The text-only action follows the palette's link role, including
+        // when the desktop switches between light and dark palettes.
+        QPalette linkPalette = preview.palette();
+        linkPalette.setColor(QPalette::Link, QColor(QStringLiteral("#275fba")));
+        preview.setPalette(linkPalette);
+        QCOMPARE(toggle->palette().color(QPalette::Link),
+                 linkPalette.color(QPalette::Link));
+        linkPalette.setColor(QPalette::Link, QColor(QStringLiteral("#93d1fb")));
+        preview.setPalette(linkPalette);
+        QCOMPARE(toggle->palette().color(QPalette::Link),
+                 linkPalette.color(QPalette::Link));
         QTRY_VERIFY(!toggle->isHidden());
         const int collapsedHeight = browser->height();
         QVERIFY(collapsedHeight > 0);
