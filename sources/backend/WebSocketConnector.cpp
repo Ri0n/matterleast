@@ -431,17 +431,11 @@ QString WebSocketConnector::connectionId() const
     return d->connectionId;
 }
 
-void WebSocketConnector::reconnectNow(bool force)
+void WebSocketConnector::reconnectNow()
 {
     if (d->token.isEmpty() || d->suppressReconnect
-        || (d->connectionState == ConnectionState::Connected && !force)) {
+        || d->connectionState == ConnectionState::Connected) {
         return;
-    }
-
-    // A suspended socket can still look connected. Keep its sequence number
-    // so Mattermost may replay events after the new handshake.
-    if (force) {
-        d->hasReconnect = true;
     }
     d->reconnectTimer.stop();
     d->connectionAttemptTimer.stop();
