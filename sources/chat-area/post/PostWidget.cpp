@@ -542,6 +542,8 @@ PostWidget::PostWidget(Backend& backend,
         if (quotedPost && quotedPost != &post) {
             quotedReplyPreview = std::make_unique<QuotedPostPreview>(this, 2);
             quotedReplyPreview->setPost(*quotedPost);
+            connect(quotedReplyPreview.get(), &QuotedPostPreview::dimensionsChanged,
+                    this, &PostWidget::dimensionsChanged);
             quotedReplyPreview->setActivatedCallback([this, replyPostId] {
                 AppNavigationService::instance(backend_).openPost(replyPostId);
             });
@@ -564,6 +566,9 @@ PostWidget::PostWidget(Backend& backend,
                     guard->quotedReplyPreview =
                         std::make_unique<QuotedPostPreview>(guard, 2);
                     guard->quotedReplyPreview->setPost(*loaded);
+                    connect(guard->quotedReplyPreview.get(),
+                            &QuotedPostPreview::dimensionsChanged,
+                            guard, &PostWidget::dimensionsChanged);
                     guard->quotedReplyPreview->setActivatedCallback(
                         [guard, replyPostId] {
                             if (guard) {

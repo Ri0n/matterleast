@@ -1,7 +1,9 @@
 #include "QuotedPostPreview.h"
 
 #include <algorithm>
+#include <cmath>
 
+#include <QAbstractTextDocumentLayout>
 #include <QEvent>
 #include <QFont>
 #include <QHBoxLayout>
@@ -9,10 +11,14 @@
 #include <QListWidget>
 #include <QMouseEvent>
 #include <QPalette>
+#include <QPainter>
+#include <QResizeEvent>
 #include <QScrollBar>
 #include <QSizePolicy>
 #include <QTextBrowser>
 #include <QTextDocument>
+#include <QTimer>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -29,6 +35,53 @@ namespace {
 
 // QTextBrowser still scrolls its document when both scrollbars are hidden.
 // A quoted excerpt is a non-scrolling part of the surrounding chat timeline.
+// Text-only interactive link: unlike a native tool button it has no chrome,
+// padding or style-defined text color. Resolve QPalette::Link at paint time so
+// light/dark palette changes propagate without a stylesheet.
+class QuoteExpandLinkButton final : public QToolButton
+{
+public:
+    using QToolButton::QToolButton;
+
+    QSize sizeHint() const override
+    {
+        return fontMetrics().size(Qt::TextShowMnemonic, text());
+    }
+    QSize minimumSizeHint() const override { return sizeHint(); }
+
+protected:
+    bool event(QEvent* event) override
+    {
+        if (event->type() == QEvent::Enter || event->type() == QEvent::Leave
+            || event->type() == QEvent::Hide) {
+            hovered = event->type() == QEvent::Enter;
+            update();
+        } else if (event->type() == QEvent::PaletteChange
+                   || event->type() == QEvent::FocusIn
+                   || event->type() == QEvent::FocusOut) {
+            update();
+        }
+        return QToolButton::event(event);
+    }
+
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        painter.setLayoutDirection(layoutDirection());
+        painter.setPen(palette().color(QPalette::Link));
+        painter.setOpacity(isEnabled() ? (hovered ? 1.0 : 0.8) : 0.4);
+        QFont labelFont = font();
+        labelFont.setUnderline(hasFocus());
+        painter.setFont(labelFont);
+        painter.drawText(rect(),
+                         Qt::AlignLeft | Qt::AlignVCenter | Qt::TextShowMnemonic,
+                         text());
+    }
+
+private:
+    bool hovered = false;
+};
+
 class FixedExcerptBrowser final : public QTextBrowser
 {
 public:
@@ -87,13 +140,16 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     messageBrowser->setLineWrapMode(QTextEdit::WidgetWidth);
     messageBrowser->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     messageBrowser->setFocusPolicy(Qt::NoFocus);
-    messageBrowser->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    messageBrowser->setMaximumHeight(
+    messageBrowser->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    messageBrowser->setFixedHeight(
         messageBrowser->fontMetrics().lineSpacing() * maximumLines + 2);
     messageBrowser->setContentsMargins(0, 0, 0, 0);
     messageBrowser->document()->setDocumentMargin(0);
     messageBrowser->viewport()->setAutoFillBackground(false);
     messageBrowser->viewport()->installEventFilter(this);
+    connect(messageBrowser->document()->documentLayout(),
+            &QAbstractTextDocumentLayout::documentSizeChanged,
+            this, [this](const QSizeF&) { scheduleTextLayout(); });
     // Selection changes, document reflow and Qt's hidden scrollbar handling
     // can move the visible excerpt even without a visible scrollbar.
     connect(messageBrowser->verticalScrollBar(), &QScrollBar::valueChanged,
@@ -103,10 +159,24 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
                 }
             });
 
+    expandButton = new QuoteExpandLinkButton(this);
+    expandButton->setObjectName(QStringLiteral("quotedPostShowMore"));
+    expandButton->setAutoRaise(true);
+    expandButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    expandButton->setFocusPolicy(Qt::StrongFocus);
+    expandButton->setCursor(Qt::PointingHandCursor);
+    expandButton->setText(tr("Show more…"));
+    expandButton->hide();
+    connect(expandButton, &QToolButton::clicked, this, [this] {
+        expanded = !expanded;
+        updateTextLayout();
+    });
+
     attachmentSummary = new QuotedAttachmentSummary(this);
 
     contentLayout->addWidget(authorLabel);
     contentLayout->addWidget(messageBrowser);
+    contentLayout->addWidget(expandButton, 0, Qt::AlignLeft);
     contentLayout->addWidget(attachmentSummary);
     layout->addLayout(contentLayout, 1);
 
@@ -134,13 +204,17 @@ void QuotedPostPreview::setPreview(const QString& title,
         attachmentList = nullptr;
     }
 
-    authorLabel->setText(title);
     const QString visibleMessage = QuotedReplyFormat::stripFallback(message);
-    if (visibleMessage.trimmed().isEmpty()) {
-        fullText = hasAttachments ? QString() : QStringLiteral("[empty message]");
-    } else {
-        fullText = visibleMessage;
+    const QString newText = visibleMessage.trimmed().isEmpty()
+        ? (hasAttachments ? QString() : QStringLiteral("[empty message]"))
+        : visibleMessage;
+    // Rerendering the same reference (for example on palette change) must
+    // not collapse a quote that the user explicitly expanded.
+    if (authorLabel->text() != title || fullText != newText) {
+        expanded = false;
     }
+    authorLabel->setText(title);
+    fullText = newText;
     if (attachmentSummary) {
         attachmentSummary->setGenericAttachment(hasAttachments);
     }
@@ -216,6 +290,11 @@ void QuotedPostPreview::setLinkActivatedCallback(
 
 bool QuotedPostPreview::eventFilter(QObject* watched, QEvent* event)
 {
+    if (messageBrowser && watched == messageBrowser->viewport() && event
+        && (event->type() == QEvent::Resize
+            || event->type() == QEvent::LayoutRequest)) {
+        scheduleTextLayout();
+    }
     if (event && event->type() == QEvent::Wheel && attachmentList) {
         if (auto* list = attachmentList->findChild<QListWidget*>()) {
             if (watched == list->viewport()) {
@@ -256,13 +335,15 @@ void QuotedPostPreview::changeEvent(QEvent* event)
                   || event->type() == QEvent::ApplicationPaletteChange
                   || event->type() == QEvent::StyleChange
                   || event->type() == QEvent::FontChange)) {
-        if (messageBrowser) {
-            messageBrowser->setMaximumHeight(
-                messageBrowser->fontMetrics().lineSpacing() * maximumLines + 2);
-        }
         refreshPalette();
         refreshText();
     }
+}
+
+void QuotedPostPreview::resizeEvent(QResizeEvent* event)
+{
+    QFrame::resizeEvent(event);
+    scheduleTextLayout();
 }
 
 void QuotedPostPreview::mousePressEvent(QMouseEvent* event)
@@ -297,6 +378,8 @@ void QuotedPostPreview::refreshPalette()
     messageBrowser->setPalette(mutedPalette);
     messageBrowser->viewport()->setAutoFillBackground(false);
 
+    if (expandButton) expandButton->update();
+
     if (bar) {
         QColor barColor = textColor;
         barColor.setAlphaF(0.50);
@@ -313,6 +396,8 @@ void QuotedPostPreview::refreshText()
             messageBrowser->clear();
             messageBrowser->hide();
         }
+        if (expandButton) expandButton->hide();
+        scheduleTextLayout();
         return;
     }
 
@@ -329,6 +414,66 @@ void QuotedPostPreview::refreshText()
 #endif
     messageBrowser->document()->setDocumentMargin(0);
     messageBrowser->verticalScrollBar()->setValue(0);
+    scheduleTextLayout();
+}
+
+void QuotedPostPreview::scheduleTextLayout()
+{
+    if (textLayoutScheduled) return;
+    textLayoutScheduled = true;
+    // QTextBrowser lays out its viewport after the parent resize. Measure
+    // after that pass, not while Qt is still resizing the text document.
+    QTimer::singleShot(0, this, [this] {
+        textLayoutScheduled = false;
+        updateTextLayout();
+    });
+}
+
+void QuotedPostPreview::updateTextLayout()
+{
+    if (!messageBrowser || !expandButton || fullText.isEmpty()) return;
+
+    // Derive document width from the preview itself. On Qt 5 the browser's
+    // viewport can still report its previous (narrow) width during the
+    // parent's layout pass, leaving Show more visible after widening the chat.
+    const QMargins outerMargins = layout()->contentsMargins();
+    const QMargins columnMargins = contentLayout->contentsMargins();
+    const int availableWidth = std::max(1,
+        width() - outerMargins.left() - outerMargins.right()
+        - bar->width() - layout()->spacing()
+        - columnMargins.left() - columnMargins.right()
+        - messageBrowser->frameWidth() * 2);
+    QTextDocument* document = messageBrowser->document();
+    if (std::abs(document->textWidth() - availableWidth) > 0.5) {
+        document->setTextWidth(availableWidth);
+    }
+
+    const int fullHeight = std::max(1, static_cast<int>(
+        std::ceil(document->size().height())) + 2);
+    const int collapsedHeight =
+        messageBrowser->fontMetrics().lineSpacing() * maximumLines + 2;
+    const bool truncated = fullHeight > collapsedHeight;
+    const int targetHeight = expanded ? fullHeight
+                                      : std::min(fullHeight, collapsedHeight);
+    const bool geometryChanged =
+        messageBrowser->height() != targetHeight
+        || expandButton->isHidden() == truncated;
+
+    messageBrowser->setFixedHeight(targetHeight);
+    expandButton->setText(expanded ? tr("Show less") : tr("Show more…"));
+    expandButton->setVisible(truncated);
+    // An expanded quote is already readable in the post; a full-text tooltip
+    // would obscure it while the mouse is resting over the body.
+    const QString tooltip = expanded ? QString() : fullText;
+    setToolTip(tooltip);
+    messageBrowser->setToolTip(tooltip);
+    messageBrowser->verticalScrollBar()->setValue(0);
+
+    if (geometryChanged) {
+        messageBrowser->updateGeometry();
+        updateGeometry();
+        emit dimensionsChanged();
+    }
 }
 
 } // namespace Mattermost
