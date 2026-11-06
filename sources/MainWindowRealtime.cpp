@@ -9,8 +9,6 @@
 
 #include "mainwindow.h"
 
-#include <QWidget>
-
 #include "ui_mainwindow.h"
 
 #include "backend/Backend.h"
