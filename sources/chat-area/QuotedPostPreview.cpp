@@ -433,7 +433,16 @@ void QuotedPostPreview::updateTextLayout()
 {
     if (!messageBrowser || !expandButton || fullText.isEmpty()) return;
 
-    const int availableWidth = std::max(1, messageBrowser->viewport()->width());
+    // Derive document width from the preview itself. On Qt 5 the browser's
+    // viewport can still report its previous (narrow) width during the
+    // parent's layout pass, leaving Show more visible after widening the chat.
+    const QMargins outerMargins = layout()->contentsMargins();
+    const QMargins columnMargins = contentLayout->contentsMargins();
+    const int availableWidth = std::max(1,
+        width() - outerMargins.left() - outerMargins.right()
+        - bar->width() - layout()->spacing()
+        - columnMargins.left() - columnMargins.right()
+        - messageBrowser->frameWidth() * 2);
     QTextDocument* document = messageBrowser->document();
     if (std::abs(document->textWidth() - availableWidth) > 0.5) {
         document->setTextWidth(availableWidth);
