@@ -252,6 +252,12 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
 void TeamSelectorLabel::rebuildTeamToolbar()
 {
     if (!_teamButtonsHost || !_teamButtonsLayout) return;
+    const int buttonHeight = std::max(28, _teamToolbar->fontMetrics().height() + 8);
+    _teamToolbar->setFixedHeight(buttonHeight + 6);
+    if (auto* scroll = _teamToolbar->findChild<QScrollArea*>(
+            QStringLiteral("teamButtonScrollArea"))) {
+        scroll->setFixedHeight(buttonHeight + 2);
+    }
 
     std::vector<BackendTeam*> teams;
     if (tree_ && tree_->backendInstance()) {
@@ -282,6 +288,7 @@ void TeamSelectorLabel::rebuildTeamToolbar()
             if (!widget) continue;
             minimumWidth += widget->width() + _teamButtonsLayout->spacing();
             if (auto* button = qobject_cast<QToolButton*>(widget)) {
+                button->setFixedHeight(buttonHeight);
                 const QString id = button->property("teamId").toString();
                 for (const BackendTeam* team : teams) {
                     if (team->id != id) continue;
@@ -333,7 +340,7 @@ void TeamSelectorLabel::rebuildTeamToolbar()
         button->setCheckable(true);
         button->setChecked(id == activeTeamId_);
         button->setFixedSize(
-            std::max(40, button->fontMetrics().horizontalAdvance(title) + 20), 28);
+            std::max(40, button->fontMetrics().horizontalAdvance(title) + 20), buttonHeight);
         connect(button, &QToolButton::clicked, this,
                 [this, id] { setActiveTeam(id, true); });
         _teamButtonsLayout->addWidget(button);
@@ -391,6 +398,8 @@ void TeamSelectorLabel::changeEvent(QEvent* event)
 {
     QToolButton::changeEvent(event);
     if (event && (event->type() == QEvent::PaletteChange
+                  || event->type() == QEvent::FontChange
+                  || event->type() == QEvent::ApplicationFontChange
                   || event->type() == QEvent::ApplicationPaletteChange
                   || event->type() == QEvent::StyleChange)) {
         // The toolbar is detached from this hidden controller's own layout.

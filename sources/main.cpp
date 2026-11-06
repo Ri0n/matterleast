@@ -46,6 +46,7 @@
 #include "backend/CustomEmojiService.h"
 #include "config/Config.h"
 #include "ui/IconUtils.h"
+#include "ui/ApplicationFont.h"
 #include "ui/OverlayScrollBarManager.h"
 
 namespace Mattermost {
@@ -201,6 +202,7 @@ int main( int argc, char *argv[])
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 
     Mattermost::MattermostApplication app(argc, argv);
+    Mattermost::initializeApplicationFont(app);
 #ifdef MATTERLEAST_BUILD_ID
     // Embedded at build time. The mutable current.version pointer can be
     // repaired or switched by the launcher, so it is NOT the build identity.

@@ -48,7 +48,6 @@ ChannelItem::ChannelItem (Backend& backend, ChannelItemWidget* itemWidget)
 {
 	QFont font1;
 	font1.setBold (true);
-	font1.setPixelSize(14);
 	setFont (1, font1);
 }
 

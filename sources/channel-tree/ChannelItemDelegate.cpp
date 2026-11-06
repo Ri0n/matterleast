@@ -125,7 +125,9 @@ QSize ChannelItemDelegate::sizeHint(const QStyleOptionViewItem& option,
         return hint;
     }
     if (isConversationRow(index)) {
-        hint.setHeight(ChannelRowHeight);
+        QStyleOptionViewItem resolved(option);
+        initStyleOption(&resolved, index);
+        hint.setHeight(qMax(ChannelRowHeight, QFontMetrics(resolved.font).height() + 8));
     }
 
     const int before = transientGap(index, SidebarItem::DropGapBeforeRole);

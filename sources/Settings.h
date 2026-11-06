@@ -56,7 +56,8 @@ static constexpr const char* THREAD_RELATIVE_TIMESTAMPS =
     "chat/threadRelativeTimestamps";
 static constexpr bool THREAD_RELATIVE_TIMESTAMPS_DEFAULT = true;
 
-static constexpr const char* CHAT_FONT = "chat/font";
+static constexpr const char* CHAT_FONT = "font.chat";
+static constexpr const char* INTERFACE_FONT = "font.interface";
 // Family only. Empty uses the platform's installed system fixed font;
 // code point size continues to track the configured chat font.
 static constexpr const char* CODE_FONT_FAMILY = "chat/codeFontFamily";

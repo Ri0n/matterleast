@@ -1,5 +1,20 @@
 # Chat rendering typography and quote behavior
 
+The Appearance settings have separate interface and chat font sizes. The
+interface font (`font.interface`, empty means application default) is applied through
+QApplication before windows are created and updated live. Cancel restores the
+previous setting. `FontSettingsWidget` takes `{id, label, font}` entries and emits
+serialized QFont changes by ID; the settings dialog binds these to `font.<id>`.
+Each grid row contains a label, family selector, size and short slider. Chat
+uses `font.chat`; startup migrates legacy `chat/font` and `ui/fontPointSize`
+values only when their new keys are absent. Both fonts default to 11 pt with
+the platform's font family. The chat default is registered before applying
+interface overrides, so a customized interface size cannot become chat's default.
+Saved font choices, including migrated values, take precedence over defaults.
+Sidebar categories inherit the interface font,
+and conversation rows and team buttons grow to fit its metrics rather than
+clipping enlarged text into fixed heights.
+
 The timeline is the only vertical scroll owner for chat messages. Ordinary
 Markdown `>` blockquotes are displayed through `QuoteBlock` and
 `WrappedRichText` in `MessageContentWidget.cpp`. Quote previews show up to

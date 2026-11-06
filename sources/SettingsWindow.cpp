@@ -30,7 +30,6 @@
 #include <QFormLayout>
 #include <QFrame>
 #include <QFontComboBox>
-#include <QFontInfo>
 #include <QFontDatabase>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -39,13 +38,13 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
 #include "Settings.h"
+#include "ui/FontSettingsWidget.h"
 #include "backend/emoji/EmojiDefs.h"
 #include "options/MLOptions.h"
 #include "notifications/RootNotificationPolicy.h"
@@ -53,28 +52,6 @@
 
 namespace Mattermost {
 namespace {
-
-constexpr int MinChatFontPointSize = 8;
-constexpr int MaxChatFontPointSize = 30;
-
-QFont fontFromString(const QString& serialized, const QFont& fallback)
-{
-    QFont result;
-    return !serialized.isEmpty() && result.fromString(serialized)
-        ? result : fallback;
-}
-
-int chatFontPointSize(const QFont& font)
-{
-    qreal pointSize = font.pointSizeF();
-    if (pointSize <= 0.0) {
-        pointSize = QFontInfo(font).pointSizeF();
-    }
-    if (pointSize <= 0.0) {
-        pointSize = 10.0;
-    }
-    return qBound(MinChatFontPointSize, qRound(pointSize), MaxChatFontPointSize);
-}
 
 QSpinBox* makeSpinBox(QWidget* parent,
                       int minimum,
@@ -334,45 +311,29 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
     appearanceLayout->setContentsMargins(12, 12, 12, 12);
     appearanceLayout->setSpacing(8);
 
-    auto* chatFontGroup = new QGroupBox(tr("Chat"), appearancePage);
-    auto* chatFontForm = new QFormLayout(chatFontGroup);
+    auto* fontsGroup = new QGroupBox(tr("Fonts"), appearancePage);
+    auto* fontsLayout = new QVBoxLayout(fontsGroup);
+    QVector<FontSettingsWidget::Entry> fonts;
+    const auto addFont = [&](const QString& id, const QString& label) {
+        const QString key = QStringLiteral("font.") + id;
+        const QString stored = options->optionObject<QString>(key, QString())->value().toString();
+        originalFonts.insert(key, stored);
+        fonts.push_back({id, label, stored.isEmpty() ? font().toString() : stored});
+    };
+    addFont(QStringLiteral("chat"), tr("Chat"));
+    addFont(QStringLiteral("interface"), tr("Interface"));
+    auto* fontEditor = new FontSettingsWidget(fonts, fontsGroup);
+    fontsLayout->addWidget(fontEditor);
+    connect(fontEditor, &FontSettingsWidget::fontChanged, this,
+            [options](const QString& id, const QString& serialized) {
+        options->optionObject<QString>(QStringLiteral("font.") + id, QString())
+            ->setValue(serialized);
+    });
+    appearanceLayout->addWidget(fontsGroup);
 
-    auto* chatFontOption = options->optionObject<QString>(
-        CHAT_FONT, font().toString());
-    originalChatFont = chatFontOption->value().toString();
-    QFont chatFont = fontFromString(originalChatFont, font());
-
-    auto* chatFontFamily = new QFontComboBox(chatFontGroup);
-    chatFontFamily->setObjectName(QStringLiteral("chatFontFamily"));
-    chatFontFamily->setCurrentFont(chatFont);
-    chatFontForm->addRow(tr("Font:"), chatFontFamily);
-
-    auto* chatTextSizeEditor = new QWidget(chatFontGroup);
-    auto* chatTextSizeLayout = new QHBoxLayout(chatTextSizeEditor);
-    chatTextSizeLayout->setContentsMargins(0, 0, 0, 0);
-    chatTextSizeLayout->setSpacing(8);
-
-    auto* chatTextSizeSlider = new QSlider(Qt::Horizontal, chatTextSizeEditor);
-    chatTextSizeSlider->setObjectName(QStringLiteral("chatTextSizeSlider"));
-    chatTextSizeSlider->setRange(MinChatFontPointSize,
-                                 MaxChatFontPointSize);
-    chatTextSizeSlider->setSingleStep(1);
-    chatTextSizeSlider->setPageStep(2);
-    chatTextSizeSlider->setMinimumWidth(140);
-    chatTextSizeSlider->setValue(chatFontPointSize(chatFont));
-
-    auto* chatTextSizeSpin = new QSpinBox(chatTextSizeEditor);
-    chatTextSizeSpin->setObjectName(QStringLiteral("chatTextSizeSpin"));
-    chatTextSizeSpin->setRange(MinChatFontPointSize,
-                               MaxChatFontPointSize);
-    chatTextSizeSpin->setSuffix(tr(" pt"));
-    chatTextSizeSpin->setValue(chatTextSizeSlider->value());
-
-    chatTextSizeLayout->addWidget(chatTextSizeSlider, 1);
-    chatTextSizeLayout->addWidget(chatTextSizeSpin);
-    chatFontForm->addRow(tr("Size:"), chatTextSizeEditor);
-
-    threadTimestampFormat_ = new QComboBox(chatFontGroup);
+    auto* chatGroup = new QGroupBox(tr("Chat"), appearancePage);
+    auto* chatForm = new QFormLayout(chatGroup);
+    threadTimestampFormat_ = new QComboBox(chatGroup);
     threadTimestampFormat_->setObjectName(
         QStringLiteral("threadTimestampFormat"));
     threadTimestampFormat_->addItem(tr("Relative (e.g. 5 minutes ago)"), true);
@@ -382,9 +343,9 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
         ->value().toBool();
     threadTimestampFormat_->setCurrentIndex(
         threadTimestampFormat_->findData(threadRelative));
-    chatFontForm->addRow(tr("Time in threads:"), threadTimestampFormat_);
+    chatForm->addRow(tr("Time in threads:"), threadTimestampFormat_);
 
-    appearanceLayout->addWidget(chatFontGroup);
+    appearanceLayout->addWidget(chatGroup);
 
     auto* codeFontGroup = new QGroupBox(tr("Code blocks"), appearancePage);
     auto* codeFontForm = new QFormLayout(codeFontGroup);
@@ -408,8 +369,8 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
 
     appearanceLayout->addWidget(makeDescription(
         appearancePage,
-        tr("Font changes are previewed immediately in materialized chat messages. "
-           "Cancel restores the previous font.")));
+        tr("Font changes are previewed immediately. "
+           "Cancel restores the previous fonts.")));
     auto* emojiGroup = new QGroupBox(tr("Emoji"), appearancePage);
     auto* emojiForm = new QFormLayout(emojiGroup);
     emojiDefaultSkinTone_ = new QComboBox(emojiGroup);
@@ -433,32 +394,6 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
 
     appearanceLayout->addStretch(1);
     tabs->addTab(appearancePage, tr("Appearance"));
-
-    const auto updateChatFontOption =
-        [this, chatFontFamily, chatTextSizeSlider, chatFontOption] {
-        QFont updated = fontFromString(chatFontOption->value().toString(), font());
-        updated.setFamily(chatFontFamily->currentFont().family());
-        updated.setPointSizeF(chatTextSizeSlider->value());
-        chatFontOption->setValue(updated.toString());
-    };
-
-    connect(chatTextSizeSlider, &QSlider::valueChanged, this,
-            [chatTextSizeSpin, updateChatFontOption](int value) {
-        if (chatTextSizeSpin->value() != value) {
-            chatTextSizeSpin->setValue(value);
-        }
-        updateChatFontOption();
-    });
-    connect(chatTextSizeSpin, qOverload<int>(&QSpinBox::valueChanged), this,
-            [chatTextSizeSlider](int value) {
-        if (chatTextSizeSlider->value() != value) {
-            chatTextSizeSlider->setValue(value);
-        }
-    });
-    connect(chatFontFamily, &QFontComboBox::currentFontChanged, this,
-            [updateChatFontOption](const QFont&) {
-        updateChatFontOption();
-    });
 
     auto* cacheScroll = new QScrollArea(tabs);
     cacheScroll->setWidgetResizable(true);
@@ -576,9 +511,14 @@ SettingsWindow::~SettingsWindow()
 
 void SettingsWindow::reject()
 {
-    MLOptions::instance()
-        ->optionObject<QString>(CHAT_FONT, font().toString())
-        ->setValue(originalChatFont);
+    // Restore the interface first: an empty chat font falls back to it.
+    MLOptions::instance()->optionObject<QString>(INTERFACE_FONT, QString())
+        ->setValue(originalFonts.value(QString::fromLatin1(INTERFACE_FONT)));
+    for (auto it = originalFonts.cbegin(); it != originalFonts.cend(); ++it) {
+        if (it.key() == QLatin1String(INTERFACE_FONT)) continue;
+        MLOptions::instance()->optionObject<QString>(it.key(), QString())
+            ->setValue(it.value());
+    }
     MLOptions::instance()
         ->optionObject<QString>(CODE_FONT_FAMILY, QString())
         ->setValue(_originalCodeFontFamily);

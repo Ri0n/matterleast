@@ -60,6 +60,28 @@ private:
     }
 
 private slots:
+    void growsConversationRowsForLargeInterfaceFonts()
+    {
+        QStandardItemModel model;
+        auto* item = new QStandardItem(QStringLiteral("Large channel name"));
+        item->setData(SidebarItem::Channel, SidebarItem::KindRole);
+        model.appendRow(item);
+        QListView view;
+        view.setModel(&model);
+        QFont font = view.font();
+        font.setPointSize(30);
+        view.setFont(font);
+        QStyleOptionViewItem option;
+        option.initFrom(&view);
+        // Item views populate QStyleOptionViewItem::font separately from
+        // QStyleOption::initFrom(), which only initializes fontMetrics.
+        option.font = view.font();
+        option.widget = &view;
+        ChannelItemDelegate delegate;
+        QVERIFY(delegate.sizeHint(option, model.index(0, 0)).height()
+                >= QFontMetrics(font).height() + 8);
+    }
+
     void ignoresPresenceForNonUserRows()
     {
         const auto publicWithPresence = renderItem(SidebarItem::Channel,

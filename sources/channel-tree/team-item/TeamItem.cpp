@@ -41,7 +41,6 @@ TeamItem::TeamItem (QTreeWidget& parent, Backend& backend, const QString& name, 
 {
 	QFont font;
 	font.setBold (true);
-	font.setPixelSize (14);
 	setFont (0, font);
 
 	setExpanded (true);

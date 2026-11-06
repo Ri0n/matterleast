@@ -136,6 +136,15 @@ private slots:
             }
         }
         QVERIFY(betaChecked);
+
+        QFont enlarged = window.font();
+        enlarged.setPointSize(30);
+        window.setFont(enlarged);
+        QTRY_VERIFY(toolbar->height() >= toolbar->fontMetrics().height() + 14);
+        for (auto* button : toolbar->findChildren<QToolButton*>(
+                 QStringLiteral("teamToolbarTeamButton"))) {
+            QVERIFY(button->height() >= button->fontMetrics().height() + 8);
+        }
     }
 };
 

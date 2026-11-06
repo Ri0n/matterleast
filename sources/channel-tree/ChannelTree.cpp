@@ -359,9 +359,7 @@ QTreeWidgetItem* ChannelTree::createCategoryItem(TeamItem& teamItem, const QStri
 
     QFont font = item->font(0);
     font.setBold(true);
-    font.setPixelSize(12);
     item->setFont(0, font);
-    item->setSizeHint(0, QSize(0, 22));
     item->setExpanded(!collapsed);
     return item;
 }

@@ -21,6 +21,7 @@
 
 #include <QDialog>
 #include <QString>
+#include <QHash>
 
 class QCheckBox;
 class QComboBox;
@@ -66,7 +67,7 @@ private:
 #endif
     QComboBox* emojiDefaultSkinTone_ = nullptr;
     QComboBox* threadTimestampFormat_ = nullptr;
-    QString originalChatFont;
+    QHash<QString, QString> originalFonts;
     QString _originalCodeFontFamily;
     QSpinBox* attachmentCacheSizeMB = nullptr;
     QSpinBox* diskChannelIdleHours = nullptr;

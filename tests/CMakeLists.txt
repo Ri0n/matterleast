@@ -1,3 +1,15 @@
+add_executable(application-font-test
+    ApplicationFontTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/ui/FontSettingsWidget.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/ui/ApplicationFont.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp")
+target_include_directories(application-font-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(application-font-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME application-font-test COMMAND application-font-test)
+set_tests_properties(application-font-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # Official Mattermost desktop activity cadence, independent of WebSocket and OS.
 add_executable(presence-activity-policy-test PresenceActivityPolicyTest.cpp)
 target_include_directories(presence-activity-policy-test PRIVATE
