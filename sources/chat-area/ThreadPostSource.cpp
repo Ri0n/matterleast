@@ -201,7 +201,7 @@ ThreadPostSource::ThreadPostSource(Backend& backendInstance,
     QTimer::singleShot(0, this, [this] { hydrateCachedTail(); });
 
     connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
-        if (auto* area = qobject_cast<ChatArea*>(parent())) {
+        if (auto* area = qobject_cast<ChatArea*>(this->parent())) {
             area->requestTimelineRecovery();
         } else {
             resyncAfterReconnect();
