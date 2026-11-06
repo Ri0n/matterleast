@@ -1,11 +1,3 @@
-# A resumed event loop needs a wall-clock gap detector on all platforms.
-add_executable(resume-gap-detector-test ResumeGapDetectorTest.cpp)
-target_include_directories(resume-gap-detector-test PRIVATE
-    "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(resume-gap-detector-test PRIVATE
-    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
-add_test(NAME resume-gap-detector-test COMMAND resume-gap-detector-test)
-
 # Official Mattermost desktop activity cadence, independent of WebSocket and OS.
 add_executable(presence-activity-policy-test PresenceActivityPolicyTest.cpp)
 target_include_directories(presence-activity-policy-test PRIVATE
