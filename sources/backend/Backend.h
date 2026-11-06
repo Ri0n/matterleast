@@ -271,7 +271,6 @@ public:
     WebSocketConnector::ConnectionState webSocketConnectionState() const;
     void retryWebSocketConnectionNow();
     /** A suspended network route may leave apparently connected sockets stale. */
-    void reconnectAfterSuspend();
 
 	// A DM/GM has no intrinsic team, but actions and slash commands on older
 	// Mattermost servers still require the team from which the conversation was
