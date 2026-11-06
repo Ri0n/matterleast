@@ -120,13 +120,17 @@ QtKeychain support, the session token is saved asynchronously in the platform
 credential store (Windows Credential Manager, macOS Keychain, Linux Secret
 Service/KWallet). The password itself is never saved.
 
-CMake detects QtKeychain automatically: `MATTERLEAST_USE_KEYCHAIN` defaults to
-`ON` if the Qt5/Qt6 matching development package is installed, otherwise
-`OFF`. Explicit `-DMATTERLEAST_USE_KEYCHAIN=ON` overrides the detection and
-can build the pinned bundled library; explicit `OFF` always disables it. The
-automatic `OFF` case does not download any dependencies and does not persist
-login sessions. Official release packaging explicitly enables keychain support
-to keep autologin working across restarts.
+By default, CMake requires the Qt5/Qt6 matching QtKeychain development
+package and fails configuration if it cannot find it. It never silently
+disables session persistence. Explicit `-DMATTERLEAST_USE_KEYCHAIN=ON`
+allows building the pinned bundled library when the system package is absent
+(including on Windows); explicit `-DMATTERLEAST_USE_KEYCHAIN=OFF` builds
+without saved login sessions. The default case does not download QtKeychain.
+Existing build directories retain their cached option: if a build previously
+selected `OFF` automatically, reconfigure it with
+`-DMATTERLEAST_USE_KEYCHAIN=ON` (in Qt Creator, change the option in the
+project's CMake configuration). Official release packaging explicitly enables
+keychain support.
 
 For upgrades, the old plaintext settings token is read only to resume the
 existing session. After a successful secure write it is cleared from

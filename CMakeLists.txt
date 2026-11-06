@@ -181,10 +181,8 @@ endif()
 # Keep native plugin policy independent of authentication.
 option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugins" ON)
 
-# Auto-enable keyring-backed sessions only if development files for the
-# matching major Qt version are installed. Explicit ON/OFF always wins.
-# An explicit ON may use our pinned QtKeychain fallback (Windows packaging);
-# the automatic case must never download dependencies.
+# Default builds require system QtKeychain. Explicit ON permits the pinned
+# fallback; only explicit OFF may disable session persistence.
 set(_matterleast_system_keychain_target "")
 if(NOT DEFINED MATTERLEAST_USE_KEYCHAIN OR MATTERLEAST_USE_KEYCHAIN)
   find_package(Qt${QT_VERSION_MAJOR}Keychain
@@ -196,14 +194,16 @@ if(NOT DEFINED MATTERLEAST_USE_KEYCHAIN OR MATTERLEAST_USE_KEYCHAIN)
     set(_matterleast_system_keychain_target qt${QT_VERSION_MAJOR}keychain)
   endif()
 endif()
-if(_matterleast_system_keychain_target)
-  set(_matterleast_keychain_default ON)
-else()
-  set(_matterleast_keychain_default OFF)
+if(NOT DEFINED MATTERLEAST_USE_KEYCHAIN AND NOT _matterleast_system_keychain_target)
+  message(FATAL_ERROR
+    "Qt${QT_VERSION_MAJOR}Keychain >= ${MATTERLEAST_QTKEYCHAIN_LOCK_MIN_VERSION} was not found. "
+    "Install the matching QtKeychain development package, set "
+    "-DMATTERLEAST_USE_KEYCHAIN=ON to allow the pinned bundled library, or "
+    "explicitly set -DMATTERLEAST_USE_KEYCHAIN=OFF to build without saved login sessions.")
 endif()
 option(MATTERLEAST_USE_KEYCHAIN
-  "Store saved login sessions in the platform keyring (default: ON only when QtKeychain dev files are installed)"
-  ${_matterleast_keychain_default})
+  "Store saved login sessions in the platform keyring (explicit ON permits bundled QtKeychain)"
+  ON)
 
 # Corporate builds embed only a PUBLIC RSA verification key. Signing uses
 # an external private key, never checked into the source tree or application.
@@ -240,8 +240,7 @@ if(MATTERLEAST_USE_KEYCHAIN)
     set(MATTERLEAST_KEYCHAIN_TARGET ${_matterleast_system_keychain_target})
     message(STATUS "MatterLeast keychain: ON (system Qt${QT_VERSION_MAJOR}Keychain)")
   else()
-    # Reaching this fallback requires an explicit -DMATTERLEAST_USE_KEYCHAIN=ON.
-    # In AUTO mode missing dev files select OFF instead of downloading.
+    # Missing system development files require explicit ON to allow downloads.
     message(STATUS "MatterLeast keychain: ON (bundled QtKeychain)")
     include(FetchContent)
     set(_matterleast_saved_build_testing ${BUILD_TESTING})
@@ -282,7 +281,7 @@ if(MATTERLEAST_USE_KEYCHAIN)
     set(MATTERLEAST_KEYCHAIN_TARGET qt${QT_VERSION_MAJOR}keychain)
   endif()
 else()
-  message(STATUS "MatterLeast keychain: OFF (missing system dev files or explicitly disabled)")
+  message(STATUS "MatterLeast keychain: OFF (explicitly disabled)")
 endif()
 
 # Prefer a sufficiently recent system QCA3, then QCA2, then locked QCA3.
