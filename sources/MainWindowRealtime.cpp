@@ -9,17 +9,12 @@
 
 #include "mainwindow.h"
 
-#include <memory>
-
-#include <QApplication>
-#include <QDateTime>
-#include <QTimer>
+#include <QWidget>
 
 #include "ui_mainwindow.h"
 
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
-#include "backend/ResumeGapDetector.h"
 #include "backend/ServerUiService.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
@@ -64,38 +59,14 @@ void MainWindow::installRealtimeUiSync()
             this, [this] { backend.retryWebSocketConnectionNow(); });
     updateConnectionIndicator(backend.webSocketConnectionState());
 
-    // QTimer cannot run during OS sleep. Its delayed wall-clock delivery is
-    // also portable to Linux, whose monotonic clock may exclude suspend time.
-    auto gap = std::make_shared<ResumeGapDetector>();
-    gap->sample(QDateTime::currentMSecsSinceEpoch());
-    auto pendingResume = std::make_shared<bool>(false);
-    auto* wakeProbe = new QTimer(this);
-    wakeProbe->setInterval(5000);
-    connect(wakeProbe, &QTimer::timeout, this, [this, gap, pendingResume] {
-        if (!gap->sample(QDateTime::currentMSecsSinceEpoch())
-            || !backend.loggedIn() || *pendingResume) {
-            return;
-        }
-        *pendingResume = true;
-        backend.reconnectAfterSuspend();
-    });
-    wakeProbe->start();
-
-    // The socket may look connected immediately after wake, but HTTP could
-    // still be bound to a dead route. Wait for a fresh handshake before
-    // updating the server-owned sidebar and visible timelines.
-    connect(&backend, &Backend::onWebSocketConnect, this, [this, pendingResume] {
-        if (!*pendingResume) return;
-        *pendingResume = false;
+    // As in the official client, REST projections are reconciled after a
+    // WebSocket reconnect, not after an arbitrary amount of wall-clock time.
+    // The connector itself handles heartbeat timeouts and sequence gaps.
+    connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
+        if (!backend.loggedIn()) return;
         ui->channelList->refreshServerSnapshot();
         // The Attention sidebar has an independent CRT/followed-thread snapshot.
         FollowingModel::instance(backend).noteThreadUpdated();
-        for (QWidget* widget : QApplication::allWidgets()) {
-            auto* area = qobject_cast<ChatArea*>(widget);
-            if (area && &area->getBackend() == &backend) {
-                area->requestTimelineRecovery();
-            }
-        }
         refreshSidebarViews();
     });
 
