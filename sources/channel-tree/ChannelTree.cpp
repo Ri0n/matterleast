@@ -289,12 +289,17 @@ void ChannelTree::refreshServerSnapshot()
         auto& currentSidebar = SidebarService::instance(*guard->backendForSidebar);
         currentSidebar.retrieveChannelPreferences([guard] {
             if (!guard || !guard->backendForSidebar) return;
-            // Reconcile rather than rebuilding the tree: preserve selection,
-            // current ChatAreas, and any saved viewport positions.
-            const QStringList teamIds = guard->teamToItemMap.keys();
-            for (const QString& teamId : teamIds) {
-                guard->refreshSidebarTeam(teamId);
-            }
+            // Read cursors alone cannot update unread status: the comparison
+            // also requires fresh channel total_msg_count/last_post_at values.
+            SidebarService::instance(*guard->backendForSidebar)
+                .refreshKnownChannelSummaries([guard] {
+                    if (!guard) return;
+                    // Preserve selection, ChatAreas and viewport bookmarks.
+                    const QStringList teamIds = guard->teamToItemMap.keys();
+                    for (const QString& teamId : teamIds) {
+                        guard->refreshSidebarTeam(teamId);
+                    }
+                });
         });
     });
 }
