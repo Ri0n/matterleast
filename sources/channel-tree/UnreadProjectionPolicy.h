@@ -22,10 +22,11 @@ inline bool includeChannelInUnread(bool isPublicOrPrivate, bool tracked,
                                    bool unread, bool mentioned, bool muted,
                                    const UnreadViewFilters& filters)
 {
-    // DMs/GMs and explicitly followed threads belong to Following. The
-    // Channels source provides only unread, joined public/private channels.
-    return filters.channels && isPublicOrPrivate && tracked && unread
-        && !mentioned && (!muted || filters.muted);
+    // Muted is an independent unread source, including muted DMs/GMs.
+    // Unmuted DMs/GMs and personal mentions belong only to Following.
+    if (!tracked || !unread) return false;
+    if (muted) return filters.muted;
+    return filters.channels && isPublicOrPrivate && !mentioned;
 }
 
 } // namespace Mattermost
