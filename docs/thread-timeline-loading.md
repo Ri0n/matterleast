@@ -55,6 +55,24 @@ contain a tail page, an older context window, or several disjoint windows. Unles
 known, the source must not pack arbitrary cached replies into a synthetic prefix or suffix merely to
 fill logical slots.
 
+The provenance-backed **disk tail window** is different: `PostCacheStore` verifies a
+complete contiguous newest suffix and discards everything before a missing or
+invalid post. On reopening a thread, `ThreadPostSource` can hydrate this
+suffix before its asynchronous server validation completes. The saved window
+must match the root's `last_reply_at` and must not collide with existing
+authoritative slot identities.
+
+When reopening at an already-known newest post, navigation may first reserve
+an **estimated** slot. If the persisted tail contains the **same post ID at
+that same slot**, the estimate may be unlocked for cached rendering. This does
+not promote the other cached replies to authoritative server-verified ranks:
+the existing background `validateCachedTail()` still runs. If the estimated
+position and cached identity differ, the tail must not overwrite that
+navigation target; wait for the confirming live server page instead. This
+avoids the previous `THREAD_CACHE_TAIL_SKIP reason=navigation-estimate`
+case, where a valid saved tail was discarded on every tab reopen despite
+being immediately usable.
+
 Mattermost `reply_count` and the thread endpoint both exclude deleted replies. A tombstone therefore
 extends the visible logical sequence only if this particular `ThreadPostSource` already mapped that
 reply before it was deleted. A deleted reply body that merely survives in `BackendChannel` cache has
