@@ -180,12 +180,20 @@ void FollowingModel::syncConversations()
     QVector<Entry> next;
     next.reserve(entries_.size() + backend_.getStorage().channels.size());
 
+    // Only a concrete synthetic root mention represents an individual
+    // mentioned post in Following/Attention. A membership mention_count can
+    // also be nonzero without that post in memory (startup, reconnect or a
+    // cold channel); in that case publish a channel-level fallback below.
+    QSet<QString> channelsWithPostMentions;
     // Thread membership comes from CRT and is preserved until the next shared
     // thread snapshot. DM/GM entries are ephemeral Following rows: once they are
     // read (or muted), discard the entry and its local resume cursor together.
     for (const Entry& entry : std::as_const(entries_)) {
         if (entry.isThread()) {
             next.push_back(entry);
+            if (entry.synthetic && entry.requiresAttention()) {
+                channelsWithPostMentions.insert(entry.channelId);
+            }
         }
     }
 
@@ -209,7 +217,15 @@ void FollowingModel::syncConversations()
         const bool manualAttention = manualAttentionKeys_.contains(manualKey);
         const bool conversation = channel->type == BackendChannel::directChannel
             || channel->type == BackendChannel::groupChannel;
-        if (!conversation && !manualAttention) {
+        const bool publicOrPrivate = channel->type == BackendChannel::publicChannel
+            || channel->type == BackendChannel::privateChannel;
+        // A root mention normally appears as a synthetic post row. When only
+        // the authoritative server count is known, Attention would otherwise
+        // be empty despite hasUnreadMention() being true. Reuse this model's
+        // conversation identity; it carries no independent read state.
+        const bool missingMentionPost = publicOrPrivate && mentioned
+            && !channelsWithPostMentions.contains(channel->id);
+        if (!conversation && !manualAttention && !missingMentionPost) {
             continue;
         }
 
