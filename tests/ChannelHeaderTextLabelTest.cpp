@@ -368,8 +368,8 @@ void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange
 
     const QString url = QStringLiteral("https://example.com/first");
     // QLabel does not always re-emit linkHovered when returning straight to
-    // the same link after a Leave event. The widget must preserve the link's
-    // tooltip for that re-entry, even without a new linkHovered notification.
+    // the same link after a Leave event. Resetting its native hover state
+    // must make that link discoverable again on re-entry.
     label.QLabel::setText(QStringLiteral(
         "<a href=\"https://example.com/first\" "
         "title=\"https://example.com/first\">Link</a>"));
@@ -380,12 +380,13 @@ void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange
 
     QEvent leave(QEvent::Leave);
     QApplication::sendEvent(&label, &leave);
-    QCOMPARE(label.toolTip(), url);
+    QVERIFY(label.toolTip().isEmpty());
 
     // Re-enter directly over the same link, without first moving across
-    // non-link text (which would reset QLabel's internal hover state).
+    // non-link text. QLabel must emit linkHovered for the renewed anchor
+    // because the Leave handler reset its internal hover state.
     QTest::mouseMove(&label, linkPoint);
-    QCOMPARE(label.toolTip(), url);
+    QTRY_COMPARE(label.toolTip(), url);
     QHelpEvent help(QEvent::ToolTip, linkPoint, label.mapToGlobal(linkPoint));
     QApplication::sendEvent(&label, &help);
     QTRY_COMPARE(QToolTip::text(), url);
