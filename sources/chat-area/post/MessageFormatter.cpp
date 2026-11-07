@@ -837,7 +837,7 @@ void applyLinkToolTips(QTextDocument& document)
 QString htmlWithLinkToolTips(const QString& html)
 {
     static const QRegularExpression links(
-        QStringLiteral(R"(<a href="([^"]+)">)"));
+        QStringLiteral(R"LINK(<a href="([^"]+)">)LINK"));
     QRegularExpressionMatchIterator matches = links.globalMatch(html);
     if (!matches.hasNext())
         return html;
