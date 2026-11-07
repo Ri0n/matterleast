@@ -743,9 +743,11 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
         case QEvent::Leave:
             if (isLabel) {
                 cancelPopoverShow();
-                // linkHovered("") is normally emitted on mouse movement,
-                // but a direct leave can bypass a final mouse-move event.
-                setToolTip(QString());
+                // QLabel's internal text control does not necessarily emit
+                // linkHovered again on re-entering the same anchor. Keep its
+                // URL in the widget until linkHovered("") clears it over
+                // non-link text, or setText() replaces the topic. QWidget
+                // already hides the visible tooltip when the pointer leaves.
             }
             hidePopoverSoon();
             break;
