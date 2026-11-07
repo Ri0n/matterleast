@@ -834,7 +834,7 @@ void applyLinkToolTips(QTextDocument& document)
 // HTML importer reads title attributes. Restore titles on exported anchors
 // for QLabel and other HTML-based rich-text consumers. The href has already
 // been escaped by Qt's exporter and is safe to reuse as an attribute value.
-QString htmlWithLinkToolTips(const QString& html)
+QString htmlWithLinkToolTipsImpl(const QString& html)
 {
     static const QRegularExpression links(
         QStringLiteral(R"LINK(<a href="([^"]+)">)LINK"));
@@ -858,6 +858,15 @@ QString htmlWithLinkToolTips(const QString& html)
 }
 
 } // namespace
+
+QString htmlWithLinkToolTips(const QString& html)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    return htmlWithLinkToolTipsImpl(html);
+#else
+    return html;
+#endif
+}
 
 void buildMarkdownDocument(QTextDocument& document, const QString& text,
                            EmojiRegistry* registry, const QColor& inlineCodeTextColor)
