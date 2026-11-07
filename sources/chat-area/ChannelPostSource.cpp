@@ -1532,13 +1532,51 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
     const QStringList ids = uniqueChronological(chronologicalIds);
     const int targetOffset = ids.indexOf(targetPostId);
     const int contextCount = static_cast<int>(ids.size());
-    const int count = static_cast<int>(postIds.size());
-    if (targetOffset < 0 || contextCount <= 0 || contextCount > count) {
+    if (targetOffset < 0 || contextCount <= 0) {
         return false;
     }
 
     BackendPost* target = channel.postIdToPost.value(targetPostId, nullptr);
     if (!target || target->hidden || !target->root_id.isEmpty()) {
+        return false;
+    }
+
+    // The root message counter is not an absolute /posts row count: system
+    // roots may be omitted. A cursor extension can overlap a known exact post
+    // at a lower logical index than its offset in the server context. That
+    // negative inferred first is proof of a missing *prefix*, not a corrupt
+    // server overlap. Insert only the proven deficit before accepting the
+    // context; do not shift unrelated exact identities independently.
+    bool hasExactOverlap = false;
+    bool conflictingExactOverlap = false;
+    int inferredFirst = 0;
+    for (int offset = 0; offset < contextCount; ++offset) {
+        const QString& id = ids.at(offset);
+        const int existing = postIndexes.value(id, -1);
+        if (existing < 0 || provisionalPostIds.contains(id)) {
+            continue;
+        }
+        const int candidate = existing - offset;
+        if (hasExactOverlap && inferredFirst != candidate) {
+            conflictingExactOverlap = true;
+            break;
+        }
+        hasExactOverlap = true;
+        inferredFirst = candidate;
+    }
+    if (hasExactOverlap && !conflictingExactOverlap && inferredFirst < 0) {
+        const int missingPrefix = -inferredFirst;
+        qCDebug(lcTimelineChannel).nospace()
+            << "NAV_CONTEXT_CORRECT_PREFIX channel=" << channel.id
+            << " target=" << targetPostId
+            << " insert=" << missingPrefix
+            << " inferredFirst=" << inferredFirst;
+        rootCountAdjustment += missingPrefix;
+        insertLogicalPrefix(missingPrefix);
+    }
+
+    const int count = static_cast<int>(postIds.size());
+    if (contextCount > count) {
         return false;
     }
 
