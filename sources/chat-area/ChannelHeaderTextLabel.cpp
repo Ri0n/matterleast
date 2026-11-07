@@ -741,7 +741,7 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
                 showPopover();
             }
             break;
-        case QEvent::Leave:
+        case QEvent::Leave: {
             if (isLabel) {
                 cancelPopoverShow();
                 // QLabel's text control can retain its last hovered anchor
@@ -760,6 +760,7 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
             }
             hidePopoverSoon();
             break;
+        }
         case QEvent::Resize:
             if (isLabel && popover && popover->isVisible()) {
                 if (isOverflowing()) {
