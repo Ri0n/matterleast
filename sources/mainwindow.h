@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <QMainWindow>
 #include <QSet>
@@ -92,6 +93,7 @@ private:
 	void setupChannelTabs ();
 	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
+    void refreshTrayIcon();
 	void refreshChannelUnreadFilter ();
 	void applySidebarTextFilter(QTreeWidget* tree) const;
 	void openDirectMessageSearch ();
@@ -137,6 +139,10 @@ private:
 	bool teamChannelsReady = false;
 	QSet<QString> populatedSessionSidebars;
 	bool navigationSessionRestoreScheduled = false;
+    std::uint32_t                     _attentionBadgeCount = 0;
+    std::uint32_t                     _shownAttentionBadgeCount = 0;
+    bool                              _shownChannelUnreadBadge = false;
+    bool                              _trayIconInitialized = false;
 	QMenu*								mainMenu;
 	bool								doDeinit;
 };
