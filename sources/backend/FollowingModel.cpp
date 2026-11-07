@@ -310,11 +310,20 @@ void FollowingModel::noteIncomingForResume(Entry& entry, const BackendPost& post
 void FollowingModel::noteSyntheticMention(BackendChannel& channel,
                                            const BackendPost& post)
 {
-    if (!post.currentUserMentioned || !post.root_id.isEmpty()) {
+    if (!post.currentUserMentioned || post.isOwnPost()
+        || !post.root_id.isEmpty()) {
         return;
     }
     if (channel.type == BackendChannel::directChannel
         || channel.type == BackendChannel::groupChannel) {
+        return;
+    }
+
+    // A cached/late posted event for a post already behind the server read
+    // cursor must not resurrect an Attention entry after reconnect.
+    const uint64_t viewedAt =
+        SidebarService::instance(backend_).channelLastViewedTime(channel.id);
+    if (viewedAt != 0 && post.create_at <= viewedAt) {
         return;
     }
 
