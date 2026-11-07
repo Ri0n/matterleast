@@ -85,6 +85,18 @@ static constexpr const char* UNREAD_MODE_IGNORE_WHILE_FILTERING =
     "sidebar/unreadMode/ignoreWhileFiltering";
 static constexpr bool UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT = true;
 
+// Unread tab source filters. Keep Following's historical queue visible by
+// default, add unread channels, and exclude muted channels unless requested.
+static constexpr const char* UNREAD_VIEW_FOLLOWING =
+    "sidebar/unreadView/following";
+static constexpr bool UNREAD_VIEW_FOLLOWING_DEFAULT = true;
+static constexpr const char* UNREAD_VIEW_CHANNELS =
+    "sidebar/unreadView/channels";
+static constexpr bool UNREAD_VIEW_CHANNELS_DEFAULT = true;
+static constexpr const char* UNREAD_VIEW_MUTED =
+    "sidebar/unreadView/muted";
+static constexpr bool UNREAD_VIEW_MUTED_DEFAULT = false;
+
 // Historical attachment-file cache setting. Keep the key stable for existing
 // installations, but expose it explicitly on the Cache settings tab.
 static constexpr const char* CACHE_SIZE_MB = "config/cacheSizeMB";

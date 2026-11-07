@@ -29,6 +29,7 @@ QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
+class QCheckBox;
 class QEvent;
 class QLineEdit;
 class QSplitter;
@@ -112,6 +113,10 @@ private:
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;
+    QWidget*                            _unreadPage = nullptr;
+    QCheckBox*                          _unreadFollowingCheck = nullptr;
+    QCheckBox*                          _unreadChannelsCheck = nullptr;
+    QCheckBox*                          _unreadMutedCheck = nullptr;
 	QLineEdit*							sidebarFilterEdit = nullptr;
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
     SidebarUpdateBanner*                _updateBanner = nullptr;

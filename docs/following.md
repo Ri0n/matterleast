@@ -9,6 +9,14 @@ Read detection itself is defined separately by
 Following consumes that shared state; it is not allowed to invent a second read
 state machine.
 
+The old **Following** sidebar tab is now labelled **Unread** (issue #277).
+Its **Following** checkbox still projects this exact queue without modifying
+membership or navigation. Its additional **Channels** and **Muted** controls
+are presentation filters described in [Sidebar Unread mode](unread-mode.md).
+The Unread view merges sources by stable channel/thread key; it must not
+overwrite followed-thread entries with channel rows or create a second
+Following/read state owner.
+
 ## Purpose
 
 Following is a queue of conversations and threads the user may want to return to.
@@ -26,7 +34,7 @@ A Following click is **navigation**. It is never proof that a message was read.
 ## Semantic model and ownership
 
 `FollowingModel` is the single semantic owner. `ChannelQuickList` renders
-Following. The view may keep short-lived presentation state (selected key,
+Following inside the Unread tab. The view may keep short-lived presentation state (selected key,
 retained row geometry, last activated key), but must not own unread/resume truth.
 
 Stable row identity is:
@@ -105,18 +113,20 @@ post cannot create a screen-sized tooltip.
 
 ## Ordering
 
-Following sorts unread/attention rows before non-attention rows.
+Inside the Unread tab, Following entries participate in a **three-tier**
+priority order: unread Following first, unread Channels and Muted mixed
+chronologically second, and read Following last. See
+[Sidebar Unread filtering](unread-mode.md#unread-tab-issue-277).
 
-Within each group it sorts by descending semantic activity time:
+Unread Following rows sort by descending `attentionSince` when available,
+otherwise `lastReplyAt`. Read Following rows sort by descending
+`lastReplyAt`. Stable semantic keys break timestamp ties.
 
-- attention rows use `attentionSince` when available, otherwise
-  `lastReplyAt`;
-- read followed threads use `lastReplyAt`;
-- stable semantic key is the final tie breaker.
-
-While a selected row is being retained for visual stability, its previous unread
-position/sort time may also be retained temporarily. This is presentation only:
-it must not keep the semantic entry unread or extend its resume cursor lifetime.
+A selected conversation can remain briefly in the projection after its
+unread state disappears, solely to keep a stable target for activation.
+It then sorts with **read Following** (not with unread entries); retention
+must not preserve its former unread priority or extend its resume cursor.
+Channels/Muted-only entries do not gain Following membership via retention.
 
 ## Resume cursor
 

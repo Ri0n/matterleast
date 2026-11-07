@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <optional>
 
 #include <QMap>
@@ -13,6 +12,7 @@
 #include <QTreeWidget>
 
 #include "backend/FollowingModel.h"
+#include "channel-tree/UnreadProjectionPolicy.h"
 
 class QKeyEvent;
 class QMouseEvent;
@@ -38,6 +38,7 @@ public:
     void refresh();
     void refreshThreads();
     void releaseSelectionRetention();
+    void setUnreadFilters(const UnreadViewFilters& filters);
 
 signals:
     void channelSelected(const QString& channelId);
@@ -58,14 +59,16 @@ private:
     Backend* backend_ = nullptr;
     FollowingModel* model_ = nullptr;
     bool refreshing_ = false;
+    UnreadViewFilters unreadFilters_;
     QMap<QString, QTreeWidgetItem*> channelItems_;
     QSet<QString> connectedUsers_;
 
     QString retainedKey_;
     QString lastActivatedKey_;
     std::optional<FollowingModel::Entry> retainedEntry_;
-    uint64_t retainedSortTime_ = 0;
-    bool retainedUnreadPosition_ = false;
+    // Only entries from Following may remain briefly after they are read.
+    // Channels/Muted-only entries must not become "read Following" rows.
+    bool retainedFromFollowing_ = false;
 };
 
 } // namespace Mattermost
