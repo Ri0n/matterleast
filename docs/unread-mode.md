@@ -22,11 +22,31 @@ For example, Following on + Channels off + Muted on shows the old Following
 queue together with unread muted conversations, without ordinary unmuted
 channels.
 
-The projection is a union ordered by the existing Following unread/activity
-priority. Stable identity is `c:<channelId>` for conversations and
-`t:<threadId>` for threads. When an unread channel is already represented
-by Following (for example, an explicit Mark as unread), it appears **once**;
-the model-backed Following entry wins and retains its existing resume semantics.
+The projection is a union with **three priority groups**, top to bottom:
+
+1. **Unread Following** — unread DMs/GMs, followed threads and synthetic
+   mentions from the shared Following model. This group always comes before
+   ordinary unread channels, regardless of relative timestamps.
+2. **Unread Channels + Muted** — one mixed chronological stream of unread
+   channel-only rows (including the independent Muted source). A newer muted
+   channel sorts above an older unmuted channel, and vice versa.
+3. **Read Following** — already-read followed threads and other read items
+   still owned by Following, after every unread item.
+
+Within a group, sorting is descending by activity timestamp. Following
+unread uses `attentionSince` when available, otherwise `lastReplyAt`;
+read Following uses `lastReplyAt`; channel-only and muted entries use
+`SidebarService::channelActivityTime()`. Equal timestamps break ties by the
+stable semantic key, and unknown timestamps sort last within their group.
+
+Stable identity is `c:<channelId>` for conversations and `t:<threadId>`
+for threads. When an unread channel is already represented by Following
+(for example, an explicit Mark as unread), it appears **once**; the
+model-backed Following entry wins and retains its existing resume semantics.
+A selected Following conversation may remain momentarily after being read
+for click stability, but it belongs to the **read** group, never to the
+unread Following or Channels groups. A read Channels/Muted-only row cannot
+masquerade as read Following through selection retention.
 
 Clicking a Channels-only row asks the server for its unread post and navigates
 to the returned post (falling back to the channel when the server cannot supply
