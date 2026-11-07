@@ -9,6 +9,7 @@
 #include <QFontMetricsF>
 #include <QPainter>
 #include <QRectF>
+#include <QString>
 
 namespace Mattermost {
 
