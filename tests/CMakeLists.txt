@@ -297,6 +297,7 @@ add_executable(sidebar-item-delegate-test
     SidebarItemDelegateTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/channel-tree/ChannelItemDelegate.cpp"
     "${CMAKE_SOURCE_DIR}/sources/ui/IconUtils.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/ui/TrayBadgePainter.cpp"
 )
 
 target_include_directories(sidebar-item-delegate-test
