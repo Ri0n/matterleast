@@ -198,29 +198,32 @@ private slots:
     {
         UnreadViewFilters filters;
         // Only joined public/private channels with server unread state.
-        QVERIFY(includeChannelInUnread(true, true, true, false, filters));
-        QVERIFY(!includeChannelInUnread(false, true, true, false, filters));
-        QVERIFY(!includeChannelInUnread(true, false, true, false, filters));
-        QVERIFY(!includeChannelInUnread(true, true, false, false, filters));
+        QVERIFY(includeChannelInUnread(true, true, true, false, false, filters));
+        QVERIFY(!includeChannelInUnread(false, true, true, false, false, filters));
+        QVERIFY(!includeChannelInUnread(true, false, true, false, false, filters));
+        QVERIFY(!includeChannelInUnread(true, true, false, false, false, filters));
+        // A channel requiring explicit personal attention stays in Following
+        // / Attention, rather than becoming an ordinary Channels row.
+        QVERIFY(!includeChannelInUnread(true, true, true, true, false, filters));
 
         filters.channels = false;
-        QVERIFY(!includeChannelInUnread(true, true, true, false, filters));
+        QVERIFY(!includeChannelInUnread(true, true, true, false, false, filters));
     }
 
     void unreadViewMutedIsOnlyAnInclusionModifier()
     {
         UnreadViewFilters filters;
-        QVERIFY(!includeChannelInUnread(true, true, true, true, filters));
+        QVERIFY(!includeChannelInUnread(true, true, true, false, true, filters));
         filters.muted = true;
-        QVERIFY(includeChannelInUnread(true, true, true, true, filters));
+        QVERIFY(includeChannelInUnread(true, true, true, false, true, filters));
         QVERIFY(includeFollowingInUnread(false, true, filters));
 
         // Muted cannot force read or untracked channels into the list.
-        QVERIFY(!includeChannelInUnread(true, true, false, true, filters));
-        QVERIFY(!includeChannelInUnread(true, false, true, true, filters));
+        QVERIFY(!includeChannelInUnread(true, true, false, false, true, filters));
+        QVERIFY(!includeChannelInUnread(true, false, true, false, true, filters));
         filters.channels = false;
         filters.following = false;
-        QVERIFY(!includeChannelInUnread(true, true, true, true, filters));
+        QVERIFY(!includeChannelInUnread(true, true, true, false, true, filters));
         QVERIFY(!includeFollowingInUnread(true, true, filters));
     }
 
