@@ -518,7 +518,7 @@ private slots:
         // provisional guard. A completed request with an unavailable final
         // row produced the blank tail in the reported trace.
         list.scrollToEnd();
-        const tailMaterialized = [&] {
+        const auto tailMaterialized = [&] {
             const int last = presentation.itemCount() - 1;
             const auto visibleRange = list.visibleRange();
             if (last < 0 || !visibleRange.isValid()
