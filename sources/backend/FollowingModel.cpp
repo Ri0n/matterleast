@@ -120,6 +120,9 @@ FollowingModel::FollowingModel(Backend& backend)
             noteSyntheticMention(*channel, post);
         }
     }
+    // A server mention count may have created a channel-level fallback above.
+    // Remove it if the initial resident post scan located its precise mention.
+    syncConversations();
 
     threadSnapshotDirty_ = true;
     if (!backend_.getStorage().teams.empty()) {
