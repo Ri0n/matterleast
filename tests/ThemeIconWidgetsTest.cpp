@@ -10,6 +10,8 @@
 
 #include "ui/SvgRasterCache.h"
 #include "ui/IconUtils.h"
+#include "ui/TrayBadgePainter.h"
+#include "ui/TrayBadgePolicy.h"
 #include "ui/ThemeIconWidgets.h"
 
 using namespace Mattermost;
@@ -61,6 +63,115 @@ class ThemeIconWidgetsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void trayBadgePriorityAndChannelEligibility()
+    {
+        QVERIFY(trayBadgeKind(0, false) == TrayBadgeKind::None);
+        QVERIFY(trayBadgeKind(0, true) == TrayBadgeKind::ChannelUnread);
+        QVERIFY(trayBadgeKind(1, false) == TrayBadgeKind::Attention);
+        QVERIFY(trayBadgeKind(12, true) == TrayBadgeKind::Attention);
+
+        QVERIFY(isTrayUnreadChannel(true, true, false, true));
+        QVERIFY(!isTrayUnreadChannel(false, true, false, true)); // DM/GM
+        QVERIFY(!isTrayUnreadChannel(true, false, false, true)); // untracked
+        QVERIFY(!isTrayUnreadChannel(true, true, true, true));  // muted
+        QVERIFY(!isTrayUnreadChannel(true, true, false, false)); // read
+    }
+
+    void trayBadgesCutAnActualTransparentHalo()
+    {
+        // A fully opaque synthetic source proves that the ring removes icon
+        // pixels instead of painting an arbitrary light/dark outline.
+        for (int size : {16, 32, 64, 128}) {
+            for (TrayBadgeKind kind :
+                 {TrayBadgeKind::Attention, TrayBadgeKind::ChannelUnread}) {
+                QPixmap pixmap(size, size);
+                const QColor background(50, 75, 90);
+                pixmap.fill(background);
+                TrayBadgePainter::paint(pixmap, kind, 18);
+                const QImage result = pixmap.toImage();
+
+                QCOMPARE(result.pixelColor(0, 0), background);
+                int clearCount = 0;
+                int redCount = 0;
+                int blueCount = 0;
+                // The halo extends to the image edge at tiny 16px sizes.
+                // Scan the whole originally-opaque image; antialiasing can
+                // produce a partially cleared rim rather than a zero-alpha
+                // center pixel at the smallest resolution.
+                for (int y = 0; y < size; ++y) {
+                    for (int x = 0; x < size; ++x) {
+                        const QColor color = result.pixelColor(x, y);
+                        if (color.alpha() < 128) {
+                            ++clearCount;
+                        }
+                        if (color.alpha() > 200 && color.red() > 170
+                            && color.red() > color.blue() + 60) {
+                            ++redCount;
+                        }
+                        if (color.alpha() > 200 && color.blue() > 170
+                            && color.blue() > color.red() + 60) {
+                            ++blueCount;
+                        }
+                    }
+                }
+
+                QVERIFY2(clearCount > 0, qPrintable(
+                    QStringLiteral("No alpha-cutout ring at %1px (kind=%2)")
+                        .arg(size).arg(static_cast<int>(kind))));
+                if (kind == TrayBadgeKind::Attention) {
+                    QVERIFY(redCount > 0);
+                    QCOMPARE(blueCount, 0);
+                } else {
+                    QVERIFY(blueCount > 0);
+                    QCOMPARE(redCount, 0);
+                }
+            }
+        }
+    }
+
+    void trayBadgePainterKeepsLogicalGeometryAtHighDpi()
+    {
+        QPixmap pixmap(128, 128);
+        pixmap.setDevicePixelRatio(2.0);
+        const QColor background(50, 75, 90);
+        pixmap.fill(background);
+        TrayBadgePainter::paint(pixmap, TrayBadgeKind::ChannelUnread);
+        const QImage result = pixmap.toImage();
+
+        QCOMPARE(result.pixelColor(0, 0), background);
+        int cutoutPixels = 0;
+        for (int y = 64; y < result.height(); ++y) {
+            for (int x = 64; x < result.width(); ++x) {
+                if (result.pixelColor(x, y).alpha() == 0) {
+                    ++cutoutPixels;
+                }
+            }
+        }
+        QVERIFY(cutoutPixels > 0);
+    }
+
+    void applicationTrayIconUsesOnlyOneBadge()
+    {
+        const QIcon normal = IconUtils::applicationIcon();
+        const QIcon blue = IconUtils::applicationIcon(0, true);
+        const QIcon red = IconUtils::applicationIcon(4, true);
+        const QIcon redOnly = IconUtils::applicationIcon(4, false);
+        QVERIFY(!normal.isNull());
+        QVERIFY(!blue.isNull());
+        QVERIFY(!red.isNull());
+        QVERIFY(!redOnly.isNull());
+
+        const QImage normalImage = normal.pixmap(64, 64).toImage();
+        const QImage blueImage = blue.pixmap(64, 64).toImage();
+        const QImage redImage = red.pixmap(64, 64).toImage();
+        const QImage redOnlyImage = redOnly.pixmap(64, 64).toImage();
+        QVERIFY(normalImage != blueImage);
+        QVERIFY(blueImage != redImage);
+        // A pending unread channel must never leak a second dot when
+        // personal attention is also present.
+        QCOMPARE(redImage, redOnlyImage);
+    }
+
     void iconsRenderWithoutAnyImageformatPlugins()
     {
         // Reproduce a minimal Debian/Qt installation with no qsvg plugin.

@@ -43,7 +43,8 @@ public:
     // Keep the menu's palette-aware resource path on the QAction itself.
     static void setMenuActionIcon(QAction& action, const QString& path);
     static void refreshMenuActionIcons(QMenu& menu);
-    static QIcon applicationIcon(uint32_t notificationCount = 0);
+    static QIcon applicationIcon(uint32_t notificationCount = 0,
+                                 bool hasUnreadChannel = false);
 };
 
 } // namespace Mattermost

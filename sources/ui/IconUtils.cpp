@@ -21,13 +21,11 @@
 
 #include "IconUtils.h"
 #include "SvgRasterCache.h"
+#include "TrayBadgePainter.h"
 
-#include <algorithm>
 
 #include <QAction>
-#include <QApplication>
 #include <QColor>
-#include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QPainter>
@@ -129,16 +127,14 @@ void IconUtils::refreshMenuActionIcons(QMenu& menu)
     }
 }
 
-QIcon IconUtils::applicationIcon(uint32_t notificationCount)
+QIcon IconUtils::applicationIcon(uint32_t notificationCount,
+                                 bool hasUnreadChannel)
 {
     const QIcon source(QStringLiteral(":/icons/matterleast"));
-    if (notificationCount == 0 || source.isNull()) {
+    const TrayBadgeKind badge = trayBadgeKind(notificationCount, hasUnreadChannel);
+    if (badge == TrayBadgeKind::None || source.isNull()) {
         return source;
     }
-
-    const QString badgeText = notificationCount > 99
-        ? QStringLiteral("99+")
-        : QString::number(notificationCount);
 
     QIcon icon;
     for (int size : {16, 20, 22, 24, 32, 48, 64, 128, 256}) {
@@ -146,28 +142,7 @@ QIcon IconUtils::applicationIcon(uint32_t notificationCount)
         if (pixmap.isNull()) {
             continue;
         }
-
-        const qreal scale = size / 256.0;
-        const qreal badgeHeight = std::max<qreal>(9.0, 80.0 * scale);
-        const qreal horizontalPadding = std::max<qreal>(2.0, 12.0 * scale);
-
-        QFont font = QApplication::font();
-        font.setBold(true);
-        font.setPixelSize(std::max(6, qRound(48.0 * scale)));
-        const QFontMetricsF metrics(font);
-        const qreal badgeWidth = std::max(
-            badgeHeight, metrics.horizontalAdvance(badgeText) + 2.0 * horizontalPadding);
-        const QRectF badgeRect(size - badgeWidth, 0.0, badgeWidth, badgeHeight);
-
-        QPainter painter(&pixmap);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(220, 53, 69));
-        painter.drawRoundedRect(badgeRect, badgeHeight / 2.0, badgeHeight / 2.0);
-
-        painter.setFont(font);
-        painter.setPen(Qt::white);
-        painter.drawText(badgeRect, Qt::AlignCenter, badgeText);
+        TrayBadgePainter::paint(pixmap, badge, notificationCount);
         icon.addPixmap(pixmap);
     }
 

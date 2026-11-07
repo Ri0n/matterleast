@@ -297,6 +297,7 @@ add_executable(sidebar-item-delegate-test
     SidebarItemDelegateTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/channel-tree/ChannelItemDelegate.cpp"
     "${CMAKE_SOURCE_DIR}/sources/ui/IconUtils.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/ui/TrayBadgePainter.cpp"
 )
 
 target_include_directories(sidebar-item-delegate-test
@@ -629,6 +630,7 @@ add_executable(theme-icon-widgets-test
     "${CMAKE_SOURCE_DIR}/sources/ui/ThemeIconWidgets.cpp"
     "${CMAKE_SOURCE_DIR}/sources/ui/BusyIndicator.cpp"
     "${CMAKE_SOURCE_DIR}/sources/ui/IconUtils.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/ui/TrayBadgePainter.cpp"
     "${CMAKE_SOURCE_DIR}/resource.qrc"
 )
 target_include_directories(theme-icon-widgets-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")

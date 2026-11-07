@@ -75,3 +75,45 @@ requested only when the whole application is inactive, and is targeted at the
 main window, not at every top-level dialog or detached thread. Clicking an
 actual desktop notification still activates MatterLeast and navigates to the
 post as an explicit user action.
+
+
+## System tray unread badges (issue #278)
+
+The tray icon is a presentation of existing read/attention state, not a new
+notification trigger and not a second unread counter.
+
+A **single bottom-right badge** is shown, by priority:
+
+1. **Red numeric badge** — `AttentionList` has one or more items requiring
+   personal attention. The existing count and its `99+` cap remain intact.
+2. **Blue dot** — there is no personal attention, but at least one tracked,
+   non-muted public/private channel has unread messages, according to
+   `SidebarService::isChannelUnread()`. DMs/GMs, untracked and muted
+   channels do not independently trigger the blue dot.
+3. **No badge** — neither condition applies.
+
+Red and blue badges are **mutually exclusive**. Both sit at the bottom-right
+of the application icon and have a narrow *transparent cutout* around their
+rounded shape. The cutout uses `QPainter::CompositionMode_Clear` to remove
+alpha from the underlying icon; no tray/panel background color is guessed.
+The badge painter supports multiple icon resolutions and device pixel ratios.
+
+`MainWindow` updates the badge when Attention changes or `SidebarService`
+reports channel activity/membership, read acknowledgement, or category
+changes, including after realtime recovery. Only a change in the badge
+state/count causes `QSystemTrayIcon::setIcon()`. Clearing the red badge
+immediately reveals the blue dot if another unread ordinary channel remains.
+The tray icon resets to the unbadged application icon when the main window
+is destroyed, preventing stale state across logins.
+
+Implementation: `ui/TrayBadgePolicy.h`, `ui/TrayBadgePainter.{h,cpp}`,
+`ui/IconUtils.cpp`, and `MainWindow::refreshTrayIcon()`.
+`ThemeIconWidgetsTest` tests badge priority, eligibility, alpha-cutout,
+red/blue exclusivity and high-DPI rendering. This is independent of the
+desktop notification preference modes described above.
+
+Build integration: the main application discovers the new
+`TrayBadgePainter.cpp` via CMake's recursive source glob. Test targets
+compiling `IconUtils.cpp` directly (currently `theme-icon-widgets-test` and
+`sidebar-item-delegate-test`) must also link `TrayBadgePainter.cpp`.
+Otherwise Qt 5's test executable link fails even though the app builds.
