@@ -2,6 +2,7 @@
 #include <vector>
 
 #include <QJsonObject>
+#include <QScrollBar>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -115,6 +116,22 @@ public:
         emit rangeAvailable(first, last);
     }
 
+    void moveIsland(int first, int last, int destination)
+    {
+        std::vector<Slot> island;
+        for (int index = first; index <= last; ++index) {
+            island.push_back(std::move(slots_[index]));
+            slots_[index] = Slot {};
+        }
+        for (int offset = 0; offset <= last - first; ++offset) {
+            slots_[destination + offset] = std::move(island[offset]);
+        }
+        emit layoutChanged(std::min(first, destination),
+                           std::max(last, destination + last - first));
+    }
+
+    void clearSlot(int index) { slots_[index] = Slot {}; }
+
     void evict(int index)
     {
         QVERIFY(valid(index));
@@ -215,7 +232,7 @@ public:
                 });
         connect(&source_, &AbstractPostSource::layoutChanged,
                 this, [this](int first, int last) {
-                    reconcileItemLayout(first, last);
+                    reconcileItemLayout(first, last, source_.itemCount());
                 });
         connect(&source_, &AbstractPostSource::rangeRequestFinished,
                 this, &LongListWidget::finishRangeRequest);
@@ -233,8 +250,15 @@ public:
     }
 
     QWidget* widgetFor(int index) const { return itemWidget(index); }
+    int destroyed = 0;
 
 protected:
+    void destroyItemWidget(int index, QWidget* widget) override
+    {
+        ++destroyed;
+        LongListWidget::destroyItemWidget(index, widget);
+    }
+
     QWidget* createItemWidget(int index) override
     {
         BackendPost* post = source_.postAt(index);
@@ -275,6 +299,105 @@ class FilteredPostSourceTest : public QObject
     Q_OBJECT
 
 private slots:
+    void remapPreservesWidgetsAndViewport_data()
+    {
+        QTest::addColumn<int>("countDelta");
+        QTest::addColumn<QString>("anchor");
+        for (int delta : {-1, 0, 1}) {
+            for (const char* anchor : {"ordinary", "lock", "bottom", "wheel"}) {
+                const QByteArray name = QByteArray(anchor) + '-' + QByteArray::number(delta);
+                QTest::newRow(name.constData()) << delta << QString::fromLatin1(anchor);
+            }
+        }
+    }
+
+    void remapPreservesWidgetsAndViewport()
+    {
+        QFETCH(int, countDelta);
+        QFETCH(QString, anchor);
+        Backend backend;
+        FakePostSource raw(backend.getStorage(), 100);
+        for (int index = 0; index < 100; ++index) {
+            if (index < 35 || index > 55 || (index >= 40 && index <= 44)) {
+                raw.resolve(index, postId(index),
+                            index == 41 || index == 43 ? QStringLiteral("hide") : QString(),
+                            false);
+            }
+        }
+        FilteredPostSource filtered(raw, [](const BackendPost& post) {
+            return post.type != QStringLiteral("hide");
+        });
+        SourceList list(filtered);
+        list.resize(480, 320);
+        list.show();
+        const QString targetId = postId(42);
+        list.scrollToIndex(filtered.indexOfPost(targetId), LongListWidget::Alignment::Top);
+        settleEvents();
+        QWidget* target = list.widgetFor(filtered.indexOfPost(targetId));
+        QVERIFY(target);
+        if (anchor == "lock") {
+            QVERIFY(list.lockViewportToItem(filtered.indexOfPost(targetId),
+                                            LongListWidget::Alignment::Center, 0));
+        } else if (anchor == "bottom") {
+            list.scrollToEnd();
+        } else if (anchor == "wheel") {
+            list.verticalScrollBar()->triggerAction(QAbstractSlider::SliderSingleStepAdd);
+        }
+        settleEvents();
+        const int y = target->y();
+        const int destroyedBefore = list.destroyed;
+        const int previousCount = filtered.itemCount();
+        QSignalSpy removed(&filtered, &AbstractPostSource::itemsRemoved);
+        QSignalSpy inserted(&filtered, &AbstractPostSource::itemsInserted);
+        QSignalSpy layouts(&filtered, &AbstractPostSource::layoutChanged);
+        if (countDelta < 0) {
+            // A newly fetched hidden row becomes known in the same raw remap.
+            raw.resolve(39, postId(39), QStringLiteral("hide"), false);
+        } else if (countDelta > 0) {
+            // A rejected provisional identity loses its estimated slot.
+            raw.clearSlot(41);
+        }
+        raw.moveIsland(39, 44, 42);
+        settleEvents();
+        QCOMPARE(filtered.itemCount(), previousCount + countDelta);
+        QCOMPARE(list.itemCount(), filtered.itemCount());
+        QCOMPARE(removed.size(), 0);
+        QCOMPARE(inserted.size(), 0);
+        QCOMPARE(layouts.size(), 1);
+        QCOMPARE(list.destroyed, destroyedBefore);
+        QCOMPARE(list.widgetFor(filtered.indexOfPost(targetId)), target);
+        if (anchor == "bottom") {
+            QVERIFY(list.isAtEnd());
+        } else {
+            QVERIFY2(qAbs(target->y() - y) <= 2,
+                     "A raw remap must preserve the semantic anchor and measured geometry");
+        }
+        if (anchor == "lock") {
+            QVERIFY(list.hasViewportLock());
+        }
+    }
+
+    void nestedProjectionRemapUsesTheNewWrappedCount()
+    {
+        Backend backend;
+        FakePostSource raw(backend.getStorage(), 9);
+        for (int index = 1; index <= 5; ++index) {
+            raw.resolve(index, postId(index),
+                        index % 2 == 0 ? QStringLiteral("hide") : QString(), false);
+        }
+        FilteredPostSource inner(raw, [](const BackendPost& post) {
+            return post.type != QStringLiteral("hide");
+        });
+        FilteredPostSource outer(inner, {});
+        QCOMPARE(outer.itemCount(), 7);
+        raw.resolve(0, postId(0), QStringLiteral("hide"), false);
+        raw.moveIsland(0, 5, 1);
+        QCOMPARE(inner.itemCount(), 6);
+        QCOMPARE(outer.itemCount(), inner.itemCount());
+        QCOMPARE(outer.indexOfPost(postId(3)), inner.indexOfPost(postId(3)));
+        QCOMPARE(outer.postIdAt(outer.indexOfPost(postId(3))), postId(3));
+    }
+
     void initiallyResolvedRowsAreRemovedFromProjection()
     {
         Backend backend;

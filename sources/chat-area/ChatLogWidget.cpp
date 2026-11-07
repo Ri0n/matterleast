@@ -1822,7 +1822,7 @@ void ChatLogWidget::reconnectSource()
             << "SOURCE_LAYOUT_CHANGED list=" << static_cast<const void*>(this)
             << " source=" << sourceName(postSource)
             << " range=[" << first << ',' << last << ']';
-        reconcileItemLayout(first, last);
+        reconcileItemLayout(first, last, postSource->itemCount());
         restoreNavigationTarget();
         scheduleAuthorRunRefresh();
         scheduleReadCursorUpdate();

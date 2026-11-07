@@ -38,9 +38,12 @@ qint64 timestamp(int index)
     return 1000000000000LL + index * 1000LL;
 }
 
-QJsonObject rootPost(int index, int ordinaryCount)
+QJsonObject rootPost(int index, int ordinaryCount, bool interleaved = false)
 {
-    const bool hidden = index >= ordinaryCount;
+    // The mixed fixture has 59 ordinary prefix rows and an ordinary row at
+    // every multiple of ten thereafter: 113 counted roots among 600 raw rows.
+    const bool hidden = interleaved ? index >= 59 && index % 10 != 0
+                                    : index >= ordinaryCount;
     return {
         {QStringLiteral("id"), postId(index)},
         {QStringLiteral("channel_id"), QStringLiteral("channel")},
@@ -68,6 +71,8 @@ public:
     QStringList requestUrls;
     bool failNextCursor = false;
     int viewportResponseDelayMs = 0;
+    bool interleaved = false;
+    QHash<int, QJsonObject> postOverrides;
 
     HiddenHistoryServer()
     {
@@ -157,7 +162,8 @@ public:
         QJsonArray order;
         for (int index = last; index >= first; --index) {
             order.append(postId(index));
-            posts.insert(postId(index), rootPost(index, ordinaryCount));
+            posts.insert(postId(index), postOverrides.value(
+                index, rootPost(index, ordinaryCount, interleaved)));
         }
         QString prev = !order.isEmpty() && first > 0 ? postId(first - 1) : QString();
         QString next = !order.isEmpty() && last < total - 1 ? postId(last + 1) : QString();
@@ -213,6 +219,9 @@ public:
         setDefaultItemHeight(40);
         setPrefetchScreens(0);
         setItemCount(source.itemCount());
+        for (int index = 0; index < source.itemCount(); ++index) {
+            if (source.isAvailable(index)) setRangeAvailable(index, index);
+        }
         connect(this, &LongListWidget::rangeRequested, &source,
                 [&source](int first, int last, RequestReason reason, quint64 generation) {
             source.requestRange(first, last,
@@ -222,6 +231,13 @@ public:
                 [this](int first, int count) { insertItems(first, count); });
         connect(&source, &AbstractPostSource::itemsRemoved, this, &LongListWidget::removeItems);
         connect(&source, &AbstractPostSource::itemCountChanged, this, &LongListWidget::setItemCount);
+        connect(&source, &AbstractPostSource::layoutChanged, this, [this](int first, int last) {
+            reconcileItemLayout(first, last, this->source.itemCount());
+        });
+        connect(&source, &AbstractPostSource::bodyAvailabilityChanged, this,
+                [this](int first, int last, bool bodyAvailable) {
+            setRangeAvailable(first, last, bodyAvailable);
+        });
         connect(&source, &AbstractPostSource::rangeAvailable, this, [this](int first, int last) {
             for (int index = first; index <= last; ++index) {
                 setRangeAvailable(index, index, this->source.isAvailable(index));
@@ -236,12 +252,21 @@ public:
     }
 
     QWidget* widgetFor(int index) const { return itemWidget(index); }
+    int created = 0;
+    int destroyed = 0;
 
 protected:
+    void destroyItemWidget(int index, QWidget* widget) override
+    {
+        ++destroyed;
+        LongListWidget::destroyItemWidget(index, widget);
+    }
+
     QWidget* createItemWidget(int index) override
     {
         const BackendPost* post = source.postAt(index);
         if (!post) return nullptr;
+        ++created;
         auto* label = new QLabel(post->id);
         label->setFixedHeight(40);
         return label;
@@ -272,6 +297,213 @@ private slots:
     void initTestCase()
     {
         QStandardPaths::setTestModeEnabled(true);
+    }
+
+    void mixedNavigationStopsLoadingWhenViewportIsSatisfied()
+    {
+        HiddenHistoryServer server;
+        server.ordinaryCount = 113;
+        server.hiddenCount = 487;
+        server.interleaved = true;
+        QVERIFY(server.start());
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("self")},
+            {QStringLiteral("username"), QStringLiteral("self")}
+        }, true);
+        BackendChannel channel(backend.getStorage(), channelJson(113, 487));
+        QJsonArray ids;
+        QJsonObject posts;
+        QStringList context;
+        for (int index = 300; index <= 330; ++index) {
+            ids.append(postId(index));
+            posts.insert(postId(index), rootPost(index, 113, true));
+            context.push_back(postId(index));
+        }
+        channel.mergePostContext(ids, posts);
+        ChannelPostSource raw(backend, channel);
+        QSignalSpy completed(&raw, &AbstractPostSource::rangeRequestFinished);
+        raw.requestRange(108, 112, AbstractPostSource::RequestReason::Initial, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(completed.size(), 1, 5000);
+        QVERIFY(raw.adoptNavigationContext(postId(320), context, false, false));
+
+        FilteredPostSource visible(raw, mainTimelinePost);
+        OutboxPostSource presentation(visible, PendingPostService::instance(backend),
+                                     channel.id, QString());
+        SourceList list(presentation);
+        QSignalSpy demands(&list, &LongListWidget::rangeRequested);
+        QSignalSpy finished(&presentation, &AbstractPostSource::rangeRequestFinished);
+        list.resize(500, 240);
+        list.show();
+        list.scrollToIndex(presentation.indexOfPost(postId(320)), LongListWidget::Alignment::Center);
+        QVERIFY(list.lockViewportToItem(presentation.indexOfPost(postId(320)),
+                                        LongListWidget::Alignment::Center, 0));
+        const auto settled = [&] {
+            if (demands.size() != finished.size()) return false;
+            const auto range = list.visibleRange();
+            if (!range.isValid()) return false;
+            for (int index = range.first; index <= range.last; ++index) {
+                if (!presentation.isAvailable(index) || !list.widgetFor(index)) return false;
+            }
+            const int requests = server.requests;
+            QTest::qWait(100);
+            return server.requests == requests && demands.size() == finished.size();
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(settled(), 5000);
+        qInfo() << "Mixed navigation requests/widgets/destroyed:"
+                << server.requests << list.created << list.destroyed;
+        // Each ten-row cursor page adds only one ordinary row here. Six
+        // viewport rows plus the normal neighbour margin need at most twelve
+        // requests, independent of the distant newest page at raw row 590.
+        QVERIFY2(server.requests <= 12, "Navigation must not drain history outside the viewport/prefetch window");
+        QCOMPARE(list.destroyed, 0);
+        QVERIFY(list.created <= 16);
+        QVERIFY(list.hasViewportLock());
+        QVERIFY(list.widgetFor(presentation.indexOfPost(postId(320))));
+    }
+
+    void reopeningSourceRehydratesEvictedTail()
+    {
+        HiddenHistoryServer server;
+        server.ordinaryCount = 124;
+        server.hiddenCount = 0;
+        QVERIFY(server.start());
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("self")},
+            {QStringLiteral("username"), QStringLiteral("self")}
+        }, true);
+        BackendChannel channel(backend.getStorage(), channelJson(124, 0));
+        ChannelPostSource raw(backend, channel);
+        FilteredPostSource visible(raw, mainTimelinePost);
+        OutboxPostSource presentation(visible, PendingPostService::instance(backend),
+                                     channel.id, QString());
+        {
+            SourceList first(presentation);
+            first.resize(500, 240);
+            first.show();
+            first.scrollToEnd();
+            QTRY_VERIFY_WITH_TIMEOUT(first.widgetFor(presentation.indexOfPost(postId(123))), 5000);
+        }
+        const int tail = raw.indexOfPost(postId(123));
+        QVERIFY(tail >= 0);
+        QVERIFY(channel.evictPostBody(postId(123)));
+        QVERIFY(!raw.isAvailable(tail));
+        const int previousRequests = server.requests;
+        SourceList reopened(presentation);
+        reopened.resize(500, 240);
+        reopened.show();
+        reopened.scrollToEnd();
+        QTRY_VERIFY_WITH_TIMEOUT(reopened.widgetFor(presentation.indexOfPost(postId(123))), 5000);
+        QVERIFY(raw.isAvailable(raw.indexOfPost(postId(123))));
+        QVERIFY(server.requests > previousRequests);
+    }
+
+    void navigationExtensionCanOutgrowTheEntireEstimatedSource()
+    {
+        HiddenHistoryServer server;
+        server.ordinaryCount = 22;
+        server.hiddenCount = 58;
+        // The last ordinary message is in the very cursor page which makes
+        // the accumulated navigation context larger than the entire estimate.
+        server.postOverrides.insert(44, rootPost(44, 80));
+        QVERIFY(server.start());
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("self")},
+            {QStringLiteral("username"), QStringLiteral("self")}
+        }, true);
+        BackendChannel channel(backend.getStorage(), channelJson(40, 40));
+        QJsonArray order;
+        QJsonObject posts;
+        QStringList context;
+        for (int index = 10; index <= 40; ++index) {
+            order.append(postId(index));
+            posts.insert(postId(index), rootPost(index, 22));
+            context.push_back(postId(index));
+        }
+        channel.mergePostContext(order, posts);
+        ChannelPostSource raw(backend, channel);
+        // Unread can point to a filtered membership post, just as in the
+        // uploaded trace. Page-zero validation has no shared identity with
+        // this context and therefore cannot publish its independent tail yet.
+        QVERIFY(raw.adoptNavigationContext(postId(25), context, false, false));
+        const int guardIndex = raw.indexOfPost(postId(40)) + 1;
+        QSignalSpy finished(&raw, &AbstractPostSource::rangeRequestFinished);
+        QSignalSpy inserted(&raw, &AbstractPostSource::itemsInserted);
+        raw.requestRange(guardIndex, guardIndex, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(channel.postIdToPost.contains(postId(44)));
+        QVERIFY2(raw.indexOfPost(postId(44)) >= 0,
+                 "A successfully fetched post must not be dropped when contextCount exceeds itemCount");
+        QCOMPARE(raw.itemCount(), 43); // 41 connected identities + two guards.
+        QCOMPARE(inserted.size(), 1);
+        QCOMPARE(inserted.at(0).at(0).toInt(), 40);
+        QCOMPARE(inserted.at(0).at(1).toInt(), 3);
+        QVERIFY(raw.isAvailable(raw.indexOfPost(postId(44))));
+        QVERIFY(!raw.isPostPositionAuthoritative(postId(44)));
+
+        FilteredPostSource visible(raw, mainTimelinePost);
+        OutboxPostSource presentation(visible, PendingPostService::instance(backend),
+                                     channel.id, QString());
+        SourceList list(presentation);
+        list.resize(500, 240);
+        list.show();
+        list.scrollToEnd();
+        const auto tailMaterialized = [&] {
+            const auto range = list.visibleRange();
+            if (!range.isValid() || range.last != presentation.itemCount() - 1
+                || presentation.postIdAt(range.last) != postId(44)) return false;
+            for (int index = range.first; index <= range.last; ++index) {
+                if (!presentation.isAvailable(index) || !list.widgetFor(index)) return false;
+            }
+            return true;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(tailMaterialized(), 5000);
+        // Reaching newest does not prove oldest. Keep a requestable prefix
+        // instead of silently making post10 look like the start of history.
+        QVERIFY(raw.postIdAt(0).isEmpty());
+        QVERIFY(!raw.isAvailable(0));
+        QCOMPARE(list.destroyed, 0);
+        QVERIFY(server.requests <= 8);
+    }
+
+    void navigationExtensionPublishesOnlyNewSlots()
+    {
+        HiddenHistoryServer server;
+        server.ordinaryCount = 100;
+        server.hiddenCount = 100;
+        QVERIFY(server.start());
+        Backend backend;
+        auto metadata = channelJson(100, 100);
+        metadata.insert(QStringLiteral("create_at"), double(timestamp(0)));
+        BackendChannel channel(backend.getStorage(), metadata);
+        QJsonArray order;
+        QJsonObject posts;
+        QStringList context;
+        for (int index = 40; index <= 70; ++index) {
+            order.append(postId(index));
+            posts.insert(postId(index), rootPost(index, 100));
+            context.push_back(postId(index));
+        }
+        channel.mergePostContext(order, posts);
+        ChannelPostSource raw(backend, channel);
+        QSignalSpy finished(&raw, &AbstractPostSource::rangeRequestFinished);
+        raw.requestRange(95, 99, AbstractPostSource::RequestReason::Initial, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QSignalSpy remapped(&raw, &AbstractPostSource::layoutChanged);
+        QVERIFY(raw.adoptNavigationContext(postId(55), context, false, false));
+        QCOMPARE(remapped.size(), 0);
+        const int targetIndex = raw.indexOfPost(postId(55));
+        const int extensionFirst = raw.indexOfPost(postId(70)) + 1;
+        QSignalSpy available(&raw, &AbstractPostSource::rangeAvailable);
+        raw.requestRange(extensionFirst, extensionFirst, AbstractPostSource::RequestReason::Scroll, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 2, 5000);
+        QCOMPARE(raw.indexOfPost(postId(55)), targetIndex);
+        QCOMPARE(remapped.size(), 0);
+        QCOMPARE(available.size(), 1);
+        QCOMPARE(available.at(0).at(0).toInt(), extensionFirst);
+        QCOMPARE(available.at(0).at(1).toInt(), extensionFirst + 9);
     }
 
     void httpPagination_data()

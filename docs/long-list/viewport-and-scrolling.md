@@ -97,6 +97,12 @@ A geometry change *inside* the visible region cannot keep every row on both side
 visible item grows by 200 pixels, some content must make room for those pixels. The invariant is that
 `LongListWidget` preserves its chosen semantic anchor and introduces no additional artificial jump.
 
+For a genuine semantic remap that also changes a projection's cardinality, use
+`reconcileItemLayout(first, last, newCount)`. It snapshots widgets, measured heights and semantic
+anchors in the old geometry before resizing, then commits the new identities and extent together.
+Calling `setItemCount()` first can discard a surviving widget in the old tail before it moves into
+the shorter projection. This path is not a replacement for ordinary exact insert/remove operations.
+
 Only direct user input or an explicit logical navigation operation changes viewport intent. Sticky
 bottom is exact user intent: only the actual scrollbar maximum captures a `Bottom` anchor. A thumb
 position even one pixel above the maximum is an ordinary item anchor and must not be snapped back to

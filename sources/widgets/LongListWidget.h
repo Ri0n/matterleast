@@ -193,9 +193,10 @@ public:
      * widgets. Subclasses that support arbitrary remaps provide stable semantic
      * identity through itemIdentity()/indexOfItemIdentity(). A widget is kept
      * whenever the same identity still exists and remains available; only its
-     * logical index and geometry change.
+     * logical index and geometry change. If filtering changes cardinality during
+     * a genuine remap, pass the new count to commit it in the same transaction.
      */
-    void reconcileItemLayout(int first, int last);
+    void reconcileItemLayout(int first, int last, int count = -1);
 
     QWidget* itemWidget(int index) const;
     QVector<int> materializedIndices() const;

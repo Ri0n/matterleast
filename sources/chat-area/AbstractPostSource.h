@@ -155,7 +155,10 @@ signals:
 
     /**
      * Identity-to-index mapping changed in this logical span. Existing widgets
-     * representing surviving identities must be moved, never recreated.
+     * representing surviving identities must be moved, never recreated. A
+     * projection may also change itemCount() as part of this atomic remap;
+     * consumers must reconcile the new count together with identities, rather
+     * than resizing/removing rows before retaining their widgets.
      */
     void layoutChanged(int first, int last);
 
