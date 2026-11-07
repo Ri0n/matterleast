@@ -34,11 +34,20 @@ PostEvent::PostEvent (const QJsonObject& data, const QJsonObject& broadcast)
 ,postObject (QJsonDocument::fromJson (data.value ("post").toString().toUtf8()).object())
 ,set_online (data.value("set_online").toBool())
 {
-    // Mattermost adds `mentions` to a posted websocket event only for a
-    // recipient who was actually mentioned. Keep that recipient-specific bit
-    // on the local post so notification/UI code does not need to parse text.
-    postObject.insert(QStringLiteral("_mmqt_current_user_mentioned"),
-                      !data.value(QStringLiteral("mentions")).toString().isEmpty());
+    // Mattermost serializes "mentions" as a JSON-encoded list of user IDs.
+    // Even the empty list is a nonempty string ("[]"). The list may contain
+    // another user but not the current account: decide recipient membership
+    // later in WebSocketEventHandler where the logged-in user ID is available.
+    const QJsonValue mentions = data.value(QStringLiteral("mentions"));
+    if (mentions.isArray()) {
+        mentionedUserIds = mentions.toArray();
+    } else if (mentions.isString()) {
+        const QJsonDocument parsed = QJsonDocument::fromJson(
+            mentions.toString().toUtf8());
+        if (parsed.isArray()) {
+            mentionedUserIds = parsed.array();
+        }
+    }
 
     // `sender_name` lives next to the serialized post in websocket events, not
     // inside the Post object itself. Preserve it as transient client metadata
