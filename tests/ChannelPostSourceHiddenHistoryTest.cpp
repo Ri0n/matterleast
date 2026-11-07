@@ -512,6 +512,28 @@ private slots:
         list.scrollToIndex(targetIndex, LongListWidget::Alignment::Center);
         QTRY_VERIFY_WITH_TIMEOUT(
             list.widgetFor(presentation.indexOfPost(postId(15))), 5000);
+
+        // After navigating an older unread context, going to the bottom must
+        // keep walking past hidden system roots and replace the unresolved
+        // provisional guard. A completed request with an unavailable final
+        // row produced the blank tail in the reported trace.
+        list.scrollToEnd();
+        const tailMaterialized = [&] {
+            const int last = presentation.itemCount() - 1;
+            const auto visibleRange = list.visibleRange();
+            if (last < 0 || !visibleRange.isValid()
+                || visibleRange.last != last
+                || presentation.postIdAt(last) != postId(21)) {
+                return false;
+            }
+            for (int index = visibleRange.first; index <= visibleRange.last; ++index) {
+                if (!presentation.isAvailable(index) || !list.widgetFor(index)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(tailMaterialized(), 10000);
     }
 
     void viewportLoadsPastHiddenPages_data()
