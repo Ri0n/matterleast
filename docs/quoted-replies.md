@@ -64,7 +64,11 @@ viewport layout during a parent resize (notably on Qt 5.15). As in Psi's
 height; invalidate the clone when the formatted content changes. The clone is
 not used for painting or selection. This keeps the **Show more…** decision
 independent from stale intermediate viewport geometry, including when the chat
-is narrowed and then widened again.
+is narrowed and then widened again. Fractional glyph heights on Qt 5 can make
+a two-line document one pixel taller than two integer `QFontMetrics::lineSpacing()`
+values. The overflow check allows up to one rounding pixel per permitted
+line and displays that small remainder at full height, rather than falsely
+showing **Show more…** for content that fits the line limit.
 
 When rendering a post, `PostWidget` first looks for `mattermost_qt_reply_to_post_id` in `props`. If the referenced post is already materialized in the channel it is rendered immediately. Otherwise the exact post is loaded through `PostRepository::loadPost()` and the preview is inserted after retrieval.
 
