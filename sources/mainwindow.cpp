@@ -445,6 +445,9 @@ void MainWindow::setupChannelTabs()
             _unreadChannelsCheck->isChecked(),
             _unreadMutedCheck->isChecked()
         });
+        // Changing a source must not briefly reveal rows excluded by an
+        // already-active sidebar text filter.
+        applySidebarTextFilter(recentChannels);
     };
     connect(_unreadFollowingCheck, &QCheckBox::toggled, this,
             [unreadPreferences, applyUnreadFilters](bool checked) {
