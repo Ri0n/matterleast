@@ -366,26 +366,41 @@ void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange
     host.show();
     QTest::qWait(10);
 
-    // A title supplied by Qt's HTML exporter must not become a lingering
-    // tooltip over empty space or after switching to a different channel.
-    const auto setLink = [&label] {
-        label.QLabel::setText(QStringLiteral(
-            "<a href=\"https://example.com/first\" "
-            "title=\"https://example.com/first\">Link</a>"));
-    };
-
-    setLink();
-    QTest::mouseMove(&label, QPoint(12, label.height() / 2));
-    QTRY_COMPARE(label.toolTip(), QStringLiteral("https://example.com/first"));
+    const QString url = QStringLiteral("https://example.com/first");
+    // QLabel does not always re-emit linkHovered when returning straight to
+    // the same link after a Leave event. The widget must preserve the link's
+    // tooltip for that re-entry, even without a new linkHovered notification.
+    label.QLabel::setText(QStringLiteral(
+        "<a href=\"https://example.com/first\" "
+        "title=\"https://example.com/first\">Link</a>"));
+    QSignalSpy hovered(&label, &QLabel::linkHovered);
+    const QPoint linkPoint(12, label.height() / 2);
+    QTest::mouseMove(&label, linkPoint);
+    QTRY_COMPARE(label.toolTip(), url);
 
     QEvent leave(QEvent::Leave);
     QApplication::sendEvent(&label, &leave);
-    QVERIFY(label.toolTip().isEmpty());
+    QCOMPARE(label.toolTip(), url);
 
-    // Reset the Qt text-control hover state before re-entering.
+    // Re-enter directly over the same link, without first moving across
+    // non-link text (which would reset QLabel's internal hover state).
+    QTest::mouseMove(&label, linkPoint);
+    QCOMPARE(label.toolTip(), url);
+    QHelpEvent help(QEvent::ToolTip, linkPoint, label.mapToGlobal(linkPoint));
+    QApplication::sendEvent(&label, &help);
+    QTRY_COMPARE(QToolTip::text(), url);
+    QToolTip::hideText();
+
+    // Moving within the label to non-link text still clears the tooltip.
     QTest::mouseMove(&label, QPoint(480, label.height() / 2));
-    QTest::mouseMove(&label, QPoint(12, label.height() / 2));
-    QTRY_COMPARE(label.toolTip(), QStringLiteral("https://example.com/first"));
+    QTRY_VERIFY(label.toolTip().isEmpty());
+
+    // Moving back onto the link must restore it after a real hover change.
+    QTest::mouseMove(&label, linkPoint);
+    QTRY_COMPARE(label.toolTip(), url);
+    QVERIFY(hovered.count() >= 2);
+
+    // Switching channels also clears any old URL tooltip.
     label.setText(QStringLiteral("Another channel topic"));
     QVERIFY(label.toolTip().isEmpty());
 }
