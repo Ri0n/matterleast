@@ -23,14 +23,18 @@ inline bool includeFollowingInUnread(bool isThread, bool muted,
 }
 
 inline bool includeChannelInUnread(bool isPublicOrPrivate, bool tracked,
-                                   bool unread, bool mentioned, bool muted,
+                                   bool unread, bool muted,
                                    const UnreadViewFilters& filters)
 {
-    // Muted is an independent unread source, including muted DMs/GMs.
-    // Unmuted DMs/GMs and personal mentions belong only to Following.
+    // Unread ownership comes from SidebarService, as in the Channels tree.
+    // Mentions are separate Following thread/post rows, not necessarily a
+    // Following conversation: filtering a mentioned channel here would hide
+    // its other unread messages even while Channels still marks it unread.
+    // The caller deduplicates c:<channelId> against Following conversations.
+    // Muted remains an independent source, including muted DMs/GMs.
     if (!tracked || !unread) return false;
     if (muted) return filters.muted;
-    return filters.channels && isPublicOrPrivate && !mentioned;
+    return filters.channels && isPublicOrPrivate;
 }
 
 // Display priority is determined by the source, not by whether a channel is
