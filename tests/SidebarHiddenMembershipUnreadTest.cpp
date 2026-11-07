@@ -15,6 +15,9 @@
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
+#include "backend/FollowingModel.h"
+#include "channel-tree/ChannelQuickList.h"
+#include "channel-tree/SidebarItem.h"
 
 using namespace Mattermost;
 
@@ -200,6 +203,78 @@ private slots:
         QVERIFY(checkpointSucceeded);
         QTRY_COMPARE(server.viewRequests, 2);
         QCOMPARE(sidebar.channelLastViewedTime(channel->id), uint64_t(2000));
+    }
+
+    void mentionedChannelRemainsInUnreadProjectionWhileUnread()
+    {
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+
+        auto& sidebar = SidebarService::instance(backend);
+        SidebarCategory category;
+        category.id = QStringLiteral("joined");
+        category.teamId = QStringLiteral("team");
+        category.type = QStringLiteral("channels");
+        category.channelIds << channel->id;
+        SidebarTeamState state;
+        state.categories.insert(category.id, category);
+        state.order << category.id;
+        sidebar.applyLocalTeamState(category.teamId, state);
+
+        ChannelQuickList unread;
+        unread.initialize(backend);
+        auto countRows = [&unread, channel](bool thread) {
+            int count = 0;
+            for (int i = 0; i < unread.topLevelItemCount(); ++i) {
+                const auto* item = unread.topLevelItem(i);
+                if (item->data(0, SidebarItem::ChannelIdRole).toString() == channel->id
+                    && (item->data(0, SidebarItem::KindRole).toInt()
+                        == (thread ? SidebarItem::Thread : SidebarItem::Channel))) {
+                    ++count;
+                }
+            }
+            return count;
+        };
+
+        QCOMPARE(countRows(false), 0);
+        // A normal unread message makes the Channels row bold and adds the
+        // corresponding Unread row via the same SidebarService authority.
+        publish(backend, *channel, QString(), QStringLiteral("other"), 1000);
+        QVERIFY(sidebar.isChannelTracked(channel->id));
+        QVERIFY(sidebar.isChannelUnread(*channel));
+        QCOMPARE(countRows(false), 1);
+
+        // A mention creates a separate synthetic Following post, keyed by
+        // t:<postId>, not a c:<channelId> Following conversation. It must not
+        // suppress the still-unread channel's own row.
+        publish(backend, *channel, QString(), QStringLiteral("other"), 2000, true);
+        QVERIFY(sidebar.hasUnreadMention(channel->id));
+        QVERIFY(sidebar.isChannelUnread(*channel));
+        QCOMPARE(countRows(false), 1);
+        QCOMPARE(countRows(true), 1);
+
+        // Clicking/acknowledging that particular mention removes its
+        // Following post, not the unrelated unread channel conversation.
+        FollowingModel::instance(backend).acknowledgeVisibleSyntheticMention(
+            channel->id, QStringLiteral("post-2000"));
+        QCOMPARE(countRows(true), 0);
+        QCOMPARE(countRows(false), 1);
+        QVERIFY(sidebar.isChannelUnread(*channel));
+
+        // Showing just Channels must not require an active Following entry.
+        UnreadViewFilters filters;
+        filters.following = false;
+        unread.setUnreadFilters(filters);
+        QCOMPARE(countRows(false), 1);
+        QCOMPARE(countRows(true), 0);
+
+        filters.channels = false;
+        unread.setUnreadFilters(filters);
+        QCOMPARE(countRows(false), 0);
+        filters.channels = true;
+        unread.setUnreadFilters(filters);
+        QCOMPARE(countRows(false), 1);
     }
 
     void meaningfulSystemChangeIsNotSuppressed()
