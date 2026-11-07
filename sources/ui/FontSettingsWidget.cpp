@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include <QDoubleSpinBox>
+#include <QSpinBox>
 #include <QFontComboBox>
 #include <QFontInfo>
 #include <QGridLayout>
@@ -34,26 +34,27 @@ FontSettingsWidget::FontSettingsWidget(const QVector<Entry>& fonts, QWidget* par
         family->setCurrentFont(*state);
         label->setBuddy(family);
 
-        auto* size = new QDoubleSpinBox(this);
+        auto* size = new QSpinBox(this);
         size->setObjectName(entry.id + QStringLiteral("FontSize"));
         const qreal pointSize = state->pointSizeF() > 0
             ? state->pointSizeF() : QFontInfo(*state).pointSizeF();
         // Keep imported sizes representable even outside the usual slider range.
-        size->setRange(qMin(8.0, pointSize > 0 ? pointSize : 8.0),
-                       qMax(30.0, pointSize));
-        size->setDecimals(1);
+        const int initialSize = qRound(pointSize > 0 ? pointSize : 10.0);
+        size->setRange(qMin(8, initialSize), qMax(30, initialSize));
         size->setSuffix(tr(" pt"));
         size->setKeyboardTracking(false);
-        size->setValue(pointSize > 0 ? pointSize : 10.0);
+        size->setValue(initialSize);
+        // Keep the font state consistent with the integer shown in the editor.
+        state->setPointSize(initialSize);
         size->setAccessibleName(tr("%1 font size").arg(entry.label));
 
         auto* slider = new QSlider(Qt::Horizontal, this);
         slider->setObjectName(entry.id + QStringLiteral("FontSizeSlider"));
-        slider->setRange(qFloor(size->minimum()), qCeil(size->maximum()));
+        slider->setRange(size->minimum(), size->maximum());
         slider->setPageStep(2);
         slider->setMinimumWidth(60);
         slider->setMaximumWidth(120);
-        slider->setValue(qRound(size->value()));
+        slider->setValue(size->value());
         slider->setAccessibleName(size->accessibleName());
 
         grid->addWidget(label, row, 0);
@@ -67,14 +68,14 @@ FontSettingsWidget::FontSettingsWidget(const QVector<Entry>& fonts, QWidget* par
             state->setFamily(selected.family());
             emit fontChanged(id, state->toString());
         });
-        connect(size, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-                [this, state, slider, id = entry.id](double points) {
+        connect(size, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this, state, slider, id = entry.id](int points) {
             const QSignalBlocker blocker(slider);
-            slider->setValue(qRound(points));
-            state->setPointSizeF(points);
+            slider->setValue(points);
+            state->setPointSize(points);
             emit fontChanged(id, state->toString());
         });
-        connect(slider, &QSlider::valueChanged, size, &QDoubleSpinBox::setValue);
+        connect(slider, &QSlider::valueChanged, size, &QSpinBox::setValue);
     }
 }
 
