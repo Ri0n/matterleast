@@ -11,7 +11,7 @@ three compact, independently persisted checkboxes directly above the list:
 | Checkbox | Default | Meaning |
 | --- | --- | --- |
 | **Following** | On | Existing `FollowingModel` queue, including unread DMs/GMs, explicitly followed threads even when read, and synthetic root mentions. Its sorting, thread navigation, read/resume cursors and selection retention remain unchanged. |
-| **Channels** | On | Additional public/private channels that are joined/tracked and currently unread according to `SidebarService`. No new persistent Following membership or read cursor is created. DMs/GMs are not introduced by this source. |
+| **Channels** | On | Additional public/private channels that are joined/tracked and currently unread **without an outstanding personal mention** according to `SidebarService`. No new persistent Following membership or read cursor is created. DMs/GMs are not introduced by this source. |
 | **Muted** | Off | Allows muted unread channel entries into the Channels source and muted conversation entries already provided by Following. The old explicit-followed-thread exception remains unchanged. This is an inclusion modifier, not an independent source of rows. |
 
 The checkboxes are stored in `MLOptions` under
