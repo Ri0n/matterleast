@@ -111,3 +111,9 @@ Implementation: `ui/TrayBadgePolicy.h`, `ui/TrayBadgePainter.{h,cpp}`,
 `ThemeIconWidgetsTest` tests badge priority, eligibility, alpha-cutout,
 red/blue exclusivity and high-DPI rendering. This is independent of the
 desktop notification preference modes described above.
+
+Build integration: the main application discovers the new
+`TrayBadgePainter.cpp` via CMake's recursive source glob. Test targets
+compiling `IconUtils.cpp` directly (currently `theme-icon-widgets-test` and
+`sidebar-item-delegate-test`) must also link `TrayBadgePainter.cpp`.
+Otherwise Qt 5's test executable link fails even though the app builds.
