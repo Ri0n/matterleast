@@ -94,10 +94,14 @@ private slots:
                 int clearCount = 0;
                 int redCount = 0;
                 int blueCount = 0;
-                for (int y = size / 3; y < size; ++y) {
-                    for (int x = size / 3; x < size; ++x) {
+                // The halo extends to the image edge at tiny 16px sizes.
+                // Scan the whole originally-opaque image; antialiasing can
+                // produce a partially cleared rim rather than a zero-alpha
+                // center pixel at the smallest resolution.
+                for (int y = 0; y < size; ++y) {
+                    for (int x = 0; x < size; ++x) {
                         const QColor color = result.pixelColor(x, y);
-                        if (color.alpha() == 0) {
+                        if (color.alpha() < 128) {
                             ++clearCount;
                         }
                         if (color.alpha() > 200 && color.red() > 170
@@ -111,7 +115,9 @@ private slots:
                     }
                 }
 
-                QVERIFY2(clearCount > 0, "Tray badge has no alpha-cutout ring");
+                QVERIFY2(clearCount > 0, qPrintable(
+                    QStringLiteral("No alpha-cutout ring at %1px (kind=%2)")
+                        .arg(size).arg(static_cast<int>(kind))));
                 if (kind == TrayBadgeKind::Attention) {
                     QVERIFY(redCount > 0);
                     QCOMPARE(blueCount, 0);
