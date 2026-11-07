@@ -276,16 +276,11 @@ bool ChannelHeaderTextLabel::isOverflowing() const
         return true;
     }
 
-    QTextDocument document;
-    document.setDefaultFont(font());
-    document.setDocumentMargin(0);
-    document.setHtml(formattedText);
-
-    if (document.blockCount() > 1) {
-        return true;
-    }
-
-    return std::ceil(document.idealWidth()) > std::max(1, width() - 4);
+    // QLabel already owns the parsed rich-text document and measures its
+    // unwrapped natural width in QLabel::sizeHint(). Our override deliberately
+    // reports zero width to the parent layout, so call the base class here.
+    // Keep the existing small overflow tolerance for clipped glyph edges.
+    return QLabel::sizeHint().width() > std::max(1, width() - 4);
 }
 
 void ChannelHeaderTextLabel::ensurePopover()
