@@ -272,6 +272,35 @@ private slots:
         send(QStringLiteral("invalid-mentions"),
              QStringLiteral("not json"), false);
         send(QStringLiteral("missing-mentions"), QJsonValue(), false);
+
+        // A real mention in a post already behind the read watermark is
+        // still recipient-specific, but does not create fresh Attention.
+        SidebarService::instance(backend).applyServerChannelViewed(*channel, 2000);
+        const auto sendAlreadyRead = [&](const QString& postId,
+                                         const QString& authorId,
+                                         double createAt) {
+            const QJsonObject post {
+                {"id", postId}, {"channel_id", channel->id},
+                {"user_id", authorId}, {"root_id", ""},
+                {"create_at", createAt}, {"message", "@self"},
+            };
+            const QJsonObject data {
+                {"post", QString::fromUtf8(
+                     QJsonDocument(post).toJson(QJsonDocument::Compact))},
+                {"mentions", QStringLiteral("[\\"self\\"]")},
+            };
+            const int before = delivered;
+            handler.handleEvent(PostEvent(data, broadcast));
+            QCOMPARE(delivered, before + 1);
+            QVERIFY(observedMention);
+            QVERIFY(!following.findThread(postId));
+        };
+        sendAlreadyRead(QStringLiteral("late-old-post"),
+                        QStringLiteral("other"), 1500);
+        // Self-authored posts must not create Attention even when metadata
+        // somehow includes the current account in its recipients.
+        sendAlreadyRead(QStringLiteral("own-post"),
+                        QStringLiteral("self"), 3000);
     }
 
     void unknownMentionCountDoesNotInventAttentionNavigation()
