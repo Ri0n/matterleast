@@ -275,6 +275,12 @@ private slots:
         filters.channels = true;
         unread.setUnreadFilters(filters);
         QCOMPARE(countRows(false), 1);
+
+        // The row must disappear when the shared read authority actually
+        // acknowledges the channel, not when a single mention is opened.
+        sidebar.markChannelViewedLocally(*channel);
+        QVERIFY(!sidebar.isChannelUnread(*channel));
+        QCOMPARE(countRows(false), 0);
     }
 
     void meaningfulSystemChangeIsNotSuppressed()
