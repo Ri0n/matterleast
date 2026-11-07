@@ -259,6 +259,20 @@ Once the containing channel is genuinely acknowledged as viewed, local model
 reconciliation removes the synthetic mention without requiring a full followed-
 thread refetch.
 
+If the server's unread mention count is known but the exact mentioned post is
+not resident (for example after reconnect), Following/Attention instead shows
+a **channel-level mention fallback**. It is projected directly from
+`SidebarService::hasUnreadMention()`, not from a second unread counter or cursor.
+When the exact root post arrives, the synthetic entry replaces the fallback.
+This fallback is needed because an unread channel can have an outstanding
+mention without any concrete `FollowingModel` post entry.
+
+Unread's Channels source remains independent of that attention representation.
+It keeps the channel while `SidebarService::isChannelUnread()` is true, whether
+or not a mention is known. A thread reply only affects the parent channel's
+unread state in the legacy all-post-count domain; with CRT enabled and root
+counters available, reply unread and mentions remain in the thread domain.
+
 ## Invariants for future changes
 
 Do not add a second read state machine around navigation. In particular:
