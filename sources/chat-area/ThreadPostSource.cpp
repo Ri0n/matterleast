@@ -317,7 +317,8 @@ bool ThreadPostSource::isPostReadyForNavigation(const QString& postId) const
 {
     const auto* context = islandForPost(postId);
     return isAvailable(indexOfPost(postId))
-        && (isPostPositionAuthoritative(postId) || (context && context->ready));
+        && (isPostPositionAuthoritative(postId) || (context && context->ready)
+            || cachedNavigationReadyIds.contains(postId));
 }
 
 bool ThreadPostSource::placeIsland(Island next, int exactFirst, int reservedFirst, int reservedLast)
@@ -1297,6 +1298,13 @@ void ThreadPostSource::hydrateCachedTail()
             // tail can release the estimated target while its identities stay
             // provisional until the background server validation succeeds.
             const auto cachedTarget = guard->navigationPlacement.acceptCachedTail(first, ids);
+            if (cachedTarget.isValid()) {
+                // Show/highlight the restored target immediately. Its cached
+                // identity is proven by the persisted suffix but its current
+                // ordinal remains provisional until the live response arrives.
+                guard->cachedNavigationReadyIds.insert(
+                    ids.at(cachedTarget.authoritativeIndex - first));
+            }
             for (const QString& id : ids) {
                 if (guard->indexOfPost(id) < 0) {
                     guard->provisionalPostIds.insert(id);
@@ -1416,6 +1424,15 @@ void ThreadPostSource::pruneProvisionalPostIds()
     for (auto it = provisionalPostIds.begin(); it != provisionalPostIds.end();) {
         if (indexOfPost(*it) < 0) {
             it = provisionalPostIds.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // A conflicting live page may have displaced a cached target. Never keep
+    // that old identity marked as presentation-ready after it left the map.
+    for (auto it = cachedNavigationReadyIds.begin(); it != cachedNavigationReadyIds.end();) {
+        if (indexOfPost(*it) < 0) {
+            it = cachedNavigationReadyIds.erase(it);
         } else {
             ++it;
         }
