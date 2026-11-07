@@ -3,7 +3,7 @@
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
 #include <QHelpEvent>
-#include <QEnterEvent>
+#include <QEvent>
 #include <QSignalSpy>
 #include <QToolTip>
 #include <QLayout>
