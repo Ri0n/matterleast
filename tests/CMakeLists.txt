@@ -509,6 +509,21 @@ target_link_libraries(post-page-cursor-metadata-test
 
 add_test(NAME post-page-cursor-metadata-test COMMAND post-page-cursor-metadata-test)
 
+# Test the application startup's default Qt log format without requiring the
+# full GUI or replacing Qt's native platform message handler.
+add_executable(logging-configuration-test
+    LoggingConfigurationTest.cpp
+)
+target_include_directories(logging-configuration-test
+    PRIVATE "${CMAKE_SOURCE_DIR}/sources"
+)
+target_link_libraries(logging-configuration-test
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME logging-configuration-test COMMAND logging-configuration-test)
+
 add_executable(thread-navigation-placement-test
     ThreadNavigationPlacementTest.cpp
 )
