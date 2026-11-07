@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <optional>
 
 #include <QMap>
@@ -67,8 +66,9 @@ private:
     QString retainedKey_;
     QString lastActivatedKey_;
     std::optional<FollowingModel::Entry> retainedEntry_;
-    uint64_t retainedSortTime_ = 0;
-    bool retainedUnreadPosition_ = false;
+    // Only entries from Following may remain briefly after they are read.
+    // Channels/Muted-only entries must not become "read Following" rows.
+    bool retainedFromFollowing_ = false;
 };
 
 } // namespace Mattermost
