@@ -285,6 +285,7 @@ void LongListWidget::setItemCount(int count)
 
     const int oldCount = logicalCount;
     logicalCount = count;
+    if (count == 0) endIntentWhenUnscrollable = false;
     lastSynchronizedViewportRange = {};
     heights.resize(count, defaultHeight);
     measured.resize(count);
@@ -1132,6 +1133,7 @@ void LongListWidget::scrollToIndex(int index, Alignment alignment)
     }
 
     stopScrollAnimation();
+    endIntentWhenUnscrollable = false;
 
     if (hasViewportLock() && viewportLock.index != index) {
         releaseViewportLock(true);
@@ -1153,6 +1155,9 @@ void LongListWidget::scrollToIndex(int index, Alignment alignment)
 void LongListWidget::scrollToEnd()
 {
     stopScrollAnimation();
+    // A short estimated list can fit until its rich-text rows settle. Retain
+    // explicit end intent even though setting the scrollbar to zero is a no-op.
+    endIntentWhenUnscrollable = true;
     if (hasViewportLock()) {
         releaseViewportLock(true);
     }
@@ -1861,7 +1866,8 @@ LongListWidget::ViewAnchor LongListWidget::captureAnchor() const
     }
 
     const qint64 offset = contentOffset();
-    if (verticalScrollBar()->maximum() > verticalScrollBar()->minimum()
+    if ((verticalScrollBar()->maximum() > verticalScrollBar()->minimum()
+         || endIntentWhenUnscrollable)
         && verticalScrollBar()->value() == verticalScrollBar()->maximum()) {
         anchor.kind = ViewAnchor::Bottom;
         return anchor;
@@ -1879,6 +1885,7 @@ LongListWidget::ViewAnchor LongListWidget::captureAnchor() const
 
 void LongListWidget::restoreAnchor(const ViewAnchor& anchor)
 {
+    endIntentWhenUnscrollable = anchor.kind == ViewAnchor::Bottom;
     qint64 offset = contentOffset();
     if (anchor.kind == ViewAnchor::Bottom) {
         offset = maximumContentOffset();
@@ -1973,6 +1980,7 @@ void LongListWidget::releaseViewportLock(bool notify)
 void LongListWidget::noteUserScrollStarted()
 {
     stopScrollAnimation();
+    endIntentWhenUnscrollable = false;
     releaseViewportLock(true);
     // A new viewport consumes only progress observed after this gesture.
     observedAvailabilityRevision = availabilityRevision;

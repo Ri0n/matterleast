@@ -1000,6 +1000,59 @@ private slots:
         QCOMPARE(requests.count(), 0);
     }
 
+    void openingShortEstimatedListKeepsNewestVisibleAfterMaterialization()
+    {
+        // Recreate the presentation on each visit, as opening a cold/inactive
+        // chat does. Its estimates fit, but the penultimate post does not.
+        for (int visit = 0; visit < 2; ++visit) {
+            TestLongListWidget list;
+            list.resize(480, 320);
+            list.setDefaultItemHeight(40);
+            list.setItemCount(5);
+            list.setDeferredFactoryHeight(3, 90, 5000);
+            list.setRangeAvailable(0, 4);
+            list.scrollToEnd();
+            list.show();
+            settleEvents(12);
+
+            QVERIFY(list.isAtEnd());
+            QVERIFY(list.itemWidget(4));
+            QVERIFY(list.itemWidget(4)->geometry().top() >= 0);
+            QVERIFY(list.itemWidget(4)->geometry().bottom() < list.viewport()->height());
+        }
+    }
+
+    void endIntentSurvivesInitiallyUnscrollableGeometry()
+    {
+        TestLongListWidget list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(40);
+        list.setItemCount(5);
+        list.setRangeAvailable(0, 4);
+        list.show();
+        settleEvents();
+        QCOMPARE(list.verticalScrollBar()->maximum(), 0);
+        list.scrollToEnd();
+        list.setSyntheticHeight(3, 5000);
+        settleEvents(12);
+
+        QVERIFY(list.verticalScrollBar()->maximum() > 0);
+        QVERIFY(list.isAtEnd());
+        QVERIFY(list.itemWidget(4));
+        QVERIFY(list.itemWidget(4)->geometry().bottom() < list.viewport()->height());
+
+        // Explicit navigation to the start supersedes the earlier end intent,
+        // including while every row fits again.
+        list.setSyntheticHeight(3, 40);
+        settleEvents();
+        QCOMPARE(list.verticalScrollBar()->maximum(), 0);
+        list.scrollToIndex(0, Mattermost::LongListWidget::Alignment::Top);
+        list.setSyntheticHeight(3, 5000);
+        settleEvents(12);
+        QCOMPARE(list.verticalScrollBar()->value(), 0);
+        QVERIFY(!list.isAtEnd());
+    }
+
     void delayedRowGrowthKeepsStickyBottom()
     {
         TestLongListWidget list;
