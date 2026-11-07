@@ -159,6 +159,13 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
     connect(this, &QLabel::linkActivated, this, [this](const QString& href) {
         openLink(QUrl(href));
     });
+    // Unlike QTextBrowser, QLabel does not forward rich-text title/toolTip
+    // attributes to QWidget's tooltip system. Its text control already knows
+    // which anchor is under the mouse and exposes it through linkHovered.
+    // Reuse that hit testing rather than re-parsing HTML or tracking pixels.
+    connect(this, &QLabel::linkHovered, this, [this](const QString& href) {
+        setToolTip(href);
+    });
     _showTimer.setSingleShot(true);
     _showTimer.setInterval(std::clamp(
         style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay, nullptr, this),
@@ -175,6 +182,9 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
 
 void ChannelHeaderTextLabel::setText(const QString& text)
 {
+    // Do not keep the URL tooltip from a previously hovered link after the
+    // content changes (e.g. the user switches to another channel).
+    setToolTip(QString());
     ensureEmojiRegistry();
     // A direct-message presence is presentation state, not channel header text.
     // Route it to the avatar badge so we use the same AvatarUtils visual as the
@@ -733,6 +743,9 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
         case QEvent::Leave:
             if (isLabel) {
                 cancelPopoverShow();
+                // linkHovered("") is normally emitted on mouse movement,
+                // but a direct leave can bypass a final mouse-move event.
+                setToolTip(QString());
             }
             hidePopoverSoon();
             break;
