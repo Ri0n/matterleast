@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <algorithm>
+
 #include "backend/ChannelUnreadPostSelection.h"
 #include "channel-tree/AttentionActivationPolicy.h"
 #include "channel-tree/FollowingActivationPolicy.h"
@@ -230,6 +232,64 @@ private slots:
         QVERIFY(includeChannelInUnread(false, true, true, true, true, filters));
         QVERIFY(!includeChannelInUnread(true, true, true, false, false, filters));
         QVERIFY(!includeFollowingInUnread(true, true, filters));
+    }
+
+    void unreadViewSortsFollowingBeforeChannelsAndReadThreadsLast()
+    {
+        // The newest unread channel must not jump over an unread Following
+        // thread. Muted and ordinary channels must interleave by timestamp.
+        QVector<UnreadSortKey> keys {
+            {unreadSortGroup(true, false), 9000, QStringLiteral("read-following")},
+            {unreadSortGroup(false, true), 6000, QStringLiteral("channel-new")},
+            {unreadSortGroup(false, true), 8000, QStringLiteral("muted-new")},
+            {unreadSortGroup(true, true), 2000, QStringLiteral("following-old")},
+            {unreadSortGroup(false, true), 4000, QStringLiteral("muted-old")},
+            {unreadSortGroup(true, true), 3000, QStringLiteral("following-new")},
+            {unreadSortGroup(true, false), 10000, QStringLiteral("read-following-new")}
+        };
+        std::sort(keys.begin(), keys.end(), unreadSortBefore);
+
+        QStringList ordered;
+        for (const UnreadSortKey& key : keys) {
+            ordered << key.identity;
+        }
+        QCOMPARE(ordered, (QStringList {
+            QStringLiteral("following-new"),
+            QStringLiteral("following-old"),
+            QStringLiteral("muted-new"),
+            QStringLiteral("channel-new"),
+            QStringLiteral("muted-old"),
+            QStringLiteral("read-following-new"),
+            QStringLiteral("read-following")
+        }));
+    }
+
+    void unreadViewSortTiesAreStableAndSourceDriven()
+    {
+        const auto followedUnread = unreadSortGroup(true, true);
+        const auto channelUnread = unreadSortGroup(false, true);
+        const auto followedRead = unreadSortGroup(true, false);
+        QCOMPARE(static_cast<int>(followedUnread),
+                 static_cast<int>(UnreadSortGroup::UnreadFollowing));
+        QCOMPARE(static_cast<int>(channelUnread),
+                 static_cast<int>(UnreadSortGroup::UnreadChannel));
+        QCOMPARE(static_cast<int>(followedRead),
+                 static_cast<int>(UnreadSortGroup::ReadFollowing));
+
+        const UnreadSortKey a {channelUnread, 4000, QStringLiteral("c:a")};
+        const UnreadSortKey b {channelUnread, 4000, QStringLiteral("c:b")};
+        QVERIFY(unreadSortBefore(a, b));
+        QVERIFY(!unreadSortBefore(b, a));
+        QVERIFY(!unreadSortBefore(a, a));
+
+        // The group is authoritative even if a read followed thread has a
+        // more recent timestamp than every currently unread channel.
+        QVERIFY(unreadSortBefore(
+            {channelUnread, 1, QStringLiteral("channel")},
+            {followedRead, 999999, QStringLiteral("thread")}));
+        QVERIFY(unreadSortBefore(
+            {followedUnread, 1, QStringLiteral("thread")},
+            {channelUnread, 999999, QStringLiteral("muted")}));
     }
 
     void mutedAttentionKeepsExplicitlyFollowedThreads()
