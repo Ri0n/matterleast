@@ -65,10 +65,10 @@ class ThemeIconWidgetsTest : public QObject
 private slots:
     void trayBadgePriorityAndChannelEligibility()
     {
-        QCOMPARE(trayBadgeKind(0, false), TrayBadgeKind::None);
-        QCOMPARE(trayBadgeKind(0, true), TrayBadgeKind::ChannelUnread);
-        QCOMPARE(trayBadgeKind(1, false), TrayBadgeKind::Attention);
-        QCOMPARE(trayBadgeKind(12, true), TrayBadgeKind::Attention);
+        QVERIFY(trayBadgeKind(0, false) == TrayBadgeKind::None);
+        QVERIFY(trayBadgeKind(0, true) == TrayBadgeKind::ChannelUnread);
+        QVERIFY(trayBadgeKind(1, false) == TrayBadgeKind::Attention);
+        QVERIFY(trayBadgeKind(12, true) == TrayBadgeKind::Attention);
 
         QVERIFY(isTrayUnreadChannel(true, true, false, true));
         QVERIFY(!isTrayUnreadChannel(false, true, false, true)); // DM/GM
