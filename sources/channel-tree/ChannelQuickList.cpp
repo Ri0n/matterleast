@@ -158,7 +158,8 @@ void ChannelQuickList::mousePressEvent(QMouseEvent* event)
                     navigation.openThreadInTab(entry->channelId, entry->threadId);
                 }
             } else {
-                navigation.openChannelInTab(entry->channelId);
+                // Channels-only rows have no FollowingModel entry.
+                navigation.openChannelInTab(channelId);
             }
             event->accept();
             return;
