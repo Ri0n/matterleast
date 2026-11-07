@@ -70,6 +70,7 @@ jobs:
           test "$(qmake6 -query QT_VERSION)" = 6.8.2
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
+            -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
             "-DMATTERLEAST_DEBIAN_EXTRA_DEPENDS=libqt6svg6, qt6-svg-plugins"
           cmake --build build --parallel 4
@@ -131,6 +132,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DQT_6=ON
+          -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON
           -DBUILD_MULTIMEDIA=ON
           -DBUILD_TESTING=ON
           -DMATTERLEAST_ENABLE_AI=ON
@@ -174,6 +176,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DQT_6=OFF
+          -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON
           -DMATTERLEAST_ENABLE_AI=ON
           -DBUILD_TESTING=ON
           -DWARNINGS_AS_ERRORS=ON
