@@ -1532,13 +1532,51 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
     const QStringList ids = uniqueChronological(chronologicalIds);
     const int targetOffset = ids.indexOf(targetPostId);
     const int contextCount = static_cast<int>(ids.size());
-    const int count = static_cast<int>(postIds.size());
-    if (targetOffset < 0 || contextCount <= 0 || contextCount > count) {
+    if (targetOffset < 0 || contextCount <= 0) {
         return false;
     }
 
     BackendPost* target = channel.postIdToPost.value(targetPostId, nullptr);
     if (!target || target->hidden || !target->root_id.isEmpty()) {
+        return false;
+    }
+
+    // The root message counter is not an absolute /posts row count: system
+    // roots may be omitted. A cursor extension can overlap a known exact post
+    // at a lower logical index than its offset in the server context. That
+    // negative inferred first is proof of a missing *prefix*, not a corrupt
+    // server overlap. Insert only the proven deficit before accepting the
+    // context; do not shift unrelated exact identities independently.
+    bool hasExactOverlap = false;
+    bool conflictingExactOverlap = false;
+    int inferredFirst = 0;
+    for (int offset = 0; offset < contextCount; ++offset) {
+        const QString& id = ids.at(offset);
+        const int existing = postIndexes.value(id, -1);
+        if (existing < 0 || provisionalPostIds.contains(id)) {
+            continue;
+        }
+        const int candidate = existing - offset;
+        if (hasExactOverlap && inferredFirst != candidate) {
+            conflictingExactOverlap = true;
+            break;
+        }
+        hasExactOverlap = true;
+        inferredFirst = candidate;
+    }
+    if (hasExactOverlap && !conflictingExactOverlap && inferredFirst < 0) {
+        const int missingPrefix = -inferredFirst;
+        qCDebug(lcTimelineChannel).nospace()
+            << "NAV_CONTEXT_CORRECT_PREFIX channel=" << channel.id
+            << " target=" << targetPostId
+            << " insert=" << missingPrefix
+            << " inferredFirst=" << inferredFirst;
+        rootCountAdjustment += missingPrefix;
+        insertLogicalPrefix(missingPrefix);
+    }
+
+    const int count = static_cast<int>(postIds.size());
+    if (contextCount > count) {
         return false;
     }
 
@@ -1550,7 +1588,7 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
         return true;
     }
 
-    const ProvisionalWindow oldWindow = provisionalWindow;
+    ProvisionalWindow oldWindow = provisionalWindow;
     const int oldTargetIndex = oldWindow.isValid() && oldWindow.targetPostId == targetPostId
         ? indexOfPost(targetPostId) : -1;
 
@@ -1628,8 +1666,89 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
             reachedOldest, reachedNewest);
         const int guardedCount = contextCount + guards.left + guards.right;
         const int guardedPreferredFirst = preferredFirst - guards.left;
-        const int guardedFirst = findFreeWindowFirst(
+        int guardedFirst = findFreeWindowFirst(
             next, guardedCount, guardedPreferredFirst);
+        if (guardedFirst < 0) {
+            // total_msg_count_root excludes some system posts (join/leave),
+            // whereas the server cursor context contains all of them. The
+            // current sparse count can therefore be smaller than the number
+            // of real rows needed between two exact islands. Never drop the
+            // fetched context or overwrite authoritative identities: enlarge
+            // a chronologically compatible empty run by only the missing
+            // number of slots, keeping its unknown-side guard positions.
+            const BackendPost* firstPost =
+                channel.postIdToPost.value(ids.first(), nullptr);
+            const BackendPost* lastPost =
+                channel.postIdToPost.value(ids.last(), nullptr);
+            int bestEnd = -1;
+            int bestMissing = std::numeric_limits<int>::max();
+            int bestDistance = std::numeric_limits<int>::max();
+            if (firstPost && lastPost) {
+                for (int runFirst = 0; runFirst <= next.size();) {
+                    int runEnd = runFirst;
+                    while (runEnd < next.size() && next.at(runEnd).isEmpty()) {
+                        ++runEnd;
+                    }
+                    const QString& predecessorId = runFirst > 0
+                        ? next.at(runFirst - 1) : QString();
+                    const QString& successorId = runEnd < next.size()
+                        ? next.at(runEnd) : QString();
+                    const BackendPost* predecessor =
+                        channel.postIdToPost.value(predecessorId, nullptr);
+                    const BackendPost* successor =
+                        channel.postIdToPost.value(successorId, nullptr);
+                    const bool ordered = (!predecessor
+                        || predecessor->create_at <= firstPost->create_at)
+                        && (!successor
+                            || successor->create_at >= lastPost->create_at);
+                    // Inserting inside an existing provisional island would
+                    // split its postIds but leave its interval contiguous.
+                    const bool splitsOldWindow = oldWindow.isValid()
+                        && runEnd > oldWindow.first
+                        && runEnd <= oldWindow.last();
+                    if (ordered && !splitsOldWindow) {
+                        const int missing = std::max(
+                            0, guardedCount - (runEnd - runFirst));
+                        const int distance = std::abs(
+                            guardedPreferredFirst - runFirst);
+                        if (missing < bestMissing
+                            || (missing == bestMissing
+                                && distance < bestDistance)) {
+                            bestEnd = runEnd;
+                            bestMissing = missing;
+                            bestDistance = distance;
+                        }
+                    }
+                    runFirst = runEnd < next.size() ? runEnd + 1
+                                                    : next.size() + 1;
+                }
+            }
+            if (bestEnd >= 0 && bestMissing > 0) {
+                if (provisionalWindow.isValid()
+                    && bestEnd <= provisionalWindow.first) {
+                    provisionalWindow.first += bestMissing;
+                    oldWindow.first += bestMissing;
+                }
+                rootCountAdjustment += bestMissing;
+                insertEmptyLogicalSlots(bestEnd, bestMissing);
+                next = postIds;
+                for (int index = 0; index < next.size(); ++index) {
+                    if (provisionalPostIds.contains(next.at(index))) {
+                        next[index].clear();
+                    }
+                }
+                const int adjustedPreferred = guardedPreferredFirst
+                    + (bestEnd <= guardedPreferredFirst ? bestMissing : 0);
+                guardedFirst = findFreeWindowFirst(
+                    next, guardedCount, adjustedPreferred);
+                qCDebug(lcTimelineChannel).nospace()
+                    << "NAV_CONTEXT_RESERVE channel=" << channel.id
+                    << " target=" << targetPostId
+                    << " at=" << bestEnd
+                    << " count=" << bestMissing
+                    << " resultFirst=" << guardedFirst;
+            }
+        }
         if (guardedFirst < 0) {
             qCWarning(lcTimelineChannel)
                 << "no free guarded provisional context span"

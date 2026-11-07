@@ -248,33 +248,48 @@ void FilteredPostSource::applyRejectedSourceIndices(const QVector<int>& target)
         }
     }
 
-    // Remove from the highest source coordinate first. This keeps every lower
-    // filtered index stable while each signal is delivered.
+    // Remove from highest to lowest source coordinate. Consecutive hidden
+    // system posts form one contiguous projection mutation; sending dozens of
+    // single-row removals makes LongList restore its viewport anchor dozens of
+    // times during the same HTTP response.
     std::sort(newlyRejected.begin(), newlyRejected.end(), std::greater<int>());
-    for (int sourceIndex : std::as_const(newlyRejected)) {
-        const int filteredIndex = filteredIndexForSource(sourceIndex);
-        auto it = std::lower_bound(rejectedSourceIndices.begin(),
-                                   rejectedSourceIndices.end(),
-                                   sourceIndex);
-        rejectedSourceIndices.insert(
-            static_cast<int>(std::distance(rejectedSourceIndices.begin(), it)),
-            sourceIndex);
-        if (filteredIndex >= 0) {
-            emit itemsRemoved(filteredIndex, 1);
+    for (int offset = 0; offset < newlyRejected.size();) {
+        const int highest = newlyRejected.at(offset++);
+        int lowest = highest;
+        while (offset < newlyRejected.size()
+               && newlyRejected.at(offset) == lowest - 1) {
+            lowest = newlyRejected.at(offset++);
+        }
+        const int filteredFirst = filteredIndexForSource(lowest);
+        for (int index = lowest; index <= highest; ++index) {
+            auto it = std::lower_bound(rejectedSourceIndices.begin(),
+                                       rejectedSourceIndices.end(), index);
+            rejectedSourceIndices.insert(
+                static_cast<int>(std::distance(rejectedSourceIndices.begin(), it)), index);
+        }
+        if (filteredFirst >= 0) {
+            emit itemsRemoved(filteredFirst, highest - lowest + 1);
         }
     }
 
-    // Reinsert from low to high for the symmetric reason.
+    // Symmetric low-to-high batches preserve filtered indices of other rows.
     std::sort(newlyVisible.begin(), newlyVisible.end());
-    for (int sourceIndex : std::as_const(newlyVisible)) {
-        auto it = std::lower_bound(rejectedSourceIndices.begin(),
-                                   rejectedSourceIndices.end(),
-                                   sourceIndex);
-        if (it == rejectedSourceIndices.end() || *it != sourceIndex) {
-            continue;
+    for (int offset = 0; offset < newlyVisible.size();) {
+        const int lowest = newlyVisible.at(offset++);
+        int highest = lowest;
+        while (offset < newlyVisible.size()
+               && newlyVisible.at(offset) == highest + 1) {
+            highest = newlyVisible.at(offset++);
         }
-        rejectedSourceIndices.erase(it);
-        emit itemsInserted(filteredInsertionIndexForSource(sourceIndex), 1);
+        for (int index = lowest; index <= highest; ++index) {
+            auto it = std::lower_bound(rejectedSourceIndices.begin(),
+                                       rejectedSourceIndices.end(), index);
+            if (it != rejectedSourceIndices.end() && *it == index) {
+                rejectedSourceIndices.erase(it);
+            }
+        }
+        emit itemsInserted(filteredInsertionIndexForSource(lowest),
+                           highest - lowest + 1);
     }
 
     // Defensive normalization in case a future producer delivers duplicated or
