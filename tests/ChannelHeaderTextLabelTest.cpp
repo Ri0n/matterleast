@@ -327,8 +327,8 @@ void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
     // on Qt 5 / early Qt 6 builds with different Markdown feature support.
     // All normal topic links use that same internal QLabel text control.
     label.QLabel::setText(
-        QStringLiteral("<a href=\\\"https://example.com/docs?x=1&amp;y=2\\\" "
-                       "title=\\\"https://example.com/docs?x=1&amp;y=2\\\">"
+        QStringLiteral("<a href=\"https://example.com/docs?x=1&amp;y=2\" "
+                       "title=\"https://example.com/docs?x=1&amp;y=2\">"
                        "Documentation</a> and plain text"));
     label.setGeometry(20, 20, 500, label.sizeHint().height());
     QSignalSpy hoverSpy(&label, &QLabel::linkHovered);
@@ -365,8 +365,8 @@ void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange
     // tooltip over empty space or after switching to a different channel.
     const auto setLink = [&label] {
         label.QLabel::setText(QStringLiteral(
-            "<a href=\\\"https://example.com/first\\\" "
-            "title=\\\"https://example.com/first\\\">Link</a>"));
+            "<a href=\"https://example.com/first\" "
+            "title=\"https://example.com/first\">Link</a>"));
     };
 
     setLink();
