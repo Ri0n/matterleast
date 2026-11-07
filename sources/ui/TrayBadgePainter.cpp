@@ -7,6 +7,7 @@
 #include <QColor>
 #include <QFont>
 #include <QFontMetricsF>
+#include <QImage>
 #include <QPainter>
 #include <QRectF>
 #include <QString>
@@ -18,6 +19,17 @@ void TrayBadgePainter::paint(QPixmap& pixmap, TrayBadgeKind kind,
 {
     if (pixmap.isNull() || kind == TrayBadgeKind::None) {
         return;
+    }
+
+    // Some platform icon engines return an opaque RGB pixmap. CompositionMode
+    // Clear cannot cut transparency from that native pixel format, so ensure
+    // a real alpha channel before applying the halo.
+    if (!pixmap.hasAlphaChannel()) {
+        const qreal originalDpr = pixmap.devicePixelRatioF();
+        const QImage alphaImage = pixmap.toImage().convertToFormat(
+            QImage::Format_ARGB32_Premultiplied);
+        pixmap = QPixmap::fromImage(alphaImage, Qt::NoOpaqueDetection);
+        pixmap.setDevicePixelRatio(originalDpr);
     }
 
     const qreal dpr = pixmap.devicePixelRatioF();
