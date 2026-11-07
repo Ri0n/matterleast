@@ -15,7 +15,6 @@
 #include <QMouseEvent>
 #include <QPointer>
 #include <QShowEvent>
-#include <QTabWidget>
 #include <QTimer>
 #include <QVariant>
 #include <QVector>
@@ -103,25 +102,22 @@ void ChannelQuickList::initialize(Backend& backend, Mode)
     backend_ = &backend;
     model_ = &FollowingModel::instance(backend);
 
-    if (auto* tabs = qobject_cast<QTabWidget*>(parentWidget())) {
-        const int index = tabs->indexOf(this);
-        if (index >= 0) {
-            tabs->setTabText(index, tr("Following"));
-            tabs->setTabToolTip(index,
-                                tr("Unread direct messages and followed threads"));
-        }
-        connect(tabs, &QTabWidget::currentChanged, this,
-                [this, tabs](int currentIndex) {
-            if (tabs->widget(currentIndex) != this) {
-                releaseSelectionRetention();
-            }
-        });
-    }
-
     connect(model_, &FollowingModel::changed,
             this, &ChannelQuickList::refresh);
     refresh();
     model_->ensureThreadsFresh();
+}
+
+void ChannelQuickList::setUnreadFilters(const UnreadViewFilters& filters)
+{
+    if (unreadFilters_.following == filters.following
+        && unreadFilters_.channels == filters.channels
+        && unreadFilters_.muted == filters.muted) {
+        return;
+    }
+    releaseSelectionRetention();
+    unreadFilters_ = filters;
+    refresh();
 }
 
 void ChannelQuickList::keyPressEvent(QKeyEvent* event)
@@ -153,9 +149,9 @@ void ChannelQuickList::mousePressEvent(QMouseEvent* event)
             pressedItem->data(0, SidebarItem::ThreadIdRole).toString();
         const FollowingModel::Entry* entry =
             model_->findEntry(channelId, threadId);
-        if (entry) {
+        if (entry || (threadId.isEmpty() && !channelId.isEmpty())) {
             auto& navigation = AppNavigationService::instance(*backend_);
-            if (entry->isThread()) {
+            if (entry && entry->isThread()) {
                 if (entry->synthetic) {
                     navigation.openPostInTab(entry->threadId);
                 } else {
@@ -217,6 +213,28 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
         && retainedEntry_->threadId == threadId) {
         entry = &*retainedEntry_;
     }
+    // Public/private unread channels are projections of SidebarService,
+    // not synthetic FollowingModel entries. Keep an ephemeral selection
+    // snapshot for click stability, without creating a second read cursor.
+    if (!entry && threadId.isEmpty() && unreadFilters_.channels) {
+        BackendChannel* channel = backend_->getStorage().getChannelById(channelId);
+        auto& sidebar = SidebarService::instance(*backend_);
+        if (channel && includeChannelInUnread(
+                channel->type == BackendChannel::publicChannel
+                    || channel->type == BackendChannel::privateChannel,
+                sidebar.isChannelTracked(channelId),
+                sidebar.isChannelUnread(*channel),
+                sidebar.isChannelMuted(*channel), unreadFilters_)) {
+            FollowingModel::Entry ephemeral;
+            ephemeral.kind = FollowingModel::Kind::Conversation;
+            ephemeral.channelId = channelId;
+            ephemeral.unread = true;
+            ephemeral.muted = sidebar.isChannelMuted(*channel);
+            ephemeral.lastReplyAt = sidebar.channelActivityTime(*channel);
+            retainedEntry_ = std::move(ephemeral);
+            entry = &*retainedEntry_;
+        }
+    }
     if (!entry) {
         return;
     }
@@ -241,6 +259,32 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
             currentChannel ? currentChannel->id : QString(),
             repeatedActivation)) {
         AppNavigationService::instance(*backend_).openChannel(channelId);
+        return;
+    }
+
+    if (!modelEntry) {
+        // A Channels-source row has no FollowingModel resume cursor. Resolve
+        // the server's unread boundary without inventing model membership.
+        QPointer<ChannelQuickList> guard(this);
+        const QString requestedKey = key;
+        const bool rootsOnly = SidebarService::instance(*backend_)
+                                   .usesRootUnreadCounts(*channel);
+        backend_->retrieveChannelUnreadPost(
+            *channel, [guard, channelId, requestedKey](const QString& postId) {
+                if (!guard || !guard->backend_
+                    || guard->retainedKey_ != requestedKey
+                    || guard->lastActivatedKey_ != requestedKey) {
+                    return;
+                }
+                BackendChannel* currentChannel =
+                    guard->backend_->getStorage().getChannelById(channelId);
+                if (!currentChannel) return;
+                if (!postId.isEmpty()) {
+                    AppNavigationService::instance(*guard->backend_).openPost(postId);
+                } else {
+                    AppNavigationService::instance(*guard->backend_).openChannel(channelId);
+                }
+            }, rootsOnly);
         return;
     }
 
@@ -373,8 +417,9 @@ void ChannelQuickList::refresh()
 
     QVector<Candidate> candidates;
     const uint64_t fallbackNow = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
+    QSet<QString> projectedKeys;
     for (const FollowingModel::Entry& entry : model_->entries()) {
-        if (!entry.isThread() && entry.muted) {
+        if (!includeFollowingInUnread(entry.isThread(), entry.muted, unreadFilters_)) {
             continue;
         }
         if (entry.isThread() && !backend_->getStorage().getChannelById(entry.channelId)) {
@@ -396,6 +441,42 @@ void ChannelQuickList::refresh()
         } else {
             candidate.sortTime = entry.lastReplyAt;
         }
+        projectedKeys.insert(candidate.key);
+        candidates.push_back(std::move(candidate));
+    }
+
+    // Public/private channels are a separate unread projection. Only joined
+    // and tracked channels are included; DM/GM and thread semantics remain
+    // exclusively owned by the existing FollowingModel.
+    auto& sidebar = SidebarService::instance(*backend_);
+    for (auto it = backend_->getStorage().channels.cbegin();
+         it != backend_->getStorage().channels.cend(); ++it) {
+        BackendChannel* channel = it.value();
+        if (!channel || channel->delete_at != 0) continue;
+        if (!includeChannelInUnread(
+                channel->type == BackendChannel::publicChannel
+                    || channel->type == BackendChannel::privateChannel,
+                sidebar.isChannelTracked(channel->id),
+                sidebar.isChannelUnread(*channel),
+                sidebar.isChannelMuted(*channel), unreadFilters_)) {
+            continue;
+        }
+        const QString key = QStringLiteral("c:") + channel->id;
+        if (projectedKeys.contains(key)) continue;
+
+        Candidate candidate;
+        candidate.entry.kind = FollowingModel::Kind::Conversation;
+        candidate.entry.channelId = channel->id;
+        candidate.entry.teamId = channel->team ? channel->team->id : QString();
+        candidate.entry.unread = true;
+        candidate.entry.mentioned = sidebar.hasUnreadMention(channel->id);
+        candidate.entry.muted = sidebar.isChannelMuted(*channel);
+        candidate.entry.lastReplyAt = sidebar.channelActivityTime(*channel);
+        candidate.key = key;
+        candidate.sortAsUnread = true;
+        candidate.sortTime = candidate.entry.lastReplyAt != 0
+            ? candidate.entry.lastReplyAt : fallbackNow;
+        projectedKeys.insert(key);
         candidates.push_back(std::move(candidate));
     }
 
@@ -417,7 +498,7 @@ void ChannelQuickList::refresh()
         const bool muted = channel
             ? SidebarService::instance(*backend_).isChannelMuted(*channel)
             : true;
-        if (!present && channel && !muted) {
+        if (!present && channel && (!muted || unreadFilters_.muted)) {
             Candidate candidate;
             candidate.entry = *retainedEntry_;
             candidate.entry.unread = false;
