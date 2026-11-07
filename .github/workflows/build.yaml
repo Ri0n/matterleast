@@ -326,9 +326,26 @@ jobs:
           }
           exit $testExit
 
+      - name: Channel header rich-text regression (captured first run)
+        shell: pwsh
+        run: |
+          # GUI-subsystem QtTest executables have no CTest assertion output
+          # on Windows. Capture the first run so hover/layout failures are
+          # actionable instead of reporting only "***Failed".
+          $log = Join-Path $PWD 'channel-header-first-run.txt'
+          & ./build/tests/channel-header-text-label-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce a channel header log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
         # Tests above already ran exactly once with visible QtTest assertions.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test|channel-member-invite-test)$"
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test|channel-member-invite-test|channel-header-text-label-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh

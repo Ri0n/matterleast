@@ -159,6 +159,19 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
     connect(this, &QLabel::linkActivated, this, [this](const QString& href) {
         openLink(QUrl(href));
     });
+    // Unlike QTextBrowser, QLabel does not forward rich-text title/toolTip
+    // attributes to QWidget's tooltip system. Its text control already knows
+    // which anchor is under the mouse and exposes it through linkHovered.
+    // Reuse that hit testing rather than re-parsing HTML or tracking pixels.
+    connect(this, &QLabel::linkHovered, this, [this](const QString& href) {
+        // QLabel may suppress a repeated linkHovered for the same href after
+        // leave/re-enter. Cache the href independently from the QWidget
+        // tooltip, which Qt may clear during Leave processing.
+        // A linkHovered("") event during Leave must not forget the link.
+        if (!href.isEmpty() || _pointerOverLabel)
+            _hoveredLinkHref = href;
+        setToolTip(href);
+    });
     _showTimer.setSingleShot(true);
     _showTimer.setInterval(std::clamp(
         style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay, nullptr, this),
@@ -175,6 +188,10 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
 
 void ChannelHeaderTextLabel::setText(const QString& text)
 {
+    // Do not keep the URL tooltip from a previously hovered link after the
+    // content changes (e.g. the user switches to another channel).
+    _hoveredLinkHref.clear();
+    setToolTip(QString());
     ensureEmojiRegistry();
     // A direct-message presence is presentation state, not channel header text.
     // Route it to the avatar badge so we use the same AvatarUtils visual as the
@@ -276,16 +293,11 @@ bool ChannelHeaderTextLabel::isOverflowing() const
         return true;
     }
 
-    QTextDocument document;
-    document.setDefaultFont(font());
-    document.setDocumentMargin(0);
-    document.setHtml(formattedText);
-
-    if (document.blockCount() > 1) {
-        return true;
-    }
-
-    return std::ceil(document.idealWidth()) > std::max(1, width() - 4);
+    // QLabel already owns the parsed rich-text document and measures its
+    // unwrapped natural width in QLabel::sizeHint(). Our override deliberately
+    // reports zero width to the parent layout, so call the base class here.
+    // Keep the existing small overflow tolerance for clipped glyph edges.
+    return QLabel::sizeHint().width() > std::max(1, width() - 4);
 }
 
 void ChannelHeaderTextLabel::ensurePopover()
@@ -725,6 +737,11 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
         case QEvent::Enter:
             hideTimer.stop();
             if (isLabel) {
+                _pointerOverLabel = true;
+                // Re-entry over the same link need not emit linkHovered anew.
+                // The next mouse move over plain text clears it normally.
+                if (!_hoveredLinkHref.isEmpty())
+                    setToolTip(_hoveredLinkHref);
                 if (popover && popover->isVisible()) {
                     // Returning while collapsing should revive it immediately.
                     showPopover();
@@ -737,7 +754,9 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
             break;
         case QEvent::Leave:
             if (isLabel) {
+                _pointerOverLabel = false;
                 cancelPopoverShow();
+                setToolTip(QString());
             }
             hidePopoverSoon();
             break;

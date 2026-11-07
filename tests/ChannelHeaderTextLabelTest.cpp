@@ -2,6 +2,10 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
+#include <QHelpEvent>
+#include <QEvent>
+#include <QSignalSpy>
+#include <QToolTip>
 #include <QLayout>
 #include <QMetaObject>
 #include <QPlainTextEdit>
@@ -46,6 +50,12 @@ private slots:
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
     void collapsedMarkdownLinksKeepTargetTooltips();
+    void collapsedLabelShowsHoveredLinkTooltip();
+    void collapsedLabelClearsTooltipOnLeaveAndTextChange();
+    void nativeWidthExpandsOnlyWhenTextDoesNotFit();
+    void nativeWidthIncludesLabelMarginsAndIndent();
+    void newlineExpandsEvenWhenTextFits();
+    void replacingLongTopicWithShortTopicUpdatesOverflow();
 };
 
 void ChannelHeaderTextLabelTest::hoverOpensOnlyAfterTooltipDwell()
@@ -305,6 +315,194 @@ void ChannelHeaderTextLabelTest::collapsedMarkdownLinksKeepTargetTooltips()
 #else
     QSKIP("Markdown rendering test requires Qt 6.10");
 #endif
+}
+
+void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
+{
+    QWidget host;
+    host.resize(800, 240);
+    ChannelHeaderTextLabel label(&host);
+    const QString url = QStringLiteral("https://example.com/docs?x=1&y=2");
+
+    // Verify the full Markdown-to-QLabel path on the modern renderer.
+    // Older Qt versions use an explicit HTML anchor to exercise QLabel's
+    // hover implementation independently of their Markdown feature set.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    label.setText(QStringLiteral(
+        "[Documentation](https://example.com/docs?x=1&y=2) and plain text"));
+#else
+    label.QLabel::setText(
+        QStringLiteral("<a href=\"https://example.com/docs?x=1&amp;y=2\" "
+                       "title=\"https://example.com/docs?x=1&amp;y=2\">"
+                       "Documentation</a> and plain text"));
+#endif
+    label.setGeometry(20, 20, 500, label.sizeHint().height());
+    QSignalSpy hoverSpy(&label, &QLabel::linkHovered);
+
+    host.show();
+    QTest::qWait(10);
+
+    const QPoint linkPoint(18, label.height() / 2);
+    QTest::mouseMove(&label, linkPoint);
+    QTRY_COMPARE(label.toolTip(), url);
+    QVERIFY(hoverSpy.count() >= 1);
+
+    // Prove the actual widget tooltip path works, not just that the HTML
+    // contains title attributes. A QLabel without the hover bridge fails.
+    QHelpEvent help(QEvent::ToolTip, linkPoint, label.mapToGlobal(linkPoint));
+    QApplication::sendEvent(&label, &help);
+    QTRY_COMPARE(QToolTip::text(), url);
+    QToolTip::hideText();
+
+    QTest::mouseMove(&label, QPoint(480, label.height() / 2));
+    QTRY_VERIFY(label.toolTip().isEmpty());
+}
+
+void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange()
+{
+    QWidget host;
+    host.resize(800, 240);
+    ChannelHeaderTextLabel label(&host);
+    label.setGeometry(20, 20, 500, label.sizeHint().height());
+    host.show();
+    QTest::qWait(10);
+
+    const QString url = QStringLiteral("https://example.com/first");
+    // QLabel does not always re-emit linkHovered when returning straight to
+    // the same link after a Leave. The widget must restore the URL on Enter
+    // even if QLabel's private text control suppresses a duplicate signal.
+    label.QLabel::setText(QStringLiteral(
+        "<a href=\"https://example.com/first\" "
+        "title=\"https://example.com/first\">Link</a>"));
+    const QPoint linkPoint(12, label.height() / 2);
+    QTest::mouseMove(&label, linkPoint);
+    QTRY_COMPARE(label.toolTip(), url);
+
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(&label, &leave);
+    QVERIFY(label.toolTip().isEmpty());
+
+    // Re-enter directly over the same link, without first moving across
+    // non-link text. A real window system sends Enter before MouseMove.
+    // QTest::mouseMove() alone does not synthesize Enter on every QPA.
+    QEnterEvent enter(linkPoint, linkPoint, label.mapToGlobal(linkPoint));
+    QApplication::sendEvent(&label, &enter);
+    QTest::mouseMove(&label, linkPoint);
+    QTRY_COMPARE(label.toolTip(), url);
+    QHelpEvent help(QEvent::ToolTip, linkPoint, label.mapToGlobal(linkPoint));
+    QApplication::sendEvent(&label, &help);
+    QTRY_COMPARE(QToolTip::text(), url);
+    QToolTip::hideText();
+
+    // Non-link text is covered independently by
+    // collapsedLabelShowsHoveredLinkTooltip(). A synthetic Leave+Enter on
+    // the offscreen QPA is not a real pointer transition, so do not rely
+    // on its subsequent unrelated mouse-move state.
+
+    // Switching channels also clears any old URL tooltip.
+    label.setText(QStringLiteral("Another channel topic"));
+    QVERIFY(label.toolTip().isEmpty());
+}
+
+void ChannelHeaderTextLabelTest::nativeWidthExpandsOnlyWhenTextDoesNotFit()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setText(QStringLiteral(
+        "[Documentation with a longer link label](https://example.com/docs)"));
+    const int naturalWidth = label.QLabel::sizeHint().width();
+    QVERIFY(naturalWidth > 30);
+
+    // The header must not make its parent pane wider just to fit the topic.
+    QCOMPARE(label.sizeHint().width(), 0);
+    QCOMPARE(label.minimumSizeHint().width(), 0);
+
+    label.setGeometry(20, 20, naturalWidth + 16, label.sizeHint().height());
+    host.show();
+
+    QVERIFY(showPopover(label));
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    // Width is measured by QLabel's already parsed rich-text document.
+    label.setFixedWidth(naturalWidth - 12);
+    QVERIFY(showPopover(label));
+    auto* popover = host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover"));
+    QVERIFY(popover);
+    QVERIFY(popover->isVisible());
+}
+
+void ChannelHeaderTextLabelTest::nativeWidthIncludesLabelMarginsAndIndent()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setMargin(7);
+    label.setIndent(11);
+    label.setText(QStringLiteral("Topic with **bold** and *italic* text"));
+    const int naturalWidth = label.QLabel::sizeHint().width();
+    QVERIFY(naturalWidth > 40);
+
+    label.setGeometry(20, 20, naturalWidth + 16, label.sizeHint().height());
+    host.show();
+
+    // Avoid false expansion from the header's non-zero native insets.
+    QVERIFY(showPopover(label));
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    label.setFixedWidth(naturalWidth - 12);
+    QVERIFY(showPopover(label));
+    QVERIFY(host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+}
+
+void ChannelHeaderTextLabelTest::newlineExpandsEvenWhenTextFits()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setText(QStringLiteral("first line\nsecond line"));
+    const int naturalWidth = label.QLabel::sizeHint().width();
+    label.setGeometry(20, 20, naturalWidth + 100, label.sizeHint().height());
+    host.show();
+
+    // A topic with two source lines needs expansion, regardless of its width.
+    QVERIFY(showPopover(label));
+    auto* popover = host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover"));
+    QVERIFY(popover);
+    QVERIFY(popover->isVisible());
+}
+
+void ChannelHeaderTextLabelTest::replacingLongTopicWithShortTopicUpdatesOverflow()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setText(QStringLiteral("A very long header topic with several words"));
+    const int longWidth = label.QLabel::sizeHint().width();
+    QVERIFY(longWidth > 100);
+    label.setGeometry(20, 20, longWidth - 30, label.sizeHint().height());
+    host.show();
+
+    // The cached QLabel layout must be updated when the topic changes.
+    label.setText(QStringLiteral("ok"));
+    QVERIFY(label.QLabel::sizeHint().width() < label.width() - 4);
+    QVERIFY(showPopover(label));
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    label.setText(QStringLiteral("A very long header topic with several words"));
+    QVERIFY(showPopover(label));
+    QVERIFY(host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
 }
 
 QTEST_MAIN(ChannelHeaderTextLabelTest)
