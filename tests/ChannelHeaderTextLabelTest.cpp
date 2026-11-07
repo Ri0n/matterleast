@@ -374,7 +374,7 @@ void ChannelHeaderTextLabelTest::newlineExpandsEvenWhenTextFits()
     host.resize(1200, 300);
 
     ChannelHeaderTextLabel label(&host);
-    label.setText(QStringLiteral("first line\\nsecond line"));
+    label.setText(QStringLiteral("first line\nsecond line"));
     const int naturalWidth = label.QLabel::sizeHint().width();
     label.setGeometry(20, 20, naturalWidth + 100, label.sizeHint().height());
     host.show();
