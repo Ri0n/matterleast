@@ -464,22 +464,26 @@ void ChannelQuickList::refresh()
             }
             // Membership/category lookup is relatively expensive: perform
             // it only for eligible unread channel candidates.
-            if (!sidebar.isChannelTracked(channel->id)) continue;
-        const QString key = QStringLiteral("c:") + channel->id;
-        if (projectedKeys.contains(key)) continue;
+            const bool muted = sidebar.isChannelMuted(*channel);
+            if (!includeChannelInUnread(true, sidebar.isChannelTracked(channel->id),
+                                        true, false, muted, unreadFilters_)) {
+                continue;
+            }
+            const QString key = QStringLiteral("c:") + channel->id;
+            if (projectedKeys.contains(key)) continue;
 
-        Candidate candidate;
-        candidate.entry.kind = FollowingModel::Kind::Conversation;
-        candidate.entry.channelId = channel->id;
-        candidate.entry.teamId = channel->team ? channel->team->id : QString();
-        candidate.entry.unread = true;
-        candidate.entry.mentioned = sidebar.hasUnreadMention(channel->id);
-        candidate.entry.muted = sidebar.isChannelMuted(*channel);
-        candidate.entry.lastReplyAt = sidebar.channelActivityTime(*channel);
-        candidate.key = key;
-        candidate.sortAsUnread = true;
-        candidate.sortTime = candidate.entry.lastReplyAt != 0
-            ? candidate.entry.lastReplyAt : fallbackNow;
+            Candidate candidate;
+            candidate.entry.kind = FollowingModel::Kind::Conversation;
+            candidate.entry.channelId = channel->id;
+            candidate.entry.teamId = channel->team ? channel->team->id : QString();
+            candidate.entry.unread = true;
+            candidate.entry.mentioned = false;
+            candidate.entry.muted = muted;
+            candidate.entry.lastReplyAt = sidebar.channelActivityTime(*channel);
+            candidate.key = key;
+            candidate.sortAsUnread = true;
+            candidate.sortTime = candidate.entry.lastReplyAt != 0
+                ? candidate.entry.lastReplyAt : fallbackNow;
             projectedKeys.insert(key);
             candidates.push_back(std::move(candidate));
         }
