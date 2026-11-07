@@ -110,6 +110,11 @@ public:
         }
     }
 
+    void publishRange(int first, int last)
+    {
+        emit rangeAvailable(first, last);
+    }
+
     void evict(int index)
     {
         QVERIFY(valid(index));
@@ -315,6 +320,51 @@ private slots:
         QCOMPARE(available.count(), 0);
         QCOMPARE(filtered.indexOfPost(postId(2)), -1);
         QCOMPARE(raw.indexOfPost(postId(2)), 2);
+    }
+
+    void contiguousHiddenRowsAreFilteredWithOneStructuralSignal()
+    {
+        Backend backend;
+        constexpr int Count = 80;
+        FakePostSource raw(backend.getStorage(), Count);
+        raw.resolve(0, postId(0), {}, false);
+        raw.resolve(Count - 1, postId(Count - 1), {}, false);
+
+        FilteredPostSource filtered(
+            raw, [](const BackendPost& post) {
+                return post.type != QStringLiteral("hide");
+            });
+        QSignalSpy removed(&filtered, &AbstractPostSource::itemsRemoved);
+        QSignalSpy inserted(&filtered, &AbstractPostSource::itemsInserted);
+
+        // A fetched page can resolve dozens of count-excluded join/leave
+        // messages at once. They must not cause a viewport-geometry mutation
+        // for every individual post.
+        for (int i = 1; i < Count - 1; ++i) {
+            raw.resolve(i, postId(i), QStringLiteral("hide"), false);
+        }
+        raw.publishRange(1, Count - 2);
+
+        QCOMPARE(filtered.itemCount(), 2);
+        QCOMPARE(removed.size(), 1);
+        QCOMPARE(removed.at(0).at(0).toInt(), 1);
+        QCOMPARE(removed.at(0).at(1).toInt(), Count - 2);
+        QCOMPARE(filtered.postIdAt(0), postId(0));
+        QCOMPARE(filtered.postIdAt(1), postId(Count - 1));
+
+        // Predicate changes can later make the same rows visible. Restore
+        // their indices in one batch as well.
+        for (int i = 1; i < Count - 1; ++i) {
+            raw.resolve(i, postId(i), {}, false);
+        }
+        raw.publishRange(1, Count - 2);
+        QCOMPARE(filtered.itemCount(), Count);
+        QCOMPARE(inserted.size(), 1);
+        QCOMPARE(inserted.at(0).at(0).toInt(), 1);
+        QCOMPARE(inserted.at(0).at(1).toInt(), Count - 2);
+        for (int i = 0; i < Count; ++i) {
+            QCOMPARE(filtered.postIdAt(i), postId(i));
+        }
     }
 
     void rejectionSurvivesBodyEviction()
