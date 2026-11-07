@@ -29,6 +29,7 @@ class QuotedPostPreview final : public QFrame
 
 public:
     explicit QuotedPostPreview(QWidget* parent = nullptr, int maximumLines = 2);
+    ~QuotedPostPreview() override;
 
     void setPost(const BackendPost& post);
     void setPreview(const QString& title,
