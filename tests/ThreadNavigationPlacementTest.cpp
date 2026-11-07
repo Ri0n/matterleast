@@ -110,6 +110,62 @@ private slots:
     }
 
 
+    void matchingCachedTailReleasesEstimatedTarget()
+    {
+        ThreadNavigationPlacement placement;
+        placement.trackEstimated(QStringLiteral("last"), 58);
+        const auto result = placement.acceptCachedTail(
+            56, {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("last")});
+        QVERIFY(result.isValid());
+        QVERIFY(result.wasEstimated);
+        QCOMPARE(result.previousIndex, 58);
+        QCOMPARE(result.authoritativeIndex, 58);
+        QVERIFY(!placement.blocksMaterialization(QStringLiteral("last")));
+        QVERIFY(!placement.isActive());
+    }
+
+    void unrelatedCachedTailCannotUnlockEstimatedTarget()
+    {
+        ThreadNavigationPlacement placement;
+        placement.trackEstimated(QStringLiteral("last"), 58);
+        const auto result = placement.acceptCachedTail(
+            56, {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("other")});
+        QVERIFY(!result.isValid());
+        QVERIFY(placement.blocksMaterialization(QStringLiteral("last")));
+        QCOMPARE(placement.index(), 58);
+    }
+
+    void cachedTailCannotChangeEstimatedRank()
+    {
+        ThreadNavigationPlacement placement;
+        placement.trackEstimated(QStringLiteral("last"), 58);
+        const auto result = placement.acceptCachedTail(
+            56, {QStringLiteral("a"), QStringLiteral("last"), QStringLiteral("b")});
+        QVERIFY(!result.isValid());
+        QCOMPARE(placement.index(), 58);
+        QVERIFY(placement.blocksMaterialization(QStringLiteral("last")));
+    }
+
+    void nonoverlappingCachedTailKeepsNavigationPending()
+    {
+        ThreadNavigationPlacement placement;
+        placement.trackEstimated(QStringLiteral("last"), 58);
+        const auto result = placement.acceptCachedTail(
+            48, {QStringLiteral("a"), QStringLiteral("b")});
+        QVERIFY(!result.isValid());
+        QVERIFY(placement.blocksMaterialization(QStringLiteral("last")));
+    }
+
+    void cachedExistingProvisionalNeedsNoEstimateRelease()
+    {
+        ThreadNavigationPlacement placement;
+        placement.trackExistingProvisional(QStringLiteral("last"), 58);
+        const auto result = placement.acceptCachedTail(
+            57, {QStringLiteral("a"), QStringLiteral("last")});
+        QVERIFY(!result.isValid());
+        QVERIFY(!placement.blocksMaterialization(QStringLiteral("last")));
+    }
+
     void seekEstimateUsesNearestKnownAnchors()
     {
         const std::vector<ThreadSeekAnchor> anchors {
