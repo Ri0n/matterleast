@@ -31,6 +31,10 @@
 #include <QSaveFile>
 #include <QFileInfo>
 
+#if defined(Q_OS_WIN) && QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+#include <QOperatingSystemVersion>
+#endif
+
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
 #include "update/WindowsUpdateController.h"
 #include "update/UpdateTrustPolicy.h"
@@ -202,6 +206,14 @@ int main( int argc, char *argv[])
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 
     Mattermost::MattermostApplication app(argc, argv);
+#if defined(Q_OS_WIN) && QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+    // Windows 10 defaults to the windowsvista widget style, which paints
+    // light controls even when Qt detects the system's dark palette.
+    // Fusion honors both palettes and follows runtime theme changes.
+    // Keep the native, dark-mode-aware windows11 style on Windows 11.
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows11)
+        QApplication::setStyle(QStringLiteral("Fusion"));
+#endif
     Mattermost::initializeApplicationFont(app);
 #ifdef MATTERLEAST_BUILD_ID
     // Embedded at build time. The mutable current.version pointer can be

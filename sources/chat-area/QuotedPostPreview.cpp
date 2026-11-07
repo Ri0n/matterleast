@@ -137,7 +137,12 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     messageBrowser->setFrameShape(QFrame::NoFrame);
     messageBrowser->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     messageBrowser->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    messageBrowser->setLineWrapMode(QTextEdit::WidgetWidth);
+    // QTextEdit::WidgetWidth rewrites the document page width when its
+    // viewport is resized. During an outer chat resize this can overwrite
+    // the width used to decide whether Show more is needed (Qt 5 in
+    // particular may keep the former narrow document after widening).
+    // Control wrapping through QTextEdit's own API instead.
+    messageBrowser->setLineWrapMode(QTextEdit::FixedPixelWidth);
     messageBrowser->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     messageBrowser->setFocusPolicy(Qt::NoFocus);
     messageBrowser->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
@@ -182,6 +187,8 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
 
     refreshPalette();
 }
+
+QuotedPostPreview::~QuotedPostPreview() = default;
 
 void QuotedPostPreview::setPost(const BackendPost& post)
 {
@@ -391,6 +398,10 @@ void QuotedPostPreview::refreshPalette()
 
 void QuotedPostPreview::refreshText()
 {
+    // The display QTextDocument is controlled by QTextEdit. A separate clone
+    // is measured at the proposed chat width, as in Psi's ChatMessageText.
+    // Recreate it only for new formatted content, not on every resize.
+    measuringDocument.reset();
     if (!messageBrowser || fullText.isEmpty()) {
         if (messageBrowser) {
             messageBrowser->clear();
@@ -433,9 +444,10 @@ void QuotedPostPreview::updateTextLayout()
 {
     if (!messageBrowser || !expandButton || fullText.isEmpty()) return;
 
-    // Derive document width from the preview itself. On Qt 5 the browser's
-    // viewport can still report its previous (narrow) width during the
-    // parent's layout pass, leaving Show more visible after widening the chat.
+    // Derive the wrap width from the preview itself. The QTextBrowser
+    // viewport may still have its previous width during the parent's
+    // layout pass. FixedPixelWidth prevents QTextEdit's own resize handler
+    // from replacing this width with a stale viewport measurement.
     const QMargins outerMargins = layout()->contentsMargins();
     const QMargins columnMargins = contentLayout->contentsMargins();
     const int availableWidth = std::max(1,
@@ -443,18 +455,28 @@ void QuotedPostPreview::updateTextLayout()
         - bar->width() - layout()->spacing()
         - columnMargins.left() - columnMargins.right()
         - messageBrowser->frameWidth() * 2);
-    QTextDocument* document = messageBrowser->document();
-    if (std::abs(document->textWidth() - availableWidth) > 0.5) {
-        document->setTextWidth(availableWidth);
+    if (messageBrowser->lineWrapColumnOrWidth() != availableWidth) {
+        messageBrowser->setLineWrapColumnOrWidth(availableWidth);
     }
-
+    if (!measuringDocument) {
+        QTextDocument* source = messageBrowser->document();
+        measuringDocument.reset(source->clone());
+        // QTextDocument::clone() does not preserve all document-level
+        // settings. Use the same metrics/margins as the displayed excerpt.
+        measuringDocument->setDocumentMargin(source->documentMargin());
+        measuringDocument->setUseDesignMetrics(source->useDesignMetrics());
+    }
+    measuringDocument->setTextWidth(availableWidth);
     const int fullHeight = std::max(1, static_cast<int>(
-        std::ceil(document->size().height())) + 2);
+        std::ceil(measuringDocument->documentLayout()->documentSize().height())) + 2);
     const int collapsedHeight =
         messageBrowser->fontMetrics().lineSpacing() * maximumLines + 2;
-    const bool truncated = fullHeight > collapsedHeight;
-    const int targetHeight = expanded ? fullHeight
-                                      : std::min(fullHeight, collapsedHeight);
+    // QTextDocument uses fractional font metrics; on Qt 5 two rendered lines
+    // can measure 41px while QFontMetrics::lineSpacing() reports 20px each.
+    // Reserve up to one rounding pixel per visible line before deciding that
+    // a quote needs a Show more action. Never clip that tolerated remainder.
+    const bool truncated = fullHeight > collapsedHeight + maximumLines;
+    const int targetHeight = expanded || !truncated ? fullHeight : collapsedHeight;
     const bool geometryChanged =
         messageBrowser->height() != targetHeight
         || expandButton->isHidden() == truncated;

@@ -3,12 +3,14 @@
 #include <QFrame>
 #include <functional>
 #include <list>
+#include <memory>
 
 class QEvent;
 class QLabel;
 class QMouseEvent;
 class QResizeEvent;
 class QTextBrowser;
+class QTextDocument;
 class QToolButton;
 class QUrl;
 class QVBoxLayout;
@@ -27,6 +29,7 @@ class QuotedPostPreview final : public QFrame
 
 public:
     explicit QuotedPostPreview(QWidget* parent = nullptr, int maximumLines = 2);
+    ~QuotedPostPreview() override;
 
     void setPost(const BackendPost& post);
     void setPreview(const QString& title,
@@ -55,6 +58,7 @@ private:
 
     QLabel* authorLabel = nullptr;
     QTextBrowser* messageBrowser = nullptr;
+    std::unique_ptr<QTextDocument> measuringDocument;
     QToolButton* expandButton = nullptr;
     QuotedAttachmentSummary* attachmentSummary = nullptr;
     PostAttachmentList* attachmentList = nullptr;

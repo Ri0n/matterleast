@@ -6,6 +6,8 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <QTextDocument>
+#include <QLayout>
 #include <QToolButton>
 #include <QWheelEvent>
 
@@ -98,7 +100,11 @@ private slots:
         preview.show();
         auto* toggle = preview.findChild<QToolButton*>(
             QStringLiteral("quotedPostShowMore"));
+        auto* browser = preview.findChild<QTextBrowser*>(
+            QStringLiteral("quotedPostExcerpt"));
         QVERIFY(toggle);
+        QVERIFY(browser);
+        QCOMPARE(browser->lineWrapMode(), QTextEdit::FixedPixelWidth);
         QTRY_VERIFY(toggle->isHidden());
 
         // The decision depends on rendered lines, not character count.
@@ -108,10 +114,40 @@ private slots:
                            "entire text fits into a single wide line."));
         preview.resize(1200, 100);
         QTRY_VERIFY(toggle->isHidden());
+        // QTextEdit's own resize handler must not reset the document width
+        // behind the quote preview's back (regression on Qt 5).
+        QCOMPARE(browser->document()->pageSize().width(),
+                 qreal(browser->lineWrapColumnOrWidth()));
         preview.resize(220, 100);
         QTRY_VERIFY(!toggle->isHidden());
+        QCOMPARE(browser->document()->pageSize().width(),
+                 qreal(browser->lineWrapColumnOrWidth()));
         preview.resize(1200, 100);
-        QTRY_VERIFY(toggle->isHidden());
+        const auto geometryState = [&] {
+            QTextDocument probe;
+            probe.setHtml(browser->document()->toHtml());
+            probe.setDefaultFont(browser->document()->defaultFont());
+            probe.setDocumentMargin(browser->document()->documentMargin());
+            const int contentWidth = preview.width()
+                - preview.layout()->contentsMargins().left()
+                - preview.layout()->contentsMargins().right()
+                - 3 - preview.layout()->spacing();
+            probe.setTextWidth(qMax(1, contentWidth));
+            return QStringLiteral("preview=%1 browser=%2 viewport=%3 wrap=%4 "
+                                  "page=%5 displayHeight=%6 measuredAtWidth=%7 "
+                                  "lineSpacing=%8 toggleHidden=%9")
+                .arg(preview.width()).arg(browser->width())
+                .arg(browser->viewport()->width())
+                .arg(browser->lineWrapColumnOrWidth())
+                .arg(browser->document()->pageSize().width())
+                .arg(browser->document()->size().height())
+                .arg(probe.size().height())
+                .arg(browser->fontMetrics().lineSpacing())
+                .arg(toggle->isHidden());
+        };
+        QTRY_VERIFY2(toggle->isHidden(), qPrintable(geometryState()));
+        QCOMPARE(browser->document()->pageSize().width(),
+                 qreal(browser->lineWrapColumnOrWidth()));
     }
 
     void permalinkExcerptDoesNotScrollInternally()
