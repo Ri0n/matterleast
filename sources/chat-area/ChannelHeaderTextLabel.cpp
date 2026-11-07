@@ -28,6 +28,7 @@
 #include <QDesktopServices>
 #include <QEasingCurve>
 #include <QEvent>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPropertyAnimation>
 #include <QScrollArea>
@@ -743,11 +744,19 @@ bool ChannelHeaderTextLabel::eventFilter(QObject* watched, QEvent* event)
         case QEvent::Leave:
             if (isLabel) {
                 cancelPopoverShow();
-                // QLabel's internal text control does not necessarily emit
-                // linkHovered again on re-entering the same anchor. Keep its
-                // URL in the widget until linkHovered("") clears it over
-                // non-link text, or setText() replaces the topic. QWidget
-                // already hides the visible tooltip when the pointer leaves.
+                // QLabel's text control can retain its last hovered anchor
+                // after a Leave. On re-entry over the same URL it may then
+                // omit linkHovered(), leaving the widget tooltip empty.
+                // Give the native control one off-label mouse move so it
+                // emits linkHovered("") and treats the next hover as new.
+                // Use the base implementation directly, avoiding any
+                // synthetic event dispatch through our event filter.
+                const QPointF outside(-1, -1);
+                QMouseEvent clearHover(
+                    QEvent::MouseMove, outside, outside, outside,
+                    Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                QLabel::mouseMoveEvent(&clearHover);
+                setToolTip(QString());
             }
             hidePopoverSoon();
             break;
