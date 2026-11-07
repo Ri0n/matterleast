@@ -46,6 +46,10 @@ private slots:
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
     void collapsedMarkdownLinksKeepTargetTooltips();
+    void nativeWidthExpandsOnlyWhenTextDoesNotFit();
+    void nativeWidthIncludesLabelMarginsAndIndent();
+    void newlineExpandsEvenWhenTextFits();
+    void replacingLongTopicWithShortTopicUpdatesOverflow();
 };
 
 void ChannelHeaderTextLabelTest::hoverOpensOnlyAfterTooltipDwell()
@@ -305,6 +309,107 @@ void ChannelHeaderTextLabelTest::collapsedMarkdownLinksKeepTargetTooltips()
 #else
     QSKIP("Markdown rendering test requires Qt 6.10");
 #endif
+}
+
+void ChannelHeaderTextLabelTest::nativeWidthExpandsOnlyWhenTextDoesNotFit()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setText(QStringLiteral(
+        "[Documentation with a longer link label](https://example.com/docs)"));
+    const int naturalWidth = label.QLabel::sizeHint().width();
+    QVERIFY(naturalWidth > 30);
+
+    // The header must not make its parent pane wider just to fit the topic.
+    QCOMPARE(label.sizeHint().width(), 0);
+    QCOMPARE(label.minimumSizeHint().width(), 0);
+
+    label.setGeometry(20, 20, naturalWidth + 16, label.sizeHint().height());
+    host.show();
+
+    QVERIFY(showPopover(label));
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    // Width is measured by QLabel's already parsed rich-text document.
+    label.setFixedWidth(naturalWidth - 12);
+    QVERIFY(showPopover(label));
+    auto* popover = host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover"));
+    QVERIFY(popover);
+    QVERIFY(popover->isVisible());
+}
+
+void ChannelHeaderTextLabelTest::nativeWidthIncludesLabelMarginsAndIndent()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setMargin(7);
+    label.setIndent(11);
+    label.setText(QStringLiteral("Topic with **bold** and *italic* text"));
+    const int naturalWidth = label.QLabel::sizeHint().width();
+    QVERIFY(naturalWidth > 40);
+
+    label.setGeometry(20, 20, naturalWidth + 16, label.sizeHint().height());
+    host.show();
+
+    // Avoid false expansion from the header's non-zero native insets.
+    QVERIFY(showPopover(label));
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    label.setFixedWidth(naturalWidth - 12);
+    QVERIFY(showPopover(label));
+    QVERIFY(host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+}
+
+void ChannelHeaderTextLabelTest::newlineExpandsEvenWhenTextFits()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setText(QStringLiteral("first line\\nsecond line"));
+    const int naturalWidth = label.QLabel::sizeHint().width();
+    label.setGeometry(20, 20, naturalWidth + 100, label.sizeHint().height());
+    host.show();
+
+    // A topic with two source lines needs expansion, regardless of its width.
+    QVERIFY(showPopover(label));
+    auto* popover = host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover"));
+    QVERIFY(popover);
+    QVERIFY(popover->isVisible());
+}
+
+void ChannelHeaderTextLabelTest::replacingLongTopicWithShortTopicUpdatesOverflow()
+{
+    QWidget host;
+    host.resize(1200, 300);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setText(QStringLiteral("A very long header topic with several words"));
+    const int longWidth = label.QLabel::sizeHint().width();
+    QVERIFY(longWidth > 100);
+    label.setGeometry(20, 20, longWidth - 30, label.sizeHint().height());
+    host.show();
+
+    // The cached QLabel layout must be updated when the topic changes.
+    label.setText(QStringLiteral("ok"));
+    QVERIFY(label.QLabel::sizeHint().width() < label.width() - 4);
+    QVERIFY(showPopover(label));
+    QVERIFY(!host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
+
+    label.setText(QStringLiteral("A very long header topic with several words"));
+    QVERIFY(showPopover(label));
+    QVERIFY(host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover")));
 }
 
 QTEST_MAIN(ChannelHeaderTextLabelTest)
