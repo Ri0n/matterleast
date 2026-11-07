@@ -220,7 +220,8 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
     // Public/private unread channels are projections of SidebarService,
     // not synthetic FollowingModel entries. Keep an ephemeral selection
     // snapshot for click stability, without creating a second read cursor.
-    if (!entry && threadId.isEmpty() && unreadFilters_.channels) {
+    if (!entry && threadId.isEmpty()
+        && (unreadFilters_.channels || unreadFilters_.muted)) {
         BackendChannel* channel = backend_->getStorage().getChannelById(channelId);
         auto& sidebar = SidebarService::instance(*backend_);
         if (channel && includeChannelInUnread(
@@ -450,27 +451,32 @@ void ChannelQuickList::refresh()
         candidates.push_back(std::move(candidate));
     }
 
-    // Public/private channels are a separate unread projection. Only joined
-    // and tracked channels are included; DM/GM and thread semantics remain
-    // exclusively owned by the existing FollowingModel.
+    // Add non-mention unread public/private channels, plus unread muted
+    // conversations when the independent Muted source is enabled. Joined/
+    // tracked membership and unread authority remain in SidebarService.
     auto& sidebar = SidebarService::instance(*backend_);
-    if (unreadFilters_.channels) {
+    if (unreadFilters_.channels || unreadFilters_.muted) {
         for (auto it = backend_->getStorage().channels.cbegin();
              it != backend_->getStorage().channels.cend(); ++it) {
             BackendChannel* channel = it.value();
             if (!channel || channel->delete_at != 0
-                || (channel->type != BackendChannel::publicChannel
-                    && channel->type != BackendChannel::privateChannel)
-                || !sidebar.isChannelUnread(*channel)
-                || sidebar.hasUnreadMention(channel->id)
-                || (sidebar.isChannelMuted(*channel) && !unreadFilters_.muted)) {
+                || !sidebar.isChannelUnread(*channel)) {
                 continue;
             }
-            // Membership/category lookup is relatively expensive: perform
-            // it only for eligible unread channel candidates.
+            const bool publicOrPrivate =
+                channel->type == BackendChannel::publicChannel
+                || channel->type == BackendChannel::privateChannel;
             const bool muted = sidebar.isChannelMuted(*channel);
-            if (!includeChannelInUnread(true, sidebar.isChannelTracked(channel->id),
-                                        true, false, muted, unreadFilters_)) {
+            const bool mentioned = sidebar.hasUnreadMention(channel->id);
+            // Avoid scanning category membership for ineligible candidates.
+            if ((muted && !unreadFilters_.muted)
+                || (!muted && (!unreadFilters_.channels
+                               || !publicOrPrivate || mentioned))) {
+                continue;
+            }
+            if (!includeChannelInUnread(publicOrPrivate,
+                                        sidebar.isChannelTracked(channel->id),
+                                        true, mentioned, muted, unreadFilters_)) {
                 continue;
             }
             const QString key = QStringLiteral("c:") + channel->id;
@@ -481,7 +487,7 @@ void ChannelQuickList::refresh()
             candidate.entry.channelId = channel->id;
             candidate.entry.teamId = channel->team ? channel->team->id : QString();
             candidate.entry.unread = true;
-            candidate.entry.mentioned = false;
+            candidate.entry.mentioned = mentioned;
             candidate.entry.muted = muted;
             candidate.entry.lastReplyAt = sidebar.channelActivityTime(*channel);
             candidate.key = key;
