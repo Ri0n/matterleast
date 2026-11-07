@@ -146,6 +146,25 @@ private slots:
         QVERIFY(placement.blocksMaterialization(QStringLiteral("last")));
     }
 
+    void cachedTailCannotPromoteAStaleOffsetAfterRepeatLookup()
+    {
+        ThreadNavigationPlacement placement;
+        placement.trackEstimated(QStringLiteral("last"), 58);
+        placement.trackExistingProvisional(QStringLiteral("last"), 58);
+
+        const auto stale = placement.acceptCachedTail(
+            55, {QStringLiteral("last"), QStringLiteral("a"),
+                 QStringLiteral("b"), QStringLiteral("c")});
+        QVERIFY(!stale.isValid());
+        QVERIFY(placement.blocksMaterialization(QStringLiteral("last")));
+
+        const auto exact = placement.acceptCachedTail(
+            56, {QStringLiteral("a"), QStringLiteral("b"),
+                 QStringLiteral("last")});
+        QVERIFY(exact.isValid());
+        QVERIFY(!placement.blocksMaterialization(QStringLiteral("last")));
+    }
+
     void nonoverlappingCachedTailKeepsNavigationPending()
     {
         ThreadNavigationPlacement placement;
