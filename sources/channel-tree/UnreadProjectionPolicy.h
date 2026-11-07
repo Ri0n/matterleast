@@ -19,13 +19,13 @@ inline bool includeFollowingInUnread(bool isThread, bool muted,
 }
 
 inline bool includeChannelInUnread(bool isPublicOrPrivate, bool tracked,
-                                   bool unread, bool muted,
+                                   bool unread, bool mentioned, bool muted,
                                    const UnreadViewFilters& filters)
 {
     // DMs/GMs and explicitly followed threads belong to Following. The
     // Channels source provides only unread, joined public/private channels.
     return filters.channels && isPublicOrPrivate && tracked && unread
-        && (!muted || filters.muted);
+        && !mentioned && (!muted || filters.muted);
 }
 
 } // namespace Mattermost
