@@ -802,6 +802,61 @@ void separateLargeImages(QTextDocument& document)
     }
 }
 
+// QTextBrowser displays character-format tooltips natively. Apply them after
+// Markdown parsing and bare-URL detection so every hyperlink works alike.
+void applyLinkToolTips(QTextDocument& document)
+{
+    QList<LinkReplacement> links;
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid())
+                continue;
+            const QTextCharFormat format = fragment.charFormat();
+            const QString href = format.anchorHref();
+            if (format.isAnchor() && !href.isEmpty() && format.toolTip() != href)
+                links.push_back({fragment.position(), fragment.length(), href});
+        }
+    }
+
+    // Reformat from the end so no live fragment iterators are invalidated.
+    for (auto it = links.crbegin(); it != links.crend(); ++it) {
+        QTextCursor cursor(&document);
+        cursor.setPosition(it->position);
+        cursor.setPosition(it->position + it->length, QTextCursor::KeepAnchor);
+        QTextCharFormat tooltipFormat;
+        tooltipFormat.setToolTip(it->href);
+        cursor.mergeCharFormat(tooltipFormat);
+    }
+}
+
+// QTextDocument's HTML exporter drops QTextFormat::TextToolTip, while Qt's
+// HTML importer reads title attributes. Restore titles on exported anchors
+// for QLabel and other HTML-based rich-text consumers. The href has already
+// been escaped by Qt's exporter and is safe to reuse as an attribute value.
+QString htmlWithLinkToolTips(const QString& html)
+{
+    static const QRegularExpression links(
+        QStringLiteral(R"(<a href="([^"]+)">)"));
+    QRegularExpressionMatchIterator matches = links.globalMatch(html);
+    if (!matches.hasNext())
+        return html;
+
+    QString result;
+    result.reserve(html.size());
+    qsizetype copied = 0;
+    while (matches.hasNext()) {
+        const QRegularExpressionMatch match = matches.next();
+        const qsizetype end = match.capturedEnd();
+        result += html.mid(copied, end - copied - 1);
+        result += QStringLiteral(" title=\"") + match.captured(1)
+            + QStringLiteral("\">");
+        copied = end;
+    }
+    result += html.mid(copied);
+    return result;
+}
+
 } // namespace
 
 void buildMarkdownDocument(QTextDocument& document, const QString& text,
@@ -842,6 +897,7 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text,
     // QTextImageFormat objects, so enabling raw user HTML is unnecessary.
     replaceEmojisInDocument(document, registry);
     separateLargeImages(document);
+    applyLinkToolTips(document);
 }
 #endif
 
@@ -850,7 +906,7 @@ QString formatMessageText(const QString& text, EmojiRegistry* registry)
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     QTextDocument document;
     buildMarkdownDocument(document, text, registry);
-    return document.toHtml();
+    return htmlWithLinkToolTips(document.toHtml());
 #else
     QString result(text.toHtmlEscaped());
     result.replace("\n", "<br>");
