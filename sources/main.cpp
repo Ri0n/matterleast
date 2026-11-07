@@ -49,6 +49,7 @@
 #include "backend/UserActivityMonitor.h"
 #include "backend/CustomEmojiService.h"
 #include "config/Config.h"
+#include "diagnostics/LoggingConfiguration.h"
 #include "ui/IconUtils.h"
 #include "ui/ApplicationFont.h"
 #include "ui/OverlayScrollBarManager.h"
@@ -198,6 +199,8 @@ inline void MattermostApplication::toggleShowWindow ()
 
 int main( int argc, char *argv[])
 {
+    // Install before QApplication and Backend constructors emit diagnostics.
+    Mattermost::configureApplicationLogging();
 	QCoreApplication::setOrganizationName("matterleast");
 	QCoreApplication::setApplicationName("MatterLeast");
 #ifdef MATTERLEAST_BUILD_VERSION

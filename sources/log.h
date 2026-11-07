@@ -24,12 +24,13 @@
 
 #pragma once
 
-#include <QTime>
 #include <QDebug>
 
 namespace Mattermost {
 
-#define LOG_DEBUG(x) qDebug().noquote().nospace() << QTime::currentTime().toString("HH:mm:ss:zzz ") << x
+// The application-wide Qt message pattern supplies a monotonic timestamp.
+// Keep this legacy macro as a lightweight wrapper without a second clock.
+#define LOG_DEBUG(x) qDebug().noquote().nospace() << x
 
 } /* namespace Mattermost */
 

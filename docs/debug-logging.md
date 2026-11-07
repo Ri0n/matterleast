@@ -4,6 +4,42 @@ MatterLeast uses Qt logging categories for high-volume diagnostic traces. Noisy
 categories are disabled by default unless they are useful during normal
 operation. Enable only the subsystem you are investigating.
 
+## Monotonic timestamps for all Qt logs
+
+The application's default Qt message pattern prefixes **every Qt log category**
+with elapsed process time in **seconds.milliseconds**. This uses Qt's built-in
+`%{time process}` placeholder (backed by a monotonic clock); it does not
+require a custom message handler, so native console/debugger logging and Qt's
+category filtering remain intact. The counter starts during process startup
+and never jumps when the system clock is adjusted.
+
+Example:
+
+```text
+[     8.041s] mattermost.timeline.thread: THREAD_INIT ...
+[     8.047s] mattermost.timeline.thread: THREAD_CACHE_TAIL_HYDRATE ...
+[     8.051s] mattermost.timeline.trace: MATERIALIZED_RANGE ...
+```
+
+The difference between the last two lines is **4 ms**; the fractional part
+provides one-millisecond precision without floating-point time calculations.
+The same clock is shared by all threads and Qt categories. It is not a
+wall-clock date and cannot be used to correlate with a separate process without
+an external reference.
+
+The environment variable `QT_MESSAGE_PATTERN` overrides this default as
+usual. For example, to include thread IDs or use a wall-clock timestamp instead:
+
+```bash
+QT_MESSAGE_PATTERN='[%{time process}s thread=%{threadid}] %{if-category}%{category}: %{endif}%{message}' ./matterleast
+```
+
+Plain `stdout`/`stderr` writes that bypass Qt's logging API are unaffected.
+The legacy `LOG_DEBUG` macro no longer adds a separate wall-clock prefix, so
+its messages follow the same monotonic clock as `qDebug` and `qCInfo`.
+
+
+
 ## Running with logging rules
 
 Qt reads category overrides from `QT_LOGGING_RULES`. Launch MatterLeast from a
