@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QHostAddress>
 #include <QTcpServer>
@@ -15,6 +16,8 @@
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
+#include "backend/events/PostEvent.h"
+#include "backend/WebSocketEventHandler.h"
 #include "backend/FollowingModel.h"
 #include "channel-tree/AttentionList.h"
 #include "channel-tree/ChannelQuickList.h"
@@ -204,6 +207,71 @@ private slots:
         QVERIFY(checkpointSucceeded);
         QTRY_COMPARE(server.viewRequests, 2);
         QCOMPARE(sidebar.channelLastViewedTime(channel->id), uint64_t(2000));
+    }
+
+    void postedMentionMetadataIsRecipientSpecific()
+    {
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        auto& following = FollowingModel::instance(backend);
+
+        // Exercise the actual posted WebSocket event -> BackendPost ->
+        // Following/Attention path, not a separately implemented parser.
+        WebSocketEventHandler handler(backend);
+        bool observedMention = false;
+        int delivered = 0;
+        connect(&backend, &Backend::onNewPost, &backend,
+                [&](BackendChannel& receivedChannel, const BackendPost& post) {
+            if (receivedChannel.id == channel->id) {
+                observedMention = post.currentUserMentioned;
+                ++delivered;
+            }
+        });
+
+        const QJsonObject broadcast {
+            {"channel_id", channel->id},
+        };
+        const auto send = [&](const QString& id, const QJsonValue& mentions,
+                              bool expectedMention) {
+            QJsonObject post {
+                {"id", id}, {"channel_id", channel->id},
+                {"user_id", "other"}, {"root_id", ""},
+                {"create_at", 1000.0 + delivered},
+                {"message", "plain post without @mentions"},
+            };
+            QJsonObject data {
+                {"post", QString::fromUtf8(
+                     QJsonDocument(post).toJson(QJsonDocument::Compact))},
+                {"mentions", mentions},
+            };
+            const PostEvent event(data, broadcast);
+            const int before = delivered;
+            handler.handleEvent(event);
+            QCOMPARE(delivered, before + 1);
+            QCOMPARE(observedMention, expectedMention);
+            const auto* synthetic = following.findThread(id);
+            QCOMPARE(synthetic != nullptr, expectedMention);
+            if (synthetic) {
+                QVERIFY(synthetic->synthetic);
+                QCOMPARE(synthetic->channelId, channel->id);
+            }
+        };
+
+        // A JSON-encoded empty array is a nonempty string, but not an @mention.
+        send(QStringLiteral("no-tags"), QStringLiteral("[]"), false);
+        // Mentioning somebody else does not put the post in my Attention.
+        send(QStringLiteral("tags-other"),
+             QStringLiteral("[\\\"other\\\"]"), false);
+        // Both wire formats, array and JSON-encoded string, identify only
+        // the current logged-in user's own ID.
+        send(QStringLiteral("tags-self"), QStringLiteral("[\\\"self\\\"]"), true);
+        send(QStringLiteral("tags-many"),
+             QJsonArray {QStringLiteral("other"), QStringLiteral("self")}, true);
+        // Invalid/missing mention metadata must not synthesize attention.
+        send(QStringLiteral("invalid-mentions"),
+             QStringLiteral("not json"), false);
+        send(QStringLiteral("missing-mentions"), QJsonValue(), false);
     }
 
     void unknownMentionCountDoesNotInventAttentionNavigation()
