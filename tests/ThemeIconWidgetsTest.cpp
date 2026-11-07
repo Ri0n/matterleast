@@ -10,6 +10,8 @@
 
 #include "ui/SvgRasterCache.h"
 #include "ui/IconUtils.h"
+#include "ui/TrayBadgePainter.h"
+#include "ui/TrayBadgePolicy.h"
 #include "ui/ThemeIconWidgets.h"
 
 using namespace Mattermost;
@@ -61,6 +63,103 @@ class ThemeIconWidgetsTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void trayBadgePriorityAndChannelEligibility()
+    {
+        QCOMPARE(trayBadgeKind(0, false), TrayBadgeKind::None);
+        QCOMPARE(trayBadgeKind(0, true), TrayBadgeKind::ChannelUnread);
+        QCOMPARE(trayBadgeKind(1, false), TrayBadgeKind::Attention);
+        QCOMPARE(trayBadgeKind(12, true), TrayBadgeKind::Attention);
+
+        QVERIFY(isTrayUnreadChannel(true, true, false, true));
+        QVERIFY(!isTrayUnreadChannel(false, true, false, true)); // DM/GM
+        QVERIFY(!isTrayUnreadChannel(true, false, false, true)); // untracked
+        QVERIFY(!isTrayUnreadChannel(true, true, true, true));  // muted
+        QVERIFY(!isTrayUnreadChannel(true, true, false, false)); // read
+    }
+
+    void trayBadgesCutAnActualTransparentHalo()
+    {
+        // A fully opaque synthetic source proves that the ring removes icon
+        // pixels instead of painting an arbitrary light/dark outline.
+        for (int size : {16, 32, 64, 128}) {
+            for (TrayBadgeKind kind :
+                 {TrayBadgeKind::Attention, TrayBadgeKind::ChannelUnread}) {
+                QPixmap pixmap(size, size);
+                const QColor background(50, 75, 90);
+                pixmap.fill(background);
+                TrayBadgePainter::paint(pixmap, kind, 18);
+                const QImage result = pixmap.toImage();
+
+                QCOMPARE(result.pixelColor(0, 0), background);
+                int clearCount = 0;
+                int redCount = 0;
+                int blueCount = 0;
+                for (int y = size / 3; y < size; ++y) {
+                    for (int x = size / 3; x < size; ++x) {
+                        const QColor color = result.pixelColor(x, y);
+                        if (color.alpha() == 0) {
+                            ++clearCount;
+                        }
+                        if (color.alpha() > 200 && color.red() > 170
+                            && color.red() > color.blue() + 60) {
+                            ++redCount;
+                        }
+                        if (color.alpha() > 200 && color.blue() > 170
+                            && color.blue() > color.red() + 60) {
+                            ++blueCount;
+                        }
+                    }
+                }
+
+                QVERIFY2(clearCount > 0, "Tray badge has no alpha-cutout ring");
+                if (kind == TrayBadgeKind::Attention) {
+                    QVERIFY(redCount > 0);
+                    QCOMPARE(blueCount, 0);
+                } else {
+                    QVERIFY(blueCount > 0);
+                    QCOMPARE(redCount, 0);
+                }
+            }
+        }
+    }
+
+    void trayBadgePainterKeepsLogicalGeometryAtHighDpi()
+    {
+        QPixmap pixmap(128, 128);
+        pixmap.setDevicePixelRatio(2.0);
+        const QColor background(50, 75, 90);
+        pixmap.fill(background);
+        TrayBadgePainter::paint(pixmap, TrayBadgeKind::ChannelUnread);
+        const QImage result = pixmap.toImage();
+
+        QCOMPARE(result.pixelColor(0, 0), background);
+        int cutoutPixels = 0;
+        for (int y = 64; y < result.height(); ++y) {
+            for (int x = 64; x < result.width(); ++x) {
+                if (result.pixelColor(x, y).alpha() == 0) {
+                    ++cutoutPixels;
+                }
+            }
+        }
+        QVERIFY(cutoutPixels > 0);
+    }
+
+    void applicationTrayIconUsesOnlyOneBadge()
+    {
+        const QIcon normal = IconUtils::applicationIcon();
+        const QIcon blue = IconUtils::applicationIcon(0, true);
+        const QIcon red = IconUtils::applicationIcon(4, true);
+        QVERIFY(!normal.isNull());
+        QVERIFY(!blue.isNull());
+        QVERIFY(!red.isNull());
+
+        const QImage normalImage = normal.pixmap(64, 64).toImage();
+        const QImage blueImage = blue.pixmap(64, 64).toImage();
+        const QImage redImage = red.pixmap(64, 64).toImage();
+        QVERIFY(normalImage != blueImage);
+        QVERIFY(blueImage != redImage);
+    }
+
     void iconsRenderWithoutAnyImageformatPlugins()
     {
         // Reproduce a minimal Debian/Qt installation with no qsvg plugin.
