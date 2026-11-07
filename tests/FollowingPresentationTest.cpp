@@ -199,38 +199,39 @@ private slots:
     void unreadViewChannelsExcludeDirectMessagesAndReadChannels()
     {
         UnreadViewFilters filters;
-        // Only joined public/private channels with server unread state.
-        QVERIFY(includeChannelInUnread(true, true, true, false, false, filters));
-        QVERIFY(!includeChannelInUnread(false, true, true, false, false, filters));
-        QVERIFY(!includeChannelInUnread(true, false, true, false, false, filters));
-        QVERIFY(!includeChannelInUnread(true, true, false, false, false, filters));
-        // A channel requiring explicit personal attention stays in Following
-        // / Attention, rather than becoming an ordinary Channels row.
-        QVERIFY(!includeChannelInUnread(true, true, true, true, false, filters));
+        // Only joined public/private channels with authoritative unread state.
+        QVERIFY(includeChannelInUnread(true, true, true, false, filters));
+        QVERIFY(!includeChannelInUnread(false, true, true, false, filters));
+        QVERIFY(!includeChannelInUnread(true, false, true, false, filters));
+        QVERIFY(!includeChannelInUnread(true, true, false, false, filters));
+        // Mentioned channels still have ordinary unread posts. The other
+        // Following entry is keyed by post/thread, not c:<channelId>, so the
+        // Channels projection must not suppress the channel itself.
+        QVERIFY(includeChannelInUnread(true, true, true, false, filters));
 
         filters.channels = false;
-        QVERIFY(!includeChannelInUnread(true, true, true, false, false, filters));
+        QVERIFY(!includeChannelInUnread(true, true, true, false, filters));
     }
 
     void unreadViewMutedIsOnlyAnInclusionModifier()
     {
         UnreadViewFilters filters;
-        QVERIFY(!includeChannelInUnread(true, true, true, false, true, filters));
+        QVERIFY(!includeChannelInUnread(true, true, true, true, filters));
         filters.muted = true;
-        QVERIFY(includeChannelInUnread(true, true, true, false, true, filters));
+        QVERIFY(includeChannelInUnread(true, true, true, true, filters));
         QVERIFY(includeFollowingInUnread(false, true, filters));
 
         // Muted cannot force read or untracked channels into the list.
-        QVERIFY(!includeChannelInUnread(true, true, false, false, true, filters));
-        QVERIFY(!includeChannelInUnread(true, false, true, false, true, filters));
+        QVERIFY(!includeChannelInUnread(true, true, false, true, filters));
+        QVERIFY(!includeChannelInUnread(true, false, true, true, filters));
         filters.channels = false;
         filters.following = false;
         // Muted is a third independent source: it can show muted channels
         // and DMs even with Following and Channels unchecked.
-        QVERIFY(includeChannelInUnread(true, true, true, false, true, filters));
-        QVERIFY(includeChannelInUnread(false, true, true, false, true, filters));
-        QVERIFY(includeChannelInUnread(false, true, true, true, true, filters));
-        QVERIFY(!includeChannelInUnread(true, true, true, false, false, filters));
+        QVERIFY(includeChannelInUnread(true, true, true, true, filters));
+        QVERIFY(includeChannelInUnread(false, true, true, true, filters));
+        QVERIFY(includeChannelInUnread(false, true, true, true, filters));
+        QVERIFY(!includeChannelInUnread(true, true, true, false, filters));
         QVERIFY(!includeFollowingInUnread(true, true, filters));
     }
 

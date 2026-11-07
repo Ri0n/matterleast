@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QString>
+#include <QJsonArray>
 #include <QJsonObject>
 
 namespace Mattermost {
@@ -37,6 +38,7 @@ public:
 	QString		teamId;
 	QString		channelId;
 	QJsonObject	postObject;
+    QJsonArray mentionedUserIds;
 	bool		set_online;
 };
 

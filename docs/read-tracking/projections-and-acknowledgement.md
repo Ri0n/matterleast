@@ -259,6 +259,27 @@ Once the containing channel is genuinely acknowledged as viewed, local model
 reconciliation removes the synthetic mention without requiring a full followed-
 thread refetch.
 
+A server unread-mention count without a known post ID is **not**
+a concrete Attention destination. Following/Attention must not fabricate a
+channel-level mention and then navigate to the channel's first unread post:
+that post may have no mention at all, and clicking it cannot consume the
+unresolved mention counter. A synthetic Attention entry is created only when
+the server's posted event identifies this user among the mentioned IDs and
+the exact root-post ID is known. If only an aggregate count is available,
+we retain that state in `SidebarService` until concrete post identities
+are retrieved through an appropriate authoritative mechanism.
+
+The Mattermost `posted.data.mentions` field is a JSON-encoded array of **user
+IDs**, not a per-recipient boolean. The string `"[]"` is nonempty, and a
+nonempty array may mention another user. Resolve `currentUserMentioned` against
+the logged-in user's ID before caching or announcing a post.
+
+Unread's Channels source remains independent of Attention entries. It keeps
+the channel while `SidebarService::isChannelUnread()` is true, whether
+or not a mention is known. A thread reply only affects the parent channel's
+unread state in the legacy all-post-count domain; with CRT enabled and root
+counters available, reply unread and mentions remain in the thread domain.
+
 ## Invariants for future changes
 
 Do not add a second read state machine around navigation. In particular:
