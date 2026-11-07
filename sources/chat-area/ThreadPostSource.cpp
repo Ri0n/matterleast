@@ -317,7 +317,8 @@ bool ThreadPostSource::isPostReadyForNavigation(const QString& postId) const
 {
     const auto* context = islandForPost(postId);
     return isAvailable(indexOfPost(postId))
-        && (isPostPositionAuthoritative(postId) || (context && context->ready));
+        && (isPostPositionAuthoritative(postId) || (context && context->ready)
+            || cachedNavigationReadyIds.contains(postId));
 }
 
 bool ThreadPostSource::placeIsland(Island next, int exactFirst, int reservedFirst, int reservedLast)
@@ -1252,20 +1253,24 @@ void ThreadPostSource::hydrateCachedTail()
                 result.postIds.size() - usableCount);
             const int first = static_cast<int>(guard->postIds.size()) - usableCount;
 
-            // Cached-tail hydration deliberately remains renderable while it is
-            // validated, but it must not turn a freshly estimated permalink slot
-            // into a concrete widget merely because the cache overlaps it. The
-            // explicit navigation request will fetch the confirming server page.
+            // A persisted tail has server-proven contiguous identities.
+            // Do not discard its entire suffix merely because the selected
+            // post has an estimated position there. It is safe to present the
+            // cache immediately only when the persisted window confirms the
+            // *same identity at the same slot*. Mismatched estimates still
+            // require a live server response.
             if (guard->navigationPlacement.isActive()
                 && guard->navigationPlacement.blocksMaterialization(
                     guard->navigationPlacement.postId())) {
                 const int estimate = guard->indexOfPost(
                     guard->navigationPlacement.postId());
-                if (estimate >= first && estimate < first + usableCount) {
+                if (estimate >= first && estimate < first + usableCount
+                    && ids.at(estimate - first)
+                        != guard->navigationPlacement.postId()) {
                     qCDebug(lcThreadTimelineTrace).nospace()
                         << "THREAD_CACHE_TAIL_SKIP source="
                         << static_cast<const void*>(guard.data())
-                        << " reason=navigation-estimate target="
+                        << " reason=navigation-identity-mismatch target="
                         << shortId(guard->navigationPlacement.postId())
                         << " index=" << estimate;
                     return;
@@ -1288,6 +1293,18 @@ void ThreadPostSource::hydrateCachedTail()
                 }
             }
 
+            // The guard above and collision checks below must complete
+            // before the navigation target is unlocked. A matching cached
+            // tail can release the estimated target while its identities stay
+            // provisional until the background server validation succeeds.
+            const auto cachedTarget = guard->navigationPlacement.acceptCachedTail(first, ids);
+            if (cachedTarget.isValid()) {
+                // Show/highlight the restored target immediately. Its cached
+                // identity is proven by the persisted suffix but its current
+                // ordinal remains provisional until the live response arrives.
+                guard->cachedNavigationReadyIds.insert(
+                    ids.at(cachedTarget.authoritativeIndex - first));
+            }
             for (const QString& id : ids) {
                 if (guard->indexOfPost(id) < 0) {
                     guard->provisionalPostIds.insert(id);
@@ -1296,10 +1313,17 @@ void ThreadPostSource::hydrateCachedTail()
             guard->rememberCursorCreateAt(ids);
             const ExactWindowMutation mutation = guard->assignExactWindow(first, ids);
             guard->publishExactWindow(mutation);
+            if (cachedTarget.isValid() && cachedTarget.wasEstimated
+                && !mutation.mappingChanged
+                && guard->isAvailable(cachedTarget.authoritativeIndex)) {
+                emit guard->rangeAvailable(cachedTarget.authoritativeIndex,
+                                           cachedTarget.authoritativeIndex);
+            }
             qCDebug(lcThreadTimelineTrace).nospace()
                 << "THREAD_CACHE_TAIL_HYDRATE source="
                 << static_cast<const void*>(guard.data())
                 << " target=[" << first << ',' << (first + usableCount - 1) << ']'
+                << " navigationMatched=" << cachedTarget.isValid()
                 << " ids=" << idsSummary(ids);
             guard->validateCachedTail();
         });
@@ -1400,6 +1424,15 @@ void ThreadPostSource::pruneProvisionalPostIds()
     for (auto it = provisionalPostIds.begin(); it != provisionalPostIds.end();) {
         if (indexOfPost(*it) < 0) {
             it = provisionalPostIds.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // A conflicting live page may have displaced a cached target. Never keep
+    // that old identity marked as presentation-ready after it left the map.
+    for (auto it = cachedNavigationReadyIds.begin(); it != cachedNavigationReadyIds.end();) {
+        if (indexOfPost(*it) < 0) {
+            it = cachedNavigationReadyIds.erase(it);
         } else {
             ++it;
         }

@@ -80,31 +80,38 @@ void ChatArea::highlightPostWhenReady(const QString& postId,
     }
 
     // A cold permalink may have a renderable semantic island before its ordinal
-    // is known. Wait for that bounded context, not for a full cursor traversal.
-    // Later index reconciliation preserves the widget by post identity.
+    // is known. The disk cache can likewise hydrate a verified thread suffix
+    // *before* the in-flight server request finishes; listen for availability,
+    // not only request completion, so cached navigation can present promptly.
     const std::uint64_t generation = viewportNavigationGeneration;
     QPointer<ChatArea> guard(this);
-    auto connection = std::make_shared<QMetaObject::Connection>();
-    *connection = connect(source, &AbstractPostSource::rangeRequestFinished,
-                          this,
-                          [guard, source, postId, generation, connection,
-                           onPresented = std::move(onPresented)](int, int) mutable {
+    auto finishConnection = std::make_shared<QMetaObject::Connection>();
+    auto availableConnection = std::make_shared<QMetaObject::Connection>();
+    const auto tryPresent =
+        [guard, source, postId, generation, finishConnection, availableConnection,
+         onPresented = std::move(onPresented)](int, int) mutable {
         if (!guard || generation != guard->viewportNavigationGeneration) {
-            QObject::disconnect(*connection);
+            QObject::disconnect(*finishConnection);
+            QObject::disconnect(*availableConnection);
             return;
         }
         if (!source->isPostReadyForNavigation(postId)) {
             return;
         }
 
-        QObject::disconnect(*connection);
+        QObject::disconnect(*finishConnection);
+        QObject::disconnect(*availableConnection);
         if (guard->ui && guard->ui->listWidget) {
             guard->ui->listWidget->highlightPost(postId);
             if (onPresented) {
                 onPresented();
             }
         }
-    });
+    };
+    *finishConnection = connect(source, &AbstractPostSource::rangeRequestFinished,
+                                this, tryPresent);
+    *availableConnection = connect(source, &AbstractPostSource::rangeAvailable,
+                                   this, tryPresent);
 }
 
 } // namespace Mattermost
