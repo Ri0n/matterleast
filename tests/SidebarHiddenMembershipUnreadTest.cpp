@@ -206,7 +206,7 @@ private slots:
         QCOMPARE(sidebar.channelLastViewedTime(channel->id), uint64_t(2000));
     }
 
-    void rootMentionWithoutResidentPostAppearsInAttention()
+    void unknownMentionCountDoesNotInventAttentionNavigation()
     {
         Backend backend;
         BackendChannel* channel = makeChannel(backend);
@@ -248,13 +248,14 @@ private slots:
             return count;
         };
 
-        // Before this fix, the Channels row was bold, Unread excluded it
-        // because hasUnreadMention() was true, and Attention had no entry.
-        QCOMPARE(countRows(attention, SidebarItem::Channel), 1);
+        // A mention counter alone has no concrete target post. Attention
+        // must not pretend that the first unread channel message is the
+        // mention; the channel still belongs in Unread.
+        QCOMPARE(countRows(attention, SidebarItem::Channel), 0);
         QCOMPARE(countRows(unread, SidebarItem::Channel), 1);
 
-        // A newly delivered root mention gives Following the exact post ID,
-        // replacing the fallback channel entry with one synthetic post row.
+        // When the exact mentioned root post becomes known, Attention
+        // acquires one per-post entry with a real post ID.
         publish(backend, *channel, QString(), QStringLiteral("other"), 2000, true);
         QCOMPARE(countRows(attention, SidebarItem::Channel), 0);
         QCOMPARE(countRows(attention, SidebarItem::Thread), 1);
