@@ -3,12 +3,14 @@
 #include <QFrame>
 #include <functional>
 #include <list>
+#include <memory>
 
 class QEvent;
 class QLabel;
 class QMouseEvent;
 class QResizeEvent;
 class QTextBrowser;
+class QTextDocument;
 class QToolButton;
 class QUrl;
 class QVBoxLayout;
@@ -55,6 +57,7 @@ private:
 
     QLabel* authorLabel = nullptr;
     QTextBrowser* messageBrowser = nullptr;
+    std::unique_ptr<QTextDocument> measuringDocument;
     QToolButton* expandButton = nullptr;
     QuotedAttachmentSummary* attachmentSummary = nullptr;
     PostAttachmentList* attachmentList = nullptr;
