@@ -23,12 +23,9 @@
 #include "SvgRasterCache.h"
 #include "TrayBadgePainter.h"
 
-#include <algorithm>
 
 #include <QAction>
-#include <QApplication>
 #include <QColor>
-#include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QPainter>
