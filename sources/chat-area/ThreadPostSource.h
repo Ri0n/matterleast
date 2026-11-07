@@ -107,6 +107,10 @@ private:
     QSet<QString> leasedTombstoneIds;
     QHash<QString, uint64_t> cursorCreateAtById;
     QSet<QString> provisionalPostIds;
+    // An exact ID/index match in the persisted, contiguous newest suffix is
+    // renderable for navigation while server validation runs. This does not
+    // promote the cached range to authoritative logical indices.
+    QSet<QString> cachedNavigationReadyIds;
     ThreadNavigationPlacement navigationPlacement;
     // A confirmed newest-boundary overlap may prove that reply_count includes
     // unavailable replies. Preserve that proven delta across later root updates.
