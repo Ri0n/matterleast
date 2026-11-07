@@ -16,6 +16,7 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "backend/FollowingModel.h"
+#include "channel-tree/AttentionList.h"
 #include "channel-tree/ChannelQuickList.h"
 #include "channel-tree/SidebarItem.h"
 
@@ -203,6 +204,71 @@ private slots:
         QVERIFY(checkpointSucceeded);
         QTRY_COMPARE(server.viewRequests, 2);
         QCOMPARE(sidebar.channelLastViewedTime(channel->id), uint64_t(2000));
+    }
+
+    void rootMentionWithoutResidentPostAppearsInAttention()
+    {
+        Backend backend;
+        BackendChannel* channel = makeChannel(backend);
+        QVERIFY(channel);
+        auto& sidebar = SidebarService::instance(backend);
+
+        SidebarCategory category;
+        category.id = QStringLiteral("joined");
+        category.teamId = QStringLiteral("team");
+        category.type = QStringLiteral("channels");
+        category.channelIds << channel->id;
+        SidebarTeamState state;
+        state.categories.insert(category.id, category);
+        state.order << category.id;
+        sidebar.applyLocalTeamState(category.teamId, state);
+
+        // The mention is reported by authoritative per-channel metadata,
+        // but no corresponding post body has been delivered to Following.
+        // This happens after startup/reconnect or for cold channels.
+        publish(backend, *channel, QString(), QStringLiteral("other"), 1000);
+        sidebar.setChannelMentioned(channel->id, true);
+        QVERIFY(sidebar.isChannelUnread(*channel));
+        QVERIFY(sidebar.hasUnreadMention(channel->id));
+
+        AttentionList attention;
+        attention.initialize(backend);
+        ChannelQuickList unread;
+        unread.initialize(backend);
+
+        auto countRows = [channel](const QTreeWidget& list, int kind) {
+            int count = 0;
+            for (int i = 0; i < list.topLevelItemCount(); ++i) {
+                const QTreeWidgetItem* item = list.topLevelItem(i);
+                if (item->data(0, SidebarItem::ChannelIdRole).toString() == channel->id
+                    && item->data(0, SidebarItem::KindRole).toInt() == kind) {
+                    ++count;
+                }
+            }
+            return count;
+        };
+
+        // Before this fix, the Channels row was bold, Unread excluded it
+        // because hasUnreadMention() was true, and Attention had no entry.
+        QCOMPARE(countRows(attention, SidebarItem::Channel), 1);
+        QCOMPARE(countRows(unread, SidebarItem::Channel), 1);
+
+        // A newly delivered root mention gives Following the exact post ID,
+        // replacing the fallback channel entry with one synthetic post row.
+        publish(backend, *channel, QString(), QStringLiteral("other"), 2000, true);
+        QCOMPARE(countRows(attention, SidebarItem::Channel), 0);
+        QCOMPARE(countRows(attention, SidebarItem::Thread), 1);
+        QCOMPARE(countRows(unread, SidebarItem::Channel), 1);
+        QCOMPARE(countRows(unread, SidebarItem::Thread), 1);
+
+        // Once the mention is acknowledged, no mention-specific Attention
+        // entry remains, but a separate unread channel post still exists.
+        sidebar.setChannelMentioned(channel->id, false);
+        FollowingModel::instance(backend).acknowledgeVisibleSyntheticMention(
+            channel->id, QStringLiteral("post-2000"));
+        QCOMPARE(countRows(attention, SidebarItem::Channel), 0);
+        QCOMPARE(countRows(attention, SidebarItem::Thread), 0);
+        QCOMPARE(countRows(unread, SidebarItem::Channel), 1);
     }
 
     void mentionedChannelRemainsInUnreadProjectionWhileUnread()
