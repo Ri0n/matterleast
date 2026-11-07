@@ -58,6 +58,12 @@ decorator emits a structural removal in filtered coordinates. `LongListWidget` t
 logical geometry through the normal `removeItems()` transaction. A semantic viewport lock survives
 because the target widget identity is remapped to its new filtered index; its screen Y is preserved.
 
+Raw `layoutChanged` is different from a predicate decision changing in place. The old rejected source
+coordinates and the new ones belong to different mappings. Install the new rejection mask atomically
+and forward the semantic remap, including any resulting cardinality change; subtracting those numeric
+sets and issuing removals/insertions deletes unrelated accepted messages. See the
+[atomic remap contract](interface-and-indexing.md#structural-signal-discipline).
+
 Navigation that must seed raw Mattermost context first (for example
 `ChannelPostSource::adoptNavigationContext()`) unwraps the decorator and talks to the raw channel
 source. The resulting source mutations flow back through the projection before

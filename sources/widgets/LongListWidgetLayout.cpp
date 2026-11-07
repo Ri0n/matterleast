@@ -13,14 +13,16 @@
 
 namespace Mattermost {
 
-void LongListWidget::reconcileItemLayout(int first, int last)
+void LongListWidget::reconcileItemLayout(int first, int last, int count)
 {
-    if (logicalCount <= 0) {
+    const int nextCount = count < 0 ? logicalCount : count;
+    const int extent = std::max(logicalCount, nextCount);
+    if (extent <= 0) {
         return;
     }
 
     first = std::max(0, first);
-    last = std::min(logicalCount - 1, last);
+    last = std::min(extent - 1, last);
     if (last < first) {
         return;
     }
@@ -32,7 +34,7 @@ void LongListWidget::reconcileItemLayout(int first, int last)
     // presentation-specific path re-measures that widget independently. Besides
     // avoiding needless scrollbar restoration, this makes such notifications
     // harmless during wheel scrolling.
-    if (first == last) {
+    if (first == last && nextCount == logicalCount) {
         if (QWidget* widget = materialized.value(first, nullptr)) {
             const QString identity = itemIdentity(widget);
             if (!identity.isEmpty()
@@ -92,20 +94,34 @@ void LongListWidget::reconcileItemLayout(int first, int last)
         // provide stable identity for every concrete widget.
         state.newIndex = state.identity.isEmpty()
             ? state.oldIndex : indexOfItemIdentity(state.identity);
-        state.keep = state.newIndex >= 0 && state.newIndex < logicalCount
+        state.keep = state.newIndex >= 0 && state.newIndex < nextCount
             && isModelItemAvailable(state.newIndex);
 
         touched.insert(state.oldIndex);
-        if (state.newIndex >= 0 && state.newIndex < logicalCount) {
+        if (state.newIndex >= 0 && state.newIndex < nextCount) {
             touched.insert(state.newIndex);
         }
         states.push_back(std::move(state));
+    }
+
+    // Snapshot every widget's old geometry before shrinking: a surviving item
+    // can move out of the old tail into the new, shorter projection.
+    if (nextCount != logicalCount) {
+        logicalCount = nextCount;
+        lastSynchronizedViewportRange = {};
+        heights.resize(nextCount, defaultHeight);
+        measured.resize(nextCount);
+        available.resize(nextCount);
+        pendingRequest = QBitArray(nextCount, false);
     }
 
     // Height measurements belong to semantic items, not logical slots. Reset
     // every touched slot first, then restore the exact measurements alongside
     // widgets that survive the identity remap.
     for (int index : std::as_const(touched)) {
+        if (index < 0 || index >= logicalCount) {
+            continue;
+        }
         available.setBit(index, isModelItemAvailable(index));
         pendingRequest.clearBit(index);
         if (measured.testBit(index)) {
@@ -164,7 +180,15 @@ void LongListWidget::reconcileItemLayout(int first, int last)
         const int newSeekIndex = indexOfItemIdentity(seekIdentity);
         if (newSeekIndex >= 0 && newSeekIndex < logicalCount) {
             seekTarget = newSeekIndex;
+        } else {
+            clearSeek();
         }
+    }
+    if (viewportLock.index >= logicalCount) {
+        releaseViewportLock(false);
+    }
+    if (seekTarget >= logicalCount) {
+        clearSeek();
     }
 
     // Treat a remap as one geometry transaction. New mappings, carried height

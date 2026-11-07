@@ -259,6 +259,14 @@ void ChannelPostSource::requestRange(int first,
 {
     Q_UNUSED(generation)
 
+    qCDebug(lcTimelineChannel).nospace()
+        << "RANGE_BEGIN source=" << static_cast<const void*>(this)
+        << " channel=" << channel.id
+        << " requested=[" << first << ',' << last << ']'
+        << " count=" << postIds.size()
+        << " hasRootCount=" << hasRootCountEstimate
+        << " provisional=" << provisionalWindow.isValid();
+
     if (!hasRootCountEstimate || postIds.isEmpty()) {
         emit rangeRequestFinished(first, last);
         return;
@@ -370,8 +378,7 @@ void ChannelPostSource::requestRange(int first,
             }
             source->provisionalWindow.first = newFirst;
             source->rebuildIndex();
-            source->mappingChanged(window.first, window.last());
-            source->mappingChanged(newFirst, newFirst + windowCount - 1);
+            source->mappingChanged(window.first, newFirst + windowCount - 1);
             emit source->rangeAvailable(newFirst, newFirst + windowCount - 1);
             qCDebug(lcTimelineChannel).nospace()
                 << "RANGE_CURSOR_SHIFT_PROVISIONAL direction=after"
@@ -423,8 +430,7 @@ void ChannelPostSource::requestRange(int first,
             }
             source->provisionalWindow.first = newFirst;
             source->rebuildIndex();
-            source->mappingChanged(window.first, window.last());
-            source->mappingChanged(newFirst, newFirst + windowCount - 1);
+            source->mappingChanged(newFirst, window.last());
             emit source->rangeAvailable(newFirst, newFirst + windowCount - 1);
             qCDebug(lcTimelineChannel).nospace()
                 << "RANGE_CURSOR_SHIFT_PROVISIONAL direction=before"
@@ -1575,10 +1581,23 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
         insertLogicalPrefix(missingPrefix);
     }
 
-    const int count = static_cast<int>(postIds.size());
-    if (contextCount > count) {
-        return false;
+    // A cursor reaching the real newest boundary proves that this whole
+    // context is a suffix, even when count-excluded roots make it larger than
+    // our entire estimate. Reserve its missing prefix before validating the
+    // exact placement, retaining an older guard until the oldest boundary is
+    // also known. Non-boundary contexts use the free-run reservation below.
+    if (reachedNewest) {
+        const int minimumCount = contextCount + (reachedOldest ? 0 : 1);
+        const int missingPrefix = minimumCount - static_cast<int>(postIds.size());
+        if (missingPrefix > 0) {
+            rootCountAdjustment += missingPrefix;
+            insertLogicalPrefix(missingPrefix);
+            if (exactFirstHint >= 0) {
+                exactFirstHint += missingPrefix;
+            }
+        }
     }
+    const int count = static_cast<int>(postIds.size());
 
     if (exactFirstHint < 0 && provisionalWindow.isValid()
         && provisionalWindow.targetPostId == targetPostId
@@ -1763,6 +1782,36 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
         next[first + offset] = ids.at(offset);
     }
 
+    // Filling empty slots is availability, not a remap. In particular, cursor
+    // extensions must not re-publish the whole growing navigation island or
+    // force two layout transactions for its old and new extents.
+    int changedFirst = -1;
+    int changedLast = -1;
+    bool remapped = false;
+    QVector<QPair<int, int>> availableRuns;
+    int runFirst = -1;
+    for (int index = 0; index < next.size(); ++index) {
+        const bool changed = next.at(index) != postIds.at(index);
+        if (changed) {
+            if (changedFirst < 0) {
+                changedFirst = index;
+            }
+            changedLast = index;
+            remapped = remapped || !postIds.at(index).isEmpty();
+        }
+        if (changed && !next.at(index).isEmpty()) {
+            if (runFirst < 0) {
+                runFirst = index;
+            }
+        } else if (runFirst >= 0) {
+            availableRuns.push_back(qMakePair(runFirst, index - 1));
+            runFirst = -1;
+        }
+    }
+    if (runFirst >= 0) {
+        availableRuns.push_back(qMakePair(runFirst, static_cast<int>(next.size()) - 1));
+    }
+
     postIds = std::move(next);
     rebuildIndex();
 
@@ -1782,12 +1831,12 @@ bool ChannelPostSource::placeNavigationContext(const QString& targetPostId,
     }
 
     const int newLast = first + contextCount - 1;
-    if (oldWindow.isValid()
-        && (oldWindow.first != first || oldWindow.last() != newLast)) {
-        mappingChanged(oldWindow.first, oldWindow.last());
+    if (remapped) {
+        mappingChanged(changedFirst, changedLast);
     }
-    mappingChanged(first, newLast);
-    emit rangeAvailable(first, newLast);
+    for (const auto& run : std::as_const(availableRuns)) {
+        emit rangeAvailable(run.first, run.second);
+    }
 
     qCDebug(lcTimelineChannel).nospace()
         << "NAV_CONTEXT target=" << targetPostId

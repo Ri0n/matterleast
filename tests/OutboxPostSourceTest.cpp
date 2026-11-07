@@ -94,6 +94,13 @@ public:
         emit rangeAvailable(itemCount() - 1, itemCount() - 1);
     }
 
+    void removeFirstByRemap()
+    {
+        const int previousCount = itemCount();
+        posts_.erase(posts_.begin());
+        emit layoutChanged(0, previousCount - 1);
+    }
+
 private:
     Storage& storage_;
     std::vector<std::unique_ptr<BackendPost>> posts_;
@@ -192,6 +199,37 @@ private slots:
         QVERIFY(service.cancel(pendingId));
         QCOMPARE(source.itemCount(), 2);
         QCOMPARE(source.indexOfPost(pendingId), -1);
+    }
+
+    void remapMovesPendingTailWithTheAuthoritativeCount()
+    {
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("me")},
+            {QStringLiteral("username"), QStringLiteral("me")}
+        }, true);
+        BackendChannel channel(backend.getStorage(), channelJson());
+        FakePostSource raw(backend.getStorage());
+        raw.appendCoarse(QStringLiteral("server-a"), 1000);
+        raw.appendCoarse(QStringLiteral("server-b"), 2000);
+        auto& service = PendingPostService::instance(backend);
+        const QString pending = service.enqueue(channel, QStringLiteral("pending"), {}, {}, {},
+                                                QStringLiteral("pending-remap"));
+        OutboxPostSource source(raw, service, channel.id, QString());
+        QSignalSpy inserted(&source, &AbstractPostSource::itemsInserted);
+        QSignalSpy removed(&source, &AbstractPostSource::itemsRemoved);
+        QSignalSpy layouts(&source, &AbstractPostSource::layoutChanged);
+        raw.removeFirstByRemap();
+        QCOMPARE(layouts.size(), 1);
+        QCOMPARE(inserted.size(), 0);
+        QCOMPARE(removed.size(), 0);
+        QCOMPARE(source.itemCount(), 2);
+        QCOMPARE(source.authoritativeItemCount(), 1);
+        QCOMPARE(source.postIdAt(0), QStringLiteral("server-b"));
+        QCOMPARE(source.postIdAt(1), pending);
+        QCOMPARE(source.indexOfPost(pending), 1);
+        QVERIFY(source.isPendingIndex(1));
+        QVERIFY(service.cancel(pending));
     }
 
     void confirmationIsOneReplacementNotInsertRemoveOrLayout()

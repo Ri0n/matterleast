@@ -249,6 +249,60 @@ private slots:
                  "A semantic viewport lock must follow the same physical widget across an index remap");
     }
 
+    void identityRemapCommitsCardinalityAtomically_data()
+    {
+        QTest::addColumn<bool>("grow");
+        QTest::newRow("shrink") << false;
+        QTest::newRow("grow") << true;
+    }
+
+    void identityRemapCommitsCardinalityAtomically()
+    {
+        QFETCH(bool, grow);
+        TestList list;
+        list.resize(480, 320);
+        list.setDefaultItemHeight(64);
+        QStringList identities;
+        for (int index = 0; index < 40; ++index) {
+            identities.push_back(QStringLiteral("item-%1").arg(index));
+        }
+        list.setIdentities(identities);
+        list.setItemCount(40);
+        list.setRangeAvailable(0, 39);
+        list.show();
+        list.scrollToIndex(35, Mattermost::LongListWidget::Alignment::Center);
+        settleEvents();
+        QVERIFY(list.lockViewportToItem(35, Mattermost::LongListWidget::Alignment::Center, 0));
+        settleEvents();
+        QWidget* target = list.itemWidget(35);
+        QVERIFY(target);
+        const int y = target->y();
+        const int destroyed = list.destroyedCount();
+        if (grow) {
+            for (int index = 0; index < 30; ++index) {
+                identities.prepend(QStringLiteral("new-%1").arg(index));
+            }
+        } else {
+            identities = identities.mid(30);
+        }
+        list.setIdentities(identities);
+        list.reconcileItemLayout(0, 69, identities.size());
+        settleEvents();
+        QCOMPARE(list.itemCount(), identities.size());
+        QCOMPARE(list.itemWidget(grow ? 65 : 5), target);
+        QVERIFY(list.hasViewportLock());
+        QVERIFY(qAbs(target->y() - y) <= 2);
+        if (grow) QCOMPARE(list.destroyedCount(), destroyed);
+
+        // A projection can also lose its final accepted identity in a remap.
+        list.setIdentities({});
+        list.reconcileItemLayout(0, 69, 0);
+        settleEvents();
+        QCOMPARE(list.itemCount(), 0);
+        QCOMPARE(list.materializedCount(), 0);
+        QVERIFY(!list.hasViewportLock());
+    }
+
     void firstPopulationDoesNotInventBottomAnchor()
     {
         TestList list;

@@ -127,6 +127,16 @@ there is no generic `itemsChanged()` compatibility shim. Body edits, reactions, 
 duplicate live delivery must update the existing model/widget in place and must not have a path to
 `layoutChanged`.
 
+A genuine raw remap can change the cardinality of a predicate projection: rejected identities may
+move out of the known mapping, or the remap may also resolve previously unknown hidden rows. In this
+case `layoutChanged` publishes the **final mapping and `itemCount()` atomically**. Decorators must
+update their count before forwarding it, including shifting an additive local tail. The view passes
+the final count to `reconcileItemLayout()` so it snapshots surviving widgets and their measurements
+before resizing geometry. Do not synthesize intermediate removals from a difference of rejection
+coordinates, or call `setItemCount()` before the remap: either can destroy surviving semantic widgets.
+This exception belongs only to real identity remaps; ordinary filtering, append/remove and availability
+still use their exact structural/data events.
+
 `rangeRequested(first,last,...)` is **logical demand**, not an instruction to perform one HTTP request
 per fixed-size block. For ordinary viewport/prefetch work `LongListWidget` may request one contiguous
 missing range spanning the whole desired window. The concrete source decides whether that demand is

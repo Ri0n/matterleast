@@ -410,9 +410,19 @@ void FilteredPostSource::handleBodyAvailabilityChanged(int first,
 
 void FilteredPostSource::handleLayoutChanged(int first, int last)
 {
+    const int previousCount = itemCount();
+    sourceCount = source ? source->itemCount() : 0;
     evaluateRange(first, last);
-    applyRejectedSourceIndices(currentRejectedSourceIndices());
-    emitLayoutForSourceRange(first, last);
+    // The old rejection coordinates refer to the *old* source mapping. Their
+    // numeric difference from the new coordinates is not a predicate change:
+    // publishing it as removals would destroy unrelated surviving messages.
+    // Commit the projection as one semantic remap, including its cardinality.
+    rejectedSourceIndices = currentRejectedSourceIndices();
+    if (itemCount() != previousCount) {
+        emit layoutChanged(0, std::max(previousCount, itemCount()) - 1);
+    } else {
+        emitLayoutForSourceRange(first, last);
+    }
 }
 
 void FilteredPostSource::handleSeekTargetResolved(int sourceIndex,

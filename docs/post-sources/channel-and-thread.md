@@ -75,6 +75,22 @@ ordinary viewport demand continues from the exact oldest resident identity. A fi
 requesting, so opening a channel does not trigger a full-history scan. Do not infer the oldest
 boundary from the message counter or from the absence of visible rows after filtering.
 
+Extending a provisional navigation context publishes availability only for newly assigned slots.
+Existing identities that keep their indices must not produce `layoutChanged`, even if the context
+became longer or its authority was confirmed. When identities really move, publish one remap spanning
+the changed mapping, not separate old/new-window remaps followed by the entire accumulated context.
+The sparse-slot reservation needed for count-excluded system roots remains independent of this signal
+policy. Mixed membership/ordinary history tests must wire the real remap lifecycle and check widget
+retention, navigation anchoring and bounded viewport-driven requests, not just eventual row presence.
+
+The accumulated cursor context may exceed the **entire** initial logical count, not just a free run
+between exact islands. Do not reject `contextCount > itemCount()` before sparse-slot reservation: a
+successful response can then leave the visible final guard permanently unavailable. When a cursor
+proves the newest boundary, reserve enough prefix for the complete suffix before exact-placement
+validation, including one unresolved older slot unless oldest was also reached. Newest evidence does
+not prove the beginning of history. This correction must preserve existing semantic widgets and stop
+at satisfied viewport demand rather than scan the rest of the channel.
+
 ## Thread source
 
 `ThreadPostSource` maps one root plus replies:

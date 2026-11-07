@@ -80,11 +80,15 @@ OutboxPostSource::OutboxPostSource(AbstractPostSource& sourceInstance,
             this, &OutboxPostSource::seekTargetResolved);
     connect(&sourceInstance, &AbstractPostSource::layoutChanged,
             this, [this](int first, int last) {
-        if (first < sourceCount) {
+        // A predicate projection can change cardinality as part of a real
+        // identity remap. Move the local tail in that same transaction; a
+        // separate removal would discard widgets before they can be remapped.
+        const int previousCount = itemCount();
+        sourceCount = source ? source->itemCount() : 0;
+        if (previousCount != itemCount()) {
+            emit layoutChanged(0, std::max(previousCount, itemCount()) - 1);
+        } else if (first < sourceCount) {
             emit layoutChanged(first, std::min(last, sourceCount - 1));
-        }
-        if (last >= sourceCount) {
-            scheduleSourceStructureSync();
         }
     });
     connect(&sourceInstance, &AbstractPostSource::rangeRequestFinished,

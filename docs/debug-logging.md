@@ -74,6 +74,7 @@ can be very verbose on active servers.
 | `mattermost.following` | warning | Following/Attention thread queries, pagination, merge statistics, unread state |
 | `mattermost.timeline.trace` | warning | Virtualized list requests, visible/materialized ranges, navigation locks and read-cursor triggers |
 | `mattermost.timeline.channel` | warning | Channel source paging, boundary reconciliation and logical placement |
+| `mattermost.timeline.repository` | warning | Physical coalesced GET start/completion and channel history failures |
 
 Examples:
 
@@ -88,6 +89,12 @@ QT_LOGGING_RULES='mattermost.timeline.trace.debug=true;mattermost.timeline.chann
 # Temporarily silence upload traces
 QT_LOGGING_RULES='mattermost.upload.info=false' ./matterleast
 ```
+
+For a blank timeline whose `RANGE_REQUEST` immediately finishes without availability, also enable
+`mattermost.timeline.repository.debug=true`. `RANGE_BEGIN` shows the raw source count and mode;
+`GET_START` / `GET_FINISHED` identify physical requests by their observation sequence, independently of
+logical range waiters. A failed channel history GET emits `CHANNEL_GET_FAILED` at warning level with
+the endpoint, Qt network error, HTTP status and JSON-object validity, without headers or response bodies.
 
 ## Attachment upload trace
 

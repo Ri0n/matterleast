@@ -11,6 +11,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLoggingCategory>
 #include <QNetworkReply>
 #include <QSet>
 #include <QSignalBlocker>
@@ -24,6 +25,8 @@
 
 namespace Mattermost {
 namespace {
+
+Q_LOGGING_CATEGORY(lcTimelineRepository, "mattermost.timeline.repository", QtWarningMsg)
 
 constexpr int ContextFetchPerSide = 30;
 constexpr int ResidentObservationPruneThreshold = 16384;
@@ -304,12 +307,37 @@ void PostRepository::coalescedGet(const QString& path, JsonCallback callback)
     requestContext.cacheAccount = cacheAccount;
     requestContext.observationSequence = nextObservationSequence();
 
+    qCDebug(lcTimelineRepository).nospace()
+        << "GET_START sequence=" << requestContext.observationSequence
+        << " path=" << path;
+
     QPointer<PostRepository> guard(this);
     NetworkRequest request(path);
     httpConnector.get(request, HttpResponseCallback(
-        [guard, requestKey, requestContext](QVariant status, const QJsonDocument& doc) mutable {
+        [guard, requestKey, requestContext, path](QVariant status, QByteArray data,
+                                                 const QNetworkReply& reply) mutable {
             if (!guard || guard->shuttingDown) {
                 return;
+            }
+
+            const QJsonDocument doc = QJsonDocument::fromJson(data);
+            const int httpStatus = reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+            qCDebug(lcTimelineRepository).nospace()
+                << "GET_FINISHED sequence=" << requestContext.observationSequence
+                << " path=" << path
+                << " networkError=" << status.toInt()
+                << " httpStatus=" << httpStatus
+                << " jsonObject=" << doc.isObject();
+            if ((status.toInt() != QNetworkReply::NoError || !doc.isObject())
+                && path.startsWith(QLatin1String("channels/"))
+                && path.contains(QLatin1String("/posts"))) {
+                qCWarning(lcTimelineRepository).nospace()
+                    << "CHANNEL_GET_FAILED sequence=" << requestContext.observationSequence
+                    << " endpoint=" << path.section(QLatin1Char('?'), 0, 0)
+                    << " networkError=" << status.toInt()
+                    << " httpStatus=" << httpStatus
+                    << " jsonObject=" << doc.isObject();
             }
 
             // Remove before fan-out: a callback may synchronously request the
