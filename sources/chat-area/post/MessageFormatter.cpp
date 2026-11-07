@@ -859,15 +859,6 @@ QString htmlWithLinkToolTipsImpl(const QString& html)
 
 } // namespace
 
-QString htmlWithLinkToolTips(const QString& html)
-{
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-    return htmlWithLinkToolTipsImpl(html);
-#else
-    return html;
-#endif
-}
-
 void buildMarkdownDocument(QTextDocument& document, const QString& text,
                            EmojiRegistry* registry, const QColor& inlineCodeTextColor)
 {
@@ -909,6 +900,15 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text,
     applyLinkToolTips(document);
 }
 #endif
+
+QString htmlWithLinkToolTips(const QString& html)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    return htmlWithLinkToolTipsImpl(html);
+#else
+    return html;
+#endif
+}
 
 QString formatMessageText(const QString& text, EmojiRegistry* registry)
 {
