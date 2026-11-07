@@ -262,10 +262,10 @@ private slots:
         send(QStringLiteral("no-tags"), QStringLiteral("[]"), false);
         // Mentioning somebody else does not put the post in my Attention.
         send(QStringLiteral("tags-other"),
-             QStringLiteral("[\\\"other\\\"]"), false);
+             QStringLiteral("[\"other\"]"), false);
         // Both wire formats, array and JSON-encoded string, identify only
         // the current logged-in user's own ID.
-        send(QStringLiteral("tags-self"), QStringLiteral("[\\\"self\\\"]"), true);
+        send(QStringLiteral("tags-self"), QStringLiteral("[\"self\"]"), true);
         send(QStringLiteral("tags-many"),
              QJsonArray {QStringLiteral("other"), QStringLiteral("self")}, true);
         // Invalid/missing mention metadata must not synthesize attention.
