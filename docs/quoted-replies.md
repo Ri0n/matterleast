@@ -55,6 +55,14 @@ Both composer and timeline use the compact `QuotedPostPreview` presentation: mut
 
 The expansion is presentation-local, preserves the surrounding channel/thread and the original quote permalink, and does not modify the stored message or the canonical reply reference. The quoted text never owns its own scrolling surface: the virtualized chat row is remeasured through `QuotedPostPreview::dimensionsChanged` → `PostWidget::dimensionsChanged`, then the outer message list scrolls normally. The toggle is absent for quotes that fit within the current width, and reevaluates when the conversation is resized.
 
+The excerpt browser must use `QTextEdit::FixedPixelWidth` with its wrap width
+set from the containing preview's available width. Do not set the
+`QTextDocument::textWidth` directly while leaving the browser in `WidgetWidth`
+mode: `QTextEdit` can overwrite the document width from an outdated viewport
+during resizes (observed on Qt 5.15), leaving **Show more…** visible after
+the chat widens again. The width source belongs to the preview, while the
+browser's native fixed-pixel wrap API owns the document relayout.
+
 When rendering a post, `PostWidget` first looks for `mattermost_qt_reply_to_post_id` in `props`. If the referenced post is already materialized in the channel it is rendered immediately. Otherwise the exact post is loaded through `PostRepository::loadPost()` and the preview is inserted after retrieval.
 
 Clicking the rendered quote navigates to the referenced post through `ChatArea::goToPost(postId)`, so sparse timeline materialization remains centralized in the normal navigation path.
