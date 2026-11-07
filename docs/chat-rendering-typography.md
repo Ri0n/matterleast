@@ -51,3 +51,12 @@ formatting, including background and links.
 
 The tests `MessageContentWidgetTest` and `PostAuthorGroupingTest` cover
 quote clipping, non-scrolling text, code font and nickname sizing on Qt 5/6.
+
+Markdown hyperlinks have a hover tooltip containing their actual target,
+including links whose visible labels differ from their URLs. The shared
+MessageFormatter attaches character-format tooltips for QTextDocument
+consumers; its HTML export additionally injects anchor title attributes
+because Qt's exporter drops QTextFormat::TextToolTip. This covers posts,
+blockquotes, quote previews, and collapsed/expanded channel topics.
+Non-link text has no link tooltip. Quote preview full-text fallback tooltips
+belong to the surrounding frame, not the inner text browser.

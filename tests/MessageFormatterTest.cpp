@@ -109,6 +109,51 @@ class MessageFormatterTest : public QObject
     Q_OBJECT
 
 private slots:
+    void linksExposeActualTargetsAsToolTips()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+        const QString url = QStringLiteral("https://example.com/a?first=1&second=2");
+        const QString source = QStringLiteral(
+            "[documentation](https://example.com/a?first=1&second=2) "
+            "and https://example.com/other and "
+            "\x60https://example.com/not-a-link\x60");
+
+        const auto checkDocument = [&](const QTextDocument& document) {
+            int linkCount = 0;
+            for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+                for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+                    const QTextFragment fragment = it.fragment();
+                    if (!fragment.isValid())
+                        continue;
+                    const QTextCharFormat format = fragment.charFormat();
+                    if (format.isAnchor() && !format.anchorHref().isEmpty()) {
+                        QCOMPARE(format.toolTip(), format.anchorHref());
+                        if (format.anchorHref() == url)
+                            QCOMPARE(fragment.text(), QStringLiteral("documentation"));
+                        ++linkCount;
+                    } else {
+                        QVERIFY(format.toolTip().isEmpty());
+                    }
+                }
+            }
+            QCOMPARE(linkCount, 2);
+        };
+
+        QTextDocument markdown;
+        MessageFormatter::buildMarkdownDocument(markdown, source);
+        checkDocument(markdown);
+
+        const QString html = MessageFormatter::formatMessageText(source);
+        QVERIFY(html.contains(
+            QStringLiteral("title=\"https://example.com/a?first=1&amp;second=2\"")));
+        QTextDocument reimported;
+        reimported.setHtml(html);
+        checkDocument(reimported);
+#else
+        QSKIP("Markdown rendering test requires Qt 6.10");
+#endif
+    }
+
     void multilineSingleBacktickCodeBecomesPreformattedBlock()
     {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)

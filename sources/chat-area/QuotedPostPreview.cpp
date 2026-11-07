@@ -225,10 +225,9 @@ void QuotedPostPreview::setPreview(const QString& title,
     if (attachmentSummary) {
         attachmentSummary->setGenericAttachment(hasAttachments);
     }
+    // Keep the full excerpt as a frame fallback. The browser uses per-link
+    // tooltips supplied centrally by MessageFormatter.
     setToolTip(visibleMessage);
-    if (messageBrowser) {
-        messageBrowser->setToolTip(visibleMessage);
-    }
     refreshText();
 }
 
@@ -488,7 +487,6 @@ void QuotedPostPreview::updateTextLayout()
     // would obscure it while the mouse is resting over the body.
     const QString tooltip = expanded ? QString() : fullText;
     setToolTip(tooltip);
-    messageBrowser->setToolTip(tooltip);
     messageBrowser->verticalScrollBar()->setValue(0);
 
     if (geometryChanged) {

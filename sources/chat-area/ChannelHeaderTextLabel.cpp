@@ -140,7 +140,7 @@ QString formatCollapsedTopic(const QString& text, const QFont& font,
         }
     }
 
-    return document.toHtml();
+    return MessageFormatter::htmlWithLinkToolTips(document.toHtml());
 }
 
 } // namespace
