@@ -14,6 +14,7 @@
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextFragment>
 #include <QWidget>
 
 #include "chat-area/ChannelHeaderTextLabel.h"
@@ -44,6 +45,7 @@ private slots:
     void popoverReverseKeepsRenderedChildren();
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
+    void collapsedMarkdownLinksKeepTargetTooltips();
 };
 
 void ChannelHeaderTextLabelTest::hoverOpensOnlyAfterTooltipDwell()
@@ -276,6 +278,32 @@ void ChannelHeaderTextLabelTest::popoverUsesMessageCodeBlockRenderer()
         1000);
 #else
     QSKIP("Dedicated fenced-code widgets require Qt 6.10 Markdown support");
+#endif
+}
+
+void ChannelHeaderTextLabelTest::collapsedMarkdownLinksKeepTargetTooltips()
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    ChannelHeaderTextLabel label;
+    const QString url = QStringLiteral("https://example.com/topic?a=1&b=2");
+    label.setText(QStringLiteral("[open documentation](https://example.com/topic?a=1&b=2)"));
+
+    // QLabel reparses the HTML, so check the actual document it will render.
+    QTextDocument rendered;
+    rendered.setHtml(label.text());
+    bool foundLink = false;
+    for (QTextBlock block = rendered.begin(); block.isValid(); block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (fragment.isValid() && fragment.charFormat().anchorHref() == url) {
+                QCOMPARE(fragment.charFormat().toolTip(), url);
+                foundLink = true;
+            }
+        }
+    }
+    QVERIFY(foundLink);
+#else
+    QSKIP("Markdown rendering test requires Qt 6.10");
 #endif
 }
 
