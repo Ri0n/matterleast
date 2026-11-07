@@ -223,7 +223,12 @@ private slots:
         QVERIFY(!includeChannelInUnread(true, false, true, false, true, filters));
         filters.channels = false;
         filters.following = false;
-        QVERIFY(!includeChannelInUnread(true, true, true, false, true, filters));
+        // Muted is a third independent source: it can show muted channels
+        // and DMs even with Following and Channels unchecked.
+        QVERIFY(includeChannelInUnread(true, true, true, false, true, filters));
+        QVERIFY(includeChannelInUnread(false, true, true, false, true, filters));
+        QVERIFY(includeChannelInUnread(false, true, true, true, true, filters));
+        QVERIFY(!includeChannelInUnread(true, true, true, false, false, filters));
         QVERIFY(!includeFollowingInUnread(true, true, filters));
     }
 
