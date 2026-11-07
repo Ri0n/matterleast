@@ -439,6 +439,81 @@ private slots:
         QVERIFY(!visible.isAvailable(0));
     }
 
+    void navigationContextReservesRowsMissingFromRootCounter()
+    {
+        // The real endpoint contains 80 roots, 58 of them count-excluded
+        // join/leave events. The initial metadata reserves just 40 slots.
+        // An exact 10-post newest page occupies the tail, leaving a free
+        // prefix of 30 slots, too short for a 31-post navigation context
+        // plus its two unknown-boundary guard slots.
+        HiddenHistoryServer server;
+        server.ordinaryCount = 22;
+        server.hiddenCount = 58;
+        QVERIFY(server.start());
+
+        Backend backend;
+        backend.getStorage().addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("self")},
+            {QStringLiteral("username"), QStringLiteral("self")}
+        }, true);
+        BackendChannel channel(backend.getStorage(), channelJson(40, 0));
+
+        // The context is resident, but is not a verified newest cache tail.
+        // Seed it before constructing the source so it cannot acquire guessed
+        // authoritative indices from live-post insertion signals.
+        QJsonArray ids;
+        QJsonObject posts;
+        QStringList context;
+        for (int i = 0; i <= 30; ++i) {
+            ids.append(postId(i));
+            posts.insert(postId(i), rootPost(i, server.ordinaryCount));
+            context.push_back(postId(i));
+        }
+        channel.mergePostContext(ids, posts);
+        ChannelPostSource raw(backend, channel);
+        QSignalSpy requestsFinished(
+            &raw, &AbstractPostSource::rangeRequestFinished);
+
+        raw.requestRange(35, 39, AbstractPostSource::RequestReason::Initial, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(requestsFinished.size(), 1, 5000);
+        QCOMPARE(raw.itemCount(), 40);
+        QCOMPARE(raw.indexOfPost(postId(79)), 39);
+        QVERIFY(raw.isPostPositionAuthoritative(postId(79)));
+        const int tailIndex = raw.indexOfPost(postId(79));
+
+        QSignalSpy inserted(&raw, &AbstractPostSource::itemsInserted);
+        QVERIFY(raw.adoptNavigationContext(postId(15), context, false, false));
+
+        // A single structural insertion creates the missing corridor without
+        // overwriting the 10 verified newest roots.
+        QCOMPARE(inserted.size(), 1);
+        QCOMPARE(inserted.at(0).at(0).toInt(), 30);
+        QCOMPARE(inserted.at(0).at(1).toInt(), 3);
+        QCOMPARE(raw.itemCount(), 43);
+        QCOMPARE(raw.indexOfPost(postId(79)), tailIndex + 3);
+        QVERIFY(raw.isPostPositionAuthoritative(postId(79)));
+        for (int i = 0; i <= 30; ++i) {
+            const int index = raw.indexOfPost(postId(i));
+            QVERIFY2(index > 0, qPrintable(postId(i)));
+            QCOMPARE(raw.postIdAt(index), postId(i));
+            QVERIFY(raw.isAvailable(index));
+            QVERIFY(!raw.isPostPositionAuthoritative(postId(i)));
+        }
+
+        FilteredPostSource visible(raw, mainTimelinePost);
+        OutboxPostSource presentation(
+            visible, PendingPostService::instance(backend),
+            channel.id, QString());
+        SourceList list(presentation);
+        list.resize(500, 440);
+        list.show();
+        const int targetIndex = presentation.indexOfPost(postId(15));
+        QVERIFY(targetIndex >= 0);
+        list.scrollToIndex(targetIndex, LongListWidget::Alignment::Center);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            list.widgetFor(presentation.indexOfPost(postId(15))), 5000);
+    }
+
     void viewportLoadsPastHiddenPages_data()
     {
         QTest::addColumn<int>("ordinaryCount");
