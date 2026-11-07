@@ -4,6 +4,7 @@
 #include "channel-tree/AttentionActivationPolicy.h"
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingPresentation.h"
+#include "channel-tree/UnreadProjectionPolicy.h"
 #include "channel-tree/SidebarUnreadPolicy.h"
 #include "channel-tree/VirtualDestinationBlock.h"
 
@@ -172,6 +173,55 @@ private slots:
         visible.postId = QStringLiteral("reply");
         visible.postRootId = QStringLiteral("root");
         QVERIFY(shouldFlashAttentionPost(thread, visible));
+    }
+
+    void unreadViewPreservesFollowingRows()
+    {
+        UnreadViewFilters filters;
+        QVERIFY(filters.following);
+        QVERIFY(filters.channels);
+        QVERIFY(!filters.muted);
+
+        // Existing Following includes read followed threads and synthetic
+        // mentions, even when the enclosing channel is muted.
+        QVERIFY(includeFollowingInUnread(true, true, filters));
+        QVERIFY(includeFollowingInUnread(true, false, filters));
+        QVERIFY(includeFollowingInUnread(false, false, filters));
+        QVERIFY(!includeFollowingInUnread(false, true, filters));
+
+        filters.following = false;
+        QVERIFY(!includeFollowingInUnread(true, false, filters));
+        QVERIFY(!includeFollowingInUnread(false, false, filters));
+    }
+
+    void unreadViewChannelsExcludeDirectMessagesAndReadChannels()
+    {
+        UnreadViewFilters filters;
+        // Only joined public/private channels with server unread state.
+        QVERIFY(includeChannelInUnread(true, true, true, false, filters));
+        QVERIFY(!includeChannelInUnread(false, true, true, false, filters));
+        QVERIFY(!includeChannelInUnread(true, false, true, false, filters));
+        QVERIFY(!includeChannelInUnread(true, true, false, false, filters));
+
+        filters.channels = false;
+        QVERIFY(!includeChannelInUnread(true, true, true, false, filters));
+    }
+
+    void unreadViewMutedIsOnlyAnInclusionModifier()
+    {
+        UnreadViewFilters filters;
+        QVERIFY(!includeChannelInUnread(true, true, true, true, filters));
+        filters.muted = true;
+        QVERIFY(includeChannelInUnread(true, true, true, true, filters));
+        QVERIFY(includeFollowingInUnread(false, true, filters));
+
+        // Muted cannot force read or untracked channels into the list.
+        QVERIFY(!includeChannelInUnread(true, true, false, true, filters));
+        QVERIFY(!includeChannelInUnread(true, false, true, true, filters));
+        filters.channels = false;
+        filters.following = false;
+        QVERIFY(!includeChannelInUnread(true, true, true, true, filters));
+        QVERIFY(!includeFollowingInUnread(true, true, filters));
     }
 
     void mutedAttentionKeepsExplicitlyFollowedThreads()
