@@ -1403,13 +1403,14 @@ void MainWindow::refreshTrayIcon()
                 || channel->type == BackendChannel::privateChannel;
             // Avoid the more expensive category membership lookup for
             // channels that cannot contribute to the tray indicator.
-            if (!publicOrPrivate || sidebar.isChannelMuted(*channel)
-                || !sidebar.isChannelUnread(*channel)) {
+            const bool muted = sidebar.isChannelMuted(*channel);
+            const bool unread = sidebar.isChannelUnread(*channel);
+            if (!publicOrPrivate || muted || !unread) {
                 continue;
             }
             if (isTrayUnreadChannel(publicOrPrivate,
                                     sidebar.isChannelTracked(channel->id),
-                                    false, true)) {
+                                    muted, unread)) {
                 hasUnreadChannel = true;
                 break;
             }
