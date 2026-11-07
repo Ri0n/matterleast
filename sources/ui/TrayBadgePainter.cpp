@@ -36,7 +36,7 @@ void TrayBadgePainter::paint(QPixmap& pixmap, TrayBadgeKind kind,
     const qreal width = pixmap.width() / dpr;
     const qreal height = pixmap.height() / dpr;
     const qreal scale = std::min(width, height) / 256.0;
-    const qreal halo = std::max<qreal>(1.0, std::round(7.0 * scale));
+    const qreal halo = std::max<qreal>(1.5, std::round(7.0 * scale));
     const qreal inset = halo;
     const bool attention = kind == TrayBadgeKind::Attention;
 
