@@ -224,6 +224,7 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
                     || channel->type == BackendChannel::privateChannel,
                 sidebar.isChannelTracked(channelId),
                 sidebar.isChannelUnread(*channel),
+                sidebar.hasUnreadMention(channelId),
                 sidebar.isChannelMuted(*channel), unreadFilters_)) {
             FollowingModel::Entry ephemeral;
             ephemeral.kind = FollowingModel::Kind::Conversation;
@@ -449,18 +450,21 @@ void ChannelQuickList::refresh()
     // and tracked channels are included; DM/GM and thread semantics remain
     // exclusively owned by the existing FollowingModel.
     auto& sidebar = SidebarService::instance(*backend_);
-    for (auto it = backend_->getStorage().channels.cbegin();
-         it != backend_->getStorage().channels.cend(); ++it) {
-        BackendChannel* channel = it.value();
-        if (!channel || channel->delete_at != 0) continue;
-        if (!includeChannelInUnread(
-                channel->type == BackendChannel::publicChannel
-                    || channel->type == BackendChannel::privateChannel,
-                sidebar.isChannelTracked(channel->id),
-                sidebar.isChannelUnread(*channel),
-                sidebar.isChannelMuted(*channel), unreadFilters_)) {
-            continue;
-        }
+    if (unreadFilters_.channels) {
+        for (auto it = backend_->getStorage().channels.cbegin();
+             it != backend_->getStorage().channels.cend(); ++it) {
+            BackendChannel* channel = it.value();
+            if (!channel || channel->delete_at != 0
+                || (channel->type != BackendChannel::publicChannel
+                    && channel->type != BackendChannel::privateChannel)
+                || !sidebar.isChannelUnread(*channel)
+                || sidebar.hasUnreadMention(channel->id)
+                || (sidebar.isChannelMuted(*channel) && !unreadFilters_.muted)) {
+                continue;
+            }
+            // Membership/category lookup is relatively expensive: perform
+            // it only for eligible unread channel candidates.
+            if (!sidebar.isChannelTracked(channel->id)) continue;
         const QString key = QStringLiteral("c:") + channel->id;
         if (projectedKeys.contains(key)) continue;
 
@@ -476,8 +480,9 @@ void ChannelQuickList::refresh()
         candidate.sortAsUnread = true;
         candidate.sortTime = candidate.entry.lastReplyAt != 0
             ? candidate.entry.lastReplyAt : fallbackNow;
-        projectedKeys.insert(key);
-        candidates.push_back(std::move(candidate));
+            projectedKeys.insert(key);
+            candidates.push_back(std::move(candidate));
+        }
     }
 
     // A read DM/GM disappears from the shared model immediately. Keep only the
