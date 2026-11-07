@@ -292,6 +292,24 @@ private slots:
             {channelUnread, 999999, QStringLiteral("muted")}));
     }
 
+    void unreadViewUnknownActivitySortsLastWithinItsGroup()
+    {
+        // No local activity timestamp must not be treated as "just now":
+        // an unknown-timestamp channel belongs below every dated channel
+        // but still ahead of all already-read Following entries.
+        const UnreadSortKey channelKnown {
+            UnreadSortGroup::UnreadChannel, 42, QStringLiteral("channel")
+        };
+        const UnreadSortKey mutedUnknown {
+            UnreadSortGroup::UnreadChannel, 0, QStringLiteral("muted")
+        };
+        const UnreadSortKey readFollowing {
+            UnreadSortGroup::ReadFollowing, 100000, QStringLiteral("read")
+        };
+        QVERIFY(unreadSortBefore(channelKnown, mutedUnknown));
+        QVERIFY(unreadSortBefore(mutedUnknown, readFollowing));
+    }
+
     void mutedAttentionKeepsExplicitlyFollowedThreads()
     {
         QVERIFY(attentionMuteAllowsEntry(false, false));
