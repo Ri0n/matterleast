@@ -11,7 +11,7 @@ three compact, independently persisted checkboxes directly above the list:
 | Checkbox | Default | Meaning |
 | --- | --- | --- |
 | **Following** | On | Existing `FollowingModel` queue, including unread DMs/GMs, explicitly followed threads even when read, and synthetic root mentions. Its sorting, thread navigation, read/resume cursors and selection retention remain unchanged. |
-| **Channels** | On | Additional public/private channels that are joined/tracked and currently unread **without an outstanding personal mention** according to `SidebarService`. No new persistent Following membership or read cursor is created. DMs/GMs are not introduced by this source. |
+| **Channels** | On | Additional public/private channels that are joined/tracked and currently unread according to `SidebarService`, **including channels with outstanding personal mentions**. No new persistent Following membership or read cursor is created. DMs/GMs are not introduced by this source. |
 | **Muted** | Off | An independent source of unread muted conversations (including DMs/GMs), even with Channels unchecked. The old explicit-followed-thread exception remains unchanged. |
 
 The checkboxes are stored in `MLOptions` under
@@ -43,6 +43,11 @@ Stable identity is `c:<channelId>` for conversations and `t:<threadId>`
 for threads. When an unread channel is already represented by Following
 (for example, an explicit Mark as unread), it appears **once**; the
 model-backed Following entry wins and retains its existing resume semantics.
+A personal mention may instead be represented by a Following post/thread row,
+not by the channel's `c:<channelId>` identity. That separate row does not
+replace the ordinary unread channel: it stays visible while `SidebarService`
+still reports unread posts, even if the mention is opened or acknowledged.
+Neither tab computes its own unread state.
 A selected Following conversation may remain momentarily after being read
 for click stability, but it belongs to the **read** group, never to the
 unread Following or Channels groups. A read Channels/Muted-only row cannot
