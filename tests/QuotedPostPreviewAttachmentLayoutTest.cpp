@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <QTextDocument>
 #include <QToolButton>
 #include <QWheelEvent>
 
@@ -98,7 +99,11 @@ private slots:
         preview.show();
         auto* toggle = preview.findChild<QToolButton*>(
             QStringLiteral("quotedPostShowMore"));
+        auto* browser = preview.findChild<QTextBrowser*>(
+            QStringLiteral("quotedPostExcerpt"));
         QVERIFY(toggle);
+        QVERIFY(browser);
+        QCOMPARE(browser->lineWrapMode(), QTextEdit::FixedPixelWidth);
         QTRY_VERIFY(toggle->isHidden());
 
         // The decision depends on rendered lines, not character count.
@@ -108,10 +113,18 @@ private slots:
                            "entire text fits into a single wide line."));
         preview.resize(1200, 100);
         QTRY_VERIFY(toggle->isHidden());
+        // QTextEdit's own resize handler must not reset the document width
+        // behind the quote preview's back (regression on Qt 5).
+        QCOMPARE(browser->document()->pageSize().width(),
+                 qreal(browser->lineWrapColumnOrWidth()));
         preview.resize(220, 100);
         QTRY_VERIFY(!toggle->isHidden());
+        QCOMPARE(browser->document()->pageSize().width(),
+                 qreal(browser->lineWrapColumnOrWidth()));
         preview.resize(1200, 100);
         QTRY_VERIFY(toggle->isHidden());
+        QCOMPARE(browser->document()->pageSize().width(),
+                 qreal(browser->lineWrapColumnOrWidth()));
     }
 
     void permalinkExcerptDoesNotScrollInternally()
