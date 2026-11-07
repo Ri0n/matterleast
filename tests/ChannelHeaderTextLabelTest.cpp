@@ -2,6 +2,9 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
+#include <QHelpEvent>
+#include <QSignalSpy>
+#include <QToolTip>
 #include <QLayout>
 #include <QMetaObject>
 #include <QPlainTextEdit>
@@ -46,6 +49,8 @@ private slots:
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
     void collapsedMarkdownLinksKeepTargetTooltips();
+    void collapsedLabelShowsHoveredLinkTooltip();
+    void collapsedLabelClearsTooltipOnLeaveAndTextChange();
     void nativeWidthExpandsOnlyWhenTextDoesNotFit();
     void nativeWidthIncludesLabelMarginsAndIndent();
     void newlineExpandsEvenWhenTextFits();
@@ -309,6 +314,75 @@ void ChannelHeaderTextLabelTest::collapsedMarkdownLinksKeepTargetTooltips()
 #else
     QSKIP("Markdown rendering test requires Qt 6.10");
 #endif
+}
+
+void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
+{
+    QWidget host;
+    host.resize(800, 240);
+    ChannelHeaderTextLabel label(&host);
+    const QString url = QStringLiteral("https://example.com/docs?x=1&y=2");
+
+    // Use QLabel's built-in HTML importer here so this regression also runs
+    // on Qt 5 / early Qt 6 builds with different Markdown feature support.
+    // All normal topic links use that same internal QLabel text control.
+    label.QLabel::setText(
+        QStringLiteral("<a href=\\\"https://example.com/docs?x=1&amp;y=2\\\" "
+                       "title=\\\"https://example.com/docs?x=1&amp;y=2\\\">"
+                       "Documentation</a> and plain text"));
+    label.setGeometry(20, 20, 500, label.sizeHint().height());
+    QSignalSpy hoverSpy(&label, &QLabel::linkHovered);
+
+    host.show();
+    QTest::qWait(10);
+
+    const QPoint linkPoint(18, label.height() / 2);
+    QTest::mouseMove(&label, linkPoint);
+    QTRY_COMPARE(label.toolTip(), url);
+    QVERIFY(hoverSpy.count() >= 1);
+
+    // Prove the actual widget tooltip path works, not just that the HTML
+    // contains title attributes. A QLabel without the hover bridge fails.
+    QHelpEvent help(QEvent::ToolTip, linkPoint, label.mapToGlobal(linkPoint));
+    QApplication::sendEvent(&label, &help);
+    QTRY_COMPARE(QToolTip::text(), url);
+    QToolTip::hideText();
+
+    QTest::mouseMove(&label, QPoint(480, label.height() / 2));
+    QTRY_VERIFY(label.toolTip().isEmpty());
+}
+
+void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange()
+{
+    QWidget host;
+    host.resize(800, 240);
+    ChannelHeaderTextLabel label(&host);
+    label.setGeometry(20, 20, 500, label.sizeHint().height());
+    host.show();
+    QTest::qWait(10);
+
+    // A title supplied by Qt's HTML exporter must not become a lingering
+    // tooltip over empty space or after switching to a different channel.
+    const auto setLink = [&label] {
+        label.QLabel::setText(QStringLiteral(
+            "<a href=\\\"https://example.com/first\\\" "
+            "title=\\\"https://example.com/first\\\">Link</a>"));
+    };
+
+    setLink();
+    QTest::mouseMove(&label, QPoint(12, label.height() / 2));
+    QTRY_COMPARE(label.toolTip(), QStringLiteral("https://example.com/first"));
+
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(&label, &leave);
+    QVERIFY(label.toolTip().isEmpty());
+
+    // Reset the Qt text-control hover state before re-entering.
+    QTest::mouseMove(&label, QPoint(480, label.height() / 2));
+    QTest::mouseMove(&label, QPoint(12, label.height() / 2));
+    QTRY_COMPARE(label.toolTip(), QStringLiteral("https://example.com/first"));
+    label.setText(QStringLiteral("Another channel topic"));
+    QVERIFY(label.toolTip().isEmpty());
 }
 
 void ChannelHeaderTextLabelTest::nativeWidthExpandsOnlyWhenTextDoesNotFit()
