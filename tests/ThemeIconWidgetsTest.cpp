@@ -149,15 +149,21 @@ private slots:
         const QIcon normal = IconUtils::applicationIcon();
         const QIcon blue = IconUtils::applicationIcon(0, true);
         const QIcon red = IconUtils::applicationIcon(4, true);
+        const QIcon redOnly = IconUtils::applicationIcon(4, false);
         QVERIFY(!normal.isNull());
         QVERIFY(!blue.isNull());
         QVERIFY(!red.isNull());
+        QVERIFY(!redOnly.isNull());
 
         const QImage normalImage = normal.pixmap(64, 64).toImage();
         const QImage blueImage = blue.pixmap(64, 64).toImage();
         const QImage redImage = red.pixmap(64, 64).toImage();
+        const QImage redOnlyImage = redOnly.pixmap(64, 64).toImage();
         QVERIFY(normalImage != blueImage);
         QVERIFY(blueImage != redImage);
+        // A pending unread channel must never leak a second dot when
+        // personal attention is also present.
+        QCOMPARE(redImage, redOnlyImage);
     }
 
     void iconsRenderWithoutAnyImageformatPlugins()
