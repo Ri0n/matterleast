@@ -103,6 +103,21 @@ public:
         return result;
     }
 
+    // A saved thread tail is a previously server-confirmed contiguous window.
+    // It may release a fresh navigation estimate only if the exact same post
+    // occupies the exact estimated slot. Anything else still needs a live
+    // server page to resolve its ordinal, so never use a cached neighbour to
+    // turn an unrelated estimated target into a concrete widget.
+    Confirmation acceptCachedTail(int first, const QStringList& ids)
+    {
+        if (!estimated || !isActive() || targetIndex < first
+            || targetIndex >= first + ids.size()
+            || ids.at(targetIndex - first) != targetPostId) {
+            return {};
+        }
+        return confirmExactWindow(first, ids);
+    }
+
     void clear()
     {
         targetPostId.clear();
