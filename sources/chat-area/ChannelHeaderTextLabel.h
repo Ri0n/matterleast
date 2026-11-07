@@ -91,6 +91,8 @@ private:
     QString sourceText;
     QString formattedText;
     QString popoverSourceText;
+    QString _hoveredLinkHref;
+    bool _pointerOverLabel = false;
     QPointer<QScrollArea> popover;
     QPointer<QWidget> popoverContainer;
     QPointer<MessageContentWidget> popoverContent;
