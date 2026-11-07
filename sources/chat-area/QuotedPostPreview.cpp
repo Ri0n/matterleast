@@ -188,6 +188,8 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     refreshPalette();
 }
 
+QuotedPostPreview::~QuotedPostPreview() = default;
+
 void QuotedPostPreview::setPost(const BackendPost& post)
 {
     setPreview(QObject::tr("Replying to %1").arg(post.getDisplayAuthorName()),
@@ -396,6 +398,10 @@ void QuotedPostPreview::refreshPalette()
 
 void QuotedPostPreview::refreshText()
 {
+    // The display QTextDocument is controlled by QTextEdit. A separate clone
+    // is measured at the proposed chat width, as in Psi's ChatMessageText.
+    // Recreate it only for new formatted content, not on every resize.
+    measuringDocument.reset();
     if (!messageBrowser || fullText.isEmpty()) {
         if (messageBrowser) {
             messageBrowser->clear();
@@ -452,10 +458,17 @@ void QuotedPostPreview::updateTextLayout()
     if (messageBrowser->lineWrapColumnOrWidth() != availableWidth) {
         messageBrowser->setLineWrapColumnOrWidth(availableWidth);
     }
-    QTextDocument* document = messageBrowser->document();
-
+    if (!measuringDocument) {
+        QTextDocument* source = messageBrowser->document();
+        measuringDocument.reset(source->clone());
+        // QTextDocument::clone() does not preserve all document-level
+        // settings. Use the same metrics/margins as the displayed excerpt.
+        measuringDocument->setDocumentMargin(source->documentMargin());
+        measuringDocument->setUseDesignMetrics(source->useDesignMetrics());
+    }
+    measuringDocument->setTextWidth(availableWidth);
     const int fullHeight = std::max(1, static_cast<int>(
-        std::ceil(document->size().height())) + 2);
+        std::ceil(measuringDocument->documentLayout()->documentSize().height())) + 2);
     const int collapsedHeight =
         messageBrowser->fontMetrics().lineSpacing() * maximumLines + 2;
     const bool truncated = fullHeight > collapsedHeight;
