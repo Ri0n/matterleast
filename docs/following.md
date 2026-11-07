@@ -113,18 +113,20 @@ post cannot create a screen-sized tooltip.
 
 ## Ordering
 
-Following sorts unread/attention rows before non-attention rows.
+Inside the Unread tab, Following entries participate in a **three-tier**
+priority order: unread Following first, unread Channels and Muted mixed
+chronologically second, and read Following last. See
+[Sidebar Unread filtering](unread-mode.md#unread-tab-issue-277).
 
-Within each group it sorts by descending semantic activity time:
+Unread Following rows sort by descending `attentionSince` when available,
+otherwise `lastReplyAt`. Read Following rows sort by descending
+`lastReplyAt`. Stable semantic keys break timestamp ties.
 
-- attention rows use `attentionSince` when available, otherwise
-  `lastReplyAt`;
-- read followed threads use `lastReplyAt`;
-- stable semantic key is the final tie breaker.
-
-While a selected row is being retained for visual stability, its previous unread
-position/sort time may also be retained temporarily. This is presentation only:
-it must not keep the semantic entry unread or extend its resume cursor lifetime.
+A selected conversation can remain briefly in the projection after its
+unread state disappears, solely to keep a stable target for activation.
+It then sorts with **read Following** (not with unread entries); retention
+must not preserve its former unread priority or extend its resume cursor.
+Channels/Muted-only entries do not gain Following membership via retention.
 
 ## Resume cursor
 
