@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <utility>
 
-#include <QDateTime>
 #include <QHeaderView>
 #include <QIcon>
 #include <QKeyEvent>
@@ -36,7 +35,6 @@ namespace Mattermost {
 namespace {
 
 constexpr int FollowingKeyRole = Qt::UserRole + 100;
-constexpr int FollowingSortTimeRole = Qt::UserRole + 101;
 constexpr int ThreadSnippetLength = 120;
 
 QString entryKey(const FollowingModel::Entry& entry)
@@ -198,8 +196,6 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
     const bool repeatedActivation =
         !key.isEmpty() && lastActivatedKey_ == key;
     retainedKey_ = key;
-    retainedSortTime_ = current->data(0, FollowingSortTimeRole).toULongLong();
-    retainedUnreadPosition_ = current->data(0, SidebarItem::UnreadRole).toBool();
 
     const QString channelId = current->data(0, SidebarItem::ChannelIdRole).toString();
     const QString threadId = current->data(0, SidebarItem::ThreadIdRole).toString();
@@ -209,6 +205,7 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
         ? model_->findEntry(channelId, threadId) : nullptr;
     if (modelEntry) {
         retainedEntry_ = *modelEntry;
+        retainedFromFollowing_ = true;
     }
 
     const FollowingModel::Entry* entry = modelEntry;
@@ -238,6 +235,7 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
             ephemeral.muted = sidebar.isChannelMuted(*channel);
             ephemeral.lastReplyAt = sidebar.channelActivityTime(*channel);
             retainedEntry_ = std::move(ephemeral);
+            retainedFromFollowing_ = false;
             entry = &*retainedEntry_;
         }
     }
@@ -350,8 +348,7 @@ void ChannelQuickList::releaseSelectionRetention()
     retainedKey_.clear();
     lastActivatedKey_.clear();
     retainedEntry_.reset();
-    retainedSortTime_ = 0;
-    retainedUnreadPosition_ = false;
+    retainedFromFollowing_ = false;
     QTimer::singleShot(0, this, [this] {
         if (!refreshing_) {
             refresh();
@@ -417,12 +414,10 @@ void ChannelQuickList::refresh()
     struct Candidate {
         FollowingModel::Entry entry;
         QString key;
-        uint64_t sortTime = 0;
-        bool sortAsUnread = false;
+        UnreadSortKey sort;
     };
 
     QVector<Candidate> candidates;
-    const uint64_t fallbackNow = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
     QSet<QString> projectedKeys;
     for (const FollowingModel::Entry& entry : model_->entries()) {
         if (!includeFollowingInUnread(entry.isThread(), entry.muted, unreadFilters_)) {
@@ -435,18 +430,10 @@ void ChannelQuickList::refresh()
         Candidate candidate;
         candidate.entry = entry;
         candidate.key = entryKey(entry);
-        const bool retainedUnread = candidate.key == retainedKey_
-            && retainedUnreadPosition_;
-        candidate.sortAsUnread = entry.requiresAttention() || retainedUnread;
-        if (candidate.sortAsUnread) {
-            candidate.sortTime = retainedUnread && retainedSortTime_ != 0
-                ? retainedSortTime_
-                : (entry.attentionSince != 0 ? entry.attentionSince
-                                             : (entry.lastReplyAt != 0
-                                                    ? entry.lastReplyAt : fallbackNow));
-        } else {
-            candidate.sortTime = entry.lastReplyAt;
-        }
+        const bool unread = entry.requiresAttention();
+        const uint64_t sortTime = unread && entry.attentionSince != 0
+            ? entry.attentionSince : entry.lastReplyAt;
+        candidate.sort = {unreadSortGroup(true, unread), sortTime, candidate.key};
         projectedKeys.insert(candidate.key);
         candidates.push_back(std::move(candidate));
     }
@@ -491,9 +478,9 @@ void ChannelQuickList::refresh()
             candidate.entry.muted = muted;
             candidate.entry.lastReplyAt = sidebar.channelActivityTime(*channel);
             candidate.key = key;
-            candidate.sortAsUnread = true;
-            candidate.sortTime = candidate.entry.lastReplyAt != 0
-                ? candidate.entry.lastReplyAt : fallbackNow;
+            candidate.sort = {
+                unreadSortGroup(false, true), candidate.entry.lastReplyAt, key
+            };
             projectedKeys.insert(key);
             candidates.push_back(std::move(candidate));
         }
@@ -502,7 +489,8 @@ void ChannelQuickList::refresh()
     // A read DM/GM disappears from the shared model immediately. Keep only the
     // selected row in this view so an action never removes the item under the
     // pointer; this retention must not prolong its cursor/model lifetime.
-    if (retainedEntry_ && !retainedEntry_->isThread()) {
+    if (retainedFromFollowing_ && unreadFilters_.following
+        && retainedEntry_ && !retainedEntry_->isThread()) {
         const QString key = entryKey(*retainedEntry_);
         bool present = false;
         for (const Candidate& candidate : std::as_const(candidates)) {
@@ -526,22 +514,16 @@ void ChannelQuickList::refresh()
             candidate.entry.unreadMentions = 0;
             candidate.entry.attentionSince = 0;
             candidate.key = key;
-            candidate.sortAsUnread = retainedUnreadPosition_;
-            candidate.sortTime = retainedSortTime_ != 0
-                ? retainedSortTime_ : candidate.entry.lastReplyAt;
+            candidate.sort = {
+                unreadSortGroup(true, false), candidate.entry.lastReplyAt, key
+            };
             candidates.push_back(std::move(candidate));
         }
     }
 
     std::sort(candidates.begin(), candidates.end(), [](const Candidate& lhs,
                                                         const Candidate& rhs) {
-        if (lhs.sortAsUnread != rhs.sortAsUnread) {
-            return lhs.sortAsUnread;
-        }
-        if (lhs.sortTime != rhs.sortTime) {
-            return lhs.sortTime > rhs.sortTime;
-        }
-        return lhs.key < rhs.key;
+        return unreadSortBefore(lhs.sort, rhs.sort);
     });
 
     const QString selectedKey = currentItem()
@@ -556,8 +538,6 @@ void ChannelQuickList::refresh()
         const FollowingModel::Entry& entry = candidate.entry;
         auto* item = new QTreeWidgetItem(this);
         item->setData(0, FollowingKeyRole, candidate.key);
-        item->setData(0, FollowingSortTimeRole,
-                      QVariant::fromValue<qulonglong>(candidate.sortTime));
         item->setData(0, SidebarItem::UnreadRole, entry.requiresAttention());
         item->setData(0, SidebarItem::MentionedRole,
                       entry.mentioned || entry.unreadMentions > 0);
