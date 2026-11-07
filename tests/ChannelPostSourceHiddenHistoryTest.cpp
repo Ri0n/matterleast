@@ -235,8 +235,8 @@ public:
             reconcileItemLayout(first, last, this->source.itemCount());
         });
         connect(&source, &AbstractPostSource::bodyAvailabilityChanged, this,
-                [this](int first, int last, bool available) {
-            setRangeAvailable(first, last, available);
+                [this](int first, int last, bool bodyAvailable) {
+            setRangeAvailable(first, last, bodyAvailable);
         });
         connect(&source, &AbstractPostSource::rangeAvailable, this, [this](int first, int last) {
             for (int index = first; index <= last; ++index) {
