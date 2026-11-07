@@ -203,7 +203,10 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
 
     const QString channelId = current->data(0, SidebarItem::ChannelIdRole).toString();
     const QString threadId = current->data(0, SidebarItem::ThreadIdRole).toString();
-    const FollowingModel::Entry* modelEntry = model_->findEntry(channelId, threadId);
+    // Only treat this row as a Following destination when that source is
+    // enabled. The same channel may be present through Channels alone.
+    const FollowingModel::Entry* modelEntry = unreadFilters_.following
+        ? model_->findEntry(channelId, threadId) : nullptr;
     if (modelEntry) {
         retainedEntry_ = *modelEntry;
     }
