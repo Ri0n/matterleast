@@ -204,6 +204,18 @@ endif()
 option(MATTERLEAST_USE_KEYCHAIN
   "Store saved login sessions in the platform keyring (explicit ON permits bundled QtKeychain)"
   ON)
+option(MATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN
+  "Fail if the system QtKeychain development package is unavailable" OFF)
+if(MATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN)
+  if(NOT MATTERLEAST_USE_KEYCHAIN)
+    message(FATAL_ERROR "System QtKeychain is required but keychain support is disabled")
+  endif()
+  if(NOT _matterleast_system_keychain_target)
+    message(FATAL_ERROR
+      "System Qt${QT_VERSION_MAJOR}Keychain >= ${MATTERLEAST_QTKEYCHAIN_LOCK_MIN_VERSION} "
+      "is required; install its development package. Bundled fallback is prohibited.")
+  endif()
+endif()
 
 # Corporate builds embed only a PUBLIC RSA verification key. Signing uses
 # an external private key, never checked into the source tree or application.
@@ -688,6 +700,13 @@ if(MATTERLEAST_QCA_PROVIDER STREQUAL "system-qca2")
         string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", libqca-qt5-2, libqca-qt5-2-plugins")
     endif()
 endif()
+if(MATTERLEAST_USE_KEYCHAIN AND MATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN)
+    if(QT_VERSION_MAJOR EQUAL 6)
+        string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", libqt6keychain1")
+    else()
+        string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", libqt5keychain1")
+    endif()
+endif()
 if(MATTERLEAST_DEBIAN_EXTRA_DEPENDS)
 	string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", ${MATTERLEAST_DEBIAN_EXTRA_DEPENDS}")
 endif()
@@ -706,6 +725,14 @@ if(MATTERLEAST_QCA_PROVIDER STREQUAL "system-qca2")
         string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", qca-qt6, qca-qt6-ossl")
     else()
         string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", qca-qt5, qca-qt5-ossl")
+    endif()
+endif()
+
+if(MATTERLEAST_USE_KEYCHAIN AND MATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN)
+    if(QT_VERSION_MAJOR EQUAL 6)
+        string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", qtkeychain-qt6")
+    else()
+        string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", qtkeychain-qt5")
     endif()
 endif()
 

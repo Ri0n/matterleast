@@ -89,9 +89,9 @@ jobs:
           sudo apt-get update
           packages=(build-essential dpkg-dev fakeroot libxss-dev libhunspell-dev pkg-config)
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
-            packages+=(qt6-base-dev qt6-svg-dev qt6-websockets-dev libqca-qt6-dev libqca-qt6-plugins)
+            packages+=(qt6-base-dev qt6-svg-dev qt6-websockets-dev qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins)
           else
-            packages+=(qtbase5-dev libqt5svg5-dev libqt5websockets5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
+            packages+=(qtbase5-dev libqt5svg5-dev libqt5websockets5-dev qtkeychain-qt5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
           fi
           read -r -a runtime_packages <<< "${{ matrix.build-runtime-packages }}"
           packages+=("${runtime_packages[@]}")
@@ -105,6 +105,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DQT_6=${{ matrix.qt6 }} \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
+            -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
@@ -141,6 +142,19 @@ jobs:
           fi
 
           depends=$(dpkg-deb -f "$deb" Depends)
+          if dpkg-deb --contents "$deb" | grep -Ei 'qt[56]?keychain'; then
+            echo "::error::DEB must depend on system QtKeychain, not install bundled QtKeychain files"
+            exit 1
+          fi
+          if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
+            keychain_dep=libqt6keychain1
+          else
+            keychain_dep=libqt5keychain1
+          fi
+          if [[ "$depends" != *"$keychain_dep"* ]]; then
+            echo "::error::Missing system QtKeychain dependency $keychain_dep: $depends"
+            exit 1
+          fi
           case "${{ matrix.ubuntu-version }}" in
             22.04) required_deps=(libqt5sql5-sqlite libqt5svg5) ;;
             24.04) required_deps=(libqt6sql6-sqlite libqt6svg6) ;;
@@ -185,7 +199,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqca-qt6-dev libqca-qt6-plugins libxss-dev libhunspell-dev pkg-config
+            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins libxss-dev libhunspell-dev pkg-config
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -207,6 +221,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
+            -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="libqt6svg6, qt6-svg-plugins"
 
@@ -228,7 +243,11 @@ jobs:
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           depends=$(dpkg-deb -f "$deb" Depends)
-          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins; do
+          if dpkg-deb --contents "$deb" | grep -Ei 'qt[56]?keychain'; then
+            echo "::error::DEB must depend on system QtKeychain, not install bundled QtKeychain files"
+            exit 1
+          fi
+          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqt6keychain1; do
             [[ "$depends" == *"$dep"* ]] || {
               echo "::error::Missing Debian 13 dependency: $dep"
               exit 1
@@ -276,6 +295,7 @@ jobs:
             file \
             libgl1-mesa-dev \
             libhunspell-dev \
+            qtkeychain-qt6-dev \
             pkg-config \
             libssl-dev \
             libxss-dev \
@@ -324,6 +344,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
+            -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
             -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
 
@@ -351,6 +372,12 @@ jobs:
           test -x AppDir/usr/bin/matterleast
           test -f AppDir/usr/share/applications/io.github.Ri0n.MatterLeast.desktop
           test -f AppDir/usr/share/icons/hicolor/scalable/apps/io.github.Ri0n.MatterLeast.svg
+          # linuxdeploy bundles runtime libraries later; CMake must not install
+          # its own QtKeychain build or SDK into AppDir.
+          if find AppDir -iname '*keychain*' | grep -q .; then
+            echo "::error::CMake installed QtKeychain into AppDir instead of using the system library"
+            exit 1
+          fi
 
       - name: Fetch pinned linuxdeploy tools
         shell: bash
@@ -472,6 +499,7 @@ jobs:
             qt6-qtwebsockets-devel \
             qca-qt6-devel \
             qca-qt6-ossl \
+            qtkeychain-qt6-devel \
             hunspell-devel
           dnf clean all
 
@@ -494,6 +522,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
+            -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DBUILD_TESTING=ON \
             -DWARNINGS_AS_ERRORS=ON \
 
@@ -529,6 +558,15 @@ jobs:
           fi
 
           requires=$(rpm -qpR "$rpm_file")
+          if rpm -qpl "$rpm_file" | grep -Ei 'qt[56]?keychain'; then
+            echo "::error::RPM must depend on system QtKeychain, not install bundled QtKeychain files"
+            exit 1
+          fi
+          if ! grep -Eq '^qtkeychain-qt6([[:space:]]|$)' <<< "$requires"; then
+            echo "::error::RPM dependency 'qtkeychain-qt6' is missing"
+            printf '%s\n' "$requires"
+            exit 1
+          fi
           if ! grep -Fxq 'qt6-qtsvg' <<< "$requires"; then
             echo "::error::RPM dependency 'qt6-qtsvg' is missing"
             printf '%s\n' "$requires"

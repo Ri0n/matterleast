@@ -117,6 +117,25 @@ class DependencyLockContract(unittest.TestCase):
                     self.assertIn("libssl-dev", workflow)
                 self.assertIn("wincrypto", (ROOT / "CMakeLists.txt").read_text())
 
+    def test_linux_packages_require_system_qtkeychain(self):
+        cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        packages = (ROOT / ".github/workflows/packages.yml").read_text(encoding="utf-8")
+        ci = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+        self.assertIn("option(MATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN", cmake)
+        self.assertIn("if(NOT _matterleast_system_keychain_target)", cmake)
+        self.assertIn("Bundled fallback is prohibited.", cmake)
+        self.assertIn('", libqt6keychain1"', cmake)
+        self.assertIn('", libqt5keychain1"', cmake)
+        self.assertIn('", qtkeychain-qt6"', cmake)
+        for package in ("qtkeychain-qt5-dev", "qtkeychain-qt6-dev",
+                        "qtkeychain-qt6-devel"):
+            self.assertIn(package, packages)
+        linux_packages = packages.split("  windows:\n", 1)[0]
+        self.assertEqual(linux_packages.count("-DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON"), 4)
+        self.assertIn('dpkg-deb --contents "$deb"', packages)
+        self.assertIn('rpm -qpl "$rpm_file"', packages)
+        self.assertIn('find AppDir -iname', packages)
+        self.assertEqual(ci.count("-DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON"), 3)
 
 
 if __name__ == "__main__":
