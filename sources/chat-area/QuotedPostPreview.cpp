@@ -471,9 +471,12 @@ void QuotedPostPreview::updateTextLayout()
         std::ceil(measuringDocument->documentLayout()->documentSize().height())) + 2);
     const int collapsedHeight =
         messageBrowser->fontMetrics().lineSpacing() * maximumLines + 2;
-    const bool truncated = fullHeight > collapsedHeight;
-    const int targetHeight = expanded ? fullHeight
-                                      : std::min(fullHeight, collapsedHeight);
+    // QTextDocument uses fractional font metrics; on Qt 5 two rendered lines
+    // can measure 41px while QFontMetrics::lineSpacing() reports 20px each.
+    // Reserve up to one rounding pixel per visible line before deciding that
+    // a quote needs a Show more action. Never clip that tolerated remainder.
+    const bool truncated = fullHeight > collapsedHeight + maximumLines;
+    const int targetHeight = expanded || !truncated ? fullHeight : collapsedHeight;
     const bool geometryChanged =
         messageBrowser->height() != targetHeight
         || expandButton->isHidden() == truncated;
