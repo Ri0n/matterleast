@@ -175,12 +175,28 @@ void WebSocketEventHandler::handleEvent(const ThreadReadChangedEvent& event)
 
 void WebSocketEventHandler::handleEvent (const PostEvent& event)
 {
-	auto& repository = PostRepository::instance(backend);
+    auto& repository = PostRepository::instance(backend);
+
+    // A posted event includes the IDs of all mentioned users, not a boolean
+    // scoped to this websocket client. In particular, "[]" and a mention of
+    // someone else must never create Attention for the logged-in user.
+    const QString currentUserId = storage.loginUser
+        ? storage.loginUser->id : QString();
+    bool mentionedCurrentUser = false;
+    for (const QJsonValue& id : event.mentionedUserIds) {
+        if (!currentUserId.isEmpty() && id.toString() == currentUserId) {
+            mentionedCurrentUser = true;
+            break;
+        }
+    }
+    QJsonObject resolvedPost = event.postObject;
+    resolvedPost.insert(QStringLiteral("_mmqt_current_user_mentioned"),
+                        mentionedCurrentUser);
 
     const QString rootId =
-        event.postObject.value(QStringLiteral("root_id")).toString();
+        resolvedPost.value(QStringLiteral("root_id")).toString();
     const QString authorId =
-        event.postObject.value(QStringLiteral("user_id")).toString();
+        resolvedPost.value(QStringLiteral("user_id")).toString();
     if (!rootId.isEmpty() && storage.loginUser
         && authorId == storage.loginUser->id) {
         BackendChannel* postedChannel = storage.getChannelById(event.channelId);
@@ -204,7 +220,7 @@ void WebSocketEventHandler::handleEvent (const PostEvent& event)
 	// Always record the resident observation so an older in-flight HTTP
 	// response cannot overwrite this event. PostRepository applies disk admission
 	// independently and persists only recently opened channels.
-	repository.cachePostObject(event.postObject);
+	repository.cachePostObject(resolvedPost);
 
     BackendChannel* channel = storage.getChannelById(event.channelId);
     if (!channel) {
@@ -216,7 +232,7 @@ void WebSocketEventHandler::handleEvent (const PostEvent& event)
         }
 
         auto& pending = pendingDirectPosts[event.channelId];
-        const QString postId = event.postObject.value(QStringLiteral("id")).toString();
+        const QString postId = resolvedPost.value(QStringLiteral("id")).toString();
         const bool duplicate = !postId.isEmpty()
             && std::any_of(pending.cbegin(), pending.cend(), [&postId](const QJsonObject& object) {
                 return object.value(QStringLiteral("id")).toString() == postId;
@@ -225,12 +241,12 @@ void WebSocketEventHandler::handleEvent (const PostEvent& event)
             if (pending.size() >= MaxPendingPostsPerChannel) {
                 pending.removeFirst();
             }
-            pending.push_back(event.postObject);
+            pending.push_back(resolvedPost);
         }
         return;
     }
 
-    deliverPost(event.channelId, event.postObject);
+    deliverPost(event.channelId, resolvedPost);
 }
 
 void WebSocketEventHandler::deliverPost(const QString& channelId,
