@@ -226,7 +226,6 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
                     || channel->type == BackendChannel::privateChannel,
                 sidebar.isChannelTracked(channelId),
                 sidebar.isChannelUnread(*channel),
-                sidebar.hasUnreadMention(channelId),
                 sidebar.isChannelMuted(*channel), unreadFilters_)) {
             FollowingModel::Entry ephemeral;
             ephemeral.kind = FollowingModel::Kind::Conversation;
@@ -438,9 +437,11 @@ void ChannelQuickList::refresh()
         candidates.push_back(std::move(candidate));
     }
 
-    // Add non-mention unread public/private channels, plus unread muted
-    // conversations when the independent Muted source is enabled. Joined/
+    // Add all unread public/private channels, including channels with
+    // outstanding mentions: Following represents mentions as post/thread
+    // rows, not necessarily as the channel conversation itself. Joined/
     // tracked membership and unread authority remain in SidebarService.
+    // The c:<channelId> key avoids duplicate Following conversation rows.
     auto& sidebar = SidebarService::instance(*backend_);
     if (unreadFilters_.channels || unreadFilters_.muted) {
         for (auto it = backend_->getStorage().channels.cbegin();
@@ -458,12 +459,12 @@ void ChannelQuickList::refresh()
             // Avoid scanning category membership for ineligible candidates.
             if ((muted && !unreadFilters_.muted)
                 || (!muted && (!unreadFilters_.channels
-                               || !publicOrPrivate || mentioned))) {
+                               || !publicOrPrivate))) {
                 continue;
             }
             if (!includeChannelInUnread(publicOrPrivate,
                                         sidebar.isChannelTracked(channel->id),
-                                        true, mentioned, muted, unreadFilters_)) {
+                                        true, muted, unreadFilters_)) {
                 continue;
             }
             const QString key = QStringLiteral("c:") + channel->id;
