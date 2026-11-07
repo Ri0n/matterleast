@@ -9,6 +9,14 @@ Read detection itself is defined separately by
 Following consumes that shared state; it is not allowed to invent a second read
 state machine.
 
+The old **Following** sidebar tab is now labelled **Unread** (issue #277).
+Its **Following** checkbox still projects this exact queue without modifying
+membership or navigation. Its additional **Channels** and **Muted** controls
+are presentation filters described in [Sidebar Unread mode](unread-mode.md).
+The Unread view merges sources by stable channel/thread key; it must not
+overwrite followed-thread entries with channel rows or create a second
+Following/read state owner.
+
 ## Purpose
 
 Following is a queue of conversations and threads the user may want to return to.
@@ -26,7 +34,7 @@ A Following click is **navigation**. It is never proof that a message was read.
 ## Semantic model and ownership
 
 `FollowingModel` is the single semantic owner. `ChannelQuickList` renders
-Following. The view may keep short-lived presentation state (selected key,
+Following inside the Unread tab. The view may keep short-lived presentation state (selected key,
 retained row geometry, last activated key), but must not own unread/resume truth.
 
 Stable row identity is:

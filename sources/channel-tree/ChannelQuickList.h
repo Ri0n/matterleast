@@ -13,6 +13,7 @@
 #include <QTreeWidget>
 
 #include "backend/FollowingModel.h"
+#include "channel-tree/UnreadProjectionPolicy.h"
 
 class QKeyEvent;
 class QMouseEvent;
@@ -38,6 +39,7 @@ public:
     void refresh();
     void refreshThreads();
     void releaseSelectionRetention();
+    void setUnreadFilters(const UnreadViewFilters& filters);
 
 signals:
     void channelSelected(const QString& channelId);
@@ -58,6 +60,7 @@ private:
     Backend* backend_ = nullptr;
     FollowingModel* model_ = nullptr;
     bool refreshing_ = false;
+    UnreadViewFilters unreadFilters_;
     QMap<QString, QTreeWidgetItem*> channelItems_;
     QSet<QString> connectedUsers_;
 

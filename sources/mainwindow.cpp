@@ -24,6 +24,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCheckBox>
 #include <QKeySequence>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -399,12 +400,79 @@ void MainWindow::setupChannelTabs()
 		ui->teamSelectorLabel->createTeamToolbar(channelsPage, unreadFilterButton));
 	channelsLayout->addWidget(ui->channelList, 1);
 
-	recentChannels = new ChannelQuickList(channelTabs);
-	attentionList = new AttentionList(channelTabs);
+    // Reuse the existing Following projection inside an Unread tab. The
+    // filters remain local view preferences, not new unread state.
+    _unreadPage = new QWidget(channelTabs);
+    _unreadPage->setObjectName(QStringLiteral("unreadSidebarPage"));
+    auto* unreadLayout = new QVBoxLayout(_unreadPage);
+    unreadLayout->setContentsMargins(0, 0, 0, 0);
+    unreadLayout->setSpacing(0);
+    auto* unreadFilterRow = new QWidget(_unreadPage);
+    auto* unreadFilterLayout = new QHBoxLayout(unreadFilterRow);
+    unreadFilterLayout->setContentsMargins(4, 2, 3, 2);
+    unreadFilterLayout->setSpacing(4);
+    _unreadFollowingCheck = new QCheckBox(tr("Following"), unreadFilterRow);
+    _unreadFollowingCheck->setObjectName(QStringLiteral("unreadFollowingFilter"));
+    _unreadFollowingCheck->setToolTip(
+        tr("Direct messages, mentions and followed threads (including read threads)"));
+    _unreadChannelsCheck = new QCheckBox(tr("Channels"), unreadFilterRow);
+    _unreadChannelsCheck->setObjectName(QStringLiteral("unreadChannelsFilter"));
+    _unreadChannelsCheck->setToolTip(
+        tr("Unread public and private channels"));
+    _unreadMutedCheck = new QCheckBox(tr("Muted"), unreadFilterRow);
+    _unreadMutedCheck->setObjectName(QStringLiteral("unreadMutedFilter"));
+    _unreadMutedCheck->setToolTip(tr("Include muted channels"));
+    unreadFilterLayout->addWidget(_unreadFollowingCheck);
+    unreadFilterLayout->addWidget(_unreadChannelsCheck);
+    unreadFilterLayout->addWidget(_unreadMutedCheck);
+    unreadFilterLayout->addStretch();
+    unreadLayout->addWidget(unreadFilterRow);
+
+    auto* unreadPreferences = MLOptions::instance();
+    _unreadFollowingCheck->setChecked(unreadPreferences->value<bool>(
+        UNREAD_VIEW_FOLLOWING, UNREAD_VIEW_FOLLOWING_DEFAULT));
+    _unreadChannelsCheck->setChecked(unreadPreferences->value<bool>(
+        UNREAD_VIEW_CHANNELS, UNREAD_VIEW_CHANNELS_DEFAULT));
+    _unreadMutedCheck->setChecked(unreadPreferences->value<bool>(
+        UNREAD_VIEW_MUTED, UNREAD_VIEW_MUTED_DEFAULT));
+
+    recentChannels = new ChannelQuickList(_unreadPage);
+    recentChannels->setObjectName(QStringLiteral("unreadSidebarList"));
+    unreadLayout->addWidget(recentChannels, 1);
+    const auto applyUnreadFilters = [this] {
+        recentChannels->setUnreadFilters({
+            _unreadFollowingCheck->isChecked(),
+            _unreadChannelsCheck->isChecked(),
+            _unreadMutedCheck->isChecked()
+        });
+        // Changing a source must not briefly reveal rows excluded by an
+        // already-active sidebar text filter.
+        applySidebarTextFilter(recentChannels);
+    };
+    connect(_unreadFollowingCheck, &QCheckBox::toggled, this,
+            [unreadPreferences, applyUnreadFilters](bool checked) {
+        unreadPreferences->setValue(UNREAD_VIEW_FOLLOWING, checked);
+        applyUnreadFilters();
+    });
+    connect(_unreadChannelsCheck, &QCheckBox::toggled, this,
+            [unreadPreferences, applyUnreadFilters](bool checked) {
+        unreadPreferences->setValue(UNREAD_VIEW_CHANNELS, checked);
+        applyUnreadFilters();
+    });
+    connect(_unreadMutedCheck, &QCheckBox::toggled, this,
+            [unreadPreferences, applyUnreadFilters](bool checked) {
+        unreadPreferences->setValue(UNREAD_VIEW_MUTED, checked);
+        applyUnreadFilters();
+    });
+    applyUnreadFilters();
+
+    attentionList = new AttentionList(channelTabs);
 	attentionList->setContextMenuPolicy(Qt::CustomContextMenu);
 
 	channelTabs->addTab(channelsPage, tr("Channels"));
-	channelTabs->addTab(recentChannels, tr("Following"));
+	channelTabs->addTab(_unreadPage, tr("Unread"));
+    channelTabs->setTabToolTip(channelTabs->indexOf(_unreadPage),
+                              tr("Unread channels and followed conversations"));
 	channelTabs->addTab(attentionList, tr("Attention"));
 
 	auto* leftSidebar = new QWidget(ui->centralwidget);
@@ -428,7 +496,7 @@ void MainWindow::setupChannelTabs()
 	leftLayout->addWidget(channelTabs, 1);
 
 #if defined(Q_OS_WIN) && !defined(MATTERLEAST_UPDATES_DISABLED)
-    // One persistent footer shared by Channels, Following and Attention.
+    // One persistent footer shared by Channels, Unread and Attention.
     // The updater belongs to the application and can discover updates before
     // the main window exists; initialize from its current state as well.
     if (auto* updater = qApp->findChild<WindowsUpdateController*>()) {
@@ -584,6 +652,9 @@ void MainWindow::setupChannelTabs()
 		if (attentionList && currentPage != attentionList) {
 			attentionList->releaseSelectionRetention();
 		}
+        if (recentChannels && currentPage != _unreadPage) {
+            recentChannels->releaseSelectionRetention();
+        }
 		if (currentPage != channelsPage && !retainedUnreadFilterChannelId.isEmpty()) {
 			retainedUnreadFilterChannelId.clear();
 			refreshChannelUnreadFilter();
