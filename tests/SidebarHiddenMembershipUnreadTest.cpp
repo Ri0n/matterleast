@@ -287,7 +287,7 @@ private slots:
             const QJsonObject data {
                 {"post", QString::fromUtf8(
                      QJsonDocument(post).toJson(QJsonDocument::Compact))},
-                {"mentions", QStringLiteral("[\\"self\\"]")},
+                {"mentions", QStringLiteral("[\"self\"]")},
             };
             const int before = delivered;
             handler.handleEvent(PostEvent(data, broadcast));
