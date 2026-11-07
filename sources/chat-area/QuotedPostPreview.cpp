@@ -137,7 +137,12 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     messageBrowser->setFrameShape(QFrame::NoFrame);
     messageBrowser->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     messageBrowser->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    messageBrowser->setLineWrapMode(QTextEdit::WidgetWidth);
+    // QTextEdit::WidgetWidth rewrites the document page width when its
+    // viewport is resized. During an outer chat resize this can overwrite
+    // the width used to decide whether Show more is needed (Qt 5 in
+    // particular may keep the former narrow document after widening).
+    // Control wrapping through QTextEdit's own API instead.
+    messageBrowser->setLineWrapMode(QTextEdit::FixedPixelWidth);
     messageBrowser->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     messageBrowser->setFocusPolicy(Qt::NoFocus);
     messageBrowser->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
@@ -433,9 +438,10 @@ void QuotedPostPreview::updateTextLayout()
 {
     if (!messageBrowser || !expandButton || fullText.isEmpty()) return;
 
-    // Derive document width from the preview itself. On Qt 5 the browser's
-    // viewport can still report its previous (narrow) width during the
-    // parent's layout pass, leaving Show more visible after widening the chat.
+    // Derive the wrap width from the preview itself. The QTextBrowser
+    // viewport may still have its previous width during the parent's
+    // layout pass. FixedPixelWidth prevents QTextEdit's own resize handler
+    // from replacing this width with a stale viewport measurement.
     const QMargins outerMargins = layout()->contentsMargins();
     const QMargins columnMargins = contentLayout->contentsMargins();
     const int availableWidth = std::max(1,
@@ -443,10 +449,10 @@ void QuotedPostPreview::updateTextLayout()
         - bar->width() - layout()->spacing()
         - columnMargins.left() - columnMargins.right()
         - messageBrowser->frameWidth() * 2);
-    QTextDocument* document = messageBrowser->document();
-    if (std::abs(document->textWidth() - availableWidth) > 0.5) {
-        document->setTextWidth(availableWidth);
+    if (messageBrowser->lineWrapColumnOrWidth() != availableWidth) {
+        messageBrowser->setLineWrapColumnOrWidth(availableWidth);
     }
+    QTextDocument* document = messageBrowser->document();
 
     const int fullHeight = std::max(1, static_cast<int>(
         std::ceil(document->size().height())) + 2);
