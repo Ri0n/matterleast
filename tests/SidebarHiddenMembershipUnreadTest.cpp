@@ -250,7 +250,7 @@ private slots:
             handler.handleEvent(event);
             QCOMPARE(delivered, before + 1);
             QCOMPARE(observedMention, expectedMention);
-            const auto* synthetic = following.findThread(id);
+            const auto* synthetic = following.findEntry(channel->id, id);
             QCOMPARE(synthetic != nullptr, expectedMention);
             if (synthetic) {
                 QVERIFY(synthetic->synthetic);
@@ -293,7 +293,7 @@ private slots:
             handler.handleEvent(PostEvent(data, broadcast));
             QCOMPARE(delivered, before + 1);
             QVERIFY(observedMention);
-            QVERIFY(!following.findThread(postId));
+            QVERIFY(!following.findEntry(channel->id, postId));
         };
         sendAlreadyRead(QStringLiteral("late-old-post"),
                         QStringLiteral("other"), 1500);
