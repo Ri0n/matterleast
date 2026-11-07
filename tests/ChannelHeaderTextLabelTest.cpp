@@ -3,6 +3,7 @@
 #include <QAbstractTextDocumentLayout>
 #include <QApplication>
 #include <QHelpEvent>
+#include <QEnterEvent>
 #include <QSignalSpy>
 #include <QToolTip>
 #include <QLayout>
@@ -368,8 +369,8 @@ void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange
 
     const QString url = QStringLiteral("https://example.com/first");
     // QLabel does not always re-emit linkHovered when returning straight to
-    // the same link after a Leave event. Resetting its native hover state
-    // must make that link discoverable again on re-entry.
+    // the same link after a Leave. The widget must restore the URL on Enter
+    // even if QLabel's private text control suppresses a duplicate signal.
     label.QLabel::setText(QStringLiteral(
         "<a href=\"https://example.com/first\" "
         "title=\"https://example.com/first\">Link</a>"));
@@ -383,8 +384,10 @@ void ChannelHeaderTextLabelTest::collapsedLabelClearsTooltipOnLeaveAndTextChange
     QVERIFY(label.toolTip().isEmpty());
 
     // Re-enter directly over the same link, without first moving across
-    // non-link text. QLabel must emit linkHovered for the renewed anchor
-    // because the Leave handler reset its internal hover state.
+    // non-link text. A real window system sends Enter before MouseMove.
+    // QTest::mouseMove() alone does not synthesize Enter on every QPA.
+    QEnterEvent enter(linkPoint, linkPoint, label.mapToGlobal(linkPoint));
+    QApplication::sendEvent(&label, &enter);
     QTest::mouseMove(&label, linkPoint);
     QTRY_COMPARE(label.toolTip(), url);
     QHelpEvent help(QEvent::ToolTip, linkPoint, label.mapToGlobal(linkPoint));
