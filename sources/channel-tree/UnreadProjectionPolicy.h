@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+
+#include <QString>
+
 namespace Mattermost {
 
 // The Unread tab is a presentation union of the existing Following queue
@@ -27,6 +31,41 @@ inline bool includeChannelInUnread(bool isPublicOrPrivate, bool tracked,
     if (!tracked || !unread) return false;
     if (muted) return filters.muted;
     return filters.channels && isPublicOrPrivate && !mentioned;
+}
+
+// Display priority is determined by the source, not by whether a channel is
+// muted: unread Following entries always precede all other unread channels.
+// Muted and ordinary unread channels share the same chronological group.
+enum class UnreadSortGroup {
+    UnreadFollowing,
+    UnreadChannel,
+    ReadFollowing,
+};
+
+inline UnreadSortGroup unreadSortGroup(bool fromFollowing, bool unread)
+{
+    if (!fromFollowing) return UnreadSortGroup::UnreadChannel;
+    return unread ? UnreadSortGroup::UnreadFollowing
+                  : UnreadSortGroup::ReadFollowing;
+}
+
+struct UnreadSortKey {
+    UnreadSortGroup group = UnreadSortGroup::UnreadChannel;
+    std::uint64_t activityAt = 0;
+    QString identity;
+};
+
+inline bool unreadSortBefore(const UnreadSortKey& lhs, const UnreadSortKey& rhs)
+{
+    if (lhs.group != rhs.group) {
+        return lhs.group < rhs.group;
+    }
+    if (lhs.activityAt != rhs.activityAt) {
+        return lhs.activityAt > rhs.activityAt;
+    }
+    // A deterministic tie-breaker prevents rows with identical timestamps
+    // from shuffling when the projection is refreshed.
+    return lhs.identity < rhs.identity;
 }
 
 } // namespace Mattermost
