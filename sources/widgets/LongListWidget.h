@@ -467,6 +467,7 @@ private:
     bool synchronizing = false;
     bool committingGeometry = false;
     bool internalScrollChange = false;
+    bool endIntentWhenUnscrollable = false;
     bool wheelInProgress = false;
     bool userScrollActionPending = false;
     bool scrollAnimationApplying = false;

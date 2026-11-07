@@ -108,6 +108,12 @@ bottom is exact user intent: only the actual scrollbar maximum captures a `Botto
 position even one pixel above the maximum is an ordinary item anchor and must not be snapped back to
 the end by a later materialization or geometry transaction.
 
+An explicit `scrollToEnd()` also retains end intent when the scrollbar range is zero.
+A short estimated timeline can initially fit and become scrollable only after an oversized post
+is materialized or reflows. That transition must keep the final row visible. Explicit item
+navigation, direct user scrolling and clearing the list supersede this retained intent;
+an initially fitting list without explicit end intent keeps its ordinary top anchor.
+
 ## Persistent viewport lock semantics
 
 Explicit semantic navigation needs a stronger invariant than the ordinary top-of-viewport anchor.
