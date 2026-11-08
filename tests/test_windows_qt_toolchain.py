@@ -13,7 +13,7 @@ class WindowsQtToolchainTest(unittest.TestCase):
         packages = (WORKFLOWS / "packages.yml").read_text(encoding="utf-8")
         smoke = (WORKFLOWS / "windows-upgrade-smoke.yml").read_text(encoding="utf-8")
 
-        match = re.search(r'^  QT_WINDOWS_VERSION: "(\\d+\\.\\d+\\.\\d+)"$',
+        match = re.search(r'^  QT_WINDOWS_VERSION: "(\d+\.\d+\.\d+)"$',
                           packages, re.MULTILINE)
         self.assertIsNotNone(match, "Windows release Qt version must be pinned")
         version = match.group(1)
