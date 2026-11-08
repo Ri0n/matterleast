@@ -38,7 +38,7 @@ permissions:
   contents: read
 
 env:
-  QT_WINDOWS_VERSION: "6.11.2"
+  QT_WINDOWS_VERSION: "6.12.0"
   QT_APPIMAGE_VERSION: "6.11.2"
   LINUXDEPLOY_VERSION: "1-alpha-20251107-1"
   LINUXDEPLOY_SHA256: "c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d"
@@ -590,7 +590,7 @@ jobs:
 
 
   windows:
-    name: Windows 2025 — NSIS — Qt 6.11.2
+    name: Windows 2025 — NSIS — Qt 6.12.0
     runs-on: windows-2025
     timeout-minutes: 90
     defaults:
@@ -622,7 +622,7 @@ jobs:
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.24
         with:
-          key: windows-msvc-qt6.11.2
+          key: windows-msvc-qt6.12.0
           max-size: 2G
 
       - name: Ensure NSIS is installed

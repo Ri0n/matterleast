@@ -25,6 +25,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_dependency_lock.py -v
           python3 -m unittest discover -s tests -p test_qca_system_selection.py -v
           python3 -m unittest discover -s tests -p test_nsis_install_policy.py -v
+          python3 -m unittest discover -s tests -p test_windows_qt_toolchain.py -v
 
   update-manifest:
     name: Windows update manifest contract
@@ -188,7 +189,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   windows:
-    name: Qt 6.11.2 / Windows 2025
+    name: Qt 6.12.0 / Windows 2025
     runs-on: windows-2025
 
     steps:
@@ -203,7 +204,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.2'
+          version: '6.12.0'
           modules: 'qtwebsockets'
           aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
           cache: true
@@ -216,7 +217,7 @@ jobs:
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.24
         with:
-          key: windows-msvc-qt6.11.2
+          key: windows-msvc-qt6.12.0
           max-size: 2G
 
       - name: Verify Windows NSIS template matches per-user policy
