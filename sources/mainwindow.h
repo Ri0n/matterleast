@@ -25,6 +25,7 @@
 #include <QSet>
 #include <QStringList>
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
+#include "notifications/PostNotificationReplayGuard.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -110,6 +111,7 @@ private:
 	std::unique_ptr<Ui::MainWindow>		ui;
 	QSystemTrayIcon&					trayIcon;
 	std::unique_ptr<NotificationManager>	notificationManager;
+    PostNotificationReplayGuard             _notificationReplayGuard;
 	ChooseEmojiDialogWrapper			chooseEmojiDialog;
 	Backend&							backend;
 	QSplitter*							sidebarSplitter = nullptr;
