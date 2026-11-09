@@ -440,7 +440,7 @@ void HTTPConnector::startRequest(PendingRequest request)
 	// Account for replies removed without finished(), including a manager
 	// teardown inside a reentrant callback. Never retain a dangling raw key.
 	connect(reply, &QObject::destroyed, this, [this, reply] {
-		if (activeReplies.remove(reply) > 0) {
+		if (activeReplies.remove(reply)) {
 			activeGetRequests.remove(reply);
 			activeMultipartRequests.remove(reply);
 			replayedReplies.remove(reply);
