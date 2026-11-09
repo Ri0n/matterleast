@@ -24,6 +24,26 @@ The global suppressions in `MainWindow::messageNotify()` apply **before**
 this policy: the user's own posts and muted channels do not notify.
 Notifications for a currently active channel are also suppressed, as before.
 
+## Reconnect replay and notification freshness
+
+Mattermost's reliable WebSocket resume may replay `posted` events after
+network recovery, including posts that are days or months old. Such events
+still reach the backend for timeline/read-state reconciliation, but they are
+**not** new desktop messages. Before displaying a popup, `MainWindow`
+checks the original post's server `create_at` (milliseconds since epoch):
+
+- Posts more than **five minutes** old are never shown as desktop popups.
+- Missing timestamps and posts dated more than **one minute in the future**
+  are also excluded.
+- A bounded per-window set remembers the last **4096** fresh post IDs so
+  resumed streams cannot show a second popup for an already observed post,
+  even if the original event was hidden by focus or mute settings.
+
+This gate does not discard history, alter server read state, or suppress
+unread/Attention synchronization. The timestamp displayed by a desktop
+notification service describes when the popup was created, not necessarily
+when the underlying Mattermost post was written.
+
 ## Unchanged cases
 
 - New DM/GM root messages keep their existing notification behavior, regardless
