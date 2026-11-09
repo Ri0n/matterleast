@@ -83,6 +83,7 @@
 #include "log.h"
 #include "notifications/NotificationManager.h"
 #include "notifications/RootNotificationPolicy.h"
+#include "notifications/DesktopPostFreshnessPolicy.h"
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "plugins/PluginManager.h"
@@ -1312,13 +1313,10 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
         sidebar.setChannelMentioned(channel.id, true);
     }
 
-    // Mattermost may replay historical posted events after reconnect. The
-    // backend must still process them for history and unread reconciliation,
-    // but only fresh, previously unseen posts can cause desktop popups.
-    // Consume fresh IDs even if muted/visible to avoid a later replay alert.
-    if (!_notificationReplayGuard.shouldDeliver(
-            post.id, post.create_at,
-            static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()))) {
+    // WebSocket recovery may replay historical posted events. History and
+    // read state still need those events, but they are not new desktop alerts.
+    if (!isFreshDesktopPost(post.create_at,
+                            static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()))) {
         return;
     }
 	if (sidebar.isChannelMuted(channel)) {
