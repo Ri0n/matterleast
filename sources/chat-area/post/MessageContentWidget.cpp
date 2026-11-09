@@ -327,11 +327,11 @@ public:
         linkDragHandler = std::move(handler);
     }
 
-    void setQuoteExcerptMode()
+    void setQuoteMode()
     {
         setObjectName(QStringLiteral("messageQuoteRichText"));
-        _maxVisibleLines = 4;
-        // QTextBrowser may still scroll its document with hidden scrollbars.
+        _isQuote = true;
+        // Even full-height QTextBrowser content may briefly reflow with a scrollbar.
         // Force the excerpt to its beginning even after document reflow or
         // selection, and let wheel events reach the parent chat timeline.
         connect(verticalScrollBar(), &QScrollBar::valueChanged,
@@ -401,7 +401,7 @@ public:
 protected:
     void wheelEvent(QWheelEvent* event) override
     {
-        if (_maxVisibleLines > 0) {
+        if (_isQuote) {
             verticalScrollBar()->setValue(0);
             event->ignore();
             return;
@@ -496,18 +496,13 @@ private:
             static_cast<int>(std::ceil(document()->size().height()));
         int wantedHeight = std::max(
             fontMetrics().height(), documentHeight + 2 * frameWidth());
-        if (_maxVisibleLines > 0) {
-            wantedHeight = std::min(
-                wantedHeight, _maxVisibleLines * fontMetrics().lineSpacing()
-                                  + 2 * frameWidth());
-        }
         if (height() != wantedHeight) {
             setFixedHeight(wantedHeight);
             if (heightChanged) {
                 heightChanged();
             }
         }
-        if (_maxVisibleLines > 0) {
+        if (_isQuote) {
             verticalScrollBar()->setValue(0);
         }
         updatingHeight = false;
@@ -519,7 +514,7 @@ private:
     QPoint dragStartPosition;
     bool dragConsumed = false;
     bool updatingHeight = false;
-    int _maxVisibleLines = 0;
+    bool _isQuote = false;
     EmojiRegistry* _emojiRegistry = nullptr;
 };
 
@@ -556,6 +551,7 @@ public:
         layout->setSpacing(8);
 
         auto* bar = new QuoteBar(this);
+        bar->setObjectName(QStringLiteral("messageQuoteBar"));
         bar->setFixedWidth(3);
         layout->addWidget(bar);
 
@@ -565,7 +561,7 @@ public:
                 this->heightChanged();
             }
         }, emojiRegistry, this);
-        text->setQuoteExcerptMode();
+        text->setQuoteMode();
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         text->setContentMarkdown(markdown);
 #else
@@ -714,7 +710,26 @@ QVector<MessageSegment> splitMessageSegments(const QString& message)
         append(extractQuoteLine(line, renderedLine), renderedLine);
     }
 
-    return result;
+    // A blank source line can separate paragraphs of the same Markdown
+    // blockquote. Keep them in one widget so its border remains continuous.
+    // Non-empty prose between quotes still starts a separate quote.
+    QVector<MessageSegment> merged;
+    for (const MessageSegment& segment : result) {
+        if (segment.quote && merged.size() >= 2
+            && merged.back().text.trimmed().isEmpty()
+            && !merged.back().quote
+            && merged.at(merged.size() - 2).quote) {
+            const QString blankLines = merged.back().text;
+            merged.removeLast();
+            merged.back().text += QLatin1Char('\n');
+            merged.back().text += blankLines;
+            merged.back().text += QLatin1Char('\n');
+            merged.back().text += segment.text;
+        } else {
+            merged.push_back(segment);
+        }
+    }
+    return merged;
 }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
