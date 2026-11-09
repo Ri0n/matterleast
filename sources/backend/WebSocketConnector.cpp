@@ -534,6 +534,9 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	configUrl.setQuery(QStringLiteral("format=old"));
 
 	QNetworkRequest request(configUrl);
+	// Configuration discovery must never strand initial/recovered websocket
+	// startup; a failed lookup can fall back to the normal API origin.
+	request.setTransferTimeout(ConnectionAttemptTimeoutMs);
 	request.setRawHeader("User-Agent", BrowserUserAgent);
 	request.setRawHeader("X-Requested-With", "XMLHttpRequest");
 	if (!d->token.isEmpty()) {
