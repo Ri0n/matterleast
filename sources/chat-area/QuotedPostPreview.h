@@ -40,6 +40,7 @@ public:
     // without the quoted-post title, attachment summary or post navigation.
     void setMarkdownQuote(const QString& markdown, EmojiRegistry* registry);
     QTextBrowser* textBrowser() const { return messageBrowser; }
+    void setLinkDragHandler(std::function<void(const QString&)> handler);
     void invalidateTextLayout();
     void setInteractiveAttachments(Backend& backend,
                                    const std::list<BackendFile>& files,
