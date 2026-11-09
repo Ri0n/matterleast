@@ -187,27 +187,15 @@ target_link_libraries(user-mention-linkifier-test
 add_test(NAME user-mention-linkifier-test COMMAND user-mention-linkifier-test)
 set_tests_properties(user-mention-linkifier-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-add_executable(message-content-widget-test
-    MessageContentWidgetTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/chat-area/post/MessageContentWidget.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/chat-area/post/MessageFormatter.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/options/MLOptions.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiInfo.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiMap.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/backend/emoji/EmojiRegistry.cpp"
-)
-
+# MessageContentWidget now reuses QuotedPostPreview, which in turn depends on
+# production attachment and backend classes. Link the already compiled core
+# instead of duplicating its sources and leaving out transitive definitions
+# (including the Qt AUTOMOC-generated metaobjects).
+add_executable(message-content-widget-test MessageContentWidgetTest.cpp)
 target_include_directories(message-content-widget-test
-    PRIVATE
-        "${CMAKE_SOURCE_DIR}/sources"
-)
-
-target_link_libraries(message-content-widget-test
-    PRIVATE
-        Qt${QT_VERSION_MAJOR}::Test
-        Qt${QT_VERSION_MAJOR}::Widgets
-        qsourcehighlite
-)
+    PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(message-content-widget-test PRIVATE
+    matterleast-core Qt${QT_VERSION_MAJOR}::Test)
 
 add_test(NAME message-content-widget-test COMMAND message-content-widget-test)
 set_tests_properties(message-content-widget-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
