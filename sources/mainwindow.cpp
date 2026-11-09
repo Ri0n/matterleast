@@ -25,6 +25,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QCheckBox>
+#include <QDateTime>
 #include <QKeySequence>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -1309,6 +1310,16 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
     // even after the thread's read acknowledgement succeeds.
     if (post.currentUserMentioned && post.root_id.isEmpty()) {
         sidebar.setChannelMentioned(channel.id, true);
+    }
+
+    // Mattermost may replay historical posted events after reconnect. The
+    // backend must still process them for history and unread reconciliation,
+    // but only fresh, previously unseen posts can cause desktop popups.
+    // Consume fresh IDs even if muted/visible to avoid a later replay alert.
+    if (!_notificationReplayGuard.shouldDeliver(
+            post.id, post.create_at,
+            static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()))) {
+        return;
     }
 	if (sidebar.isChannelMuted(channel)) {
 		return;
