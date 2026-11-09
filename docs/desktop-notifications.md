@@ -38,6 +38,14 @@ checks the original post's server `create_at` (milliseconds since epoch):
 - Already materialized post IDs are deduplicated at the WebSocket event
   handler; a repeated `posted` event does not become a new `onNewPost` signal.
   No separate cache of IDs is created for desktop notifications.
+- A post at or behind the confirmed server read cursor is silent, **even if
+  it arrived recently**. Channel root messages use the membership
+  `last_viewed_at`; CRT replies use their independent followed-thread
+  `last_viewed_at`. When CRT root-only unread is disabled, the channel
+  watermark also covers replies. Unknown cursors (0) never hide a live post.
+- The notification cursor does not include optimistically marked local views;
+  it advances only from membership responses or server view acknowledgements,
+  and explicitly moves backwards after a server-backed Mark as unread.
 - Unexpectedly old WebSocket `posted` events are logged with their post ID,
   channel ID and original timestamp, without logging message bodies, so the
   actual source of historical events can be investigated.
