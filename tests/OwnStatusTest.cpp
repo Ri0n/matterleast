@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
@@ -8,6 +9,7 @@
 #include <QTimer>
 
 #include "backend/Backend.h"
+#include "backend/HTTPConnector.h"
 #include "backend/CustomStatusValidation.h"
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
@@ -46,6 +48,84 @@ private slots:
                      standard, EmojiPresentation::Mode::Reaction), 16);
         QCOMPARE(EmojiPresentation::extent(
                      standard, EmojiPresentation::Mode::StatusJumbo), 48);
+    }
+
+    void reconnectWithMultiplePendingReplies()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        QHash<QByteArray, int> attempts;
+        int firstBatch = 0;
+        bool restarting = false;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (QTcpSocket* socket = server.nextPendingConnection()) {
+                auto buffer = QSharedPointer<QByteArray>::create();
+                connect(socket, &QTcpSocket::readyRead, socket,
+                        [&, socket, buffer] {
+                    buffer->append(socket->readAll());
+                    const int end = buffer->indexOf("\r\n\r\n");
+                    if (end < 0) return;
+                    const QByteArray line = buffer->left(
+                        buffer->indexOf("\r\n"));
+                    const QByteArrayList parts = line.split(' ');
+                    if (parts.size() < 2 || parts.at(0) != "GET") return;
+                    ++attempts[parts.at(1)];
+
+                    if (!restarting) {
+                        // All four replies are still active when reconnect
+                        // starts. Aborting one must not leave a stale pointer
+                        // for the next iteration of restartTransport().
+                        if (++firstBatch == 4) {
+                            restarting = true;
+                            QTimer::singleShot(0, &server, [] {
+                                HTTPConnector::restartAllTransports();
+                            });
+                        }
+                        return;
+                    }
+
+                    const QByteArray body = QByteArrayLiteral("{\"ok\":true}");
+                    socket->write(QByteArrayLiteral(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Content-Length: ") + QByteArray::number(body.size())
+                        + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + body);
+                    socket->flush();
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+
+        HTTPConnector first, second;
+        int completed = 0;
+        bool allSucceeded = true;
+        for (int i = 0; i < 4; ++i) {
+            NetworkRequest request(QStringLiteral("probe/%1").arg(i));
+            auto callback = HttpResponseCallback(
+                [&](const QJsonDocument& doc, const QNetworkReply& reply) {
+                    allSucceeded = allSucceeded
+                        && reply.error() == QNetworkReply::NoError
+                        && doc.object().value(QStringLiteral("ok")).toBool();
+                    ++completed;
+                });
+            if (i % 2 == 0) {
+                first.get(request, callback);
+            } else {
+                second.get(request, callback);
+            }
+        }
+
+        QTRY_COMPARE_WITH_TIMEOUT(completed, 4, 10000);
+        QVERIFY(allSucceeded);
+        QCOMPARE(firstBatch, 4);
+        QCOMPARE(attempts.size(), 4);
+        for (int i = 0; i < 4; ++i) {
+            QCOMPARE(attempts.value(
+                QByteArrayLiteral("/api/v4/probe/")
+                    + QByteArray::number(i)), 2);
+        }
     }
 
     void ambiguousAvailabilityReconcilesAfterReconnect_data()
