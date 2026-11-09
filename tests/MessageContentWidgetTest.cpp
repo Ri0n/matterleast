@@ -114,20 +114,23 @@ class MessageContentWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
-    void longQuoteClipsToFourLinesWithoutCapturingWheel()
+    void longQuoteShowsCompleteTextWithoutCapturingWheel()
     {
         MessageContentWidget widget;
         widget.setMessage(QStringLiteral("> ") + QString(1800, QLatin1Char('x'))
                           + QStringLiteral("\n\nText after quote"));
-        showAndSettle(widget, QSize(320, 240));
+        showAndSettle(widget, QSize(320, 1600));
 
         auto* quote = widget.findChild<QTextBrowser*>(
             QStringLiteral("messageQuoteRichText"));
         QVERIFY(quote);
         QVERIFY(quote->document()->toPlainText().size() >= 1800);
         QTRY_VERIFY(quote->viewport()->width() > 100);
-        QTRY_VERIFY(quote->height() <= 4 * quote->fontMetrics().lineSpacing() + 2);
-        QVERIFY(quote->verticalScrollBar()->maximum() > 0);
+        QVERIFY(quote->height() > 4 * quote->fontMetrics().lineSpacing());
+        // The last rendered line must fit inside the browser rather than being
+        // silently clipped at a fixed number of lines.
+        QTRY_VERIFY(quote->viewport()->height()
+                    >= std::ceil(quote->document()->size().height()) - 1);
         QCOMPARE(quote->verticalScrollBar()->value(), 0);
 
         QWheelEvent wheel(
@@ -140,6 +143,34 @@ private slots:
 
         quote->verticalScrollBar()->setValue(quote->verticalScrollBar()->maximum());
         QCOMPARE(quote->verticalScrollBar()->value(), 0);
+    }
+
+    void quoteParagraphsSeparatedByBlankLinesShareOneBar()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral(
+            "Intro\n> First paragraph.\n> Its continuation.\n\n"
+            "> Second paragraph.\n> Last words are still visible.\n\nOutro"));
+        showAndSettle(widget, QSize(360, 500));
+
+        const auto quotes = widget.findChildren<QTextBrowser*>(
+            QStringLiteral("messageQuoteRichText"));
+        QCOMPARE(quotes.size(), 1);
+        QVERIFY(quotes.first()->document()->toPlainText().contains(
+            QStringLiteral("First paragraph.")));
+        QVERIFY(quotes.first()->document()->toPlainText().contains(
+            QStringLiteral("Last words are still visible.")));
+
+        const auto bars = widget.findChildren<QWidget*>(
+            QStringLiteral("messageQuoteBar"));
+        QCOMPARE(bars.size(), 1);
+        QTRY_COMPARE(bars.first()->height(), quotes.first()->height());
+
+        // Actual prose between two quotes must not be swallowed into either.
+        widget.setMessage(QStringLiteral("> First quote\nPlain text\n> Second quote"));
+        showAndSettle(widget, QSize(360, 500));
+        QCOMPARE(widget.findChildren<QTextBrowser*>(
+                     QStringLiteral("messageQuoteRichText")).size(), 2);
     }
 
     void inlineCodeRequestsInstalledFixedPitchFont()
