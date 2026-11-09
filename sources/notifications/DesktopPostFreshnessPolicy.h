@@ -20,4 +20,31 @@ inline bool isFreshDesktopPost(quint64 createdAtMs, quint64 nowMs)
     return createdAtMs - nowMs <= maxFutureSkewMs;
 }
 
+/**
+ * Skip a post when the server says it was read already.
+ * Channel roots and CRT replies have independent server cursors. In legacy
+ * (non-root-only) mode, the channel cursor also covers replies. An absent
+ * cursor (0) is unknown: do not silently lose a real incoming notification.
+ */
+inline bool isUnreadDesktopPost(quint64 createdAtMs, bool threadReply,
+                               bool rootOnlyChannelUnread,
+                               quint64 channelServerReadAtMs,
+                               quint64 threadServerReadAtMs)
+{
+    if (createdAtMs == 0) {
+        return false;
+    }
+    if (!threadReply) {
+        return channelServerReadAtMs == 0 || createdAtMs > channelServerReadAtMs;
+    }
+    if (threadServerReadAtMs != 0 && createdAtMs <= threadServerReadAtMs) {
+        return false;
+    }
+    if (!rootOnlyChannelUnread && channelServerReadAtMs != 0
+        && createdAtMs <= channelServerReadAtMs) {
+        return false;
+    }
+    return true;
+}
+
 } // namespace Mattermost
