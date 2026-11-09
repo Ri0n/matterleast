@@ -132,6 +132,7 @@ private slots:
     {
         QTest::addColumn<QString>("authoritativeStatus");
         QTest::newRow("write-reached-server") << QStringLiteral("online");
+        QTest::newRow("automatic-away-after-online") << QStringLiteral("away");
         QTest::newRow("write-not-applied") << QStringLiteral("offline");
     }
 
@@ -211,9 +212,10 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(finished, 10000);
         QCOMPARE(putCount, 1); // Non-idempotent writes are never replayed.
         QCOMPARE(getCount, 1);
-        QCOMPARE(accepted, authoritativeStatus == QStringLiteral("online"));
+        QCOMPARE(accepted, authoritativeStatus != QStringLiteral("offline"));
         QCOMPARE(user->status, authoritativeStatus);
-        QCOMPARE(availabilitySpy.size(), accepted ? 1 : 0);
+        QCOMPARE(availabilitySpy.size(),
+                 authoritativeStatus == QStringLiteral("offline") ? 0 : 1);
         if (accepted) {
             QVERIFY(resultError.isEmpty());
         } else {
