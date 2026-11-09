@@ -26,14 +26,14 @@ target_link_libraries(presence-activity-policy-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME presence-activity-policy-test COMMAND presence-activity-policy-test)
 
-add_executable(post-notification-replay-guard-test
-    PostNotificationReplayGuardTest.cpp)
-target_include_directories(post-notification-replay-guard-test
+add_executable(desktop-post-freshness-policy-test
+    DesktopPostFreshnessPolicyTest.cpp)
+target_include_directories(desktop-post-freshness-policy-test
     PRIVATE "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(post-notification-replay-guard-test
+target_link_libraries(desktop-post-freshness-policy-test
     PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
-add_test(NAME post-notification-replay-guard-test
-    COMMAND post-notification-replay-guard-test)
+add_test(NAME desktop-post-freshness-policy-test
+    COMMAND desktop-post-freshness-policy-test)
 
 add_executable(root-notification-policy-test
     RootNotificationPolicyTest.cpp
