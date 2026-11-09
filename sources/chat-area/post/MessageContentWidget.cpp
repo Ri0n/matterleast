@@ -1132,6 +1132,9 @@ void MessageContentWidget::addQuote(const QString& markdown)
     // post, so clicking its body must not navigate away.
     auto* quote = new QuotedPostPreview(this, 4);
     quote->setMarkdownQuote(markdown, _emojiRegistry);
+    quote->setLinkDragHandler([this](const QString& link) {
+        emit linkDragRequested(link);
+    });
     connect(quote, &QuotedPostPreview::dimensionsChanged,
             this, &MessageContentWidget::scheduleDimensionsChanged);
     QTextBrowser* browser = quote->textBrowser();
