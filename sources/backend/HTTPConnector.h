@@ -31,6 +31,7 @@
 #include <QNetworkReply>
 #include <QQueue>
 #include <QSet>
+#include <QPointer>
 #include <QSharedPointer>
 
 #include "backend/HttpResponseCallback.h"
@@ -101,7 +102,7 @@ private:
 	std::unique_ptr<QNetworkAccessManager> qnetworkManager;
 	QQueue<PendingRequest> highPriorityRequests;
 	QQueue<PendingRequest> lowPriorityRequests;
-	QSet<QNetworkReply*> activeReplies;
+	QHash<QNetworkReply*, QPointer<QNetworkReply>> activeReplies;
 	QHash<QNetworkReply*, PendingRequest> activeGetRequests;
 	QHash<QNetworkReply*, QSharedPointer<QHttpMultiPart>> activeMultipartRequests;
 	QSet<QNetworkReply*> replayedReplies;
