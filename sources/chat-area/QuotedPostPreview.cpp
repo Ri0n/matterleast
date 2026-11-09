@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QEvent>
 #include <QFont>
 #include <QHBoxLayout>
@@ -88,6 +90,11 @@ class FixedExcerptBrowser final : public QTextBrowser
 public:
     using QTextBrowser::QTextBrowser;
 
+    void setLinkDragHandler(std::function<void(const QString&)> handler)
+    {
+        _linkDragHandler = std::move(handler);
+    }
+
 protected:
     void wheelEvent(QWheelEvent* event) override
     {
@@ -95,6 +102,64 @@ protected:
         // Do not consume the wheel: let the enclosing chat viewport scroll.
         event->ignore();
     }
+
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        _dragLink.clear();
+        _dragConsumed = false;
+        if (event && event->button() == Qt::LeftButton && _linkDragHandler) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QPoint position = event->position().toPoint();
+#else
+            const QPoint position = event->pos();
+#endif
+            const QString candidate = anchorAt(position);
+            const QUrl url(candidate);
+            const QString scheme = url.scheme().toLower();
+            if (url.isValid() && !scheme.isEmpty()
+                && scheme != QStringLiteral("mattermost-user")
+                && scheme != QStringLiteral("mattermost-group")) {
+                _dragLink = candidate;
+                _dragStart = position;
+            }
+        }
+        QTextBrowser::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        if (!_dragLink.isEmpty() && event
+            && (event->buttons() & Qt::LeftButton)
+            && (event->pos() - _dragStart).manhattanLength()
+                >= QApplication::startDragDistance()) {
+            const QString link = std::exchange(_dragLink, QString());
+            _dragConsumed = true;
+            if (_linkDragHandler) {
+                _linkDragHandler(link);
+            }
+            event->accept();
+            return;
+        }
+        QTextBrowser::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        _dragLink.clear();
+        if (_dragConsumed && event && event->button() == Qt::LeftButton) {
+            _dragConsumed = false;
+            event->accept();
+            return;
+        }
+        _dragConsumed = false;
+        QTextBrowser::mouseReleaseEvent(event);
+    }
+
+private:
+    std::function<void(const QString&)> _linkDragHandler;
+    QString _dragLink;
+    QPoint _dragStart;
+    bool _dragConsumed = false;
 };
 
 } // namespace
@@ -260,6 +325,13 @@ void QuotedPostPreview::setMarkdownQuote(const QString& markdown,
     messageBrowser->setOpenExternalLinks(true);
     messageBrowser->setOpenLinks(true);
     refreshText();
+}
+
+void QuotedPostPreview::setLinkDragHandler(
+    std::function<void(const QString&)> handler)
+{
+    static_cast<FixedExcerptBrowser*>(messageBrowser)->setLinkDragHandler(
+        std::move(handler));
 }
 
 void QuotedPostPreview::invalidateTextLayout()
