@@ -134,8 +134,11 @@ void HTTPConnector::restartAllTransports ()
 	// A network route/interface change affects every QNetworkAccessManager in
 	// the process, not just the connector currently used by Backend. Work from a
 	// snapshot because callbacks may indirectly modify the connector set.
-	const QList<HTTPConnector*> snapshot = connectors.values();
-	for (HTTPConnector* connector : snapshot) {
+	QList<QPointer<HTTPConnector>> snapshot;
+	for (HTTPConnector* connector : connectors) {
+		snapshot.append(QPointer<HTTPConnector>(connector));
+	}
+	for (const QPointer<HTTPConnector>& connector : snapshot) {
 		if (connector) {
 			connector->restartTransport();
 		}
@@ -171,11 +174,21 @@ void HTTPConnector::restartTransport ()
 	// Abort old-route replies while their manager is still alive. Replayed GETs
 	// skip their old callback; writes complete with OperationCanceledError so
 	// their owner can apply its normal retry/uncertain-delivery policy.
-	const QList<QNetworkReply*> replies = activeReplies.values();
-	for (QNetworkReply* reply : replies) {
-		if (reply) {
+	// abort() can synchronously invoke application callbacks and even enter
+	// nested event loops (e.g. legacy dialogs). A previous abort may destroy
+	// another reply or this connector before the next loop iteration.
+	const QPointer<HTTPConnector> self(this);
+	const QList<QPointer<QNetworkReply>> replies = activeReplies.values();
+	for (const QPointer<QNetworkReply>& reply : replies) {
+		if (!self) {
+			return;
+		}
+		if (reply && activeReplies.contains(reply.data())) {
 			reply->abort();
 		}
+	}
+	if (!self) {
+		return;
 	}
 
 	if (generation != restartGeneration) {
@@ -423,7 +436,19 @@ void HTTPConnector::startRequest(PendingRequest request)
 	}
 
 	++activeRequests;
-	activeReplies.insert(reply);
+	activeReplies.insert(reply, QPointer<QNetworkReply>(reply));
+	// Account for replies removed without finished(), including a manager
+	// teardown inside a reentrant callback. Never retain a dangling raw key.
+	connect(reply, &QObject::destroyed, this, [this, reply] {
+		if (activeReplies.remove(reply) > 0) {
+			activeGetRequests.remove(reply);
+			activeMultipartRequests.remove(reply);
+			replayedReplies.remove(reply);
+			if (activeRequests > 0) {
+				--activeRequests;
+			}
+		}
+	});
     if (request.multipartData) {
         activeMultipartRequests.insert(reply, request.multipartData);
     }
