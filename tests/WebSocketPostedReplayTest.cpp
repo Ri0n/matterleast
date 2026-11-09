@@ -72,7 +72,7 @@ private slots:
 
         // Neither replay is a new post. In particular, MainWindow's
         // desktop notifications must not be triggered by onNewPost.
-        QCOMPARE(channel->findPostById(QStringLiteral("known-post")), existing);
+        QCOMPARE(channel->postIdToPost.value(QStringLiteral("known-post"), nullptr), existing);
         QCOMPARE(backendNotifications, 0);
         QCOMPARE(channelNotifications, 0);
     }
