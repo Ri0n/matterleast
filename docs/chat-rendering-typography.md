@@ -17,11 +17,17 @@ clipping enlarged text into fixed heights.
 
 The timeline is the only vertical scroll owner for chat messages. Ordinary
 Markdown `>` blockquotes are displayed through `QuoteBlock` and
-`WrappedRichText` in `MessageContentWidget.cpp`. Quote previews show up to
-four line-heights, clip the remaining document, and stay scrolled to position
-zero. Their wheel events must be ignored by the nested text editor so the
-containing chat log can continue scrolling. Do not switch the nested quote to a
-scrollable text area; it would trap wheel events and interrupt timeline navigation.
+`WrappedRichText` in `MessageContentWidget.cpp`. They show their entire
+document, including wrapped trailing words; they must not silently clip text
+after a fixed number of lines. Blank source lines separating successive
+quoted paragraphs remain inside one quote widget so the left border is
+continuous. Non-quoted prose still separates independent quote blocks.
+The inner text browser stays scrolled to position zero and ignores wheel
+events so the containing chat log remains the only vertical scroll owner.
+Do not switch the nested quote to a scrollable text area; it would trap wheel
+events and interrupt timeline navigation. Compact referenced-post previews
+are a different component (`QuotedPostPreview`); those retain their line
+limit and Show more/less control as described in `quoted-replies.md`.
 
 The author label in `PostWidget` uses `CHAT_FONT` at the same point size as
 the message body with bold weight. Do not reintroduce Designer's old 8 pt /
