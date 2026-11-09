@@ -30,6 +30,7 @@
 #include "server-dialog/ServerDialog.h"
 #include "ui/PresenceAvatarLabel.h"
 #include "ui/TeamSelectorLabel.h"
+#include "log.h"
 
 namespace Mattermost {
 
@@ -49,6 +50,12 @@ void MainWindow::installRealtimeUiSync()
         } else if (state == WebSocketConnector::ConnectionState::WaitingForReconnect) {
             indicatorState = IndicatorState::WaitingForReconnect;
         }
+        // Keep the transport/UI mapping observable. A missing or frozen
+        // indicator alone does not prove that network retries stopped.
+        LOG_DEBUG("Realtime indicator mapping: socket_state="
+                  << static_cast<int>(state)
+                  << " ui_state=" << static_cast<int>(indicatorState)
+                  << " logged_in=" << backend.loggedIn());
         ui->usericon_label->setConnectionIndicatorState(indicatorState);
     };
     connect(&backend, &Backend::onWebSocketConnectionStateChanged,
