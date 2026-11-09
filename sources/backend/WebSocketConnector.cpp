@@ -53,6 +53,7 @@ namespace {
 constexpr int HeartbeatIntervalMs = 30000;
 constexpr int HeartbeatReplyTimeoutMs = 10000;
 constexpr int ConnectionAttemptTimeoutMs = 15000;
+constexpr int ReconnectWatchdogIntervalMs = 5000;
 constexpr int MinReconnectDelayMs = 1000;
 constexpr int MaxReconnectDelayMs = 15000;
 constexpr int ReconnectJitterMs = 500;
@@ -228,6 +229,7 @@ struct WebSocketConnector::Private {
 	QTimer heartbeatReplyTimer;
 	QTimer reconnectTimer;
 	QTimer connectionAttemptTimer;
+	QTimer reconnectWatchdogTimer;
 	QString connectionId;
 	quint64 configGeneration = 0;
 	int responseSequence = 1;
@@ -349,6 +351,39 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 		} else {
 			d->webSocket.abort();
 		}
+	});
+	// Qt can finish a failed connection without delivering a disconnected
+	// signal (the socket never reached ConnectedState), or emit an error
+	// before its state becomes UnconnectedState. In either case the normal
+	// signal-driven path may leave no retry timer armed. Keep an active
+	// authenticated session from silently giving up on realtime.
+	d->reconnectWatchdogTimer.setInterval(ReconnectWatchdogIntervalMs);
+	connect(&d->reconnectWatchdogTimer, &QTimer::timeout, this, [this] {
+		if (d->token.isEmpty() || d->suppressReconnect
+		    || d->endpointUrl.isEmpty()) {
+			return; // Explicit shutdown or initial endpoint discovery.
+		}
+		if (d->connectionState == ConnectionState::Connected
+		    && d->webSocket.state() == QAbstractSocket::ConnectedState) {
+			return;
+		}
+		if (d->reconnectTimer.isActive()
+		    || d->connectionAttemptTimer.isActive()
+		    || d->immediateReconnectPending) {
+			return; // The normal retry/handshake flow owns this interval.
+		}
+
+		LOG_DEBUG("WebSocket reconnect watchdog found no active attempt "
+		          "or retry timer; socket_state="
+		          << static_cast<int>(d->webSocket.state())
+		          << " connection_state="
+		          << static_cast<int>(d->connectionState));
+		if (d->webSocket.state() != QAbstractSocket::UnconnectedState) {
+			d->webSocket.abort();
+		}
+		// A synchronous disconnected callback may already have scheduled a
+		// retry. scheduleReconnect() is idempotent in that case.
+		scheduleReconnect();
 	});
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
@@ -483,6 +518,7 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	d->suppressReconnect = false;
 	d->reconnectTimer.stop ();
 	d->connectionAttemptTimer.stop();
+	d->reconnectWatchdogTimer.start();
 	stopHeartbeat ();
     d->endpointUrl.clear();
     setConnectionState(ConnectionState::Connecting);
@@ -676,6 +712,7 @@ void WebSocketConnector::reset ()
 	++d->configGeneration;
 	d->reconnectTimer.stop ();
 	d->connectionAttemptTimer.stop();
+	d->reconnectWatchdogTimer.stop();
 	stopHeartbeat ();
 	d->connectionId.clear ();
 	d->responseSequence = 1;
