@@ -312,10 +312,16 @@ private slots:
 
         statusCode = 500;
         finished = false;
+        QString failureReason;
         backend.setOwnAvailability(QStringLiteral("dnd"),
-            [&](bool ok, const QString&) { succeeded = ok; finished = true; });
+            [&](bool ok, const QString& error) {
+                succeeded = ok;
+                failureReason = error;
+                finished = true;
+            });
         QTRY_VERIFY(finished);
         QVERIFY(!succeeded);
+        QVERIFY(!failureReason.isEmpty()); // Real server errors are reportable.
         QCOMPARE(user->status, QStringLiteral("away"));
         QCOMPARE(availabilitySignal.size(), 1);
 
