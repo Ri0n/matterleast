@@ -9,10 +9,23 @@ remain available in the same menu.
 
 The BackendOwnStatus implementation uses Mattermost REST API:
 `PUT /users/{user_id}/status`, `PUT /users/{user_id}/status/custom` and
-`DELETE /users/{user_id}/status/custom`. It commits new values locally
-only after a successful HTTP status; failed updates leave the visible state
-unchanged and display the error. Presence is shown by the avatar badge;
-the custom status message appears under the account name.
+`DELETE /users/{user_id}/status/custom`. An availability selection immediately displays "Setting <status>…" in the
+sidebar and a busy badge over the avatar. The pending badge remains visible
+across WebSocket reconnects; the selected choice is disabled while the update
+is pending. The custom status message is restored when the request completes.
+
+A successful PUT updates the local presence. If its HTTP response was lost
+or canceled (no HTTP status, such as during a route change), the client
+queries GET /users/{user_id}/status on the new transport before deciding
+whether the change succeeded. It never blindly replays a possibly committed
+PUT. Explicit HTTP rejections fail immediately. Both the write and the
+verification read have bounded network timeouts.
+
+Errors appear as non-modal tooltips beside the avatar rather than blocking
+network callbacks with QMessageBox::exec(). The avatar returns to its
+server-backed availability on failure; it never pretends an unconfirmed
+change succeeded. Presence is shown by the avatar badge; the custom
+status message normally appears under the account name.
 
 These actions are independent of team selection, which is rendered only
 inside the Channels tab.
