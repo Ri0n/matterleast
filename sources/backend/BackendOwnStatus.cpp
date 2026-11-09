@@ -113,9 +113,15 @@ void Backend::setOwnAvailability(const QString& status, StatusUpdateResult callb
                             emit user->onStatusChanged();
                         }
                     }
+                    // Online clears the manual override and resumes automatic
+                    // presence. The server may therefore report Away already
+                    // if the user is idle by the time the GET completes.
+                    const bool matchesIntent = actual == status
+                        || (status == QLatin1String("online")
+                            && actual == QLatin1String("away"));
                     if (callback) {
-                        callback(actual == status,
-                                 actual == status ? QString() : QObject::tr(
+                        callback(matchesIntent,
+                                 matchesIntent ? QString() : QObject::tr(
                                      "The server reports a different availability (%1).")
                                      .arg(actual));
                     }
