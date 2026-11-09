@@ -90,6 +90,7 @@ protected:
 	bool eventFilter(QObject* watched, QEvent* event) override;
 private:
 	void createMenu ();
+    void reportStatusResult(bool success, const QString& reason);
 	void setupChannelTabs ();
 	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
