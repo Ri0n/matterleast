@@ -589,6 +589,13 @@ if(TARGET matterleast-core)
     add_test(NAME own-status-test COMMAND own-status-test)
     set_tests_properties(own-status-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    add_executable(websocket-reconnect-test WebSocketReconnectTest.cpp)
+    target_link_libraries(websocket-reconnect-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::WebSockets)
+    add_test(NAME websocket-reconnect-test COMMAND websocket-reconnect-test)
+    set_tests_properties(websocket-reconnect-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(team-toolbar-test TeamToolbarTest.cpp)
     target_link_libraries(team-toolbar-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME team-toolbar-test COMMAND team-toolbar-test)
