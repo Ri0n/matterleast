@@ -177,7 +177,7 @@ void MainWindow::on_usericon_label_clicked()
     connect(clear, &QAction::triggered, this, [this] {
         QPointer<MainWindow> guard(this);
         backend.clearOwnCustomStatus([guard](bool ok, const QString& error) {
-            reportStatusResult(guard, ok, error);
+            if (guard) guard->reportStatusResult(ok, error);
         });
     });
 
