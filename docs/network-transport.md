@@ -117,3 +117,26 @@ transport replacement or callbacks that enter nested event loops. Keep
 remove destroyed replies from the active set. A reconnect must never
 dereference a raw pointer kept in a snapshot after another reply's abort
 has triggered reentrant UI or network processing.
+
+## Persistent realtime reconnection
+
+Manual Online/Offline presence does **not** connect or disconnect the
+WebSocket; it only changes the server-side availability. A healthy logged-in
+session must keep attempting realtime reconnection regardless of presence.
+
+The normal WebSocket retry policy has a 1-second initial delay, exponential
+backoff and a 15-second maximum delay. It has no attempt-count limit.
+Connecting and WaitingForReconnect both display an animated connection badge,
+even if the server currently reports the user as offline.
+
+A 5-second watchdog runs only while the connector holds a session token. It
+does nothing during healthy connectivity, an in-flight handshake, a scheduled
+retry or manual reconnect. If a socket failure leaves no live attempt or timer
+(e.g. an error emitted before Qt transitions to UnconnectedState and without a
+subsequent disconnected signal), the watchdog aborts a stale socket if needed
+and re-arms normal backoff. It is stopped during explicit close/reset; an
+intentional logout must never be resurrected by the watchdog.
+
+WebSocket endpoint discovery has a 15-second transfer timeout. On failure
+the client uses the normal API origin so configuration lookup cannot strand
+the initial socket setup indefinitely.
