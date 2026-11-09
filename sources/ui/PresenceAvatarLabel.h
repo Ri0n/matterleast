@@ -55,6 +55,10 @@ public:
     void setPixmap(const QPixmap& pixmap);
     void setStatus(const QString& status);
     void setConnectionIndicatorState(ConnectionIndicatorState state);
+    // Independent of WebSocket connectivity: a manual availability mutation
+    // remains visibly pending even if a reconnect completes in the meantime.
+    void setAvailabilityUpdateMessage(const QString& message);
+    bool isAvailabilityUpdatePending() const { return !availabilityUpdateMessage.isEmpty(); }
     ConnectionIndicatorState connectionIndicatorState() const { return connectionState; }
     bool isConnectionAnimationReversed() const { return _connectionAnimationDirection < 0; }
 
@@ -72,12 +76,15 @@ protected:
 private:
     QRectF connectionBadgeRect() const;
     int connectionAnimationPhase() const;
+    bool hasActiveIndicator() const;
+    void updateIndicator(bool wasAnimating);
     void refreshPixmap();
 
     QPixmap sourcePixmap;
     QString presenceStatus;
     QColor renderedBackground;
     ConnectionIndicatorState connectionState = ConnectionIndicatorState::None;
+    QString availabilityUpdateMessage;
     int _connectionAnimationDirection = 1;
     int _connectionAnimationOffset = 0;
 };
