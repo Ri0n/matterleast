@@ -35,9 +35,12 @@ checks the original post's server `create_at` (milliseconds since epoch):
 - Posts more than **five minutes** old are never shown as desktop popups.
 - Missing timestamps and posts dated more than **one minute in the future**
   are also excluded.
-- A bounded per-window set remembers the last **4096** fresh post IDs so
-  resumed streams cannot show a second popup for an already observed post,
-  even if the original event was hidden by focus or mute settings.
+- Already materialized post IDs are deduplicated at the WebSocket event
+  handler; a repeated `posted` event does not become a new `onNewPost` signal.
+  No separate cache of IDs is created for desktop notifications.
+- Unexpectedly old WebSocket `posted` events are logged with their post ID,
+  channel ID and original timestamp, without logging message bodies, so the
+  actual source of historical events can be investigated.
 
 This gate does not discard history, alter server read state, or suppress
 unread/Attention synchronization. The timestamp displayed by a desktop
