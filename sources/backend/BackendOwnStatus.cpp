@@ -21,6 +21,13 @@ bool succeeded(const QNetworkReply& reply)
 
 QString failureMessage(const QNetworkReply& reply)
 {
+    // HTTPConnector aborts outstanding writes when the route changes. Their
+    // outcome is unknown, not necessarily a failure: the server might already
+    // have committed the status update. Preserve the failure result but leave
+    // its message empty so the UI does not notify users about routine cancels.
+    if (reply.error() == QNetworkReply::OperationCanceledError) {
+        return QString();
+    }
     return reply.errorString().isEmpty()
         ? QObject::tr("Server rejected the status change") : reply.errorString();
 }

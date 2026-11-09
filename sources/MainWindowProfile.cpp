@@ -11,7 +11,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
-#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -22,19 +21,23 @@
 #include "backend/types/BackendUser.h"
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 #include "info-dialogs/UserProfileDialog.h"
+#include "notifications/NotificationManager.h"
 
 namespace Mattermost {
-namespace {
 
-void reportStatusResult(QPointer<MainWindow> window, bool success,
-                        const QString& reason)
+void MainWindow::reportStatusResult(bool success, const QString& reason)
 {
-    if (!success && window) {
-        QMessageBox::warning(window, QObject::tr("Status update failed"), reason);
+    // A transport restart deliberately cancels old-route replies. The
+    // server may already have processed such a mutation, so a canceled
+    // response is not a user-facing status error.
+    if (success || reason.isEmpty()) {
+        return;
     }
+    // Use the same native notification path as other application messages.
+    // An empty activation target avoids raising/activating the main window.
+    notificationManager->show(tr("Status update failed"), reason,
+                              NotificationTarget {});
 }
-
-} // namespace
 
 void MainWindow::on_usericon_label_clicked()
 {
@@ -68,7 +71,7 @@ void MainWindow::on_usericon_label_clicked()
         connect(item, &QAction::triggered, this, [this, value] {
             QPointer<MainWindow> guard(this);
             backend.setOwnAvailability(value, [guard](bool ok, const QString& error) {
-                reportStatusResult(guard, ok, error);
+                if (guard) guard->reportStatusResult(ok, error);
             });
         });
     }
@@ -160,7 +163,7 @@ void MainWindow::on_usericon_label_clicked()
         const QString emoji = emojiName->text().trimmed();
         const QString message = textEdit->text().trimmed();
         auto finished = [guard](bool ok, const QString& error) {
-            reportStatusResult(guard, ok, error);
+            if (guard) guard->reportStatusResult(ok, error);
         };
         if (!hasCustomStatusContent(emoji, message)) {
             backend.clearOwnCustomStatus(finished);
@@ -174,7 +177,7 @@ void MainWindow::on_usericon_label_clicked()
     connect(clear, &QAction::triggered, this, [this] {
         QPointer<MainWindow> guard(this);
         backend.clearOwnCustomStatus([guard](bool ok, const QString& error) {
-            reportStatusResult(guard, ok, error);
+            if (guard) guard->reportStatusResult(ok, error);
         });
     });
 

@@ -101,3 +101,16 @@ open. Invalid/expired credentials (401/403 and other permanent client errors)
 stop automatic attempts and return control to manual login. A manual login
 cancels any pending automatic retry. This prevents partial main-window
 initialization that cannot recover by merely establishing WebSocket later.
+
+## Reply lifetime during HTTP transport restart
+
+When reconnecting after a network route change, the HTTP transport replaces
+its network manager. The outstanding GET requests are replayed on the new
+transport, while mutations are not replayed automatically because they may
+already have been applied by the server.
+
+Calling `QNetworkReply::abort()` can invoke callbacks synchronously.
+Those callbacks can enter nested event loops or destroy other outstanding
+replies. Therefore restart iterates `QPointer`-guarded replies, checks that
+each reply is still active before aborting it, and tracks destruction to
+prevent stale pointers and incorrect active-request accounting.

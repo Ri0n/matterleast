@@ -1,12 +1,15 @@
 #include <QtTest>
 
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
 
 #include "backend/Backend.h"
+#include "backend/HTTPConnector.h"
 #include "backend/CustomStatusValidation.h"
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
@@ -45,6 +48,169 @@ private slots:
                      standard, EmojiPresentation::Mode::Reaction), 16);
         QCOMPARE(EmojiPresentation::extent(
                      standard, EmojiPresentation::Mode::StatusJumbo), 48);
+    }
+
+    void reconnectWithMultiplePendingReplies()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        QHash<QByteArray, int> attempts;
+        bool restarting = false;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (QTcpSocket* socket = server.nextPendingConnection()) {
+                auto buffer = QSharedPointer<QByteArray>::create();
+                connect(socket, &QTcpSocket::readyRead, socket,
+                        [&, socket, buffer] {
+                    buffer->append(socket->readAll());
+                    const int end = buffer->indexOf("\r\n\r\n");
+                    if (end < 0) return;
+                    const QByteArray line = buffer->left(
+                        buffer->indexOf("\r\n"));
+                    const QByteArrayList parts = line.split(' ');
+                    if (parts.size() < 2 || parts.at(0) != "GET") return;
+                    ++attempts[parts.at(1)];
+
+                    if (!restarting) {
+                        return;
+                    }
+
+                    const QByteArray body = QByteArrayLiteral("{\"ok\":true}");
+                    socket->write(QByteArrayLiteral(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Content-Length: ") + QByteArray::number(body.size())
+                        + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + body);
+                    socket->flush();
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+
+        HTTPConnector first, second;
+        int completed = 0;
+        bool allSucceeded = true;
+        for (int i = 0; i < 4; ++i) {
+            NetworkRequest request(QStringLiteral("probe/%1").arg(i));
+            auto callback = HttpResponseCallback(
+                [&](const QJsonDocument& doc, const QNetworkReply& reply) {
+                    allSucceeded = allSucceeded
+                        && reply.error() == QNetworkReply::NoError
+                        && doc.object().value(QStringLiteral("ok")).toBool();
+                    ++completed;
+                });
+            if (i % 2 == 0) {
+                first.get(request, callback);
+            } else {
+                second.get(request, callback);
+            }
+        }
+
+        // All four QNetworkReply objects exist already, even when Qt has
+        // not yet dispatched all of their HTTP/1.1 requests to the server.
+        // Do not couple the restart trigger to the server's arrival order.
+        QTimer::singleShot(200, &server, [&] {
+            restarting = true;
+            HTTPConnector::restartAllTransports();
+        });
+
+        QTRY_COMPARE_WITH_TIMEOUT(completed, 4, 10000);
+        QVERIFY(allSucceeded);
+        QCOMPARE(attempts.size(), 4);
+        for (int i = 0; i < 4; ++i) {
+            // Qt can queue requests behind an HTTP/1.1 connection, so only
+            // requests that reached the mock server before restart are seen
+            // twice. Every logical GET must still finish exactly once.
+            const int count = attempts.value(
+                QByteArrayLiteral("/api/v4/probe/")
+                    + QByteArray::number(i));
+            QVERIFY(count >= 1 && count <= 2);
+        }
+    }
+
+    void canceledStatusMutationIsSilent_data()
+    {
+        QTest::addColumn<QString>("action");
+        QTest::newRow("availability") << QStringLiteral("availability");
+        QTest::newRow("custom-set") << QStringLiteral("set");
+        QTest::newRow("custom-clear") << QStringLiteral("clear");
+    }
+
+    void canceledStatusMutationIsSilent()
+    {
+        QFETCH(QString, action);
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        int incomingMutations = 0;
+        bool restartScheduled = false;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (QTcpSocket* socket = server.nextPendingConnection()) {
+                auto buffer = QSharedPointer<QByteArray>::create();
+                connect(socket, &QTcpSocket::readyRead, socket,
+                        [&, socket, buffer] {
+                    buffer->append(socket->readAll());
+                    const int headersEnd = buffer->indexOf("\r\n\r\n");
+                    if (headersEnd < 0 || restartScheduled) return;
+                    const QByteArray headers = buffer->left(headersEnd);
+                    int contentLength = 0;
+                    for (const QByteArray& header : headers.split('\n')) {
+                        if (header.trimmed().toLower().startsWith("content-length:")) {
+                            contentLength = header.mid(header.indexOf(':') + 1)
+                                                .trimmed().toInt();
+                        }
+                    }
+                    if (buffer->size() < headersEnd + 4 + contentLength) return;
+
+                    ++incomingMutations;
+                    restartScheduled = true;
+                    // Mimic a route change after the server received a
+                    // mutation but before any HTTP response. No success or
+                    // failure can be inferred from the canceled reply.
+                    QTimer::singleShot(0, &server, [] {
+                        HTTPConnector::restartAllTransports();
+                    });
+                });
+            }
+        });
+
+        Backend backend;
+        BackendUser* user = backend.getStorage().addUser(
+            QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")},
+                         {QStringLiteral("username"), QStringLiteral("user")}},
+            true);
+        QVERIFY(user);
+        user->status = QStringLiteral("offline");
+        QSignalSpy availabilitySpy(user, &BackendUser::onStatusChanged);
+        QSignalSpy customSpy(&backend, &Backend::onOwnCustomStatusChanged);
+
+        bool finished = false;
+        bool succeeded = true;
+        QString reason;
+        auto callback = [&](bool ok, const QString& error) {
+            succeeded = ok;
+            reason = error;
+            finished = true;
+        };
+        if (action == QLatin1String("availability")) {
+            backend.setOwnAvailability(QStringLiteral("online"), callback);
+        } else if (action == QLatin1String("set")) {
+            backend.setOwnCustomStatus(QStringLiteral("coffee"),
+                QStringLiteral("Busy"), QString(), QString(), callback);
+        } else {
+            backend.clearOwnCustomStatus(callback);
+        }
+
+        QTRY_VERIFY_WITH_TIMEOUT(finished, 10000);
+        QVERIFY(!succeeded);
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(incomingMutations, 1);
+        QCOMPARE(user->status, QStringLiteral("offline"));
+        QCOMPARE(availabilitySpy.size(), 0);
+        QCOMPARE(customSpy.size(), 0);
     }
 
     void statusEndpointsAndFailedUpdate()
@@ -146,10 +312,16 @@ private slots:
 
         statusCode = 500;
         finished = false;
+        QString failureReason;
         backend.setOwnAvailability(QStringLiteral("dnd"),
-            [&](bool ok, const QString&) { succeeded = ok; finished = true; });
+            [&](bool ok, const QString& error) {
+                succeeded = ok;
+                failureReason = error;
+                finished = true;
+            });
         QTRY_VERIFY(finished);
         QVERIFY(!succeeded);
+        QVERIFY(!failureReason.isEmpty()); // Real server errors are reportable.
         QCOMPARE(user->status, QStringLiteral("away"));
         QCOMPARE(availabilitySignal.size(), 1);
 

@@ -11,7 +11,11 @@ The BackendOwnStatus implementation uses Mattermost REST API:
 `PUT /users/{user_id}/status`, `PUT /users/{user_id}/status/custom` and
 `DELETE /users/{user_id}/status/custom`. It commits new values locally
 only after a successful HTTP status; failed updates leave the visible state
-unchanged and display the error. Presence is shown by the avatar badge;
+unchanged. Actual server and transport errors produce a nonmodal native desktop
+notification, not a QMessageBox. OperationCanceledError is silent: transport
+rotation can cancel a mutation after the server has already applied it, so
+the client must not present the cancellation as a confirmed failure.
+Presence is shown by the avatar badge;
 the custom status message appears under the account name.
 
 These actions are independent of team selection, which is rendered only
