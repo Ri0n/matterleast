@@ -102,45 +102,6 @@ private slots:
         QCOMPARE(renderLabel(label), presence);
     }
 
-    void availabilityPendingSurvivesSocketReconnect()
-    {
-        PresenceAvatarLabel label;
-        label.setFixedSize(48, 48);
-        QPixmap avatar(48, 48);
-        avatar.fill(Qt::gray);
-        label.setPixmap(avatar);
-        label.setStatus(QStringLiteral("offline"));
-        label.show();
-        QCoreApplication::processEvents();
-
-        const QImage idle = renderLabel(label);
-        const QString message = QStringLiteral("Setting availability to Online…");
-        label.setAvailabilityUpdateMessage(message);
-        QVERIFY(label.isAvailabilityUpdatePending());
-        QCOMPARE(label.toolTip(), message);
-        QVERIFY(renderLabel(label) != idle);
-
-        label.setConnectionIndicatorState(
-            PresenceAvatarLabel::ConnectionIndicatorState::Connecting);
-        label.setConnectionIndicatorState(
-            PresenceAvatarLabel::ConnectionIndicatorState::None);
-        QVERIFY(label.isAvailabilityUpdatePending());
-        QCOMPARE(label.toolTip(), message);
-        QVERIFY(renderLabel(label) != idle);
-
-        // A pending status write must not turn the avatar into a
-        // reconnect-only button when WebSocket connectivity is healthy.
-        QSignalSpy reconnectSpy(&label, &PresenceAvatarLabel::reconnectRequested);
-        QSignalSpy clickSpy(&label, &ClickableLabel::clicked);
-        QTest::mouseClick(&label, Qt::LeftButton, Qt::NoModifier, QPoint(42, 42));
-        QCOMPARE(reconnectSpy.count(), 0);
-        QCOMPARE(clickSpy.count(), 1);
-
-        label.setAvailabilityUpdateMessage(QString());
-        QVERIFY(!label.isAvailabilityUpdatePending());
-        QCOMPARE(renderLabel(label), idle);
-    }
-
     void clickingReconnectReversesOnlyItsSpinner()
     {
         PresenceAvatarLabel label;

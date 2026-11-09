@@ -11,7 +11,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
-#include <QToolTip>
+#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -22,7 +22,6 @@
 #include "backend/types/BackendUser.h"
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 #include "info-dialogs/UserProfileDialog.h"
-#include "ui/EmojiPresentation.h"
 
 namespace Mattermost {
 namespace {
@@ -31,69 +30,11 @@ void reportStatusResult(QPointer<MainWindow> window, bool success,
                         const QString& reason)
 {
     if (!success && window) {
-        // Never start a nested event loop inside a network callback. In
-        // particular, a modal QMessageBox could process a WebSocket reconnect
-        // while the HTTP connector was still unwinding an aborted reply.
-        QWidget* anchor = window->findChild<QWidget*>(
-            QStringLiteral("usericon_label"));
-        if (!anchor) anchor = window.data();
-        QToolTip::showText(anchor->mapToGlobal(QPoint(0, anchor->height())),
-                           QObject::tr("Status update failed: %1").arg(reason),
-                           anchor, QRect(), 10000);
+        QMessageBox::warning(window, QObject::tr("Status update failed"), reason);
     }
 }
 
 } // namespace
-
-void MainWindow::refreshProfileStatus()
-{
-    const BackendUser* user = backend.getStorage().loginUser;
-    if (!user) {
-        return;
-    }
-    ui->usericon_label->setStatus(user->status);
-
-    if (!availabilityUpdateStatus.isEmpty()) {
-        ui->statusLabel->setFont(profileStatusDefaultFont);
-        ui->statusLabel->setContentsMargins(0, 0, 0, 0);
-        ui->statusLabel->setText(
-            tr("Setting %1…").arg(availabilityUpdateLabel));
-        return;
-    }
-
-    // Restore the original font after a pending availability change, even if
-    // the custom status consists solely of a large emoji.
-    const auto& custom = user->props.customStatus;
-    const bool emojiOnly = isEmojiOnlyCustomStatus(custom.emoji, custom.text);
-    ui->statusLabel->setFont(emojiOnly
-        ? EmojiPresentation::fontForMode(
-              profileStatusDefaultFont, EmojiPresentation::Mode::StatusJumbo)
-        : profileStatusDefaultFont);
-    ui->statusLabel->setContentsMargins(custom.emoji.isEmpty() ? 0 : 8, 0, 0, 0);
-    if (custom.emoji.isEmpty()) {
-        ui->statusLabel->setText(
-            custom.text.isEmpty() ? user->status : custom.text);
-        return;
-    }
-
-    const auto presentation = backend.emojiRegistry().resolveByName(custom.emoji);
-    QString icon = presentation
-        ? presentation->unicodeString
-        : QStringLiteral(":%1:").arg(custom.emoji.toHtmlEscaped());
-    if (icon.contains(QStringLiteral("<img"), Qt::CaseInsensitive)) {
-        icon = EmojiPresentation::normalizeHtml(
-            icon, profileStatusDefaultFont,
-            emojiOnly ? EmojiPresentation::Mode::StatusJumbo
-                      : EmojiPresentation::Mode::Reaction,
-            &backend.emojiRegistry());
-    } else {
-        icon = icon.toHtmlEscaped();
-    }
-    const QString message = custom.text.isEmpty()
-        ? QString()
-        : QStringLiteral(" ") + custom.text.toHtmlEscaped();
-    ui->statusLabel->setText(QStringLiteral("<span>%1%2</span>").arg(icon, message));
-}
 
 void MainWindow::on_usericon_label_clicked()
 {
@@ -107,9 +48,7 @@ void MainWindow::on_usericon_label_clicked()
     const BackendUser& user = *userPtr;
 
     QMenu menu(this);
-    auto* title = menu.addAction(availabilityUpdateStatus.isEmpty()
-        ? tr("Availability")
-        : tr("Setting availability to %1…").arg(availabilityUpdateLabel));
+    auto* title = menu.addAction(tr("Availability"));
     title->setEnabled(false);
 
     QActionGroup availability(&menu);
@@ -122,30 +61,13 @@ void MainWindow::on_usericon_label_clicked()
     };
     for (const auto& option : statuses) {
         const QString value = QString::fromLatin1(option.value);
-        const QString label = tr(option.title);
-        QAction* item = menu.addAction(label);
+        QAction* item = menu.addAction(tr(option.title));
         item->setCheckable(true);
         item->setChecked(user.status == value);
-        item->setEnabled(availabilityUpdateStatus.isEmpty() && user.status != value);
         availability.addAction(item);
-        connect(item, &QAction::triggered, this, [this, value, label] {
-            if (!availabilityUpdateStatus.isEmpty()) return;
-
-            availabilityUpdateStatus = value;
-            availabilityUpdateLabel = label;
-            ui->usericon_label->setAvailabilityUpdateMessage(
-                tr("Setting availability to %1…").arg(label));
-            refreshProfileStatus();
-
+        connect(item, &QAction::triggered, this, [this, value] {
             QPointer<MainWindow> guard(this);
-            backend.setOwnAvailability(value, [guard, value](bool ok,
-                                                              const QString& error) {
-                if (!guard || guard->availabilityUpdateStatus != value) return;
-
-                guard->availabilityUpdateStatus.clear();
-                guard->availabilityUpdateLabel.clear();
-                guard->ui->usericon_label->setAvailabilityUpdateMessage(QString());
-                guard->refreshProfileStatus();
+            backend.setOwnAvailability(value, [guard](bool ok, const QString& error) {
                 reportStatusResult(guard, ok, error);
             });
         });

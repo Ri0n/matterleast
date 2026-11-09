@@ -21,7 +21,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <QFont>
 #include <QMainWindow>
 #include <QSet>
 #include <QStringList>
@@ -91,7 +90,6 @@ protected:
 	bool eventFilter(QObject* watched, QEvent* event) override;
 private:
 	void createMenu ();
-    void refreshProfileStatus();
 	void setupChannelTabs ();
 	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
@@ -114,9 +112,6 @@ private:
 	std::unique_ptr<NotificationManager>	notificationManager;
 	ChooseEmojiDialogWrapper			chooseEmojiDialog;
 	Backend&							backend;
-    QFont                               profileStatusDefaultFont;
-    QString                             availabilityUpdateStatus;
-    QString                             availabilityUpdateLabel;
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;

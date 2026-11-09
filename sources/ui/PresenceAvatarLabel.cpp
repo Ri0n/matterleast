@@ -18,7 +18,6 @@
 
 #include "AvatarUtils.h"
 #include "BusyIndicator.h"
-#include "log.h"
 
 namespace Mattermost {
 
@@ -62,31 +61,16 @@ void PresenceAvatarLabel::setConnectionIndicatorState(ConnectionIndicatorState s
     if (connectionState == state) {
         return;
     }
-    const bool wasAnimating = hasActiveIndicator();
+
+    const bool wasAnimating =
+        connectionState != ConnectionIndicatorState::None;
     connectionState = state;
-    updateIndicator(wasAnimating);
-}
+    const bool isAnimating =
+        connectionState != ConnectionIndicatorState::None;
 
-void PresenceAvatarLabel::setAvailabilityUpdateMessage(const QString& message)
-{
-    if (availabilityUpdateMessage == message) {
-        return;
-    }
-    const bool wasAnimating = hasActiveIndicator();
-    availabilityUpdateMessage = message;
-    updateIndicator(wasAnimating);
-}
-
-bool PresenceAvatarLabel::hasActiveIndicator() const
-{
-    return connectionState != ConnectionIndicatorState::None
-        || !availabilityUpdateMessage.isEmpty();
-}
-
-void PresenceAvatarLabel::updateIndicator(bool wasAnimating)
-{
-    const bool isAnimating = hasActiveIndicator();
     if (wasAnimating != isAnimating) {
+        // A fresh connection starts in the usual direction, regardless of
+        // how many forced reconnects were requested in the previous attempt.
         _connectionAnimationDirection = 1;
         _connectionAnimationOffset = 0;
         if (isAnimating) {
@@ -96,20 +80,14 @@ void PresenceAvatarLabel::updateIndicator(bool wasAnimating)
         }
     }
 
-    if (connectionState != ConnectionIndicatorState::None) {
+    if (!isAnimating) {
+        setToolTip(QString());
+    } else {
         setToolTip(connectionState == ConnectionIndicatorState::WaitingForReconnect
                        ? tr("Waiting to reconnect to Mattermost… Click the indicator to retry now.")
                        : tr("Connecting to Mattermost… Click the indicator to retry now."));
-    } else {
-        setToolTip(availabilityUpdateMessage);
     }
 
-    LOG_DEBUG("Avatar indicator updated: connection="
-              << static_cast<int>(connectionState)
-              << " availability_pending=" << !availabilityUpdateMessage.isEmpty()
-              << " displayed=" << isAnimating
-              << " animation_clock_running="
-              << BusyIndicator::Animation::instance().isRunning());
     refreshPixmap();
     update();
 }
@@ -170,7 +148,7 @@ void PresenceAvatarLabel::paintEvent(QPaintEvent* event)
     }
     ClickableLabel::paintEvent(event);
 
-    if (!hasActiveIndicator()) {
+    if (connectionState == ConnectionIndicatorState::None) {
         return;
     }
 
@@ -250,7 +228,7 @@ void PresenceAvatarLabel::refreshPixmap()
         qRound(DefaultBadgeSize * avatarSize / static_cast<qreal>(DefaultAvatarSize)));
 
     renderedBackground = applicationWindowColor();
-    if (!hasActiveIndicator()) {
+    if (connectionState == ConnectionIndicatorState::None) {
         QLabel::setPixmap(AvatarUtils::withStatus(sourcePixmap,
                                                    avatarSize,
                                                    presenceStatus,

@@ -102,39 +102,15 @@ stop automatic attempts and return control to manual login. A manual login
 cancels any pending automatic retry. This prevents partial main-window
 initialization that cannot recover by merely establishing WebSocket later.
 
-## Reconnect and reply ownership
+## Reply lifetime during HTTP transport restart
 
-On WebSocket reconnect, the HTTP transport is replaced to recover requests
-stranded on a dead network route. The connector replays outstanding GET
-requests, but never replays non-idempotent mutations: the server might have
-committed one before its response was lost. Endpoints that need certainty
-must explicitly reconcile using a fresh read (own availability does this via
-GET /users/{user_id}/status).
+When reconnecting after a network route change, the HTTP transport replaces
+its network manager. The outstanding GET requests are replayed on the new
+transport, while mutations are not replayed automatically because they may
+already have been applied by the server.
 
-`QNetworkReply` lifetimes are not stable across abort(), auto-deletion,
-transport replacement or callbacks that enter nested event loops. Keep
-`QPointer` guards for active replies and for connector snapshots, and
-remove destroyed replies from the active set. A reconnect must never
-dereference a raw pointer kept in a snapshot after another reply's abort
-has triggered reentrant UI or network processing.
-
-## Persistent realtime reconnection
-
-Manual Online/Offline presence does **not** connect or disconnect the
-WebSocket; it only changes the server-side availability. A healthy logged-in
-session must keep attempting realtime reconnection regardless of presence.
-
-The normal WebSocket retry policy has a 1-second initial delay, exponential
-backoff and a 15-second maximum delay. It has no attempt-count limit.
-Connecting and WaitingForReconnect both display an animated connection badge,
-even if the server currently reports the user as offline.
-
-The existing 15-second socket-attempt timeout provides a retry path even
-if an initial handshake fails without a disconnected signal. UI indicator
-transitions are logged alongside the WebSocket state so a stopped animation
-can be distinguished from missing or stalled network retries. Avoid adding
-a separate watchdog without evidence that these retry paths can become idle.
-
-WebSocket endpoint discovery has a 15-second transfer timeout. On failure
-the client uses the normal API origin so configuration lookup cannot strand
-the initial socket setup indefinitely.
+Calling `QNetworkReply::abort()` can invoke callbacks synchronously.
+Those callbacks can enter nested event loops or destroy other outstanding
+replies. Therefore restart iterates `QPointer`-guarded replies, checks that
+each reply is still active before aborting it, and tracks destruction to
+prevent stale pointers and incorrect active-request accounting.

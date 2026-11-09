@@ -1,6 +1,5 @@
 #include "Backend.h"
 
-#include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -47,85 +46,20 @@ void Backend::setOwnAvailability(const QString& status, StatusUpdateResult callb
     }
     const QString id = storage.loginUser->id;
     NetworkRequest request(QStringLiteral("users/") + id + QStringLiteral("/status"));
-    // An unavailable route must not leave the avatar spinning for minutes.
-    request.setTransferTimeout(10000);
     const QJsonObject payload {{QStringLiteral("user_id"), id},
                                {QStringLiteral("status"), status}};
     QPointer<Backend> guard(this);
     httpConnector.put(request, payload,
         HttpResponseCallback([guard, id, status, callback](
                                  const QJsonDocument&, const QNetworkReply& reply) {
-            if (!guard || !guard->storage.loginUser
-                || guard->storage.loginUser->id != id) {
-                return;
-            }
-            if (succeeded(reply)) {
+            const bool ok = succeeded(reply);
+            if (guard && ok) {
                 if (auto* user = guard->storage.getUserById(id)) {
-                    if (user->status != status) {
-                        user->status = status;
-                        emit user->onStatusChanged();
-                    }
+                    user->status = status;
+                    emit user->onStatusChanged();
                 }
-                if (callback) callback(true, QString());
-                return;
             }
-
-            const int code =
-                reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (code != 0) {
-                // A definitive HTTP rejection is not a connection failure.
-                if (callback) callback(false, failureMessage(reply));
-                return;
-            }
-
-            // A lost or canceled PUT response is ambiguous: the server may
-            // already have applied the change. Never blindly replay a write.
-            // Read the authoritative state on the new transport instead.
-            NetworkRequest check(QStringLiteral("users/") + id
-                                 + QStringLiteral("/status"));
-            check.setTransferTimeout(10000);
-            guard->httpConnector.get(check,
-                HttpResponseCallback([guard, id, status, callback](
-                                         const QJsonDocument& doc,
-                                         const QNetworkReply& checkReply) {
-                    if (!guard || !guard->storage.loginUser
-                        || guard->storage.loginUser->id != id) {
-                        return;
-                    }
-                    const QString actual = doc.object()
-                                               .value(QStringLiteral("status"))
-                                               .toString();
-                    if (!succeeded(checkReply)
-                        || (actual != QLatin1String("online")
-                            && actual != QLatin1String("away")
-                            && actual != QLatin1String("dnd")
-                            && actual != QLatin1String("offline"))) {
-                        if (callback) {
-                            callback(false, QObject::tr(
-                                "Could not verify the availability change after a "
-                                "connection interruption. Check the connection and try again."));
-                        }
-                        return;
-                    }
-                    if (auto* user = guard->storage.getUserById(id)) {
-                        if (user->status != actual) {
-                            user->status = actual;
-                            emit user->onStatusChanged();
-                        }
-                    }
-                    // Online clears the manual override and resumes automatic
-                    // presence. The server may therefore report Away already
-                    // if the user is idle by the time the GET completes.
-                    const bool matchesIntent = actual == status
-                        || (status == QLatin1String("online")
-                            && actual == QLatin1String("away"));
-                    if (callback) {
-                        callback(matchesIntent,
-                                 matchesIntent ? QString() : QObject::tr(
-                                     "The server reports a different availability (%1).")
-                                     .arg(actual));
-                    }
-                }));
+            if (callback) callback(ok, ok ? QString() : failureMessage(reply));
         }));
 }
 
@@ -147,7 +81,6 @@ void Backend::setOwnCustomStatus(const QString& emoji, const QString& text,
     }
     const QString id = storage.loginUser->id;
     NetworkRequest request(QStringLiteral("users/") + id + QStringLiteral("/status/custom"));
-    request.setTransferTimeout(10000);
     const QString trimmedEmoji = emoji.trimmed();
     QJsonObject payload {{QStringLiteral("emoji"), trimmedEmoji.isEmpty()
                                        ? QStringLiteral("speech_balloon") : trimmedEmoji},
@@ -182,7 +115,6 @@ void Backend::clearOwnCustomStatus(StatusUpdateResult callback)
     }
     const QString id = storage.loginUser->id;
     NetworkRequest request(QStringLiteral("users/") + id + QStringLiteral("/status/custom"));
-    request.setTransferTimeout(10000);
     QPointer<Backend> guard(this);
     httpConnector.del(request, QByteArrayCreator(QByteArray()),
         HttpResponseCallback([guard, id, callback](

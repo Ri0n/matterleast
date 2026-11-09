@@ -231,13 +231,52 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 			restoreNavigationSessionWhenReady();
 		});
 
-    profileStatusDefaultFont = ui->statusLabel->font();
+    // Always scale from the baseline font: repeated status updates must not
+    // multiply an already enlarged emoji-only font.
+    const QFont defaultStatusFont = ui->statusLabel->font();
+    const auto refreshProfileStatus = [this, &currentUser, defaultStatusFont] {
+        ui->usericon_label->setStatus(currentUser.status);
+        const auto& custom = currentUser.props.customStatus;
+        const bool emojiOnly = isEmojiOnlyCustomStatus(custom.emoji, custom.text);
+        ui->statusLabel->setFont(emojiOnly
+            ? EmojiPresentation::fontForMode(
+                  defaultStatusFont, EmojiPresentation::Mode::StatusJumbo)
+            : defaultStatusFont);
+        // Rich-text emoji glyphs/images otherwise start almost flush against
+        // the 48px avatar. Reserve an 8px character-sized visual gutter only
+        // while an emoji status is present.
+        ui->statusLabel->setContentsMargins(
+            custom.emoji.isEmpty() ? 0 : 8, 0, 0, 0);
+        if (custom.emoji.isEmpty()) {
+            ui->statusLabel->setText(
+                custom.text.isEmpty() ? currentUser.status : custom.text);
+            return;
+        }
+
+        const auto presentation = backend.emojiRegistry().resolveByName(custom.emoji);
+        QString icon = presentation
+            ? presentation->unicodeString
+            : QStringLiteral(":%1:").arg(custom.emoji.toHtmlEscaped());
+        if (icon.contains(QStringLiteral("<img"), Qt::CaseInsensitive)) {
+            icon = EmojiPresentation::normalizeHtml(
+                icon, defaultStatusFont,
+                emojiOnly ? EmojiPresentation::Mode::StatusJumbo
+                          : EmojiPresentation::Mode::Reaction,
+                &backend.emojiRegistry());
+        } else {
+            icon = icon.toHtmlEscaped();
+        }
+        const QString message = custom.text.isEmpty()
+            ? QString()
+            : QStringLiteral(" ") + custom.text.toHtmlEscaped();
+        ui->statusLabel->setText(QStringLiteral("<span>%1%2</span>").arg(icon, message));
+    };
     connect(&currentUser, &BackendUser::onStatusChanged,
-            this, &MainWindow::refreshProfileStatus);
+            this, refreshProfileStatus);
     connect(&backend, &Backend::onOwnCustomStatusChanged,
-            this, &MainWindow::refreshProfileStatus);
+            this, refreshProfileStatus);
     connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
-            this, &MainWindow::refreshProfileStatus);
+            this, refreshProfileStatus);
     refreshProfileStatus();
 	ui->usernameLabel->setText(currentUser.username);
 
