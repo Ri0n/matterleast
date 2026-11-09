@@ -42,6 +42,7 @@
 #include <QVector>
 
 #include "MessageFormatter.h"
+#include "chat-area/QuotedPostPreview.h"
 #include "Settings.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/emoji/EmojiRegistry.h"
@@ -327,22 +328,6 @@ public:
         linkDragHandler = std::move(handler);
     }
 
-    void setQuoteExcerptMode()
-    {
-        setObjectName(QStringLiteral("messageQuoteRichText"));
-        _maxVisibleLines = 4;
-        // QTextBrowser may still scroll its document with hidden scrollbars.
-        // Force the excerpt to its beginning even after document reflow or
-        // selection, and let wheel events reach the parent chat timeline.
-        connect(verticalScrollBar(), &QScrollBar::valueChanged,
-                this, [this](int value) {
-            if (value != 0) {
-                verticalScrollBar()->setValue(0);
-            }
-        });
-        scheduleHeightUpdate();
-    }
-
     void setContentHtml(const QString& html, bool jumboEmoji = false)
     {
         document()->setDefaultFont(font());
@@ -399,16 +384,6 @@ public:
     }
 
 protected:
-    void wheelEvent(QWheelEvent* event) override
-    {
-        if (_maxVisibleLines > 0) {
-            verticalScrollBar()->setValue(0);
-            event->ignore();
-            return;
-        }
-        QTextBrowser::wheelEvent(event);
-    }
-
     void mousePressEvent(QMouseEvent* event) override
     {
         dragLink.clear();
@@ -496,19 +471,11 @@ private:
             static_cast<int>(std::ceil(document()->size().height()));
         int wantedHeight = std::max(
             fontMetrics().height(), documentHeight + 2 * frameWidth());
-        if (_maxVisibleLines > 0) {
-            wantedHeight = std::min(
-                wantedHeight, _maxVisibleLines * fontMetrics().lineSpacing()
-                                  + 2 * frameWidth());
-        }
         if (height() != wantedHeight) {
             setFixedHeight(wantedHeight);
             if (heightChanged) {
                 heightChanged();
             }
-        }
-        if (_maxVisibleLines > 0) {
-            verticalScrollBar()->setValue(0);
         }
         updatingHeight = false;
     }
@@ -519,101 +486,7 @@ private:
     QPoint dragStartPosition;
     bool dragConsumed = false;
     bool updatingHeight = false;
-    int _maxVisibleLines = 0;
     EmojiRegistry* _emojiRegistry = nullptr;
-};
-
-class QuoteBar final : public QWidget
-{
-public:
-    using QWidget::QWidget;
-
-protected:
-    void paintEvent(QPaintEvent*) override
-    {
-        QPainter painter(this);
-        QColor barColor = palette().color(QPalette::Text);
-        barColor.setAlphaF(0.50);
-        painter.fillRect(rect(), barColor);
-    }
-};
-
-class QuoteBlock final : public QWidget
-{
-public:
-    QuoteBlock(const QString& markdown,
-               std::function<void()> heightChanged,
-               EmojiRegistry* emojiRegistry,
-               QWidget* parent = nullptr)
-        : QWidget(parent)
-        , heightChanged(std::move(heightChanged))
-    {
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        setMinimumWidth(0);
-
-        auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(8);
-
-        auto* bar = new QuoteBar(this);
-        bar->setFixedWidth(3);
-        layout->addWidget(bar);
-
-        text = new WrappedRichText([this] {
-            updateGeometry();
-            if (this->heightChanged) {
-                this->heightChanged();
-            }
-        }, emojiRegistry, this);
-        text->setQuoteExcerptMode();
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        text->setContentMarkdown(markdown);
-#else
-        text->setContentHtml(
-            MessageFormatter::formatMessageText(markdown, emojiRegistry));
-#endif
-        layout->addWidget(text, 1);
-        updateMutedPalette();
-    }
-
-    WrappedRichText* browser() const { return text; }
-
-    QSize sizeHint() const override
-    {
-        return QSize(0, text ? text->height() : fontMetrics().height());
-    }
-
-    QSize minimumSizeHint() const override
-    {
-        return sizeHint();
-    }
-
-protected:
-    void changeEvent(QEvent* event) override
-    {
-        QWidget::changeEvent(event);
-        if (event && (event->type() == QEvent::PaletteChange
-                      || event->type() == QEvent::ApplicationPaletteChange)) {
-            updateMutedPalette();
-        }
-    }
-
-private:
-    void updateMutedPalette()
-    {
-        if (!text) {
-            return;
-        }
-        QPalette muted = text->palette();
-        const QColor mutedText = palette().color(QPalette::Disabled, QPalette::Text);
-        muted.setColor(QPalette::Text, mutedText);
-        muted.setColor(QPalette::WindowText, mutedText);
-        text->setPalette(muted);
-        update();
-    }
-
-    WrappedRichText* text = nullptr;
-    std::function<void()> heightChanged;
 };
 
 struct MessageSegment {
@@ -714,7 +587,26 @@ QVector<MessageSegment> splitMessageSegments(const QString& message)
         append(extractQuoteLine(line, renderedLine), renderedLine);
     }
 
-    return result;
+    // A blank source line can separate paragraphs of the same Markdown
+    // blockquote. Keep them in one widget so its border remains continuous.
+    // Non-empty prose between quotes still starts a separate quote.
+    QVector<MessageSegment> merged;
+    for (const MessageSegment& segment : result) {
+        if (segment.quote && merged.size() >= 2
+            && merged.back().text.trimmed().isEmpty()
+            && !merged.back().quote
+            && merged.at(merged.size() - 2).quote) {
+            const QString blankLines = merged.back().text;
+            merged.removeLast();
+            merged.back().text += QLatin1Char('\n');
+            merged.back().text += blankLines;
+            merged.back().text += QLatin1Char('\n');
+            merged.back().text += segment.text;
+        } else {
+            merged.push_back(segment);
+        }
+    }
+    return merged;
 }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
@@ -1235,19 +1127,20 @@ void MessageContentWidget::addQuote(const QString& markdown)
         return;
     }
 
-    auto* quote = new QuoteBlock(
-        markdown,
-        [this] { scheduleDimensionsChanged(); },
-        _emojiRegistry,
-        this);
-    quote->browser()->setLinkDragHandler([this](const QString& link) {
+    // Share the same measured, non-scrolling excerpt and Show more/less
+    // implementation as quoted replies. Ordinary Markdown has no target
+    // post, so clicking its body must not navigate away.
+    auto* quote = new QuotedPostPreview(this, 4);
+    quote->setMarkdownQuote(markdown, _emojiRegistry);
+    quote->setLinkDragHandler([this](const QString& link) {
         emit linkDragRequested(link);
     });
-    resolveInlineImages(quote->browser());
-    connect(quote->browser(),
-            QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
-            this,
-            [this](const QUrl& url) {
+    connect(quote, &QuotedPostPreview::dimensionsChanged,
+            this, &MessageContentWidget::scheduleDimensionsChanged);
+    QTextBrowser* browser = quote->textBrowser();
+    resolveInlineImages(browser);
+    connect(browser, QOverload<const QUrl&>::of(&QTextBrowser::highlighted),
+            this, [this](const QUrl& url) {
                 emit linkHovered(url.toString());
             });
     contentLayout->addWidget(quote);
@@ -1344,8 +1237,16 @@ void MessageContentWidget::requestInlineImage(QTextBrowser* browser,
                 }
 
                 image = fittedInlineImage(std::move(image), *target);
-                auto* wrapped = static_cast<WrappedRichText*>(target.data());
-                wrapped->setImageResource(resourceUrl, image);
+                if (auto* quote = qobject_cast<QuotedPostPreview*>(target->parentWidget())) {
+                    QTextDocument* document = target->document();
+                    document->addResource(QTextDocument::ImageResource, resourceUrl, image);
+                    document->markContentsDirty(0, document->characterCount());
+                    target->viewport()->update();
+                    quote->invalidateTextLayout();
+                } else {
+                    static_cast<WrappedRichText*>(target.data())->setImageResource(
+                        resourceUrl, image);
+                }
                 self->scheduleDimensionsChanged();
             });
     };
