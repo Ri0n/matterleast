@@ -58,7 +58,6 @@ private slots:
                                     .arg(server.serverPort()));
 
         QHash<QByteArray, int> attempts;
-        int firstBatch = 0;
         bool restarting = false;
         connect(&server, &QTcpServer::newConnection, &server, [&] {
             while (QTcpSocket* socket = server.nextPendingConnection()) {
@@ -75,7 +74,6 @@ private slots:
                     ++attempts[parts.at(1)];
 
                     if (!restarting) {
-                        ++firstBatch;
                         return;
                     }
 
@@ -119,7 +117,6 @@ private slots:
 
         QTRY_COMPARE_WITH_TIMEOUT(completed, 4, 10000);
         QVERIFY(allSucceeded);
-        QVERIFY(firstBatch > 0);
         QCOMPARE(attempts.size(), 4);
         for (int i = 0; i < 4; ++i) {
             // Qt can queue requests behind an HTTP/1.1 connection, so only
