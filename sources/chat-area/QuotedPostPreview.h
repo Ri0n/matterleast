@@ -20,6 +20,7 @@ namespace Mattermost {
 class Backend;
 class BackendFile;
 class BackendPost;
+class EmojiRegistry;
 class PostAttachmentList;
 class QuotedAttachmentSummary;
 
@@ -35,6 +36,11 @@ public:
     void setPreview(const QString& title,
                     const QString& message,
                     bool hasAttachments = false);
+    // Ordinary Markdown blockquotes reuse the same measured Show more/less UI
+    // without the quoted-post title, attachment summary or post navigation.
+    void setMarkdownQuote(const QString& markdown, EmojiRegistry* registry);
+    QTextBrowser* textBrowser() const { return messageBrowser; }
+    void invalidateTextLayout();
     void setInteractiveAttachments(Backend& backend,
                                    const std::list<BackendFile>& files,
                                    const QString& authorName);
@@ -67,6 +73,8 @@ private:
     QString fullText;
     int maximumLines = 2;
     bool expanded = false;
+    bool _isMarkdownQuote = false;
+    EmojiRegistry* _emojiRegistry = nullptr;
     bool textLayoutScheduled = false;
     std::function<void()> activatedCallback;
     std::function<void(const QUrl&)> linkActivatedCallback;
