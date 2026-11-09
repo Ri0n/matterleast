@@ -1,5 +1,6 @@
 #include "Backend.h"
 
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
