@@ -18,6 +18,7 @@
 
 #include "AvatarUtils.h"
 #include "BusyIndicator.h"
+#include "log.h"
 
 namespace Mattermost {
 
@@ -103,6 +104,12 @@ void PresenceAvatarLabel::updateIndicator(bool wasAnimating)
         setToolTip(availabilityUpdateMessage);
     }
 
+    LOG_DEBUG("Avatar indicator updated: connection="
+              << static_cast<int>(connectionState)
+              << " availability_pending=" << !availabilityUpdateMessage.isEmpty()
+              << " displayed=" << isAnimating
+              << " animation_clock_running="
+              << BusyIndicator::Animation::instance().isRunning());
     refreshPixmap();
     update();
 }
