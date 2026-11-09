@@ -129,6 +129,90 @@ private slots:
         }
     }
 
+    void canceledStatusMutationIsSilent_data()
+    {
+        QTest::addColumn<QString>("action");
+        QTest::newRow("availability") << QStringLiteral("availability");
+        QTest::newRow("custom-set") << QStringLiteral("set");
+        QTest::newRow("custom-clear") << QStringLiteral("clear");
+    }
+
+    void canceledStatusMutationIsSilent()
+    {
+        QFETCH(QString, action);
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        int incomingMutations = 0;
+        bool restartScheduled = false;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (QTcpSocket* socket = server.nextPendingConnection()) {
+                auto buffer = QSharedPointer<QByteArray>::create();
+                connect(socket, &QTcpSocket::readyRead, socket,
+                        [&, socket, buffer] {
+                    buffer->append(socket->readAll());
+                    const int headersEnd = buffer->indexOf("\r\n\r\n");
+                    if (headersEnd < 0 || restartScheduled) return;
+                    const QByteArray headers = buffer->left(headersEnd);
+                    int contentLength = 0;
+                    for (const QByteArray& header : headers.split('\n')) {
+                        if (header.trimmed().toLower().startsWith("content-length:")) {
+                            contentLength = header.mid(header.indexOf(':') + 1)
+                                                .trimmed().toInt();
+                        }
+                    }
+                    if (buffer->size() < headersEnd + 4 + contentLength) return;
+
+                    ++incomingMutations;
+                    restartScheduled = true;
+                    // Mimic a route change after the server received a
+                    // mutation but before any HTTP response. No success or
+                    // failure can be inferred from the canceled reply.
+                    QTimer::singleShot(0, &server, [] {
+                        HTTPConnector::restartAllTransports();
+                    });
+                });
+            }
+        });
+
+        Backend backend;
+        BackendUser* user = backend.getStorage().addUser(
+            QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")},
+                         {QStringLiteral("username"), QStringLiteral("user")}},
+            true);
+        QVERIFY(user);
+        user->status = QStringLiteral("offline");
+        QSignalSpy availabilitySpy(user, &BackendUser::onStatusChanged);
+        QSignalSpy customSpy(&backend, &Backend::onOwnCustomStatusChanged);
+
+        bool finished = false;
+        bool succeeded = true;
+        QString reason;
+        auto callback = [&](bool ok, const QString& error) {
+            succeeded = ok;
+            reason = error;
+            finished = true;
+        };
+        if (action == QLatin1String("availability")) {
+            backend.setOwnAvailability(QStringLiteral("online"), callback);
+        } else if (action == QLatin1String("set")) {
+            backend.setOwnCustomStatus(QStringLiteral("coffee"),
+                QStringLiteral("Busy"), QString(), QString(), callback);
+        } else {
+            backend.clearOwnCustomStatus(callback);
+        }
+
+        QTRY_VERIFY_WITH_TIMEOUT(finished, 10000);
+        QVERIFY(!succeeded);
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(incomingMutations, 1);
+        QCOMPARE(user->status, QStringLiteral("offline"));
+        QCOMPARE(availabilitySpy.size(), 0);
+        QCOMPARE(customSpy.size(), 0);
+    }
+
     void statusEndpointsAndFailedUpdate()
     {
         QTcpServer server;
