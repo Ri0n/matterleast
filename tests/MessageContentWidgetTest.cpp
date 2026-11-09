@@ -22,6 +22,7 @@
 #include <QTextImageFormat>
 #include <QTextLayout>
 #include <QTextOption>
+#include <QToolButton>
 #include <QWheelEvent>
 
 #include "Settings.h"
@@ -114,24 +115,34 @@ class MessageContentWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
-    void longQuoteShowsCompleteTextWithoutCapturingWheel()
+    void longQuoteCanExpandInPlaceAndKeepsWheelInTimeline()
     {
         MessageContentWidget widget;
-        widget.setMessage(QStringLiteral("> ") + QString(1800, QLatin1Char('x'))
-                          + QStringLiteral("\n\nText after quote"));
+        const QString quotedText = QStringLiteral("> ") + QString(1800, QLatin1Char('x'));
+        widget.setMessage(quotedText + QStringLiteral("\n\nText after quote"));
         showAndSettle(widget, QSize(320, 1600));
 
         auto* quote = widget.findChild<QTextBrowser*>(
             QStringLiteral("messageQuoteRichText"));
+        auto* toggle = widget.findChild<QToolButton*>(
+            QStringLiteral("quotedPostShowMore"));
         QVERIFY(quote);
+        QVERIFY(toggle);
         QVERIFY(quote->document()->toPlainText().size() >= 1800);
         QTRY_VERIFY(quote->viewport()->width() > 100);
-        QVERIFY(quote->height() > 4 * quote->fontMetrics().lineSpacing());
-        // The last rendered line must fit inside the browser rather than being
-        // silently clipped at a fixed number of lines.
+        QTRY_VERIFY(!toggle->isHidden());
+        const int collapsedHeight = quote->height();
+        QVERIFY(collapsedHeight <= 4 * quote->fontMetrics().lineSpacing() + 2);
+        QCOMPARE(toggle->text(), QStringLiteral("Show more…"));
+
+        QSignalSpy changed(&widget, &MessageContentWidget::dimensionsChanged);
+        QTest::mouseClick(toggle, Qt::LeftButton);
+        QTRY_VERIFY(quote->height() > collapsedHeight);
+        QCOMPARE(toggle->text(), QStringLiteral("Show less"));
+        QTRY_VERIFY(changed.count() > 0);
+        QVERIFY(quote->document()->toPlainText().endsWith(QString(1800, QLatin1Char('x'))));
         QTRY_VERIFY(quote->viewport()->height()
                     >= std::ceil(quote->document()->size().height()) - 1);
-        QCOMPARE(quote->verticalScrollBar()->value(), 0);
 
         QWheelEvent wheel(
             QPointF(10, 10),
@@ -141,7 +152,11 @@ private slots:
         QApplication::sendEvent(quote->viewport(), &wheel);
         QCOMPARE(quote->verticalScrollBar()->value(), 0);
 
-        quote->verticalScrollBar()->setValue(quote->verticalScrollBar()->maximum());
+        changed.clear();
+        QTest::mouseClick(toggle, Qt::LeftButton);
+        QTRY_COMPARE(quote->height(), collapsedHeight);
+        QCOMPARE(toggle->text(), QStringLiteral("Show more…"));
+        QTRY_VERIFY(changed.count() > 0);
         QCOMPARE(quote->verticalScrollBar()->value(), 0);
     }
 
@@ -164,13 +179,24 @@ private slots:
         const auto bars = widget.findChildren<QWidget*>(
             QStringLiteral("messageQuoteBar"));
         QCOMPARE(bars.size(), 1);
-        QTRY_COMPARE(bars.first()->height(), quotes.first()->height());
+        QTRY_VERIFY(bars.first()->height() >= quotes.first()->height());
 
         // Actual prose between two quotes must not be swallowed into either.
         widget.setMessage(QStringLiteral("> First quote\nPlain text\n> Second quote"));
         showAndSettle(widget, QSize(360, 500));
         QCOMPARE(widget.findChildren<QTextBrowser*>(
                      QStringLiteral("messageQuoteRichText")).size(), 2);
+    }
+
+    void shortQuoteHasNoExpandAction()
+    {
+        MessageContentWidget widget;
+        widget.setMessage(QStringLiteral("> A short quoted line."));
+        showAndSettle(widget, QSize(450, 140));
+        auto* toggle = widget.findChild<QToolButton*>(
+            QStringLiteral("quotedPostShowMore"));
+        QVERIFY(toggle);
+        QTRY_VERIFY(toggle->isHidden());
     }
 
     void inlineCodeRequestsInstalledFixedPitchFont()
