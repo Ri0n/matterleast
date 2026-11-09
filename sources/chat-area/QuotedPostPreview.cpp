@@ -25,6 +25,7 @@
 
 #include "QuotedReplyFormat.h"
 #include "QuotedAttachmentSummary.h"
+#include "backend/emoji/EmojiRegistry.h"
 #include "backend/types/BackendPost.h"
 #include "post/MessageFormatter.h"
 #include "post/attachments/PostAttachmentList.h"
@@ -110,6 +111,7 @@ QuotedPostPreview::QuotedPostPreview(QWidget* parent, int maximumLinesValue)
     layout->setSpacing(7);
 
     bar = new QFrame(this);
+    bar->setObjectName(QStringLiteral("messageQuoteBar"));
     bar->setFixedWidth(3);
     bar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     bar->setBackgroundRole(QPalette::Window);
@@ -210,6 +212,13 @@ void QuotedPostPreview::setPreview(const QString& title,
         delete attachmentList;
         attachmentList = nullptr;
     }
+    _isMarkdownQuote = false;
+    _emojiRegistry = nullptr;
+    authorLabel->show();
+    messageBrowser->setObjectName(QStringLiteral("quotedPostExcerpt"));
+    messageBrowser->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+    messageBrowser->setOpenExternalLinks(false);
+    messageBrowser->setOpenLinks(false);
 
     const QString visibleMessage = QuotedReplyFormat::stripFallback(message);
     const QString newText = visibleMessage.trimmed().isEmpty()
@@ -229,6 +238,36 @@ void QuotedPostPreview::setPreview(const QString& title,
     // tooltips supplied centrally by MessageFormatter.
     setToolTip(visibleMessage);
     refreshText();
+}
+
+void QuotedPostPreview::setMarkdownQuote(const QString& markdown,
+                                         EmojiRegistry* registry)
+{
+    // Unlike a referenced post, this is user-authored Markdown inside the
+    // message itself. Preserve the source verbatim, including fallback-looking
+    // text, and permit selecting and opening links in the quoted body.
+    if (!_isMarkdownQuote || fullText != markdown) {
+        expanded = false;
+    }
+    _isMarkdownQuote = true;
+    _emojiRegistry = registry;
+    fullText = markdown;
+    authorLabel->hide();
+    attachmentSummary->hide();
+    messageBrowser->setObjectName(QStringLiteral("messageQuoteRichText"));
+    messageBrowser->setTextInteractionFlags(
+        Qt::LinksAccessibleByMouse | Qt::TextSelectableByMouse);
+    messageBrowser->setOpenExternalLinks(true);
+    messageBrowser->setOpenLinks(true);
+    refreshText();
+}
+
+void QuotedPostPreview::invalidateTextLayout()
+{
+    // Image resources can arrive after the initial document clone was
+    // measured. The next measurement must see the new image dimensions.
+    measuringDocument.reset();
+    scheduleTextLayout();
 }
 
 void QuotedPostPreview::setInteractiveAttachments(
@@ -418,9 +457,11 @@ void QuotedPostPreview::refreshText()
     // (notably consecutive quote lines), which made the edit/reply preview
     // collapse user-visible newlines even though the composer source was intact.
     messageBrowser->document()->setDefaultFont(messageBrowser->font());
-    MessageFormatter::buildMarkdownDocument(*messageBrowser->document(), fullText);
+    MessageFormatter::buildMarkdownDocument(
+        *messageBrowser->document(), fullText, _emojiRegistry,
+        palette().color(QPalette::Text));
 #else
-    messageBrowser->setHtml(MessageFormatter::formatMessageText(fullText));
+    messageBrowser->setHtml(MessageFormatter::formatMessageText(fullText, _emojiRegistry));
 #endif
     messageBrowser->document()->setDocumentMargin(0);
     messageBrowser->verticalScrollBar()->setValue(0);
@@ -485,7 +526,7 @@ void QuotedPostPreview::updateTextLayout()
     expandButton->setVisible(truncated);
     // An expanded quote is already readable in the post; a full-text tooltip
     // would obscure it while the mouse is resting over the body.
-    const QString tooltip = expanded ? QString() : fullText;
+    const QString tooltip = expanded || _isMarkdownQuote ? QString() : fullText;
     setToolTip(tooltip);
     messageBrowser->verticalScrollBar()->setValue(0);
 
