@@ -17,6 +17,9 @@ class ChannelActivityTracker
 public:
     struct Entry {
         uint64_t lastViewedAt = 0;
+        // Confirmed membership/acknowledgement cursor, never a locally
+        // optimistic mark-as-viewed or a recent-channel preference.
+        uint64_t serverLastViewedAt = 0;
         uint64_t lastActivityAt = 0;
         uint64_t approximateViewAt = 0;
         uint64_t openTimeAt = 0;
@@ -64,6 +67,10 @@ public:
     void recordViewed(const QString& channelId, uint64_t viewedAt,
                       uint64_t totalMessageCount, uint64_t totalRootMessageCount,
                       bool hasTotalRootMessageCount);
+    /** Apply a confirmed channel_viewed/POST acknowledgement. */
+    void recordServerViewed(const QString& channelId, uint64_t viewedAt,
+                            uint64_t totalMessageCount, uint64_t totalRootMessageCount,
+                            bool hasTotalRootMessageCount);
     /** Apply the authoritative response from POST /posts/{id}/set_unread. */
     void markUnread(const QString& channelId, uint64_t lastViewedAt,
                     uint64_t readMessageCount, uint64_t readRootMessageCount,
@@ -87,6 +94,7 @@ public:
     bool usesRootUnreadCounts(const QString& channelId) const;
     uint64_t activityTime(const QString& channelId) const;
     uint64_t lastViewedTime(const QString& channelId) const;
+    uint64_t lastServerViewedTime(const QString& channelId) const;
     uint64_t recentTime(const QString& channelId) const;
 
     /** Raw Mattermost channel_open_time preference; message traffic never changes it. */
