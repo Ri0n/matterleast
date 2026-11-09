@@ -1309,15 +1309,15 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
     // the thread domain. Never promote a reply mention to a root-channel
     // mention: with CRT enabled this would pin the parent DM in Attention
     // even after the thread's read acknowledgement succeeds.
-    if (post.currentUserMentioned && post.root_id.isEmpty()) {
-        sidebar.setChannelMentioned(channel.id, true);
-    }
-
-    // WebSocket recovery may replay historical posted events. History and
-    // read state still need those events, but they are not new desktop alerts.
+    // WebSocket recovery may replay historical posted events. Keep the
+    // notification-only mention side effect out of stale replay too; actual
+    // unread/Attention reconciliation is handled independently in the backend.
     if (!isFreshDesktopPost(post.create_at,
                             static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()))) {
         return;
+    }
+    if (post.currentUserMentioned && post.root_id.isEmpty()) {
+        sidebar.setChannelMentioned(channel.id, true);
     }
 	if (sidebar.isChannelMuted(channel)) {
 		return;
