@@ -101,3 +101,19 @@ open. Invalid/expired credentials (401/403 and other permanent client errors)
 stop automatic attempts and return control to manual login. A manual login
 cancels any pending automatic retry. This prevents partial main-window
 initialization that cannot recover by merely establishing WebSocket later.
+
+## Reconnect and reply ownership
+
+On WebSocket reconnect, the HTTP transport is replaced to recover requests
+stranded on a dead network route. The connector replays outstanding GET
+requests, but never replays non-idempotent mutations: the server might have
+committed one before its response was lost. Endpoints that need certainty
+must explicitly reconcile using a fresh read (own availability does this via
+GET /users/{user_id}/status).
+
+`QNetworkReply` lifetimes are not stable across abort(), auto-deletion,
+transport replacement or callbacks that enter nested event loops. Keep
+`QPointer` guards for active replies and for connector snapshots, and
+remove destroyed replies from the active set. A reconnect must never
+dereference a raw pointer kept in a snapshot after another reply's abort
+has triggered reentrant UI or network processing.
