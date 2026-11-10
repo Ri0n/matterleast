@@ -22,8 +22,10 @@ class Backend;
 class AttachmentBatchSave final : public QObject
 {
 public:
+    // Snapshot file metadata before the modal directory picker runs: a
+    // virtualized PostWidget may disappear inside its nested event loop.
     static void chooseFolderAndSave(Backend& backend,
-                                    const std::list<BackendFile>& files,
+                                    std::list<BackendFile> files,
                                     QWidget* parent = nullptr);
 
 private:
