@@ -1221,11 +1221,16 @@ void Backend::retrievePollMetadata (BackendPoll& poll)
 	}));
 }
 
-void Backend::markChannelAsViewed (BackendChannel& channel)
+void Backend::markChannelAsViewed (BackendChannel& channel, bool preserveCrtThreads)
 {
 	QJsonObject  json;
 
 	json.insert ("channel_id", channel.id);
+    if (preserveCrtThreads) {
+        // When CRT is enabled, Mattermost must not mark followed threads read
+        // merely because the parent channel has no remaining unread posts.
+        json.insert(QStringLiteral("collapsed_threads_supported"), true);
+    }
 
 	//maybe add prev_channel_id, the Mattermost API supports it
 	//json.insert ("prev_channel_id", channel.id);
