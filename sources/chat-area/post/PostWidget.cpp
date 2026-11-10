@@ -1113,6 +1113,21 @@ void PostWidget::updateHoverActionsPalette()
         " border-radius: 5px;"
         "}")
         .arg(cssColor(background), cssColor(outline)));
+
+    // Standalone posts keep their own action frame. Unlike a newly created
+    // frame, its pre-tinted icons also need refreshing after a theme change.
+    if (reactionAffordance_) {
+        reactionAffordance_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/emoji")));
+    }
+    if (threadAffordance_) {
+        threadAffordance_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/message-balloon")));
+    }
+    if (saveAffordance_) {
+        saveAffordance_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/bookmark")));
+    }
+    if (moreAffordance_) {
+        moreAffordance_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/more-horizontal")));
+    }
 }
 
 void PostWidget::positionHoverActions()
