@@ -61,6 +61,18 @@ AttachmentBatchSave::AttachmentBatchSave(
     _dialog->show();
 }
 
+AttachmentBatchSave::~AttachmentBatchSave()
+{
+    _finished = true;
+    _cancelled = true;
+    if (_reply) {
+        _reply->abort();
+    }
+    if (_dialog) {
+        delete _dialog.data();
+    }
+}
+
 void AttachmentBatchSave::startNext()
 {
     if (_finished) {
