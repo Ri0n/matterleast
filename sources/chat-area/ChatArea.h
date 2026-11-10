@@ -41,6 +41,7 @@ class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
+class QHideEvent;
 class QGraphicsOpacityEffect;
 class QMenu;
 class QPropertyAnimation;
@@ -151,6 +152,7 @@ private:
     bool eventFilter(QObject* watched, QEvent* event) override;
 	void changeEvent(QEvent* event) override;
 	void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 	void resizeEvent (QResizeEvent* event) override;
 	void dragEnterEvent (QDragEnterEvent* event) override;
 	void dragMoveEvent (QDragMoveEvent* event) override;
