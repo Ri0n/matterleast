@@ -8,6 +8,7 @@ class QFrame;
 class QHBoxLayout;
 class QVBoxLayout;
 class QGraphicsOpacityEffect;
+class QLayout;
 class QVariantAnimation;
 class QTimer;
 class QWidget;
@@ -23,7 +24,7 @@ class FormattingToolbarOverlay final : public QObject
     Q_OBJECT
 public:
     FormattingToolbarOverlay(QWidget& host, QWidget& editor,
-                             QWidget& toolbar);
+                             QWidget& toolbar, QLayout& footerLayout);
     QWidget* panel() const;
     void installPreview(QWidget& preview, QWidget& toggleButton);
     void setPreviewVisible(bool visible);
@@ -38,10 +39,13 @@ private:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void refreshGeometry();
     void scheduleGeometryRefresh();
+    int composerTop() const;
     void applyProgress(qreal progress);
 
     QPointer<QWidget> _host;
     QPointer<QWidget> _editor;
+    QPointer<QLayout> _footerLayout;
+    QPointer<QWidget> _footerOwner;
     QPointer<QWidget> _toolbar;
     QPointer<QWidget> _editorViewport;
     QPointer<QWidget> _preview;
