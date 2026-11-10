@@ -156,6 +156,16 @@ void CompactAttachmentRow::paintEvent(QPaintEvent* event)
     painter.drawLine(6, height() - 1, width() - 6, height() - 1);
 }
 
+bool CompactAttachmentRow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == _nameLabel && event
+        && (event->type() == QEvent::Resize
+            || event->type() == QEvent::FontChange)) {
+        refreshName();
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
 void CompactAttachmentRow::refreshName()
 {
     if (!_nameLabel) {
