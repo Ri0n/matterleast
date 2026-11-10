@@ -511,11 +511,10 @@ void SidebarService::reconcileDeletedUnreadPost(const QString& channelId,
         || !backend.getStorage().getChannelById(channelId)) {
         return;
     }
-    // Deleting a read/own post cannot consume another message's unread state.
-    // In CRT mode an unrelated reply never contributes to parent unread state.
-    if ((createdAt != 0 && createdAt <= activityTracker.lastViewedTime(channelId))
-        || (!authorId.isEmpty() && authorId == backend.getStorage().loginUser->id)
-        || (threadReply && activityTracker.usesRootUnreadCounts(channelId))) {
+    if (!deletionMayAffectChannelUnread(
+            createdAt, activityTracker.lastViewedTime(channelId), authorId,
+            backend.getStorage().loginUser->id, threadReply,
+            activityTracker.usesRootUnreadCounts(channelId))) {
         return;
     }
 
