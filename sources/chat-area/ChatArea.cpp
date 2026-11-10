@@ -162,6 +162,7 @@ ChatArea::ChatArea(Backend& backend,
     setupHeaderUi();
     setupPinnedPostsView();
     setupComposerUi();
+    setupTypingOverlay();
 
     ui->outgoingPostCreator->init(backend, channel, *ui->listWidget,
                                   ui->footerLayout, *ui->composerStatusLabel,
@@ -233,6 +234,7 @@ ChatArea::ChatArea(Backend& backend,
     ui->listWidget->configure(backend, *this);
     setupHeaderUi();
     setupComposerUi();
+    setupTypingOverlay();
 
     ui->outgoingPostCreator->init(backend, channel, *ui->listWidget,
                                   ui->footerLayout, *ui->composerStatusLabel,
@@ -351,6 +353,16 @@ ChatArea::ChatArea(Backend& backend,
 
 bool ChatArea::eventFilter(QObject* watched, QEvent* event)
 {
+    if (ui && ui->listWidget && event
+        && watched == ui->listWidget->viewport()) {
+        if (event->type() == QEvent::Resize) {
+            positionTypingOverlay();
+        } else if (event->type() == QEvent::Show) {
+            updateTypingOverlay();
+        } else if (event->type() == QEvent::Hide) {
+            setTypingOverlayVisible(false, true);
+        }
+    }
     if (isThread && ui && watched == ui->titleLabel && event) {
         const auto type = event->type();
         if (type == QEvent::MouseButtonPress
@@ -833,8 +845,6 @@ void ChatArea::init()
     signalConnections.push_back(connect(&channel, &BackendChannel::onPostEdited,
                                         &composer,
                                         &OutgoingPostCreator::onPostReceived));
-    signalConnections.push_back(connect(&channel, &BackendChannel::onUserTyping,
-                                        this, &ChatArea::handleUserTyping));
 
     signalConnections.push_back(connect(ui->listWidget,
                                         &ChatLogWidget::postEditInitiated,
@@ -940,12 +950,6 @@ void ChatArea::updatePinnedPostsButton()
     ui->pinnedPostsButton->show();
 }
 
-void ChatArea::handleUserTyping(const BackendUser& user)
-{
-    LOG_DEBUG("Channel " << channel.display_name << ": "
-                          << user.getDisplayName() << " is typing");
-}
-
 void ChatArea::requestTimelineRecovery()
 {
     timelineRecoveryPending = true;
@@ -980,12 +984,14 @@ void ChatArea::onActivate()
     }
 
     init();
+    updateTypingOverlay();
     if (timelineRecoveryPending) requestTimelineRecovery();
 }
 
 void ChatArea::onDeactivate()
 {
     // Notify navigation before sidebar selection detaches our measured view.
+    setTypingOverlayVisible(false, true);
     emit aboutToDeactivate();
 
     if (ui && ui->outgoingPostCreator) {
