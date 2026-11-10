@@ -7,6 +7,7 @@
 #include <QCursor>
 #include <QEasingCurve>
 #include <QFrame>
+#include <QHBoxLayout>
 #include <QGraphicsOpacityEffect>
 #include <QLayout>
 #include <QMargins>
@@ -49,9 +50,12 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
     _panel->setBackgroundRole(QPalette::Window);
     _panel->setAutoFillBackground(true);
 
-    auto* panelLayout = new QVBoxLayout(_panel);
-    panelLayout->setContentsMargins(0, 0, 0, 0);
-    panelLayout->setSpacing(0);
+    _panelLayout = new QVBoxLayout(_panel);
+    _panelLayout->setContentsMargins(0, 0, 0, 0);
+    _panelLayout->setSpacing(2);
+    _toolbarRow = new QHBoxLayout;
+    _toolbarRow->setContentsMargins(0, 0, 0, 0);
+    _toolbarRow->setSpacing(2);
 
     toolbar.setParent(_panel);
     toolbar.setMinimumHeight(0);
@@ -63,7 +67,8 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
         margins.setBottom(std::max(margins.bottom(), 2));
         contentLayout->setContentsMargins(margins);
     }
-    panelLayout->addWidget(&toolbar);
+    _toolbarRow->addWidget(&toolbar, 1, Qt::AlignTop);
+    _panelLayout->addLayout(_toolbarRow);
     toolbar.show();
 
     _opacity = new QGraphicsOpacityEffect(_panel);
@@ -122,6 +127,37 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
 QWidget* FormattingToolbarOverlay::panel() const
 {
     return _panel;
+}
+
+void FormattingToolbarOverlay::installPreview(QWidget& preview,
+                                               QWidget& toggleButton)
+{
+    if (!_panel || !_panelLayout || !_toolbarRow || _preview) {
+        return;
+    }
+
+    _preview = &preview;
+    _previewToggle = &toggleButton;
+    preview.setParent(_panel);
+    preview.hide();
+    // Preview is a scrollable region above the always-visible formatting row.
+    _panelLayout->insertWidget(0, &preview);
+    _toolbarRow->addWidget(&toggleButton, 0, Qt::AlignTop);
+    toggleButton.show();
+    preview.installEventFilter(this);
+    toggleButton.installEventFilter(this);
+    scheduleGeometryRefresh();
+}
+
+void FormattingToolbarOverlay::setPreviewVisible(bool visible)
+{
+    if (!_preview || _previewVisible == visible) {
+        return;
+    }
+    _previewVisible = visible;
+    _preview->setVisible(visible);
+    refreshGeometry();
+    scheduleGeometryRefresh();
 }
 
 void FormattingToolbarOverlay::setExpanded(bool focused)
@@ -201,7 +237,8 @@ bool FormattingToolbarOverlay::eventFilter(QObject* watched, QEvent* event)
         clearHoverOnWindowExit();
     }
     const bool editorSurface = watched == _editor || watched == _editorViewport;
-    const bool toolbarSurface = watched == _panel || watched == _toolbar;
+    const bool toolbarSurface = watched == _panel || watched == _toolbar
+        || watched == _preview || watched == _previewToggle;
     if ((editorSurface || toolbarSurface)
         && (type == QEvent::Enter || type == QEvent::Leave
             || type == QEvent::MouseButtonPress)) {
@@ -213,15 +250,28 @@ bool FormattingToolbarOverlay::eventFilter(QObject* watched, QEvent* event)
     if ((watched == _host || watched == _editor)
         && (type == QEvent::Resize || type == QEvent::Move
             || type == QEvent::Show)) {
+        // The editor can resize before its parent layout has moved it upward.
+        // Recheck at the end of the event loop, after geometry settles.
         refreshGeometry();
-    } else if (watched == _toolbar
+        scheduleGeometryRefresh();
+    } else if ((watched == _toolbar || watched == _previewToggle)
                && (type == QEvent::LayoutRequest || type == QEvent::FontChange
                    || type == QEvent::StyleChange)) {
-        // LayoutRequest is queued after changes to button metrics or width.
-        // Geometry is outside any layout and may be recomputed independently.
-        refreshGeometry();
+        scheduleGeometryRefresh();
     }
     return QObject::eventFilter(watched, event);
+}
+
+void FormattingToolbarOverlay::scheduleGeometryRefresh()
+{
+    if (_geometryRefreshQueued) {
+        return;
+    }
+    _geometryRefreshQueued = true;
+    QTimer::singleShot(0, this, [this] {
+        _geometryRefreshQueued = false;
+        refreshGeometry();
+    });
 }
 
 void FormattingToolbarOverlay::refreshGeometry()
@@ -242,11 +292,31 @@ void FormattingToolbarOverlay::refreshGeometry()
         return;
     }
 
-    const int contentHeight = contentLayout->hasHeightForWidth()
-        ? contentLayout->heightForWidth(contentWidth)
-        : contentLayout->sizeHint().height();
-    const int height = std::max(1, contentHeight + margins.top()
-        + margins.bottom() + 2 * _panel->frameWidth());
+    const int toggleWidth = _previewToggle
+        ? _previewToggle->sizeHint().width() + _toolbarRow->spacing() : 0;
+    const int toolbarWidth = std::max(1, contentWidth - toggleWidth);
+    const int toolbarHeight = std::max(1, contentLayout->hasHeightForWidth()
+        ? contentLayout->heightForWidth(toolbarWidth)
+        : contentLayout->sizeHint().height());
+    if (_toolbar->height() != toolbarHeight
+        || _toolbar->minimumHeight() != toolbarHeight) {
+        _toolbar->setFixedHeight(toolbarHeight);
+    }
+    const int controlsHeight = std::max(toolbarHeight, _previewToggle
+        ? _previewToggle->sizeHint().height() : 0);
+    int previewHeight = 0;
+    if (_previewVisible && _preview) {
+        const int available = std::max(0, editorTop.y() - OverlayGap
+            - controlsHeight - _panelLayout->spacing() - 4);
+        previewHeight = std::min({280, std::max(100, _host->height() / 3),
+                                  available});
+        if (_preview->height() != previewHeight) {
+            _preview->setFixedHeight(previewHeight);
+        }
+    }
+    const int height = std::max(1, controlsHeight + previewHeight
+        + (previewHeight > 0 ? _panelLayout->spacing() : 0)
+        + margins.top() + margins.bottom() + 2 * _panel->frameWidth());
     const int shift = qRound((1.0 - _progress) * SlideDistance);
     const QRect target(0,
                        editorTop.y() - height - OverlayGap + shift,
