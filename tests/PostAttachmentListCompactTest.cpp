@@ -84,7 +84,7 @@ private slots:
         QCOMPARE(list->count(), 3);
         QVERIFY(!attachments.findChild<QToolButton*>(
             QStringLiteral("attachmentShowMore")));
-        QCOMPARE(attachments.findChildren<CompactAttachmentRow*>().size(), 0);
+        QCOMPARE(attachments.findChildren<QWidget*>(QStringLiteral("compactAttachmentRow")).size(), 0);
     }
 };
 
