@@ -37,6 +37,7 @@ private:
     void updateHoverVisibility();
     void clearHoverOnWindowExit();
     bool eventFilter(QObject* watched, QEvent* event) override;
+    bool pointerInComposerBridge() const;
     void refreshGeometry();
     void scheduleGeometryRefresh();
     int composerTop() const;
