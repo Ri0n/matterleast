@@ -274,6 +274,10 @@ public:
     WebSocketConnector::ConnectionState webSocketConnectionState() const;
     void retryWebSocketConnectionNow();
 
+    // Register only visible, active chat surfaces; inactive tabs never accumulate typing.
+    void setTypingViewVisible(QObject* view, const QString& channelId,
+                              const QString& parentId, bool visible);
+
     // Transient typing activity, keyed independently for channel and thread.
     void noteUserTyping(const QString& channelId, const QString& parentId,
                         const QString& userId);
@@ -359,6 +363,9 @@ private:
                                std::function<void(bool)> callback);
     void scheduleTypingExpiration();
     void clearTypingActivity();
+    bool hasVisibleTypingView(const QString& channelId,
+                              const QString& parentId) const;
+    void dropTypingView(QObject* view);
 private:
     Storage							storage;
     EmojiRegistry                   _emojiRegistry;
@@ -374,6 +381,8 @@ private:
     QString                             currentTeamContextId;
     QSet<QString> _flaggedPostIds;
     TypingActivityState _typingActivity;
+    QHash<QString, QSet<QObject*>> _typingViews;
+    QSet<QObject*> _typingTrackedViews;
     QHash<QString, qint64> _lastTypingSentMs;
     QElapsedTimer _typingClock;
     QTimer _typingExpiryTimer;
