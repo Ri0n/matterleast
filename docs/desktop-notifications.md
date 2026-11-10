@@ -24,6 +24,37 @@ The global suppressions in `MainWindow::messageNotify()` apply **before**
 this policy: the user's own posts and muted channels do not notify.
 Notifications for a currently active channel are also suppressed, as before.
 
+## Reconnect replay and notification freshness
+
+Mattermost's reliable WebSocket resume may replay `posted` events after
+network recovery, including posts that are days or months old. Such events
+still reach the backend for timeline/read-state reconciliation, but they are
+**not** new desktop messages. Before displaying a popup, `MainWindow`
+checks the original post's server `create_at` (milliseconds since epoch):
+
+- Posts more than **five minutes** old are never shown as desktop popups.
+- Missing timestamps and posts dated more than **one minute in the future**
+  are also excluded.
+- Already materialized post IDs are deduplicated at the WebSocket event
+  handler; a repeated `posted` event does not become a new `onNewPost` signal.
+  No separate cache of IDs is created for desktop notifications.
+- A post at or behind the confirmed server read cursor is silent, **even if
+  it arrived recently**. Channel root messages use the membership
+  `last_viewed_at`; CRT replies use their independent followed-thread
+  `last_viewed_at`. When CRT root-only unread is disabled, the channel
+  watermark also covers replies. Unknown cursors (0) never hide a live post.
+- The notification cursor does not include optimistically marked local views;
+  it advances only from membership responses or server view acknowledgements,
+  and explicitly moves backwards after a server-backed Mark as unread.
+- Unexpectedly old WebSocket `posted` events are logged with their post ID,
+  channel ID and original timestamp, without logging message bodies, so the
+  actual source of historical events can be investigated.
+
+This gate does not discard history, alter server read state, or suppress
+unread/Attention synchronization. The timestamp displayed by a desktop
+notification service describes when the popup was created, not necessarily
+when the underlying Mattermost post was written.
+
 ## Unchanged cases
 
 - New DM/GM root messages keep their existing notification behavior, regardless

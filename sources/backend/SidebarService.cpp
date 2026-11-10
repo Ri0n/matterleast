@@ -633,7 +633,7 @@ void SidebarService::applyServerChannelViewed(const BackendChannel& channel,
     invalidateDeletedUnreadCheck(channel.id);
     const bool wasMentioned = activityTracker.hasMention(channel.id);
 
-    activityTracker.recordViewed(
+    activityTracker.recordServerViewed(
         channel.id,
         viewedAt,
         static_cast<uint64_t>(std::max(0, channel.total_msg_count)),

@@ -25,6 +25,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QCheckBox>
+#include <QDateTime>
 #include <QKeySequence>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -82,6 +83,7 @@
 #include "log.h"
 #include "notifications/NotificationManager.h"
 #include "notifications/RootNotificationPolicy.h"
+#include "notifications/DesktopPostFreshnessPolicy.h"
 #include "options/MLOptions.h"
 #include "post-collection/PostCollectionView.h"
 #include "plugins/PluginManager.h"
@@ -1307,6 +1309,28 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
     // the thread domain. Never promote a reply mention to a root-channel
     // mention: with CRT enabled this would pin the parent DM in Attention
     // even after the thread's read acknowledgement succeeds.
+    // WebSocket recovery may replay historical posted events. Keep the
+    // notification-only mention side effect out of stale replay too; actual
+    // unread/Attention reconciliation is handled independently in the backend.
+    if (!isFreshDesktopPost(post.create_at,
+                            static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()))) {
+        return;
+    }
+
+    // Membership and CRT snapshots expose different read watermarks. Do not
+    // use the optimistic local read cursor (or the channel cursor for CRT
+    // replies): only server-confirmed progress suppresses a desktop popup.
+    const FollowingModel::Entry* threadState = post.root_id.isEmpty()
+        ? nullptr : FollowingModel::instance(backend).findEntry(channel.id, post.root_id);
+    const quint64 threadServerReadAt = threadState && threadState->isThread()
+        && !threadState->synthetic ? threadState->lastViewedAt : 0;
+    if (!isUnreadDesktopPost(
+            post.create_at, !post.root_id.isEmpty(),
+            sidebar.usesRootUnreadCounts(channel),
+            sidebar.channelLastServerViewedTime(channel.id),
+            threadServerReadAt)) {
+        return;
+    }
     if (post.currentUserMentioned && post.root_id.isEmpty()) {
         sidebar.setChannelMentioned(channel.id, true);
     }
@@ -1330,10 +1354,8 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
             return;
         }
     } else {
-        const FollowingModel::Entry* followed =
-            FollowingModel::instance(backend).findEntry(channel.id, post.root_id);
         if (!shouldNotifyThreadReply(post.currentUserMentioned,
-                followed && followed->isThread() && !followed->synthetic)) {
+                threadState && threadState->isThread() && !threadState->synthetic)) {
             return;
         }
     }

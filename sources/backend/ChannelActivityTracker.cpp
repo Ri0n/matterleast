@@ -41,6 +41,7 @@ void ChannelActivityTracker::setMembership(const QString& channelId, uint64_t la
                 && readRootMessageCount < previousReadRootMessageCount));
 
     entry.lastViewedAt = std::max(previousLastViewedAt, lastViewedAt);
+    entry.serverLastViewedAt = std::max(entry.serverLastViewedAt, lastViewedAt);
 
     if (entry.membershipInitialized
         && readMessageCount > previousReadMessageCount
@@ -207,6 +208,20 @@ void ChannelActivityTracker::recordViewed(const QString& channelId, uint64_t vie
     entry.runtimeReplyMentioned = false;
 }
 
+void ChannelActivityTracker::recordServerViewed(
+    const QString& channelId, uint64_t viewedAt,
+    uint64_t totalMessageCount, uint64_t totalRootMessageCount,
+    bool hasTotalRootMessageCount)
+{
+    if (channelId.isEmpty()) {
+        return;
+    }
+    recordViewed(channelId, viewedAt, totalMessageCount, totalRootMessageCount,
+                 hasTotalRootMessageCount);
+    Entry& entry = entries[channelId];
+    entry.serverLastViewedAt = std::max(entry.serverLastViewedAt, viewedAt);
+}
+
 void ChannelActivityTracker::markUnread(const QString& channelId,
                                         uint64_t lastViewedAt,
                                         uint64_t readMessageCount,
@@ -227,6 +242,7 @@ void ChannelActivityTracker::markUnread(const QString& channelId,
     // to move the user's read watermark backwards. It also supersedes any
     // optimistic own-post credits from the old watermark.
     entry.lastViewedAt = lastViewedAt;
+    entry.serverLastViewedAt = lastViewedAt;
     entry.readMessageCount = readMessageCount;
     entry.membershipInitialized = true;
     entry.pendingOwnMessageCount = 0;
@@ -376,6 +392,13 @@ uint64_t ChannelActivityTracker::lastViewedTime(const QString& channelId) const
     }
 
     return it->lastViewedAt;
+}
+
+uint64_t ChannelActivityTracker::lastServerViewedTime(
+    const QString& channelId) const
+{
+    const auto it = entries.constFind(channelId);
+    return it == entries.cend() || !it->tracked ? 0 : it->serverLastViewedAt;
 }
 
 uint64_t ChannelActivityTracker::recentTime(const QString& channelId) const

@@ -27,6 +27,7 @@
 #include <algorithm>
 
 #include <QJsonDocument>
+#include <QDateTime>
 #include <QTimer>
 #include "Backend.h"
 #include "PostRepository.h"
@@ -193,6 +194,18 @@ void WebSocketEventHandler::handleEvent (const PostEvent& event)
     resolvedPost.insert(QStringLiteral("_mmqt_current_user_mentioned"),
                         mentionedCurrentUser);
 
+    // Diagnostic only: an old post delivered as a new WebSocket "posted"
+    // event cannot come from a history HTTP request. Preserve post identity
+    // and timestamp in debug logs without logging the message body.
+    const quint64 postedAt = resolvedPost.value(QStringLiteral("create_at"))
+        .toVariant().toULongLong();
+    const quint64 now = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
+    if (postedAt != 0 && postedAt <= now && now - postedAt > 5ULL * 60 * 1000) {
+        LOG_DEBUG("Historical WebSocket posted event: channel=" << event.channelId
+                  << " post=" << resolvedPost.value(QStringLiteral("id")).toString()
+                  << " create_at=" << postedAt << " age_ms=" << now - postedAt);
+    }
+
     const QString rootId =
         resolvedPost.value(QStringLiteral("root_id")).toString();
     const QString authorId =
@@ -269,6 +282,16 @@ void WebSocketEventHandler::deliverPost(const QString& channelId,
 	if (rootId.isEmpty()) {
 		channel->last_root_post_at = std::max(channel->last_root_post_at, createAt);
 	}
+
+    // BackendChannel::addPost() returns an existing instance for duplicate
+    // identities. A reliable WebSocket replay must not turn that existing post
+    // into a fresh backend notification, even when the channel is memory-cold.
+    const QString postId = postObject.value(QStringLiteral("id")).toString();
+    if (!postId.isEmpty() && channel->postIdToPost.contains(postId)) {
+        LOG_DEBUG("Suppressing duplicate WebSocket posted event: channel="
+                  << channelId << " post=" << postId);
+        return;
+    }
 
 	// A detached/docked thread can remain visible while its parent channel is no
 	// longer Backend::currentChannel and its channel-open horizon has expired.

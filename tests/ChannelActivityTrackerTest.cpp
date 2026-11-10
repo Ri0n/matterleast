@@ -287,6 +287,37 @@ private slots:
         QCOMPARE(tracker.activityTime(QStringLiteral("channel")), uint64_t(3000));
     }
 
+    void serverCursorDoesNotAdvanceOnOptimisticLocalRead()
+    {
+        ChannelActivityTracker tracker;
+        const QString channel = QStringLiteral("channel");
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(0));
+        setMembership(tracker, 1000, 5, 5);
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(1000));
+
+        // An unacknowledged local view changes the UI state but cannot yet
+        // silence the desktop notification through the server read boundary.
+        tracker.recordViewed(channel, 4000, 7, 7, true);
+        QCOMPARE(tracker.lastViewedTime(channel), uint64_t(4000));
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(1000));
+
+        // A membership snapshot or server channel_viewed acknowledges progress.
+        setMembership(tracker, 2500, 6, 6);
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(2500));
+        tracker.recordServerViewed(channel, 4000, 7, 7, true);
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(4000));
+
+        // A stale membership response must not regress the confirmed cursor.
+        setMembership(tracker, 2000, 5, 5);
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(4000));
+
+        // Explicit server-backed mark-as-unread legitimately rewinds it.
+        tracker.markUnread(channel, 2999, 5, 5, true, 0, 0, true);
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(2999));
+        tracker.recordViewed(channel, 4500, 7, 7, true);
+        QCOMPARE(tracker.lastServerViewedTime(channel), uint64_t(2999));
+    }
+
     void staleMembershipCannotRegressReadState()
     {
         ChannelActivityTracker tracker;

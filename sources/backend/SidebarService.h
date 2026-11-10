@@ -76,6 +76,11 @@ public:
     {
         return activityTracker.lastViewedTime(channelId);
     }
+    /** Server-confirmed read boundary for desktop notification eligibility. */
+    uint64_t channelLastServerViewedTime(const QString& channelId) const
+    {
+        return activityTracker.lastServerViewedTime(channelId);
+    }
     uint64_t channelOpenTime(const QString& channelId) const
     {
         return activityTracker.openTime(channelId);
