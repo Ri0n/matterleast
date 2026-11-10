@@ -578,7 +578,7 @@ void SidebarService::reconcileDeletedUnreadPost(const QString& channelId,
                 // the local sidebar badge. Other unread messages are never
                 // acknowledged merely because one post was deleted.
                 markChannelViewedLocally(*channel);
-                backend.markChannelAsViewed(*channel);
+                backend.markChannelAsViewed(*channel, true);
             }));
     });
 }
