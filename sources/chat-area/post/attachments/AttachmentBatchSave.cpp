@@ -36,7 +36,7 @@ void AttachmentBatchSave::chooseFolderAndSave(
         return;
     }
 
-    auto* job = new AttachmentBatchSave(backend, files, directory);
+    auto* job = new AttachmentBatchSave(backend, std::move(files), directory);
     QTimer::singleShot(0, job, [job] { job->startNext(); });
 }
 
