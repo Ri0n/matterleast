@@ -389,6 +389,8 @@ bool ChatArea::eventFilter(QObject* watched, QEvent* event)
 
 ChatArea::~ChatArea()
 {
+    // Stop backend typing callbacks before deleting ui/viewport children.
+    backend.setTypingViewVisible(this, channel.id, root_id, false);
     deinit();
     if (isThread && parentArea) {
         parentArea->threadsAreas.remove(this);
