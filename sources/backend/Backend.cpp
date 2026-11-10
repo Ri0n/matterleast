@@ -28,6 +28,7 @@
 
 #include <iostream>
 #include <utility>
+#include <limits>
 #include <QSharedPointer>
 #include <QtWebSockets/QWebSocket>
 #include <QNetworkCookie>
@@ -96,6 +97,145 @@ bool Backend::handleEphemeralMessage(const QJsonObject& data)
     return handled;
 }
 
+bool Backend::hasVisibleTypingView(const QString& channelId,
+                                   const QString& parentId) const
+{
+    return !_typingViews.value(TypingActivityState::contextKey(
+        channelId, parentId)).isEmpty();
+}
+
+void Backend::dropTypingView(QObject* view)
+{
+    for (auto it = _typingViews.begin(); it != _typingViews.end();) {
+        it->remove(view);
+        if (it->isEmpty()) {
+            const QString context = it.key();
+            it = _typingViews.erase(it);
+            _lastTypingSentMs.remove(context);
+            if (_typingActivity.clearContext(
+                    TypingActivityState::channelFromKey(context),
+                    TypingActivityState::parentFromKey(context))) {
+                scheduleTypingExpiration();
+                emit typingChanged(TypingActivityState::channelFromKey(context),
+                                   TypingActivityState::parentFromKey(context));
+            }
+        } else {
+            ++it;
+        }
+    }
+}
+
+void Backend::setTypingViewVisible(QObject* view, const QString& channelId,
+                                   const QString& parentId, bool visible)
+{
+    if (!view || channelId.isEmpty()) {
+        return;
+    }
+    if (visible && !_typingTrackedViews.contains(view)) {
+        _typingTrackedViews.insert(view);
+        connect(view, &QObject::destroyed, this, [this, view] {
+            dropTypingView(view);
+            _typingTrackedViews.remove(view);
+        });
+    }
+
+    // The context is specified by the surface, not by the active global team.
+    const QString key = TypingActivityState::contextKey(channelId, parentId);
+    if (visible) {
+        _typingViews[key].insert(view);
+    } else {
+        auto it = _typingViews.find(key);
+        if (it != _typingViews.end()) {
+            it->remove(view);
+            if (it->isEmpty()) {
+                _typingViews.erase(it);
+                _lastTypingSentMs.remove(key);
+                if (_typingActivity.clearContext(channelId, parentId)) {
+                    scheduleTypingExpiration();
+                    emit typingChanged(channelId, parentId);
+                }
+            }
+        }
+    }
+}
+
+void Backend::scheduleTypingExpiration()
+{
+    const qint64 next = _typingActivity.nextExpiryMs();
+    if (next == std::numeric_limits<qint64>::max()) {
+        _typingExpiryTimer.stop();
+        return;
+    }
+    const qint64 remaining = std::max<qint64>(1, next - _typingClock.elapsed());
+    _typingExpiryTimer.start(static_cast<int>(std::min<qint64>(remaining, 600000)));
+}
+
+void Backend::clearTypingActivity()
+{
+    _typingExpiryTimer.stop();
+    _lastTypingSentMs.clear();
+    for (const QString& context : _typingActivity.clear()) {
+        emit typingChanged(TypingActivityState::channelFromKey(context),
+                           TypingActivityState::parentFromKey(context));
+    }
+}
+
+QStringList Backend::typingUsers(const QString& channelId,
+                                 const QString& parentId) const
+{
+    return hasVisibleTypingView(channelId, parentId)
+        ? _typingActivity.users(channelId, parentId) : QStringList();
+}
+
+void Backend::noteUserTyping(const QString& channelId, const QString& parentId,
+                             const QString& userId)
+{
+    if (!isLoggedIn || !storage.loginUser || userId == storage.loginUser->id
+        || !hasVisibleTypingView(channelId, parentId)) {
+        return;
+    }
+
+    const qint64 now = _typingClock.elapsed();
+    const int lifetime = std::max(5000, webSocketConnector.typingIntervalMs() + 1800);
+    const bool first = _typingActivity.observe(
+        channelId, parentId, userId, now, lifetime);
+    scheduleTypingExpiration();
+    if (first) {
+        emit typingChanged(channelId, parentId);
+    }
+}
+
+void Backend::noteUserPosted(const QString& channelId, const QString& parentId,
+                             const QString& userId)
+{
+    if (_typingActivity.remove(channelId, parentId, userId)) {
+        scheduleTypingExpiration();
+        emit typingChanged(channelId, parentId);
+    }
+}
+
+void Backend::publishUserTyping(const QString& channelId, const QString& parentId,
+                                int channelMemberCount)
+{
+    if (!isLoggedIn || !storage.loginUser || channelId.isEmpty()
+        || !hasVisibleTypingView(channelId, parentId)
+        || !webSocketConnector.typingEnabled()
+        || (channelMemberCount >= 0
+            && channelMemberCount >= webSocketConnector.typingMaximumMembers())) {
+        return;
+    }
+    const QString key = TypingActivityState::contextKey(channelId, parentId);
+    const qint64 now = _typingClock.elapsed();
+    const int interval = webSocketConnector.typingIntervalMs();
+    if (_lastTypingSentMs.contains(key)
+        && now - _lastTypingSentMs.value(key) < interval) {
+        return;
+    }
+    if (webSocketConnector.sendUserTyping(channelId, parentId)) {
+        _lastTypingSentMs.insert(key, now);
+    }
+}
+
 Backend::Backend(QObject *parent)
 :QObject (parent)
 ,_emojiRegistry()
@@ -108,6 +248,17 @@ Backend::Backend(QObject *parent)
 ,nonFilledTeams (0)
 ,avatarsLoaded(0)
 {
+    _typingClock.start();
+    _typingExpiryTimer.setSingleShot(true);
+    connect(&_typingExpiryTimer, &QTimer::timeout, this, [this] {
+        for (const QString& context : _typingActivity.expire(_typingClock.elapsed())) {
+            emit typingChanged(TypingActivityState::channelFromKey(context),
+                               TypingActivityState::parentFromKey(context));
+        }
+        scheduleTypingExpiration();
+    });
+    connect(this, &Backend::onWebSocketDisconnect,
+            this, &Backend::clearTypingActivity);
 	connect (&webSocketConnector, &WebSocketConnector::onConnect,
 	         [this] (bool isReconnect, bool needsHttpResync) {
         CustomEmojiService::instance(*this).resetSession();
@@ -158,6 +309,12 @@ Backend::Backend(QObject *parent)
 	connect (&webSocketConnector, &WebSocketConnector::onDisconnect, this, &Backend::onWebSocketDisconnect);
     connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,
             this, &Backend::onWebSocketConnectionStateChanged);
+    connect(&webSocketConnector, &WebSocketConnector::connectionStateChanged,
+            this, [this](WebSocketConnector::ConnectionState state) {
+        if (state != WebSocketConnector::ConnectionState::Connected) {
+            clearTypingActivity();
+        }
+    });
 	connect (&httpConnector, &HTTPConnector::onNetworkError, this, &Backend::onNetworkError);
 
 	connect (&httpConnector, &HTTPConnector::onHttpError, [this] (uint32_t errorNumber, const QString& errorText) {

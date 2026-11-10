@@ -18,12 +18,14 @@
  */
 
 #include "ChatArea.h"
+#include <QHideEvent>
 
 #include <QShowEvent>
 
 #include "AbstractPostSource.h"
 #include "ChatLogWidget.h"
 #include "ThreadWindowTitle.h"
+#include "backend/Backend.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "ui_ChatArea.h"
@@ -61,6 +63,8 @@ void ChatArea::updateThreadWindowTitle()
 void ChatArea::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
+    backend.setTypingViewVisible(this, channel.id, root_id, true);
+    updateTypingOverlay();
     focusComposer();
     if (timelineRecoveryPending) requestTimelineRecovery();
 
@@ -90,6 +94,13 @@ void ChatArea::showEvent(QShowEvent* event)
     if (ui && ui->listWidget) {
         ui->listWidget->refreshReadState();
     }
+}
+
+void ChatArea::hideEvent(QHideEvent* event)
+{
+    backend.setTypingViewVisible(this, channel.id, root_id, false);
+    setTypingOverlayVisible(false, true);
+    QWidget::hideEvent(event);
 }
 
 } // namespace Mattermost

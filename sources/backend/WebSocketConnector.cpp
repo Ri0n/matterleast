@@ -26,6 +26,7 @@
 
 #include "HTTPConnector.h"
 
+#include <algorithm>
 #include <iostream>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -243,6 +244,9 @@ struct WebSocketConnector::Private {
 	bool immediateReconnectPending = false;
 	bool suppressReconnect = false;
     ConnectionState connectionState = ConnectionState::Disconnected;
+    bool typingMessagesEnabled = true;
+    int typingInterval = 5000;
+    int typingMaxMembers = 1000;
 };
 
 WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
@@ -485,6 +489,9 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	d->connectionAttemptTimer.stop();
 	stopHeartbeat ();
     d->endpointUrl.clear();
+    d->typingMessagesEnabled = true;
+    d->typingInterval = 5000;
+    d->typingMaxMembers = 1000;
     setConnectionState(ConnectionState::Connecting);
 
 	const quint64 generation = ++d->configGeneration;
@@ -524,7 +531,28 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 		}
 		reply->deleteLater();
 
-		d->endpointUrl = websocketEndpoint(d->apiBaseUrl, config);
+		const QJsonValue enabled = config.value(
+            QStringLiteral("EnableUserTypingMessages"));
+        if (!enabled.isUndefined()) {
+            d->typingMessagesEnabled = enabled.isBool()
+                ? enabled.toBool()
+                : enabled.toString() == QLatin1String("true");
+        }
+        bool valid = false;
+        const int interval = config.value(
+            QStringLiteral("TimeBetweenUserTypingUpdatesMilliseconds"))
+            .toVariant().toInt(&valid);
+        if (valid && interval >= 1000) {
+            d->typingInterval = std::min(interval, 600000);
+        }
+        valid = false;
+        const int maxMembers = config.value(
+            QStringLiteral("MaxNotificationsPerChannel"))
+            .toVariant().toInt(&valid);
+        if (valid && maxMembers > 0) {
+            d->typingMaxMembers = maxMembers;
+        }
+        d->endpointUrl = websocketEndpoint(d->apiBaseUrl, config);
 		LOG_DEBUG("Mattermost WebSocket endpoint resolved to "
 		          << d->endpointUrl.toString(QUrl::RemovePassword));
 		openSocket();
@@ -615,6 +643,42 @@ void WebSocketConnector::reportUserActivity(bool active)
         {QStringLiteral("data"), data},
     });
     d->webSocket.sendTextMessage(request.toJson(QJsonDocument::Compact));
+}
+
+bool WebSocketConnector::typingEnabled() const
+{
+    return d->typingMessagesEnabled;
+}
+
+int WebSocketConnector::typingIntervalMs() const
+{
+    return d->typingInterval;
+}
+
+int WebSocketConnector::typingMaximumMembers() const
+{
+    return d->typingMaxMembers;
+}
+
+bool WebSocketConnector::sendUserTyping(const QString& channelId,
+                                        const QString& parentId)
+{
+    if (!d->typingMessagesEnabled || channelId.isEmpty()
+        || d->connectionState != ConnectionState::Connected
+        || d->webSocket.state() != QAbstractSocket::ConnectedState) {
+        return false;
+    }
+
+    const QJsonDocument request(QJsonObject {
+        {QStringLiteral("seq"), d->responseSequence++},
+        {QStringLiteral("action"), QStringLiteral("user_typing")},
+        {QStringLiteral("data"), QJsonObject {
+            {QStringLiteral("channel_id"), channelId},
+            {QStringLiteral("parent_id"), parentId},
+        }},
+    });
+    return d->webSocket.sendTextMessage(
+        QString::fromUtf8(request.toJson(QJsonDocument::Compact))) >= 0;
 }
 
 void WebSocketConnector::doHandshake ()

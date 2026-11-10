@@ -29,6 +29,7 @@ namespace Mattermost {
 TypingEvent::TypingEvent (const QJsonObject& data, const QJsonObject& broadcast)
 :channelID (broadcast.value("channel_id").toString())
 ,userID (data.value("user_id").toString())
+,parentID (data.value("parent_id").toString())
 {
 }
 

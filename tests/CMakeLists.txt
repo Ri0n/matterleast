@@ -11,6 +11,14 @@ set_tests_properties(application-font-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # A contextual thread pane follows the active conversation unless the tab is pinned.
+# Session-only typing activity is shared between visible channel/thread widgets.
+add_executable(typing-activity-state-test TypingActivityStateTest.cpp)
+target_include_directories(typing-activity-state-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(typing-activity-state-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME typing-activity-state-test COMMAND typing-activity-state-test)
+
 add_executable(thread-sidebar-context-policy-test ThreadSidebarContextPolicyTest.cpp)
 target_include_directories(thread-sidebar-context-policy-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")

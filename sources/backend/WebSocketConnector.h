@@ -57,6 +57,10 @@ public:
     void reconnectNow();
     // Official desktop presence request; manual is always false for activity.
     void reportUserActivity(bool active);
+    bool sendUserTyping(const QString& channelId, const QString& parentId);
+    bool typingEnabled() const;
+    int typingIntervalMs() const;
+    int typingMaximumMembers() const;
 signals:
 	void onConnect (bool isReconnect, bool needsHttpResync);
 	void reliableResumeFailed();

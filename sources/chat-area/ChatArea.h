@@ -41,7 +41,10 @@ class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
+class QHideEvent;
+class QGraphicsOpacityEffect;
 class QMenu;
+class QPropertyAnimation;
 class QResizeEvent;
 class QShowEvent;
 class QStackedWidget;
@@ -58,6 +61,7 @@ class BackendUser;
 class ChannelItem;
 class PostCollectionView;
 class ThemeIconButton;
+class TypingIndicatorToast;
 class ViewChannelMembersListDialog;
 
 class ChatArea: public QWidget {
@@ -74,7 +78,6 @@ public:
     ChatArea* parentChatArea() const { return parentArea.data(); }
     /** Last semantic centre captured when an inactive channel view was detached. */
     QString storedNavigationBookmark() const { return storedViewportPostId; }
-	void handleUserTyping (const BackendUser& user);
 	void editPost(BackendPost& post);
     /** Navigate to the live edge, reload the persisted draft and focus the composer. */
     void restoreDraftAndFocus(const QString& draftKey = QString());
@@ -149,6 +152,7 @@ private:
     bool eventFilter(QObject* watched, QEvent* event) override;
 	void changeEvent(QEvent* event) override;
 	void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 	void resizeEvent (QResizeEvent* event) override;
 	void dragEnterEvent (QDragEnterEvent* event) override;
 	void dragMoveEvent (QDragMoveEvent* event) override;
@@ -161,6 +165,10 @@ private:
 	void setupPinnedPostsView();
 	void showPinnedPosts(bool show);
 	void setupComposerUi();
+    void setupTypingOverlay();
+    void positionTypingOverlay();
+    void updateTypingOverlay();
+    void setTypingOverlayVisible(bool visible, bool immediate = false);
 	void focusComposer();
 	void beginMessageLoading();
 	void endMessageLoading();
@@ -191,6 +199,10 @@ private:
     int channelMemberCount = -1;
     int defaultOuterLeftMargin = 0;
     int defaultOuterRightMargin = 0;
+    TypingIndicatorToast* _typingToast = nullptr;
+    QGraphicsOpacityEffect* _typingOpacity = nullptr;
+    QPropertyAnimation* _typingFade = nullptr;
+    bool _typingVisibleDesired = false;
 
 public:
 	Ui::ChatArea* ui;

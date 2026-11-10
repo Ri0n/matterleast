@@ -210,6 +210,7 @@ void WebSocketEventHandler::handleEvent (const PostEvent& event)
         resolvedPost.value(QStringLiteral("root_id")).toString();
     const QString authorId =
         resolvedPost.value(QStringLiteral("user_id")).toString();
+    backend.noteUserPosted(event.channelId, rootId, authorId);
     if (!rootId.isEmpty() && storage.loginUser
         && authorId == storage.loginUser->id) {
         BackendChannel* postedChannel = storage.getChannelById(event.channelId);
@@ -432,15 +433,10 @@ void WebSocketEventHandler::handleEvent (const PostReactionRemovedEvent& event)
 
 void WebSocketEventHandler::handleEvent (const TypingEvent& event)
 {
-	BackendChannel* channel = storage.getChannelById(event.channelID);
-
-	BackendUser* user = storage.getUserById (event.userID);
-
-	if (!user || !channel) {
-		return;
-	}
-
-	emit (channel->onUserTyping(*user));
+    if (!storage.getChannelById(event.channelID)) {
+        return;
+    }
+    backend.noteUserTyping(event.channelID, event.parentID, event.userID);
 }
 
 void WebSocketEventHandler::handleEvent (const StatusChangeEvent& event)
