@@ -22,6 +22,8 @@
 #include <algorithm>
 
 #include <QEvent>
+#include <QFile>
+#include <QFrame>
 #include <QFont>
 #include <QApplication>
 #include <QTextDocument>
@@ -33,10 +35,15 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QSet>
+#include <QScrollArea>
+#include <QPlainTextEdit>
+#include <QTextEdit>
 #include <QTimer>
 
 #include "ChatLogWidget.h"
 #include "FormattingToolbarOverlay.h"
+#include "outgoing-post/ComposerPreviewMarkdown.h"
+#include "post/MessageContentWidget.h"
 #include "QuotedReplyController.h"
 #include "outgoing-post/MentionAutocomplete.h"
 #include "backend/Backend.h"
@@ -106,6 +113,91 @@ void ChatArea::setupComposerUi()
     connect(ui->outgoingPostCreator,
             &MessageTextEditWidget::formattingToolbarVisibilityChanged,
             formattingOverlay, &FormattingToolbarOverlay::setExpanded);
+
+    // Keep the formatting actions in their existing FlowLayout; the eye is a
+    // separately aligned last control so wrapping cannot push it off the edge.
+    auto* previewToggle = new ThemeIconButton(formattingOverlay->panel());
+    previewToggle->setObjectName(QStringLiteral("composerMarkdownPreviewToggle"));
+    previewToggle->setProperty(
+        ThemeIconResourceProperty, QStringLiteral(":/icons/eye"));
+    previewToggle->setCheckable(true);
+    previewToggle->setFlat(true);
+    previewToggle->setFocusPolicy(Qt::NoFocus);
+    previewToggle->setFixedSize(30, 30);
+    previewToggle->setIconSize(QSize(19, 19));
+    previewToggle->setToolTip(tr("Show Markdown preview"));
+    previewToggle->setAccessibleName(tr("Toggle Markdown preview"));
+
+    auto* previewScroll = new QScrollArea(formattingOverlay->panel());
+    previewScroll->setObjectName(QStringLiteral("composerMarkdownPreview"));
+    previewScroll->setFrameShape(QFrame::NoFrame);
+    previewScroll->setWidgetResizable(true);
+    previewScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    previewScroll->setFocusPolicy(Qt::NoFocus);
+    previewScroll->setBackgroundRole(QPalette::Window);
+    previewScroll->setAutoFillBackground(true);
+    auto* previewContent = new MessageContentWidget;
+    previewContent->setObjectName(QStringLiteral("composerMarkdownPreviewContent"));
+    previewContent->setEmojiRegistry(&backend.emojiRegistry());
+    previewScroll->setWidget(previewContent);
+    formattingOverlay->installPreview(*previewScroll, *previewToggle);
+
+    // Only render while the preview is open. The debounce prevents rebuilding
+    // nested quote/code widgets and decoding images on every keystroke.
+    auto* previewTimer = new QTimer(formattingOverlay);
+    previewTimer->setSingleShot(true);
+    previewTimer->setInterval(120);
+    auto* editor = ui->outgoingPostCreator;
+    connect(previewTimer, &QTimer::timeout, this,
+            [editor, previewContent] {
+        const auto prepared = ComposerPreviewMarkdown::prepare(
+            editor->toPlainText(), editor->previewAttachments());
+        QSet<QString> imageIds;
+        for (auto it = prepared.imagePaths.cbegin();
+             it != prepared.imagePaths.cend(); ++it) {
+            imageIds.insert(it.key());
+        }
+        previewContent->clear();
+        previewContent->setInlineAttachmentContext(
+            imageIds,
+            [paths = prepared.imagePaths](
+                const QString& fileId, bool,
+                MessageContentWidget::InlineImageDataCallback callback) {
+                QFile file(paths.value(fileId));
+                callback(file.open(QIODevice::ReadOnly)
+                    ? file.readAll() : QByteArray{});
+            });
+        previewContent->setMessage(prepared.markdown);
+        // Browsing/scrolling the preview must not steal editor focus and
+        // immediately dismiss the entire mouse-only formatting overlay.
+        for (QTextEdit* edit : previewContent->findChildren<QTextEdit*>()) {
+            edit->setFocusPolicy(Qt::NoFocus);
+        }
+        for (QPlainTextEdit* edit :
+             previewContent->findChildren<QPlainTextEdit*>()) {
+            edit->setFocusPolicy(Qt::NoFocus);
+        }
+    });
+    const auto schedulePreview = [previewTimer, previewToggle] {
+        if (previewToggle->isChecked()) {
+            previewTimer->start();
+        }
+    };
+    connect(editor, &QTextEdit::textChanged,
+            previewTimer, schedulePreview);
+    connect(editor, &OutgoingPostCreator::previewAttachmentsChanged,
+            previewTimer, schedulePreview);
+    connect(previewToggle, &QPushButton::toggled, this,
+            [formattingOverlay, previewTimer, previewToggle](bool visible) {
+        previewToggle->setToolTip(
+            visible ? tr("Hide Markdown preview") : tr("Show Markdown preview"));
+        formattingOverlay->setPreviewVisible(visible);
+        if (visible) {
+            previewTimer->start(0);
+        } else {
+            previewTimer->stop();
+        }
+    });
 
     auto configureActionButton = [](QPushButton& button) {
         button.setFixedSize(ActionButtonExtent, ActionButtonExtent);
