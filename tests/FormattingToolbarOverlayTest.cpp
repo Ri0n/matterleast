@@ -15,6 +15,65 @@ class FormattingToolbarOverlayTest : public QObject
     Q_OBJECT
 
 private slots:
+    void previewExpandsUpwardAndTracksGrowingEditor()
+    {
+        QWidget host;
+        host.resize(480, 440);
+        auto* layout = new QVBoxLayout(&host);
+        layout->setContentsMargins(0, 0, 0, 0);
+        auto* log = new QWidget(&host);
+        log->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        layout->addWidget(log, 1);
+        auto* footer = new QWidget(&host);
+        auto* footerLayout = new QVBoxLayout(footer);
+        footerLayout->setContentsMargins(12, 0, 12, 0);
+        auto* toolbar = new QWidget(footer);
+        toolbar->setObjectName(QStringLiteral("formattingToolbar"));
+        auto* flow = new FlowLayout(toolbar, 0, 1);
+        for (int i = 0; i < 8; ++i) {
+            auto* button = new QPushButton(QString::number(i), toolbar);
+            button->setFixedSize(35, 26);
+            flow->addWidget(button);
+        }
+        footerLayout->addWidget(toolbar);
+        auto* editor = new QWidget(footer);
+        editor->setFixedHeight(36);
+        footerLayout->addWidget(editor);
+        layout->addWidget(footer);
+
+        FormattingToolbarOverlay overlay(host, *editor, *toolbar);
+        auto* preview = new QWidget(overlay.panel());
+        auto* eye = new QPushButton(overlay.panel());
+        eye->setFixedSize(30, 30);
+        overlay.installPreview(*preview, *eye);
+        host.show();
+        QApplication::processEvents();
+        const int logHeight = log->height();
+        overlay.setExpanded(true);
+        QEvent enterEditor(QEvent::Enter);
+        QApplication::sendEvent(editor, &enterEditor);
+        QTest::qWait(150);
+        QVERIFY(overlay.panel()->isVisible());
+        const int collapsedHeight = overlay.panel()->height();
+
+        overlay.setPreviewVisible(true);
+        QApplication::processEvents();
+        QVERIFY(preview->isVisible());
+        QVERIFY(overlay.panel()->height() > collapsedHeight);
+        QCOMPARE(log->height(), logHeight);
+        QTRY_COMPARE(editor->mapTo(&host, QPoint()).y()
+                         - overlay.panel()->geometry().bottom(), 4);
+
+        editor->setFixedHeight(124);
+        QTRY_COMPARE(editor->mapTo(&host, QPoint()).y()
+                         - overlay.panel()->geometry().bottom(), 4);
+        QCOMPARE(log->height(), logHeight - (124 - 36));
+        overlay.setPreviewVisible(false);
+        QApplication::processEvents();
+        QVERIFY(!preview->isVisible());
+        QCOMPARE(overlay.panel()->height(), collapsedHeight);
+    }
+
     void focusTransitionsDoNotResizeChatViewport()
     {
         QWidget host;
