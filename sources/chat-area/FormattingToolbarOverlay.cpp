@@ -27,10 +27,12 @@ constexpr int SlideDistance = 7;
 } // namespace
 
 FormattingToolbarOverlay::FormattingToolbarOverlay(
-    QWidget& host, QWidget& editor, QWidget& toolbar)
+    QWidget& host, QWidget& editor, QWidget& toolbar, QLayout& footerLayout)
     : QObject(&host)
     , _host(&host)
     , _editor(&editor)
+    , _footerLayout(&footerLayout)
+    , _footerOwner(footerLayout.parentWidget())
     , _toolbar(&toolbar)
 {
     // Remove the toolbar from the document footer layout before reparenting.
@@ -111,6 +113,9 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
     });
 
     host.installEventFilter(this);
+    if (_footerOwner && _footerOwner != _host) {
+        _footerOwner->installEventFilter(this);
+    }
     editor.installEventFilter(this);
     if (auto* scroll = qobject_cast<QAbstractScrollArea*>(&editor)) {
         _editorViewport = scroll->viewport();
@@ -247,12 +252,13 @@ bool FormattingToolbarOverlay::eventFilter(QObject* watched, QEvent* event)
         else _panelHovered = entering;
         updateHoverVisibility();
     }
-    if ((watched == _host || watched == _editor)
+    if ((watched == _host || watched == _editor
+         || watched == _footerOwner)
         && (type == QEvent::Resize || type == QEvent::Move
-            || type == QEvent::Show)) {
-        // The editor can resize before its parent layout has moved it upward.
-        // Recheck at the end of the event loop, after geometry settles.
-        refreshGeometry();
+            || type == QEvent::Show || type == QEvent::LayoutRequest)) {
+        // LayoutRequest is delivered before the owner lays out its children.
+        // Position after the whole footer (including staged attachments) has
+        // settled rather than reacting to an intermediate editor geometry.
         scheduleGeometryRefresh();
     } else if ((watched == _toolbar || watched == _previewToggle)
                && (type == QEvent::LayoutRequest || type == QEvent::FontChange
@@ -274,13 +280,26 @@ void FormattingToolbarOverlay::scheduleGeometryRefresh()
     });
 }
 
+int FormattingToolbarOverlay::composerTop() const
+{
+    if (_host && _footerLayout && _footerOwner) {
+        // QLayout::geometry() is in the coordinates of its owning widget.
+        // Unlike the editor top, this includes Files to attach and any
+        // expansion slack between the editor and bottom-aligned controls.
+        return _footerOwner->mapTo(
+            _host, _footerLayout->geometry().topLeft()).y();
+    }
+    return _host && _editor
+        ? _editor->mapTo(_host, QPoint()).y() : 0;
+}
+
 void FormattingToolbarOverlay::refreshGeometry()
 {
     if (!_panel || !_host || !_editor || !_toolbar) {
         return;
     }
 
-    const QPoint editorTop = _editor->mapTo(_host, QPoint(0, 0));
+    const int footerTop = composerTop();
     // Attachment and send buttons inset the editor, but not the chat.
     // Cover the entire chat width without arbitrary horizontal gutters.
     const int width = std::max(1, _host->width());
@@ -306,7 +325,7 @@ void FormattingToolbarOverlay::refreshGeometry()
         ? _previewToggle->sizeHint().height() : 0);
     int previewHeight = 0;
     if (_previewVisible && _preview) {
-        const int available = std::max(0, editorTop.y() - OverlayGap
+        const int available = std::max(0, footerTop - OverlayGap
             - controlsHeight - _panelLayout->spacing() - 4);
         previewHeight = std::min({280, std::max(100, _host->height() / 3),
                                   available});
@@ -319,7 +338,7 @@ void FormattingToolbarOverlay::refreshGeometry()
         + margins.top() + margins.bottom() + 2 * _panel->frameWidth());
     const int shift = qRound((1.0 - _progress) * SlideDistance);
     const QRect target(0,
-                       editorTop.y() - height - OverlayGap + shift,
+                       footerTop - height - OverlayGap + shift,
                        width, height);
     if (_panel->geometry() != target) {
         _panel->setGeometry(target);
