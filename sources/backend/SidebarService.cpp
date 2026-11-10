@@ -17,6 +17,7 @@
 #include <QTimer>
 
 #include "backend/Backend.h"
+#include "backend/DeletedUnreadPostPolicy.h"
 #include "backend/NetworkRequest.h"
 #include "backend/PostUnreadRequest.h"
 #include "backend/PostVisibilityPolicy.h"
@@ -227,6 +228,7 @@ void SidebarService::clear()
     _conversationSearchTerm.clear();
     sidebarByTeam.clear();
     activityTracker.clear();
+    _pendingDeletedUnreadChecks.clear();
     directChannelVisibility.clear();
     groupChannelVisibility.clear();
     visibleDirectMessagesLimit = defaultVisibleDirectMessages;
@@ -493,8 +495,129 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
     return result;
 }
 
+void SidebarService::invalidateDeletedUnreadCheck(const QString& channelId)
+{
+    _pendingDeletedUnreadChecks.remove(channelId);
+}
+
+void SidebarService::reconcileDeletedUnreadPost(const QString& channelId,
+                                                  uint64_t createdAt,
+                                                  const QString& authorId,
+                                                  bool threadReply)
+{
+    if (channelId.isEmpty() || !backend.loggedIn()
+        || !backend.getStorage().loginUser
+        || !activityTracker.isUnread(channelId)
+        || !backend.getStorage().getChannelById(channelId)) {
+        return;
+    }
+    if (!deletionMayAffectChannelUnread(
+            createdAt, activityTracker.lastViewedTime(channelId), authorId,
+            backend.getStorage().loginUser->id, threadReply,
+            activityTracker.usesRootUnreadCounts(channelId))) {
+        return;
+    }
+
+    // Multiple deletion events are coalesced. In particular, deleting a root
+    // post can cascade into deleted replies.
+    const quint64 checkId = ++_nextDeletedUnreadCheckId;
+    _pendingDeletedUnreadChecks.insert(channelId, checkId);
+    QTimer::singleShot(200, this, [this, channelId, checkId] {
+        if (_pendingDeletedUnreadChecks.value(channelId) != checkId
+            || !backend.loggedIn() || !backend.getStorage().loginUser
+            || !activityTracker.isUnread(channelId)) {
+            return;
+        }
+
+        BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+        if (!channel) return;
+        const uint64_t lastViewedAt = activityTracker.lastViewedTime(channelId);
+        const uint64_t lastPostAt = channel->last_post_at;
+        const QString ownUserId = backend.getStorage().loginUser->id;
+
+        // /posts/unread is unsafe here: when nothing is unread the Mattermost
+        // server returns a normal history page. /posts?since=... instead
+        // provides a complete post-since window, including edited/deleted
+        // records, which we inspect without trusting stale total_msg_count.
+        NetworkRequest request(QStringLiteral("channels/") + channelId
+            + QStringLiteral("/posts?since=")
+            + QString::number(static_cast<qulonglong>(
+                std::max<uint64_t>(1, lastViewedAt))));
+        request.setTransferTimeout(10000);
+        request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                             QNetworkRequest::AlwaysNetwork);
+        httpConnector.get(request, HttpResponseCallback(
+            [this, channelId, checkId, lastViewedAt, lastPostAt, ownUserId](
+                const QJsonDocument& doc, const QNetworkReply& reply) {
+                if (_pendingDeletedUnreadChecks.value(channelId) != checkId) {
+                    return;
+                }
+                _pendingDeletedUnreadChecks.remove(channelId);
+                if (reply.error() != QNetworkReply::NoError
+                    || !doc.isObject() || !backend.loggedIn()
+                    || !backend.getStorage().loginUser
+                    || backend.getStorage().loginUser->id != ownUserId) {
+                    return;
+                }
+
+                BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+                if (!channel || channel->last_post_at != lastPostAt
+                    || activityTracker.lastViewedTime(channelId) != lastViewedAt
+                    || !activityTracker.isUnread(channelId)) {
+                    return; // A new post or a read/unread action overtook us.
+                }
+                if (checkLiveUnreadPostsAfterDeletion(
+                        doc.object(), lastViewedAt, ownUserId)
+                    != DeletedUnreadPostCheck::NoUnreadPosts) {
+                    return;
+                }
+
+                // The "view" endpoint also sets the active channel and
+                // must never run for a background deletion. Mark just this
+                // channel as read without navigating away from the user's
+                // actual conversation. The server retains CRT thread reads.
+                const quint64 readCheckId = ++_nextDeletedUnreadCheckId;
+                _pendingDeletedUnreadChecks.insert(channelId, readCheckId);
+                NetworkRequest readRequest(
+                    QStringLiteral("channels/members/me/mark_read"));
+                readRequest.setTransferTimeout(10000);
+                httpConnector.post(readRequest,
+                    QByteArrayCreator(QJsonArray {channelId}),
+                    HttpResponseCallback(
+                        [this, channelId, readCheckId, lastViewedAt, lastPostAt,
+                         ownUserId](const QJsonDocument& readDoc,
+                                    const QNetworkReply& readReply) {
+                    if (_pendingDeletedUnreadChecks.value(channelId) != readCheckId) {
+                        return;
+                    }
+                    _pendingDeletedUnreadChecks.remove(channelId);
+                    const int code = readReply.attribute(
+                        QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                    if (readReply.error() != QNetworkReply::NoError
+                        || code < 200 || code >= 300
+                        || readDoc.object().value(QStringLiteral("status"))
+                             .toString() != QLatin1String("OK")
+                        || !backend.loggedIn()
+                        || !backend.getStorage().loginUser
+                        || backend.getStorage().loginUser->id != ownUserId) {
+                        return;
+                    }
+
+                    BackendChannel* updated =
+                        backend.getStorage().getChannelById(channelId);
+                    if (updated && updated->last_post_at == lastPostAt
+                        && activityTracker.lastViewedTime(channelId) == lastViewedAt) {
+                        markChannelViewedLocally(*updated);
+                    }
+                }));
+
+            }));
+    });
+}
+
 void SidebarService::markChannelViewedLocally(const BackendChannel& channel)
 {
+    invalidateDeletedUnreadCheck(channel.id);
     if (auto it = pendingReadCheckpoints_.find(channel.id);
         it != pendingReadCheckpoints_.end()) {
         // A late set_unread response must never undo a newer full-view action.
@@ -507,6 +630,7 @@ void SidebarService::markChannelViewedLocally(const BackendChannel& channel)
 void SidebarService::applyServerChannelViewed(const BackendChannel& channel,
                                               uint64_t viewedAt)
 {
+    invalidateDeletedUnreadCheck(channel.id);
     const bool wasMentioned = activityTracker.hasMention(channel.id);
 
     activityTracker.recordViewed(
@@ -535,6 +659,7 @@ uint64_t SidebarService::channelUnreadMessageCount(
 void SidebarService::applyServerPostUnread(const QString& channelId,
                                           const QJsonObject& data)
 {
+    invalidateDeletedUnreadCheck(channelId);
     if (channelId.isEmpty()) {
         return;
     }
@@ -671,6 +796,7 @@ void SidebarService::synchronizeChannelActivity()
 
 void SidebarService::recordChannelPost(BackendChannel& channel, const BackendPost& post)
 {
+    invalidateDeletedUnreadCheck(channel.id);
     const BackendUser* currentUser = backend.getStorage().loginUser;
     const bool visible = shouldShowMainTimelinePost(
         post.type, post.props.toObject(),

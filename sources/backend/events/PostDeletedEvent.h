@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QJsonObject>
+#include <cstdint>
 
 namespace Mattermost {
 
@@ -35,6 +36,9 @@ public:
 public:
 	QString		channelId;
 	QString		postId;
+    QString     authorId;
+    QString     rootId;
+    uint64_t    createAt = 0;
 };
 
 } /* namespace Mattermost */

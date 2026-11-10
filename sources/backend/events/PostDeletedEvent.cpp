@@ -29,9 +29,13 @@ namespace Mattermost {
 
 PostDeletedEvent::PostDeletedEvent (const QJsonObject& data, const QJsonObject& broadcast)
 :channelId (broadcast.value ("channel_id").toString())
-,postId (QJsonDocument::fromJson (data.value ("post").toString().toUtf8()).object().value ("id").toString())
 {
-
+    const QJsonObject post = QJsonDocument::fromJson(
+        data.value(QStringLiteral("post")).toString().toUtf8()).object();
+    postId = post.value(QStringLiteral("id")).toString();
+    authorId = post.value(QStringLiteral("user_id")).toString();
+    rootId = post.value(QStringLiteral("root_id")).toString();
+    createAt = post.value(QStringLiteral("create_at")).toVariant().toULongLong();
 }
 
 PostDeletedEvent::~PostDeletedEvent () = default;

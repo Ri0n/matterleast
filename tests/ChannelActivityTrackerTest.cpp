@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "backend/ChannelActivityTracker.h"
+#include "backend/DeletedUnreadPostPolicy.h"
 
 using namespace Mattermost;
 
@@ -40,6 +41,95 @@ class ChannelActivityTrackerTest : public QObject
     Q_OBJECT
 
 private slots:
+    void deletedEventChecksOnlyRelevantUnreadMessages()
+    {
+        const QString me = QStringLiteral("me");
+        const QString other = QStringLiteral("other");
+        QVERIFY(deletionMayAffectChannelUnread(2000, 1000, other, me, false, false));
+        QVERIFY(!deletionMayAffectChannelUnread(999, 1000, other, me, false, false));
+        QVERIFY(!deletionMayAffectChannelUnread(2000, 1000, me, me, false, false));
+        QVERIFY(!deletionMayAffectChannelUnread(2000, 1000, other, me, true, true));
+        QVERIFY(deletionMayAffectChannelUnread(2000, 1000, other, me, true, false));
+        QVERIFY(deletionMayAffectChannelUnread(0, 1000, QString(), me, false, true));
+    }
+
+    void deletedUnreadReconciliationNeedsCompleteServerProof()
+    {
+        const QString me = QStringLiteral("me");
+        const uint64_t boundary = 1000;
+        const auto check = [&](const QJsonObject& body) {
+            return checkLiveUnreadPostsAfterDeletion(body, boundary, me);
+        };
+
+        const QJsonObject emptyResponse {
+            {QStringLiteral("order"), QJsonArray {}},
+            {QStringLiteral("posts"), QJsonObject {}},
+        };
+        QCOMPARE(check(emptyResponse), DeletedUnreadPostCheck::NoUnreadPosts);
+        QCOMPARE(check(QJsonObject {}), DeletedUnreadPostCheck::Inconclusive);
+        QCOMPARE(check(QJsonObject {
+            {QStringLiteral("order"), QJsonArray {QStringLiteral("missing")}},
+            {QStringLiteral("posts"), QJsonObject {}},
+        }), DeletedUnreadPostCheck::Inconclusive);
+
+        const QJsonObject foreignPost {
+            {QStringLiteral("id"), QStringLiteral("post1")},
+            {QStringLiteral("user_id"), QStringLiteral("other")},
+            {QStringLiteral("create_at"), 2000},
+            {QStringLiteral("delete_at"), 0},
+            {QStringLiteral("root_id"), QString()},
+        };
+        const auto response = [](const QJsonObject& post) {
+            return QJsonObject {
+                {QStringLiteral("order"), QJsonArray {QStringLiteral("post1")}},
+                {QStringLiteral("posts"), QJsonObject {
+                    {QStringLiteral("post1"), post},
+                }},
+            };
+        };
+        QCOMPARE(check(response(foreignPost)),
+                 DeletedUnreadPostCheck::HasUnreadPosts);
+
+        QJsonObject deleted = foreignPost;
+        deleted.insert(QStringLiteral("delete_at"), 2100);
+        QCOMPARE(check(response(deleted)), DeletedUnreadPostCheck::NoUnreadPosts);
+        deleted.remove(QStringLiteral("create_at"));
+        QCOMPARE(check(response(deleted)), DeletedUnreadPostCheck::Inconclusive);
+
+        QJsonObject own = foreignPost;
+        own.insert(QStringLiteral("user_id"), me);
+        QCOMPARE(check(response(own)), DeletedUnreadPostCheck::NoUnreadPosts);
+
+        QJsonObject oldEdit = foreignPost;
+        oldEdit.insert(QStringLiteral("create_at"), 500);
+        oldEdit.insert(QStringLiteral("update_at"), 3000);
+        QCOMPARE(check(response(oldEdit)), DeletedUnreadPostCheck::NoUnreadPosts);
+
+        QJsonObject routine = foreignPost;
+        routine.insert(QStringLiteral("type"), QStringLiteral("system_join_leave"));
+        QCOMPARE(check(response(routine)), DeletedUnreadPostCheck::NoUnreadPosts);
+
+        // An unread reply is a real unread in the all-post domain. A deletion
+        // must not mark the entire channel read and wipe thread progress.
+        QJsonObject reply = foreignPost;
+        reply.insert(QStringLiteral("root_id"), QStringLiteral("thread-root"));
+        QCOMPARE(check(response(reply)), DeletedUnreadPostCheck::HasUnreadPosts);
+
+        QJsonObject validDeleted = foreignPost;
+        validDeleted.insert(QStringLiteral("delete_at"), 2100);
+        QJsonObject multiple = emptyResponse;
+        multiple.insert(QStringLiteral("posts"), QJsonObject {
+            {QStringLiteral("post1"), validDeleted},
+            {QStringLiteral("post2"), QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("post2")},
+                {QStringLiteral("user_id"), QStringLiteral("other")},
+                {QStringLiteral("create_at"), 2200},
+                {QStringLiteral("delete_at"), 0},
+            }},
+        });
+        QCOMPARE(check(multiple), DeletedUnreadPostCheck::HasUnreadPosts);
+    }
+
     void unreadBadgeCountsRespectCrtAndOwnPostCredits()
     {
         ChannelActivityTracker tracker;
