@@ -131,7 +131,7 @@ void Backend::setTypingViewVisible(QObject* view, const QString& channelId,
     if (!view || channelId.isEmpty()) {
         return;
     }
-    if (!_typingTrackedViews.contains(view)) {
+    if (visible && !_typingTrackedViews.contains(view)) {
         _typingTrackedViews.insert(view);
         connect(view, &QObject::destroyed, this, [this, view] {
             dropTypingView(view);
