@@ -136,7 +136,7 @@ void PostAttachmentList::setFiles(
             visibleFiles.push_back(&file);
         }
     }
-    _compact = visibleFiles.size() > 3;
+    _compact = files.size() > 3;
     _expanded = false;
     ui->listWidget->setSpacing(_compact ? 0 : 4);
     setVisible(!visibleFiles.isEmpty());
@@ -182,7 +182,7 @@ void PostAttachmentList::setFiles(
         }
     }
 
-    if (_compact) {
+    if (_compact && ui->listWidget->count() > 3) {
         _expandButton = new AttachmentExpandLink(this);
         _expandButton->setObjectName(QStringLiteral("attachmentShowMore"));
         _expandButton->setAutoRaise(true);
