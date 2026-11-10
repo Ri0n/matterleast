@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QFrame>
+#include <QHBoxLayout>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -41,7 +42,8 @@ private slots:
         footerLayout->addWidget(editor);
         layout->addWidget(footer);
 
-        FormattingToolbarOverlay overlay(host, *editor, *toolbar);
+        FormattingToolbarOverlay overlay(host, *editor, *toolbar,
+                                         *footerLayout);
         auto* preview = new QWidget(overlay.panel());
         auto* eye = new QPushButton(overlay.panel());
         eye->setFixedSize(30, 30);
@@ -117,7 +119,8 @@ private slots:
         editor.setFixedHeight(38);
         footerLayout->addWidget(&editor);
 
-        FormattingToolbarOverlay overlay(host, editor, toolbar);
+        FormattingToolbarOverlay overlay(host, editor, toolbar,
+                                         *footerLayout);
 
         host.show();
         QApplication::processEvents();
