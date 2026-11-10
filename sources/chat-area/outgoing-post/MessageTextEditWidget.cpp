@@ -20,14 +20,17 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QContextMenuEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFocusEvent>
-#include <QInputDialog>
+#include <QFormLayout>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMimeData>
 #include <QPalette>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QResizeEvent>
 #include <QStringList>
@@ -36,6 +39,7 @@
 #include <QTextDocument>
 #include <QTimer>
 #include <QUrl>
+#include <QVBoxLayout>
 #include <QWidget>
 
 #include "Settings.h"
@@ -359,6 +363,65 @@ void MessageTextEditWidget::toggleNumberedList()
     prefixMarkdownLines(QString(), true);
 }
 
+bool MessageTextEditWidget::promptLink(QString& label, QString& url,
+                                       bool editing)
+{
+    QDialog dialog(this);
+    dialog.setObjectName(QStringLiteral("composerLinkDialog"));
+    dialog.setWindowTitle(editing ? tr("Edit link") : tr("Insert link"));
+    dialog.setMinimumWidth(560);
+    dialog.setSizeGripEnabled(true);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* form = new QFormLayout;
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    auto* textEdit = new QLineEdit(&dialog);
+    textEdit->setObjectName(QStringLiteral("composerLinkText"));
+    textEdit->setText(label);
+    auto* urlEdit = new QLineEdit(&dialog);
+    urlEdit->setObjectName(QStringLiteral("composerLinkUrl"));
+    urlEdit->setText(url);
+    urlEdit->setPlaceholderText(tr("https://example.com/..."));
+    form->addRow(tr("Text:"), textEdit);
+    form->addRow(tr("URL:"), urlEdit);
+    layout->addLayout(form);
+
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted,
+            &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected,
+            &dialog, &QDialog::reject);
+
+    // Keep the existing behavior: a URL is required, while blank link text
+    // falls back to the URL itself. Do not alter the document on Cancel.
+    auto* acceptButton = buttons->button(QDialogButtonBox::Ok);
+    connect(urlEdit, &QLineEdit::textChanged, acceptButton,
+            [acceptButton](const QString& value) {
+        acceptButton->setEnabled(!value.trimmed().isEmpty());
+    });
+    acceptButton->setEnabled(!url.trimmed().isEmpty());
+    dialog.resize(620, dialog.sizeHint().height());
+
+    if (editing || !label.isEmpty()) {
+        urlEdit->setFocus();
+        urlEdit->selectAll();
+    } else {
+        textEdit->setFocus();
+    }
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+
+    url = urlEdit->text().trimmed();
+    label = textEdit->text();
+    if (label.isEmpty()) {
+        label = url;
+    }
+    return true;
+}
+
 bool MessageTextEditWidget::editLinkAtCursor()
 {
     const QTextCursor current = textCursor();
@@ -368,18 +431,17 @@ bool MessageTextEditWidget::editLinkAtCursor()
         return false;
     }
 
-    bool accepted = false;
-    const QString url = QInputDialog::getText(
-        this, tr("Edit link"), tr("URL:"), QLineEdit::Normal,
-        link.url, &accepted).trimmed();
-    if (!accepted || url.isEmpty()) {
+    QString label = link.label;
+    QString url = link.url;
+    if (!promptLink(label, url, true)) {
         return true;
     }
 
     QTextCursor replacement(document());
     replacement.setPosition(link.start);
     replacement.setPosition(link.end, QTextCursor::KeepAnchor);
-    replacement.insertText(QStringLiteral("[%1](%2)").arg(link.label, url));
+    replacement.insertText(QStringLiteral("[%1](%2)")
+                               .arg(escapedMarkdownLinkLabel(label), url));
     setTextCursor(replacement);
     return true;
 }
@@ -416,19 +478,12 @@ void MessageTextEditWidget::insertLink()
         return;
     }
 
-    bool accepted = false;
-    const QString url = QInputDialog::getText(
-        this, tr("Insert link"), tr("URL:"), QLineEdit::Normal,
-        QString(), &accepted).trimmed();
-    if (!accepted || url.isEmpty()) {
-        return;
-    }
-
     QTextCursor cursor = textCursor();
     QString label = cursor.selectedText();
     label.replace(QChar::ParagraphSeparator, QLatin1Char(' '));
-    if (label.isEmpty()) {
-        label = url;
+    QString url;
+    if (!promptLink(label, url, false)) {
+        return;
     }
 
     cursor.insertText(QStringLiteral("[%1](%2)")
