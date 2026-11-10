@@ -984,6 +984,9 @@ void ChatArea::onActivate()
     }
 
     init();
+    if (isVisible()) {
+        backend.setTypingViewVisible(this, channel.id, root_id, true);
+    }
     updateTypingOverlay();
     if (timelineRecoveryPending) requestTimelineRecovery();
 }
