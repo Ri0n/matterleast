@@ -19,6 +19,28 @@ target_link_libraries(typing-activity-state-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME typing-activity-state-test COMMAND typing-activity-state-test)
 
+# Attachment saves must never escape the selected directory or overwrite
+# an existing file when remote names collide.
+add_executable(attachment-save-paths-test AttachmentSavePathsTest.cpp)
+target_include_directories(attachment-save-paths-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(attachment-save-paths-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME attachment-save-paths-test COMMAND attachment-save-paths-test)
+
+# The shared attachment list drives compact presentation in both post themes
+# and interactive quotes, without loading image/video previews at 4+ files.
+if(TARGET matterleast-core)
+    add_executable(post-attachment-list-compact-test
+        PostAttachmentListCompactTest.cpp)
+    target_link_libraries(post-attachment-list-compact-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME post-attachment-list-compact-test
+        COMMAND post-attachment-list-compact-test)
+    set_tests_properties(post-attachment-list-compact-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 add_executable(thread-sidebar-context-policy-test ThreadSidebarContextPolicyTest.cpp)
 target_include_directories(thread-sidebar-context-policy-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
