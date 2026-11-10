@@ -738,7 +738,8 @@ if(TARGET matterleast-core)
 endif()
 
 if(TARGET matterleast-core)
-    add_executable(post-reaction-interaction-test PostReactionInteractionTest.cpp)
+    add_executable(post-reaction-interaction-test
+        PostReactionInteractionTest.cpp "${CMAKE_SOURCE_DIR}/resource.qrc")
     target_link_libraries(post-reaction-interaction-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME post-reaction-interaction-test COMMAND post-reaction-interaction-test)
     set_tests_properties(post-reaction-interaction-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
