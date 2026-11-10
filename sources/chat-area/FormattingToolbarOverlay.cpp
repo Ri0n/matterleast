@@ -293,7 +293,7 @@ void FormattingToolbarOverlay::refreshGeometry()
     }
 
     const int toggleWidth = _previewToggle
-        ? _previewToggle->sizeHint().width() + _toolbarRow->spacing() : 0;
+        ? _previewToggle->width() + _toolbarRow->spacing() : 0;
     const int toolbarWidth = std::max(1, contentWidth - toggleWidth);
     const int toolbarHeight = std::max(1, contentLayout->hasHeightForWidth()
         ? contentLayout->heightForWidth(toolbarWidth)
