@@ -152,11 +152,11 @@ void ChatArea::setupComposerUi()
     auto* previewTimer = new QTimer(formattingOverlay);
     previewTimer->setSingleShot(true);
     previewTimer->setInterval(120);
-    auto* editor = ui->outgoingPostCreator;
+    auto* previewEditor = ui->outgoingPostCreator;
     connect(previewTimer, &QTimer::timeout, this,
-            [editor, previewContent] {
+            [previewEditor, previewContent] {
         const auto prepared = ComposerPreviewMarkdown::prepare(
-            editor->toPlainText(), editor->previewAttachments());
+            previewEditor->toPlainText(), previewEditor->previewAttachments());
         QSet<QString> imageIds;
         for (auto it = prepared.imagePaths.cbegin();
              it != prepared.imagePaths.cend(); ++it) {
@@ -188,9 +188,9 @@ void ChatArea::setupComposerUi()
             previewTimer->start();
         }
     };
-    connect(editor, &QTextEdit::textChanged,
+    connect(previewEditor, &QTextEdit::textChanged,
             previewTimer, schedulePreview);
-    connect(editor, &OutgoingPostCreator::previewAttachmentsChanged,
+    connect(previewEditor, &OutgoingPostCreator::previewAttachmentsChanged,
             previewTimer, schedulePreview);
     connect(previewToggle, &QPushButton::toggled, this,
             [formattingOverlay, previewTimer, previewToggle](bool visible) {
