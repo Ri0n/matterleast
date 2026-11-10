@@ -93,7 +93,8 @@ public:
     /** Apply the server's post_unread event to this client's read watermark. */
     void applyServerPostUnread(const QString& channelId, const QJsonObject& data);
     /** Reconcile unread state after a post deletion, including cold channels. */
-    void reconcileDeletedUnreadPost(const QString& channelId);
+    void reconcileDeletedUnreadPost(const QString& channelId, uint64_t createdAt,
+                                    const QString& authorId, bool threadReply);
     void synchronizeChannelActivity();
     /** Require fresh membership/read cursors and preferences on next fetch. */
     void invalidateCachedReads();
