@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <QColor>
 #include <QPointer>
 #include <QMetaObject>
 
@@ -48,6 +49,7 @@ protected:
     /** All post-based LongLists use the semantic post ID as their stable row key. */
     QString itemIdentity(const QWidget* widget) const override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
 private:
     void clearActiveHover(bool immediate = false);
@@ -55,6 +57,7 @@ private:
     void setToolbarTarget(PostWidget* post);
     void animateToolbar(bool visible, bool immediate = false);
     void updateToolbarActions();
+    void refreshToolbarIcons();
     void hideToolbar(bool immediate = false);
     bool cursorOverActivePost() const;
 
@@ -71,6 +74,7 @@ private:
     QMetaObject::Connection toolbarPostDestroyed_;
     QMetaObject::Connection toolbarFlaggedChanged_;
     bool toolbarWanted_ = false;
+    QColor _toolbarIconTint;
 
     QPointer<QWidget> activeHoverPost_;
     bool hoverSessionHasPost_ = false;
