@@ -4,6 +4,7 @@
 
 #include <QDesktopServices>
 #include <QDir>
+#include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFontMetrics>
