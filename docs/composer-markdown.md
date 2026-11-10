@@ -53,6 +53,14 @@ resizing) and its height is measured from the toolbar's height-for-width
 layout; narrow chats can therefore wrap the formatting buttons into several
 rows without reserving vertical space in the footer.
 
+### Live Markdown preview
+
+The eye button remains pinned to the right edge of the floating formatting bar, even when formatting actions wrap. It toggles a scrollable preview directly above the buttons; closing the preview leaves the editor text and cursor untouched. The preview is part of the same overlay, not a footer layout row, so showing or hiding it does not change the chat log viewport.
+
+The preview uses the ordinary `MessageContentWidget` renderer (including quotes and fenced code), with text changes coalesced by a short debounce. A staged image reference such as `matterleast-attachment:<id>@<index>` is temporarily mapped to the renderer's usual `/api/v4/files/<id>` image URL. Its bytes are resolved from the *local* path of that outgoing attachment: nothing is uploaded again just to display the preview. Clipboard images are already written as temporary PNG files by the composer. Since plain clipboard paste creates an attachment rather than inserting Markdown, the preview also appends a visual representation of any image attachment not explicitly referenced inline.
+
+The preview is height-bounded and scrollable, and the entire floating panel tracks the composer's top edge as the editor expands. Geometry is rechecked after the parent layout has completed, preventing the toolbar from covering newly entered multiline text.
+
 ### Toolbar sizing and narrow windows
 
 Formatting controls use `ThemeIconButton` for both SVG-backed actions and textual glyph actions. The toolbar font is the common optical scale: SVG-backed actions derive their rendered extent from its cap height, while textual actions such as **B**, **I**, **S**, `</>`, fenced code, and quote inherit its point/pixel size while preserving local bold/italic/strike traits. Button geometry is also derived from the same font metrics. This keeps SVGs and glyphs visually aligned across application-font and DPI changes instead of mixing unrelated fixed pixel sizes.
