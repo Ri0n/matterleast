@@ -994,6 +994,7 @@ void ChatArea::onActivate()
 void ChatArea::onDeactivate()
 {
     // Notify navigation before sidebar selection detaches our measured view.
+    backend.setTypingViewVisible(this, channel.id, root_id, false);
     setTypingOverlayVisible(false, true);
     emit aboutToDeactivate();
 
