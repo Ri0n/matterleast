@@ -35,6 +35,7 @@ public:
 public:
 	QString		channelID;
 	QString		userID;
+    QString     parentID;
 };
 
 } /* namespace Mattermost */
