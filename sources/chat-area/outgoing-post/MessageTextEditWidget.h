@@ -68,6 +68,7 @@ private:
     void prefixMarkdownLines(const QString& prefix, bool numbered = false);
     void setFormattingToolbarVisible(bool visible);
     bool formattingToolbarPreferredVisible() const;
+    bool promptLink(QString& label, QString& url, bool editing);
     bool editLinkAtCursor();
     bool removeLinkAtCursor();
     bool selectionContainsLink() const;
