@@ -72,6 +72,7 @@
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
 #include "attachments/AttachedImageFile.h"
+#include "attachments/AttachmentBatchSave.h"
 #include "attachments/PostAttachmentList.h"
 #include "attachments/PostPoll.h"
 #include "backend/Backend.h"
@@ -597,9 +598,7 @@ PostWidget::PostWidget(Backend& backend,
 		connect(attachments.get(), &PostAttachmentList::dimensionsChanged,
 		        this, &PostWidget::dimensionsChanged);
 		ui->verticalLayout->addWidget(attachments.get());
-		for (const BackendFile& file : post.files) {
-			attachments->addFile(file, post.getDisplayAuthorName());
-		}
+        attachments->setFiles(post.files, post.getDisplayAuthorName());
 	}
 
 	if (presentationMode_ != PresentationMode::Pending
@@ -1204,6 +1203,19 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
             AttachedImageFile::copyFileImageToClipboard(
                 backend_, inlineImage.fileId, inlineImage.rendered);
         });
+        menu.addSeparator();
+    }
+
+    // One directory chooser for every file in the post, including images
+    // rendered inline in its Markdown body (not only visible attachment cards).
+    if (post.files.size() >= 2) {
+        menu.addAction(
+            icon(QStringLiteral(":/icons/menu-file")),
+            tr("Save all attachments to…"),
+            this, [this] {
+                AttachmentBatchSave::chooseFolderAndSave(
+                    backend_, post.files, this);
+            });
         menu.addSeparator();
     }
 
