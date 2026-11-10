@@ -532,7 +532,8 @@ void SidebarService::reconcileDeletedUnreadPost(const QString& channelId)
         // records, which we inspect without trusting stale total_msg_count.
         NetworkRequest request(QStringLiteral("channels/") + channelId
             + QStringLiteral("/posts?since=")
-            + QString::number(std::max<uint64_t>(1, lastViewedAt)));
+            + QString::number(static_cast<qulonglong>(
+                std::max<uint64_t>(1, lastViewedAt))));
         request.setTransferTimeout(10000);
         request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                              QNetworkRequest::AlwaysNetwork);
