@@ -115,9 +115,11 @@ private slots:
         reply.insert(QStringLiteral("root_id"), QStringLiteral("thread-root"));
         QCOMPARE(check(response(reply)), DeletedUnreadPostCheck::HasUnreadPosts);
 
+        QJsonObject validDeleted = foreignPost;
+        validDeleted.insert(QStringLiteral("delete_at"), 2100);
         QJsonObject multiple = emptyResponse;
         multiple.insert(QStringLiteral("posts"), QJsonObject {
-            {QStringLiteral("post1"), deleted},
+            {QStringLiteral("post1"), validDeleted},
             {QStringLiteral("post2"), QJsonObject {
                 {QStringLiteral("id"), QStringLiteral("post2")},
                 {QStringLiteral("user_id"), QStringLiteral("other")},
