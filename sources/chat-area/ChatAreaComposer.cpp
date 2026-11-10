@@ -111,7 +111,8 @@ void ChatArea::setupComposerUi()
     // Detach the formatting row from the footer layout: this overlay may
     // cover the log when editing, but never changes the log's viewport height.
     auto* formattingOverlay = new FormattingToolbarOverlay(
-        *this, *ui->outgoingPostCreator, *ui->formattingToolbar);
+        *this, *ui->outgoingPostCreator, *ui->formattingToolbar,
+        *ui->footerLayout);
     connect(ui->outgoingPostCreator,
             &MessageTextEditWidget::formattingToolbarVisibilityChanged,
             formattingOverlay, &FormattingToolbarOverlay::setExpanded);
