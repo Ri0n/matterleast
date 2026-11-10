@@ -84,7 +84,7 @@ When a button moves between screens with different DPR, its local tinted pixmap 
 
 ## Links, images, and paste
 
-The editor uses the standard Qt text-editor context menu. When the cursor or selection intersects a Markdown link, the menu additionally offers **Edit link…** and **Remove link**.
+The editor uses the standard Qt text-editor context menu. When the cursor or selection intersects a Markdown link, the menu additionally offers **Edit link…** and **Remove link**. The toolbar link action and `Ctrl/Cmd+K` open a resizable dialog with **Text** above **URL** (at least 560 px wide). Selected composer text prepopulates the label; editing an existing Markdown link prepopulates both fields and allows changing either one. URL is required, blank label text defaults to the URL, and cancelling never changes the draft. Escaped square brackets and backslashes in link labels round-trip when editing.
 
 Pasting a single HTTP(S) URL while ordinary single-line text is selected turns the selection into `[label](url)` rather than replacing the label. Image paste remains owned by `OutgoingPostCreator` and continues to create an attachment.
 
