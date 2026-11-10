@@ -20,6 +20,20 @@ enum class DeletedUnreadPostCheck {
     NoUnreadPosts,
 };
 
+// A read post, own post, or CRT-only reply cannot be the cause of a parent
+// channel's remaining unread state. Unknown event metadata is conservative.
+inline bool deletionMayAffectChannelUnread(uint64_t createdAt,
+                                           uint64_t lastViewedAt,
+                                           const QString& authorId,
+                                           const QString& ownUserId,
+                                           bool isReply,
+                                           bool rootOnly)
+{
+    return (createdAt == 0 || createdAt > lastViewedAt)
+        && (authorId.isEmpty() || authorId != ownUserId)
+        && !(isReply && rootOnly);
+}
+
 // Query /channels/{id}/posts?since={last_viewed_at}, NOT /posts/unread:
 // the latter falls back to an ordinary history page when there are no unread
 // posts. A missing or partial response must never trigger a read receipt.
