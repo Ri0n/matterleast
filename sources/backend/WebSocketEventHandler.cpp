@@ -410,15 +410,10 @@ void WebSocketEventHandler::handleEvent (const PostReactionRemovedEvent& event)
 
 void WebSocketEventHandler::handleEvent (const TypingEvent& event)
 {
-	BackendChannel* channel = storage.getChannelById(event.channelID);
-
-	BackendUser* user = storage.getUserById (event.userID);
-
-	if (!user || !channel) {
-		return;
-	}
-
-	emit (channel->onUserTyping(*user));
+    if (!storage.getChannelById(event.channelID)) {
+        return;
+    }
+    backend.noteUserTyping(event.channelID, event.parentID, event.userID);
 }
 
 void WebSocketEventHandler::handleEvent (const StatusChangeEvent& event)
