@@ -368,6 +368,7 @@ void WebSocketEventHandler::handleEvent (const PostDeletedEvent& event)
 
 	if (channel) {
 		channel->deletePost(event.postId);
+        SidebarService::instance(backend).reconcileDeletedUnreadPost(channel->id);
 	}
 }
 
