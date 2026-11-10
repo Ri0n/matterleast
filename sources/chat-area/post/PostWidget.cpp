@@ -598,9 +598,7 @@ PostWidget::PostWidget(Backend& backend,
 		connect(attachments.get(), &PostAttachmentList::dimensionsChanged,
 		        this, &PostWidget::dimensionsChanged);
 		ui->verticalLayout->addWidget(attachments.get());
-		for (const BackendFile& file : post.files) {
-			attachments->addFile(file, post.getDisplayAuthorName());
-		}
+        attachments->setFiles(post.files, post.getDisplayAuthorName());
 	}
 
 	if (presentationMode_ != PresentationMode::Pending
