@@ -6,7 +6,6 @@
 
 #include "backend/Backend.h"
 #include "backend/types/BackendFile.h"
-#include "chat-area/post/attachments/CompactAttachmentRow.h"
 #include "chat-area/post/attachments/PostAttachmentList.h"
 
 using namespace Mattermost;
@@ -43,7 +42,7 @@ private slots:
         QVERIFY(list);
         QVERIFY(link);
         QCOMPARE(list->count(), 5);
-        QCOMPARE(attachments.findChildren<CompactAttachmentRow*>().size(), 5);
+        QCOMPARE(attachments.findChildren<QWidget*>(QStringLiteral("compactAttachmentRow")).size(), 5);
         QVERIFY(!list->item(0)->isHidden());
         QVERIFY(!list->item(2)->isHidden());
         QVERIFY(list->item(3)->isHidden());
