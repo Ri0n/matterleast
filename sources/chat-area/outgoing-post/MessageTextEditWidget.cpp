@@ -115,12 +115,28 @@ QString escapedMarkdownLinkLabel(QString label)
     return label;
 }
 
+QString unescapedMarkdownLinkLabel(const QString& label)
+{
+    QString unescaped;
+    unescaped.reserve(label.size());
+    for (int i = 0; i < label.size(); ++i) {
+        if (label.at(i) == QLatin1Char('\\') && i + 1 < label.size()
+            && (label.at(i + 1) == QLatin1Char('\\')
+                || label.at(i + 1) == QLatin1Char('[')
+                || label.at(i + 1) == QLatin1Char(']'))) {
+            ++i;
+        }
+        unescaped.append(label.at(i));
+    }
+    return unescaped;
+}
+
 MarkdownLinkMatch markdownLinkAt(const QString& text,
                                  int selectionStart,
                                  int selectionEnd)
 {
     static const QRegularExpression expression(
-        QStringLiteral("\\[([^\\]\\n]+)\\]\\((https?://[^)\\s]+)\\)"),
+        QStringLiteral(R"(\[((?:\\.|[^\]\\\n])*)\]\((https?://[^)\s]+)\))"),
         QRegularExpression::CaseInsensitiveOption);
 
     auto matches = expression.globalMatch(text);
@@ -138,7 +154,7 @@ MarkdownLinkMatch markdownLinkAt(const QString& text,
         return MarkdownLinkMatch {
             start,
             end,
-            match.captured(1),
+            unescapedMarkdownLinkLabel(match.captured(1)),
             match.captured(2),
         };
     }
