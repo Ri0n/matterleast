@@ -26,6 +26,7 @@
 
 #include "HTTPConnector.h"
 
+#include <algorithm>
 #include <iostream>
 #include <QJsonDocument>
 #include <QJsonObject>
