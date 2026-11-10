@@ -64,10 +64,19 @@ private slots:
         QTRY_COMPARE(editor->mapTo(&host, QPoint()).y()
                          - overlay.panel()->geometry().bottom(), 4);
 
+        const int originalEditorTop = editor->mapTo(&host, QPoint()).y();
+        const int growth = 124 - 36;
         editor->setFixedHeight(124);
+        // Offscreen Qt does not reliably propagate QWidget size hints to its
+        // parent's layout. Explicitly grow the footer as the real composer
+        // footer does, to test that the overlay tracks an actual upward move.
+        footer->setFixedHeight(footer->height() + growth);
+        layout->activate();
+        QApplication::processEvents();
+        QTRY_VERIFY(editor->mapTo(&host, QPoint()).y() < originalEditorTop);
         QTRY_COMPARE(editor->mapTo(&host, QPoint()).y()
                          - overlay.panel()->geometry().bottom(), 4);
-        QCOMPARE(log->height(), logHeight - (124 - 36));
+        QCOMPARE(log->height(), logHeight - growth);
         overlay.setPreviewVisible(false);
         QApplication::processEvents();
         QVERIFY(!preview->isVisible());
