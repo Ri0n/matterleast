@@ -104,15 +104,6 @@ PostListWidget::PostListWidget(QWidget* parent)
         hoverSessionHasPost_ = true;
     });
 
-    // The shared toolbar survives individual post rows and therefore must
-    // refresh its already-rasterized symbolic icons on system theme changes.
-    connect(qApp, &QGuiApplication::paletteChanged, this,
-            [this](const QPalette&) {
-        refreshToolbarIcons();
-        if (toolbarPost_) {
-            updatePostHoverActionsPalette(*toolbarPost_);
-        }
-    });
 }
 
 PostListWidget::~PostListWidget()
