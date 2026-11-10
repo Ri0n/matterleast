@@ -1133,6 +1133,12 @@ void OutgoingPostCreator::failSend(const QString& statusText)
 	updateSendButtonState();
 }
 
+QList<OutgoingAttachmentItem> OutgoingPostCreator::previewAttachments() const
+{
+    return attachmentList ? attachmentList->attachments()
+                          : QList<OutgoingAttachmentItem>{};
+}
+
 void OutgoingPostCreator::createAttachmentList(QStringList& files)
 {
 	if (!attachmentList) {
@@ -1148,6 +1154,7 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
                         << " file=" << path;
                     startAttachmentUpload(itemId, path);
                     schedulePersistentDraftSave();
+                    emit previewAttachmentsChanged();
                 });
         connect(attachmentList,
                 &OutgoingAttachmentList::fileRemoved,
@@ -1161,12 +1168,14 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
                     }
                     schedulePersistentDraftSave();
                     updateSendButtonState();
+                    emit previewAttachmentsChanged();
                 });
 		connect(attachmentList, &OutgoingAttachmentList::deleted, this, [this] {
 			attachmentParent->removeWidget(attachmentList);
 			delete attachmentList;
 			attachmentList = nullptr;
 			updateSendButtonState();
+            emit previewAttachmentsChanged();
 		});
 	}
 

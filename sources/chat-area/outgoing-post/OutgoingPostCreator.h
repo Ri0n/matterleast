@@ -51,6 +51,7 @@ namespace Mattermost {
 
 struct BackendNewPollData;
 struct OutgoingPostData;
+struct OutgoingAttachmentItem;
 
 class ChatLogWidget;
 class EmojiPickerWidget;
@@ -80,6 +81,7 @@ public:
 	void onDropEvent (QDropEvent* event);
 	void setStatusLabelText (const QString& string);
 	const BackendPost* editingPost() const { return postToEdit; }
+    QList<OutgoingAttachmentItem> previewAttachments() const;
 
 public slots:
 	void onAttachButtonClick ();
@@ -130,6 +132,7 @@ public slots:
 
 signals:
 	void postEditFinished ();
+    void previewAttachmentsChanged();
 
 protected:
     bool event(QEvent* event) override;

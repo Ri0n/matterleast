@@ -5,7 +5,10 @@
 
 class QEvent;
 class QFrame;
+class QHBoxLayout;
+class QVBoxLayout;
 class QGraphicsOpacityEffect;
+class QLayout;
 class QVariantAnimation;
 class QTimer;
 class QWidget;
@@ -21,8 +24,10 @@ class FormattingToolbarOverlay final : public QObject
     Q_OBJECT
 public:
     FormattingToolbarOverlay(QWidget& host, QWidget& editor,
-                             QWidget& toolbar);
+                             QWidget& toolbar, QLayout& footerLayout);
     QWidget* panel() const;
+    void installPreview(QWidget& preview, QWidget& toggleButton);
+    void setPreviewVisible(bool visible);
 
 public slots:
     void setExpanded(bool expanded);
@@ -32,13 +37,22 @@ private:
     void updateHoverVisibility();
     void clearHoverOnWindowExit();
     bool eventFilter(QObject* watched, QEvent* event) override;
+    bool pointerInComposerBridge() const;
     void refreshGeometry();
+    void scheduleGeometryRefresh();
+    int composerTop() const;
     void applyProgress(qreal progress);
 
     QPointer<QWidget> _host;
     QPointer<QWidget> _editor;
+    QPointer<QLayout> _footerLayout;
+    QPointer<QWidget> _footerOwner;
     QPointer<QWidget> _toolbar;
     QPointer<QWidget> _editorViewport;
+    QPointer<QWidget> _preview;
+    QPointer<QWidget> _previewToggle;
+    QVBoxLayout* _panelLayout = nullptr;
+    QHBoxLayout* _toolbarRow = nullptr;
     QTimer* _hideTimer = nullptr;
     QTimer* _boundaryTimer = nullptr;
     QFrame* _panel = nullptr;
@@ -49,6 +63,8 @@ private:
     bool _focusRequested = false;
     bool _editorHovered = false;
     bool _panelHovered = false;
+    bool _previewVisible = false;
+    bool _geometryRefreshQueued = false;
 };
 
 } // namespace Mattermost
