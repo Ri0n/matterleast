@@ -13,7 +13,7 @@ inline QString safeName(QString name)
     name.replace(QLatin1Char('\\'), QLatin1Char('/'));
     name = name.section(QLatin1Char('/'), -1).trimmed();
     for (QChar& character : name) {
-        if (character.unicode() < 32 || QStringLiteral("<>:"/\\|?*").contains(character)) {
+        if (character.unicode() < 32 || QLatin1String("<>:|?*").contains(character) || character == QLatin1Char('"') ) {
             character = QLatin1Char('_');
         }
     }
