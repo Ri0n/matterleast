@@ -25,6 +25,7 @@
 #include "AbstractPostSource.h"
 #include "ChatLogWidget.h"
 #include "ThreadWindowTitle.h"
+#include "backend/Backend.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "ui_ChatArea.h"
