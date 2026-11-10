@@ -72,6 +72,7 @@
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
 #include "attachments/AttachedImageFile.h"
+#include "attachments/AttachmentBatchSave.h"
 #include "attachments/PostAttachmentList.h"
 #include "attachments/PostPoll.h"
 #include "backend/Backend.h"
