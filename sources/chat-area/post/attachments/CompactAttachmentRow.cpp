@@ -58,6 +58,7 @@ CompactAttachmentRow::CompactAttachmentRow(
     _nameLabel = new QLabel(this);
     _nameLabel->setObjectName(QStringLiteral("compactAttachmentName"));
     _nameLabel->setToolTip(_fileName);
+    _nameLabel->installEventFilter(this);
     _nameLabel->setMinimumWidth(0);
     _nameLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     layout->addWidget(_nameLabel, 1);
