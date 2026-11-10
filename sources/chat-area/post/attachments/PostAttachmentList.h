@@ -21,7 +21,7 @@
 #define MESSAGEATTACHMENTLIST_H
 
 #include <QWidget>
-#include <map>
+#include <list>
 
 namespace Ui {
 class PostAttachmentList;
@@ -29,6 +29,7 @@ class PostAttachmentList;
 
 class QEvent;
 class QListWidgetItem;
+class QToolButton;
 
 namespace Mattermost {
 
@@ -42,7 +43,9 @@ public:
     explicit PostAttachmentList (Backend& backend, QWidget *parent = nullptr);
     ~PostAttachmentList();
 public:
-    void addFile (const BackendFile& file, const QString& authorName);
+    // Determine the final mode before constructing any preview widgets.
+    // At 4+ files show lightweight rows; the first three are visible.
+    void setFiles(const std::list<BackendFile>& files, const QString& authorName);
     void updateDimensions ();
 
 signals:
@@ -54,7 +57,12 @@ protected:
 
 private:
     void refreshItemSizeHints();
+    void setExpanded(bool expanded);
+    void updateExpandLink();
     int _lastMeasuredViewportWidth = -1;
+    bool _compact = false;
+    bool _expanded = false;
+    QToolButton* _expandButton = nullptr;
     Backend& 						backend;
     Ui::PostAttachmentList*			ui;
 };
