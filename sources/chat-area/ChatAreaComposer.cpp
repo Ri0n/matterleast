@@ -36,7 +36,9 @@
 #include <QPushButton>
 #include <QSet>
 #include <QScrollArea>
+#include <QPalette>
 #include <QPlainTextEdit>
+#include <QScrollBar>
 #include <QTextEdit>
 #include <QTimer>
 
