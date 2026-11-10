@@ -369,9 +369,7 @@ void QuotedPostPreview::setInteractiveAttachments(
                 emit dimensionsChanged();
             });
 
-    for (const BackendFile& file : files) {
-        attachmentList->addFile(file, authorName);
-    }
+    attachmentList->setFiles(files, authorName);
     // Embedded file cards should stay clickable, but their inner list is not
     // a second scrollable timeline. Ignore wheels over its viewport so the
     // surrounding chat continues to scroll, including over download cards.
