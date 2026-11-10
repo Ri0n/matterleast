@@ -100,6 +100,11 @@ public:
         return result;
     }
 
+    bool clearContext(const QString& channelId, const QString& parentId)
+    {
+        return _users.remove(contextKey(channelId, parentId)) > 0;
+    }
+
     QStringList clear()
     {
         const QStringList changed = _users.keys();
