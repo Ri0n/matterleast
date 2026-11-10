@@ -31,6 +31,7 @@
 #include "options/MLOptions.h"
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QLayout>
 #include <QMenu>
 #include <QPointer>
 #include <QPushButton>
@@ -144,6 +145,10 @@ void ChatArea::setupComposerUi()
     previewScroll->verticalScrollBar()->setFocusPolicy(Qt::NoFocus);
     auto* previewContent = new MessageContentWidget;
     previewContent->setObjectName(QStringLiteral("composerMarkdownPreviewContent"));
+    // Insets belong to the scrolled CONTENT, not to the outer panel or
+    // QScrollArea: the preview background remains flush with the toolbar,
+    // while text, code blocks and inline images have breathing room.
+    previewContent->layout()->setContentsMargins(10, 8, 10, 8);
     previewContent->setEmojiRegistry(&backend.emojiRegistry());
     previewScroll->setWidget(previewContent);
     formattingOverlay->installPreview(*previewScroll, *previewToggle);
