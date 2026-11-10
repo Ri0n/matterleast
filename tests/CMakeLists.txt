@@ -399,6 +399,14 @@ add_test(NAME formatting-toolbar-overlay-test COMMAND formatting-toolbar-overlay
 set_tests_properties(formatting-toolbar-overlay-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(composer-preview-markdown-test ComposerPreviewMarkdownTest.cpp)
+target_include_directories(composer-preview-markdown-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(composer-preview-markdown-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME composer-preview-markdown-test COMMAND composer-preview-markdown-test)
+set_tests_properties(composer-preview-markdown-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(message-text-edit-widget-test
     MessageTextEditWidgetTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/chat-area/outgoing-post/MessageTextEditWidget.cpp"
