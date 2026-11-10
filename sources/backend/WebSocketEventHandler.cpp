@@ -197,6 +197,7 @@ void WebSocketEventHandler::handleEvent (const PostEvent& event)
         resolvedPost.value(QStringLiteral("root_id")).toString();
     const QString authorId =
         resolvedPost.value(QStringLiteral("user_id")).toString();
+    backend.noteUserPosted(event.channelId, rootId, authorId);
     if (!rootId.isEmpty() && storage.loginUser
         && authorId == storage.loginUser->id) {
         BackendChannel* postedChannel = storage.getChannelById(event.channelId);
