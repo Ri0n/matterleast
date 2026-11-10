@@ -138,6 +138,9 @@ void ChatArea::setupComposerUi()
     previewScroll->setFocusPolicy(Qt::NoFocus);
     previewScroll->setBackgroundRole(QPalette::Window);
     previewScroll->setAutoFillBackground(true);
+    previewScroll->viewport()->setBackgroundRole(QPalette::Window);
+    previewScroll->viewport()->setAutoFillBackground(true);
+    previewScroll->verticalScrollBar()->setFocusPolicy(Qt::NoFocus);
     auto* previewContent = new MessageContentWidget;
     previewContent->setObjectName(QStringLiteral("composerMarkdownPreviewContent"));
     previewContent->setEmojiRegistry(&backend.emojiRegistry());
