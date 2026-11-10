@@ -2,9 +2,16 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QListView>
 #include <QMimeData>
+#include <QPushButton>
+#include <QTimer>
+
+#include <functional>
 
 #include "Settings.h"
 #include "chat-area/outgoing-post/MessageTextEditWidget.h"
@@ -36,6 +43,49 @@ void selectDocument(MessageTextEditWidget& editor)
     editor.setTextCursor(cursor);
 }
 
+bool interactWithLinkDialog(
+    MessageTextEditWidget& editor,
+    const std::function<void(QDialog&, QLineEdit&, QLineEdit&,
+                             QDialogButtonBox&)>& interact)
+{
+    bool visited = false;
+    QTimer watchdog(&editor);
+    watchdog.setSingleShot(true);
+    watchdog.setInterval(1500);
+    QObject::connect(&watchdog, &QTimer::timeout, &editor, [] {
+        if (auto* dialog = qobject_cast<QDialog*>(
+                QApplication::activeModalWidget())) {
+            dialog->reject();
+        }
+    });
+    QTimer::singleShot(0, &editor, [&] {
+        auto* dialog = qobject_cast<QDialog*>(
+            QApplication::activeModalWidget());
+        if (!dialog
+            || dialog->objectName() != QStringLiteral("composerLinkDialog")) {
+            return;
+        }
+        auto* textEdit = dialog->findChild<QLineEdit*>(
+            QStringLiteral("composerLinkText"));
+        auto* urlEdit = dialog->findChild<QLineEdit*>(
+            QStringLiteral("composerLinkUrl"));
+        auto* buttons = dialog->findChild<QDialogButtonBox*>();
+        if (!textEdit || !urlEdit || !buttons) {
+            dialog->reject();
+            return;
+        }
+        visited = true;
+        interact(*dialog, *textEdit, *urlEdit, *buttons);
+        if (dialog->isVisible()) {
+            dialog->reject();
+        }
+    });
+    watchdog.start();
+    editor.insertLink();
+    watchdog.stop();
+    return visited;
+}
+
 } // namespace
 
 class MessageTextEditWidgetTest : public QObject
@@ -43,6 +93,84 @@ class MessageTextEditWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
+    void linkDialogHasWideFieldsAndUsesSelectedText()
+    {
+        MessageTextEditWidget editor;
+        editor.setPlainText(QStringLiteral("Read selected words here"));
+        selectRange(editor, 5, 19);
+
+        QVERIFY(interactWithLinkDialog(
+            editor, [&](QDialog& dialog, QLineEdit& textEdit,
+                        QLineEdit& urlEdit, QDialogButtonBox& buttons) {
+            QVERIFY(dialog.width() >= 560);
+            QCOMPARE(textEdit.text(), QStringLiteral("selected words"));
+            QVERIFY(urlEdit.text().isEmpty());
+            auto* ok = buttons.button(QDialogButtonBox::Ok);
+            QVERIFY(ok);
+            QVERIFY(!ok->isEnabled());
+
+            textEdit.setText(QStringLiteral("The [new] text"));
+            urlEdit.setText(QStringLiteral("https://example.org/help?q=1"));
+            QVERIFY(ok->isEnabled());
+            ok->click();
+        }));
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("Read [The \\[new\\] text]"
+                                "(https://example.org/help?q=1) here"));
+    }
+
+    void linkDialogEditsTextAndAddress()
+    {
+        MessageTextEditWidget editor;
+        editor.setPlainText(
+            QStringLiteral("See [a \\[guide\\]](https://old.example/path)"));
+        QTextCursor cursor = editor.textCursor();
+        cursor.setPosition(9);
+        editor.setTextCursor(cursor);
+
+        QVERIFY(interactWithLinkDialog(
+            editor, [&](QDialog& dialog, QLineEdit& textEdit,
+                        QLineEdit& urlEdit, QDialogButtonBox& buttons) {
+            QCOMPARE(dialog.windowTitle(), QStringLiteral("Edit link"));
+            QCOMPARE(textEdit.text(), QStringLiteral("a [guide]"));
+            QCOMPARE(urlEdit.text(), QStringLiteral("https://old.example/path"));
+            textEdit.setText(QStringLiteral("Updated link title"));
+            urlEdit.setText(QStringLiteral("https://new.example/doc"));
+            buttons.button(QDialogButtonBox::Ok)->click();
+        }));
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("See [Updated link title](https://new.example/doc)"));
+    }
+
+    void linkDialogFallsBackToUrlAndCancelsWithoutEditing()
+    {
+        MessageTextEditWidget editor;
+        editor.setPlainText(QStringLiteral("Visit "));
+        editor.moveCursor(QTextCursor::End);
+
+        QVERIFY(interactWithLinkDialog(
+            editor, [&](QDialog&, QLineEdit& textEdit, QLineEdit& urlEdit,
+                        QDialogButtonBox& buttons) {
+            QVERIFY(textEdit.text().isEmpty());
+            urlEdit.setText(QStringLiteral("https://example.net/long-path"));
+            buttons.button(QDialogButtonBox::Ok)->click();
+        }));
+        QCOMPARE(editor.toPlainText(),
+                 QStringLiteral("Visit [https://example.net/long-path]"
+                                "(https://example.net/long-path)"));
+
+        const QString unchanged = editor.toPlainText();
+        editor.moveCursor(QTextCursor::End);
+        QVERIFY(interactWithLinkDialog(
+            editor, [&](QDialog&, QLineEdit& textEdit, QLineEdit& urlEdit,
+                        QDialogButtonBox& buttons) {
+            textEdit.setText(QStringLiteral("Discard this"));
+            urlEdit.setText(QStringLiteral("https://discard.example"));
+            buttons.button(QDialogButtonBox::Cancel)->click();
+        }));
+        QCOMPARE(editor.toPlainText(), unchanged);
+    }
+
     void markdownInlineHelpersWrapSelection()
     {
         MessageTextEditWidget editor;
