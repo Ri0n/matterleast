@@ -12,9 +12,12 @@ inline QString safeName(QString name)
 {
     name.replace(QLatin1Char('\\'), QLatin1Char('/'));
     name = name.section(QLatin1Char('/'), -1).trimmed();
-    for (QChar& character : name) {
-        if (character.unicode() < 32 || QLatin1String("<>:|?*").contains(character) || character == QLatin1Char('"') ) {
-            character = QLatin1Char('_');
+    for (int index = 0; index < name.size(); ++index) {
+        const QChar character = name.at(index);
+        if (character.unicode() < 32
+            || QStringLiteral("<>:|?*").contains(character)
+            || character == QLatin1Char('"')) {
+            name[index] = QLatin1Char('_');
         }
     }
     while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' '))) {
