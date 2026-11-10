@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QImage>
 #include <QLabel>
+#include <QPalette>
 #include <QRegularExpression>
 #include <QUrl>
 #include <QSignalSpy>
@@ -142,6 +143,70 @@ private slots:
         QVERIFY(!bar->isVisible());
         QCOMPARE(reaction->property("matterleastPostOwner").value<QObject*>(),
                  static_cast<QObject*>(nullptr));
+    }
+
+    void floatingToolbarIconsFollowApplicationPaletteWithoutRecreation()
+    {
+        struct PaletteRestore {
+            QPalette original;
+            ~PaletteRestore() { qApp->setPalette(original); }
+        } restore {qApp->palette()};
+
+        Backend backend;
+        Storage& storage = backend.getStorage();
+        BackendPost post(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("aaaaabbbbbcccccdddddeeeee")},
+                {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+                {QStringLiteral("create_at"), 1},
+                {QStringLiteral("message"), QStringLiteral("hello")},
+            }, storage);
+
+        QPalette first = restore.original;
+        first.setColor(QPalette::WindowText, Qt::white);
+        qApp->setPalette(first);
+
+        HoverTestList list;
+        list.resize(450, 350);
+        list.show();
+        auto* row = new PostWidget(backend, post, list.viewport(), nullptr, nullptr);
+        row->resize(400, 140);
+        row->show();
+        QApplication::processEvents();
+        row->setHovered(true, true);
+
+        auto* toolbar = list.viewport()->findChild<QFrame*>(
+            QStringLiteral("postHoverActions"), Qt::FindDirectChildrenOnly);
+        QVERIFY(toolbar);
+        const auto buttons = toolbar->findChildren<QPushButton*>();
+        QCOMPARE(buttons.size(), 4);
+        QList<QImage> whiteIcons;
+        for (auto* button : buttons) {
+            const QImage icon = button->icon().pixmap(24, 24).toImage();
+            QVERIFY(!icon.isNull());
+            whiteIcons.append(icon);
+        }
+
+        QPalette second = restore.original;
+        second.setColor(QPalette::WindowText, Qt::black);
+        qApp->setPalette(second);
+        QApplication::processEvents();
+
+        QCOMPARE(list.viewport()->findChild<QFrame*>(
+            QStringLiteral("postHoverActions"), Qt::FindDirectChildrenOnly), toolbar);
+        for (int i = 0; i < buttons.size(); ++i) {
+            const QImage icon = buttons.at(i)->icon().pixmap(24, 24).toImage();
+            QVERIFY(!icon.isNull());
+            QVERIFY2(icon != whiteIcons.at(i),
+                     "The shared toolbar retained an icon tinted for the previous palette");
+        }
+
+        qApp->setPalette(first);
+        QApplication::processEvents();
+        for (int i = 0; i < buttons.size(); ++i) {
+            QCOMPARE(buttons.at(i)->icon().pixmap(24, 24).toImage(),
+                     whiteIcons.at(i));
+        }
     }
 
     void reactionCountTracksInheritedChatFont()

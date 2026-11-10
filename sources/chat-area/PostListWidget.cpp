@@ -103,6 +103,7 @@ PostListWidget::PostListWidget(QWidget* parent)
         activeHoverPost_ = current;
         hoverSessionHasPost_ = true;
     });
+
 }
 
 PostListWidget::~PostListWidget()
@@ -115,6 +116,23 @@ PostListWidget::~PostListWidget()
     }
     delete toolbar_;
     toolbar_ = nullptr;
+}
+
+void PostListWidget::changeEvent(QEvent* event)
+{
+    LongListWidget::changeEvent(event);
+    if (!event) {
+        return;
+    }
+    const auto type = event->type();
+    if (type == QEvent::PaletteChange
+        || type == QEvent::ApplicationPaletteChange
+        || type == QEvent::StyleChange) {
+        refreshToolbarIcons();
+        if (toolbarPost_) {
+            updatePostHoverActionsPalette(*toolbarPost_);
+        }
+    }
 }
 
 void PostListWidget::ensureHoverActions()
@@ -169,6 +187,7 @@ void PostListWidget::ensureHoverActions()
     threadButton_ = makeButton(QStringLiteral(":/icons/message-balloon"), tr("Open thread"));
     saveButton_ = makeButton(QStringLiteral(":/icons/bookmark"), tr("Save message"));
     moreButton_ = makeButton(QStringLiteral(":/icons/more-horizontal"), tr("More actions"));
+    _toolbarIconTint = QGuiApplication::palette().color(QPalette::WindowText);
 
     connect(reactionButton_, &QPushButton::clicked, this, [this] {
         QPointer<PostWidget> target = toolbarPost_;
@@ -232,6 +251,22 @@ void PostListWidget::ensureHoverActions()
             animateToolbar(false);
         }
     });
+}
+
+void PostListWidget::refreshToolbarIcons()
+{
+    if (!toolbar_) {
+        return;
+    }
+    const QColor tint = QGuiApplication::palette().color(QPalette::WindowText);
+    if (_toolbarIconTint == tint) {
+        return;
+    }
+    _toolbarIconTint = tint;
+    reactionButton_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/emoji")));
+    threadButton_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/message-balloon")));
+    saveButton_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/bookmark")));
+    moreButton_->setIcon(IconUtils::symbolicIcon(QStringLiteral(":/icons/more-horizontal")));
 }
 
 void PostListWidget::setToolbarTarget(PostWidget* post)

@@ -177,6 +177,11 @@ The action bar is presentation-only and floats over the LongList viewport; it
 must not add height to a post row or become part of consecutive-author grouping
 geometry.
 
+The post-action toolbar is reused by the virtualized list rather than
+reconstructed for each row. Its symbolic action icons are pre-tinted pixmaps;
+changing the application palette must regenerate those icons **in place**,
+without discarding the toolbar or changing its current post target.
+
 ### Composer hover palette
 
 Hovering the composer's emoji-picker button uses the same sixteen-entry ranking,
