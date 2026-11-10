@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <QElapsedTimer>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QNetworkCookie>
@@ -43,6 +45,7 @@
 #include "backend/Storage.h"
 #include "backend/ServerDialogsMap.h"
 #include "backend/RequestTracker.h"
+#include "backend/TypingActivityState.h"
 
 class QJsonObject;
 
@@ -271,6 +274,15 @@ public:
     WebSocketConnector::ConnectionState webSocketConnectionState() const;
     void retryWebSocketConnectionNow();
 
+    // Transient typing activity, keyed independently for channel and thread.
+    void noteUserTyping(const QString& channelId, const QString& parentId,
+                        const QString& userId);
+    void noteUserPosted(const QString& channelId, const QString& parentId,
+                        const QString& userId);
+    QStringList typingUsers(const QString& channelId, const QString& parentId) const;
+    void publishUserTyping(const QString& channelId, const QString& parentId,
+                           int channelMemberCount);
+
 	// A DM/GM has no intrinsic team, but actions and slash commands on older
 	// Mattermost servers still require the team from which the conversation was
 	// opened. Keep that UI execution context separate from BackendChannel::team.
@@ -340,10 +352,13 @@ signals:
     void onRealtimeRecovered();
     void onWebSocketDisconnect ();
     void onWebSocketConnectionStateChanged(WebSocketConnector::ConnectionState state);
+    void typingChanged(const QString& channelId, const QString& parentId);
 private:
     void loginSuccess (const QJsonDocument& data, const QNetworkReply& reply, std::function<void(const QString&)> callback);
     void hasChannelPermissions(BackendChannel& channel, const QStringList& required,
                                std::function<void(bool)> callback);
+    void scheduleTypingExpiration();
+    void clearTypingActivity();
 private:
     Storage							storage;
     EmojiRegistry                   _emojiRegistry;
@@ -358,6 +373,10 @@ private:
     BackendChannel*					currentChannel;
     QString                             currentTeamContextId;
     QSet<QString> _flaggedPostIds;
+    TypingActivityState _typingActivity;
+    QHash<QString, qint64> _lastTypingSentMs;
+    QElapsedTimer _typingClock;
+    QTimer _typingExpiryTimer;
     QTimer 							timeoutTimer;
     bool							isLoggedIn;
     bool							autoLoginEnabledFlag;
