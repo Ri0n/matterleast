@@ -20,7 +20,7 @@
 namespace Mattermost {
 
 void AttachmentBatchSave::chooseFolderAndSave(
-    Backend& backend, const std::list<BackendFile>& files, QWidget* parent)
+    Backend& backend, std::list<BackendFile> files, QWidget* parent)
 {
     if (files.size() < 2) {
         return;
