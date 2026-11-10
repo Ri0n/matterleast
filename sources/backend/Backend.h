@@ -168,7 +168,7 @@ public:
 	void retrievePollMetadata (BackendPoll& poll);
 
 	//mark the channel as viewed (/channels/members/me/view), so that the server knows that the channel is viewed
-	void markChannelAsViewed (BackendChannel& channel, bool preserveCrtThreads = false);
+	void markChannelAsViewed (BackendChannel& channel);
 
 	//edit channel properties (PUT /channels/{channel_id})
 	void editChannelProperties (BackendChannel& channel, const BackendChannelProperties& newProperties);
