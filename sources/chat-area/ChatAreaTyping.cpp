@@ -122,7 +122,8 @@ void ChatArea::updateTypingOverlay()
         return;
     }
     if (!ui->listWidget->isAtEnd() || !isVisible()
-        || !ui->listWidget->isVisible()) {
+        || !ui->listWidget->isVisible()
+        || ui->listWidget->viewport()->width() < 116) {
         // Scrolling into history never leaves the indicator over old text.
         setTypingOverlayVisible(false, true);
         return;
