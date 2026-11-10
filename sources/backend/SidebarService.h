@@ -92,6 +92,8 @@ public:
                                std::function<void(bool)> callback = {});
     /** Apply the server's post_unread event to this client's read watermark. */
     void applyServerPostUnread(const QString& channelId, const QJsonObject& data);
+    /** Reconcile unread state after a post deletion, including cold channels. */
+    void reconcileDeletedUnreadPost(const QString& channelId);
     void synchronizeChannelActivity();
     /** Require fresh membership/read cursors and preferences on next fetch. */
     void invalidateCachedReads();
@@ -144,6 +146,7 @@ private:
     QString currentUserId() const;
     QString categoriesPath(const QString& teamId) const;
     void recordChannelPost(BackendChannel& channel, const BackendPost& post);
+    void invalidateDeletedUnreadCheck(const QString& channelId);
     void recordChannelViewed(const BackendChannel& channel);
     void updateCollapsedThreadsMode();
     bool isDirectChannelManuallyHidden(const BackendChannel& channel) const;
@@ -159,6 +162,10 @@ private:
     QString _conversationSearchTerm;
     QMap<QString, SidebarTeamState> sidebarByTeam;
     ChannelActivityTracker activityTracker;
+    // Only the latest server verification may issue a read receipt. Incoming
+    // posts, explicit read/unread actions, and session resets invalidate it.
+    QHash<QString, quint64> _pendingDeletedUnreadChecks;
+    quint64 _nextDeletedUnreadCheckId = 0;
 
     struct PendingReadCheckpoint {
         QString postId;
