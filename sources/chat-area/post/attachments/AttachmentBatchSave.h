@@ -31,6 +31,7 @@ public:
 private:
     AttachmentBatchSave(Backend& backend, std::list<BackendFile> files,
                         QString directory);
+    ~AttachmentBatchSave() override;
     void startNext();
     void finish();
     void cancel();
