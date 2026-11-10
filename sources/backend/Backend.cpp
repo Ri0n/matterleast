@@ -97,6 +97,68 @@ bool Backend::handleEphemeralMessage(const QJsonObject& data)
     return handled;
 }
 
+bool Backend::hasVisibleTypingView(const QString& channelId,
+                                   const QString& parentId) const
+{
+    return !_typingViews.value(TypingActivityState::contextKey(
+        channelId, parentId)).isEmpty();
+}
+
+void Backend::dropTypingView(QObject* view)
+{
+    for (auto it = _typingViews.begin(); it != _typingViews.end();) {
+        it->remove(view);
+        if (it->isEmpty()) {
+            const QString context = it.key();
+            it = _typingViews.erase(it);
+            _lastTypingSentMs.remove(context);
+            if (_typingActivity.clearContext(
+                    TypingActivityState::channelFromKey(context),
+                    TypingActivityState::parentFromKey(context))) {
+                scheduleTypingExpiration();
+                emit typingChanged(TypingActivityState::channelFromKey(context),
+                                   TypingActivityState::parentFromKey(context));
+            }
+        } else {
+            ++it;
+        }
+    }
+}
+
+void Backend::setTypingViewVisible(QObject* view, const QString& channelId,
+                                   const QString& parentId, bool visible)
+{
+    if (!view || channelId.isEmpty()) {
+        return;
+    }
+    if (!_typingTrackedViews.contains(view)) {
+        _typingTrackedViews.insert(view);
+        connect(view, &QObject::destroyed, this, [this, view] {
+            dropTypingView(view);
+            _typingTrackedViews.remove(view);
+        });
+    }
+
+    // The context is specified by the surface, not by the active global team.
+    const QString key = TypingActivityState::contextKey(channelId, parentId);
+    if (visible) {
+        _typingViews[key].insert(view);
+    } else {
+        auto it = _typingViews.find(key);
+        if (it != _typingViews.end()) {
+            it->remove(view);
+            if (it->isEmpty()) {
+                _typingViews.erase(it);
+                _lastTypingSentMs.remove(key);
+                if (_typingActivity.clearContext(channelId, parentId)) {
+                    scheduleTypingExpiration();
+                    emit typingChanged(channelId, parentId);
+                }
+            }
+        }
+    }
+}
+
 void Backend::scheduleTypingExpiration()
 {
     const qint64 next = _typingActivity.nextExpiryMs();
@@ -121,13 +183,15 @@ void Backend::clearTypingActivity()
 QStringList Backend::typingUsers(const QString& channelId,
                                  const QString& parentId) const
 {
-    return _typingActivity.users(channelId, parentId);
+    return hasVisibleTypingView(channelId, parentId)
+        ? _typingActivity.users(channelId, parentId) : QStringList();
 }
 
 void Backend::noteUserTyping(const QString& channelId, const QString& parentId,
                              const QString& userId)
 {
-    if (!isLoggedIn || !storage.loginUser || userId == storage.loginUser->id) {
+    if (!isLoggedIn || !storage.loginUser || userId == storage.loginUser->id
+        || !hasVisibleTypingView(channelId, parentId)) {
         return;
     }
 
@@ -154,6 +218,7 @@ void Backend::publishUserTyping(const QString& channelId, const QString& parentI
                                 int channelMemberCount)
 {
     if (!isLoggedIn || !storage.loginUser || channelId.isEmpty()
+        || !hasVisibleTypingView(channelId, parentId)
         || !webSocketConnector.typingEnabled()
         || (channelMemberCount >= 0
             && channelMemberCount >= webSocketConnector.typingMaximumMembers())) {
