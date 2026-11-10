@@ -1206,6 +1206,19 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
         menu.addSeparator();
     }
 
+    // One directory chooser for every file in the post, including images
+    // rendered inline in its Markdown body (not only visible attachment cards).
+    if (post.files.size() >= 2) {
+        menu.addAction(
+            icon(QStringLiteral(":/icons/menu-file")),
+            tr("Save all attachments to…"),
+            this, [this] {
+                AttachmentBatchSave::chooseFolderAndSave(
+                    backend_, post.files, this);
+            });
+        menu.addSeparator();
+    }
+
     if (presentationMode_ != PresentationMode::Interactive) {
         if (!hoveredLink.isEmpty()) {
             QAction* copyLinkAction = menu.addAction(
