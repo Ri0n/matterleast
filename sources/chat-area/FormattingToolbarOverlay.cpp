@@ -95,7 +95,14 @@ FormattingToolbarOverlay::FormattingToolbarOverlay(
     _hideTimer->setSingleShot(true);
     _hideTimer->setInterval(75);
     connect(_hideTimer, &QTimer::timeout, this, [this] {
-        if (!_editorHovered && !_panelHovered) {
+        if (_editorHovered || _panelHovered) {
+            return;
+        }
+        if (pointerInComposerBridge()) {
+            // Attachments now sit between the editor and the toolbar. Give
+            // the pointer time to cross them without losing the panel.
+            _hideTimer->start();
+        } else {
             animateExpanded(false);
         }
     });
@@ -183,6 +190,18 @@ void FormattingToolbarOverlay::updateHoverVisibility()
         _hideTimer->stop();
         animateExpanded(false);
     }
+}
+
+bool FormattingToolbarOverlay::pointerInComposerBridge() const
+{
+    if (!_expanded || !_host || !_editor || !_panel) {
+        return false;
+    }
+    const QPoint pos = _host->mapFromGlobal(QCursor::pos());
+    const int panelBottom = _panel->geometry().bottom();
+    const int editorTop = _editor->mapTo(_host, QPoint()).y();
+    return pos.x() >= 0 && pos.x() < _host->width()
+        && pos.y() >= panelBottom && pos.y() <= editorTop;
 }
 
 void FormattingToolbarOverlay::clearHoverOnWindowExit()
