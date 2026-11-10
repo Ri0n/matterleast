@@ -48,10 +48,15 @@ the composer height or the log viewport height**. This avoids a repeated
 viewport re-layout/re-anchor when switching between reading and typing.
 
 `FormattingToolbarOverlay` owns detachment, the animation, and positioning.
-Its position follows the editor's actual geometry (including multiline composer
-resizing) and its height is measured from the toolbar's height-for-width
+Its position follows the top edge of the entire composer footer layout,
+including the dynamically inserted **Files to attach** list. Tracking
+`LayoutRequest` and performing a coalesced refresh after layout activation
+prevents the first few lines from being hidden or moving irregularly as the
+editor grows. Its height is measured from the toolbar's height-for-width
 layout; narrow chats can therefore wrap the formatting buttons into several
-rows without reserving vertical space in the footer.
+rows without reserving vertical space in the footer. When staged files
+separate the editor from the floating bar, the mouse can cross the attachment
+list without losing the panel.
 
 ### Live Markdown preview
 
@@ -59,7 +64,7 @@ The eye button remains pinned to the right edge of the floating formatting bar, 
 
 The preview uses the ordinary `MessageContentWidget` renderer (including quotes and fenced code), with text changes coalesced by a short debounce. A staged image reference such as `matterleast-attachment:<id>@<index>` is temporarily mapped to the renderer's usual `/api/v4/files/<id>` image URL. Its bytes are resolved from the *local* path of that outgoing attachment: nothing is uploaded again just to display the preview. Clipboard images are already written as temporary PNG files by the composer. Since plain clipboard paste creates an attachment rather than inserting Markdown, the preview also appends a visual representation of any image attachment not explicitly referenced inline.
 
-The preview is height-bounded and scrollable, and the entire floating panel tracks the composer's top edge as the editor expands. Geometry is rechecked after the parent layout has completed, preventing the toolbar from covering newly entered multiline text.
+The preview is height-bounded and scrollable, and the entire floating panel tracks the whole footer's top edge as the editor or attachment list expands. Geometry is rechecked after the parent layout has completed, preventing the toolbar from covering newly entered multiline text or the files waiting to be sent.
 
 ### Toolbar sizing and narrow windows
 
