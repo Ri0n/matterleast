@@ -102,7 +102,7 @@ public:
 
     bool clearContext(const QString& channelId, const QString& parentId)
     {
-        return _users.remove(contextKey(channelId, parentId));
+        return static_cast<bool>(_users.remove(contextKey(channelId, parentId)));
     }
 
     QStringList clear()
