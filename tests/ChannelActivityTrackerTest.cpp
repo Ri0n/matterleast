@@ -41,6 +41,18 @@ class ChannelActivityTrackerTest : public QObject
     Q_OBJECT
 
 private slots:
+    void deletedEventChecksOnlyRelevantUnreadMessages()
+    {
+        const QString me = QStringLiteral("me");
+        const QString other = QStringLiteral("other");
+        QVERIFY(deletionMayAffectChannelUnread(2000, 1000, other, me, false, false));
+        QVERIFY(!deletionMayAffectChannelUnread(999, 1000, other, me, false, false));
+        QVERIFY(!deletionMayAffectChannelUnread(2000, 1000, me, me, false, false));
+        QVERIFY(!deletionMayAffectChannelUnread(2000, 1000, other, me, true, true));
+        QVERIFY(deletionMayAffectChannelUnread(2000, 1000, other, me, true, false));
+        QVERIFY(deletionMayAffectChannelUnread(0, 1000, QString(), me, false, true));
+    }
+
     void deletedUnreadReconciliationNeedsCompleteServerProof()
     {
         const QString me = QStringLiteral("me");
