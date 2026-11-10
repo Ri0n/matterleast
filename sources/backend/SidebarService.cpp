@@ -572,12 +572,45 @@ void SidebarService::reconcileDeletedUnreadPost(const QString& channelId,
                     return;
                 }
 
-                // No remaining unread live posts. Synchronize the existing
-                // full-read operation across clients rather than just hiding
-                // the local sidebar badge. Other unread messages are never
-                // acknowledged merely because one post was deleted.
-                markChannelViewedLocally(*channel);
-                backend.markChannelAsViewed(*channel, true);
+                // The "view" endpoint also sets the active channel and
+                // must never run for a background deletion. Mark just this
+                // channel as read without navigating away from the user's
+                // actual conversation. The server retains CRT thread reads.
+                const quint64 readCheckId = ++_nextDeletedUnreadCheckId;
+                _pendingDeletedUnreadChecks.insert(channelId, readCheckId);
+                NetworkRequest readRequest(
+                    QStringLiteral("channels/members/me/mark_read"));
+                readRequest.setTransferTimeout(10000);
+                httpConnector.post(readRequest,
+                    QByteArrayCreator(QJsonArray {channelId}),
+                    HttpResponseCallback(
+                        [this, channelId, readCheckId, lastViewedAt, lastPostAt,
+                         ownUserId](const QJsonDocument& readDoc,
+                                    const QNetworkReply& readReply) {
+                    if (_pendingDeletedUnreadChecks.value(channelId) != readCheckId) {
+                        return;
+                    }
+                    _pendingDeletedUnreadChecks.remove(channelId);
+                    const int code = readReply.attribute(
+                        QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                    if (readReply.error() != QNetworkReply::NoError
+                        || code < 200 || code >= 300
+                        || readDoc.object().value(QStringLiteral("status"))
+                             .toString() != QLatin1String("OK")
+                        || !backend.loggedIn()
+                        || !backend.getStorage().loginUser
+                        || backend.getStorage().loginUser->id != ownUserId) {
+                        return;
+                    }
+
+                    BackendChannel* updated =
+                        backend.getStorage().getChannelById(channelId);
+                    if (updated && updated->last_post_at == lastPostAt
+                        && activityTracker.lastViewedTime(channelId) == lastViewedAt) {
+                        markChannelViewedLocally(*updated);
+                    }
+                }));
+
             }));
     });
 }
