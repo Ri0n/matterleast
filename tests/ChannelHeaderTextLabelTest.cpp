@@ -56,6 +56,7 @@ private slots:
     void topicChannelReferencesSharePostLinkifier();
     void channelDisplayNamesPreserveLinksAndAvoidRelinking();
     void expandedTopicRebuildRestoresChannelLinks();
+    void httpChatLinksUseApplicationNavigation();
     void collapsedLabelShowsHoveredLinkTooltip();
     void collapsedLabelClearsTooltipOnLeaveAndTextChange();
     void nativeWidthExpandsOnlyWhenTextDoesNotFit();
@@ -525,6 +526,56 @@ void ChannelHeaderTextLabelTest::expandedTopicRebuildRestoresChannelLinks()
     target.setPosition(target.selectionStart() + 2);
     QCOMPARE(target.charFormat().anchorHref(),
              QStringLiteral("/second-team/channels/off-pet-photo"));
+}
+
+void ChannelHeaderTextLabelTest::httpChatLinksUseApplicationNavigation()
+{
+    const QUrl chatUrl(QStringLiteral(
+        "https://mattermost.example.test/offtopic/channels/offmarket"));
+
+    QWidget host;
+    host.resize(640, 300);
+    ChannelHeaderTextLabel label(&host);
+    label.setGeometry(18, 16, 120, label.sizeHint().height());
+    label.setText(QStringLiteral(
+        "See [the chat](https://mattermost.example.test/offtopic/channels/offmarket)"));
+    QUrl opened;
+    label.setLinkHandler([&opened](const QUrl& url) { opened = url; });
+    host.show();
+    QTest::qWait(10);
+
+    // The collapsed QLabel must forward absolute HTTP(S) links rather than
+    // delegating them to QDesktopServices.
+    QVERIFY(!label.openExternalLinks());
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "linkActivated", Qt::DirectConnection,
+        Q_ARG(QString, chatUrl.toString())));
+    QCOMPARE(opened, chatUrl);
+
+    opened = {};
+    QVERIFY(showPopover(label));
+    auto* content = host.findChild<MessageContentWidget*>(
+        QStringLiteral("channelHeaderTextPopoverContent"));
+    QVERIFY(content);
+    auto* browser = content->findChild<QTextBrowser*>(
+        QStringLiteral("messageRichText"));
+    QVERIFY(browser);
+    QVERIFY(!browser->openExternalLinks());
+    QVERIFY(!browser->openLinks());
+    emit browser->anchorClicked(chatUrl);
+    QCOMPARE(opened, chatUrl);
+
+    opened = {};
+    // Qt recreates text browsers when changing palette or source message.
+    content->setMessage(QStringLiteral(
+        "[the chat](https://mattermost.example.test/offtopic/channels/offmarket)"));
+    auto* rebuilt = content->findChild<QTextBrowser*>(
+        QStringLiteral("messageRichText"));
+    QVERIFY(rebuilt);
+    QVERIFY(!rebuilt->openExternalLinks());
+    QVERIFY(!rebuilt->openLinks());
+    emit rebuilt->anchorClicked(chatUrl);
+    QCOMPARE(opened, chatUrl);
 }
 
 void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
