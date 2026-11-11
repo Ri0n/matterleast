@@ -562,8 +562,18 @@ void ChannelHeaderTextLabelTest::httpChatLinksUseApplicationNavigation()
     QVERIFY(browser);
     QVERIFY(!browser->openExternalLinks());
     QVERIFY(!browser->openLinks());
-    emit browser->anchorClicked(chatUrl);
-    QCOMPARE(opened, chatUrl);
+    // Exercise a real viewport click. Emitting anchorClicked by hand was
+    // insufficient: it bypassed QTextBrowser's automatic URL opening.
+    QTextCursor first = browser->document()->find(QStringLiteral("the chat"));
+    QVERIFY(!first.isNull());
+    const int start = first.selectionStart();
+    first.setPosition(start + 3);
+    const QPoint clickPoint = browser->cursorRect(first).center();
+    QTRY_COMPARE_WITH_TIMEOUT(browser->anchorAt(clickPoint),
+                              chatUrl.toString(), 2000);
+    QTest::mouseClick(browser->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, clickPoint);
+    QTRY_COMPARE_WITH_TIMEOUT(opened, chatUrl, 2000);
 
     opened = QUrl();
     // Qt recreates text browsers when changing palette or source message.
@@ -574,8 +584,15 @@ void ChannelHeaderTextLabelTest::httpChatLinksUseApplicationNavigation()
     QVERIFY(rebuilt);
     QVERIFY(!rebuilt->openExternalLinks());
     QVERIFY(!rebuilt->openLinks());
-    emit rebuilt->anchorClicked(chatUrl);
-    QCOMPARE(opened, chatUrl);
+    QTextCursor next = rebuilt->document()->find(QStringLiteral("the chat"));
+    QVERIFY(!next.isNull());
+    next.setPosition(next.selectionStart() + 3);
+    const QPoint rebuiltClick = rebuilt->cursorRect(next).center();
+    QTRY_COMPARE_WITH_TIMEOUT(rebuilt->anchorAt(rebuiltClick),
+                              chatUrl.toString(), 2000);
+    QTest::mouseClick(rebuilt->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, rebuiltClick);
+    QTRY_COMPARE_WITH_TIMEOUT(opened, chatUrl, 2000);
 }
 
 void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
