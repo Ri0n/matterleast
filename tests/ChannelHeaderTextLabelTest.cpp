@@ -367,6 +367,32 @@ void ChannelHeaderTextLabelTest::topicChannelReferencesSharePostLinkifier()
     ref.setPosition(ref.selectionStart() + 2);
     QCOMPARE(ref.charFormat().anchorHref(),
              QStringLiteral("/another-team/channels/offmarket"));
+
+    // The topic must not turn inline code or existing Markdown links into
+    // channel navigation targets, matching post-message linkification.
+    label.setText(QStringLiteral(
+        "`~literal` [~external](https://example.org) ~visible @login.name"));
+    QTextDocument mixed;
+    mixed.setHtml(label.text());
+    QTextCursor code = mixed.find(QStringLiteral("~literal"));
+    QVERIFY(!code.isNull());
+    code.setPosition(code.selectionStart() + 2);
+    QVERIFY(!code.charFormat().isAnchor());
+    QTextCursor external = mixed.find(QStringLiteral("~external"));
+    QVERIFY(!external.isNull());
+    external.setPosition(external.selectionStart() + 2);
+    QCOMPARE(external.charFormat().anchorHref(),
+             QStringLiteral("https://example.org"));
+    QTextCursor visible = mixed.find(QStringLiteral("~visible"));
+    QVERIFY(!visible.isNull());
+    visible.setPosition(visible.selectionStart() + 2);
+    QCOMPARE(visible.charFormat().anchorHref(),
+             QStringLiteral("/another-team/channels/visible"));
+    QTextCursor mention = mixed.find(QStringLiteral("@login.name"));
+    QVERIFY(!mention.isNull());
+    mention.setPosition(mention.selectionStart() + 2);
+    QCOMPARE(mention.charFormat().anchorHref(),
+             QStringLiteral("mattermost-user:///login.name"));
 }
 
 void ChannelHeaderTextLabelTest::expandedTopicRebuildRestoresChannelLinks()
