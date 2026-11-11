@@ -208,6 +208,9 @@ void ChannelHeaderTextLabel::setText(const QString& text)
         sourceText.clear();
         formattedText.clear();
         popoverSourceText.clear();
+        if (_collapsedDocument) {
+            _collapsedDocument->clear();
+        }
         QLabel::clear();
         hidePopoverImmediately();
         if (popoverContent) {
@@ -233,6 +236,9 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     if (text.isEmpty()) {
         formattedText.clear();
         popoverSourceText.clear();
+        if (_collapsedDocument) {
+            _collapsedDocument->clear();
+        }
         QLabel::setText(QString());
         updateCollapsedHeight();
         hidePopoverImmediately();
@@ -257,6 +263,9 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     if (Backend* backend = linkBackend()) {
         ChannelReferenceDisplayNames::resolve(
             *_collapsedDocument, *backend, _linkTeamName, this, [this] {
+                if (sourceText.isEmpty() || !_collapsedDocument) {
+                    return;
+                }
                 formattedText = MessageFormatter::htmlWithLinkToolTips(
                     _collapsedDocument->toHtml());
                 QLabel::setText(formattedText);
