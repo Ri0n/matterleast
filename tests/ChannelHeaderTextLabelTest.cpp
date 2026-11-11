@@ -552,7 +552,7 @@ void ChannelHeaderTextLabelTest::httpChatLinksUseApplicationNavigation()
         Q_ARG(QString, chatUrl.toString())));
     QCOMPARE(opened, chatUrl);
 
-    opened = {};
+    opened = QUrl();
     QVERIFY(showPopover(label));
     auto* content = host.findChild<MessageContentWidget*>(
         QStringLiteral("channelHeaderTextPopoverContent"));
@@ -565,7 +565,7 @@ void ChannelHeaderTextLabelTest::httpChatLinksUseApplicationNavigation()
     emit browser->anchorClicked(chatUrl);
     QCOMPARE(opened, chatUrl);
 
-    opened = {};
+    opened = QUrl();
     // Qt recreates text browsers when changing palette or source message.
     content->setMessage(QStringLiteral(
         "[the chat](https://mattermost.example.test/offtopic/channels/offmarket)"));
