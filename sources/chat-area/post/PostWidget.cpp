@@ -70,7 +70,6 @@
 #include "ReactionChipStyle.h"
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
-#include "ChannelReferenceDisplayNames.h"
 #include "attachments/AttachedImageFile.h"
 #include "attachments/AttachmentBatchSave.h"
 #include "attachments/PostAttachmentList.h"
@@ -1831,7 +1830,7 @@ void PostWidget::connectMessageLinks()
         // Both post bodies and channel topics use the same async display-name
         // resolution. Anchors keep their original team+slug destinations.
         QPointer<PostWidget> owner(this);
-        ChannelReferenceDisplayNames::resolve(
+        UserMentionLinkifier::resolveChannelDisplayNames(
             *browser->document(), backend_, teamName, this, [owner] {
                 if (owner) {
                     emit owner->dimensionsChanged();
