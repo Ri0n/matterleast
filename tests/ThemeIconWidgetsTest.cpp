@@ -9,7 +9,9 @@
 #include <QWidget>
 
 #include "ui/SvgRasterCache.h"
+#include "channel-tree/ChannelIcons.h"
 #include "ui/IconUtils.h"
+#include "ui/PaletteIconToolButton.h"
 #include "ui/TrayBadgePainter.h"
 #include "ui/TrayBadgePolicy.h"
 #include "ui/ThemeIconWidgets.h"
@@ -55,6 +57,31 @@ QPair<int, int> changedPixelLuma(const QImage& first, const QImage& second)
     }
     return {static_cast<int>(firstSum / componentCount),
             static_cast<int>(secondSum / componentCount)};
+}
+
+// Ignore transparent antialiased edges and sample the solid tint.
+QColor iconTint(const QToolButton& button)
+{
+    const QImage image = button.icon().pixmap(20, 20).toImage();
+    qint64 red = 0;
+    qint64 green = 0;
+    qint64 blue = 0;
+    int count = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.alpha() < 192) {
+                continue;
+            }
+            red += pixel.red();
+            green += pixel.green();
+            blue += pixel.blue();
+            ++count;
+        }
+    }
+    return count
+        ? QColor(int(red / count), int(green / count), int(blue / count))
+        : QColor();
 }
 
 } // namespace
@@ -236,6 +263,71 @@ private slots:
         QVERIFY(!highlighted.isNull());
         QCOMPARE(normal.pixmap(24, 24).toImage().pixelColor(11, 7), inactive);
         QCOMPARE(highlighted.pixmap(24, 24).toImage().pixelColor(11, 7), active);
+    }
+
+    void paletteIconToolButtonsTrackSystemAndLocalPalette()
+    {
+        const QPalette original = qApp->palette();
+
+        QWidget host;
+        PaletteIconToolButton add(&host);
+        add.setIconFactory([](const QToolButton& button) {
+            return IconUtils::tintedSymbolicIcon(
+                QStringLiteral(":/icons/add"),
+                button.palette().color(QPalette::ButtonText));
+        });
+        PaletteIconToolButton browse(&host);
+        browse.setIconFactory([](const QToolButton& button) {
+            return ChannelIcons::channel(
+                button.palette().color(QPalette::ButtonText));
+        });
+        PaletteIconToolButton filter(&host);
+        filter.setCheckable(true);
+        filter.setIconFactory([](const QToolButton& button) {
+            const QPalette colors = button.palette();
+            return IconUtils::tintedSymbolicIcon(
+                QStringLiteral(":/icons/filter-variant"),
+                colors.color(button.isChecked()
+                    ? QPalette::HighlightedText
+                    : QPalette::ButtonText));
+        });
+        host.show();
+
+        QPalette dark = original;
+        dark.setColor(QPalette::ButtonText, Qt::white);
+        dark.setColor(QPalette::HighlightedText, QColor(10, 230, 15));
+        qApp->setPalette(dark);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QVERIFY(iconTint(add).isValid());
+        QVERIFY(iconTint(browse).isValid());
+        QVERIFY(iconTint(filter).isValid());
+        QVERIFY(iconTint(add).red() >= 220);
+        QVERIFY(iconTint(browse).red() >= 220);
+        QVERIFY(iconTint(filter).red() >= 220);
+
+        filter.setChecked(true);
+        const QColor checkedTint = iconTint(filter);
+        QVERIFY(checkedTint.green() >= 190);
+        QVERIFY(checkedTint.red() < 60);
+        filter.setChecked(false);
+        QVERIFY(iconTint(filter).red() >= 220);
+
+        QPalette light = original;
+        light.setColor(QPalette::ButtonText, Qt::black);
+        qApp->setPalette(light);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QVERIFY(iconTint(add).red() <= 35);
+        QVERIFY(iconTint(browse).red() <= 35);
+        QVERIFY(iconTint(filter).red() <= 35);
+
+        // Individual controls may also receive custom palettes from Qt styles.
+        add.setPalette(dark);
+        QCOMPARE(iconTint(add).red() >= 220, true);
+        add.setPalette(light);
+        QCOMPARE(iconTint(add).red() <= 35, true);
+        qApp->setPalette(original);
     }
 
     void symbolicIconTracksApplicationPalette()
