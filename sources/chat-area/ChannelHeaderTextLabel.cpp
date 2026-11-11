@@ -49,6 +49,7 @@
 #include "backend/emoji/EmojiRegistry.h"
 #include "navigation/AppNavigationService.h"
 #include "post/MessageContentWidget.h"
+#include "post/ChannelReferenceDisplayNames.h"
 #include "post/MessageFormatter.h"
 #include "post/UserMentionLinkifier.h"
 #include "backend/UserProfileService.h"
@@ -93,8 +94,9 @@ const QSet<QString>& unicodeEmojiStrings()
     return emojiStrings;
 }
 
-QString formatCollapsedTopic(const QString& text, const QFont& font,
-                             EmojiRegistry* registry, const QString& teamName)
+QString formatCollapsedTopic(QTextDocument& document, const QString& text,
+                             const QFont& font, EmojiRegistry* registry,
+                             const QString& teamName)
 {
     const QString html = EmojiPresentation::normalizeHtml(
         MessageFormatter::formatMessageText(text, registry),
@@ -102,7 +104,6 @@ QString formatCollapsedTopic(const QString& text, const QFont& font,
         EmojiPresentation::Mode::Inline,
         registry);
 
-    QTextDocument document;
     document.setDefaultFont(font);
     document.setDocumentMargin(0);
     document.setHtml(html);
@@ -189,6 +190,7 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
     hideTimer.setInterval(120);
     connect(&hideTimer, &QTimer::timeout, this, &ChannelHeaderTextLabel::hidePopover);
 
+    _collapsedDocument = new QTextDocument(this);
     updateCollapsedHeight();
 }
 
@@ -243,9 +245,24 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     }
 
     show();
-    formattedText = formatCollapsedTopic(text, font(), _emojiRegistry, _linkTeamName);
+    formattedText = formatCollapsedTopic(
+        *_collapsedDocument, text, font(), _emojiRegistry, _linkTeamName);
     QLabel::setText(formattedText);
     updateCollapsedHeight();
+
+    // Unlike a post, the collapsed QLabel holds exported HTML rather than a
+    // live QTextBrowser document. Keep its QTextDocument alive so the same
+    // resolver can fill in human-readable channel names asynchronously, then
+    // export the new HTML without reconstructing the topic widget.
+    if (Backend* backend = linkBackend()) {
+        ChannelReferenceDisplayNames::resolve(
+            *_collapsedDocument, *backend, _linkTeamName, this, [this] {
+                formattedText = MessageFormatter::htmlWithLinkToolTips(
+                    _collapsedDocument->toHtml());
+                QLabel::setText(formattedText);
+                updateCollapsedHeight();
+            });
+    }
 
     if (popoverContent && popoverSourceText != sourceText) {
         popoverContent->setMinimumHeight(0);
@@ -483,12 +500,22 @@ void ChannelHeaderTextLabel::configurePopoverLinks()
     const auto browsers = popoverContent->findChildren<QTextBrowser*>();
     for (QTextBrowser* browser : browsers) {
         browser->setOpenExternalLinks(false);
+        // Every contentRebuilt reuses the post linkifier and channel display
+        // resolver. Reconnect anchorClicked only once per QTextBrowser.
+        UserMentionLinkifier::linkify(*browser->document(), {}, _linkTeamName);
+        if (Backend* backend = linkBackend()) {
+            QPointer<QTextBrowser> guard(browser);
+            ChannelReferenceDisplayNames::resolve(
+                *browser->document(), *backend, _linkTeamName, this,
+                [this, guard] {
+                    if (guard && popover && popover->isVisible()) {
+                        updatePopoverGeometry(true);
+                    }
+                });
+        }
         if (browser->property("channelHeaderLinkConfigured").toBool()) {
             continue;
         }
-        // Apply precisely the post-message linkification algorithm, including
-        // the existing-link/code exclusions and channel slug grammar.
-        UserMentionLinkifier::linkify(*browser->document(), {}, _linkTeamName);
         browser->setProperty("channelHeaderLinkConfigured", true);
         connect(browser, &QTextBrowser::anchorClicked, this,
                 [this](const QUrl& url) { openLink(url); });
@@ -729,6 +756,16 @@ void ChannelHeaderTextLabel::ensureEmojiRegistry()
         }
         return;
     }
+}
+
+Backend* ChannelHeaderTextLabel::linkBackend() const
+{
+    for (QWidget* host = parentWidget(); host; host = host->parentWidget()) {
+        if (auto* area = qobject_cast<ChatArea*>(host)) {
+            return &area->getBackend();
+        }
+    }
+    return nullptr;
 }
 
 void ChannelHeaderTextLabel::openLink(const QUrl& url)
