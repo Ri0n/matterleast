@@ -12,6 +12,7 @@
 #include <QPointer>
 
 #include "backend/Backend.h"
+#include "backend/ChannelReferenceService.h"
 #include "backend/HTTPConnector.h"
 #include "backend/HttpResponseCallback.h"
 #include "backend/NetworkRequest.h"
@@ -470,6 +471,67 @@ void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
             }
             return;
         }
+
+        // A valid Mattermost channel URL must never fall through to the web
+        // browser solely because this channel isn't yet in local Storage.
+        // Messages and topics both call this service. Resolve the channel ID
+        // using the same API/cache as ~channel display-name lookups, then
+        // materialize the channel before navigating to it.
+        const quint64 generation = beginNavigation();
+        QPointer<AppNavigationService> guard(this);
+        const QString teamName = route.teamName;
+        ChannelReferenceService::instance(backend).resolveId(
+            teamName, route.target,
+            [guard, generation, inTab, teamName](const QString& channelId) {
+                if (!guard || !guard->navigationRequests.isCurrent(generation)) {
+                    return;
+                }
+                if (channelId.isEmpty()) {
+                    qCWarning(lcNavigationResolve)
+                        << "Channel URL could not be resolved in application:"
+                        << teamName;
+                    return;
+                }
+
+                auto navigate = [guard, generation, inTab](
+                                    BackendChannel& channel) {
+                    if (!guard || !guard->navigationRequests.isCurrent(generation)) {
+                        return;
+                    }
+                    if (inTab) {
+                        guard->openChannelInTab(channel.id);
+                    } else {
+                        guard->openChannel(channel.id);
+                    }
+                };
+
+                if (BackendChannel* channel =
+                        guard->backend.getStorage().getChannelById(channelId)) {
+                    if (channel->team && channel->team->name == teamName) {
+                        navigate(*channel);
+                    }
+                    return;
+                }
+
+                for (auto& entry : guard->backend.getStorage().teams) {
+                    BackendTeam& team = entry.second;
+                    if (team.name != teamName) {
+                        continue;
+                    }
+                    guard->backend.retrieveChannel(
+                        team, channelId,
+                        [navigate, teamName](BackendChannel& loaded) {
+                            if (loaded.team && loaded.team->name == teamName) {
+                                navigate(loaded);
+                            }
+                        });
+                    return;
+                }
+                qCWarning(lcNavigationResolve)
+                    << "Channel URL team not present in local storage:"
+                    << teamName;
+            });
+        return;
     } else if (route.kind == MattermostUrlRoute::Kind::DirectMessage) {
         QString username = route.target;
         if (username.startsWith(QLatin1Char('@'))) {
