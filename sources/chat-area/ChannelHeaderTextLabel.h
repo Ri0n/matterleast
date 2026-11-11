@@ -29,9 +29,11 @@
 
 class QPropertyAnimation;
 class QScrollArea;
+class QTextDocument;
 
 namespace Mattermost {
 
+class Backend;
 class EmojiRegistry;
 class MessageContentWidget;
 
@@ -89,8 +91,10 @@ private:
     void updateCollapsedHeight();
     void openLink(const QUrl& url);
     void ensureEmojiRegistry();
+    Backend* linkBackend() const;
 
     QString sourceText;
+    QPointer<QTextDocument> _collapsedDocument;
     QString _linkTeamName;
     QString formattedText;
     QString popoverSourceText;
