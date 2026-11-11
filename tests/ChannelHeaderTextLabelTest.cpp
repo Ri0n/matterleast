@@ -23,6 +23,8 @@
 
 #include "chat-area/ChannelHeaderTextLabel.h"
 #include "chat-area/post/MessageContentWidget.h"
+#include "chat-area/post/ChannelReferenceDisplayNames.h"
+#include "chat-area/post/UserMentionLinkifier.h"
 
 using namespace Mattermost;
 
@@ -52,6 +54,7 @@ private slots:
     void popoverUsesMessageCodeBlockRenderer();
     void collapsedMarkdownLinksKeepTargetTooltips();
     void topicChannelReferencesSharePostLinkifier();
+    void channelDisplayNamesPreserveLinksAndAvoidRelinking();
     void expandedTopicRebuildRestoresChannelLinks();
     void collapsedLabelShowsHoveredLinkTooltip();
     void collapsedLabelClearsTooltipOnLeaveAndTextChange();
@@ -393,6 +396,61 @@ void ChannelHeaderTextLabelTest::topicChannelReferencesSharePostLinkifier()
     mention.setPosition(mention.selectionStart() + 2);
     QCOMPARE(mention.charFormat().anchorHref(),
              QStringLiteral("mattermost-user:///login.name"));
+}
+
+void ChannelHeaderTextLabelTest::channelDisplayNamesPreserveLinksAndAvoidRelinking()
+{
+    QTextDocument document;
+    document.setMarkdown(QStringLiteral(
+        "~off-pet-photo, ~off-3d-printing and `~literal` "
+        "[~external](https://example.org)."));
+    UserMentionLinkifier::linkify(document, {}, QStringLiteral("offtopic"));
+
+    const QSet<QString> references =
+        ChannelReferenceDisplayNames::unresolvedSlugs(
+            document, QStringLiteral("offtopic"));
+    QVERIFY(references.contains(QStringLiteral("off-pet-photo")));
+    QVERIFY(references.contains(QStringLiteral("off-3d-printing")));
+    QVERIFY(!references.contains(QStringLiteral("literal")));
+    QVERIFY(!references.contains(QStringLiteral("external")));
+
+    QVERIFY(ChannelReferenceDisplayNames::replace(
+        document, QStringLiteral("offtopic"),
+        QStringLiteral("off-pet-photo"), QStringLiteral("Pet photography")));
+    QVERIFY(ChannelReferenceDisplayNames::replace(
+        document, QStringLiteral("offtopic"),
+        QStringLiteral("off-3d-printing"), QStringLiteral("3D printing")));
+    QVERIFY(!ChannelReferenceDisplayNames::replace(
+        document, QStringLiteral("offtopic"),
+        QStringLiteral("off-pet-photo"), QStringLiteral("Pet photography")));
+    QVERIFY(!ChannelReferenceDisplayNames::replace(
+        document, QStringLiteral("different-team"),
+        QStringLiteral("off-3d-printing"), QStringLiteral("Wrong team")));
+
+    QTextCursor photo = document.find(QStringLiteral("~Pet photography"));
+    QVERIFY(!photo.isNull());
+    photo.setPosition(photo.selectionStart() + 2);
+    QCOMPARE(photo.charFormat().anchorHref(),
+             QStringLiteral("/offtopic/channels/off-pet-photo"));
+    QCOMPARE(photo.charFormat().toolTip(),
+             QStringLiteral("/offtopic/channels/off-pet-photo"));
+
+    QTextCursor printing = document.find(QStringLiteral("~3D printing"));
+    QVERIFY(!printing.isNull());
+    printing.setPosition(printing.selectionStart() + 2);
+    QCOMPARE(printing.charFormat().anchorHref(),
+             QStringLiteral("/offtopic/channels/off-3d-printing"));
+    QTextCursor code = document.find(QStringLiteral("~literal"));
+    QVERIFY(!code.isNull());
+    code.setPosition(code.selectionStart() + 2);
+    QVERIFY(!code.charFormat().isAnchor());
+    QTextCursor external = document.find(QStringLiteral("~external"));
+    QVERIFY(!external.isNull());
+    external.setPosition(external.selectionStart() + 2);
+    QCOMPARE(external.charFormat().anchorHref(),
+             QStringLiteral("https://example.org"));
+    QVERIFY(ChannelReferenceDisplayNames::unresolvedSlugs(
+        document, QStringLiteral("offtopic")).isEmpty());
 }
 
 void ChannelHeaderTextLabelTest::expandedTopicRebuildRestoresChannelLinks()
