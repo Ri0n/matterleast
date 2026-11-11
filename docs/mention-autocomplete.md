@@ -63,6 +63,21 @@ unknown/non-resident targets retain the existing browser fallback.
 The renderer derives the team from the owning `ChatArea`; DM/GM views use the
 same current UI team-context fallback as composer completion.
 
+## Rendered user mentions
+
+Rendered `@username` references are linkified directly from message text, without
+waiting for profile or group-cache requests. Dots within usernames are valid;
+sentence-final punctuation such as a period is not part of the link. The
+`mattermost-user` route resolves the exact username against local profiles first,
+then by the server API if missing.
+
+`MessageContentWidget::setMessage()` replaces the QTextBrowser children on
+every content refresh (including emoji, font, palette and inline-attachment
+updates). `contentRebuilt()` is the single notification used by `PostWidget`
+to reapply mention/channel links and reconnect their click handlers. Do not
+connect links only during the initial post construction: they would silently
+disappear on the next body rebuild.
+
 ## Cache role
 
 `MentionGroupService::ensureTeamGroups()` is a warm local cache for rendering,

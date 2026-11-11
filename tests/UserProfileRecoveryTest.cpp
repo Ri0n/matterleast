@@ -4,6 +4,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTextBrowser>
+#include <QTextCursor>
 #include <QLabel>
 #include <QPixmap>
 #include <QTcpServer>
@@ -16,6 +18,8 @@
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendUser.h"
 #include "chat-area/post/PostWidget.h"
+#include "chat-area/post/MessageContentWidget.h"
+#include "info-dialogs/UserProfileDialog.h"
 
 using namespace Mattermost;
 
@@ -134,6 +138,60 @@ private slots:
         });
         emit profiles.profileResolved(kUserId);
         QCOMPARE(label->text(), QStringLiteral("Updated Author"));
+    }
+
+    void dottedMentionsRemainClickableAfterBodyRebuild()
+    {
+        Backend backend;
+        BackendUser* author = backend.getStorage().addUser(userJson());
+        QVERIFY(author);
+        auto post = BackendPost(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("aaaaabbbbbcccccdddddeeeee2")},
+            {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+            {QStringLiteral("user_id"), kUserId},
+            {QStringLiteral("create_at"), 1791534000000.0},
+            {QStringLiteral("message"),
+             QStringLiteral("Hello @retried.author and @second.user.")},
+        }, backend.getStorage());
+
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        widget.resize(700, 220);
+        widget.show();
+        QCoreApplication::processEvents();
+
+        auto* content = widget.findChild<MessageContentWidget*>();
+        QVERIFY(content);
+        auto* firstBrowser = content->findChild<QTextBrowser*>(
+            QStringLiteral("messageRichText"));
+        QVERIFY(firstBrowser);
+
+        // An attachment/emoji/font refresh recreates all QTextBrowser children.
+        // Mention formatting and click handlers must be restored every time.
+        content->setInlineAttachmentContext({}, {});
+        auto* browser = content->findChild<QTextBrowser*>(
+            QStringLiteral("messageRichText"));
+        QVERIFY(browser);
+        for (const QString& username : {QStringLiteral("retried.author"),
+                                        QStringLiteral("second.user")}) {
+            QTextCursor mention = browser->document()->find(
+                QLatin1Char('@') + username);
+            QVERIFY(!mention.isNull());
+            mention.setPosition(mention.selectionStart() + 2);
+            QVERIFY(mention.charFormat().isAnchor());
+            QCOMPARE(mention.charFormat().anchorHref(),
+                     QStringLiteral("mattermost-user:///") + username);
+        }
+
+        // The sender is already in Storage, so clicking its name must open a
+        // profile immediately without waiting for another server lookup.
+        QTextCursor senderMention = browser->document()->find(
+            QStringLiteral("@retried.author"));
+        senderMention.setPosition(senderMention.selectionStart() + 2);
+        QSignalSpy clickSpy(browser, &QTextBrowser::anchorClicked);
+        QTest::mouseClick(browser->viewport(), Qt::LeftButton,
+                          Qt::NoModifier, browser->cursorRect(senderMention).center());
+        QCOMPARE(clickSpy.count(), 1);
+        QVERIFY(widget.findChild<UserProfileDialog*>());
     }
 
     void temporaryProfileHttpFailureRetriesAndResolvesWaiter()

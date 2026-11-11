@@ -417,10 +417,9 @@ PostWidget::PostWidget(Backend& backend,
 	ui->verticalLayout->insertWidget(messageIndex, messageContent);
 	connect(messageContent, &MessageContentWidget::dimensionsChanged,
 	        this, &PostWidget::dimensionsChanged);
-	connect(messageContent, &MessageContentWidget::paletteRefreshCompleted,
-	        this, &PostWidget::connectMessageLinks);
+	connect(messageContent, &MessageContentWidget::contentRebuilt,
+            this, &PostWidget::connectMessageLinks);
 	messageContent->setMessage(displayMessage(post, post.message));
-	connectMessageLinks();
 	refreshPermalinkPreviews();
     updateTimestampPresentation();
     updateTimestampPalette();
@@ -1777,7 +1776,6 @@ void PostWidget::updateAuthorAvatar()
 void PostWidget::setEdited(const QString& message)
 {
 	messageContent->setMessage(displayMessage(post, message));
-	connectMessageLinks();
 	refreshPermalinkPreviews();
 
 	if (post.poll) {
@@ -1801,7 +1799,6 @@ void PostWidget::refreshMentionLinks()
         return;
     }
     messageContent->setMessage(displayMessage(post, post.message));
-    connectMessageLinks();
 }
 
 void PostWidget::connectMessageLinks()

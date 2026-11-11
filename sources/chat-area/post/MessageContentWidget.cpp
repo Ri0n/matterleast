@@ -991,6 +991,7 @@ void MessageContentWidget::setMessage(const QString& message)
     if (message.isEmpty()) {
         setVisible(false);
         scheduleDimensionsChanged();
+        emit contentRebuilt();
         return;
     }
 
@@ -1011,6 +1012,7 @@ void MessageContentWidget::setMessage(const QString& message)
 #endif
     }
     scheduleDimensionsChanged();
+    emit contentRebuilt();
 }
 
 void MessageContentWidget::clear()
