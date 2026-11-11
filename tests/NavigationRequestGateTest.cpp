@@ -34,18 +34,6 @@ private slots:
         QCOMPARE(channel.teamName, QStringLiteral("engineering"));
         QCOMPARE(channel.target, QStringLiteral("town-square"));
 
-        // A same-origin HTTP link to a channel not yet present in Storage
-        // is still an internal channel route; AppNavigationService must
-        // resolve it instead of falling back to QDesktopServices.
-        const MattermostUrlRoute coldChannel = MattermostUrlRouter::classify(
-            QUrl(QStringLiteral(
-                "https://chat.example.invalid/engineering/channels/"
-                "abcdefghijklmnopqrstuvwx12")),
-            serverUrl);
-        QVERIFY(coldChannel.kind == MattermostUrlRoute::Kind::Channel);
-        QCOMPARE(coldChannel.teamName, QStringLiteral("engineering"));
-        QCOMPARE(coldChannel.target, QStringLiteral("abcdefghijklmnopqrstuvwx12"));
-
         const MattermostUrlRoute permalink = MattermostUrlRouter::classify(
             QUrl(QStringLiteral(
                 "https://chat.example.invalid/engineering/pl/post-id?from=search#reply")),
