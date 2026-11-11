@@ -88,7 +88,6 @@
 #include "post-collection/PostCollectionView.h"
 #include "plugins/PluginManager.h"
 #include "ui/IconUtils.h"
-#include "ui/PaletteIconToolButton.h"
 #include "ui/TrayBadgePolicy.h"
 #include "ui/EmojiPresentation.h"
 #include "ui/TeamSelectorLabel.h"
@@ -391,7 +390,7 @@ void MainWindow::setupChannelTabs()
 	channelsLayout->setContentsMargins(0, 0, 0, 0);
 	channelsLayout->setSpacing(0);
 	ui->teamSelectorLabel->hide();
-	unreadFilterButton = new PaletteIconToolButton(channelsPage);
+	unreadFilterButton = new QToolButton(channelsPage);
 	unreadFilterButton->setObjectName(QStringLiteral("channelsUnreadFilterButton"));
 	unreadFilterButton->setCheckable(true);
 	unreadFilterButton->setAutoRaise(true);
@@ -403,17 +402,8 @@ void MainWindow::setupChannelTabs()
 	unreadFilterButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
 	unreadFilterButton->setToolTip(tr("Show unread only"));
 	unreadFilterButton->setAccessibleName(tr("Show unread only"));
-	// Rebuild the tinted SVG after palette propagation (also on checked toggle).
-	static_cast<PaletteIconToolButton*>(unreadFilterButton)->setIconFactory(
-	    [](const QToolButton& button) {
-	    const QPalette colors = button.palette();
-	    const QColor tint = button.isChecked()
-	        ? colors.color(QPalette::HighlightedText)
-	        : colors.color(QPalette::ButtonText);
-	    return IconUtils::tintedSymbolicIcon(
-	        QStringLiteral(":/icons/filter-variant"), tint);
-	});
-	refreshUnreadFilterTooltip();
+	unreadFilterButton->installEventFilter(this);
+	refreshUnreadFilterIcon();
 	channelsLayout->addWidget(
 		ui->teamSelectorLabel->createTeamToolbar(channelsPage, unreadFilterButton));
 	channelsLayout->addWidget(ui->channelList, 1);
@@ -613,7 +603,7 @@ void MainWindow::setupChannelTabs()
 	connect(sidebarFilterEdit, &QLineEdit::textChanged,
 	        this, &MainWindow::refreshSidebarViews);
 	connect(unreadFilterButton, &QToolButton::toggled, this, [this] {
-		refreshUnreadFilterTooltip();
+		refreshUnreadFilterIcon();
 		refreshChannelUnreadFilter();
 	});
 
@@ -1178,6 +1168,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 			refreshMenuButtonIcon();
         } else if (watched == ui->searchButton) {
             refreshSearchButtonIcon();
+		} else if (watched == unreadFilterButton) {
+            // Child palette events may precede parent/style propagation.
+            QTimer::singleShot(0, this, [this] { refreshUnreadFilterIcon(); });
 		}
 	}
 	return QMainWindow::eventFilter(watched, event);
@@ -1206,13 +1199,26 @@ void MainWindow::refreshSearchButtonIcon()
         ui->searchButton->palette().color(QPalette::ButtonText)));
 }
 
-void MainWindow::refreshUnreadFilterTooltip()
+void MainWindow::refreshUnreadFilterIcon()
 {
-    if (!unreadFilterButton) {
-        return;
-    }
-    unreadFilterButton->setToolTip(unreadFilterButton->isChecked()
-        ? tr("Show all channels") : tr("Show unread only"));
+	if (!unreadFilterButton) {
+		return;
+	}
+
+    // Compass icon-filter-variant (F0236), the same glyph as the official
+    // Mattermost client. Never depend on theme icons or private-use fonts:
+    // Windows has neither and used to fall back to an information icon.
+    const QPalette palette = unreadFilterButton->palette();
+    // Match the explicit checked background instead of relying on native
+    // styles to choose a contrasting foreground for a pre-tinted icon.
+    const QColor color = unreadFilterButton->isChecked()
+        ? palette.color(QPalette::HighlightedText)
+        : palette.color(QPalette::ButtonText);
+    unreadFilterButton->setIcon(IconUtils::tintedSymbolicIcon(
+        QStringLiteral(":/icons/filter-variant"), color));
+	unreadFilterButton->setToolTip(unreadFilterButton->isChecked()
+		? tr("Show all channels")
+		: tr("Show unread only"));
 }
 
 void MainWindow::moveEvent(QMoveEvent*)
@@ -1231,6 +1237,17 @@ void MainWindow::dragMoveEvent(QDragMoveEvent*)
 void MainWindow::changeEvent(QEvent* event)
 {
 	QWidget::changeEvent(event);
+    if (event && (event->type() == QEvent::PaletteChange
+                  || event->type() == QEvent::ApplicationPaletteChange
+                  || event->type() == QEvent::StyleChange)) {
+        // Refresh after Qt finishes propagating the new palette to child
+        // buttons. IconUtils produces tinted QPixmaps, not live SVG icons.
+        QTimer::singleShot(0, this, [this] {
+            refreshMenuButtonIcon();
+            refreshSearchButtonIcon();
+            refreshUnreadFilterIcon();
+        });
+    }
 	if (event->type() == QEvent::ActivationChange) {
 		if (isActiveWindow()) {
             // A docked thread and the central chat may both have visible
