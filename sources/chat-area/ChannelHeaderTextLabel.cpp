@@ -50,6 +50,9 @@
 #include "navigation/AppNavigationService.h"
 #include "post/MessageContentWidget.h"
 #include "post/MessageFormatter.h"
+#include "post/UserMentionLinkifier.h"
+#include "backend/UserProfileService.h"
+#include "info-dialogs/UserProfileDialog.h"
 #include "ui/EmojiPresentation.h"
 #include "ui/PresenceAvatarLabel.h"
 
@@ -91,7 +94,7 @@ const QSet<QString>& unicodeEmojiStrings()
 }
 
 QString formatCollapsedTopic(const QString& text, const QFont& font,
-                             EmojiRegistry* registry)
+                             EmojiRegistry* registry, const QString& teamName)
 {
     const QString html = EmojiPresentation::normalizeHtml(
         MessageFormatter::formatMessageText(text, registry),
@@ -140,6 +143,9 @@ QString formatCollapsedTopic(const QString& text, const QFont& font,
         }
     }
 
+    // Use the same ~channel/@user linkification rules as post messages,
+    // after the rich-text/emoji document has been constructed.
+    UserMentionLinkifier::linkify(document, {}, teamName);
     return MessageFormatter::htmlWithLinkToolTips(document.toHtml());
 }
 
@@ -237,7 +243,7 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     }
 
     show();
-    formattedText = formatCollapsedTopic(text, font(), _emojiRegistry);
+    formattedText = formatCollapsedTopic(text, font(), _emojiRegistry, _linkTeamName);
     QLabel::setText(formattedText);
     updateCollapsedHeight();
 
@@ -264,6 +270,17 @@ void ChannelHeaderTextLabel::setText(const QString& text)
 void ChannelHeaderTextLabel::setLinkHandler(LinkHandler handler)
 {
     linkHandler = std::move(handler);
+}
+
+void ChannelHeaderTextLabel::setLinkTeamName(const QString& teamName)
+{
+    if (_linkTeamName == teamName) {
+        return;
+    }
+    _linkTeamName = teamName;
+    if (!sourceText.isEmpty()) {
+        setText(sourceText);
+    }
 }
 
 QSize ChannelHeaderTextLabel::sizeHint() const
@@ -354,8 +371,11 @@ void ChannelHeaderTextLabel::ensurePopover()
     layout->addWidget(content);
     scrollArea->setWidget(container);
 
+    // MessageContentWidget replaces its QTextBrowser children after every
+    // message/emoji/palette refresh. Re-linkify the new documents each time.
+    connect(content, &MessageContentWidget::contentRebuilt, this,
+            &ChannelHeaderTextLabel::configurePopoverLinks);
     connect(content, &MessageContentWidget::dimensionsChanged, this, [this] {
-        configurePopoverLinks();
         if (!popover || !popover->isVisible()) {
             return;
         }
@@ -463,6 +483,9 @@ void ChannelHeaderTextLabel::configurePopoverLinks()
         if (browser->property("channelHeaderLinkConfigured").toBool()) {
             continue;
         }
+        // Apply precisely the post-message linkification algorithm, including
+        // the existing-link/code exclusions and channel slug grammar.
+        UserMentionLinkifier::linkify(*browser->document(), {}, _linkTeamName);
         browser->setProperty("channelHeaderLinkConfigured", true);
         connect(browser, &QTextBrowser::anchorClicked, this,
                 [this](const QUrl& url) { openLink(url); });
@@ -715,11 +738,25 @@ void ChannelHeaderTextLabel::openLink(const QUrl& url)
         return;
     }
 
-    // The header is specific to ChatArea, so use its semantic navigation as the
-    // default route. AppNavigationService keeps external URLs in the browser and
-    // handles local channel/DM/permalink URLs inside the application.
+    // Route semantic links just like PostWidget, but through the parent
+    // ChatArea instead of opening an internal mention URL in a web browser.
     for (QWidget* host = parentWidget(); host; host = host->parentWidget()) {
         if (auto* area = qobject_cast<ChatArea*>(host)) {
+            if (url.scheme() == QStringLiteral("mattermost-user")) {
+                const QString username = url.path().mid(1);
+                if (!username.isEmpty()) {
+                    QPointer<ChatArea> guard(area);
+                    UserProfileService::instance(area->getBackend())
+                        .ensureUserByUsername(username,
+                            [guard](const BackendUser* user) {
+                        if (guard && user) {
+                            UserProfileDialog::showTransient(
+                                guard->getBackend(), *user, guard);
+                        }
+                    });
+                }
+                return;
+            }
             AppNavigationService::instance(area->getBackend()).openUrl(url);
             return;
         }
