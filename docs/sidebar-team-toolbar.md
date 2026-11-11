@@ -22,12 +22,11 @@ A separate avatar menu manages user availability and custom status.
 Team pills and the button row are explicitly left-aligned, so a single team
 starts at the sidebar tree edge instead of floating in the center of the row.
 
-## Palette switching
+## Palette changes
 
-The unread-only filter, Browse public channels (#), and Add team (+) icons are
-palette-derived pixmaps rather than persistent static SVG icons. They use the
-shared `PaletteIconToolButton` to regenerate their pixmaps on local palette,
-style, application palette and checked-state changes. A coalesced update after
-`PaletteChange` or `ApplicationPaletteChange` handles cases where child events
-arrive before palette propagation finishes, without rebuilding the team strip
-or altering team selection and scroll position.
+The channel toolbar uses the same `IconUtils` tinting as other buttons.
+Because the tinted icons are pixmaps, `TeamSelectorLabel` recreates the
+`+` and `#` icons when its detached toolbar's palette or style changes.
+The unread-only filter uses the existing `MainWindow::refreshUnreadFilterIcon()`
+path, refreshed after the application palette propagates to child buttons.
+No team toolbar rebuild is required to update the icons.
