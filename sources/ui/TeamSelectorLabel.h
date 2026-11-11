@@ -42,11 +42,13 @@ protected:
     void showEvent(QShowEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void changeEvent(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void attachTree();
     void refreshTeams();
     void rebuildTeamToolbar();
+    void refreshTeamToolbarIcons();
     void updateTeamToolbarSelection();
     bool setActiveTeam(const QString& teamId, bool persist);
     bool hasTeamRoot(const QString& teamId) const;

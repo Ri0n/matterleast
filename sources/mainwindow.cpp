@@ -404,8 +404,12 @@ void MainWindow::setupChannelTabs()
 	unreadFilterButton->setAccessibleName(tr("Show unread only"));
 	unreadFilterButton->installEventFilter(this);
 	refreshUnreadFilterIcon();
-	channelsLayout->addWidget(
-		ui->teamSelectorLabel->createTeamToolbar(channelsPage, unreadFilterButton));
+	QWidget* teamToolbar =
+        ui->teamSelectorLabel->createTeamToolbar(channelsPage, unreadFilterButton);
+    // The toolbar itself receives palette updates even when a button's
+    // stylesheet prevents it from inheriting the new palette correctly.
+    teamToolbar->installEventFilter(this);
+    channelsLayout->addWidget(teamToolbar);
 	channelsLayout->addWidget(ui->channelList, 1);
 
     // Reuse the existing Following projection inside an Unread tab. The
@@ -1163,14 +1167,20 @@ void MainWindow::createMenu()
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
-	if (event && event->type() == QEvent::PaletteChange) {
+    if (event && (event->type() == QEvent::PaletteChange
+                  || event->type() == QEvent::ApplicationPaletteChange
+                  || event->type() == QEvent::StyleChange)) {
 		if (watched == ui->toolButton) {
 			refreshMenuButtonIcon();
         } else if (watched == ui->searchButton) {
             refreshSearchButtonIcon();
-		} else if (watched == unreadFilterButton) {
-			refreshUnreadFilterIcon();
-		}
+        } else if (unreadFilterButton
+                   && (watched == unreadFilterButton
+                       || watched == unreadFilterButton->parentWidget())) {
+            // Follow the same toolbar palette event that updates the # and +
+            // buttons; the filter's own stylesheet may keep stale colors.
+            QTimer::singleShot(0, this, [this] { refreshUnreadFilterIcon(); });
+        }
 	}
 	return QMainWindow::eventFilter(watched, event);
 }
@@ -1207,7 +1217,12 @@ void MainWindow::refreshUnreadFilterIcon()
     // Compass icon-filter-variant (F0236), the same glyph as the official
     // Mattermost client. Never depend on theme icons or private-use fonts:
     // Windows has neither and used to fall back to an information icon.
-    const QPalette palette = unreadFilterButton->palette();
+    // The checked-state stylesheet can retain an outdated button palette
+    // across system theme changes. The surrounding team toolbar receives the
+    // correct inherited palette (also used for # and +), so use that instead.
+    const QWidget* toolbar = unreadFilterButton->parentWidget();
+    const QPalette palette = toolbar ? toolbar->palette()
+                                     : QApplication::palette();
     // Match the explicit checked background instead of relying on native
     // styles to choose a contrasting foreground for a pre-tinted icon.
     const QColor color = unreadFilterButton->isChecked()
@@ -1236,6 +1251,17 @@ void MainWindow::dragMoveEvent(QDragMoveEvent*)
 void MainWindow::changeEvent(QEvent* event)
 {
 	QWidget::changeEvent(event);
+    if (event && (event->type() == QEvent::PaletteChange
+                  || event->type() == QEvent::ApplicationPaletteChange
+                  || event->type() == QEvent::StyleChange)) {
+        // Refresh after Qt finishes propagating the new palette to child
+        // buttons. IconUtils produces tinted QPixmaps, not live SVG icons.
+        QTimer::singleShot(0, this, [this] {
+            refreshMenuButtonIcon();
+            refreshSearchButtonIcon();
+            refreshUnreadFilterIcon();
+        });
+    }
 	if (event->type() == QEvent::ActivationChange) {
 		if (isActiveWindow()) {
             // A docked thread and the central chat may both have visible

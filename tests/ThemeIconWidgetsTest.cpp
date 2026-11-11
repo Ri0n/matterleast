@@ -6,8 +6,10 @@
 #include <QImage>
 #include <QPainter>
 #include <QPalette>
+#include <QToolButton>
 #include <QWidget>
 
+#include "channel-tree/ChannelIcons.h"
 #include "ui/SvgRasterCache.h"
 #include "ui/IconUtils.h"
 #include "ui/TrayBadgePainter.h"
@@ -236,6 +238,75 @@ private slots:
         QVERIFY(!highlighted.isNull());
         QCOMPARE(normal.pixmap(24, 24).toImage().pixelColor(11, 7), inactive);
         QCOMPARE(highlighted.pixmap(24, 24).toImage().pixelColor(11, 7), active);
+    }
+
+    void sidebarToolbarIconsUseSharedPaletteTinting()
+    {
+        // The team actions and unread filter use the same IconUtils paths as
+        // other controls. Include the painted '#' icon in the tint check.
+        const QList<QPair<QIcon, QIcon>> icons {
+            {IconUtils::tintedSymbolicIcon(QStringLiteral(":/icons/add"), Qt::white),
+             IconUtils::tintedSymbolicIcon(QStringLiteral(":/icons/add"), Qt::black)},
+            {IconUtils::tintedIcon(ChannelIcons::channel(), Qt::white),
+             IconUtils::tintedIcon(ChannelIcons::channel(), Qt::black)},
+            {IconUtils::tintedSymbolicIcon(QStringLiteral(":/icons/filter-variant"), Qt::white),
+             IconUtils::tintedSymbolicIcon(QStringLiteral(":/icons/filter-variant"), Qt::black)}
+        };
+        for (const auto& pair : icons) {
+            QVERIFY(!pair.first.isNull());
+            QVERIFY(!pair.second.isNull());
+            const auto luma = changedPixelLuma(
+                pair.first.pixmap(24, 24).toImage(),
+                pair.second.pixmap(24, 24).toImage());
+            QVERIFY2(luma.first >= luma.second + 100,
+                     "Sidebar toolbar icon must be tinted from the current palette");
+        }
+    }
+
+    void unreadFilterTintUsesToolbarPaletteNotStylesheetButtonPalette()
+    {
+        QWidget toolbar;
+        QToolButton filter(&toolbar);
+        filter.setCheckable(true);
+        filter.setStyleSheet(QStringLiteral(
+            "QToolButton:checked { background-color: palette(highlight); "
+            "color: palette(highlighted-text); border: none; border-radius: 4px; }"));
+        toolbar.show();
+        QCoreApplication::processEvents();
+
+        // A stylesheet can leave an explicit button palette behind when
+        // the parent has already switched from dark to light.
+        QPalette stale = filter.palette();
+        stale.setColor(QPalette::ButtonText, Qt::white);
+        filter.setPalette(stale);
+        QPalette light = toolbar.palette();
+        light.setColor(QPalette::ButtonText, Qt::black);
+        toolbar.setPalette(light);
+        QCoreApplication::processEvents();
+
+        const QColor parentTint = filter.parentWidget()->palette().color(
+            QPalette::ButtonText);
+        QCOMPARE(parentTint, QColor(Qt::black));
+        const QIcon inactive = IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/filter-variant"), parentTint);
+        const QIcon staleIcon = IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/filter-variant"), Qt::white);
+        const auto luma = changedPixelLuma(
+            staleIcon.pixmap(24, 24).toImage(),
+            inactive.pixmap(24, 24).toImage());
+        QVERIFY(luma.first > luma.second + 100);
+
+        filter.setChecked(true);
+        QPalette checked = toolbar.palette();
+        checked.setColor(QPalette::HighlightedText, QColor(16, 80, 210));
+        toolbar.setPalette(checked);
+        QCOMPARE(filter.parentWidget()->palette().color(
+                     QPalette::HighlightedText), QColor(16, 80, 210));
+        const QIcon checkedIcon = IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/filter-variant"),
+            filter.parentWidget()->palette().color(QPalette::HighlightedText));
+        QCOMPARE(checkedIcon.pixmap(24, 24).toImage().pixelColor(11, 7),
+                 QColor(16, 80, 210));
     }
 
     void symbolicIconTracksApplicationPalette()

@@ -153,6 +153,7 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
     bar->setObjectName(QStringLiteral("teamToolbar"));
     bar->setFixedHeight(34);
     _teamToolbar = bar;
+    bar->installEventFilter(this);
     auto* outer = new QHBoxLayout(bar);
     outer->setContentsMargins(4, 2, 4, 2);
     outer->setSpacing(3);
@@ -222,8 +223,6 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
 
     auto* add = new QToolButton(bar);
     add->setObjectName(QStringLiteral("teamToolbarAdd"));
-    add->setIcon(IconUtils::tintedSymbolicIcon(
-        QStringLiteral(":/icons/add"), palette().color(QPalette::Text)));
     add->setIconSize(QSize(20, 20));
     add->setAutoRaise(true);
     add->setFixedSize(30, 28);
@@ -234,7 +233,6 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
 
     auto* browse = new QToolButton(bar);
     browse->setObjectName(QStringLiteral("teamToolbarBrowse"));
-    browse->setIcon(ChannelIcons::channel());
     browse->setIconSize(QSize(20, 20));
     browse->setAutoRaise(true);
     browse->setFixedSize(28, 28);
@@ -246,7 +244,30 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
     // The legacy header selector is hidden, so its showEvent cannot attach.
     attachTree();
     rebuildTeamToolbar();
+    refreshTeamToolbarIcons();
     return bar;
+}
+
+void TeamSelectorLabel::refreshTeamToolbarIcons()
+{
+    if (!_teamToolbar) {
+        return;
+    }
+
+    // IconUtils returns pre-tinted pixmaps. Recreate them from each button's
+    // current palette instead of reusing the initial dark/light snapshot.
+    if (auto* add = _teamToolbar->findChild<QToolButton*>(
+            QStringLiteral("teamToolbarAdd"))) {
+        add->setIcon(IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/add"),
+            add->palette().color(QPalette::ButtonText)));
+    }
+    if (auto* browse = _teamToolbar->findChild<QToolButton*>(
+            QStringLiteral("teamToolbarBrowse"))) {
+        browse->setIcon(IconUtils::tintedIcon(
+            ChannelIcons::channel(),
+            browse->palette().color(QPalette::ButtonText)));
+    }
 }
 
 void TeamSelectorLabel::rebuildTeamToolbar()
@@ -404,8 +425,24 @@ void TeamSelectorLabel::changeEvent(QEvent* event)
                   || event->type() == QEvent::StyleChange)) {
         // The toolbar is detached from this hidden controller's own layout.
         // Rebuild after Qt finishes propagating the new application palette.
-        QTimer::singleShot(0, this, [this] { rebuildTeamToolbar(); });
+        QTimer::singleShot(0, this, [this] {
+            rebuildTeamToolbar();
+            refreshTeamToolbarIcons();
+        });
     }
+}
+
+bool TeamSelectorLabel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == _teamToolbar && event
+        && (event->type() == QEvent::PaletteChange
+            || event->type() == QEvent::ApplicationPaletteChange
+            || event->type() == QEvent::StyleChange)) {
+        // The detached toolbar receives its own palette events; the hidden
+        // TeamSelectorLabel controller is not a parent of these buttons.
+        QTimer::singleShot(0, this, [this] { refreshTeamToolbarIcons(); });
+    }
+    return QToolButton::eventFilter(watched, event);
 }
 
 void TeamSelectorLabel::paintEvent(QPaintEvent* event)
