@@ -75,19 +75,22 @@ namespace {
 
 constexpr int HeaderActionIconExtent = 16;
 
+QString conversationTeamName(Backend& backend, const BackendChannel& channel)
+{
+    if (channel.team) {
+        return channel.team->name;
+    }
+    // DM/GM references use the same current-team fallback as Mattermost URLs.
+    if (const BackendTeam* team = backend.getStorage().getTeamById(
+            backend.getCurrentTeamContextId())) {
+        return team->name;
+    }
+    return {};
+}
+
 QString channelWebUrl(Backend& backend, const BackendChannel& channel)
 {
-    QString teamName;
-    if (channel.team) {
-        teamName = channel.team->name;
-    } else if (const BackendTeam* team = backend.getStorage().getTeamById(
-                   backend.getCurrentTeamContextId())) {
-        // Mattermost's own web client resolves DM/GM URLs in the current team
-        // context even though those conversations do not intrinsically belong
-        // to a team.
-        teamName = team->name;
-    }
-
+    const QString teamName = conversationTeamName(backend, channel);
     if (teamName.isEmpty()) {
         return QString();
     }
@@ -400,6 +403,9 @@ ChatArea::~ChatArea()
 
 void ChatArea::setupHeaderUi()
 {
+    // Topics and post bodies share the same team-scoped ~channel routing.
+    ui->statusLabel->setLinkTeamName(conversationTeamName(backend, channel));
+
     auto configureCountButton = [](QToolButton& button) {
         button.setAutoRaise(true);
         button.setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -783,6 +789,7 @@ void ChatArea::init()
         signalConnections.push_back(connect(&channel, &BackendChannel::onUpdated,
                                             this, [this] {
             ui->titleLabel->setText(channel.display_name);
+            ui->statusLabel->setLinkTeamName(conversationTeamName(backend, channel));
             ui->statusLabel->setText(channel.getChannelDescription());
             if (treeItem) {
                 treeItem->setLabel(channel.display_name);

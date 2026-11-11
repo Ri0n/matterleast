@@ -14,3 +14,8 @@ Once the overlay is visible, crossing between label and overlay must not
 restart the delay or destroy its rich text children. Re-entering during a hide
 animation should reverse it immediately. Existing hide-delay and animation
 behavior remain unchanged. Direct `showPopover` calls are kept for GUI tests.
+
+The topic and expanded popover reuse the post's `UserMentionLinkifier` for
+`~channel` references, including asynchronous display names and original URLs.
+Clicks route through `AppNavigationService`; rebuilt text browsers reconnect
+link handlers and disable Qt's automatic URL opening.

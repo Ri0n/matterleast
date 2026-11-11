@@ -11,6 +11,7 @@
 #include <QTextDocument>
 #include <QWidget>
 
+
 namespace Mattermost {
 namespace UserMentionLinkifier {
 namespace {
@@ -83,6 +84,9 @@ QTextCharFormat clickableMentionFormat(const QPalette& palette, const QString& h
     QTextCharFormat format;
     format.setAnchor(true);
     format.setAnchorHref(href);
+    // Generated ~channel/@user links get the same URL tooltip as explicit
+    // Markdown links, in chat messages and in both topic presentations.
+    format.setToolTip(href);
     format.setForeground(palette.color(QPalette::Link));
     format.setFontUnderline(false);
     return format;

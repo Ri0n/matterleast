@@ -50,6 +50,9 @@
 #include "navigation/AppNavigationService.h"
 #include "post/MessageContentWidget.h"
 #include "post/MessageFormatter.h"
+#include "post/UserMentionLinkifier.h"
+#include "backend/UserProfileService.h"
+#include "info-dialogs/UserProfileDialog.h"
 #include "ui/EmojiPresentation.h"
 #include "ui/PresenceAvatarLabel.h"
 
@@ -90,8 +93,9 @@ const QSet<QString>& unicodeEmojiStrings()
     return emojiStrings;
 }
 
-QString formatCollapsedTopic(const QString& text, const QFont& font,
-                             EmojiRegistry* registry)
+QString formatCollapsedTopic(QTextDocument& document, const QString& text,
+                             const QFont& font, EmojiRegistry* registry,
+                             const QString& teamName)
 {
     const QString html = EmojiPresentation::normalizeHtml(
         MessageFormatter::formatMessageText(text, registry),
@@ -99,7 +103,6 @@ QString formatCollapsedTopic(const QString& text, const QFont& font,
         EmojiPresentation::Mode::Inline,
         registry);
 
-    QTextDocument document;
     document.setDefaultFont(font);
     document.setDocumentMargin(0);
     document.setHtml(html);
@@ -140,6 +143,9 @@ QString formatCollapsedTopic(const QString& text, const QFont& font,
         }
     }
 
+    // Use the same ~channel/@user linkification rules as post messages,
+    // after the rich-text/emoji document has been constructed.
+    UserMentionLinkifier::linkify(document, {}, teamName);
     return MessageFormatter::htmlWithLinkToolTips(document.toHtml());
 }
 
@@ -183,6 +189,7 @@ ChannelHeaderTextLabel::ChannelHeaderTextLabel(QWidget* parent)
     hideTimer.setInterval(120);
     connect(&hideTimer, &QTimer::timeout, this, &ChannelHeaderTextLabel::hidePopover);
 
+    _collapsedDocument = new QTextDocument(this);
     updateCollapsedHeight();
 }
 
@@ -200,6 +207,9 @@ void ChannelHeaderTextLabel::setText(const QString& text)
         sourceText.clear();
         formattedText.clear();
         popoverSourceText.clear();
+        if (_collapsedDocument) {
+            _collapsedDocument->clear();
+        }
         QLabel::clear();
         hidePopoverImmediately();
         if (popoverContent) {
@@ -225,6 +235,9 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     if (text.isEmpty()) {
         formattedText.clear();
         popoverSourceText.clear();
+        if (_collapsedDocument) {
+            _collapsedDocument->clear();
+        }
         QLabel::setText(QString());
         updateCollapsedHeight();
         hidePopoverImmediately();
@@ -237,9 +250,27 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     }
 
     show();
-    formattedText = formatCollapsedTopic(text, font(), _emojiRegistry);
+    formattedText = formatCollapsedTopic(
+        *_collapsedDocument, text, font(), _emojiRegistry, _linkTeamName);
     QLabel::setText(formattedText);
     updateCollapsedHeight();
+
+    // Unlike a post, the collapsed QLabel holds exported HTML rather than a
+    // live QTextBrowser document. Keep its QTextDocument alive so the same
+    // resolver can fill in human-readable channel names asynchronously, then
+    // export the new HTML without reconstructing the topic widget.
+    if (Backend* backend = linkBackend()) {
+        UserMentionLinkifier::resolveChannelDisplayNames(
+            *_collapsedDocument, *backend, _linkTeamName, this, [this] {
+                if (sourceText.isEmpty() || !_collapsedDocument) {
+                    return;
+                }
+                formattedText = MessageFormatter::htmlWithLinkToolTips(
+                    _collapsedDocument->toHtml());
+                QLabel::setText(formattedText);
+                updateCollapsedHeight();
+            });
+    }
 
     if (popoverContent && popoverSourceText != sourceText) {
         popoverContent->setMinimumHeight(0);
@@ -264,6 +295,20 @@ void ChannelHeaderTextLabel::setText(const QString& text)
 void ChannelHeaderTextLabel::setLinkHandler(LinkHandler handler)
 {
     linkHandler = std::move(handler);
+}
+
+void ChannelHeaderTextLabel::setLinkTeamName(const QString& teamName)
+{
+    if (_linkTeamName == teamName) {
+        return;
+    }
+    _linkTeamName = teamName;
+    // The source Markdown may be unchanged while its ~channel destinations
+    // change with the team. Invalidate the expanded topic's render cache too.
+    popoverSourceText.clear();
+    if (!sourceText.isEmpty()) {
+        setText(sourceText);
+    }
 }
 
 QSize ChannelHeaderTextLabel::sizeHint() const
@@ -354,8 +399,11 @@ void ChannelHeaderTextLabel::ensurePopover()
     layout->addWidget(content);
     scrollArea->setWidget(container);
 
+    // MessageContentWidget replaces its QTextBrowser children after every
+    // message/emoji/palette refresh. Re-linkify the new documents each time.
+    connect(content, &MessageContentWidget::contentRebuilt, this,
+            &ChannelHeaderTextLabel::configurePopoverLinks);
     connect(content, &MessageContentWidget::dimensionsChanged, this, [this] {
-        configurePopoverLinks();
         if (!popover || !popover->isVisible()) {
             return;
         }
@@ -459,7 +507,24 @@ void ChannelHeaderTextLabel::configurePopoverLinks()
 
     const auto browsers = popoverContent->findChildren<QTextBrowser*>();
     for (QTextBrowser* browser : browsers) {
+        // Match PostWidget: do not let QTextBrowser follow URLs itself.
+        // Every click, including absolute HTTP(S) links to Mattermost chats,
+        // must reach openLink() and AppNavigationService.
+        browser->setOpenLinks(false);
         browser->setOpenExternalLinks(false);
+        // Every contentRebuilt reuses the post linkifier and channel display
+        // resolver. Reconnect anchorClicked only once per QTextBrowser.
+        UserMentionLinkifier::linkify(*browser->document(), {}, _linkTeamName);
+        if (Backend* backend = linkBackend()) {
+            QPointer<QTextBrowser> guard(browser);
+            UserMentionLinkifier::resolveChannelDisplayNames(
+                *browser->document(), *backend, _linkTeamName, this,
+                [this, guard] {
+                    if (guard && popover && popover->isVisible()) {
+                        updatePopoverGeometry(true);
+                    }
+                });
+        }
         if (browser->property("channelHeaderLinkConfigured").toBool()) {
             continue;
         }
@@ -705,6 +770,16 @@ void ChannelHeaderTextLabel::ensureEmojiRegistry()
     }
 }
 
+Backend* ChannelHeaderTextLabel::linkBackend() const
+{
+    for (QWidget* host = parentWidget(); host; host = host->parentWidget()) {
+        if (auto* area = qobject_cast<ChatArea*>(host)) {
+            return &area->getBackend();
+        }
+    }
+    return nullptr;
+}
+
 void ChannelHeaderTextLabel::openLink(const QUrl& url)
 {
     if (!url.isValid()) {
@@ -715,11 +790,25 @@ void ChannelHeaderTextLabel::openLink(const QUrl& url)
         return;
     }
 
-    // The header is specific to ChatArea, so use its semantic navigation as the
-    // default route. AppNavigationService keeps external URLs in the browser and
-    // handles local channel/DM/permalink URLs inside the application.
+    // Route semantic links just like PostWidget, but through the parent
+    // ChatArea instead of opening an internal mention URL in a web browser.
     for (QWidget* host = parentWidget(); host; host = host->parentWidget()) {
         if (auto* area = qobject_cast<ChatArea*>(host)) {
+            if (url.scheme() == QStringLiteral("mattermost-user")) {
+                const QString username = url.path().mid(1);
+                if (!username.isEmpty()) {
+                    QPointer<ChatArea> guard(area);
+                    UserProfileService::instance(area->getBackend())
+                        .ensureUserByUsername(username,
+                            [guard](const BackendUser* user) {
+                        if (guard && user) {
+                            UserProfileDialog::showTransient(
+                                guard->getBackend(), *user, guard);
+                        }
+                    });
+                }
+                return;
+            }
             AppNavigationService::instance(area->getBackend()).openUrl(url);
             return;
         }

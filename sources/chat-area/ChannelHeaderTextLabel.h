@@ -29,9 +29,11 @@
 
 class QPropertyAnimation;
 class QScrollArea;
+class QTextDocument;
 
 namespace Mattermost {
 
+class Backend;
 class EmojiRegistry;
 class MessageContentWidget;
 
@@ -55,6 +57,8 @@ public:
     // type, so ChatArea's existing calls resolve to this formatting wrapper.
     void setText(const QString& text);
     void setLinkHandler(LinkHandler handler);
+    // The same team slug used to resolve ~channel references in chat posts.
+    void setLinkTeamName(const QString& teamName);
     void setPresenceRoutingEnabled(bool enabled) { presenceRoutingEnabled = enabled; }
 
     // Rich-text QLabel uses its unwrapped document width as a minimum hint.
@@ -87,8 +91,11 @@ private:
     void updateCollapsedHeight();
     void openLink(const QUrl& url);
     void ensureEmojiRegistry();
+    Backend* linkBackend() const;
 
     QString sourceText;
+    QPointer<QTextDocument> _collapsedDocument;
+    QString _linkTeamName;
     QString formattedText;
     QString popoverSourceText;
     QString _hoveredLinkHref;

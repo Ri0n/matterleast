@@ -14,14 +14,22 @@
 #include <QHash>
 #include <QString>
 
+#include <functional>
+
+class QObject;
 class QTextDocument;
 
 namespace Mattermost {
+class Backend;
 namespace UserMentionLinkifier {
 
 void linkify(QTextDocument& document,
              const QHash<QString, QString>& groupMentionIds = {},
              const QString& teamName = QString());
+
+void resolveChannelDisplayNames(QTextDocument& document, Backend& backend,
+                                const QString& teamName, QObject* owner,
+                                std::function<void()> changed = {});
 
 QString linkifyHtmlTextSegment(
     const QString& text,

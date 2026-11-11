@@ -22,6 +22,7 @@
 #include <QWidget>
 
 #include "chat-area/ChannelHeaderTextLabel.h"
+#include "chat-area/post/MessageContentWidget.h"
 
 using namespace Mattermost;
 
@@ -50,6 +51,7 @@ private slots:
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
     void collapsedMarkdownLinksKeepTargetTooltips();
+    void topicLinksUsePostRendererAndNavigation();
     void collapsedLabelShowsHoveredLinkTooltip();
     void collapsedLabelClearsTooltipOnLeaveAndTextChange();
     void nativeWidthExpandsOnlyWhenTextDoesNotFit();
@@ -315,6 +317,71 @@ void ChannelHeaderTextLabelTest::collapsedMarkdownLinksKeepTargetTooltips()
 #else
     QSKIP("Markdown rendering test requires Qt 6.10");
 #endif
+}
+
+void ChannelHeaderTextLabelTest::topicLinksUsePostRendererAndNavigation()
+{
+    const QString topic = QStringLiteral(
+        "~offmarket ~off-pet-photo ~off-3d-printing "
+        "[chat](https://mattermost.example.test/offtopic/channels/offmarket)");
+    ChannelHeaderTextLabel detached;
+    detached.setLinkTeamName(QStringLiteral("offtopic"));
+    detached.setText(topic);
+
+    QTextDocument rendered;
+    rendered.setHtml(detached.text());
+    for (const QString& slug : {QStringLiteral("offmarket"),
+                                QStringLiteral("off-pet-photo"),
+                                QStringLiteral("off-3d-printing")}) {
+        QTextCursor ref = rendered.find(QLatin1Char('~') + slug);
+        QVERIFY(!ref.isNull());
+        ref.setPosition(ref.selectionStart() + 2);
+        QCOMPARE(ref.charFormat().anchorHref(),
+                 QStringLiteral("/offtopic/channels/") + slug);
+    }
+
+    QWidget host;
+    host.resize(640, 300);
+    ChannelHeaderTextLabel label(&host);
+    label.setLinkTeamName(QStringLiteral("offtopic"));
+    label.setText(topic);
+    label.setGeometry(18, 16, 110, label.sizeHint().height());
+    host.show();
+    QVERIFY(showPopover(label));
+
+    auto* content = host.findChild<MessageContentWidget*>(
+        QStringLiteral("channelHeaderTextPopoverContent"));
+    QVERIFY(content);
+    const auto checkBrowser = [&] {
+        auto* browser = content->findChild<QTextBrowser*>(
+            QStringLiteral("messageRichText"));
+        QVERIFY(browser);
+        QVERIFY(!browser->openLinks());
+        QVERIFY(!browser->openExternalLinks());
+        QTextCursor ref = browser->document()->find(QStringLiteral("~offmarket"));
+        QVERIFY(!ref.isNull());
+        ref.setPosition(ref.selectionStart() + 2);
+        QCOMPARE(ref.charFormat().anchorHref(),
+                 QStringLiteral("/offtopic/channels/offmarket"));
+    };
+    checkBrowser();
+
+    QUrl clicked;
+    label.setLinkHandler([&clicked](const QUrl& url) { clicked = url; });
+    const QUrl target(QStringLiteral(
+        "https://mattermost.example.test/offtopic/channels/offmarket"));
+    emit content->findChild<QTextBrowser*>(
+        QStringLiteral("messageRichText"))->anchorClicked(target);
+    QCOMPARE(clicked, target);
+
+    // Palette/content rebuilds replace QTextBrowser: the same link handler
+    // must be reconnected without letting Qt open its own browser.
+    content->setMessage(topic);
+    checkBrowser();
+    clicked = QUrl();
+    emit content->findChild<QTextBrowser*>(
+        QStringLiteral("messageRichText"))->anchorClicked(target);
+    QCOMPARE(clicked, target);
 }
 
 void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
