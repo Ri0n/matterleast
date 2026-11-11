@@ -94,7 +94,7 @@ void UserMentionLinkifierTest::mentionFollowingExistingLinkIsNotSuppressed()
 {
     QTextDocument document;
     document.setHtml(QStringLiteral(
-        "<a href=\"https://example.org\">site</a>@login.name"));
+        "<a href=\"https://example.org\">site</a> @login.name"));
     UserMentionLinkifier::linkify(document);
 
     QTextCursor cursor = document.find(QStringLiteral("@login.name"));
