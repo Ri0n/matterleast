@@ -33,6 +33,7 @@
 #include "channel-tree-dialogs/TeamChannelsListDialog.h"
 #include "options/MLOptions.h"
 #include "ui/IconUtils.h"
+#include "ui/PaletteIconToolButton.h"
 
 namespace Mattermost {
 namespace {
@@ -220,10 +221,13 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
     connect(horizontalBar, &QScrollBar::valueChanged, bar,
             [updateArrows](int) { updateArrows(); });
 
-    auto* add = new QToolButton(bar);
+    auto* add = new PaletteIconToolButton(bar);
     add->setObjectName(QStringLiteral("teamToolbarAdd"));
-    add->setIcon(IconUtils::tintedSymbolicIcon(
-        QStringLiteral(":/icons/add"), palette().color(QPalette::Text)));
+    add->setIconFactory([](const QToolButton& button) {
+        return IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/add"),
+            button.palette().color(QPalette::ButtonText));
+    });
     add->setIconSize(QSize(20, 20));
     add->setAutoRaise(true);
     add->setFixedSize(30, 28);
@@ -232,9 +236,12 @@ QWidget* TeamSelectorLabel::createTeamToolbar(QWidget* parent, QWidget* leadingC
     connect(add, &QToolButton::clicked, this, [this] { addAnotherTeam(); });
     outer->addWidget(add);
 
-    auto* browse = new QToolButton(bar);
+    auto* browse = new PaletteIconToolButton(bar);
     browse->setObjectName(QStringLiteral("teamToolbarBrowse"));
-    browse->setIcon(ChannelIcons::channel());
+    browse->setIconFactory([](const QToolButton& button) {
+        return ChannelIcons::channel(
+            button.palette().color(QPalette::ButtonText));
+    });
     browse->setIconSize(QSize(20, 20));
     browse->setAutoRaise(true);
     browse->setFixedSize(28, 28);
