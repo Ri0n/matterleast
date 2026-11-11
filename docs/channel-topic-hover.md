@@ -25,6 +25,14 @@ code and explicit Markdown links. The team slug is resolved from the current
 ChatArea's channel team, with the same current-team fallback as conversation
 URLs.
 
+The **same** `ChannelReferenceDisplayNames` resolver is used for post
+bodies and both topic variants. It queries `ChannelReferenceService` for
+human-readable `display_name` values (including channels outside the sidebar)
+and changes the visible text from `~slug` to `~Display name` while retaining
+the original team/channel href. The collapsed topic keeps a QTextDocument
+alive for asynchronous updates; the expanded topic updates its live document.
+The service coalesces and caches lookups.
+
 The expanded topic reconnects the shared linkifier and its navigation handlers
 on every `MessageContentWidget::contentRebuilt` signal; palette, emoji and
 content rebuilds must not lose clickability. Relative channel links use
