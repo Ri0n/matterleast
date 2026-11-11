@@ -106,7 +106,7 @@ private:
     void showCollectionPage(PostCollectionView* page);
 	void refreshMenuButtonIcon ();
     void refreshSearchButtonIcon();
-	void refreshUnreadFilterTooltip ();
+	void refreshUnreadFilterIcon ();
 private:
 	std::unique_ptr<Ui::MainWindow>		ui;
 	QSystemTrayIcon&					trayIcon;
