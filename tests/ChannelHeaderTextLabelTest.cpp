@@ -22,6 +22,7 @@
 #include <QWidget>
 
 #include "chat-area/ChannelHeaderTextLabel.h"
+#include "chat-area/post/MessageContentWidget.h"
 
 using namespace Mattermost;
 
@@ -50,6 +51,8 @@ private slots:
     void collapsedAndExpandedEmojiUseSameScale();
     void popoverUsesMessageCodeBlockRenderer();
     void collapsedMarkdownLinksKeepTargetTooltips();
+    void topicChannelReferencesSharePostLinkifier();
+    void expandedTopicRebuildRestoresChannelLinks();
     void collapsedLabelShowsHoveredLinkTooltip();
     void collapsedLabelClearsTooltipOnLeaveAndTextChange();
     void nativeWidthExpandsOnlyWhenTextDoesNotFit();
@@ -315,6 +318,114 @@ void ChannelHeaderTextLabelTest::collapsedMarkdownLinksKeepTargetTooltips()
 #else
     QSKIP("Markdown rendering test requires Qt 6.10");
 #endif
+}
+
+void ChannelHeaderTextLabelTest::topicChannelReferencesSharePostLinkifier()
+{
+    ChannelHeaderTextLabel label;
+    label.setLinkTeamName(QStringLiteral("offtopic"));
+    label.setText(QStringLiteral(
+        "~offmarket , ~off-pet-photo, ~off-3d-printing, ~robotics, "
+        "~electronics, ~diyadro, ~off-photo."));
+
+    QTextDocument document;
+    document.setHtml(label.text());
+    for (const QString& slug : {
+             QStringLiteral("offmarket"),
+             QStringLiteral("off-pet-photo"),
+             QStringLiteral("off-3d-printing"),
+             QStringLiteral("robotics"),
+             QStringLiteral("electronics"),
+             QStringLiteral("diyadro"),
+             QStringLiteral("off-photo")}) {
+        QTextCursor ref = document.find(QLatin1Char('~') + slug);
+        QVERIFY2(!ref.isNull(), qPrintable(slug));
+        ref.setPosition(ref.selectionStart() + 2);
+        QCOMPARE(ref.charFormat().anchorHref(),
+                 QStringLiteral("/offtopic/channels/") + slug);
+        QCOMPARE(ref.charFormat().toolTip(),
+                 QStringLiteral("/offtopic/channels/") + slug);
+    }
+    QTextCursor end(&document);
+    end.setPosition(document.toPlainText().length());
+    QVERIFY(!end.charFormat().isAnchor());
+
+    // The collapsed QLabel forwards its linkActivated signal through the
+    // same channel navigation handler used by the expanded topic.
+    QUrl opened;
+    label.setLinkHandler([&opened](const QUrl& url) { opened = url; });
+    QVERIFY(QMetaObject::invokeMethod(
+        &label, "linkActivated", Qt::DirectConnection,
+        Q_ARG(QString, QStringLiteral("/offtopic/channels/offmarket"))));
+    QCOMPARE(opened.path(), QStringLiteral("/offtopic/channels/offmarket"));
+
+    label.setLinkTeamName(QStringLiteral("another-team"));
+    QTextDocument movedTeam;
+    movedTeam.setHtml(label.text());
+    QTextCursor ref = movedTeam.find(QStringLiteral("~offmarket"));
+    QVERIFY(!ref.isNull());
+    ref.setPosition(ref.selectionStart() + 2);
+    QCOMPARE(ref.charFormat().anchorHref(),
+             QStringLiteral("/another-team/channels/offmarket"));
+}
+
+void ChannelHeaderTextLabelTest::expandedTopicRebuildRestoresChannelLinks()
+{
+    QWidget host;
+    host.resize(640, 320);
+
+    ChannelHeaderTextLabel label(&host);
+    label.setLinkTeamName(QStringLiteral("offtopic"));
+    label.setGeometry(20, 20, 130, label.sizeHint().height());
+    label.setText(QStringLiteral(
+        "See ~offmarket, ~off-pet-photo and ~off-3d-printing."));
+    host.show();
+    QTest::qWait(10);
+
+    QVERIFY(showPopover(label));
+    auto* popover = host.findChild<QScrollArea*>(
+        QStringLiteral("channelHeaderTextPopover"));
+    QVERIFY(popover);
+    auto* content = host.findChild<MessageContentWidget*>(
+        QStringLiteral("channelHeaderTextPopoverContent"));
+    QVERIFY(content);
+    auto* browser = content->findChild<QTextBrowser*>(
+        QStringLiteral("messageRichText"));
+    QVERIFY(browser);
+
+    const auto verifyReferences = [](QTextBrowser* text) {
+        for (const QString& slug : {
+                 QStringLiteral("offmarket"),
+                 QStringLiteral("off-pet-photo"),
+                 QStringLiteral("off-3d-printing")}) {
+            QTextCursor cursor = text->document()->find(QLatin1Char('~') + slug);
+            if (cursor.isNull()) {
+                return false;
+            }
+            cursor.setPosition(cursor.selectionStart() + 2);
+            if (cursor.charFormat().anchorHref()
+                != QStringLiteral("/offtopic/channels/") + slug) {
+                return false;
+            }
+        }
+        return true;
+    };
+    QVERIFY(verifyReferences(browser));
+
+    // Rebuilds can come from theme/emoji/attachment changes. A rebuilt text
+    // browser must get both link formatting and its navigation slot again.
+    QUrl opened;
+    label.setLinkHandler([&opened](const QUrl& url) { opened = url; });
+    content->setMessage(QStringLiteral(
+        "See ~offmarket, ~off-pet-photo and ~off-3d-printing."));
+    auto* refreshed = content->findChild<QTextBrowser*>(
+        QStringLiteral("messageRichText"));
+    QVERIFY(refreshed);
+    QVERIFY(verifyReferences(refreshed));
+    emit refreshed->anchorClicked(QUrl(
+        QStringLiteral("/offtopic/channels/off-3d-printing")));
+    QCOMPARE(opened.path(),
+             QStringLiteral("/offtopic/channels/off-3d-printing"));
 }
 
 void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
