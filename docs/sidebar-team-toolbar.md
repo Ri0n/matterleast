@@ -28,6 +28,6 @@ The unread-only filter, Browse public channels (#), and Add team (+) icons are
 palette-derived pixmaps rather than persistent static SVG icons. They use the
 shared `PaletteIconToolButton` to regenerate their pixmaps on local palette,
 style, application palette and checked-state changes. A coalesced update after
-`QGuiApplication::paletteChanged` handles platforms where child palette events
+`PaletteChange` or `ApplicationPaletteChange` handles cases where child events
 arrive before palette propagation finishes, without rebuilding the team strip
 or altering team selection and scroll position.
