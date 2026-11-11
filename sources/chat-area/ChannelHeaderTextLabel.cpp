@@ -49,7 +49,6 @@
 #include "backend/emoji/EmojiRegistry.h"
 #include "navigation/AppNavigationService.h"
 #include "post/MessageContentWidget.h"
-#include "post/ChannelReferenceDisplayNames.h"
 #include "post/MessageFormatter.h"
 #include "post/UserMentionLinkifier.h"
 #include "backend/UserProfileService.h"
@@ -261,7 +260,7 @@ void ChannelHeaderTextLabel::setText(const QString& text)
     // resolver can fill in human-readable channel names asynchronously, then
     // export the new HTML without reconstructing the topic widget.
     if (Backend* backend = linkBackend()) {
-        ChannelReferenceDisplayNames::resolve(
+        UserMentionLinkifier::resolveChannelDisplayNames(
             *_collapsedDocument, *backend, _linkTeamName, this, [this] {
                 if (sourceText.isEmpty() || !_collapsedDocument) {
                     return;
@@ -518,7 +517,7 @@ void ChannelHeaderTextLabel::configurePopoverLinks()
         UserMentionLinkifier::linkify(*browser->document(), {}, _linkTeamName);
         if (Backend* backend = linkBackend()) {
             QPointer<QTextBrowser> guard(browser);
-            ChannelReferenceDisplayNames::resolve(
+            UserMentionLinkifier::resolveChannelDisplayNames(
                 *browser->document(), *backend, _linkTeamName, this,
                 [this, guard] {
                     if (guard && popover && popover->isVisible()) {
