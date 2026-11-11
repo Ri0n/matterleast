@@ -186,11 +186,24 @@ private slots:
         // profile immediately without waiting for another server lookup.
         QTextCursor senderMention = browser->document()->find(
             QStringLiteral("@retried.author"));
-        senderMention.setPosition(senderMention.selectionStart() + 2);
+        QVERIFY(!senderMention.isNull());
+        const int begin = senderMention.selectionStart();
+        senderMention.setPosition(begin + 3);
+        const QRect characterStart = browser->cursorRect(senderMention);
+        senderMention.setPosition(begin + 4);
+        const QRect characterEnd = browser->cursorRect(senderMention);
+        // cursorRect() describes a *caret*, i.e. a character boundary. Click
+        // halfway between two carets, inside the actual linked glyph.
+        const QPoint clickPosition(
+            (characterStart.center().x() + characterEnd.center().x()) / 2,
+            characterStart.center().y());
+        QVERIFY(browser->viewport()->rect().contains(clickPosition));
+        QCOMPARE(browser->anchorAt(clickPosition),
+                 QStringLiteral("mattermost-user:///retried.author"));
         QSignalSpy clickSpy(browser, &QTextBrowser::anchorClicked);
         QTest::mouseClick(browser->viewport(), Qt::LeftButton,
-                          Qt::NoModifier, browser->cursorRect(senderMention).center());
-        QCOMPARE(clickSpy.count(), 1);
+                          Qt::NoModifier, clickPosition);
+        QTRY_COMPARE(clickSpy.count(), 1);
         QVERIFY(widget.findChild<UserProfileDialog*>());
     }
 
