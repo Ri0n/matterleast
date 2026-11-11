@@ -508,6 +508,10 @@ void ChannelHeaderTextLabel::configurePopoverLinks()
 
     const auto browsers = popoverContent->findChildren<QTextBrowser*>();
     for (QTextBrowser* browser : browsers) {
+        // Match PostWidget: do not let QTextBrowser follow URLs itself.
+        // Every click, including absolute HTTP(S) links to Mattermost chats,
+        // must reach openLink() and AppNavigationService.
+        browser->setOpenLinks(false);
         browser->setOpenExternalLinks(false);
         // Every contentRebuilt reuses the post linkifier and channel display
         // resolver. Reconnect anchorClicked only once per QTextBrowser.
