@@ -20,29 +20,16 @@ class ChannelReferenceService : public QObject
 {
 public:
     using Callback = std::function<void(const QString& displayName)>;
-    using IdCallback = std::function<void(const QString& channelId)>;
 
     static ChannelReferenceService& instance(Backend& backend);
     void resolve(const QString& teamName, const QString& slug, Callback callback);
-    // Used by semantic navigation when the referenced channel is not yet in
-    // local storage. Shares the same lookup/cache as display-name resolution.
-    void resolveId(const QString& teamName, const QString& slug,
-                   IdCallback callback);
 
 private:
-    struct Details {
-        QString id;
-        QString displayName;
-    };
-    using DetailsCallback = std::function<void(const Details&)>;
-
     explicit ChannelReferenceService(Backend& backend);
-    void resolveDetails(const QString& teamName, const QString& slug,
-                        DetailsCallback callback);
 
     HTTPConnector _http;
-    QHash<QString, Details> _resolved;
-    QHash<QString, QVector<DetailsCallback>> _pending;
+    QHash<QString, QString> _resolved;
+    QHash<QString, QVector<Callback>> _pending;
 };
 
 } // namespace Mattermost
