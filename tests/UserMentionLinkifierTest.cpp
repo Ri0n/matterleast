@@ -36,6 +36,7 @@ void UserMentionLinkifierTest::channelReferenceLinksToTeamRoute()
     QVERIFY(!link.isNull());
     QVERIFY(link.charFormat().isAnchor());
     QCOMPARE(link.charFormat().anchorHref(), QStringLiteral("/acme/channels/roadmap"));
+    QCOMPARE(link.charFormat().toolTip(), QStringLiteral("/acme/channels/roadmap"));
 }
 
 void UserMentionLinkifierTest::channelReferenceWithoutTeamRemainsPlain()
