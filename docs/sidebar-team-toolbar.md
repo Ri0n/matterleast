@@ -28,5 +28,7 @@ The channel toolbar uses the same `IconUtils` tinting as other buttons.
 Because the tinted icons are pixmaps, `TeamSelectorLabel` recreates the
 `+` and `#` icons when its detached toolbar's palette or style changes.
 The unread-only filter uses the existing `MainWindow::refreshUnreadFilterIcon()`
-path, refreshed after the application palette propagates to child buttons.
-No team toolbar rebuild is required to update the icons.
+path, refreshed on the **same toolbar palette event** as `+` and `#`.
+Its checked-state stylesheet can retain an old button-local foreground palette,
+so the filter icon is tinted from the surrounding toolbar's current palette
+rather than `unreadFilterButton->palette()`. No team toolbar rebuild is required.
