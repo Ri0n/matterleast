@@ -188,25 +188,34 @@ private slots:
             QStringLiteral("@retried.author"));
         QVERIFY(!senderMention.isNull());
         const int begin = senderMention.selectionStart();
-        senderMention.setPosition(begin + 3);
-        const QRect characterStart = browser->cursorRect(senderMention);
-        senderMention.setPosition(begin + 4);
-        const QRect characterEnd = browser->cursorRect(senderMention);
-        // cursorRect() describes a *caret*, i.e. a character boundary. Click
-        // halfway between two carets, inside the actual linked glyph.
-        const QPoint clickPosition(
-            (characterStart.center().x() + characterEnd.center().x()) / 2,
-            characterStart.center().y());
-        QVERIFY(browser->viewport()->rect().contains(clickPosition));
-        QCOMPARE(browser->anchorAt(clickPosition),
-                 QStringLiteral("mattermost-user:///retried.author"));
+        const auto mentionPoint = [browser, begin] {
+            QTextCursor cursor(browser->document());
+            cursor.setPosition(begin + 3);
+            const QRect characterStart = browser->cursorRect(cursor);
+            cursor.setPosition(begin + 4);
+            const QRect characterEnd = browser->cursorRect(cursor);
+            // The midpoint of two carets is inside the link glyph; compute
+            // it afresh after Qt's queued geometry/layout passes.
+            return QPoint(
+                (characterStart.center().x() + characterEnd.center().x()) / 2,
+                characterStart.center().y());
+        };
+        // setInlineAttachmentContext() just rebuilt the rich-text controls.
+        // Their document and viewport geometry can still be pending.
+        QTRY_VERIFY_WITH_TIMEOUT(browser->viewport()->isVisible(), 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            browser->viewport()->rect().contains(mentionPoint()), 2000);
+        const QString expectedHref =
+            QStringLiteral("mattermost-user:///retried.author");
+        QTRY_COMPARE_WITH_TIMEOUT(browser->anchorAt(mentionPoint()),
+                                  expectedHref, 2000);
         // In the offscreen Qt platform a synthetic mouse click can be
         // consumed by QTextEdit's selection machinery without emitting
         // anchorClicked. Assert the viewport hit-test above, then exercise
         // the actual production link-click signal/slot wiring separately.
         // This catches dropped connections on rebuilt QTextBrowser objects.
         QSignalSpy clickSpy(browser, &QTextBrowser::anchorClicked);
-        emit browser->anchorClicked(QUrl(browser->anchorAt(clickPosition)));
+        emit browser->anchorClicked(QUrl(browser->anchorAt(mentionPoint())));
         QCOMPARE(clickSpy.count(), 1);
         QTRY_VERIFY(widget.findChild<UserProfileDialog*>());
     }
