@@ -278,6 +278,9 @@ void ChannelHeaderTextLabel::setLinkTeamName(const QString& teamName)
         return;
     }
     _linkTeamName = teamName;
+    // The source Markdown may be unchanged while its ~channel destinations
+    // change with the team. Invalidate the expanded topic's render cache too.
+    popoverSourceText.clear();
     if (!sourceText.isEmpty()) {
         setText(sourceText);
     }
