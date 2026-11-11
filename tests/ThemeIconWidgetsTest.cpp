@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QPalette>
+#include <QToolButton>
 #include <QWidget>
 
 #include "channel-tree/ChannelIcons.h"
@@ -260,6 +261,52 @@ private slots:
             QVERIFY2(luma.first >= luma.second + 100,
                      "Sidebar toolbar icon must be tinted from the current palette");
         }
+    }
+
+    void unreadFilterTintUsesToolbarPaletteNotStylesheetButtonPalette()
+    {
+        QWidget toolbar;
+        QToolButton filter(&toolbar);
+        filter.setCheckable(true);
+        filter.setStyleSheet(QStringLiteral(
+            "QToolButton:checked { background-color: palette(highlight); "
+            "color: palette(highlighted-text); border: none; border-radius: 4px; }"));
+        toolbar.show();
+        QCoreApplication::processEvents();
+
+        // A stylesheet can leave an explicit button palette behind when
+        // the parent has already switched from dark to light.
+        QPalette stale = filter.palette();
+        stale.setColor(QPalette::ButtonText, Qt::white);
+        filter.setPalette(stale);
+        QPalette light = toolbar.palette();
+        light.setColor(QPalette::ButtonText, Qt::black);
+        toolbar.setPalette(light);
+        QCoreApplication::processEvents();
+
+        const QColor parentTint = filter.parentWidget()->palette().color(
+            QPalette::ButtonText);
+        QCOMPARE(parentTint, QColor(Qt::black));
+        const QIcon inactive = IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/filter-variant"), parentTint);
+        const QIcon staleIcon = IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/filter-variant"), Qt::white);
+        const auto luma = changedPixelLuma(
+            staleIcon.pixmap(24, 24).toImage(),
+            inactive.pixmap(24, 24).toImage());
+        QVERIFY(luma.first > luma.second + 100);
+
+        filter.setChecked(true);
+        QPalette checked = toolbar.palette();
+        checked.setColor(QPalette::HighlightedText, QColor(16, 80, 210));
+        toolbar.setPalette(checked);
+        QCOMPARE(filter.parentWidget()->palette().color(
+                     QPalette::HighlightedText), QColor(16, 80, 210));
+        const QIcon checkedIcon = IconUtils::tintedSymbolicIcon(
+            QStringLiteral(":/icons/filter-variant"),
+            filter.parentWidget()->palette().color(QPalette::HighlightedText));
+        QCOMPARE(checkedIcon.pixmap(24, 24).toImage().pixelColor(11, 7),
+                 QColor(16, 80, 210));
     }
 
     void symbolicIconTracksApplicationPalette()
