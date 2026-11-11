@@ -2043,6 +2043,9 @@ void PostWidget::updateEngagementRow()
     const bool hasThread = threadSummary != nullptr;
     const bool hasReactions = reactions != nullptr;
     engagementRow_->setVisible(hasThread || hasReactions);
+    // Separate reaction chips from the message without changing the spacing
+    // between other post elements or a thread-only engagement row.
+    engagementLayout_->setContentsMargins(0, hasReactions ? 3 : 0, 0, 0);
 
     updateEngagementRowMetrics();
     engagementLayout_->invalidate();
