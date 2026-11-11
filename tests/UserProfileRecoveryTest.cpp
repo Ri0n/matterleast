@@ -4,6 +4,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTextBrowser>
+#include <QTextCursor>
 #include <QLabel>
 #include <QPixmap>
 #include <QTcpServer>
@@ -16,6 +18,8 @@
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendUser.h"
 #include "chat-area/post/PostWidget.h"
+#include "chat-area/post/MessageContentWidget.h"
+#include "info-dialogs/UserProfileDialog.h"
 
 using namespace Mattermost;
 
@@ -134,6 +138,86 @@ private slots:
         });
         emit profiles.profileResolved(kUserId);
         QCOMPARE(label->text(), QStringLiteral("Updated Author"));
+    }
+
+    void dottedMentionsRemainClickableAfterBodyRebuild()
+    {
+        Backend backend;
+        BackendUser* author = backend.getStorage().addUser(userJson());
+        QVERIFY(author);
+        auto post = BackendPost(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("aaaaabbbbbcccccdddddeeeee2")},
+            {QStringLiteral("channel_id"), QStringLiteral("cccccccccccccccccccccccccc")},
+            {QStringLiteral("user_id"), kUserId},
+            {QStringLiteral("create_at"), 1791534000000.0},
+            {QStringLiteral("message"),
+             QStringLiteral("Hello @retried.author and @second.user.")},
+        }, backend.getStorage());
+
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        widget.resize(700, 220);
+        widget.show();
+        QCoreApplication::processEvents();
+
+        auto* content = widget.findChild<MessageContentWidget*>();
+        QVERIFY(content);
+        auto* firstBrowser = content->findChild<QTextBrowser*>(
+            QStringLiteral("messageRichText"));
+        QVERIFY(firstBrowser);
+
+        // An attachment/emoji/font refresh recreates all QTextBrowser children.
+        // Mention formatting and click handlers must be restored every time.
+        content->setInlineAttachmentContext({}, {});
+        auto* browser = content->findChild<QTextBrowser*>(
+            QStringLiteral("messageRichText"));
+        QVERIFY(browser);
+        for (const QString& username : {QStringLiteral("retried.author"),
+                                        QStringLiteral("second.user")}) {
+            QTextCursor mention = browser->document()->find(
+                QLatin1Char('@') + username);
+            QVERIFY(!mention.isNull());
+            mention.setPosition(mention.selectionStart() + 2);
+            QVERIFY(mention.charFormat().isAnchor());
+            QCOMPARE(mention.charFormat().anchorHref(),
+                     QStringLiteral("mattermost-user:///") + username);
+        }
+
+        // The sender is already in Storage, so clicking its name must open a
+        // profile immediately without waiting for another server lookup.
+        QTextCursor senderMention = browser->document()->find(
+            QStringLiteral("@retried.author"));
+        QVERIFY(!senderMention.isNull());
+        const int begin = senderMention.selectionStart();
+        const auto mentionPoint = [browser, begin] {
+            QTextCursor cursor(browser->document());
+            cursor.setPosition(begin + 3);
+            const QRect characterStart = browser->cursorRect(cursor);
+            cursor.setPosition(begin + 4);
+            const QRect characterEnd = browser->cursorRect(cursor);
+            // The midpoint of two carets is inside the link glyph; compute
+            // it afresh after Qt's queued geometry/layout passes.
+            return QPoint(
+                (characterStart.center().x() + characterEnd.center().x()) / 2,
+                characterStart.center().y());
+        };
+        // setInlineAttachmentContext() just rebuilt the rich-text controls.
+        // Their document and viewport geometry can still be pending.
+        QTRY_VERIFY_WITH_TIMEOUT(browser->viewport()->isVisible(), 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            browser->viewport()->rect().contains(mentionPoint()), 2000);
+        const QString expectedHref =
+            QStringLiteral("mattermost-user:///retried.author");
+        QTRY_COMPARE_WITH_TIMEOUT(browser->anchorAt(mentionPoint()),
+                                  expectedHref, 2000);
+        // In the offscreen Qt platform a synthetic mouse click can be
+        // consumed by QTextEdit's selection machinery without emitting
+        // anchorClicked. Assert the viewport hit-test above, then exercise
+        // the actual production link-click signal/slot wiring separately.
+        // This catches dropped connections on rebuilt QTextBrowser objects.
+        QSignalSpy clickSpy(browser, &QTextBrowser::anchorClicked);
+        emit browser->anchorClicked(QUrl(browser->anchorAt(mentionPoint())));
+        QCOMPARE(clickSpy.count(), 1);
+        QTRY_VERIFY(widget.findChild<UserProfileDialog*>());
     }
 
     void temporaryProfileHttpFailureRetriesAndResolvesWaiter()

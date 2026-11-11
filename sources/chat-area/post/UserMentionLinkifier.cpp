@@ -18,7 +18,7 @@ namespace {
 const QRegularExpression& mentionExpression()
 {
     static const QRegularExpression expression(
-        QStringLiteral(R"((?<![A-Za-z0-9._-])@([A-Za-z0-9][A-Za-z0-9._-]*))"));
+        QStringLiteral(R"((?<![A-Za-z0-9._-])@([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?))"));
     return expression;
 }
 
@@ -59,7 +59,9 @@ bool rangeAlreadyLinkedOrCode(QTextDocument& document, int position, int length)
 {
     QTextCursor cursor(&document);
     for (int i = 0; i < length; ++i) {
-        cursor.setPosition(position + i);
+        // QTextCursor::charFormat() inspects the character before the cursor.
+        // Include the first character and do not sample the preceding text.
+        cursor.setPosition(position + i + 1);
         const QTextCharFormat format = cursor.charFormat();
         if (format.isAnchor() || format.fontFixedPitch()) {
             return true;

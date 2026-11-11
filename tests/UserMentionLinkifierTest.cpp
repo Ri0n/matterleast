@@ -21,6 +21,8 @@ private slots:
     void channelReferenceLinksToTeamRoute();
     void channelReferenceWithoutTeamRemainsPlain();
     void channelReferenceInCodeRemainsPlain();
+    void dottedUsernamesLinkImmediatelyWithoutTrailingPunctuation();
+    void mentionFollowingExistingLinkIsNotSuppressed();
 };
 
 void UserMentionLinkifierTest::channelReferenceLinksToTeamRoute()
@@ -64,6 +66,43 @@ void UserMentionLinkifierTest::channelReferenceInCodeRemainsPlain()
     const QTextCursor link = document.find(QStringLiteral("~roadmap"));
     QVERIFY(!link.isNull());
     QVERIFY(!link.charFormat().isAnchor());
+}
+
+void UserMentionLinkifierTest::dottedUsernamesLinkImmediatelyWithoutTrailingPunctuation()
+{
+    QTextDocument document;
+    document.setPlainText(QStringLiteral("From @login.name to @second.user."));
+
+    UserMentionLinkifier::linkify(document);
+
+    for (const QString& username : {QStringLiteral("login.name"),
+                                    QStringLiteral("second.user")}) {
+        QTextCursor cursor = document.find(QLatin1Char('@') + username);
+        QVERIFY(!cursor.isNull());
+        cursor.setPosition(cursor.selectionStart() + 2);
+        QVERIFY(cursor.charFormat().isAnchor());
+        QCOMPARE(cursor.charFormat().anchorHref(),
+                 QStringLiteral("mattermost-user:///") + username);
+    }
+
+    QTextCursor punctuation(&document);
+    punctuation.setPosition(document.toPlainText().length());
+    QVERIFY(!punctuation.charFormat().isAnchor());
+}
+
+void UserMentionLinkifierTest::mentionFollowingExistingLinkIsNotSuppressed()
+{
+    QTextDocument document;
+    document.setHtml(QStringLiteral(
+        "<a href=\"https://example.org\">site</a> @login.name"));
+    UserMentionLinkifier::linkify(document);
+
+    QTextCursor cursor = document.find(QStringLiteral("@login.name"));
+    QVERIFY(!cursor.isNull());
+    cursor.setPosition(cursor.selectionStart() + 2);
+    QVERIFY(cursor.charFormat().isAnchor());
+    QCOMPARE(cursor.charFormat().anchorHref(),
+             QStringLiteral("mattermost-user:///login.name"));
 }
 
 QTEST_MAIN(UserMentionLinkifierTest)

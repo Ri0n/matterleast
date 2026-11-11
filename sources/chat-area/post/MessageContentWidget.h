@@ -54,6 +54,9 @@ signals:
     void linkDragRequested(const QString& link);
     void dimensionsChanged();
     void paletteRefreshCompleted();
+    // Fired after each message-body rebuild, including font/emoji/image refreshes.
+    // Consumers must reconnect links to the newly created QTextBrowser children.
+    void contentRebuilt();
 
 protected:
     void changeEvent(QEvent* event) override;
