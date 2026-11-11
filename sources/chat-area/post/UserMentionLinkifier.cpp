@@ -4,9 +4,6 @@
 
 #include <QApplication>
 #include <QPalette>
-#include <QPointer>
-#include <QSet>
-#include <QTextFragment>
 #include <QRegularExpression>
 #include <QTextBlock>
 #include <QTextCharFormat>
@@ -14,7 +11,6 @@
 #include <QTextDocument>
 #include <QWidget>
 
-#include "backend/ChannelReferenceService.h"
 
 namespace Mattermost {
 namespace UserMentionLinkifier {
@@ -191,80 +187,6 @@ void linkify(QTextDocument& document,
                 palette, channelHref(teamName, replacement.value)));
             break;
         }
-    }
-}
-
-void resolveChannelDisplayNames(QTextDocument& document, Backend& backend,
-                                const QString& teamName, QObject* owner,
-                                std::function<void()> changed)
-{
-    if (!owner || teamName.isEmpty()) {
-        return;
-    }
-    const QString prefix = QStringLiteral("/") + teamName
-        + QStringLiteral("/channels/");
-
-    // Only resolve links produced by linkify(), never plain text, Markdown
-    // links or code. Keep the original URL after substituting display_name.
-    auto references = [&document, &prefix] {
-        QSet<QString> slugs;
-        for (QTextBlock block = document.begin(); block.isValid();
-             block = block.next()) {
-            auto it = channelExpression().globalMatch(block.text());
-            while (it.hasNext()) {
-                const auto match = it.next();
-                const QString slug = match.captured(1);
-                QTextCursor cursor(&document);
-                cursor.setPosition(block.position() + match.capturedStart());
-                cursor.setPosition(block.position() + match.capturedEnd(),
-                                   QTextCursor::KeepAnchor);
-                if (cursor.charFormat().anchorHref() == prefix + slug) {
-                    slugs.insert(slug);
-                }
-            }
-        }
-        return slugs;
-    };
-
-    QPointer<QTextDocument> doc(&document);
-    QPointer<QObject> guard(owner);
-    for (const QString& slug : references()) {
-        ChannelReferenceService::instance(backend).resolve(
-            teamName, slug,
-            [doc, guard, prefix, slug, changed](const QString& name) {
-                if (!guard || !doc || name.isEmpty() || name == slug) {
-                    return;
-                }
-                QList<QPair<int, int>> positions;
-                for (QTextBlock block = doc->begin(); block.isValid();
-                     block = block.next()) {
-                    auto it = channelExpression().globalMatch(block.text());
-                    while (it.hasNext()) {
-                        const auto match = it.next();
-                        if (match.captured(1) != slug) {
-                            continue;
-                        }
-                        QTextCursor cursor(doc);
-                        cursor.setPosition(block.position() + match.capturedStart());
-                        cursor.setPosition(block.position() + match.capturedEnd(),
-                                           QTextCursor::KeepAnchor);
-                        if (cursor.charFormat().anchorHref() == prefix + slug) {
-                            positions.push_back({cursor.selectionStart(),
-                                                 cursor.selectionEnd()});
-                        }
-                    }
-                }
-                for (auto it = positions.crbegin(); it != positions.crend(); ++it) {
-                    QTextCursor cursor(doc);
-                    cursor.setPosition(it->first);
-                    cursor.setPosition(it->second, QTextCursor::KeepAnchor);
-                    const QTextCharFormat format = cursor.charFormat();
-                    cursor.insertText(QLatin1Char('~') + name, format);
-                }
-                if (!positions.isEmpty() && changed) {
-                    changed();
-                }
-            });
     }
 }
 
