@@ -24,7 +24,7 @@
 namespace Mattermost {
 namespace ChannelIcons {
 
-inline QIcon channel()
+inline QIcon channel(const QColor& color)
 {
     // Do not use theme icons such as "irc-channel-active" here: depending on
     // the desktop theme they can encode an active/online state. Channels do not
@@ -33,13 +33,20 @@ inline QIcon channel()
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QApplication::palette().color(QPalette::Text));
+    painter.setPen(color);
     QFont font = QApplication::font();
     font.setBold(true);
     font.setPixelSize(18);
     painter.setFont(font);
     painter.drawText(pixmap.rect(), Qt::AlignCenter, QStringLiteral("#"));
     return QIcon(pixmap);
+}
+
+// Keep the existing channel-row API, but allow tool buttons to supply their
+// own palette so a toolbar-local color scheme is reflected in the hashtag.
+inline QIcon channel()
+{
+    return channel(QApplication::palette().color(QPalette::Text));
 }
 
 inline QIcon member()
