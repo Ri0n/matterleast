@@ -21,3 +21,13 @@ A separate avatar menu manages user availability and custom status.
 
 Team pills and the button row are explicitly left-aligned, so a single team
 starts at the sidebar tree edge instead of floating in the center of the row.
+
+## Palette switching
+
+The unread-only filter, Browse public channels (#), and Add team (+) icons are
+palette-derived pixmaps rather than persistent static SVG icons. They use the
+shared `PaletteIconToolButton` to regenerate their pixmaps on local palette,
+style, application palette and checked-state changes. A coalesced update after
+`QGuiApplication::paletteChanged` handles platforms where child palette events
+arrive before palette propagation finishes, without rebuilding the team strip
+or altering team selection and scroll position.
