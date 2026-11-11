@@ -3,9 +3,7 @@
 #include <functional>
 #include <utility>
 
-#include <QApplication>
 #include <QEvent>
-#include <QGuiApplication>
 #include <QIcon>
 #include <QPalette>
 #include <QTimer>
@@ -18,9 +16,9 @@ namespace Mattermost {
  * palette, style or checked state. A plain QToolButton stores the initial
  * tinted QIcon forever, even after the OS switches between light/dark themes.
  *
- * The deferred application-palette refresh runs after Qt has propagated the
- * new palette to child widgets; it also covers custom native platform styles
- * that do not send PaletteChange to every child consistently.
+ * A queued refresh runs after Qt has propagated a PaletteChange or
+ * ApplicationPaletteChange through the widget hierarchy, avoiding the
+ * deprecated QGuiApplication::paletteChanged signal.
  */
 class PaletteIconToolButton : public QToolButton
 {
@@ -32,19 +30,7 @@ public:
     {
         connect(this, &QToolButton::toggled, this,
                 [this] { refreshIcon(); });
-        if (qApp) {
-            connect(qApp, &QGuiApplication::paletteChanged, this,
-                    [this](const QPalette&) {
-                if (_refreshScheduled) {
-                    return;
-                }
-                _refreshScheduled = true;
-                QTimer::singleShot(0, this, [this] {
-                    _refreshScheduled = false;
-                    refreshIcon();
-                });
-            });
-        }
+
     }
 
     void setIconFactory(IconFactory factory)
@@ -73,6 +59,16 @@ protected:
         case QEvent::StyleChange:
         case QEvent::EnabledChange:
             refreshIcon();
+            // Qt can send the change notification before children have
+            // inherited the newly installed application/style palette.
+            // Refresh again at the end of the event turn.
+            if (!_refreshScheduled) {
+                _refreshScheduled = true;
+                QTimer::singleShot(0, this, [this] {
+                    _refreshScheduled = false;
+                    refreshIcon();
+                });
+            }
             break;
         default:
             break;
