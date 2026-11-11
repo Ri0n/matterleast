@@ -347,9 +347,25 @@ jobs:
           }
           exit $testExit
 
+      - name: User profile mention regression (captured first run)
+        shell: pwsh
+        run: |
+          # Windows GUI-mode QtTest executables do not print failed assertions
+          # through CTest. Capture the original run and its exit code.
+          $log = Join-Path $PWD 'user-profile-recovery-first-run.txt'
+          & ./build/tests/user-profile-recovery-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce user profile test diagnostics."
+            exit 1
+          }
+          exit $testExit
+
       - name: Unit tests
         # Tests above already ran exactly once with visible QtTest assertions.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test|channel-member-invite-test|channel-header-text-label-test)$"
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test|channel-member-invite-test|channel-header-text-label-test|user-profile-recovery-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh
