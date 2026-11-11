@@ -430,7 +430,9 @@ void ChannelHeaderTextLabelTest::expandedTopicRebuildRestoresChannelLinks()
             }
             cursor.setPosition(cursor.selectionStart() + 2);
             if (cursor.charFormat().anchorHref()
-                != QStringLiteral("/offtopic/channels/") + slug) {
+                    != QStringLiteral("/offtopic/channels/") + slug
+                || cursor.charFormat().toolTip()
+                    != QStringLiteral("/offtopic/channels/") + slug) {
                 return false;
             }
         }
@@ -452,6 +454,19 @@ void ChannelHeaderTextLabelTest::expandedTopicRebuildRestoresChannelLinks()
         QStringLiteral("/offtopic/channels/off-3d-printing")));
     QCOMPARE(opened.path(),
              QStringLiteral("/offtopic/channels/off-3d-printing"));
+
+    // A team-context switch keeps the same Markdown source, but every
+    // destination must change in both collapsed and expanded presentations.
+    label.setLinkTeamName(QStringLiteral("second-team"));
+    auto* retargeted = content->findChild<QTextBrowser*>(
+        QStringLiteral("messageRichText"));
+    QVERIFY(retargeted);
+    QTextCursor target = retargeted->document()->find(
+        QStringLiteral("~off-pet-photo"));
+    QVERIFY(!target.isNull());
+    target.setPosition(target.selectionStart() + 2);
+    QCOMPARE(target.charFormat().anchorHref(),
+             QStringLiteral("/second-team/channels/off-pet-photo"));
 }
 
 void ChannelHeaderTextLabelTest::collapsedLabelShowsHoveredLinkTooltip()
