@@ -98,6 +98,26 @@ private slots:
         QTreeWidgetItem* gmRow = findRow(groupId);
         QVERIFY(dmRow);
         QVERIFY(gmRow);
+        const auto visibleSearchIds = [&tree] {
+            QStringList ids;
+            for (int i = 0; i < tree.topLevelItemCount(); ++i) {
+                QTreeWidgetItem* teamRow = tree.topLevelItem(i);
+                for (int j = 0; j < teamRow->childCount(); ++j) {
+                    QTreeWidgetItem* categoryRow = teamRow->child(j);
+                    for (int k = 0; k < categoryRow->childCount(); ++k) {
+                        QTreeWidgetItem* row = categoryRow->child(k);
+                        if (row->data(0, ChannelTree::ItemKindRole).toInt()
+                                == ChannelTree::ChannelItemKind && !row->isHidden()) {
+                            ids.push_back(row->data(0, ChannelTree::ItemIdRole)
+                                              .toString());
+                        }
+                    }
+                }
+            }
+            return ids;
+        };
+        const QStringList initialRows = visibleSearchIds();
+        QCOMPARE(initialRows.size(), 2);
         const SidebarCategory* category = sidebar.teamState(teamId)->category(dm.id);
         QVERIFY(!category->channelIds.contains(channelId));
         QVERIFY(!category->channelIds.contains(groupId));
@@ -110,6 +130,7 @@ private slots:
         QCOMPARE(tree.currentItem(), dmRow);
         QVERIFY(!category->channelIds.contains(channelId));
         QVERIFY(dmRow->treeWidget() == &tree);
+        QCOMPARE(visibleSearchIds(), initialRows);
 
         tree.openChannel(groupId);
         QCOMPARE(tree.currentItem(), gmRow);
@@ -119,6 +140,7 @@ private slots:
                  groupId);
         QVERIFY(!category->channelIds.contains(groupId));
         QVERIFY(gmRow->treeWidget() == &tree);
+        QCOMPARE(visibleSearchIds(), initialRows);
 
         // Once search is cleared, the currently opened GM is admitted to the
         // ordinary sidebar without changing the already opened conversation.
