@@ -776,13 +776,12 @@ void MainWindow::refreshChannelUnreadFilter()
 				                  : (channelsCategory ? tr("Browse public channels")
 				                                      : QString()));
 
-			// Mattermost's category channel_ids order is not guaranteed to track
-			// live DM activity. Keep the server category membership but display
-			// direct conversations strictly newest-first. Reordering a current
-			// QTreeWidgetItem can transiently make Qt select a neighbour, so keep
-			// the model mutation selection-atomic and never expose that temporary
-			// current item as navigation.
-			if (directMessages && categoryItem->childCount() > 1) {
+			// The active text search already has a deterministic order from
+			// SidebarService::visibleChannelIds(). Do not sort QTreeWidget rows
+			// again by mutable activity/read state: moving selected items here
+			// can also desynchronize Qt's selection from the opened ChatArea.
+			// Keep the regular activity-based order when search is inactive.
+			if (directMessages && !textFilterActive && categoryItem->childCount() > 1) {
 				QTreeWidgetItem* selectedItem = ui->channelList->currentItem();
 				QSignalBlocker selectionSignals(ui->channelList);
 				QVector<QTreeWidgetItem*> children;

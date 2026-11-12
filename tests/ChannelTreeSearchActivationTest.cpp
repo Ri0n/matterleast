@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QItemSelectionModel>
 #include <QJsonObject>
 #include <QPixmap>
 
@@ -16,7 +17,7 @@ class ChannelTreeSearchActivationTest : public QObject
     Q_OBJECT
 
 private slots:
-    void searchOnlyDmIsAdmittedAfterSelectionNotification()
+    void filteredDmAndGmKeepSelectionUntilFilterClears()
     {
         Backend backend;
         Storage& storage = backend.getStorage();
@@ -54,6 +55,16 @@ private slots:
             {QStringLiteral("create_at"), 1},
         });
         QVERIFY(channel);
+        const QString groupId = QStringLiteral("gm-search-result");
+        BackendChannel* group = storage.addGroupChannel(QJsonObject {
+            {QStringLiteral("id"), groupId},
+            {QStringLiteral("type"), QStringLiteral("G")},
+            {QStringLiteral("name"), QStringLiteral("searchable-group")},
+            {QStringLiteral("display_name"), QStringLiteral("Searchable team group")},
+            {QStringLiteral("create_at"), 2},
+            {QStringLiteral("last_post_at"), 100},
+        });
+        QVERIFY(group);
 
         SidebarCategory dm;
         dm.id = QStringLiteral("dm-category");
@@ -69,30 +80,82 @@ private slots:
         tree.addTeam(backend, *team);
         tree.setConversationSearchTerm(QStringLiteral("searchable"));
 
-        QTreeWidgetItem* searchRow = nullptr;
-        for (int i = 0; i < tree.topLevelItemCount(); ++i) {
-            QTreeWidgetItem* teamRow = tree.topLevelItem(i);
-            for (int j = 0; j < teamRow->childCount(); ++j) {
-                QTreeWidgetItem* categoryRow = teamRow->child(j);
-                for (int k = 0; k < categoryRow->childCount(); ++k) {
-                    QTreeWidgetItem* row = categoryRow->child(k);
-                    if (row->data(0, ChannelTree::ItemIdRole).toString() == channelId) {
-                        searchRow = row;
+        const auto findRow = [&tree](const QString& id) -> QTreeWidgetItem* {
+            for (int i = 0; i < tree.topLevelItemCount(); ++i) {
+                QTreeWidgetItem* teamRow = tree.topLevelItem(i);
+                for (int j = 0; j < teamRow->childCount(); ++j) {
+                    QTreeWidgetItem* categoryRow = teamRow->child(j);
+                    for (int k = 0; k < categoryRow->childCount(); ++k) {
+                        QTreeWidgetItem* row = categoryRow->child(k);
+                        if (row->data(0, ChannelTree::ItemIdRole).toString() == id) {
+                            return row;
+                        }
                     }
                 }
             }
-        }
-        QVERIFY(searchRow);
-        QVERIFY(!sidebar.teamState(teamId)->category(dm.id)->channelIds.contains(channelId));
+            return nullptr;
+        };
+        QTreeWidgetItem* dmRow = findRow(channelId);
+        QTreeWidgetItem* gmRow = findRow(groupId);
+        QVERIFY(dmRow);
+        QVERIFY(gmRow);
+        const auto visibleSearchIds = [&tree] {
+            QStringList ids;
+            for (int i = 0; i < tree.topLevelItemCount(); ++i) {
+                QTreeWidgetItem* teamRow = tree.topLevelItem(i);
+                for (int j = 0; j < teamRow->childCount(); ++j) {
+                    QTreeWidgetItem* categoryRow = teamRow->child(j);
+                    for (int k = 0; k < categoryRow->childCount(); ++k) {
+                        QTreeWidgetItem* row = categoryRow->child(k);
+                        if (row->data(0, ChannelTree::ItemKindRole).toInt()
+                                == ChannelTree::ChannelItemKind && !row->isHidden()) {
+                            ids.push_back(row->data(0, ChannelTree::ItemIdRole)
+                                              .toString());
+                        }
+                    }
+                }
+            }
+            return ids;
+        };
+        const QStringList initialRows = visibleSearchIds();
+        QCOMPARE(initialRows.size(), 2);
+        const SidebarCategory* category = sidebar.teamState(teamId)->category(dm.id);
+        QVERIFY(!category->channelIds.contains(channelId));
+        QVERIFY(!category->channelIds.contains(groupId));
 
-        // This used to mutate QTreeWidget from currentItemChanged while Qt
-        // was still updating its selection model.
-        tree.openChannel(channelId);
-        QCOMPARE(tree.currentItem(), searchRow);
-        QVERIFY(!sidebar.teamState(teamId)->category(dm.id)->channelIds.contains(channelId));
+        // Switching between results must not enqueue a category admission,
+        // rebuild the tree, or move Qt's highlight to an unrelated row.
+        // Use the view's real selection model, not just programmatic
+        // navigation: the bug left the ChatArea correct but the highlight wrong.
+        tree.setCurrentItem(dmRow, 0, QItemSelectionModel::ClearAndSelect);
+        QCOMPARE(tree.currentItem(), dmRow);
+        QTest::qWait(20);
+        QCOMPARE(tree.currentItem(), dmRow);
+        QCOMPARE(tree.selectedItems().size(), 1);
+        QCOMPARE(tree.selectedItems().first(), dmRow);
+        QVERIFY(!category->channelIds.contains(channelId));
+        QVERIFY(dmRow->treeWidget() == &tree);
+        QCOMPARE(visibleSearchIds(), initialRows);
 
-        QTRY_VERIFY(sidebar.teamState(teamId)->category(dm.id)->channelIds.contains(channelId));
-        QCOMPARE(searchRow->treeWidget(), &tree);
+        tree.setCurrentItem(gmRow, 0, QItemSelectionModel::ClearAndSelect);
+        QCOMPARE(tree.currentItem(), gmRow);
+        QTest::qWait(20);
+        QCOMPARE(tree.currentItem(), gmRow);
+        QCOMPARE(tree.selectedItems().size(), 1);
+        QCOMPARE(tree.selectedItems().first(), gmRow);
+        QCOMPARE(tree.currentItem()->data(0, ChannelTree::ItemIdRole).toString(),
+                 groupId);
+        QVERIFY(!category->channelIds.contains(groupId));
+        QVERIFY(gmRow->treeWidget() == &tree);
+        QCOMPARE(visibleSearchIds(), initialRows);
+
+        // This test deliberately has no ChatArea stack: it checks the real
+        // QTreeWidget selection model without initializing chat/network UI.
+        // Simulate ChatArea::onActivate() setting the backend's active channel
+        // before clearing search, which must admit the currently opened GM.
+        backend.setCurrentChannel(*group);
+        tree.setConversationSearchTerm(QString());
+        QVERIFY(category->channelIds.contains(groupId));
     }
 };
 
