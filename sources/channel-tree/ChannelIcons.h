@@ -117,9 +117,9 @@ inline QIcon groupConversation()
 
 // All channel collections must use the same semantic icons, regardless of
 // which sidebar tab renders them. Only DM rows use profile avatars.
-inline QIcon conversation(BackendChannel::type type)
+inline QIcon conversation(int channelType)
 {
-    switch (type) {
+    switch (channelType) {
     case BackendChannel::publicChannel:
     case BackendChannel::groupChannel:
         return groupConversation();
