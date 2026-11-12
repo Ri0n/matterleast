@@ -246,7 +246,20 @@ void ChannelTree::setConversationSearchTerm(const QString& term)
 {
     if (!backendForSidebar) return;
     auto& sidebar = SidebarService::instance(*backendForSidebar);
+    const bool wasSearching = sidebar.conversationSearchActive();
     sidebar.setConversationSearchTerm(term);
+
+    // Opening a search result must not mutate the tree under the pointer.
+    // When the user exits search, admit the currently open DM/GM into the
+    // ordinary sidebar once, so that the selected conversation remains there.
+    if (wasSearching && !sidebar.conversationSearchActive()) {
+        BackendChannel* current = backendForSidebar->getCurrentChannel();
+        if (current && (current->type == BackendChannel::directChannel
+                        || current->type == BackendChannel::groupChannel)) {
+            admitStoredConversation(*current);
+        }
+    }
+
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
         TeamItem* team = it.value();
         const SidebarTeamState* state = sidebar.teamState(it.key());
