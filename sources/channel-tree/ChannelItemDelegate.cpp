@@ -225,12 +225,7 @@ void ChannelItemDelegate::paint(QPainter* painter,
     }
 
     if (icon.isNull()) {
-        if (type == BackendChannel::groupChannel) {
-            icon = ChannelIcons::groupConversation();
-        } else if (type == BackendChannel::publicChannel
-                   || type == BackendChannel::privateChannel) {
-            icon = ChannelIcons::channel();
-        }
+        icon = ChannelIcons::conversation(type);
     }
 
     base.text.clear();

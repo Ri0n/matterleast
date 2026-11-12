@@ -54,12 +54,10 @@ void ChannelTree::refreshPaletteDependentIcons()
 
             auto* channelItem = static_cast<ChannelItem*>(row);
             const int type = row->data(0, ItemChannelTypeRole).toInt();
-            if (type == BackendChannel::groupChannel) {
-                channelItem->setIcon(ChannelIcons::groupConversation());
-            } else if (type == BackendChannel::privateChannel) {
-                channelItem->setIcon(ChannelIcons::privateChannel());
-            } else if (type == BackendChannel::publicChannel) {
-                channelItem->setIcon(ChannelIcons::channel());
+            if (type == BackendChannel::groupChannel
+                || type == BackendChannel::privateChannel
+                || type == BackendChannel::publicChannel) {
+                channelItem->setIcon(ChannelIcons::conversation(type));
             }
         }
     }

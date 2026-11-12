@@ -58,11 +58,11 @@ void ChannelItem::setIcon (const QIcon& icon)
     // Private channels are semantic rows, not arbitrary icon holders. Some
     // sidebar construction paths still assign the generic channel icon after
     // setLabel(); normalize here so a private row cannot be downgraded back to
-    // the public-channel '#'. Direct/group conversations are unaffected.
+    // the public-channel icon. Direct/group conversations are unaffected.
     QIcon effectiveIcon = icon;
     if (BackendChannel* channel = backendChannel();
         channel && channel->type == BackendChannel::privateChannel) {
-        effectiveIcon = ChannelIcons::privateChannel();
+        effectiveIcon = ChannelIcons::conversation(channel->type);
     }
 
     QTreeWidgetItem::setIcon(0, effectiveIcon);
@@ -90,14 +90,9 @@ void ChannelItem::setLabel (const QString& label)
     // Direct conversations get a real user avatar as soon as the profile is
     // resolved. Give every other row a stable semantic icon immediately so
     // public/private channels and group DMs do not look visually unfinished.
-    if (QTreeWidgetItem::icon(0).isNull() && channel) {
-        if (channel->type == BackendChannel::groupChannel) {
-            setIcon(ChannelIcons::groupConversation());
-        } else if (channel->type == BackendChannel::privateChannel) {
-            setIcon(ChannelIcons::privateChannel());
-        } else if (channel->type == BackendChannel::publicChannel) {
-            setIcon(ChannelIcons::channel());
-        }
+    if (QTreeWidgetItem::icon(0).isNull() && channel
+        && channel->type != BackendChannel::directChannel) {
+        setIcon(ChannelIcons::conversation(channel->type));
     }
 }
 

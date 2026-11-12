@@ -508,10 +508,8 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     item->setFlags((item->flags() | Qt::ItemIsDragEnabled) & ~Qt::ItemIsDropEnabled);
     item->setLabel(channel.display_name);
 
-    if (channel.type == BackendChannel::groupChannel) {
-        item->setIcon(ChannelIcons::groupConversation());
-    } else if (channel.type != BackendChannel::directChannel) {
-        item->setIcon(ChannelIcons::channel());
+    if (channel.type != BackendChannel::directChannel) {
+        item->setIcon(ChannelIcons::conversation(channel.type));
     }
 
     if (channel.type == BackendChannel::directChannel) {

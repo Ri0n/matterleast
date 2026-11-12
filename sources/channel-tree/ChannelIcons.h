@@ -21,6 +21,8 @@
 #include <QPalette>
 #include <QPixmap>
 
+#include "backend/types/BackendChannel.h"
+
 namespace Mattermost {
 namespace ChannelIcons {
 
@@ -111,6 +113,29 @@ inline QIcon groupConversation()
     body.addRoundedRect(QRectF(11.5, 13.0, 10.0, 6.0), 3.0, 3.0);
     painter.drawPath(body);
     return QIcon(pixmap);
+}
+
+// All channel collections must use the same semantic icons, regardless of
+// which sidebar tab renders them. Only DM rows use profile avatars.
+inline QIcon conversation(int channelType)
+{
+    switch (channelType) {
+    case BackendChannel::publicChannel:
+    case BackendChannel::groupChannel:
+        return groupConversation();
+    case BackendChannel::privateChannel:
+        return privateChannel();
+    case BackendChannel::directChannel:
+    case BackendChannel::unknown:
+        return QIcon();
+    }
+    return QIcon();
+}
+
+// Thread rows use the hash; it denotes the thread, not channel privacy.
+inline QIcon thread()
+{
+    return channel();
 }
 
 } // namespace ChannelIcons

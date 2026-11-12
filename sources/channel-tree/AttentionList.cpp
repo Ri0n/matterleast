@@ -533,7 +533,7 @@ void AttentionList::refresh()
                     UserProfileService::instance(*backend_).ensureAvatar(*user);
                 }
             } else {
-                item->setIcon(0, ChannelIcons::groupConversation());
+                item->setIcon(0, ChannelIcons::conversation(channel->type));
             }
         } else {
             BackendChannel* channel = backend_->getStorage().getChannelById(entry.channelId);
@@ -543,11 +543,7 @@ void AttentionList::refresh()
             item->setData(0, SidebarItem::ChannelTypeRole,
                           channel ? channel->type : BackendChannel::publicChannel);
             item->setToolTip(0, followingMessageToolTip(entry.message));
-            if (channel && channel->type == BackendChannel::privateChannel) {
-                item->setIcon(0, ChannelIcons::privateChannel());
-            } else {
-                item->setIcon(0, ChannelIcons::channel());
-            }
+            item->setIcon(0, ChannelIcons::thread());
         }
 
         if (!selectedKey.isEmpty() && entryKey(entry) == selectedKey) {
