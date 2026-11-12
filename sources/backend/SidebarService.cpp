@@ -484,13 +484,38 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
                 seen.insert(channel->id);
             }
         }
-        std::stable_sort(matchesOutsideSidebar.begin(), matchesOutsideSidebar.end(),
-                         [](const BackendChannel* a, const BackendChannel* b) {
-            return std::max(a->last_post_at, a->create_at)
-                 > std::max(b->last_post_at, b->create_at);
-        });
-        for (const BackendChannel* channel : matchesOutsideSidebar)
+        for (const BackendChannel* channel : matchesOutsideSidebar) {
             result.push_back(channel->id);
+        }
+
+        // The normal sidebar prioritizes the currently open or unread DM.
+        // That makes filtered results jump under the pointer after every
+        // activation. Sort the complete search result independently, using
+        // only last-post timestamps and deterministic alphabetical ties.
+        const auto displayName = [this](const BackendChannel* channel) {
+            if (channel->type == BackendChannel::directChannel) {
+                const BackendUser* peer =
+                    backend.getStorage().getUserById(channel->name);
+                if (peer) {
+                    return peer->getDisplayName();
+                }
+            }
+            return channel->display_name.isEmpty()
+                ? channel->name : channel->display_name;
+        };
+        std::sort(result.begin(), result.end(),
+                  [this, &displayName](const QString& leftId, const QString& rightId) {
+            const BackendChannel* left =
+                backend.getStorage().getChannelById(leftId);
+            const BackendChannel* right =
+                backend.getStorage().getChannelById(rightId);
+            if (!left || !right) {
+                return left != nullptr;
+            }
+            return conversationSearchOrderBefore(
+                left->last_post_at, displayName(left), leftId,
+                right->last_post_at, displayName(right), rightId);
+        });
     }
     return result;
 }
