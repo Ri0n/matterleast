@@ -492,7 +492,7 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
         // That makes filtered results jump under the pointer after every
         // activation. Sort the complete search result independently, using
         // only last-post timestamps and deterministic alphabetical ties.
-        const auto displayName = [this](const BackendChannel* channel) {
+        const auto displayName = [this](const BackendChannel* channel) -> QString {
             if (channel->type == BackendChannel::directChannel) {
                 const BackendUser* peer =
                     backend.getStorage().getUserById(channel->name);
