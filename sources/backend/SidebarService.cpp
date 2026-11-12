@@ -358,18 +358,40 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
     QVector<Candidate> candidates;
     candidates.reserve(category.channelIds.size());
     BackendChannel* currentChannel = backend.getCurrentChannel();
+    const bool searchingDirects =
+        category.type == QLatin1String("direct_messages")
+        && !_conversationSearchTerm.isEmpty();
+
+    // A filtered directory is independent of which conversation is selected
+    // and how its unread/opened state changes during navigation.
+    const auto matchesSearch = [this](const BackendChannel* channel) {
+        if (!channel) {
+            return false;
+        }
+        const BackendUser* user = channel->type == BackendChannel::directChannel
+            ? backend.getStorage().getUserById(channel->name) : nullptr;
+        return matchesConversationSearch(
+            _conversationSearchTerm, channel->display_name,
+            user ? user->getDisplayName() : QString(),
+            user ? user->username : QString(),
+            user ? user->email : QString());
+    };
 
     for (const QString& channelId : category.channelIds) {
         BackendChannel* channel = backend.getStorage().getChannelById(channelId);
         if (!channel) {
             continue;
         }
-        if (channel->delete_at != 0 && channel != currentChannel) {
+        if (channel->delete_at != 0
+            && (searchingDirects || channel != currentChannel)) {
+            continue;
+        }
+        if (searchingDirects && !matchesSearch(channel)) {
             continue;
         }
 
         const bool unread = isChannelUnread(*channel);
-        if (category.type == QStringLiteral("direct_messages")
+        if (!searchingDirects && category.type == QStringLiteral("direct_messages")
             && isDirectChannelManuallyHidden(*channel)
             && !unread && channel != currentChannel) {
             continue;
@@ -377,7 +399,7 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
         candidates.push_back(Candidate {channelId, channel, unread});
     }
 
-    if (category.type == QStringLiteral("direct_messages")) {
+    if (category.type == QStringLiteral("direct_messages") && !searchingDirects) {
         int unreadCount = 0;
         for (const Candidate& candidate : candidates) {
             unreadCount += candidate.unread ? 1 : 0;
@@ -430,13 +452,13 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
         candidates = std::move(inServerOrder);
     }
 
-    if (category.sorting == QStringLiteral("recent")) {
+    if (!searchingDirects && category.sorting == QStringLiteral("recent")) {
         std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
             const uint64_t aTime = std::max(a.channel->last_post_at, a.channel->create_at);
             const uint64_t bTime = std::max(b.channel->last_post_at, b.channel->create_at);
             return aTime > bTime;
         });
-    } else if (category.sorting == QStringLiteral("alpha")) {
+    } else if (!searchingDirects && category.sorting == QStringLiteral("alpha")) {
         std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
             return QString::compare(a.channel->display_name, b.channel->display_name,
                                     Qt::CaseInsensitive) < 0;
@@ -452,19 +474,7 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
     // Sidebar categories deliberately cap DM/GM history to recent items.
     // Searching must instead consult the complete cached conversation directory
     // used by the + Direct messages picker, without modifying server categories.
-    if (category.type == QLatin1String("direct_messages")
-        && !_conversationSearchTerm.isEmpty()) {
-        const QString term = _conversationSearchTerm;
-        const auto matches = [&](const BackendChannel* channel) {
-            if (!channel) return false;
-            const BackendUser* user = channel->type == BackendChannel::directChannel
-                ? backend.getStorage().getUserById(channel->name) : nullptr;
-            return matchesConversationSearch(
-                term, channel->display_name,
-                user ? user->getDisplayName() : QString(),
-                user ? user->username : QString(),
-                user ? user->email : QString());
-        };
+    if (searchingDirects) {
         QSet<QString> seen;
         for (const QString& id : result) seen.insert(id);
         QVector<BackendChannel*> matchesOutsideSidebar;
@@ -472,14 +482,16 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
              it != backend.getStorage().directChannelsByUser.cend(); ++it) {
             BackendChannel* channel = it.value();
             if (channel && channel->name != backend.getLoginUser().id
-                && !seen.contains(channel->id) && matches(channel)) {
+                && channel->delete_at == 0
+                && !seen.contains(channel->id) && matchesSearch(channel)) {
                 matchesOutsideSidebar.push_back(channel);
                 seen.insert(channel->id);
             }
         }
         for (const auto& owned : backend.getStorage().groupChannels.channels) {
             BackendChannel* channel = owned.get();
-            if (channel && !seen.contains(channel->id) && matches(channel)) {
+            if (channel && channel->delete_at == 0
+                && !seen.contains(channel->id) && matchesSearch(channel)) {
                 matchesOutsideSidebar.push_back(channel);
                 seen.insert(channel->id);
             }
