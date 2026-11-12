@@ -16,7 +16,7 @@ class ChannelTreeSearchActivationTest : public QObject
     Q_OBJECT
 
 private slots:
-    void searchOnlyDmIsAdmittedAfterSelectionNotification()
+    void filteredDmAndGmKeepSelectionUntilFilterClears()
     {
         Backend backend;
         Storage& storage = backend.getStorage();
@@ -54,6 +54,16 @@ private slots:
             {QStringLiteral("create_at"), 1},
         });
         QVERIFY(channel);
+        const QString groupId = QStringLiteral("gm-search-result");
+        BackendChannel* group = storage.addGroupChannel(QJsonObject {
+            {QStringLiteral("id"), groupId},
+            {QStringLiteral("type"), QStringLiteral("G")},
+            {QStringLiteral("name"), QStringLiteral("searchable-group")},
+            {QStringLiteral("display_name"), QStringLiteral("Searchable team group")},
+            {QStringLiteral("create_at"), 2},
+            {QStringLiteral("last_post_at"), 100},
+        });
+        QVERIFY(group);
 
         SidebarCategory dm;
         dm.id = QStringLiteral("dm-category");
@@ -69,30 +79,51 @@ private slots:
         tree.addTeam(backend, *team);
         tree.setConversationSearchTerm(QStringLiteral("searchable"));
 
-        QTreeWidgetItem* searchRow = nullptr;
-        for (int i = 0; i < tree.topLevelItemCount(); ++i) {
-            QTreeWidgetItem* teamRow = tree.topLevelItem(i);
-            for (int j = 0; j < teamRow->childCount(); ++j) {
-                QTreeWidgetItem* categoryRow = teamRow->child(j);
-                for (int k = 0; k < categoryRow->childCount(); ++k) {
-                    QTreeWidgetItem* row = categoryRow->child(k);
-                    if (row->data(0, ChannelTree::ItemIdRole).toString() == channelId) {
-                        searchRow = row;
+        const auto findRow = [&tree](const QString& id) -> QTreeWidgetItem* {
+            for (int i = 0; i < tree.topLevelItemCount(); ++i) {
+                QTreeWidgetItem* teamRow = tree.topLevelItem(i);
+                for (int j = 0; j < teamRow->childCount(); ++j) {
+                    QTreeWidgetItem* categoryRow = teamRow->child(j);
+                    for (int k = 0; k < categoryRow->childCount(); ++k) {
+                        QTreeWidgetItem* row = categoryRow->child(k);
+                        if (row->data(0, ChannelTree::ItemIdRole).toString() == id) {
+                            return row;
+                        }
                     }
                 }
             }
-        }
-        QVERIFY(searchRow);
-        QVERIFY(!sidebar.teamState(teamId)->category(dm.id)->channelIds.contains(channelId));
+            return nullptr;
+        };
+        QTreeWidgetItem* dmRow = findRow(channelId);
+        QTreeWidgetItem* gmRow = findRow(groupId);
+        QVERIFY(dmRow);
+        QVERIFY(gmRow);
+        const SidebarCategory* category = sidebar.teamState(teamId)->category(dm.id);
+        QVERIFY(!category->channelIds.contains(channelId));
+        QVERIFY(!category->channelIds.contains(groupId));
 
-        // This used to mutate QTreeWidget from currentItemChanged while Qt
-        // was still updating its selection model.
+        // Switching between results must not enqueue a category admission,
+        // rebuild the tree, or move Qt's highlight to an unrelated row.
         tree.openChannel(channelId);
-        QCOMPARE(tree.currentItem(), searchRow);
-        QVERIFY(!sidebar.teamState(teamId)->category(dm.id)->channelIds.contains(channelId));
+        QCOMPARE(tree.currentItem(), dmRow);
+        QTest::qWait(20);
+        QCOMPARE(tree.currentItem(), dmRow);
+        QVERIFY(!category->channelIds.contains(channelId));
+        QVERIFY(dmRow->treeWidget() == &tree);
 
-        QTRY_VERIFY(sidebar.teamState(teamId)->category(dm.id)->channelIds.contains(channelId));
-        QCOMPARE(searchRow->treeWidget(), &tree);
+        tree.openChannel(groupId);
+        QCOMPARE(tree.currentItem(), gmRow);
+        QTest::qWait(20);
+        QCOMPARE(tree.currentItem(), gmRow);
+        QCOMPARE(tree.currentItem()->data(0, ChannelTree::ItemIdRole).toString(),
+                 groupId);
+        QVERIFY(!category->channelIds.contains(groupId));
+        QVERIFY(gmRow->treeWidget() == &tree);
+
+        // Once search is cleared, the currently opened GM is admitted to the
+        // ordinary sidebar without changing the already opened conversation.
+        tree.setConversationSearchTerm(QString());
+        QVERIFY(category->channelIds.contains(groupId));
     }
 };
 
