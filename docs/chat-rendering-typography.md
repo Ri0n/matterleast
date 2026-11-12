@@ -44,6 +44,10 @@ All conversation timelines, including threads, show a visually distinct
 local-calendar date divider at the beginning of each day.
 The avatar/text gap matches the row's left avatar inset rather than inheriting
 the zero spacing of the outer post/day-separator layout.
+The engagement row immediately beneath message content has a 3px top inset
+whenever it displays a thread summary or emoji reactions (or both), and no
+extra inset when it has neither. Thread-only posts must retain the same visual
+separation as posts with emoji reactions.
 Search, Saved, Drafts, Recent Mentions and Pinned collections display a
 full system-locale date *and* time for every post, without requiring hover.
 A date divider belongs to the presentation of the first post in a day,
