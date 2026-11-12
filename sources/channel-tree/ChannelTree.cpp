@@ -682,33 +682,10 @@ void ChannelTree::activateChannelItem(QTreeWidgetItem* item)
         }
     }
 
-    // Search-only DM/GM rows must be admitted to the regular sidebar after
-    // opening. currentItemChanged runs *inside* Qt's selection notification:
-    // reconciling synchronously detaches items while Qt is still updating its
-    // model indexes, which can crash in QTreeWidgetItem::takeChild().
-    if (backendForSidebar) {
-        auto& sidebar = SidebarService::instance(*backendForSidebar);
-        if (sidebar.conversationSearchActive()) {
-            const QString channelId = item->data(0, ItemIdRole).toString();
-            if (BackendChannel* selected =
-                    backendForSidebar->getStorage().getChannelById(channelId)) {
-                if (selected->type == BackendChannel::directChannel
-                    || selected->type == BackendChannel::groupChannel) {
-                    // Capture an ID, not a row/channel pointer: they may be
-                    // replaced before this event-loop turn completes.
-                    QTimer::singleShot(0, this, [this, channelId] {
-                        if (!backendForSidebar) {
-                            return;
-                        }
-                        if (BackendChannel* stored =
-                                backendForSidebar->getStorage().getChannelById(channelId)) {
-                            admitStoredConversation(*stored);
-                        }
-                    });
-                }
-            }
-        }
-    }
+    // A filtered DM/GM already has a selectable search row. Admitting it
+    // into the persistent sidebar here would reconcile the QTreeWidget in
+    // the next event-loop turn, after Qt finishes the click, and can move the
+    // selected highlight to another row. Defer admission until search ends.
 
     ChatArea* newPage = ensureChatArea(item);
     if (!newPage) {
