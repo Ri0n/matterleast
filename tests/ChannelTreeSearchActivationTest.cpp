@@ -133,8 +133,6 @@ private slots:
         QCOMPARE(tree.currentItem(), dmRow);
         QCOMPARE(tree.selectedItems().size(), 1);
         QCOMPARE(tree.selectedItems().first(), dmRow);
-        QVERIFY(backend.getCurrentChannel());
-        QCOMPARE(backend.getCurrentChannel()->id, channelId);
         QVERIFY(!category->channelIds.contains(channelId));
         QVERIFY(dmRow->treeWidget() == &tree);
         QCOMPARE(visibleSearchIds(), initialRows);
@@ -145,16 +143,17 @@ private slots:
         QCOMPARE(tree.currentItem(), gmRow);
         QCOMPARE(tree.selectedItems().size(), 1);
         QCOMPARE(tree.selectedItems().first(), gmRow);
-        QVERIFY(backend.getCurrentChannel());
-        QCOMPARE(backend.getCurrentChannel()->id, groupId);
         QCOMPARE(tree.currentItem()->data(0, ChannelTree::ItemIdRole).toString(),
                  groupId);
         QVERIFY(!category->channelIds.contains(groupId));
         QVERIFY(gmRow->treeWidget() == &tree);
         QCOMPARE(visibleSearchIds(), initialRows);
 
-        // Once search is cleared, the currently opened GM is admitted to the
-        // ordinary sidebar without changing the already opened conversation.
+        // This test deliberately has no ChatArea stack: it checks the real
+        // QTreeWidget selection model without initializing chat/network UI.
+        // Simulate ChatArea::onActivate() setting the backend's active channel
+        // before clearing search, which must admit the currently opened GM.
+        backend.setCurrentChannel(*group);
         tree.setConversationSearchTerm(QString());
         QVERIFY(category->channelIds.contains(groupId));
     }
