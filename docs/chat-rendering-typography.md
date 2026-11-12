@@ -44,7 +44,7 @@ All conversation timelines, including threads, show a visually distinct
 local-calendar date divider at the beginning of each day.
 The avatar/text gap matches the row's left avatar inset rather than inheriting
 the zero spacing of the outer post/day-separator layout.
-The engagement row immediately beneath message content has a 3px top inset
+The engagement row immediately beneath message content has a 6px top inset
 whenever it displays a thread summary or emoji reactions (or both), and no
 extra inset when it has neither. Thread-only posts must retain the same visual
 separation as posts with emoji reactions.
