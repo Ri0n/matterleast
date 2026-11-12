@@ -223,8 +223,7 @@ void ChannelItemDelegate::paint(QPainter* painter,
     }
 
     if (icon.isNull()) {
-        icon = ChannelIcons::conversation(
-            static_cast<BackendChannel::type>(type));
+        icon = ChannelIcons::conversation(type);
     }
 
     base.text.clear();
