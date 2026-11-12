@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QImage>
 #include <QLabel>
+#include <QLayout>
 #include <QPalette>
 #include <QRegularExpression>
 #include <QUrl>
@@ -19,7 +20,10 @@
 #include "backend/Storage.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "backend/types/BackendPost.h"
+#include "backend/types/BackendChannel.h"
+#include "chat-area/ChatArea.h"
 #include "chat-area/post/PostWidget.h"
+#include "chat-area/post/ThreadSummaryWidget.h"
 #include "chat-area/PostListWidget.h"
 #include "chat-area/post/ReactionChipStyle.h"
 #include "chat-area/post/reactions/PostReaction.h"
@@ -207,6 +211,55 @@ private slots:
             QCOMPARE(buttons.at(i)->icon().pixmap(24, 24).toImage(),
                      whiteIcons.at(i));
         }
+    }
+
+    void threadSummaryAndEmojiReactionsShareThreePixelTopGap()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+        BackendChannel channel(
+            storage, QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("cccccccccccccccccccccccccc")},
+                {QStringLiteral("type"), QStringLiteral("O")},
+                {QStringLiteral("display_name"), QStringLiteral("Test channel")},
+            });
+        // A lightweight channel surface lets PostWidget create the
+        // thread-only engagement footer from the root's reply count.
+        ChatArea area(backend, channel, nullptr, nullptr, false);
+        BackendPost root(
+            QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbb")},
+                {QStringLiteral("channel_id"), channel.id},
+                {QStringLiteral("create_at"), 1},
+                {QStringLiteral("reply_count"), 7},
+                {QStringLiteral("message"), QStringLiteral("A root with replies")},
+            },
+            storage);
+
+        PostWidget widget(backend, root, nullptr, &area, nullptr,
+                          PostWidget::PresentationMode::ReadOnlySnapshot);
+        auto* engagement = widget.findChild<QWidget*>(
+            QStringLiteral("postEngagementRow"));
+        QVERIFY(engagement);
+        QVERIFY(engagement->layout());
+        QVERIFY(widget.findChild<ThreadSummaryWidget*>());
+        QVERIFY(!widget.findChild<PostReactionList*>());
+        QCOMPARE(engagement->layout()->contentsMargins().top(), 3);
+
+        const QString reactor = QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaa");
+        root.addReaction(reactor, QStringLiteral("eyes"));
+        widget.updateReactions();
+        QVERIFY(widget.findChild<PostReactionList*>());
+        QCOMPARE(engagement->layout()->contentsMargins().top(), 3);
+
+        // Removing replies leaves a reaction-only footer; removing the last
+        // reaction then clears the inset along with the engagement content.
+        root.reply_count = 0;
+        widget.addThreadButton();
+        QCOMPARE(engagement->layout()->contentsMargins().top(), 3);
+        root.removeReaction(reactor, QStringLiteral("eyes"));
+        widget.updateReactions();
+        QCOMPARE(engagement->layout()->contentsMargins().top(), 0);
     }
 
     void reactionCountTracksInheritedChatFont()
