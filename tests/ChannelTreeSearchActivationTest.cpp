@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QItemSelectionModel>
 #include <QJsonObject>
 #include <QPixmap>
 
@@ -124,7 +125,9 @@ private slots:
 
         // Switching between results must not enqueue a category admission,
         // rebuild the tree, or move Qt's highlight to an unrelated row.
-        tree.openChannel(channelId);
+        // Use the view's real selection model, not just programmatic
+        // navigation: the bug left the ChatArea correct but the highlight wrong.
+        tree.setCurrentItem(dmRow, 0, QItemSelectionModel::ClearAndSelect);
         QCOMPARE(tree.currentItem(), dmRow);
         QTest::qWait(20);
         QCOMPARE(tree.currentItem(), dmRow);
@@ -136,7 +139,7 @@ private slots:
         QVERIFY(dmRow->treeWidget() == &tree);
         QCOMPARE(visibleSearchIds(), initialRows);
 
-        tree.openChannel(groupId);
+        tree.setCurrentItem(gmRow, 0, QItemSelectionModel::ClearAndSelect);
         QCOMPARE(tree.currentItem(), gmRow);
         QTest::qWait(20);
         QCOMPARE(tree.currentItem(), gmRow);
