@@ -2044,9 +2044,9 @@ void PostWidget::updateEngagementRow()
     const bool hasReactions = reactions != nullptr;
     engagementRow_->setVisible(hasThread || hasReactions);
     // Thread summaries and reaction chips share the same engagement row.
-    // Keep a 3px gap above either affordance, including thread-only posts.
+    // Keep a 6px gap above either affordance, including thread-only posts.
     engagementLayout_->setContentsMargins(
-        0, (hasThread || hasReactions) ? 3 : 0, 0, 0);
+        0, (hasThread || hasReactions) ? 6 : 0, 0, 0);
 
     updateEngagementRowMetrics();
     engagementLayout_->invalidate();
