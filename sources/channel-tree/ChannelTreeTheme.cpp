@@ -57,8 +57,7 @@ void ChannelTree::refreshPaletteDependentIcons()
             if (type == BackendChannel::groupChannel
                 || type == BackendChannel::privateChannel
                 || type == BackendChannel::publicChannel) {
-                channelItem->setIcon(ChannelIcons::conversation(
-                    static_cast<BackendChannel::type>(type)));
+                channelItem->setIcon(ChannelIcons::conversation(type));
             }
         }
     }
