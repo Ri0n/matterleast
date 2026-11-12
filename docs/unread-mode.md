@@ -60,6 +60,15 @@ one). Unlike a Following row, this view-only entry does not establish a
 Selection retention is ephemeral and never means a post was read. Filtering
 by text continues to apply to the list.
 
+## Icon semantics shared with Channels
+
+Channel icons are independent of the tab or source that contributed the row:
+public channels and group conversations use the people icon, private channels
+use the lock icon, followed threads use the hash (`#`), and DMs use the
+participant's avatar. The icon policy lives in `ChannelIcons::conversation()`
+and `ChannelIcons::thread()` and applies to initial materialization, fallback
+painting and palette refresh. Do not switch icons between Channels and Unread.
+
 ## Channels toolbar's unread-only toggle
 
 The *Channels* tab has a separate unread-only toolbar toggle, with its own
