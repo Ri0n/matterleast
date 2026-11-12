@@ -28,7 +28,7 @@ constexpr int MuteIconSize = 16;
 constexpr int HorizontalMargin = 4;
 constexpr int ItemSpacing = 4;
 // Keep names clear of the presence badge that protrudes past DM avatars.
-constexpr int AvatarTextSpacing = 10;
+constexpr int AvatarTextSpacing = 7;
 constexpr int SidebarEdgeInset = 4;
 constexpr int CategoryActionExtent = 20;
 constexpr int CategoryActionHitWidth = 30;
