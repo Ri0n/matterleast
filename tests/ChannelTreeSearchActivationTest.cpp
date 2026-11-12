@@ -128,6 +128,10 @@ private slots:
         QCOMPARE(tree.currentItem(), dmRow);
         QTest::qWait(20);
         QCOMPARE(tree.currentItem(), dmRow);
+        QCOMPARE(tree.selectedItems().size(), 1);
+        QCOMPARE(tree.selectedItems().first(), dmRow);
+        QVERIFY(backend.getCurrentChannel());
+        QCOMPARE(backend.getCurrentChannel()->id, channelId);
         QVERIFY(!category->channelIds.contains(channelId));
         QVERIFY(dmRow->treeWidget() == &tree);
         QCOMPARE(visibleSearchIds(), initialRows);
@@ -136,6 +140,10 @@ private slots:
         QCOMPARE(tree.currentItem(), gmRow);
         QTest::qWait(20);
         QCOMPARE(tree.currentItem(), gmRow);
+        QCOMPARE(tree.selectedItems().size(), 1);
+        QCOMPARE(tree.selectedItems().first(), gmRow);
+        QVERIFY(backend.getCurrentChannel());
+        QCOMPARE(backend.getCurrentChannel()->id, groupId);
         QCOMPARE(tree.currentItem()->data(0, ChannelTree::ItemIdRole).toString(),
                  groupId);
         QVERIFY(!category->channelIds.contains(groupId));
