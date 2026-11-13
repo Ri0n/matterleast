@@ -1415,7 +1415,14 @@ void NavigationUiController::navigateTo(const Location& location)
         // currentChanged() is only emitted when the physical stack page
         // changes. Back to an already selected channel must still retire an
         // unrelated dock, even if its widget never changed.
-        closeThreadDockIfDifferent(location.channelId, replayingHistory);
+        // In contextual mode a history entry for a channel-only location
+        // must close its dock, even if it belongs to that same channel.
+        // Independent-pane mode deliberately retains its old presentation.
+        const bool restoreChannelOnly = replayingHistory
+            && MLOptions::instance()->value<bool>(
+                THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+                THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+        closeThreadDockIfDifferent(location.channelId, restoreChannelOnly);
         recordArea(area);
     } else {
         // A Back/Forward target already represented by a thread-only tab must
