@@ -43,7 +43,7 @@ void DirectChannelItem::showContextMenu (const QPoint& pos)
 
 	if (user) {
 		myMenu.addAction ("View Profile", [this, user] {
-			UserProfileDialog* dialog = new UserProfileDialog (*user, treeWidget());
+			UserProfileDialog* dialog = new UserProfileDialog (backend, *user, treeWidget());
 			dialog->show ();
 		});
 		myMenu.addSeparator();
