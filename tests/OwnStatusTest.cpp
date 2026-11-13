@@ -150,6 +150,24 @@ private slots:
         QVERIFY(customEmoji->pixmap() && !customEmoji->pixmap()->isNull());
 #endif
 
+        // Opening a fresh profile while the saved status has only an emoji
+        // must work too, not just updates to a dialog that showed text first.
+        UserProfileDialog emojiOnlyDialog(backend, *user);
+        emojiOnlyDialog.setModal(true);
+        emojiOnlyDialog.show();
+        QCoreApplication::processEvents();
+        auto* freshRow = emojiOnlyDialog.findChild<QWidget*>(
+            QStringLiteral("customStatusRow"));
+        auto* freshEmoji = emojiOnlyDialog.findChild<QLabel*>(
+            QStringLiteral("customStatusEmoji"));
+        QVERIFY(freshRow && freshRow->isVisible());
+        QVERIFY(freshEmoji && freshEmoji->isVisible());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QVERIFY(!freshEmoji->pixmap(Qt::ReturnByValue).isNull());
+#else
+        QVERIFY(freshEmoji->pixmap() && !freshEmoji->pixmap()->isNull());
+#endif
+
         user->props.customStatus = {};
         emit user->onCustomStatusChanged();
         QVERIFY(customRow->isHidden());
