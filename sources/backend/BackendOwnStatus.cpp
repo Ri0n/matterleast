@@ -107,6 +107,7 @@ void Backend::setOwnCustomStatus(const QString& emoji, const QString& text,
                         payload.value(QStringLiteral("text")).toString();
                     user->props.customStatus.duration = duration;
                     user->props.customStatus.expiresAt = expiresAt;
+                    emit user->onCustomStatusChanged();
                     emit guard->onOwnCustomStatusChanged();
                 }
             }
@@ -130,6 +131,7 @@ void Backend::clearOwnCustomStatus(StatusUpdateResult callback)
             if (guard && ok) {
                 if (auto* user = guard->storage.getUserById(id)) {
                     user->props.customStatus = {};
+                    emit user->onCustomStatusChanged();
                     emit guard->onOwnCustomStatusChanged();
                 }
             }
