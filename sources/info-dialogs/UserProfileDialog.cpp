@@ -200,8 +200,12 @@ void UserProfileDialog::refreshCustomStatus(const BackendUser& user)
     const QString emojiName = UserStatusEmoji::name(user);
     const QString message = UserStatusEmoji::text(user);
     const bool hasStatus = !emojiName.isEmpty() || !message.isEmpty();
-    ui->customStatusRow->setVisible(hasStatus);
-    if (!hasStatus) return;
+    if (!hasStatus) {
+        ui->customStatusEmoji->clear();
+        ui->customStatusText->clear();
+        ui->customStatusRow->hide();
+        return;
+    }
 
     if (!emojiName.isEmpty()) {
         // Backend-less legacy dialogs can still render built-in emoji.
@@ -212,7 +216,8 @@ void UserProfileDialog::refreshCustomStatus(const BackendUser& user)
         if (!image.isNull()) {
             ui->customStatusEmoji->setPixmap(image);
         } else {
-            // Show a useful fallback until a server custom emoji is cached.
+            // Keep emoji-only statuses visible even if the image is still
+            // being resolved from the server.
             ui->customStatusEmoji->setText(
                 QStringLiteral(":%1:").arg(emojiName));
         }
@@ -223,6 +228,8 @@ void UserProfileDialog::refreshCustomStatus(const BackendUser& user)
     }
     ui->customStatusText->setText(message);
     ui->customStatusText->setVisible(!message.isEmpty());
+    // Show the containing row last, after the emoji-only layout is complete.
+    ui->customStatusRow->show();
 }
 
 void UserProfileDialog::refreshSharedAvatar()
