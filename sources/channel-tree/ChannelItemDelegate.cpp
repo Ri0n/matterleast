@@ -216,10 +216,15 @@ void ChannelItemDelegate::paint(QPainter* painter,
         if (!channelId.isEmpty() && !requestedGroupChannels.contains(channelId)) {
             requestedGroupChannels.insert(channelId);
             if (QObject* owner = parent()) {
-                QMetaObject::invokeMethod(owner,
-                                          "ensureGroupChannelDisplayName",
-                                          Qt::QueuedConnection,
-                                          Q_ARG(QString, channelId));
+                // Alternative sidebar views share this delegate but do not
+                // implement the Channels-only lazy GM display-name loader.
+                if (owner->metaObject()->indexOfMethod(
+                        "ensureGroupChannelDisplayName(QString)") >= 0) {
+                    QMetaObject::invokeMethod(owner,
+                                              "ensureGroupChannelDisplayName",
+                                              Qt::QueuedConnection,
+                                              Q_ARG(QString, channelId));
+                }
             }
         }
     }
