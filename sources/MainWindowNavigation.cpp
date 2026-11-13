@@ -189,14 +189,17 @@ void MainWindow::openChannelPost(const QString& channelId,
         return connection;
     };
 
-    // By default the central conversation and thread pane are independent.
-    // The optional contextual mode switches an unpinned channel tab to the
-    // thread's parent before docking it. Pinned and independently tabbed
-    // destinations are never replaced; opening a thread with middle click
-    // uses openInTab() and does not take this path.
+    // Contextual navigation first chooses the thread's parent channel tab,
+    // irrespective of whether the active tab is pinned. Explicit thread-only
+    // tabs (middle click / move to tab) and detached windows stay independent.
     if (!rootId.isEmpty()) {
+        navigationUi.selectContextualThreadTab(channelId, rootId);
+        const bool independentThread =
+            navigationUi.hasIndependentThreadPresentation(channelId, rootId);
         ChatArea* centralArea = ui->channelList->getCurrentPage();
-        if (!centralArea || navigationUi.shouldOpenParentChannelForThread(channelId)) {
+        if (!independentThread
+            && (!centralArea
+                || navigationUi.shouldOpenParentChannelForThread(channelId))) {
             const auto retryConnection = armStoredChannelRetry();
             ui->channelList->openStoredChannel(channelId);
             centralArea = ui->channelList->getCurrentPage();
