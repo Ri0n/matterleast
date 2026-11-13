@@ -86,6 +86,12 @@ public:
                                const QString& rootId) const;
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
+    /** Choose the parent channel tab for an ordinary contextual thread click. */
+    void selectContextualThreadTab(const QString& channelId,
+                                   const QString& rootId);
+    /** Thread-only tabs and detached windows must stay independent. */
+    bool hasIndependentThreadPresentation(const QString& channelId,
+                                          const QString& rootId) const;
     /** Whether ordinary thread navigation should first switch the central channel. */
     bool shouldOpenParentChannelForThread(const QString& channelId) const;
     void openInTab(const QString& channelId,
