@@ -193,6 +193,9 @@ private:
     // An asynchronous Back/Forward thread restore may first activate its
     // parent conversation. Suppress that intermediate channel history entry.
     std::optional<Location> pendingHistoryThread;
+    // Ordinary contextual thread navigation can also activate/admit the parent
+    // channel first. Its intermediate presentation must not be a Back step.
+    std::optional<Location> pendingContextualThread;
     bool threadSplitterStateRestored = false;
     int _preferredThreadPaneWidth = 0;
     QByteArray _legacyThreadSplitterState;
