@@ -1877,6 +1877,52 @@ void NavigationUiController::syncSplitterEdgeGutters()
     }
 }
 
+bool NavigationUiController::hasIndependentThreadPresentation(
+    const QString& channelId, const QString& rootId) const
+{
+    if (channelId.isEmpty() || rootId.isEmpty()) {
+        return false;
+    }
+    const auto* active = tabModel.at(activeTabIndex);
+    if (active && active->channelId == channelId && active->rootId == rootId) {
+        return true;
+    }
+    const ChatArea* thread = findThread(channelId, rootId);
+    return thread && thread->property("threadDetached").toBool();
+}
+
+void NavigationUiController::selectContextualThreadTab(
+    const QString& channelId, const QString& rootId)
+{
+    if (!navigationTabs || hasIndependentThreadPresentation(channelId, rootId)
+        || !MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT)) {
+        return;
+    }
+
+    ensureInitialTab();
+    const auto decision = chooseThreadParentTab(
+        true, tabModel, activeTabIndex, channelId, rootId);
+    if (decision.route == ThreadParentTabRoute::KeepCurrent) {
+        return;
+    }
+    if (decision.route == ThreadParentTabRoute::ActivateExisting) {
+        activateTab(decision.index);
+        return;
+    }
+
+    // Never replace an unrelated channel (pinned or not) or a thread-only
+    // tab. The new entry represents the parent; the caller docks the thread
+    // after the channel is selected, including async channel admission.
+    Location parent;
+    parent.channelId = channelId;
+    const int index = appendNavigationTab(parent, true);
+    if (index >= 0) {
+        activateTab(index);
+    }
+}
+
 bool NavigationUiController::shouldOpenParentChannelForThread(
     const QString& channelId) const
 {
@@ -1886,13 +1932,11 @@ bool NavigationUiController::shouldOpenParentChannelForThread(
         return false;
     }
 
-    const auto* activeTab = tabModel.at(activeTabIndex);
-    const bool pinned = activeTab && activeTab->pinned;
     const bool centralSurfaceIsMainStack = mainStack && navigationSurfaceStack
         && navigationSurfaceStack->currentWidget() == mainStack;
     auto* centralArea = centralSurfaceIsMainStack
         ? qobject_cast<ChatArea*>(mainStack->currentWidget()) : nullptr;
-    return shouldOpenThreadParentChannel(true, pinned, centralSurfaceIsMainStack,
+    return shouldOpenThreadParentChannel(true, centralSurfaceIsMainStack,
                                          centralArea ? centralArea->getChannel().id : QString(),
                                          channelId);
 }
