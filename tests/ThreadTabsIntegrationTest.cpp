@@ -1504,6 +1504,22 @@ private slots:
         QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
                      QStringLiteral("channel"));
 
+        // Thread-to-thread navigation is also a single history step. The
+        // intermediate B parent channel must not consume the first Back.
+        navigation.openThread(QStringLiteral("channel"), rootId(722));
+        QTRY_VERIFY(ui.findThread(QStringLiteral("channel"), rootId(722)));
+        navigation.openThread(QStringLiteral("channel_other"), rootId(723));
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel_other"));
+        QTRY_VERIFY(ui.findThread(QStringLiteral("channel_other"), rootId(723)));
+        QTest::qWait(60);
+        back->click();
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+        QTRY_VERIFY(ui.findThread(QStringLiteral("channel"), rootId(722)));
+        QTRY_COMPARE(dock->currentWidget(), static_cast<QWidget*>(
+            ui.findThread(QStringLiteral("channel"), rootId(722))));
+
         navigation.openThreadInTab(QStringLiteral("channel"), rootId(722));
         QTRY_COMPARE(tabs->count(), 2);
         QTRY_VERIFY(ui.findThread(QStringLiteral("channel"), rootId(722)));
