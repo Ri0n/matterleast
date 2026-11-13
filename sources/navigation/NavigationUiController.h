@@ -184,6 +184,9 @@ private:
     int activeTabIndex = -1;
     bool switchingTabs = false;
     bool replayingHistory = false;
+    // An asynchronous Back/Forward thread restore may first activate its
+    // parent conversation. Suppress that intermediate channel history entry.
+    std::optional<Location> pendingHistoryThread;
     bool threadSplitterStateRestored = false;
     int _preferredThreadPaneWidth = 0;
     QByteArray _legacyThreadSplitterState;
