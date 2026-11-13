@@ -14,6 +14,7 @@
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "ui/EmojiPresentation.h"
+#include "ui/UserStatusEmoji.h"
 #include "backend/types/BackendUser.h"
 
 using namespace Mattermost;
@@ -35,6 +36,41 @@ private slots:
                                          QStringLiteral("Working")));
         QVERIFY(!isEmojiOnlyCustomStatus(QString(), QStringLiteral("Working")));
         QVERIFY(!isEmojiOnlyCustomStatus(QStringLiteral("  "), QString()));
+    }
+
+    void cachedCustomStatusEmojiAndExpiration()
+    {
+        const auto profile = [](const QString& expiresAt) {
+            const QJsonObject status {
+                {QStringLiteral("emoji"), QStringLiteral("coffee")},
+                {QStringLiteral("text"), QStringLiteral("In a meeting")},
+                {QStringLiteral("expires_at"), expiresAt}
+            };
+            return QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("user-1")},
+                {QStringLiteral("username"), QStringLiteral("test-user")},
+                {QStringLiteral("props"), QJsonObject {
+                    {QStringLiteral("customStatus"), QString::fromUtf8(
+                        QJsonDocument(status).toJson(QJsonDocument::Compact))}
+                }}
+            };
+        };
+
+        BackendUser active(profile(QDateTime::currentDateTimeUtc()
+                                       .addSecs(3600).toString(Qt::ISODate)));
+        QCOMPARE(UserStatusEmoji::name(active), QStringLiteral("coffee"));
+        QCOMPARE(UserStatusEmoji::text(active), QStringLiteral("In a meeting"));
+
+        BackendUser expired(profile(QDateTime::currentDateTimeUtc()
+                                        .addSecs(-60).toString(Qt::ISODate)));
+        QVERIFY(UserStatusEmoji::name(expired).isEmpty());
+        QVERIFY(UserStatusEmoji::text(expired).isEmpty());
+
+        QSignalSpy changed(&active, &BackendUser::onCustomStatusChanged);
+        QString details;
+        active.updateFrom(expired, details);
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(UserStatusEmoji::name(active).isEmpty());
     }
 
     void emojiOnlyStatusHasTripleSize()
