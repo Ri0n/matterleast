@@ -1,6 +1,9 @@
 name: Packages
 
 on:
+  # One-off packaging validation of squash-merged PR #321; do not publish.
+  push:
+    branches: [ci/package-layout-321]
   workflow_dispatch:
     inputs:
       version:
