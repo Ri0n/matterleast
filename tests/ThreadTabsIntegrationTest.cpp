@@ -1121,6 +1121,20 @@ private slots:
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         MLOptions::instance()->setValue(sessionKey(), QByteArray());
 
+        // This intentionally tests the independent-pane mode. A foreign
+        // dock is forbidden when the contextual single-channel option is on.
+        const bool original = MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL, THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+        struct RestorePolicy {
+            bool value;
+            ~RestorePolicy()
+            {
+                MLOptions::instance()->setValue(
+                    THREAD_SIDEBAR_FOLLOWS_CHANNEL, value);
+            }
+        } restore {original};
+        MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, false);
+
         Backend backend;
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -1169,8 +1183,8 @@ private slots:
         const int tabCount = tabs->count();
 
         // This is the path used by an ordinary Following/Attention activation.
-        // The central thread tab belongs to channel A; a thread from channel B
-        // must be allowed to coexist in the independent right-hand pane.
+        // With contextual mode disabled, the central thread tab belongs to
+        // channel A while the independent right-hand pane may show channel B.
         navigation.openThread(other->id, rootId(111));
         QTRY_VERIFY(navigationUi.findThread(other->id, rootId(111)));
         ChatArea* docked = navigationUi.findThread(other->id, rootId(111));
