@@ -96,6 +96,47 @@ class UserProfileRecoveryTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void ownEmojiOnlyCustomStatusAppearsOnPostHeader()
+    {
+        Backend backend;
+        const QJsonObject customStatus {
+            {QStringLiteral("emoji"), QStringLiteral("coffee")},
+            {QStringLiteral("text"), QString()},
+            {QStringLiteral("expires_at"), QStringLiteral("0001-01-01T00:00:00Z")}
+        };
+        QJsonObject ownProfile = userJson();
+        ownProfile.insert(QStringLiteral("props"), QJsonObject {
+            {QStringLiteral("customStatus"), QString::fromUtf8(
+                QJsonDocument(customStatus).toJson(QJsonDocument::Compact))}
+        });
+        BackendUser* user = backend.getStorage().addUser(ownProfile, true);
+        QVERIFY(user);
+        user->status = QStringLiteral("online");
+        user->avatar = QPixmap(24, 24);
+        user->avatar.fill(Qt::blue);
+        user->avatar_picture_update = user->last_picture_update;
+
+        auto post = makePost(backend.getStorage());
+        QCOMPARE(post.author, user);
+        PostWidget widget(backend, post, nullptr, nullptr, nullptr);
+        widget.resize(650, 160);
+        widget.show();
+        QCoreApplication::processEvents();
+
+        auto* emoji = widget.findChild<QLabel*>(
+            QStringLiteral("authorCustomStatusEmoji"));
+        QVERIFY(emoji);
+        QVERIFY(emoji->isVisible());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QVERIFY(!emoji->pixmap().isNull());
+#else
+        QVERIFY(!emoji->pixmap(Qt::ReturnByValue).isNull());
+#endif
+        user->props.customStatus = {};
+        emit user->onCustomStatusChanged();
+        QVERIFY(emoji->isHidden());
+    }
+
     void lateProfileUpdatesAlreadyVisibleAuthor()
     {
         Backend backend;

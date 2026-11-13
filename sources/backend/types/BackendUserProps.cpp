@@ -37,6 +37,9 @@ void BackendUserCustomStatus::deserialize (const QJsonObject& json)
 	text = json.value("text").toString();
 	duration = json.value("duration").toString();
 	expiresAt = json.value("expiresAt").toString();
+    if (expiresAt.isEmpty()) {
+        expiresAt = json.value("expires_at").toString();
+    }
 }
 
 std::ostream& operator<< (std::ostream& os, const BackendUserCustomStatus& status)
@@ -58,15 +61,17 @@ BackendUserProps::BackendUserProps (const QJsonValue& json)
 	
 	for (auto it = jsonObject.constBegin(); it != jsonObject.constEnd(); ++it) {
 		if (it.key() == "customStatus") {
-			QString valueString = it.value().toString();
-			if (valueString.isEmpty()) {
-				continue;
-			}
-			
-			//status sting is a JSON document, represented inside string value
-			const QJsonObject statusObj = QJsonDocument::fromJson (valueString.toUtf8()).object();
-			customStatus.deserialize (statusObj);
-			//std::cout << "customStatus: " << customStatus << std::endl;
+            // Mattermost normally serializes this object as a JSON string,
+            // but some user payloads already contain the decoded object.
+            // Support both; an emoji-only status has a deliberately empty text.
+            QJsonObject statusObj;
+            if (it.value().isObject()) {
+                statusObj = it.value().toObject();
+            } else if (it.value().isString()) {
+                statusObj = QJsonDocument::fromJson(
+                    it.value().toString().toUtf8()).object();
+            }
+            customStatus.deserialize(statusObj);
 		} else if (it.key() == "last_search_pointer") {
 			lastSearchPointer = it.value().toInt();
 		}

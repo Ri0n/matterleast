@@ -23,6 +23,7 @@ class QTimer;
 namespace Mattermost {
 
 class Backend;
+class BackendUser;
 
 class AttentionList : public QTreeWidget
 {
@@ -50,7 +51,11 @@ signals:
 protected:
     void mousePressEvent(QMouseEvent* event) override;
 
+private slots:
+    void onDirectUserCustomStatusChanged();
+
 private:
+    void updateDirectUserCustomStatus(const BackendUser& user);
     void activateItem(QTreeWidgetItem* item);
     void retainSelection(QTreeWidgetItem* item);
     void openThread(const FollowingModel::Entry& entry);

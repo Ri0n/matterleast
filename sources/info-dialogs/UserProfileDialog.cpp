@@ -38,6 +38,7 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendDirectChannelsTeam.h"
 #include "backend/types/BackendUser.h"
+#include "ui/UserStatusEmoji.h"
 #include "navigation/AppNavigationService.h"
 
 namespace Mattermost {
@@ -151,6 +152,26 @@ UserProfileDialog::UserProfileDialog(Backend* backendInstance,
     ui->statusValue->setText(user.status);
     ui->timezoneValue->setText(user.timezone.automaticTimezone);
 
+    // Custom status is distinct from the availability state above.
+    // Reuse the cached user.props payload; do not fetch it separately.
+    refreshCustomStatus(user);
+    if (backend && !userId.isEmpty()) {
+        connect(&UserProfileService::instance(*backend),
+                &UserProfileService::profileResolved, this,
+                [this](const QString& resolvedId) {
+            if (resolvedId == userId) refreshStoredCustomStatus();
+        });
+        connect(&backend->emojiRegistry(), &EmojiRegistry::customEmojiAdded,
+                this, [this](const QString& emojiName) {
+            if (!backend) return;
+            const BackendUser* stored = backend->getStorage().getUserById(userId);
+            if (stored && UserStatusEmoji::name(*stored) == emojiName) {
+                refreshCustomStatus(*stored);
+            }
+        });
+        refreshStoredCustomStatus();
+    }
+
     ui->messageButton->setVisible(backend != nullptr && !user.id.isEmpty());
     if (backend) {
         connect(ui->messageButton, &QPushButton::clicked,
@@ -161,6 +182,54 @@ UserProfileDialog::UserProfileDialog(Backend* backendInstance,
 UserProfileDialog::~UserProfileDialog()
 {
     delete ui;
+}
+
+void UserProfileDialog::refreshStoredCustomStatus()
+{
+    if (!backend || userId.isEmpty()) return;
+    BackendUser* stored = backend->getStorage().getUserById(userId);
+    if (!stored) return;
+    connect(stored, &BackendUser::onCustomStatusChanged,
+            this, &UserProfileDialog::refreshStoredCustomStatus,
+            Qt::UniqueConnection);
+    refreshCustomStatus(*stored);
+}
+
+void UserProfileDialog::refreshCustomStatus(const BackendUser& user)
+{
+    const QString emojiName = UserStatusEmoji::name(user);
+    const QString message = UserStatusEmoji::text(user);
+    const bool hasStatus = !emojiName.isEmpty() || !message.isEmpty();
+    if (!hasStatus) {
+        ui->customStatusEmoji->clear();
+        ui->customStatusText->clear();
+        ui->customStatusRow->hide();
+        return;
+    }
+
+    if (!emojiName.isEmpty()) {
+        // Backend-less legacy dialogs can still render built-in emoji.
+        static EmojiRegistry builtins;
+        EmojiRegistry& registry = backend ? backend->emojiRegistry() : builtins;
+        const QPixmap image = UserStatusEmoji::pixmap(
+            registry, user, 20, ui->customStatusEmoji->font());
+        if (!image.isNull()) {
+            ui->customStatusEmoji->setPixmap(image);
+        } else {
+            // Keep emoji-only statuses visible even if the image is still
+            // being resolved from the server.
+            ui->customStatusEmoji->setText(
+                QStringLiteral(":%1:").arg(emojiName));
+        }
+        ui->customStatusEmoji->show();
+    } else {
+        ui->customStatusEmoji->clear();
+        ui->customStatusEmoji->hide();
+    }
+    ui->customStatusText->setText(message);
+    ui->customStatusText->setVisible(!message.isEmpty());
+    // Show the containing row last, after the emoji-only layout is complete.
+    ui->customStatusRow->show();
 }
 
 void UserProfileDialog::refreshSharedAvatar()

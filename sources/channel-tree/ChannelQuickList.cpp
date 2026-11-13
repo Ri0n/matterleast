@@ -20,6 +20,7 @@
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
+#include "backend/UserProfileService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
@@ -29,6 +30,7 @@
 #include "channel-tree/FollowingNavigation.h"
 #include "channel-tree/FollowingPresentation.h"
 #include "channel-tree/SidebarItem.h"
+#include "ui/UserStatusEmoji.h"
 #include "navigation/AppNavigationService.h"
 
 namespace Mattermost {
@@ -102,6 +104,28 @@ void ChannelQuickList::initialize(Backend& backend, Mode)
 
     connect(model_, &FollowingModel::changed,
             this, &ChannelQuickList::refresh);
+    connect(&UserProfileService::instance(backend),
+            &UserProfileService::profileResolved, this,
+            [this](const QString& userId) {
+        if (!backend_) return;
+        BackendChannel* channel =
+            backend_->getStorage().getDirectChannelByUserId(userId);
+        if (!channel || !channelItems_.contains(channel->id)) return;
+        BackendUser* user = backend_->getStorage().getUserById(userId);
+        if (!user) return;
+        ensureDirectUserConnections(*channel);
+        updateDirectUser(*user);
+    });
+    connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
+            this, [this](const QString& name) {
+        if (!backend_) return;
+        for (const QString& id : connectedUsers_) {
+            const BackendUser* user = backend_->getStorage().getUserById(id);
+            if (user && UserStatusEmoji::name(*user) == name) {
+                updateDirectUser(*user);
+            }
+        }
+    });
     refresh();
     model_->ensureThreadsFresh();
 }
@@ -567,6 +591,9 @@ void ChannelQuickList::refresh()
                         item->setIcon(0, QIcon(user->avatar));
                     }
                     item->setData(0, SidebarItem::PresenceRole, user->status);
+                    item->setData(0, SidebarItem::CustomStatusEmojiRole,
+                                  UserStatusEmoji::pixmap(
+                                      backend_->emojiRegistry(), *user, 18, font()));
                     ensureDirectUserConnections(*channel);
                 }
             } else {
@@ -617,6 +644,9 @@ void ChannelQuickList::ensureDirectUserConnections(BackendChannel& channel)
     connect(user, &BackendUser::onStatusChanged, this, [this, user] {
         updateDirectUser(*user);
     });
+    connect(user, &BackendUser::onCustomStatusChanged, this, [this, user] {
+        updateDirectUser(*user);
+    });
     connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
         updateDirectUser(*user);
     });
@@ -639,6 +669,9 @@ void ChannelQuickList::updateDirectUser(const BackendUser& user)
     }
 
     item->setData(0, SidebarItem::PresenceRole, user.status);
+    item->setData(0, SidebarItem::CustomStatusEmojiRole,
+                  UserStatusEmoji::pixmap(
+                      backend_->emojiRegistry(), user, 18, font()));
     if (!user.avatar.isNull()) {
         item->setIcon(0, QIcon(user.avatar));
     }

@@ -219,6 +219,7 @@ private:
     bool usesRelativeTimestamp() const;
     void setAuthor(Backend& backendInstance, const BackendUser* user);
     void updateAuthorAvatar();
+    void updateAuthorStatusEmoji();
     void createReactionList();
     void connectReactionActions();
     void ensureEngagementRow();
@@ -272,6 +273,7 @@ private:
     QPushButton*                       saveAffordance_ = nullptr;
     QPushButton*                       moreAffordance_ = nullptr;
     QLabel*                            continuationTime_ = nullptr;
+    QLabel*                            statusEmojiLabel_ = nullptr;
     QWidget*                           dayBoundaryWidget_ = nullptr;
     QLabel*                            dayBoundaryLabel_ = nullptr;
     QDate                              dayBoundaryDate_;

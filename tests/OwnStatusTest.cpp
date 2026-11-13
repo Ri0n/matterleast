@@ -3,6 +3,8 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
+#include <QWidget>
 #include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -14,7 +16,9 @@
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "ui/EmojiPresentation.h"
+#include "ui/UserStatusEmoji.h"
 #include "backend/types/BackendUser.h"
+#include "info-dialogs/UserProfileDialog.h"
 
 using namespace Mattermost;
 
@@ -35,6 +39,152 @@ private slots:
                                          QStringLiteral("Working")));
         QVERIFY(!isEmojiOnlyCustomStatus(QString(), QStringLiteral("Working")));
         QVERIFY(!isEmojiOnlyCustomStatus(QStringLiteral("  "), QString()));
+    }
+
+    void cachedCustomStatusEmojiAndExpiration()
+    {
+        const auto profile = [](const QString& expiresAt) {
+            const QJsonObject status {
+                {QStringLiteral("emoji"), QStringLiteral("coffee")},
+                {QStringLiteral("text"), QStringLiteral("In a meeting")},
+                {QStringLiteral("expires_at"), expiresAt}
+            };
+            return QJsonObject {
+                {QStringLiteral("id"), QStringLiteral("user-1")},
+                {QStringLiteral("username"), QStringLiteral("test-user")},
+                {QStringLiteral("props"), QJsonObject {
+                    {QStringLiteral("customStatus"), QString::fromUtf8(
+                        QJsonDocument(status).toJson(QJsonDocument::Compact))}
+                }}
+            };
+        };
+
+        BackendUser active(profile(QDateTime::currentDateTimeUtc()
+                                       .addSecs(3600).toString(Qt::ISODate)));
+        QCOMPARE(UserStatusEmoji::name(active), QStringLiteral("coffee"));
+        QCOMPARE(UserStatusEmoji::text(active), QStringLiteral("In a meeting"));
+
+        // A decoded customStatus object with no text is also a valid status.
+        const QJsonObject emojiOnly {
+            {QStringLiteral("emoji"), QStringLiteral("coffee")},
+            {QStringLiteral("text"), QString()}
+        };
+        BackendUser ownUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("me")},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("customStatus"), emojiOnly}
+            }}
+        });
+        QCOMPARE(UserStatusEmoji::name(ownUser), QStringLiteral("coffee"));
+        QVERIFY(UserStatusEmoji::text(ownUser).isEmpty());
+
+        // Go time.Time's zero value is serialized for "Don't clear" statuses.
+        // It is a valid ISO date, but must not count as an expired status.
+        BackendUser neverExpires(profile(QStringLiteral("0001-01-01T00:00:00Z")));
+        QCOMPARE(UserStatusEmoji::name(neverExpires), QStringLiteral("coffee"));
+        QCOMPARE(UserStatusEmoji::text(neverExpires),
+                 QStringLiteral("In a meeting"));
+        const QJsonObject zeroTimeStatus {
+            {QStringLiteral("emoji"), QStringLiteral("coffee")},
+            {QStringLiteral("text"), QString()},
+            {QStringLiteral("expires_at"), QStringLiteral("0001-01-01T00:00:00Z")}
+        };
+        BackendUser emojiOnlyNeverExpires(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("my-user")},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("customStatus"), zeroTimeStatus}
+            }}
+        });
+        QCOMPARE(UserStatusEmoji::name(emojiOnlyNeverExpires),
+                 QStringLiteral("coffee"));
+        QVERIFY(UserStatusEmoji::text(emojiOnlyNeverExpires).isEmpty());
+        EmojiRegistry emojiRegistry;
+        QVERIFY(!UserStatusEmoji::pixmap(emojiRegistry, emojiOnlyNeverExpires,
+                                         20, QFont()).isNull());
+
+        BackendUser expired(profile(QDateTime::currentDateTimeUtc()
+                                        .addSecs(-60).toString(Qt::ISODate)));
+        QVERIFY(UserStatusEmoji::name(expired).isEmpty());
+        QVERIFY(UserStatusEmoji::text(expired).isEmpty());
+
+        QSignalSpy changed(&active, &BackendUser::onCustomStatusChanged);
+        QString details;
+        active.updateFrom(expired, details);
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(UserStatusEmoji::name(active).isEmpty());
+    }
+
+    void profileDisplaysCustomStatusAndTracksEdits()
+    {
+        Backend backend;
+        const QJsonObject customStatus {
+            {QStringLiteral("emoji"), QStringLiteral("coffee")},
+            {QStringLiteral("text"), QStringLiteral("<focus & work>")},
+            {QStringLiteral("expires_at"), QStringLiteral("0001-01-01T00:00:00Z")}
+        };
+        BackendUser* user = backend.getStorage().addUser(
+            QJsonObject {{QStringLiteral("id"), QStringLiteral("profile-user")},
+                         {QStringLiteral("username"), QStringLiteral("test-user")},
+                         {QStringLiteral("props"), QJsonObject {
+                             {QStringLiteral("customStatus"), customStatus}
+                         }}},
+            true);
+        QVERIFY(user);
+        QCOMPARE(backend.getStorage().loginUser, user);
+        // Prevent unrelated avatar HTTP work from the profile dialog.
+        user->avatar = QPixmap(16, 16);
+        user->avatar.fill(Qt::red);
+        user->avatar_picture_update = user->last_picture_update;
+        user->status = QStringLiteral("away");
+
+        UserProfileDialog dialog(backend, *user);
+        auto* customRow = dialog.findChild<QWidget*>(QStringLiteral("customStatusRow"));
+        auto* customText = dialog.findChild<QLabel*>(QStringLiteral("customStatusText"));
+        auto* customEmoji = dialog.findChild<QLabel*>(QStringLiteral("customStatusEmoji"));
+        auto* presence = dialog.findChild<QLabel*>(QStringLiteral("statusValue"));
+        QVERIFY(customRow);
+        QVERIFY(customText);
+        QVERIFY(customEmoji);
+        QVERIFY(presence);
+        dialog.setModal(true);
+        dialog.show();
+        QCoreApplication::processEvents();
+        QVERIFY(customRow->isVisible());
+        QVERIFY(customEmoji->isVisible());
+        QVERIFY(!customEmoji->pixmap(Qt::ReturnByValue).isNull());
+        QCOMPARE(customText->text(), QStringLiteral("<focus & work>"));
+        QCOMPARE(customText->textFormat(), Qt::PlainText);
+        QCOMPARE(presence->text(), QStringLiteral("away"));
+
+        user->props.customStatus.text = QStringLiteral("Meeting");
+        emit user->onCustomStatusChanged();
+        QCOMPARE(customText->text(), QStringLiteral("Meeting"));
+
+        user->props.customStatus.text.clear();
+        emit user->onCustomStatusChanged();
+        QVERIFY(customRow->isVisible()); // Emoji-only status remains visible.
+        QVERIFY(customEmoji->isVisible());
+        QVERIFY(customText->isHidden());
+        QVERIFY(!customEmoji->pixmap(Qt::ReturnByValue).isNull());
+
+        // Opening a fresh profile while the saved status has only an emoji
+        // must work too, not just updates to a dialog that showed text first.
+        UserProfileDialog emojiOnlyDialog(backend, *user);
+        emojiOnlyDialog.setModal(true);
+        emojiOnlyDialog.show();
+        QCoreApplication::processEvents();
+        auto* freshRow = emojiOnlyDialog.findChild<QWidget*>(
+            QStringLiteral("customStatusRow"));
+        auto* freshEmoji = emojiOnlyDialog.findChild<QLabel*>(
+            QStringLiteral("customStatusEmoji"));
+        QVERIFY(freshRow && freshRow->isVisible());
+        QVERIFY(freshEmoji && freshEmoji->isVisible());
+        QVERIFY(!freshEmoji->pixmap(Qt::ReturnByValue).isNull());
+
+        user->props.customStatus = {};
+        emit user->onCustomStatusChanged();
+        QVERIFY(customRow->isHidden());
+        QCOMPARE(presence->text(), QStringLiteral("away"));
     }
 
     void emojiOnlyStatusHasTripleSize()

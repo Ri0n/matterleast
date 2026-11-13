@@ -99,6 +99,7 @@
 #include "ui/BusyIndicator.h"
 #include "ui/IconUtils.h"
 #include "ui/EmojiFont.h"
+#include "ui/UserStatusEmoji.h"
 #include "ui_PostWidget.h"
 
 namespace Mattermost {
@@ -184,6 +185,13 @@ PostWidget::PostWidget(Backend& backend,
     // Match Mattermost header geometry: author and timestamp form one compact
     // left-aligned cluster, with the remaining width trailing after them.
     ui->authorName->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    statusEmojiLabel_ = new QLabel(this);
+    statusEmojiLabel_->setObjectName(QStringLiteral("authorCustomStatusEmoji"));
+    statusEmojiLabel_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    ui->horizontalLayout->insertWidget(
+        ui->horizontalLayout->indexOf(ui->authorName) + 1,
+        statusEmojiLabel_, 0, Qt::AlignVCenter);
+    statusEmojiLabel_->hide();
     ui->time->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
     ui->time->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     ui->horizontalLayout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -205,6 +213,10 @@ PostWidget::PostWidget(Backend& backend,
         // rewriting its semantic key.
         if (this->post.reactions.find(name) != this->post.reactions.end()) {
             updateReactions();
+        }
+        if (this->post.author
+            && UserStatusEmoji::name(*this->post.author) == name) {
+            updateAuthorStatusEmoji();
         }
     });
 
@@ -860,6 +872,7 @@ void PostWidget::setAuthorRunContinuation(bool continuation)
     // but collapse all repeated author-header height for continuation rows.
     ui->authorAvatar->setFixedHeight(continuation ? 0 : 48);
     ui->authorName->setVisible(!continuation);
+    updateAuthorStatusEmoji();
     ui->time->setVisible(!continuation);
 
     if (continuation) {
@@ -1728,13 +1741,16 @@ void PostWidget::setAuthor(Backend& backendInstance, const BackendUser* user)
 	}
 
 	post.author = user;
-	ui->authorName->setText(post.getDisplayAuthorName());
+    ui->authorName->setText(post.getDisplayAuthorName());
+    updateAuthorStatusEmoji();
     updateAuthorNameColor(ui->authorName, post.isOwnPost(), palette());
 
 	connect(user, &BackendUser::onAvatarChanged,
 	        this, &PostWidget::updateAuthorAvatar, Qt::UniqueConnection);
 	connect(user, &BackendUser::onStatusChanged,
 	        this, &PostWidget::updateAuthorAvatar, Qt::UniqueConnection);
+    connect(user, &BackendUser::onCustomStatusChanged,
+            this, &PostWidget::updateAuthorStatusEmoji, Qt::UniqueConnection);
 
 	if (user->avatar.isNull()
 		|| user->avatar_picture_update != user->last_picture_update) {
@@ -1752,6 +1768,21 @@ void PostWidget::setAuthor(Backend& backendInstance, const BackendUser* user)
 				}
 			});
 	}
+}
+
+void PostWidget::updateAuthorStatusEmoji()
+{
+    if (!statusEmojiLabel_) return;
+    if (!post.author || authorRunContinuation_) {
+        statusEmojiLabel_->hide();
+        return;
+    }
+    const int size = qBound(14, QFontMetrics(ui->authorName->font()).height(), 22);
+    const QPixmap image = UserStatusEmoji::pixmap(
+        backend_.emojiRegistry(), *post.author, size, ui->authorName->font());
+    statusEmojiLabel_->setPixmap(image);
+    statusEmojiLabel_->setToolTip(UserStatusEmoji::text(*post.author));
+    statusEmojiLabel_->setVisible(!image.isNull());
 }
 
 void PostWidget::updateAuthorAvatar()
@@ -1907,6 +1938,7 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     authorFont.setBold(true);
     ui->authorName->setMaximumHeight(QWIDGETSIZE_MAX);
     ui->authorName->setFont(authorFont);
+    updateAuthorStatusEmoji();
 
     // Timestamp belongs to author chrome, not message-body typography.
     // Both the normal post time and continuation hover time use the same
