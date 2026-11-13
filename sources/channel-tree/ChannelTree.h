@@ -51,6 +51,7 @@ namespace Mattermost {
 class Backend;
 class BackendChannel;
 class BackendTeam;
+class BackendUser;
 class ChatArea;
 class TeamItem;
 class ChannelItem;
@@ -119,6 +120,7 @@ public:
     // sidebar category is refreshed. Admit it into every loaded Direct Messages
     // category without opening the conversation or issuing a category reload.
     void admitStoredConversation(BackendChannel& channel);
+    void updateDirectCustomStatus(const BackendUser& user);
 	void addChannelToItem (QString channelID, QTreeWidgetItem* item);
 	void removeChannelToItem (QString channelID, QTreeWidgetItem* item = nullptr);
 
@@ -251,6 +253,7 @@ private:
 	QMap<QString, QList<QTreeWidgetItem*>>	channelToItemMap;
 	QMap<QString, TeamItem*>			teamToItemMap;
 	QSet<QString>						connectedSidebarUsers;
+    bool                                customEmojiConnected_ = false;
     QSet<QString>                        pendingChannelAdmissions;
 	Backend*							backendForSidebar;
 	bool							renderingSidebar;
