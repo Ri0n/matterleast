@@ -1387,11 +1387,19 @@ void NavigationUiController::navigateTo(const Location& location)
             tabModel.findDestination(location.channelId, location.rootId) >= 0
             || (area && (area->property("threadTabbed").toBool()
                          || area->property("threadDetached").toBool()));
+        const bool contextualMode = MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+        const bool needsParentTab = chooseThreadParentTab(
+            contextualMode, tabModel, activeTabIndex,
+            location.channelId, location.rootId).route != ThreadParentTabRoute::KeepCurrent;
         if (!independentThread
-            && shouldOpenParentChannelForThread(location.channelId)) {
-            // Reuse the ordinary contextual thread path, including its
-            // asynchronous sidebar admission/retry and pinned-tab semantics.
-            // It will call presentThread() after the parent channel settles.
+            && (needsParentTab
+                || shouldOpenParentChannelForThread(location.channelId))) {
+            // History must obey the same cross-channel tab invariant as
+            // regular navigation, even when starting from a thread-only tab.
+            // MainWindow handles asynchronous channel admission and restores
+            // the pending bookmark after the parent channel settles.
             pendingHistoryThread = location;
             currentLocation = location;
             activeArea = nullptr;
