@@ -70,6 +70,7 @@ jobs:
           set -euo pipefail
           test "$(qmake6 -query QT_VERSION)" = 6.8.2
           cmake -S . -B build -G Ninja \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DMATTERLEAST_BUNDLED_QCA=ON -DWARNINGS_AS_ERRORS=ON \
@@ -80,6 +81,7 @@ jobs:
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           deb=$(find package -maxdepth 1 -name '*.deb' -print -quit)
           test -n "$deb"
+          bash scripts/check-linux-package-layout.sh deb "$deb" build
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           runtime="package/matterleast-${version}-debian-13-amd64.deb"
           symbols="package/matterleast-${version}-debian-13-amd64-dbgsym.deb"
