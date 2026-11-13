@@ -569,7 +569,7 @@ void AttentionList::refresh()
                 if (user) {
                     item->setData(0, SidebarItem::CustomStatusEmojiRole,
                                   UserStatusEmoji::pixmap(
-                                      backend_->emojiRegistry(), *user, 18, font()));
+                                      backend_->emojiRegistry(), *user, 18, this->font()));
                     item->setData(0, SidebarItem::PresenceRole, user->status);
                     connect(user, &BackendUser::onCustomStatusChanged,
                             this, &AttentionList::onDirectUserCustomStatusChanged,
