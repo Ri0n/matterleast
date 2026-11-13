@@ -17,7 +17,10 @@ namespace Mattermost::UserStatusEmoji {
 inline bool isExpired(const BackendUser& user)
 {
     const QString& until = user.props.customStatus.expiresAt;
-    if (until.isEmpty()) {
+    // Mattermost stores ExpiresAt as Go time.Time. A custom status that does
+    // not expire can serialize the zero value as 0001-01-01T00:00:00Z.
+    // Treat this sentinel as "no deadline", not as an expired status.
+    if (until.isEmpty() || until.startsWith(QStringLiteral("0001-01-01"))) {
         return false;
     }
     const QDateTime deadline = QDateTime::fromString(until, Qt::ISODate);
