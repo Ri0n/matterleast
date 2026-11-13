@@ -1388,11 +1388,25 @@ void NavigationUiController::navigateTo(const Location& location)
         closeThreadDockIfDifferent(location.channelId);
         recordArea(area);
     } else {
+        // A Back/Forward target already represented by a thread-only tab must
+        // activate that tab, not reconstruct the thread as a foreign dock.
+        const int existingThreadTab = tabModel.findDestination(
+            location.channelId, location.rootId);
+        if (existingThreadTab >= 0) {
+            activateTab(existingThreadTab, location.postId.isEmpty());
+            currentLocation = location;
+            activeArea = findThread(location.channelId, location.rootId);
+            if (activeArea && !location.postId.isEmpty()) {
+                restoreSessionBookmark(activeArea, location.postId,
+                                       location.viewportAnchor);
+            }
+            return;
+        }
+
         area = findThread(location.channelId, location.rootId);
         const bool independentThread =
-            tabModel.findDestination(location.channelId, location.rootId) >= 0
-            || (area && (area->property("threadTabbed").toBool()
-                         || area->property("threadDetached").toBool()));
+            area && (area->property("threadTabbed").toBool()
+                     || area->property("threadDetached").toBool());
         const bool contextualMode = MLOptions::instance()->value<bool>(
             THREAD_SIDEBAR_FOLLOWS_CHANNEL,
             THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
