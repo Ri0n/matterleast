@@ -37,6 +37,9 @@ void BackendUserCustomStatus::deserialize (const QJsonObject& json)
 	text = json.value("text").toString();
 	duration = json.value("duration").toString();
 	expiresAt = json.value("expiresAt").toString();
+    if (expiresAt.isEmpty()) {
+        expiresAt = json.value("expires_at").toString();
+    }
 }
 
 std::ostream& operator<< (std::ostream& os, const BackendUserCustomStatus& status)
