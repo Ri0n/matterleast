@@ -94,7 +94,26 @@ void AttentionList::initialize(Backend& backend)
     connect(model_, &FollowingModel::changed,
             this, &AttentionList::refresh);
     connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
-            this, &AttentionList::refresh);
+            this, [this](const QString& name) {
+        if (!backend_) return;
+        for (int i = 0; i < topLevelItemCount(); ++i) {
+            const QTreeWidgetItem* item = topLevelItem(i);
+            if (!item || item->data(0, SidebarItem::KindRole).toInt()
+                    != SidebarItem::Channel
+                || item->data(0, SidebarItem::ChannelTypeRole).toInt()
+                    != BackendChannel::directChannel) {
+                continue;
+            }
+            const BackendChannel* channel = backend_->getStorage().getChannelById(
+                item->data(0, SidebarItem::IdRole).toString());
+            const BackendUser* user = channel
+                ? backend_->getStorage().getUserById(channel->name) : nullptr;
+            if (user && UserStatusEmoji::name(*user) == name) {
+                updateDirectUserCustomStatus(*user);
+                break;
+            }
+        }
+    });
     refresh();
     model_->ensureThreadsFresh();
 }
@@ -397,6 +416,29 @@ void AttentionList::openThread(const FollowingModel::Entry& entry)
         entry.channelId, entry.threadId, resumeAfter, fallbackPostId, {}, false);
 }
 
+void AttentionList::onDirectUserCustomStatusChanged()
+{
+    const auto* user = qobject_cast<BackendUser*>(sender());
+    if (user) updateDirectUserCustomStatus(*user);
+}
+
+void AttentionList::updateDirectUserCustomStatus(const BackendUser& user)
+{
+    if (!backend_) return;
+    const BackendChannel* channel =
+        backend_->getStorage().getDirectChannelByUserId(user.id);
+    if (!channel) return;
+    const QPixmap emoji = UserStatusEmoji::pixmap(
+        backend_->emojiRegistry(), user, 18, font());
+    for (int i = 0; i < topLevelItemCount(); ++i) {
+        QTreeWidgetItem* item = topLevelItem(i);
+        if (item && item->data(0, SidebarItem::KindRole).toInt() == SidebarItem::Channel
+            && item->data(0, SidebarItem::IdRole).toString() == channel->id) {
+            item->setData(0, SidebarItem::CustomStatusEmojiRole, emoji);
+        }
+    }
+}
+
 void AttentionList::refresh()
 {
     if (!backend_ || !model_) {
@@ -530,7 +572,8 @@ void AttentionList::refresh()
                                       backend_->emojiRegistry(), *user, 18, font()));
                     item->setData(0, SidebarItem::PresenceRole, user->status);
                     connect(user, &BackendUser::onCustomStatusChanged,
-                            this, &AttentionList::refresh, Qt::UniqueConnection);
+                            this, &AttentionList::onDirectUserCustomStatusChanged,
+                            Qt::UniqueConnection);
                 }
                 if (!user) {
                     QPointer<AttentionList> guard(this);
