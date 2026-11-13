@@ -120,7 +120,8 @@ private:
     void setupSidebarHeader();
     void setupThreadPane();
     void setupTabShortcuts();
-    void closeThreadDockIfDifferent(const QString& channelId);
+    void closeThreadDockIfDifferent(const QString& channelId,
+                                    bool force = false);
     ChatArea* centralTabArea() const;
     void closeActiveTab();
     void activatePreviousTab();
