@@ -88,6 +88,15 @@ presentation policy. When enabled:
   the central channel merely to establish thread context.
 - The policy is keyed by the canonical channel ID, so channels and DMs/GMs
   share exactly the same behavior.
+- Browser Back/Forward must apply the same contextual policy when replaying a
+  docked thread: restore its parent conversation before showing the thread,
+  including when channel admission completes asynchronously. The temporary
+  parent-channel activation is not an additional browser-history destination.
+  Forward to another conversation closes the unrelated dock, even if the
+  central stack already points to that conversation. Disabled mode, pinned
+  central tabs, detached windows and tabbed threads remain independent.
+  Restore the saved thread viewport bookmark after the destination is presented,
+  without treating this passive history replay as a new permalink jump.
 
 `ThreadSidebarContextPolicy.h` holds the pure decision rules.
 `NavigationUiController` owns presentation/lifetime operations.

@@ -1375,6 +1375,100 @@ private slots:
         QVERIFY(!initialTabs->isHidden());
     }
 
+    void historyBackAndForwardHonorContextualThreadPane()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.secondChannel = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+        MLOptions::instance()->setValue(sessionKey(), QByteArray());
+        const bool originalPolicy = MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL, THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+        struct RestoreOption {
+            bool original;
+            ~RestoreOption()
+            {
+                MLOptions::instance()->setValue(
+                    THREAD_SIDEBAR_FOLLOWS_CHANNEL, original);
+            }
+        } restore {originalPolicy};
+        MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
+
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1100, 700);
+        window.show();
+
+        auto& controller = NavigationUiController::instance(window);
+        auto& navigation = AppNavigationService::instance(backend);
+        auto* channels = window.findChild<ChannelTree*>(
+            QStringLiteral("channelList"));
+        auto* dock = window.findChild<QStackedWidget*>(
+            QStringLiteral("threadStack"));
+        auto* back = window.findChild<QToolButton*>(
+            QStringLiteral("navigationBackButton"));
+        auto* forward = window.findChild<QToolButton*>(
+            QStringLiteral("navigationForwardButton"));
+        QVERIFY(channels);
+        QVERIFY(dock);
+        QVERIFY(back);
+        QVERIFY(forward);
+
+        QTRY_VERIFY(storage.getChannelById(QStringLiteral("channel")));
+        QTRY_VERIFY(storage.getChannelById(QStringLiteral("channel_other")));
+        QTRY_VERIFY(SidebarService::instance(backend).teamState(QStringLiteral("team"))
+            && SidebarService::instance(backend).teamState(QStringLiteral("team"))
+                   ->category(QStringLiteral("dm")));
+
+        navigation.openChannel(QStringLiteral("channel"));
+        QTRY_VERIFY(channels->getCurrentPage());
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+        navigation.openThread(QStringLiteral("channel"), rootId(501));
+        QTRY_VERIFY(controller.findThread(QStringLiteral("channel"), rootId(501)));
+        QTRY_VERIFY(!dock->isHidden());
+
+        navigation.openChannel(QStringLiteral("channel_other"));
+        QTRY_VERIFY(channels->getCurrentPage());
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel_other"));
+        QTRY_VERIFY(dock->isHidden());
+        QTRY_VERIFY(back->isEnabled());
+
+        // Back restores the thread and its parent, not an unrelated right pane
+        // beside the conversation we navigated away from.
+        back->click();
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+        QTRY_VERIFY(!dock->isHidden());
+        QTRY_VERIFY(controller.findThread(QStringLiteral("channel"), rootId(501)));
+        QCOMPARE(dock->currentWidget(),
+                 static_cast<QWidget*>(controller.findThread(
+                     QStringLiteral("channel"), rootId(501))));
+
+        // Forward returns to the other conversation and closes the dock.
+        QTRY_VERIFY(forward->isEnabled());
+        forward->click();
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel_other"));
+        QTRY_VERIFY(dock->isHidden());
+
+        // With the contextual option disabled, Back may show the independent
+        // thread without replacing the current conversation.
+        MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, false);
+        QTRY_VERIFY(back->isEnabled());
+        back->click();
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel_other"));
+        QTRY_VERIFY(!dock->isHidden());
+        QVERIFY(controller.findThread(QStringLiteral("channel"), rootId(501)));
+    }
+
     void backHistoryRestoresMeasuredPostCenter()
     {
         Server server;

@@ -146,6 +146,12 @@ void NavigationUiController::setupMainWindow()
     });
 
     if (Backend* sourceBackend = backend()) {
+        // A new explicit navigation cancels a deferred Back/Forward replay.
+        // The history path below calls MainWindow directly, so it does not
+        // publish this semantic-navigation signal itself.
+        connect(&AppNavigationService::instance(*sourceBackend),
+                &AppNavigationService::navigationStarted, this,
+                [this] { pendingHistoryThread.reset(); });
         auto& sidebar = SidebarService::instance(*sourceBackend);
         connect(&sidebar, &SidebarService::channelActivityChanged,
                 this, &NavigationUiController::refreshTabUnreadVisual,
@@ -1199,6 +1205,13 @@ void NavigationUiController::recordArea(ChatArea* area)
         refreshTabBarVisibility();
     }
 
+    // MainWindow may first switch to a thread's parent before an asynchronous
+    // history replay docks the thread. That intermediate channel must not
+    // become another Back entry or overwrite the requested thread bookmark.
+    if (pendingHistoryThread && !area->isThread
+        && next.channelId == pendingHistoryThread->channelId) {
+        return;
+    }
     recordLocation(next, area);
 }
 
@@ -1215,6 +1228,14 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
 {
     if (!next.isValid()) {
         return;
+    }
+    if (pendingHistoryThread
+        && (!next.isChat() || next.channelId != pendingHistoryThread->channelId)) {
+        // Sidebar selections and collection switches are not necessarily
+        // initiated through AppNavigationService. Invalidate any in-flight
+        // MainWindow retry before it can reopen the previous history target.
+        window.beginSemanticNavigation();
+        pendingHistoryThread.reset();
     }
 
     if (!currentLocation.isValid()) {
@@ -1266,6 +1287,10 @@ void NavigationUiController::goBack()
     if (backStack.isEmpty()) {
         return;
     }
+    pendingHistoryThread.reset();
+    // Supersede any deferred MainWindow channel admission from an older
+    // history entry before starting this Back/Forward request.
+    window.beginSemanticNavigation();
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
@@ -1290,6 +1315,10 @@ void NavigationUiController::goForward()
     if (forwardStack.isEmpty()) {
         return;
     }
+    pendingHistoryThread.reset();
+    // Supersede any deferred MainWindow channel admission from an older
+    // history entry before starting this Back/Forward request.
+    window.beginSemanticNavigation();
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
@@ -1347,9 +1376,29 @@ void NavigationUiController::navigateTo(const Location& location)
         if (!area || &area->getChannel() != channel) {
             return;
         }
+        // currentChanged() is only emitted when the physical stack page
+        // changes. Back to an already selected channel must still retire an
+        // unrelated dock, even if its widget never changed.
+        closeThreadDockIfDifferent(location.channelId);
         recordArea(area);
     } else {
         area = findThread(location.channelId, location.rootId);
+        const bool independentThread =
+            tabModel.findDestination(location.channelId, location.rootId) >= 0
+            || (area && (area->property("threadTabbed").toBool()
+                         || area->property("threadDetached").toBool()));
+        if (!independentThread
+            && shouldOpenParentChannelForThread(location.channelId)) {
+            // Reuse the ordinary contextual thread path, including its
+            // asynchronous sidebar admission/retry and pinned-tab semantics.
+            // It will call presentThread() after the parent channel settles.
+            pendingHistoryThread = location;
+            currentLocation = location;
+            activeArea = nullptr;
+            window.openChannelPost(location.channelId, QString(), location.rootId,
+                                   {}, false, false, true);
+            return;
+        }
         if (!area) {
             ChatArea* parent = channelTree->getCurrentPage();
             if (!parent || &parent->getChannel() != channel) {
@@ -1917,7 +1966,38 @@ void NavigationUiController::presentThread(ChatArea* area)
         return;
     }
 
+    const bool restoringHistory = pendingHistoryThread
+        && pendingHistoryThread->channelId == area->getChannel().id
+        && pendingHistoryThread->rootId == area->root_id;
+    if (!restoringHistory) {
+        pendingHistoryThread.reset();
+        attachThread(area);
+        return;
+    }
+
+    const Location target = *pendingHistoryThread;
+    const bool wasReplaying = replayingHistory;
+    replayingHistory = true;
     attachThread(area);
+    replayingHistory = wasReplaying;
+    currentLocation = target;
+    activeArea = area;
+
+    // MainWindow may call goToNewest() immediately after presenting a freshly
+    // materialized thread. Apply the passive history bookmark afterwards so
+    // its exact viewport anchor wins, without a permalink highlight.
+    QPointer<ChatArea> guard(area);
+    QTimer::singleShot(0, this, [this, guard, target] {
+        if (!pendingHistoryThread
+            || !pendingHistoryThread->sameDestination(target)) {
+            return;
+        }
+        pendingHistoryThread.reset();
+        if (guard && currentLocation.sameDestination(target)
+            && !target.postId.isEmpty()) {
+            restoreSessionBookmark(guard, target.postId, target.viewportAnchor);
+        }
+    });
 }
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
