@@ -1464,10 +1464,46 @@ private slots:
         QCOMPARE(dock->currentWidget(), static_cast<QWidget*>(
             ui.findThread(QStringLiteral("channel_other"), rootId(721))));
 
+        auto* back = window.findChild<QToolButton*>(
+            QStringLiteral("navigationBackButton"));
+        auto* forward = window.findChild<QToolButton*>(
+            QStringLiteral("navigationForwardButton"));
+        QVERIFY(back);
+        QVERIFY(forward);
+        // Drain the deferred sidebar currentItemChanged handler: the parent
+        // channel is an implementation detail, not a second history step.
+        QTest::qWait(60);
+        QTRY_VERIFY(back->isEnabled());
+        back->click();
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+        QCOMPARE(tabs->count(), 1);
+        QTRY_VERIFY(dock->isHidden());
+        QTRY_VERIFY(forward->isEnabled());
+        forward->click();
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel_other"));
+        QTRY_VERIFY(ui.findThread(QStringLiteral("channel_other"), rootId(721)));
+        QTRY_VERIFY(!dock->isHidden());
+
         // A thread-only tab remains thread-only when explicitly opened, but
         // it too is replaceable by later ordinary navigation if unpinned.
         navigation.openChannel(QStringLiteral("channel"));
         QTRY_COMPARE(tabs->count(), 1);
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+
+        // Back to a channel-only location must visibly close its own dock,
+        // rather than silently consume a step while leaving the thread open.
+        navigation.openThread(QStringLiteral("channel"), rootId(722));
+        QTRY_VERIFY(ui.findThread(QStringLiteral("channel"), rootId(722)));
+        QTRY_VERIFY(!dock->isHidden());
+        QTRY_VERIFY(back->isEnabled());
+        back->click();
+        QTRY_VERIFY(dock->isHidden());
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+
         navigation.openThreadInTab(QStringLiteral("channel"), rootId(722));
         QTRY_COMPARE(tabs->count(), 2);
         QTRY_VERIFY(ui.findThread(QStringLiteral("channel"), rootId(722)));
