@@ -1284,6 +1284,9 @@ void NavigationUiController::goBack()
         return;
     }
     pendingHistoryThread.reset();
+    // Supersede any deferred MainWindow channel admission from an older
+    // history entry before starting this Back/Forward request.
+    window.beginSemanticNavigation();
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
@@ -1309,6 +1312,9 @@ void NavigationUiController::goForward()
         return;
     }
     pendingHistoryThread.reset();
+    // Supersede any deferred MainWindow channel admission from an older
+    // history entry before starting this Back/Forward request.
+    window.beginSemanticNavigation();
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
@@ -1373,9 +1379,10 @@ void NavigationUiController::navigateTo(const Location& location)
         recordArea(area);
     } else {
         area = findThread(location.channelId, location.rootId);
-        const bool independentThread = area
-            && (area->property("threadTabbed").toBool()
-                || area->property("threadDetached").toBool());
+        const bool independentThread =
+            tabModel.findDestination(location.channelId, location.rootId) >= 0
+            || (area && (area->property("threadTabbed").toBool()
+                         || area->property("threadDetached").toBool()));
         if (!independentThread
             && shouldOpenParentChannelForThread(location.channelId)) {
             // Reuse the ordinary contextual thread path, including its
