@@ -15,7 +15,9 @@ private slots:
         QVERIFY(!shouldCloseThreadDockForChannel(false, QStringLiteral("channel-a"), QStringLiteral("channel-b")));
 
         NavigationTabsModel model;
-        model.append({QStringLiteral("channel-a")});
+        NavigationTabsModel::Entry channel;
+        channel.channelId = QStringLiteral("channel-a");
+        model.append(channel);
         QCOMPARE(chooseThreadParentTab(false, model, 0,
                                       QStringLiteral("channel-b"),
                                       QStringLiteral("thread-b")).route,
