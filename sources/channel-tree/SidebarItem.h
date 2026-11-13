@@ -56,6 +56,7 @@ enum Role {
     MutedRole,
     MentionedRole,
     PresenceRole,
+    CustomStatusEmojiRole, // Presentation only: never include emoji in sort/filter keys
     UnreadRole,
     LifetimeRole,
     ChannelTypeRole,
