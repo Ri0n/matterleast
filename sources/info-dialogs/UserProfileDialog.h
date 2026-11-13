@@ -62,6 +62,8 @@ private:
     UserProfileDialog(Backend* backend, const BackendUser& user, QWidget* parent);
     static UserProfileDialog* showTransient(UserProfileDialog* dialog);
     void refreshSharedAvatar();
+    void refreshStoredCustomStatus();
+    void refreshCustomStatus(const BackendUser& user);
     void startDirectMessage();
 
     Ui::UserProfileDialog* ui;
