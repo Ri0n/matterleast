@@ -11,6 +11,7 @@ namespace Mattermost {
 enum class ThreadParentTabRoute {
     KeepCurrent,
     ActivateExisting,
+    ReuseUnpinned,
     CreateNew
 };
 
@@ -19,9 +20,10 @@ struct ThreadParentTabDecision {
     int index = -1;
 };
 
-// Explicit thread-only tabs are not converted into channel tabs: opening the
-// same thread again is a no-op. Every other ordinary contextual thread click
-// finds its parent channel, or creates a dedicated channel tab when absent.
+// Explicit thread-only tabs remain independent when opened directly. Ordinary
+// contextual navigation reuses an existing parent-channel tab first; otherwise
+// it replaces an unpinned tab (prefer the active one) or creates a new tab when
+// every existing tab is pinned.
 inline ThreadParentTabDecision chooseThreadParentTab(
     bool enabled, const NavigationTabsModel& tabs, int activeIndex,
     const QString& channelId, const QString& rootId)
@@ -37,6 +39,15 @@ inline ThreadParentTabDecision chooseThreadParentTab(
     const int existing = tabs.findDestination(channelId, QString());
     if (existing >= 0) {
         return {ThreadParentTabRoute::ActivateExisting, existing};
+    }
+    if (const auto* active = tabs.at(activeIndex);
+        active && !active->pinned) {
+        return {ThreadParentTabRoute::ReuseUnpinned, activeIndex};
+    }
+    for (int i = 0; i < tabs.count(); ++i) {
+        if (const auto* entry = tabs.at(i); entry && !entry->pinned) {
+            return {ThreadParentTabRoute::ReuseUnpinned, i};
+        }
     }
     return {ThreadParentTabRoute::CreateNew, -1};
 }
