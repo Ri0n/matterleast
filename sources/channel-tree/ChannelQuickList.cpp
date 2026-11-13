@@ -20,6 +20,7 @@
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
+#include "backend/UserProfileService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
@@ -103,6 +104,18 @@ void ChannelQuickList::initialize(Backend& backend, Mode)
 
     connect(model_, &FollowingModel::changed,
             this, &ChannelQuickList::refresh);
+    connect(&UserProfileService::instance(backend),
+            &UserProfileService::profileResolved, this,
+            [this](const QString& userId) {
+        if (!backend_) return;
+        BackendChannel* channel =
+            backend_->getStorage().getDirectChannelByUserId(userId);
+        if (!channel || !channelItems_.contains(channel->id)) return;
+        BackendUser* user = backend_->getStorage().getUserById(userId);
+        if (!user) return;
+        ensureDirectUserConnections(*channel);
+        updateDirectUser(*user);
+    });
     connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
             this, [this](const QString& name) {
         if (!backend_) return;
