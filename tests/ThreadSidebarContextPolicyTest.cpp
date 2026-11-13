@@ -62,6 +62,47 @@ private slots:
                  ThreadParentTabRoute::KeepCurrent);
     }
 
+    void unpinnedCurrentChannelIsReusedBeforeCreatingTabs()
+    {
+        NavigationTabsModel model;
+        NavigationTabsModel::Entry channel;
+        channel.channelId = QStringLiteral("channel-a");
+        QCOMPARE(model.append(channel), 0);
+
+        const auto replace = chooseThreadParentTab(
+            true, model, 0, QStringLiteral("channel-b"), QStringLiteral("thread-b"));
+        QCOMPARE(replace.route, ThreadParentTabRoute::ReuseUnpinned);
+        QCOMPARE(replace.index, 0);
+
+        // An existing parent channel always takes precedence over replacing
+        // even a disposable active channel.
+        NavigationTabsModel::Entry existingParent;
+        existingParent.channelId = QStringLiteral("channel-b");
+        QCOMPARE(model.append(existingParent), 1);
+        const auto existing = chooseThreadParentTab(
+            true, model, 0, QStringLiteral("channel-b"), QStringLiteral("thread-b"));
+        QCOMPARE(existing.route, ThreadParentTabRoute::ActivateExisting);
+        QCOMPARE(existing.index, 1);
+    }
+
+    void pinnedActiveTabCanReuseAnotherUnpinnedTab()
+    {
+        NavigationTabsModel model;
+        NavigationTabsModel::Entry pinned;
+        pinned.channelId = QStringLiteral("channel-a");
+        pinned.pinned = true;
+        model.append(pinned);
+        NavigationTabsModel::Entry reusable;
+        reusable.channelId = QStringLiteral("channel-c");
+        model.append(reusable);
+
+        const auto decision = chooseThreadParentTab(
+            true, model, 0, QStringLiteral("channel-b"), QStringLiteral("thread-b"));
+        QCOMPARE(decision.route, ThreadParentTabRoute::ReuseUnpinned);
+        QCOMPARE(decision.index, 1);
+        QVERIFY(model.at(0)->pinned);
+    }
+
     void independentThreadTabsRemainIndependent()
     {
         NavigationTabsModel model;
@@ -75,16 +116,16 @@ private slots:
                                       QStringLiteral("channel-a"),
                                       QStringLiteral("root-a")).route,
                  ThreadParentTabRoute::KeepCurrent);
-        // Normal navigation to another thread must not add a dock to an
-        // unrelated thread-only tab.
+        // Explicit opening created a thread-only tab, but ordinary navigation
+        // may replace that tab when unpinned (without creating an extra tab).
         QCOMPARE(chooseThreadParentTab(true, model, 0,
                                       QStringLiteral("channel-b"),
                                       QStringLiteral("root-b")).route,
-                 ThreadParentTabRoute::CreateNew);
+                 ThreadParentTabRoute::ReuseUnpinned);
         QCOMPARE(chooseThreadParentTab(true, model, 0,
                                       QStringLiteral("channel-a"),
                                       QStringLiteral("other-root")).route,
-                 ThreadParentTabRoute::CreateNew);
+                 ThreadParentTabRoute::ReuseUnpinned);
     }
 
     void unrelatedDockClosesOnlyWhenEnabled()
