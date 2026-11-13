@@ -138,10 +138,13 @@ void NavigationUiController::setupMainWindow()
         THREAD_SIDEBAR_FOLLOWS_CHANNEL, THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
     connect(contextualOption, &MLOptionObject::changed, this,
             [this](const QVariant& value) {
-        if (!value.toBool() || !mainStack || !navigationSurfaceStack
-            || navigationSurfaceStack->currentWidget() != mainStack) return;
-        if (auto* channelArea = qobject_cast<ChatArea*>(mainStack->currentWidget())) {
-            closeThreadDockIfDifferent(channelArea->getChannel().id);
+        if (!value.toBool() || !mainStack || !navigationSurfaceStack) return;
+        QWidget* current = navigationSurfaceStack->currentWidget();
+        ChatArea* active = current == mainStack
+            ? qobject_cast<ChatArea*>(mainStack->currentWidget())
+            : qobject_cast<ChatArea*>(current);
+        if (active) {
+            closeThreadDockIfDifferent(active->getChannel().id);
         }
     });
 
@@ -151,7 +154,10 @@ void NavigationUiController::setupMainWindow()
         // publish this semantic-navigation signal itself.
         connect(&AppNavigationService::instance(*sourceBackend),
                 &AppNavigationService::navigationStarted, this,
-                [this] { pendingHistoryThread.reset(); });
+                [this] {
+                    pendingHistoryThread.reset();
+                    pendingContextualThread.reset();
+                });
         auto& sidebar = SidebarService::instance(*sourceBackend);
         connect(&sidebar, &SidebarService::channelActivityChanged,
                 this, &NavigationUiController::refreshTabUnreadVisual,
@@ -893,6 +899,9 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
     switchingTabs = true;
 
     if (!location.rootId.isEmpty()) {
+        // A thread-only tab is independent, but its right pane must still not
+        // show a docked thread from an unrelated channel in contextual mode.
+        closeThreadDockIfDifferent(location.channelId);
         ChatArea* area = findThread(location.channelId, location.rootId);
         Backend* sourceBackend = backend();
         BackendChannel* channel = sourceBackend
@@ -1205,9 +1214,34 @@ void NavigationUiController::recordArea(ChatArea* area)
         refreshTabBarVisibility();
     }
 
-    // MainWindow may first switch to a thread's parent before an asynchronous
-    // history replay docks the thread. That intermediate channel must not
-    // become another Back entry or overwrite the requested thread bookmark.
+    // A contextual thread click is one semantic navigation even when its
+    // parent channel has to be admitted or switched first. Preserve the
+    // outgoing Back entry until the requested thread is actually presented.
+    if (pendingContextualThread) {
+        if (!area->isThread
+            && next.channelId == pendingContextualThread->channelId) {
+            return;
+        }
+        if (next.sameDestination(*pendingContextualThread)) {
+            pendingContextualThread.reset();
+        }
+    }
+
+    // Deferred sidebar currentItemChanged notifications can arrive after
+    // the thread is already docked. They must not rewrite the active thread
+    // location as its parent channel and add a phantom Back step.
+    if (!area->isThread && !replayingHistory && currentLocation.isChat()
+        && !currentLocation.rootId.isEmpty()
+        && currentLocation.channelId == next.channelId
+        && threadStack && !threadStack->isHidden()) {
+        auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
+        if (docked && docked->root_id == currentLocation.rootId
+            && docked->getChannel().id == next.channelId) {
+            return;
+        }
+    }
+
+    // Back/Forward can also activate a parent before restoring its dock.
     if (pendingHistoryThread && !area->isThread
         && next.channelId == pendingHistoryThread->channelId) {
         return;
@@ -1288,6 +1322,7 @@ void NavigationUiController::goBack()
         return;
     }
     pendingHistoryThread.reset();
+    pendingContextualThread.reset();
     // Supersede any deferred MainWindow channel admission from an older
     // history entry before starting this Back/Forward request.
     window.beginSemanticNavigation();
@@ -1316,6 +1351,7 @@ void NavigationUiController::goForward()
         return;
     }
     pendingHistoryThread.reset();
+    pendingContextualThread.reset();
     // Supersede any deferred MainWindow channel admission from an older
     // history entry before starting this Back/Forward request.
     window.beginSemanticNavigation();
@@ -1379,19 +1415,48 @@ void NavigationUiController::navigateTo(const Location& location)
         // currentChanged() is only emitted when the physical stack page
         // changes. Back to an already selected channel must still retire an
         // unrelated dock, even if its widget never changed.
-        closeThreadDockIfDifferent(location.channelId);
+        // In contextual mode a history entry for a channel-only location
+        // must close its dock, even if it belongs to that same channel.
+        // Independent-pane mode deliberately retains its old presentation.
+        const bool restoreChannelOnly = replayingHistory
+            && MLOptions::instance()->value<bool>(
+                THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+                THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+        closeThreadDockIfDifferent(location.channelId, restoreChannelOnly);
         recordArea(area);
     } else {
+        // A Back/Forward target already represented by a thread-only tab must
+        // activate that tab, not reconstruct the thread as a foreign dock.
+        const int existingThreadTab = tabModel.findDestination(
+            location.channelId, location.rootId);
+        if (existingThreadTab >= 0) {
+            activateTab(existingThreadTab, location.postId.isEmpty());
+            currentLocation = location;
+            activeArea = findThread(location.channelId, location.rootId);
+            if (activeArea && !location.postId.isEmpty()) {
+                restoreSessionBookmark(activeArea, location.postId,
+                                       location.viewportAnchor);
+            }
+            return;
+        }
+
         area = findThread(location.channelId, location.rootId);
         const bool independentThread =
-            tabModel.findDestination(location.channelId, location.rootId) >= 0
-            || (area && (area->property("threadTabbed").toBool()
-                         || area->property("threadDetached").toBool()));
+            area && (area->property("threadTabbed").toBool()
+                     || area->property("threadDetached").toBool());
+        const bool contextualMode = MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+        const bool needsParentTab = chooseThreadParentTab(
+            contextualMode, tabModel, activeTabIndex,
+            location.channelId, location.rootId).route != ThreadParentTabRoute::KeepCurrent;
         if (!independentThread
-            && shouldOpenParentChannelForThread(location.channelId)) {
-            // Reuse the ordinary contextual thread path, including its
-            // asynchronous sidebar admission/retry and pinned-tab semantics.
-            // It will call presentThread() after the parent channel settles.
+            && (needsParentTab
+                || shouldOpenParentChannelForThread(location.channelId))) {
+            // History must obey the same cross-channel tab invariant as
+            // regular navigation, even when starting from a thread-only tab.
+            // MainWindow handles asynchronous channel admission and restores
+            // the pending bookmark after the parent channel settles.
             pendingHistoryThread = location;
             currentLocation = location;
             activeArea = nullptr;
@@ -1412,8 +1477,13 @@ void NavigationUiController::navigateTo(const Location& location)
         presentThread(area);
     }
 
-    currentLocation = location;
-    activeArea = area;
+    // activateTab() may display the parent channel as a preparation step for
+    // an ordinary thread click. Do not replace its actual history origin.
+    if (!(pendingContextualThread && location.rootId.isEmpty()
+          && location.channelId == pendingContextualThread->channelId)) {
+        currentLocation = location;
+        activeArea = area;
+    }
     if (location.postId.isEmpty() || !area) {
         return;
     }
@@ -1877,6 +1947,111 @@ void NavigationUiController::syncSplitterEdgeGutters()
     }
 }
 
+bool NavigationUiController::hasIndependentThreadPresentation(
+    const QString& channelId, const QString& rootId) const
+{
+    if (channelId.isEmpty() || rootId.isEmpty()) {
+        return false;
+    }
+    const auto* active = tabModel.at(activeTabIndex);
+    if (active && active->channelId == channelId && active->rootId == rootId) {
+        return true;
+    }
+    const ChatArea* thread = findThread(channelId, rootId);
+    return thread && thread->property("threadDetached").toBool();
+}
+
+void NavigationUiController::selectContextualThreadTab(
+    const QString& channelId, const QString& rootId)
+{
+    if (!navigationTabs || hasIndependentThreadPresentation(channelId, rootId)
+        || !MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL,
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT)) {
+        return;
+    }
+
+    ensureInitialTab();
+    const auto decision = chooseThreadParentTab(
+        true, tabModel, activeTabIndex, channelId, rootId);
+    if (decision.route != ThreadParentTabRoute::KeepCurrent
+        && !pendingHistoryThread
+        && (!pendingContextualThread
+            || !pendingContextualThread->sameDestination(Location(channelId, rootId)))) {
+        pendingContextualThread = Location(channelId, rootId);
+    }
+    if (decision.route == ThreadParentTabRoute::KeepCurrent) {
+        return;
+    }
+    if (decision.route == ThreadParentTabRoute::ActivateExisting) {
+        activateTab(decision.index);
+        return;
+    }
+
+    if (decision.route == ThreadParentTabRoute::ReuseUnpinned) {
+        const auto* entry = tabModel.at(decision.index);
+        if (!entry || entry->pinned) {
+            return;
+        }
+
+        if (entry->rootId.isEmpty()) {
+            // ChannelTree's existing recordArea() path already replaces the
+            // current unpinned channel tab. Activate a different reusable
+            // channel tab first, if needed, then let MainWindow open the
+            // requested parent channel normally.
+            if (decision.index != activeTabIndex) {
+                activateTab(decision.index);
+            }
+            return;
+        }
+
+        // An unpinned thread-only tab is reusable too. Its central ChatArea
+        // must be retired before changing the semantic tab entry; otherwise
+        // activateTab() would see the *new* channel identity and leave the
+        // old thread view alive in navigationSurfaceStack.
+        if (decision.index == activeTabIndex) {
+            saveActiveTabLocation();
+        }
+        const QString oldChannelId = entry->channelId;
+        const QString oldRootId = entry->rootId;
+        if (ChatArea* old = findThread(oldChannelId, oldRootId);
+            old && old->property("threadTabbed").toBool()) {
+            old->onDeactivate();
+            old->hide();
+            if (navigationSurfaceStack
+                && navigationSurfaceStack->indexOf(old) >= 0) {
+                navigationSurfaceStack->removeWidget(old);
+            }
+            old->setProperty("threadTabbed", false);
+            if (activeArea == old) {
+                activeArea = nullptr;
+            }
+            old->close();
+        }
+
+        Location parent;
+        parent.channelId = channelId;
+        updateTab(decision.index, parent);
+        if (decision.index == activeTabIndex) {
+            // Force a fresh channel presentation after replacing the current
+            // thread-only entry, without snapshotting its retired view again.
+            activeTabIndex = -1;
+        }
+        activateTab(decision.index);
+        scheduleSessionSave();
+        return;
+    }
+
+    // All existing tabs are pinned: preserve them and create a separate tab
+    // for the thread's parent channel. Explicit thread-only tabs bypass this.
+    Location parent;
+    parent.channelId = channelId;
+    const int index = appendNavigationTab(parent, true);
+    if (index >= 0) {
+        activateTab(index);
+    }
+}
+
 bool NavigationUiController::shouldOpenParentChannelForThread(
     const QString& channelId) const
 {
@@ -1886,26 +2061,25 @@ bool NavigationUiController::shouldOpenParentChannelForThread(
         return false;
     }
 
-    const auto* activeTab = tabModel.at(activeTabIndex);
-    const bool pinned = activeTab && activeTab->pinned;
     const bool centralSurfaceIsMainStack = mainStack && navigationSurfaceStack
         && navigationSurfaceStack->currentWidget() == mainStack;
     auto* centralArea = centralSurfaceIsMainStack
         ? qobject_cast<ChatArea*>(mainStack->currentWidget()) : nullptr;
-    return shouldOpenThreadParentChannel(true, pinned, centralSurfaceIsMainStack,
+    return shouldOpenThreadParentChannel(true, centralSurfaceIsMainStack,
                                          centralArea ? centralArea->getChannel().id : QString(),
                                          channelId);
 }
 
-void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId)
+void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId,
+                                                         bool force)
 {
     if (!threadStack || threadStack->isHidden()) return;
     auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
-    if (!docked || !shouldCloseThreadDockForChannel(
+    if (!docked || (!force && !shouldCloseThreadDockForChannel(
             MLOptions::instance()->value<bool>(
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL,
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT),
-            channelId, docked->getChannel().id)) {
+            channelId, docked->getChannel().id))) {
         return;
     }
 

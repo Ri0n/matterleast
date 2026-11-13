@@ -86,6 +86,12 @@ public:
                                const QString& rootId) const;
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
+    /** Choose the parent channel tab for an ordinary contextual thread click. */
+    void selectContextualThreadTab(const QString& channelId,
+                                   const QString& rootId);
+    /** Thread-only tabs and detached windows must stay independent. */
+    bool hasIndependentThreadPresentation(const QString& channelId,
+                                          const QString& rootId) const;
     /** Whether ordinary thread navigation should first switch the central channel. */
     bool shouldOpenParentChannelForThread(const QString& channelId) const;
     void openInTab(const QString& channelId,
@@ -114,7 +120,8 @@ private:
     void setupSidebarHeader();
     void setupThreadPane();
     void setupTabShortcuts();
-    void closeThreadDockIfDifferent(const QString& channelId);
+    void closeThreadDockIfDifferent(const QString& channelId,
+                                    bool force = false);
     ChatArea* centralTabArea() const;
     void closeActiveTab();
     void activatePreviousTab();
@@ -187,6 +194,9 @@ private:
     // An asynchronous Back/Forward thread restore may first activate its
     // parent conversation. Suppress that intermediate channel history entry.
     std::optional<Location> pendingHistoryThread;
+    // Ordinary contextual thread navigation can also activate/admit the parent
+    // channel first. Its intermediate presentation must not be a Back step.
+    std::optional<Location> pendingContextualThread;
     bool threadSplitterStateRestored = false;
     int _preferredThreadPaneWidth = 0;
     QByteArray _legacyThreadSplitterState;
