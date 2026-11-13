@@ -87,14 +87,17 @@ Plugins use `Q_PLUGIN_METADATA` and currently require these fields in the metada
 
 ## Discovery
 
-The first implementation discovers trusted native plugins in:
+Native plugins are discovered in:
 
-1. `<application directory>/plugins`
-2. the platform `QStandardPaths::AppDataLocation/plugins` directory
+1. `<application directory>/plugins` (build-tree and Windows/macOS bundles)
+2. **Linux:** `<install libdir>/matterleast/plugins` (Debian/Ubuntu: `/usr/lib/<multiarch-triplet>/matterleast/plugins`; Fedora: `/usr/lib64/matterleast/plugins`)
+3. the platform `QStandardPaths::AppDataLocation/plugins` directory
+
+The Linux directory is determined from CMake's `GNUInstallDirs` and resolved **relative to the executable** at runtime, so an AppImage or a nonstandard installation prefix remains relocatable. Native Linux plugins install as `seasonal-snow.so` (without the usual library prefix). The SDK package is installed under `<install libdir>/cmake/MatterLeastPluginApi` rather than `/usr/lib/cmake`.
 
 Corporate signed-only builds may instead set
 `-DMATTERLEAST_PLUGIN_VERIFY_KEY_FILE=/path/to/company-public.pem`.
-This embeds the Ed25519 PUBLIC key, and every native MatterLeast plugin must
+This embeds the RSA PKCS#1 v1.5 / SHA-256 verification PUBLIC key, and every native MatterLeast plugin must
 have a valid adjacent `<binary>.sig` file. The signature is verified before
 Qt plugin code is loaded. This also permits independently packaged corporate
 plugins signed by the same trusted key. An external private key can be passed
