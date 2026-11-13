@@ -103,6 +103,7 @@ jobs:
           set -euo pipefail
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DQT_6=${{ matrix.qt6 }} \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
@@ -133,6 +134,7 @@ jobs:
           cpack --config build/CPackConfig.cmake -G DEB -B package
           deb=$(find package -maxdepth 1 -type f -name '*.deb' -print -quit)
           test -n "$deb"
+          bash scripts/check-linux-package-layout.sh deb "$deb" build
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           package_version=$(dpkg-deb -f "$deb" Version)
@@ -219,6 +221,7 @@ jobs:
             exit 1
           }
           cmake -S . -B build -G Ninja \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
@@ -240,6 +243,7 @@ jobs:
           cpack --config build/CPackConfig.cmake -G DEB -B package
           deb=$(find package -maxdepth 1 -type f -name '*.deb' -print -quit)
           test -n "$deb"
+          bash scripts/check-linux-package-layout.sh deb "$deb" build
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           depends=$(dpkg-deb -f "$deb" Depends)
@@ -370,6 +374,7 @@ jobs:
           rm -rf AppDir
           DESTDIR="$PWD/AppDir" cmake --install build
           test -x AppDir/usr/bin/matterleast
+          bash scripts/check-linux-package-layout.sh appdir AppDir build
           test -f AppDir/usr/share/applications/io.github.Ri0n.MatterLeast.desktop
           test -f AppDir/usr/share/icons/hicolor/scalable/apps/io.github.Ri0n.MatterLeast.svg
           # linuxdeploy bundles runtime libraries later; CMake must not install
@@ -429,6 +434,7 @@ jobs:
             --plugin qt \
             --output appimage
 
+          bash scripts/check-linux-package-layout.sh appdir AppDir build
           test -n "$(find AppDir -name 'libQt6Core.so.6' -print -quit)"
           test -n "$(find AppDir -name 'libqxcb.so' -print -quit)"
           test -n "$(find AppDir -name 'libqwayland.so' -print -quit)"
@@ -520,6 +526,7 @@ jobs:
           set -euo pipefail
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DQT_6=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
@@ -549,6 +556,7 @@ jobs:
           cpack --config build/CPackConfig.cmake -G RPM -B package
           rpm_file=$(find package -maxdepth 1 -type f -name '*.rpm' -print -quit)
           test -n "$rpm_file"
+          bash scripts/check-linux-package-layout.sh rpm "$rpm_file" build
 
           version=$(tr -d '[:space:]' < build/matterleast-version.txt)
           package_version=$(rpm -qp --qf '%{VERSION}' "$rpm_file")
