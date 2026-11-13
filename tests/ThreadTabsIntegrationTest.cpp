@@ -1489,6 +1489,18 @@ private slots:
         QTRY_VERIFY(controller.findThread(QStringLiteral("channel"), rootId(604)));
         QCOMPARE(dock->currentWidget(), static_cast<QWidget*>(
             controller.findThread(QStringLiteral("channel"), rootId(604))));
+
+        // A thread-only tab for A must also retire a foreign dock from B,
+        // without turning the explicit thread into a paired channel tab.
+        navigation.openThread(QStringLiteral("channel_other"), rootId(601));
+        QTRY_COMPARE(tabs->currentIndex(), 1);
+        QTRY_VERIFY(!dock->isHidden());
+        navigation.openThreadInTab(QStringLiteral("channel"), rootId(605));
+        QTRY_COMPARE(tabs->count(), 4);
+        QTRY_VERIFY(controller.findThread(QStringLiteral("channel"), rootId(605)));
+        QVERIFY(controller.findThread(QStringLiteral("channel"), rootId(605))
+                    ->property("threadTabbed").toBool());
+        QTRY_VERIFY(dock->isHidden());
     }
 
     void historyBackAndForwardHonorContextualThreadPane()
