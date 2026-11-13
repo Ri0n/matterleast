@@ -37,6 +37,8 @@
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
+#include "backend/types/BackendUser.h"
+#include "ui/UserStatusEmoji.h"
 #include "backend/types/BackendTeam.h"
 #include "chat-area/ChatArea.h"
 #include "channel-tree/ChannelIcons.h"
@@ -204,6 +206,20 @@ bool ChannelTree::isChannelActive (const BackendChannel& channel)
 void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 {
     backendForSidebar = &backend;
+    if (!customEmojiConnected_) {
+        customEmojiConnected_ = true;
+        connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
+                this, [this](const QString& name) {
+            if (!backendForSidebar) return;
+            for (const QString& id : connectedSidebarUsers) {
+                const BackendUser* user =
+                    backendForSidebar->getStorage().getUserById(id);
+                if (user && UserStatusEmoji::name(*user) == name) {
+                    updateDirectCustomStatus(*user);
+                }
+            }
+        });
+    }
 
 	TeamItem* teamList = new GroupTeamItem (*this, backend, team.display_name, team.id);
     teamList->setData(0, ItemKindRole, TeamItemKind);
@@ -516,6 +532,9 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
         BackendUser* user = backend.getStorage().getUserById(channel.name);
         if (user) {
             item->setStatus(user->status);
+            item->setData(0, SidebarItem::CustomStatusEmojiRole,
+                          UserStatusEmoji::pixmap(backend.emojiRegistry(),
+                                                  *user, 18, font()));
             if (!user->avatar.isNull()) {
                 item->setIcon(QIcon(user->avatar));
             }
@@ -544,6 +563,9 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
                         }
                     }
                 });
+
+                connect(user, &BackendUser::onCustomStatusChanged,
+                        this, [this, user] { updateDirectCustomStatus(*user); });
 
                 connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
                     if (!backendForSidebar) {
@@ -581,6 +603,21 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     item->setUnread(sidebar.isChannelUnread(channel));
     item->setMentioned(sidebar.hasUnreadMention(channel.id));
     return item;
+}
+
+void ChannelTree::updateDirectCustomStatus(const BackendUser& user)
+{
+    if (!backendForSidebar) return;
+    const BackendChannel* channel =
+        backendForSidebar->getStorage().getDirectChannelByUserId(user.id);
+    if (!channel) return;
+    const QPixmap image = UserStatusEmoji::pixmap(
+        backendForSidebar->emojiRegistry(), user, 18, font());
+    for (QTreeWidgetItem* row : channelToItemMap.value(channel->id)) {
+        if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
+            row->setData(0, SidebarItem::CustomStatusEmojiRole, image);
+        }
+    }
 }
 
 void ChannelTree::handleChannelLeave()
