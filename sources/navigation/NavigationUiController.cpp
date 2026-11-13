@@ -154,7 +154,10 @@ void NavigationUiController::setupMainWindow()
         // publish this semantic-navigation signal itself.
         connect(&AppNavigationService::instance(*sourceBackend),
                 &AppNavigationService::navigationStarted, this,
-                [this] { pendingHistoryThread.reset(); });
+                [this] {
+                    pendingHistoryThread.reset();
+                    pendingContextualThread.reset();
+                });
         auto& sidebar = SidebarService::instance(*sourceBackend);
         connect(&sidebar, &SidebarService::channelActivityChanged,
                 this, &NavigationUiController::refreshTabUnreadVisual,
@@ -1211,9 +1214,34 @@ void NavigationUiController::recordArea(ChatArea* area)
         refreshTabBarVisibility();
     }
 
-    // MainWindow may first switch to a thread's parent before an asynchronous
-    // history replay docks the thread. That intermediate channel must not
-    // become another Back entry or overwrite the requested thread bookmark.
+    // A contextual thread click is one semantic navigation even when its
+    // parent channel has to be admitted or switched first. Preserve the
+    // outgoing Back entry until the requested thread is actually presented.
+    if (pendingContextualThread) {
+        if (!area->isThread
+            && next.channelId == pendingContextualThread->channelId) {
+            return;
+        }
+        if (next.sameDestination(*pendingContextualThread)) {
+            pendingContextualThread.reset();
+        }
+    }
+
+    // Deferred sidebar currentItemChanged notifications can arrive after
+    // the thread is already docked. They must not rewrite the active thread
+    // location as its parent channel and add a phantom Back step.
+    if (!area->isThread && !replayingHistory && currentLocation.isChat()
+        && !currentLocation.rootId.isEmpty()
+        && currentLocation.channelId == next.channelId
+        && threadStack && !threadStack->isHidden()) {
+        const auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
+        if (docked && docked->root_id == currentLocation.rootId
+            && docked->getChannel().id == next.channelId) {
+            return;
+        }
+    }
+
+    // Back/Forward can also activate a parent before restoring its dock.
     if (pendingHistoryThread && !area->isThread
         && next.channelId == pendingHistoryThread->channelId) {
         return;
@@ -1294,6 +1322,7 @@ void NavigationUiController::goBack()
         return;
     }
     pendingHistoryThread.reset();
+    pendingContextualThread.reset();
     // Supersede any deferred MainWindow channel admission from an older
     // history entry before starting this Back/Forward request.
     window.beginSemanticNavigation();
@@ -1322,6 +1351,7 @@ void NavigationUiController::goForward()
         return;
     }
     pendingHistoryThread.reset();
+    pendingContextualThread.reset();
     // Supersede any deferred MainWindow channel admission from an older
     // history entry before starting this Back/Forward request.
     window.beginSemanticNavigation();
@@ -1385,7 +1415,7 @@ void NavigationUiController::navigateTo(const Location& location)
         // currentChanged() is only emitted when the physical stack page
         // changes. Back to an already selected channel must still retire an
         // unrelated dock, even if its widget never changed.
-        closeThreadDockIfDifferent(location.channelId);
+        closeThreadDockIfDifferent(location.channelId, replayingHistory);
         recordArea(area);
     } else {
         // A Back/Forward target already represented by a thread-only tab must
@@ -1440,8 +1470,13 @@ void NavigationUiController::navigateTo(const Location& location)
         presentThread(area);
     }
 
-    currentLocation = location;
-    activeArea = area;
+    // activateTab() may display the parent channel as a preparation step for
+    // an ordinary thread click. Do not replace its actual history origin.
+    if (!(pendingContextualThread && location.rootId.isEmpty()
+          && location.channelId == pendingContextualThread->channelId)) {
+        currentLocation = location;
+        activeArea = area;
+    }
     if (location.postId.isEmpty() || !area) {
         return;
     }
@@ -1932,6 +1967,12 @@ void NavigationUiController::selectContextualThreadTab(
     ensureInitialTab();
     const auto decision = chooseThreadParentTab(
         true, tabModel, activeTabIndex, channelId, rootId);
+    if (decision.route != ThreadParentTabRoute::KeepCurrent
+        && !pendingHistoryThread
+        && (!pendingContextualThread
+            || !pendingContextualThread->sameDestination(Location(channelId, rootId)))) {
+        pendingContextualThread = Location(channelId, rootId);
+    }
     if (decision.route == ThreadParentTabRoute::KeepCurrent) {
         return;
     }
@@ -2022,15 +2063,16 @@ bool NavigationUiController::shouldOpenParentChannelForThread(
                                          channelId);
 }
 
-void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId)
+void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId,
+                                                         bool force)
 {
     if (!threadStack || threadStack->isHidden()) return;
     auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
-    if (!docked || !shouldCloseThreadDockForChannel(
+    if (!docked || (!force && !shouldCloseThreadDockForChannel(
             MLOptions::instance()->value<bool>(
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL,
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT),
-            channelId, docked->getChannel().id)) {
+            channelId, docked->getChannel().id))) {
         return;
     }
 
