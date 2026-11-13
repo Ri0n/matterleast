@@ -188,7 +188,6 @@ PostWidget::PostWidget(Backend& backend,
     statusEmojiLabel_ = new QLabel(this);
     statusEmojiLabel_->setObjectName(QStringLiteral("authorCustomStatusEmoji"));
     statusEmojiLabel_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-    statusEmojiLabel_->setAttribute(Qt::WA_TransparentForMouseEvents);
     ui->horizontalLayout->insertWidget(
         ui->horizontalLayout->indexOf(ui->authorName) + 1,
         statusEmojiLabel_, 0, Qt::AlignVCenter);
