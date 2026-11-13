@@ -1234,7 +1234,7 @@ void NavigationUiController::recordArea(ChatArea* area)
         && !currentLocation.rootId.isEmpty()
         && currentLocation.channelId == next.channelId
         && threadStack && !threadStack->isHidden()) {
-        const auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
+        auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
         if (docked && docked->root_id == currentLocation.rootId
             && docked->getChannel().id == next.channelId) {
             return;
