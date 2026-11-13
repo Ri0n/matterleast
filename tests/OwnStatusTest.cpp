@@ -93,17 +93,24 @@ private slots:
     void profileDisplaysCustomStatusAndTracksEdits()
     {
         Backend backend;
+        const QJsonObject customStatus {
+            {QStringLiteral("emoji"), QStringLiteral("coffee")},
+            {QStringLiteral("text"), QStringLiteral("<focus & work>")}
+        };
         BackendUser* user = backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("profile-user")},
-                         {QStringLiteral("username"), QStringLiteral("test-user")}});
+                         {QStringLiteral("username"), QStringLiteral("test-user")},
+                         {QStringLiteral("props"), QJsonObject {
+                             {QStringLiteral("customStatus"), customStatus}
+                         }}},
+            true);
         QVERIFY(user);
+        QCOMPARE(backend.getStorage().loginUser, user);
         // Prevent unrelated avatar HTTP work from the profile dialog.
         user->avatar = QPixmap(16, 16);
         user->avatar.fill(Qt::red);
         user->avatar_picture_update = user->last_picture_update;
         user->status = QStringLiteral("away");
-        user->props.customStatus.emoji = QStringLiteral("coffee");
-        user->props.customStatus.text = QStringLiteral("<focus & work>");
 
         UserProfileDialog dialog(backend, *user);
         auto* customRow = dialog.findChild<QWidget*>(QStringLiteral("customStatusRow"));
