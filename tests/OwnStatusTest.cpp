@@ -78,6 +78,30 @@ private slots:
         QCOMPARE(UserStatusEmoji::name(ownUser), QStringLiteral("coffee"));
         QVERIFY(UserStatusEmoji::text(ownUser).isEmpty());
 
+        // Go time.Time's zero value is serialized for "Don't clear" statuses.
+        // It is a valid ISO date, but must not count as an expired status.
+        BackendUser neverExpires(profile(QStringLiteral("0001-01-01T00:00:00Z")));
+        QCOMPARE(UserStatusEmoji::name(neverExpires), QStringLiteral("coffee"));
+        QCOMPARE(UserStatusEmoji::text(neverExpires),
+                 QStringLiteral("In a meeting"));
+        const QJsonObject zeroTimeStatus {
+            {QStringLiteral("emoji"), QStringLiteral("coffee")},
+            {QStringLiteral("text"), QString()},
+            {QStringLiteral("expires_at"), QStringLiteral("0001-01-01T00:00:00Z")}
+        };
+        BackendUser emojiOnlyNeverExpires(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("my-user")},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("customStatus"), zeroTimeStatus}
+            }}
+        });
+        QCOMPARE(UserStatusEmoji::name(emojiOnlyNeverExpires),
+                 QStringLiteral("coffee"));
+        QVERIFY(UserStatusEmoji::text(emojiOnlyNeverExpires).isEmpty());
+        EmojiRegistry emojiRegistry;
+        QVERIFY(!UserStatusEmoji::pixmap(emojiRegistry, emojiOnlyNeverExpires,
+                                         20, QFont()).isNull());
+
         BackendUser expired(profile(QDateTime::currentDateTimeUtc()
                                         .addSecs(-60).toString(Qt::ISODate)));
         QVERIFY(UserStatusEmoji::name(expired).isEmpty());
@@ -95,7 +119,8 @@ private slots:
         Backend backend;
         const QJsonObject customStatus {
             {QStringLiteral("emoji"), QStringLiteral("coffee")},
-            {QStringLiteral("text"), QStringLiteral("<focus & work>")}
+            {QStringLiteral("text"), QStringLiteral("<focus & work>")},
+            {QStringLiteral("expires_at"), QStringLiteral("0001-01-01T00:00:00Z")}
         };
         BackendUser* user = backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("profile-user")},
