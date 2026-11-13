@@ -8,8 +8,8 @@ target_link_libraries(matterleast-seasonal-snow PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
 )
 
-# Match PluginManager's <applicationDir>/plugins discovery in the build tree
-# and in DEB/RPM/AppImage/Windows package installations.
+# Keep the build-tree plugin next to the executable for developer runs.
+# Installed Linux packages use the distro libdir, discovered relative to bin.
 if(CMAKE_CONFIGURATION_TYPES)
     # Visual Studio and multi-config Ninja place the app under <build>/<config>.
     set(_snow_output_dir "${CMAKE_BINARY_DIR}/$<CONFIG>/plugins")
@@ -21,11 +21,20 @@ set_target_properties(matterleast-seasonal-snow PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${_snow_output_dir}"
 )
 
-# Detached signature (when corporate release signing is enabled).
-matterleast_sign_plugin(matterleast-seasonal-snow)
+# Native Linux modules have no ELF library-style "lib" prefix; Windows and
+# macOS keep their existing filenames and bundle layouts.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set_target_properties(matterleast-seasonal-snow PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "seasonal-snow")
+endif()
+
+# Signature must follow the renamed module to the same install directory.
+matterleast_sign_plugin(matterleast-seasonal-snow
+    DESTINATION "${MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR}")
 
 install(TARGETS matterleast-seasonal-snow
-    LIBRARY DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
+    LIBRARY DESTINATION "${MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR}"
+    RUNTIME DESTINATION "${MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR}"
     COMPONENT Runtime
 )
