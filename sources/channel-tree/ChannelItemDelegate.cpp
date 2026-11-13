@@ -294,8 +294,26 @@ void ChannelItemDelegate::paint(QPainter* painter,
                  : content.palette.color(QPalette::Text));
     painter->setPen(textColor);
 
-    const QString elided = QFontMetrics(font).elidedText(text, Qt::ElideRight, textRect.width());
-    painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, elided);
+    const QFontMetrics metrics(font);
+    const QPixmap statusEmoji = index.data(
+        SidebarItem::CustomStatusEmojiRole).value<QPixmap>();
+    const int emojiSize = qMin(metrics.height(), 18);
+    const int gap = metrics.horizontalAdvance(QLatin1Char(' '));
+    const bool showEmoji = !statusEmoji.isNull()
+        && textRect.width() >= emojiSize + gap + metrics.averageCharWidth() * 4;
+    const int nameWidth = showEmoji
+        ? qMax(0, textRect.width() - emojiSize - gap) : textRect.width();
+    const QString elided = metrics.elidedText(text, Qt::ElideRight, nameWidth);
+    painter->drawText(QRect(textRect.left(), textRect.top(), nameWidth,
+                            textRect.height()),
+                      Qt::AlignLeft | Qt::AlignVCenter, elided);
+    if (showEmoji) {
+        const int namePixels = qMin(metrics.horizontalAdvance(elided), nameWidth);
+        const QRect emojiRect(textRect.left() + namePixels + gap,
+                              textRect.center().y() - emojiSize / 2,
+                              emojiSize, emojiSize);
+        painter->drawPixmap(emojiRect, statusEmoji);
+    }
     painter->restore();
 }
 
