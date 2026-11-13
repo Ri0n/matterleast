@@ -1375,6 +1375,122 @@ private slots:
         QVERIFY(!initialTabs->isHidden());
     }
 
+    void contextualThreadsRouteAwayFromPinnedAndIndependentTabs()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.secondChannel = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+        MLOptions::instance()->setValue(sessionKey(), QByteArray());
+
+        const bool original = MLOptions::instance()->value<bool>(
+            THREAD_SIDEBAR_FOLLOWS_CHANNEL, THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
+        struct RestorePolicy {
+            bool value;
+            ~RestorePolicy()
+            {
+                MLOptions::instance()->setValue(
+                    THREAD_SIDEBAR_FOLLOWS_CHANNEL, value);
+            }
+        } restore {original};
+        MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
+
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.resize(1100, 700);
+        window.show();
+
+        auto& controller = NavigationUiController::instance(window);
+        auto& navigation = AppNavigationService::instance(backend);
+        auto* channels = window.findChild<ChannelTree*>(
+            QStringLiteral("channelList"));
+        auto* tabs = window.findChild<QTabBar*>(
+            QStringLiteral("navigationTabs"));
+        auto* dock = window.findChild<QStackedWidget*>(
+            QStringLiteral("threadStack"));
+        QVERIFY(channels);
+        QVERIFY(tabs);
+        QVERIFY(dock);
+        QTRY_VERIFY(storage.getChannelById(QStringLiteral("channel")));
+        QTRY_VERIFY(storage.getChannelById(QStringLiteral("channel_other")));
+        QTRY_VERIFY(SidebarService::instance(backend).teamState(QStringLiteral("team"))
+            && SidebarService::instance(backend).teamState(QStringLiteral("team"))
+                   ->category(QStringLiteral("dm")));
+
+        auto* foreign = storage.getChannelById(QStringLiteral("channel_other"));
+        for (int thread : {601, 602, 603}) {
+            QJsonObject root = post(thread);
+            root.insert(QStringLiteral("channel_id"), QStringLiteral("channel_other"));
+            foreign->addPost(root);
+        }
+
+        navigation.openChannel(QStringLiteral("channel"));
+        QTRY_VERIFY(channels->getCurrentPage());
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+        QTRY_COMPARE(tabs->count(), 1);
+        auto* pin = window.findChild<QAction*>(QStringLiteral("tabPinAction"));
+        QVERIFY(pin);
+        QCOMPARE(pin->text(), QStringLiteral("Pin tab"));
+        pin->trigger();
+        QCOMPARE(pin->text(), QStringLiteral("Unpin tab"));
+
+        // Normal click on a foreign thread must create a paired parent tab,
+        // not attach that thread to the pinned source channel.
+        navigation.openThread(QStringLiteral("channel_other"), rootId(601));
+        QTRY_COMPARE(tabs->count(), 2);
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel_other"));
+        QTRY_VERIFY(controller.findThread(QStringLiteral("channel_other"), rootId(601)));
+        QTRY_VERIFY(!dock->isHidden());
+        QCOMPARE(dock->currentWidget(), static_cast<QWidget*>(
+            controller.findThread(QStringLiteral("channel_other"), rootId(601))));
+        QCOMPARE(tabs->currentIndex(), 1);
+
+        // Returning to the pinned tab and opening another thread from the
+        // same foreign channel must reuse its already existing parent tab.
+        tabs->setCurrentIndex(0);
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+        QCOMPARE(pin->text(), QStringLiteral("Unpin tab"));
+        navigation.openThread(QStringLiteral("channel_other"), rootId(602));
+        QTRY_COMPARE(tabs->count(), 2);
+        QTRY_COMPARE(tabs->currentIndex(), 1);
+        QTRY_VERIFY(controller.findThread(QStringLiteral("channel_other"), rootId(602)));
+        QCOMPARE(dock->currentWidget(), static_cast<QWidget*>(
+            controller.findThread(QStringLiteral("channel_other"), rootId(602))));
+
+        // Middle-click / move-to-tab is an explicit independent presentation.
+        // It must create only a thread tab, even with contextual mode enabled.
+        tabs->setCurrentIndex(0);
+        navigation.openThreadInTab(QStringLiteral("channel_other"), rootId(603));
+        QTRY_COMPARE(tabs->count(), 3);
+        QTRY_VERIFY(controller.findThread(QStringLiteral("channel_other"), rootId(603)));
+        auto* independent = controller.findThread(
+            QStringLiteral("channel_other"), rootId(603));
+        QVERIFY(independent->property("threadTabbed").toBool());
+        auto* surface = window.findChild<QStackedWidget*>(
+            QStringLiteral("navigationSurfaceStack"));
+        QVERIFY(surface);
+        QCOMPARE(surface->currentWidget(), static_cast<QWidget*>(independent));
+
+        // Another ordinary thread click from an independent thread tab
+        // switches back to the existing parent channel, never cross-docks.
+        navigation.openThread(QStringLiteral("channel"), rootId(604));
+        QTRY_COMPARE(tabs->count(), 3);
+        QTRY_COMPARE(tabs->currentIndex(), 0);
+        QTRY_COMPARE(channels->getCurrentPage()->getChannel().id,
+                     QStringLiteral("channel"));
+        QTRY_VERIFY(controller.findThread(QStringLiteral("channel"), rootId(604)));
+        QCOMPARE(dock->currentWidget(), static_cast<QWidget*>(
+            controller.findThread(QStringLiteral("channel"), rootId(604))));
+    }
+
     void historyBackAndForwardHonorContextualThreadPane()
     {
         Server server;
