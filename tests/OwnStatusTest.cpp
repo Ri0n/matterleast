@@ -64,6 +64,20 @@ private slots:
         QCOMPARE(UserStatusEmoji::name(active), QStringLiteral("coffee"));
         QCOMPARE(UserStatusEmoji::text(active), QStringLiteral("In a meeting"));
 
+        // A decoded customStatus object with no text is also a valid status.
+        const QJsonObject emojiOnly {
+            {QStringLiteral("emoji"), QStringLiteral("coffee")},
+            {QStringLiteral("text"), QString()}
+        };
+        BackendUser ownUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("me")},
+            {QStringLiteral("props"), QJsonObject {
+                {QStringLiteral("customStatus"), emojiOnly}
+            }}
+        });
+        QCOMPARE(UserStatusEmoji::name(ownUser), QStringLiteral("coffee"));
+        QVERIFY(UserStatusEmoji::text(ownUser).isEmpty());
+
         BackendUser expired(profile(QDateTime::currentDateTimeUtc()
                                         .addSecs(-60).toString(Qt::ISODate)));
         QVERIFY(UserStatusEmoji::name(expired).isEmpty());
@@ -100,7 +114,16 @@ private slots:
         QVERIFY(customText);
         QVERIFY(customEmoji);
         QVERIFY(presence);
-        QVERIFY(!customRow->isHidden());
+        dialog.setModal(true);
+        dialog.show();
+        QCoreApplication::processEvents();
+        QVERIFY(customRow->isVisible());
+        QVERIFY(customEmoji->isVisible());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QVERIFY(!customEmoji->pixmap(Qt::ReturnByValue).isNull());
+#else
+        QVERIFY(customEmoji->pixmap() && !customEmoji->pixmap()->isNull());
+#endif
         QCOMPARE(customText->text(), QStringLiteral("<focus & work>"));
         QCOMPARE(customText->textFormat(), Qt::PlainText);
         QCOMPARE(presence->text(), QStringLiteral("away"));
@@ -111,8 +134,14 @@ private slots:
 
         user->props.customStatus.text.clear();
         emit user->onCustomStatusChanged();
-        QVERIFY(!customRow->isHidden()); // Emoji-only status remains visible.
+        QVERIFY(customRow->isVisible()); // Emoji-only status remains visible.
+        QVERIFY(customEmoji->isVisible());
         QVERIFY(customText->isHidden());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QVERIFY(!customEmoji->pixmap(Qt::ReturnByValue).isNull());
+#else
+        QVERIFY(customEmoji->pixmap() && !customEmoji->pixmap()->isNull());
+#endif
 
         user->props.customStatus = {};
         emit user->onCustomStatusChanged();
