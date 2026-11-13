@@ -36,6 +36,7 @@
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
+#include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
 #include "ui/UserStatusEmoji.h"
@@ -208,6 +209,18 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
     backendForSidebar = &backend;
     if (!customEmojiConnected_) {
         customEmojiConnected_ = true;
+        connect(&UserProfileService::instance(backend),
+                &UserProfileService::profileResolved, this,
+                [this](const QString& userId) {
+            if (!backendForSidebar) return;
+            BackendUser* user = backendForSidebar->getStorage().getUserById(userId);
+            if (!user || !backendForSidebar->getStorage()
+                                  .getDirectChannelByUserId(userId)) return;
+            connect(user, &BackendUser::onCustomStatusChanged,
+                    this, &ChannelTree::onDirectCustomStatusChanged,
+                    Qt::UniqueConnection);
+            updateDirectCustomStatus(*user);
+        });
         connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
                 this, [this](const QString& name) {
             if (!backendForSidebar) return;
@@ -531,6 +544,9 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     if (channel.type == BackendChannel::directChannel) {
         BackendUser* user = backend.getStorage().getUserById(channel.name);
         if (user) {
+            connect(user, &BackendUser::onCustomStatusChanged,
+                    this, &ChannelTree::onDirectCustomStatusChanged,
+                    Qt::UniqueConnection);
             item->setStatus(user->status);
             item->setData(0, SidebarItem::CustomStatusEmojiRole,
                           UserStatusEmoji::pixmap(backend.emojiRegistry(),
@@ -563,9 +579,6 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
                         }
                     }
                 });
-
-                connect(user, &BackendUser::onCustomStatusChanged,
-                        this, [this, user] { updateDirectCustomStatus(*user); });
 
                 connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
                     if (!backendForSidebar) {
@@ -603,6 +616,12 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     item->setUnread(sidebar.isChannelUnread(channel));
     item->setMentioned(sidebar.hasUnreadMention(channel.id));
     return item;
+}
+
+void ChannelTree::onDirectCustomStatusChanged()
+{
+    auto* user = qobject_cast<BackendUser*>(sender());
+    if (user) updateDirectCustomStatus(*user);
 }
 
 void ChannelTree::updateDirectCustomStatus(const BackendUser& user)
