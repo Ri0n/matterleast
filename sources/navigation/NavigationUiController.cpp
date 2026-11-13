@@ -1231,6 +1231,10 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
     }
     if (pendingHistoryThread
         && (!next.isChat() || next.channelId != pendingHistoryThread->channelId)) {
+        // Sidebar selections and collection switches are not necessarily
+        // initiated through AppNavigationService. Invalidate any in-flight
+        // MainWindow retry before it can reopen the previous history target.
+        window.beginSemanticNavigation();
         pendingHistoryThread.reset();
     }
 
