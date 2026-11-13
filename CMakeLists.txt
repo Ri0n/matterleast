@@ -49,6 +49,23 @@ endif()
 file(WRITE "${CMAKE_BINARY_DIR}/matterleast-version.txt" "${PROJECT_VERSION}\n")
 message(STATUS "MatterLeast version: ${PROJECT_VERSION}")
 
+# Use the distribution's native library directory, including Debian multiarch
+# (lib/<triplet>) and Fedora's lib64. Keep all install paths prefix-relative.
+include(GNUInstallDirs)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR
+        "${CMAKE_INSTALL_LIBDIR}/matterleast/plugins")
+    # Resolve relative to the installed executable, not a compiled-in /usr
+    # prefix, so AppImage and custom-prefix installations remain relocatable.
+    file(RELATIVE_PATH MATTERLEAST_NATIVE_PLUGIN_FROM_BINDIR
+        "${CMAKE_INSTALL_FULL_BINDIR}"
+        "${CMAKE_INSTALL_FULL_LIBDIR}/matterleast/plugins")
+else()
+    # Preserve the established Windows/macOS application-local plugin layout.
+    set(MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR
+        "${CMAKE_INSTALL_BINDIR}/plugins")
+endif()
+
 # Both system-version minimums and fetched-source SHAs come from one lock.
 include(cmake/MatterLeastDependencyLock.cmake)
 # QCA 3.1.0 is the single locked source on Windows, Linux and macOS.
@@ -485,6 +502,10 @@ else()
   endif()
   if(NOT MATTERLEAST_ENABLE_NATIVE_PLUGINS)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_NATIVE_PLUGINS_DISABLED)
+  endif()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(matterleast-core PRIVATE
+      "MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR=\"${MATTERLEAST_NATIVE_PLUGIN_FROM_BINDIR}\"")
   endif()
   if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE)
     target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_TRUSTED_PLUGINS_ONLY)
