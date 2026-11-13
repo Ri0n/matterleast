@@ -208,7 +208,7 @@ QStringList PluginManager::pluginSearchPaths() const
     // Resolve it relative to the executable so relocatable AppImages and
     // custom-prefix installations find exactly the same plugin layout.
     const QString systemPlugins = QDir::cleanPath(applicationDir.filePath(
-        QStringLiteral(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR)));
+        QString::fromLatin1(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR)));
     if (!paths.contains(systemPlugins)) {
         paths.push_back(systemPlugins);
     }
