@@ -138,10 +138,13 @@ void NavigationUiController::setupMainWindow()
         THREAD_SIDEBAR_FOLLOWS_CHANNEL, THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
     connect(contextualOption, &MLOptionObject::changed, this,
             [this](const QVariant& value) {
-        if (!value.toBool() || !mainStack || !navigationSurfaceStack
-            || navigationSurfaceStack->currentWidget() != mainStack) return;
-        if (auto* channelArea = qobject_cast<ChatArea*>(mainStack->currentWidget())) {
-            closeThreadDockIfDifferent(channelArea->getChannel().id);
+        if (!value.toBool() || !mainStack || !navigationSurfaceStack) return;
+        QWidget* current = navigationSurfaceStack->currentWidget();
+        ChatArea* active = current == mainStack
+            ? qobject_cast<ChatArea*>(mainStack->currentWidget())
+            : qobject_cast<ChatArea*>(current);
+        if (active) {
+            closeThreadDockIfDifferent(active->getChannel().id);
         }
     });
 
@@ -893,6 +896,9 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
     switchingTabs = true;
 
     if (!location.rootId.isEmpty()) {
+        // A thread-only tab is independent, but its right pane must still not
+        // show a docked thread from an unrelated channel in contextual mode.
+        closeThreadDockIfDifferent(location.channelId);
         ChatArea* area = findThread(location.channelId, location.rootId);
         Backend* sourceBackend = backend();
         BackendChannel* channel = sourceBackend
