@@ -126,11 +126,7 @@ private slots:
         QCoreApplication::processEvents();
         QVERIFY(customRow->isVisible());
         QVERIFY(customEmoji->isVisible());
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         QVERIFY(!customEmoji->pixmap(Qt::ReturnByValue).isNull());
-#else
-        QVERIFY(customEmoji->pixmap() && !customEmoji->pixmap()->isNull());
-#endif
         QCOMPARE(customText->text(), QStringLiteral("<focus & work>"));
         QCOMPARE(customText->textFormat(), Qt::PlainText);
         QCOMPARE(presence->text(), QStringLiteral("away"));
@@ -144,11 +140,7 @@ private slots:
         QVERIFY(customRow->isVisible()); // Emoji-only status remains visible.
         QVERIFY(customEmoji->isVisible());
         QVERIFY(customText->isHidden());
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         QVERIFY(!customEmoji->pixmap(Qt::ReturnByValue).isNull());
-#else
-        QVERIFY(customEmoji->pixmap() && !customEmoji->pixmap()->isNull());
-#endif
 
         // Opening a fresh profile while the saved status has only an emoji
         // must work too, not just updates to a dialog that showed text first.
@@ -162,11 +154,7 @@ private slots:
             QStringLiteral("customStatusEmoji"));
         QVERIFY(freshRow && freshRow->isVisible());
         QVERIFY(freshEmoji && freshEmoji->isVisible());
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         QVERIFY(!freshEmoji->pixmap(Qt::ReturnByValue).isNull());
-#else
-        QVERIFY(freshEmoji->pixmap() && !freshEmoji->pixmap()->isNull());
-#endif
 
         user->props.customStatus = {};
         emit user->onCustomStatusChanged();
