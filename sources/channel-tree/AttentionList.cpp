@@ -29,6 +29,8 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelIcons.h"
+#include "channel-tree/ChannelItemDelegate.h"
+#include "ui/UserStatusEmoji.h"
 #include "channel-tree/FollowingActivationPolicy.h"
 #include "channel-tree/FollowingNavigation.h"
 #include "channel-tree/FollowingPresentation.h"
@@ -58,6 +60,7 @@ AttentionList::AttentionList(QWidget* parent)
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setSelectionMode(QAbstractItemView::SingleSelection);
     setUniformRowHeights(true);
+    setItemDelegate(new ChannelItemDelegate(this));
     header()->setSectionResizeMode(0, QHeaderView::Stretch);
 
     selectionRefreshTimer_ = new QTimer(this);
@@ -89,6 +92,8 @@ void AttentionList::initialize(Backend& backend)
     backend_ = &backend;
     model_ = &FollowingModel::instance(backend);
     connect(model_, &FollowingModel::changed,
+            this, &AttentionList::refresh);
+    connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
             this, &AttentionList::refresh);
     refresh();
     model_->ensureThreadsFresh();
@@ -519,6 +524,14 @@ void AttentionList::refresh()
 
             if (channel->type == BackendChannel::directChannel) {
                 BackendUser* user = backend_->getStorage().getUserById(channel->name);
+                if (user) {
+                    item->setData(0, SidebarItem::CustomStatusEmojiRole,
+                                  UserStatusEmoji::pixmap(
+                                      backend_->emojiRegistry(), *user, 18, font()));
+                    item->setData(0, SidebarItem::PresenceRole, user->status);
+                    connect(user, &BackendUser::onCustomStatusChanged,
+                            this, &AttentionList::refresh, Qt::UniqueConnection);
+                }
                 if (!user) {
                     QPointer<AttentionList> guard(this);
                     UserProfileService::instance(*backend_).ensureUser(
