@@ -1940,9 +1940,62 @@ void NavigationUiController::selectContextualThreadTab(
         return;
     }
 
-    // Never replace an unrelated channel (pinned or not) or a thread-only
-    // tab. The new entry represents the parent; the caller docks the thread
-    // after the channel is selected, including async channel admission.
+    if (decision.route == ThreadParentTabRoute::ReuseUnpinned) {
+        const auto* entry = tabModel.at(decision.index);
+        if (!entry || entry->pinned) {
+            return;
+        }
+
+        if (entry->rootId.isEmpty()) {
+            // ChannelTree's existing recordArea() path already replaces the
+            // current unpinned channel tab. Activate a different reusable
+            // channel tab first, if needed, then let MainWindow open the
+            // requested parent channel normally.
+            if (decision.index != activeTabIndex) {
+                activateTab(decision.index);
+            }
+            return;
+        }
+
+        // An unpinned thread-only tab is reusable too. Its central ChatArea
+        // must be retired before changing the semantic tab entry; otherwise
+        // activateTab() would see the *new* channel identity and leave the
+        // old thread view alive in navigationSurfaceStack.
+        if (decision.index == activeTabIndex) {
+            saveActiveTabLocation();
+        }
+        const QString oldChannelId = entry->channelId;
+        const QString oldRootId = entry->rootId;
+        if (ChatArea* old = findThread(oldChannelId, oldRootId);
+            old && old->property("threadTabbed").toBool()) {
+            old->onDeactivate();
+            old->hide();
+            if (navigationSurfaceStack
+                && navigationSurfaceStack->indexOf(old) >= 0) {
+                navigationSurfaceStack->removeWidget(old);
+            }
+            old->setProperty("threadTabbed", false);
+            if (activeArea == old) {
+                activeArea = nullptr;
+            }
+            old->close();
+        }
+
+        Location parent;
+        parent.channelId = channelId;
+        updateTab(decision.index, parent);
+        if (decision.index == activeTabIndex) {
+            // Force a fresh channel presentation after replacing the current
+            // thread-only entry, without snapshotting its retired view again.
+            activeTabIndex = -1;
+        }
+        activateTab(decision.index);
+        scheduleSessionSave();
+        return;
+    }
+
+    // All existing tabs are pinned: preserve them and create a separate tab
+    // for the thread's parent channel. Explicit thread-only tabs bypass this.
     Location parent;
     parent.channelId = channelId;
     const int index = appendNavigationTab(parent, true);
