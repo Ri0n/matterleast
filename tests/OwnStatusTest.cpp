@@ -3,6 +3,8 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
+#include <QWidget>
 #include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -16,6 +18,7 @@
 #include "ui/EmojiPresentation.h"
 #include "ui/UserStatusEmoji.h"
 #include "backend/types/BackendUser.h"
+#include "info-dialogs/UserProfileDialog.h"
 
 using namespace Mattermost;
 
@@ -71,6 +74,50 @@ private slots:
         active.updateFrom(expired, details);
         QCOMPARE(changed.count(), 1);
         QVERIFY(UserStatusEmoji::name(active).isEmpty());
+    }
+
+    void profileDisplaysCustomStatusAndTracksEdits()
+    {
+        Backend backend;
+        BackendUser* user = backend.getStorage().addUser(
+            QJsonObject {{QStringLiteral("id"), QStringLiteral("profile-user")},
+                         {QStringLiteral("username"), QStringLiteral("test-user")}});
+        QVERIFY(user);
+        // Prevent unrelated avatar HTTP work from the profile dialog.
+        user->avatar = QPixmap(16, 16);
+        user->avatar.fill(Qt::red);
+        user->avatar_picture_update = user->last_picture_update;
+        user->status = QStringLiteral("away");
+        user->props.customStatus.emoji = QStringLiteral("coffee");
+        user->props.customStatus.text = QStringLiteral("<focus & work>");
+
+        UserProfileDialog dialog(backend, *user);
+        auto* customRow = dialog.findChild<QWidget*>(QStringLiteral("customStatusRow"));
+        auto* customText = dialog.findChild<QLabel*>(QStringLiteral("customStatusText"));
+        auto* customEmoji = dialog.findChild<QLabel*>(QStringLiteral("customStatusEmoji"));
+        auto* presence = dialog.findChild<QLabel*>(QStringLiteral("statusValue"));
+        QVERIFY(customRow);
+        QVERIFY(customText);
+        QVERIFY(customEmoji);
+        QVERIFY(presence);
+        QVERIFY(!customRow->isHidden());
+        QCOMPARE(customText->text(), QStringLiteral("<focus & work>"));
+        QCOMPARE(customText->textFormat(), Qt::PlainText);
+        QCOMPARE(presence->text(), QStringLiteral("away"));
+
+        user->props.customStatus.text = QStringLiteral("Meeting");
+        emit user->onCustomStatusChanged();
+        QCOMPARE(customText->text(), QStringLiteral("Meeting"));
+
+        user->props.customStatus.text.clear();
+        emit user->onCustomStatusChanged();
+        QVERIFY(!customRow->isHidden()); // Emoji-only status remains visible.
+        QVERIFY(customText->isHidden());
+
+        user->props.customStatus = {};
+        emit user->onCustomStatusChanged();
+        QVERIFY(customRow->isHidden());
+        QCOMPARE(presence->text(), QStringLiteral("away"));
     }
 
     void emojiOnlyStatusHasTripleSize()
