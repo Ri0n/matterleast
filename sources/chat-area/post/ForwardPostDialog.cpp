@@ -220,9 +220,9 @@ void ForwardPostDialog::showEvent(QShowEvent* event)
 
 void ForwardPostDialog::populateDestinations()
 {
-    // The local channel directory contains established/joined conversations.
-    // Never scan channel histories or introduce private channels from search
-    // results: the original client's privacy restriction is enforced below.
+    // Keep a stable row order for this dialog's lifetime. Unknown DM names go
+    // after already-readable rows; when a profile resolves, only that item's
+    // text changes, never its position or the selection/scroll offset.
     const Storage& storage = backend_.getStorage();
     QVector<Destination> rows;
     rows.reserve(storage.channels.size());
@@ -237,14 +237,28 @@ void ForwardPostDialog::populateDestinations()
             && channel->type != BackendChannel::groupChannel) {
             continue;
         }
+
         Destination dest;
         dest.id = channel->id;
-        dest.label = channelLabel(*channel);
-        dest.search = dest.label + QLatin1Char(' ') + channel->name;
+        dest.label = labelForChannel(*channel, storage);
+        if (channel->type == BackendChannel::directChannel) {
+            dest.userId = channel->name;
+            const BackendUser* user = storage.getUserById(dest.userId);
+            dest.unresolved = !user;
+            if (user) {
+                dest.search = user->username;
+            }
+        }
+        dest.search += QLatin1Char(' ') + dest.label
+            + QLatin1Char(' ') + channel->name;
         rows.push_back(std::move(dest));
     }
+
     std::sort(rows.begin(), rows.end(),
               [](const Destination& a, const Destination& b) {
+        if (a.unresolved != b.unresolved) {
+            return !a.unresolved;
+        }
         const int cmp = QString::localeAwareCompare(a.label, b.label);
         return cmp < 0 || (cmp == 0 && a.id < b.id);
     });
@@ -253,6 +267,10 @@ void ForwardPostDialog::populateDestinations()
         auto* item = new QListWidgetItem(row.label, destinations_);
         item->setData(Qt::UserRole, row.id);
         item->setData(Qt::UserRole + 1, row.search);
+        if (!row.userId.isEmpty()) {
+            item->setData(UserIdRole, row.userId);
+            directRows_.insert(row.userId, item);
+        }
     }
     if (destinations_->count()) {
         destinations_->setCurrentRow(0);
