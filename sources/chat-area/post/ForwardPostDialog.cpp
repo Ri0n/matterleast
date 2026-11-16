@@ -68,6 +68,7 @@ ForwardPostDialog::ForwardPostDialog(
 {
     setObjectName(QStringLiteral("forwardPostDialog"));
     setWindowTitle(tr("Forward message"));
+    setWindowModality(Qt::WindowModal);
     setAttribute(Qt::WA_DeleteOnClose);
     resize(540, 520);
 
