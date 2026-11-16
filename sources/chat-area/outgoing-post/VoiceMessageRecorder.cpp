@@ -43,13 +43,15 @@ RecordingFormat selectFormat()
         Codec codec;
         const char* extension;
     };
-    // Opus is preferred when the current backend really supports encoding.
-    // AAC/M4A and MP3 work on systems without an Opus encoder; no WAV fallback.
+    // AAC/M4A and MP3 decode on more Qt 5/6 Windows and Linux backends
+    // than Ogg/Opus; Qt FFmpeg can also require an experimental flag to
+    // enable the Opus encoder. Prefer interoperable audio, not a format
+    // chosen solely because the local platform can record it.
     const Candidate candidates[] = {
-        {QMediaFormat::Ogg, Codec::Opus, "ogg"},
-        {QMediaFormat::Ogg, Codec::Vorbis, "ogg"},
         {QMediaFormat::Mpeg4Audio, Codec::AAC, "m4a"},
         {QMediaFormat::MP3, Codec::MP3, "mp3"},
+        {QMediaFormat::Ogg, Codec::Opus, "ogg"},
+        {QMediaFormat::Ogg, Codec::Vorbis, "ogg"},
     };
     for (const Candidate& candidate : candidates) {
         QMediaFormat format(candidate.container);
@@ -77,13 +79,9 @@ RecordingFormat selectFormat(QAudioRecorder& recorder)
         const char* extension;
     };
     const Candidate candidates[] = {
-        {"ogg", "opus", "ogg"},
-        {"ogg", "vorbis", "ogg"},
         {"mp4", "aac", "m4a"},
         {"m4a", "aac", "m4a"},
         {"quicktime", "aac", "m4a"},
-        // The generic "audio/mpeg" codec can mean MP3. Only mark MPEG-4
-        // audio as .m4a when its codec description identifies version 4.
         {"mp4", "mpegversion=4", "m4a"},
         {"m4a", "mpegversion=4", "m4a"},
         {"quicktime", "mpegversion=4", "m4a"},
@@ -93,6 +91,8 @@ RecordingFormat selectFormat(QAudioRecorder& recorder)
         {"mpeg", "mp3", "mp3"},
         {"mp3", "mp3", "mp3"},
         {"mpeg", "layer 3", "mp3"},
+        {"ogg", "opus", "ogg"},
+        {"ogg", "vorbis", "ogg"},
     };
     for (const Candidate& candidate : candidates) {
         for (const QString& container : containers) {
