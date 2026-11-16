@@ -1,12 +1,23 @@
 #include <QtTest>
 
 #include <QJsonObject>
+#include <QFile>
+#include <QFileInfo>
+#include <QLayout>
+#include <QTemporaryDir>
 #include <QListWidget>
 #include <QToolButton>
 
+#include "build-config.h"
 #include "backend/Backend.h"
 #include "backend/types/BackendFile.h"
 #include "chat-area/post/attachments/PostAttachmentList.h"
+#include "chat-area/post/attachments/AttachmentSaveFile.h"
+#if BUILD_MULTIMEDIA
+#include "chat-area/post/attachments/AttachedVideoFile.h"
+#include <QMediaPlayer>
+#include <QPointer>
+#endif
 
 using namespace Mattermost;
 
@@ -60,6 +71,164 @@ private slots:
         QVERIFY(list->item(3)->isHidden());
         QCOMPARE(list->sizeHint().height(), foldedHeight);
     }
+
+#if BUILD_MULTIMEDIA
+    void savingAlreadyCachedMediaAvoidsNetwork()
+    {
+        Backend backend;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString cached = directory.filePath(QStringLiteral("cached.mp4"));
+        const QString destination = directory.filePath(QStringLiteral("saved.mp4"));
+        const QByteArray payload("local media bytes from cache");
+        QFile source(cached);
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        QCOMPARE(source.write(payload), payload.size());
+        source.close();
+
+        // The nonexistent remote ID must never be requested. Both the
+        // thumbnail and the full original belong to the application cache.
+        AttachmentSaveFile::saveToPath(
+            backend, QStringLiteral("not-on-the-server"), destination,
+            nullptr, cached);
+        QTRY_VERIFY(QFileInfo::exists(destination));
+        QFile saved(destination);
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), payload);
+    }
+
+    void inlineVideoResizesAttachmentListAndDestroysWithoutCallbacks()
+    {
+        Backend backend;
+        auto* attachments = new PostAttachmentList(backend);
+        QJsonObject video {
+            {QStringLiteral("id"), QStringLiteral("inline-video")},
+            {QStringLiteral("name"), QStringLiteral("inline.mp4")},
+            {QStringLiteral("mime_type"), QStringLiteral("video/mp4")},
+            {QStringLiteral("size"), 4096},
+        };
+        attachments->setFiles({BackendFile(video)}, QStringLiteral("Test"));
+        auto* list = attachments->findChild<QListWidget*>();
+        auto* card = attachments->findChild<AttachedVideoFile*>();
+        QVERIFY(list && card);
+        const int originalRowHeight = list->item(0)->sizeHint().height();
+        const int originalListHeight = list->height();
+        const int originalPostHeight = attachments->sizeHint().height();
+        QSignalSpy resized(attachments, &PostAttachmentList::dimensionsChanged);
+
+        auto* launch = card->findChild<QToolButton*>(
+            QStringLiteral("attachmentMediaLaunch"));
+        QVERIFY(launch);
+        launch->click();
+        QPointer<QWidget> player = card->findChild<QWidget*>(
+            QStringLiteral("qite-video-player"));
+        QVERIFY(player);
+        QVERIFY(list->item(0)->sizeHint().height() > originalRowHeight);
+        QVERIFY(list->height() > originalListHeight);
+        QVERIFY(attachments->sizeHint().height() > originalPostHeight);
+        QVERIFY(resized.count() > 0);
+
+        // An inline player dies with its post. No destroyed() callback can
+        // touch the already-destroyed button from QWidget's child teardown.
+        delete attachments;
+        QVERIFY(player.isNull());
+    }
+
+    void detachedMediaPlayerSurvivesOriginalAttachmentDestruction()
+    {
+        Backend backend;
+        auto* attachments = new PostAttachmentList(backend);
+        QJsonObject video {
+            {QStringLiteral("id"), QStringLiteral("test-video")},
+            {QStringLiteral("name"), QStringLiteral("test.mp4")},
+            {QStringLiteral("mime_type"), QStringLiteral("video/mp4")},
+            {QStringLiteral("size"), 4096},
+        };
+        attachments->setFiles({BackendFile(video)}, QStringLiteral("Test"));
+        auto* card = attachments->findChild<AttachedVideoFile*>();
+        auto* list = attachments->findChild<QListWidget*>();
+        QVERIFY(card);
+        QVERIFY(list);
+
+        auto* launch = card->findChild<QToolButton*>(
+            QStringLiteral("attachmentMediaLaunch"));
+        QVERIFY(launch);
+        launch->click();
+
+        QPointer<QWidget> player = card->findChild<QWidget*>(
+            QStringLiteral("qite-video-player"));
+        QVERIFY(player);
+        QVERIFY(!player->testAttribute(Qt::WA_NativeWindow));
+        QVERIFY(player->findChild<QWidget*>(
+            QStringLiteral("qite-video-frame")));
+
+        auto* popout = player->findChild<QToolButton*>(
+            QStringLiteral("qite-video-window-button"));
+        auto* fullscreen = player->findChild<QToolButton*>(
+            QStringLiteral("qite-video-fullscreen-button"));
+        QVERIFY(popout);
+        QVERIFY(fullscreen);
+        QVERIFY(!popout->isHidden()); // createPlayer() without host handler
+        QVERIFY(!fullscreen->isHidden());
+        popout->click();
+        QVERIFY(player);
+        QWidget* floating = player->window();
+        QVERIFY(floating);
+        QVERIFY(floating != attachments->window());
+        QVERIFY(floating->isWindow());
+        QCoreApplication::processEvents();
+        const int floatingRowHeight = list->item(0)->sizeHint().height();
+
+        // Returning to an existing message must put the *same* player back
+        // under its QVBoxLayout. Merely changing QWidget::parent is insufficient.
+        popout->click();
+        QTRY_COMPARE(player->parentWidget(), static_cast<QWidget*>(card));
+        QVERIFY(card->layout()->indexOf(player) >= 0);
+        QVERIFY(list->item(0)->sizeHint().height() > floatingRowHeight);
+        popout->click();
+        QTRY_VERIFY(player->window() != attachments->window());
+        floating = player->window();
+
+        // The QListWidget/ChatArea may discard the original post. The popup
+        // must now be the owner and keep the same player alive.
+        delete attachments;
+        QVERIFY(player);
+        QCOMPARE(player->window(), floating);
+        floating->close();
+        QTRY_VERIFY(player.isNull());
+    }
+
+    void videoAndAudioPreviewsStayLazyAndNonNative()
+    {
+        Backend backend;
+        PostAttachmentList attachments(backend);
+        std::list<BackendFile> media;
+        for (const auto& spec : {
+                 QPair<QString, QString>{QStringLiteral("sample.mp4"), QStringLiteral("video/mp4")},
+                 QPair<QString, QString>{QStringLiteral("voice.ogg"), QStringLiteral("audio/ogg")}}) {
+            QJsonObject json {
+                {QStringLiteral("id"), spec.first},
+                {QStringLiteral("name"), spec.first},
+                {QStringLiteral("mime_type"), spec.second},
+                {QStringLiteral("size"), 4096},
+            };
+            media.emplace_back(json);
+        }
+        attachments.setFiles(media, QStringLiteral("Test"));
+
+        const auto cards = attachments.findChildren<AttachedVideoFile*>();
+        QCOMPARE(cards.size(), 2);
+        for (auto* card : cards) {
+            QVERIFY(!card->isWindow());
+            QVERIFY(!card->testAttribute(Qt::WA_NativeWindow));
+            QVERIFY(card->findChildren<QMediaPlayer*>().isEmpty());
+            QVERIFY(!card->findChild<QWidget*>(
+                QStringLiteral("qite-video-frame")));
+            QVERIFY(card->findChild<QToolButton*>(
+                QStringLiteral("attachmentMediaLaunch")));
+        }
+    }
+#endif
 
     void threeFilesKeepExistingCards()
     {

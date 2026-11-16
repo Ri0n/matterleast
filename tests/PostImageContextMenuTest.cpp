@@ -3,6 +3,9 @@
 #include <QAbstractTextDocumentLayout>
 #include <QBuffer>
 #include <QClipboard>
+#include <QFile>
+#include <QFileInfo>
+#include <QTemporaryDir>
 #include <QJsonArray>
 #include <QLabel>
 #include <QMenu>
@@ -14,12 +17,18 @@
 #include <QTextFragment>
 #include <QTextImageFormat>
 
+#include "build-config.h"
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/post/PostWidget.h"
 #include "chat-area/post/attachments/AttachedImageFile.h"
+#include "chat-area/post/attachments/AttachmentSaveFile.h"
+#if BUILD_MULTIMEDIA
+#include "chat-area/post/attachments/AttachedVideoFile.h"
+#include <QToolButton>
+#endif
 #include "preview-window/FilePreview.h"
 
 using namespace Mattermost;
@@ -198,6 +207,22 @@ private slots:
         QApplication::clipboard()->clear();
     }
 
+    void imageSaveUsesSharedAuthenticatedStreamingPath()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString destination = directory.filePath(
+            QStringLiteral("saved-original.png"));
+        AttachmentSaveFile::saveToPath(
+            *_backend, FileId, destination);
+        QTRY_VERIFY(QFileInfo::exists(destination));
+        QFile file(destination);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QImage original = QImage::fromData(file.readAll());
+        QCOMPARE(original.size(), OriginalSize);
+        QCOMPARE(original.pixelColor(1, 1), QColor(Qt::red));
+    }
+
     void attachedImageOffersCopyOfOriginal()
     {
         BackendPost post = makePost(_backend->getStorage(), QStringLiteral("Look at this mug"));
@@ -229,6 +254,50 @@ private slots:
             QVERIFY(!qobject_cast<FilePreview*>(topLevel));
         }
     }
+
+#if BUILD_MULTIMEDIA
+    void videoContextMenuUsesPostAttachmentSaveAction()
+    {
+        BackendPost post = makePost(
+            _backend->getStorage(), QStringLiteral("Attached video"));
+        post.files.clear();
+        post.files.emplace_back(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("test-video-id")},
+            {QStringLiteral("name"), QStringLiteral("video.mp4")},
+            {QStringLiteral("mime_type"), QStringLiteral("video/mp4")},
+            {QStringLiteral("size"), 4096},
+        });
+        PostWidget widget(*_backend, post, nullptr, nullptr, nullptr);
+        widget.resize(900, 850);
+        widget.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&widget));
+
+        auto* media = widget.findChild<AttachedVideoFile*>();
+        QVERIFY(media);
+        auto* launch = media->findChild<QToolButton*>(
+            QStringLiteral("attachmentMediaLaunch"));
+        QVERIFY(launch);
+        QTRY_VERIFY(launch->isVisible());
+
+        // The app-global router sends the child's context menu event to
+        // PostWidget; the action must appear there, not only on the qite frame.
+        const QStringList actions =
+            rightClickMenu(widget, launch, launch->rect().center());
+        QVERIFY2(actions.contains(QStringLiteral("Save attachment as…")),
+                 qPrintable(actions.join(QStringLiteral(", "))));
+        QVERIFY(actions.contains(QStringLiteral("Copy post message")));
+
+        launch->click();
+        auto* frame = media->findChild<QWidget*>(
+            QStringLiteral("qite-video-frame"));
+        QVERIFY(frame);
+        QTRY_VERIFY(frame->isVisible());
+        const QStringList playingActions =
+            rightClickMenu(widget, frame, frame->rect().center());
+        QVERIFY2(playingActions.contains(QStringLiteral("Save attachment as…")),
+                 qPrintable(playingActions.join(QStringLiteral(", "))));
+    }
+#endif
 
     void messageTextDoesNotOfferCopyImage()
     {

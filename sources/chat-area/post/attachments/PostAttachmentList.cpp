@@ -44,6 +44,29 @@ namespace Mattermost {
 
 namespace {
 
+#if BUILD_MULTIMEDIA
+enum class MediaKind { None, Video, Audio };
+
+MediaKind mediaKind(const BackendFile& file)
+{
+    if (file.mimeType.startsWith(QLatin1String("audio/"), Qt::CaseInsensitive)) {
+        return MediaKind::Audio;
+    }
+    if (file.mimeType.startsWith(QLatin1String("video/"), Qt::CaseInsensitive)) {
+        return MediaKind::Video;
+    }
+    const QString name = file.name.toLower();
+    for (const auto* extension : {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}) {
+        if (name.endsWith(QLatin1String(extension))) return MediaKind::Video;
+    }
+    for (const auto* extension : {".mp3", ".m4a", ".wav", ".flac",
+                                  ".ogg", ".oga", ".opus", ".aac"}) {
+        if (name.endsWith(QLatin1String(extension))) return MediaKind::Audio;
+    }
+    return MediaKind::None;
+}
+#endif
+
 // Reuse the link-coloured Show more/less interaction used for quotes, without
 // introducing a second widget with a stylesheet that breaks palette themes.
 class AttachmentExpandLink final : public QToolButton
@@ -150,9 +173,16 @@ void PostAttachmentList::setFiles(
             fileWidget = new CompactAttachmentRow(backend, *file, this);
         } else {
 #if BUILD_MULTIMEDIA
-            if (file->name.endsWith(".mp4", Qt::CaseInsensitive)
-                || file->name.endsWith(".mov", Qt::CaseInsensitive)) {
-                fileWidget = new AttachedVideoFile(backend, *file, this);
+            if (const MediaKind kind = mediaKind(*file);
+                kind != MediaKind::None) {
+                auto* mediaWidget = new AttachedVideoFile(
+                    backend, *file, kind == MediaKind::Audio, this);
+                fileWidget = mediaWidget;
+                connect(mediaWidget, &AttachedVideoFile::dimensionsChanged,
+                        this, [this] {
+                    refreshItemSizeHints();
+                    updateDimensions();
+                });
             } else
 #endif
             if (!file->mimeType.startsWith("image")) {
@@ -260,6 +290,7 @@ void PostAttachmentList::refreshItemSizeHints()
 {
     const int availableWidth = std::max(1, ui->listWidget->viewport()->width()
                                              - 2 * ui->listWidget->spacing());
+    bool changed = false;
     for (int i = 0; i < ui->listWidget->count(); ++i) {
         QListWidgetItem* item = ui->listWidget->item(i);
         QWidget* widget = item ? ui->listWidget->itemWidget(item) : nullptr;
@@ -284,13 +315,35 @@ void PostAttachmentList::refreshItemSizeHints()
                 height = widget->sizeHint().height();
             }
             size = QSize(availableWidth, std::max(height, widget->minimumHeight()));
-        } else {
+        }
+#if BUILD_MULTIMEDIA
+        else if (auto* media = qobject_cast<AttachedVideoFile*>(widget)) {
+            // Match the decoded video aspect ratio, subject to the actual
+            // viewport width and enough room for its transport controls.
+            // This also handles resizing an already-playing chat without
+            // bouncing through delayed size-fixup timers.
+            media->setAvailableWidth(availableWidth);
+            if (QLayout* content = widget->layout()) {
+                content->activate();
+            }
+            const QSize hint =
+                widget->sizeHint().expandedTo(widget->minimumSizeHint());
+            size = QSize(std::min(availableWidth, hint.width()), hint.height());
+        }
+#endif
+        else {
             widget->adjustSize();
             size = widget->sizeHint().expandedTo(widget->minimumSizeHint());
         }
         if (item->sizeHint() != size) {
             item->setSizeHint(size);
+            changed = true;
         }
+    }
+    if (changed) {
+        // Update QListView row geometry before notifying the enclosing
+        // PostWidget; it must observe the newly expanded player row.
+        ui->listWidget->doItemsLayout();
     }
 }
 

@@ -71,6 +71,10 @@
 #include "ThreadSummaryWidget.h"
 #include "UserMentionLinkifier.h"
 #include "attachments/AttachedImageFile.h"
+#include "build-config.h"
+#if BUILD_MULTIMEDIA
+#include "attachments/AttachedVideoFile.h"
+#endif
 #include "attachments/AttachmentBatchSave.h"
 #include "attachments/PostAttachmentList.h"
 #include "attachments/PostPoll.h"
@@ -1196,11 +1200,19 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     // image targets are resolved from the original click point.
     QWidget* hit = childAt(mapFromGlobal(globalPos));
     AttachedImageFile* attachedImage = nullptr;
+#if BUILD_MULTIMEDIA
+    AttachedVideoFile* attachedMedia = nullptr;
+#endif
     for (QWidget* current = hit; current && current != this;
          current = current->parentWidget()) {
         if ((attachedImage = qobject_cast<AttachedImageFile*>(current))) {
             break;
         }
+#if BUILD_MULTIMEDIA
+        if ((attachedMedia = qobject_cast<AttachedVideoFile*>(current))) {
+            break;
+        }
+#endif
     }
     const MessageContentWidget::InlineImage inlineImage =
         !attachedImage && messageContent && hit && messageContent->isAncestorOf(hit)
@@ -1222,7 +1234,17 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
             }
         });
         menu.addSeparator();
-    } else if (!inlineImage.isNull()) {
+    }
+#if BUILD_MULTIMEDIA
+    else if (attachedMedia) {
+        QPointer<AttachedVideoFile> target(attachedMedia);
+        menu.addAction(tr("Save attachment as…"), this, [target] {
+            if (target) target->saveAttachmentAs();
+        });
+        menu.addSeparator();
+    }
+#endif
+    else if (!inlineImage.isNull()) {
         menu.addAction(icon(QStringLiteral(":/icons/copy")), tr("Copy image"),
                        this, [this, inlineImage] {
             AttachedImageFile::copyFileImageToClipboard(

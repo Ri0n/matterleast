@@ -1,34 +1,15 @@
-/**
- * Copyright 2021, 2022 Lyubomir Filipov
- *
- * This file is part of Mattermost-QT.
- *
- * Mattermost-QT is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation; either version 3 of the License, or
- * (at your option) any later version.
- *
- * Mattermost-QT is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
- */
-
 #pragma once
 
 #include "build-config.h"
 
 #if BUILD_MULTIMEDIA
 
-#include <QMediaPlayer>
-#include <QString>
-#include <QVideoWidget>
+#include <QPointer>
+#include <QUrl>
 #include <QWidget>
 
-class QBuffer;
+class QEvent;
+class QToolButton;
 
 namespace Ui {
 class AttachedVideoFile;
@@ -39,26 +20,45 @@ namespace Mattermost {
 class Backend;
 class BackendFile;
 
-class AttachedVideoFile : public QWidget
+// Lazily creates qite's raster media player. A floating player is reparented
+// into its own window and stays alive even if the owning message is destroyed.
+class AttachedVideoFile final : public QWidget
 {
     Q_OBJECT
+public:
+    explicit AttachedVideoFile(Backend& backend, const BackendFile& file,
+                               bool audio, QWidget* parent = nullptr);
+    ~AttachedVideoFile() override;
 
-public:
-    explicit AttachedVideoFile (Backend& backend, const BackendFile& file, QWidget *parent = nullptr);
-    ~AttachedVideoFile();
-public:
-    void mousePressEvent(QMouseEvent *event) override;
+    // Called by the attachment list before measuring a QListWidgetItem.
+    // Does not emit dimensionsChanged: the caller owns the layout pass.
+    void setAvailableWidth(int width);
+    // Shared save action for both the post context menu and detached player.
+    void saveAttachmentAs();
+
+signals:
+    void dimensionsChanged();
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    Ui::AttachedVideoFile* ui;
-    Backend& backend;
-    QMediaPlayer* mediaPlayer;
-    QVideoWidget* videoWidget;
-    QBuffer* mediaStream = nullptr;
-    QString fileId;
-    bool init;
+    void openMedia();
+    void syncPresentation();
+    void updateInlinePlayerSize();
+
+    Backend& _backend;
+    QString _fileId;
+    QString _fileName;
+    QUrl _source;
+    bool _audio = false;
+    QSize _videoSize;
+    int _availableWidth = 560;
+    Ui::AttachedVideoFile* _ui = nullptr;
+    QToolButton* _launch = nullptr;
+    QPointer<QWidget> _player;
 };
 
-} /* namespace Mattermost */
+} // namespace Mattermost
 
-#endif //BUILD_MULTIMEDIA
+#endif // BUILD_MULTIMEDIA
