@@ -38,6 +38,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QMimeData>
 #include <QPalette>
 #include <QPainter>
@@ -52,6 +53,10 @@
 
 #include "NewPollDialog.h"
 #include "OutgoingAttachmentList.h"
+#ifdef MATTERLEAST_VOICE_RECORDING
+#include "VoiceMessageRecorder.h"
+#include "VoiceRecordingPolicy.h"
+#endif
 #include "backend/Backend.h"
 #include "backend/AttachmentUploadService.h"
 #include "backend/DraftService.h"
@@ -409,8 +414,44 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 	addEmojiButton = &addEmojiButtonInstance;
     addEmojiButton->installEventFilter(this);
 	sendButton = &sendButtonInstance;
+#ifdef MATTERLEAST_VOICE_RECORDING
+    sendButton->installEventFilter(this);
+    if (!voiceRecorder_) {
+        voiceRecorder_ = new VoiceMessageRecorder(this);
+        connect(voiceRecorder_, &VoiceMessageRecorder::elapsedChanged,
+                this, [this](qint64 elapsedMs) {
+            if (voiceRecorder_->active()) {
+                setPlaceholderText(tr("🔴 %1 · Release to send · Drag away to cancel")
+                    .arg(VoiceRecordingPolicy::elapsedLabel(elapsedMs)));
+            }
+        });
+        connect(voiceRecorder_, &VoiceMessageRecorder::completed,
+                this, [this](const QString& path, const QString& error) {
+            voicePointerHeld_ = false;
+            setPlaceholderText(voiceOriginalPlaceholder_);
+            setReadOnly(false);
+            updateSendButtonState();
+            if (!error.isEmpty()) {
+                showVoiceRecordingError(error);
+                return;
+            }
+            if (path.isEmpty()) {
+                return; // Cancelled recording.
+            }
+            QStringList files {path};
+            createAttachmentList(files);
+            sendPostButtonAction();
+        });
+    }
+#endif
 
 	connect(this, &MessageTextEditWidget::escapePressed, this, [this] {
+#ifdef MATTERLEAST_VOICE_RECORDING
+        if (voiceRecorder_ && voiceRecorder_->active()) {
+            finishVoiceRecording(false);
+            return;
+        }
+#endif
 		if (outgoingPostData) {
 			return;
 		}
@@ -460,6 +501,11 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 
 OutgoingPostCreator::~OutgoingPostCreator()
 {
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (voiceRecorder_ && voiceRecorder_->active()) {
+        voiceRecorder_->finish(false);
+    }
+#endif
     destroyRankedEmojiPopup();
     releaseComposerAttachmentUploads();
     flushPersistentDraft();
@@ -594,6 +640,11 @@ static QString getStringInsideQuotes(const QString& str, int& nextPos)
 
 void OutgoingPostCreator::sendPostButtonAction()
 {
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (voiceRecorder_ && (voiceRecorder_->active() || voiceRecorder_->finishing())) {
+        return;
+    }
+#endif
 	if (outgoingPostData) {
 		if (!sendFailed) {
 			qCInfo(lcUploadTrace)
@@ -1166,6 +1217,12 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
                     if (backend) {
                         AttachmentUploadService::instance(*backend).release(itemId);
                     }
+#ifdef MATTERLEAST_VOICE_RECORDING
+                    // Only our recorder's own files are disposable.
+                    if (VoiceMessageRecorder::isOwnedVoiceFile(path)) {
+                        QFile::remove(path);
+                    }
+#endif
                     schedulePersistentDraftSave();
                     updateSendButtonState();
                     emit previewAttachmentsChanged();
