@@ -290,6 +290,7 @@ void PostAttachmentList::refreshItemSizeHints()
 {
     const int availableWidth = std::max(1, ui->listWidget->viewport()->width()
                                              - 2 * ui->listWidget->spacing());
+    bool changed = false;
     for (int i = 0; i < ui->listWidget->count(); ++i) {
         QListWidgetItem* item = ui->listWidget->item(i);
         QWidget* widget = item ? ui->listWidget->itemWidget(item) : nullptr;
@@ -314,13 +315,33 @@ void PostAttachmentList::refreshItemSizeHints()
                 height = widget->sizeHint().height();
             }
             size = QSize(availableWidth, std::max(height, widget->minimumHeight()));
-        } else {
+        }
+#if BUILD_MULTIMEDIA
+        else if (qobject_cast<AttachedVideoFile*>(widget)) {
+            // qite's live player changes the card's intrinsic height. Ask the
+            // card layout for its current hint, not the old QListWidget viewport
+            // geometry, before the outer post is measured.
+            if (QLayout* content = widget->layout()) {
+                content->activate();
+            }
+            const QSize hint =
+                widget->sizeHint().expandedTo(widget->minimumSizeHint());
+            size = QSize(availableWidth, hint.height());
+        }
+#endif
+        else {
             widget->adjustSize();
             size = widget->sizeHint().expandedTo(widget->minimumSizeHint());
         }
         if (item->sizeHint() != size) {
             item->setSizeHint(size);
+            changed = true;
         }
+    }
+    if (changed) {
+        // Update QListView row geometry before notifying the enclosing
+        // PostWidget; it must observe the newly expanded player row.
+        ui->listWidget->doItemsLayout();
     }
 }
 
