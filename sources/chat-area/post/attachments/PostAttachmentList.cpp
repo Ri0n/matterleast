@@ -44,6 +44,29 @@ namespace Mattermost {
 
 namespace {
 
+#if BUILD_MULTIMEDIA
+enum class MediaKind { None, Video, Audio };
+
+MediaKind mediaKind(const BackendFile& file)
+{
+    if (file.mimeType.startsWith(QLatin1String("audio/"), Qt::CaseInsensitive)) {
+        return MediaKind::Audio;
+    }
+    if (file.mimeType.startsWith(QLatin1String("video/"), Qt::CaseInsensitive)) {
+        return MediaKind::Video;
+    }
+    const QString name = file.name.toLower();
+    for (const auto* extension : {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}) {
+        if (name.endsWith(QLatin1String(extension))) return MediaKind::Video;
+    }
+    for (const auto* extension : {".mp3", ".m4a", ".wav", ".flac",
+                                  ".ogg", ".oga", ".opus", ".aac"}) {
+        if (name.endsWith(QLatin1String(extension))) return MediaKind::Audio;
+    }
+    return MediaKind::None;
+}
+#endif
+
 // Reuse the link-coloured Show more/less interaction used for quotes, without
 // introducing a second widget with a stylesheet that breaks palette themes.
 class AttachmentExpandLink final : public QToolButton
@@ -150,9 +173,16 @@ void PostAttachmentList::setFiles(
             fileWidget = new CompactAttachmentRow(backend, *file, this);
         } else {
 #if BUILD_MULTIMEDIA
-            if (file->name.endsWith(".mp4", Qt::CaseInsensitive)
-                || file->name.endsWith(".mov", Qt::CaseInsensitive)) {
-                fileWidget = new AttachedVideoFile(backend, *file, this);
+            if (const MediaKind kind = mediaKind(*file);
+                kind != MediaKind::None) {
+                auto* mediaWidget = new AttachedVideoFile(
+                    backend, *file, kind == MediaKind::Audio, this);
+                fileWidget = mediaWidget;
+                connect(mediaWidget, &AttachedVideoFile::dimensionsChanged,
+                        this, [this] {
+                    refreshItemSizeHints();
+                    updateDimensions();
+                });
             } else
 #endif
             if (!file->mimeType.startsWith("image")) {
