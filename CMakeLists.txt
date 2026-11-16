@@ -200,7 +200,7 @@ if(BUILD_MULTIMEDIA)
     include(FetchContent)
     FetchContent_Declare(matterleast_qite
         GIT_REPOSITORY https://github.com/Ri0n/qite.git
-        GIT_TAG 701ecea3589b3e89ead63b8232fa2e529f27d2f1)
+        GIT_TAG a63234b6d3cd67235920554ad173fbc1a4f53956)
     # Qite has no top-level CMakeLists.txt, so MakeAvailable fetches the
     # pinned sources without adding any of its demo or test targets.
     # This avoids deprecated FetchContent_Populate() on CMake 4.2+.

@@ -49,6 +49,15 @@ public:
                 QStringLiteral("qite-audio-artwork"))) {
             artwork->installEventFilter(this);
         }
+        // Compact inline audio has no visible frame/artwork. Preserve the
+        // attachment's Save as... menu on the transport controls and their
+        // interactive children, without coupling Qite to file storage.
+        if (auto* controls = player->findChild<QWidget*>(
+                QStringLiteral("qite-video-controls"))) {
+            controls->installEventFilter(this);
+            for (auto* child : controls->findChildren<QWidget*>())
+                child->installEventFilter(this);
+        }
     }
 
 protected:
@@ -146,7 +155,8 @@ void AttachedVideoFile::openMedia()
     }
 
     QWidget* player = ITEVideoController::createPlayer(
-        _source, &AttachmentMediaOpener::instance(_backend), this, {}, 0, _audio);
+        _source, &AttachmentMediaOpener::instance(_backend), this, {}, 0, _audio,
+        _audio); // In messages, only real album art warrants the tall area.
     new AttachmentMediaSaveMenu(_backend, _source, _fileName, player);
     // qite paints into ordinary QWidget children, not QVideoWidget. The
     // surrounding chat sets a bounded, aspect-correct inline size; detached
@@ -215,7 +225,10 @@ void AttachedVideoFile::updateInlinePlayerSize()
 
     QSize videoArea;
     if (_audio) {
-        videoArea = QSize(std::max(1, maxWidth), 120);
+        // Qite publishes this immediately and updates it when audio metadata
+        // provides/removes a real cover. Never reserve space for fallback art.
+        const bool hasArt = _player->property("qite-audio-artwork-visible").toBool();
+        videoArea = QSize(std::max(1, maxWidth), hasArt ? 120 : 0);
     } else {
         const QSize frame = _videoSize.isValid() ? _videoSize : QSize(16, 9);
         videoArea = frame.scaled(QSize(std::max(1, maxWidth), 420),
@@ -240,12 +253,23 @@ void AttachedVideoFile::updateInlinePlayerSize()
 
 bool AttachedVideoFile::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == _player && event && event->type() == QEvent::ParentChange) {
-        // qite's floating window takes ownership of the live player. On
-        // return it reparents the player, but cannot know our card's layout:
-        // insert it back into the QVBoxLayout rather than leaving it floating
-        // at an absolute position outside the attachment's size hint.
-        syncPresentation();
+    if (watched == _player && event) {
+        if (event->type() == QEvent::ParentChange) {
+            // Returning a borrowed player requires reattaching its layout,
+            // not merely restoring the QWidget parent.
+            syncPresentation();
+        } else if (_audio && event->type() == QEvent::DynamicPropertyChange
+                   && static_cast<QDynamicPropertyChangeEvent*>(event)->propertyName()
+                      == QByteArrayLiteral("qite-audio-artwork-visible")
+                   && _player->parentWidget() == this) {
+            // Embedded ID3 cover art may arrive after playback starts.
+            // Resize the row before the next paint; no timer or model reset.
+            updateInlinePlayerSize();
+            _ui->verticalLayout->invalidate();
+            _ui->verticalLayout->activate();
+            updateGeometry();
+            emit dimensionsChanged();
+        }
     }
     return QWidget::eventFilter(watched, event);
 }

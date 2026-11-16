@@ -134,6 +134,48 @@ private slots:
         QVERIFY(player.isNull());
     }
 
+    void inlineAudioOnlyReservesArtworkSpaceWhenCoverExists()
+    {
+        Backend backend;
+        PostAttachmentList attachments(backend);
+        QJsonObject audio {
+            {QStringLiteral("id"), QStringLiteral("inline-audio")},
+            {QStringLiteral("name"), QStringLiteral("voice.mp3")},
+            {QStringLiteral("mime_type"), QStringLiteral("audio/mpeg")},
+            {QStringLiteral("size"), 4096},
+        };
+        attachments.setFiles({BackendFile(audio)}, QStringLiteral("Test"));
+        auto* card = attachments.findChild<AttachedVideoFile*>();
+        auto* list = attachments.findChild<QListWidget*>();
+        QVERIFY(card && list);
+        auto* launch = card->findChild<QToolButton*>(
+            QStringLiteral("attachmentMediaLaunch"));
+        QVERIFY(launch);
+        launch->click();
+        auto* player = card->findChild<QWidget*>(
+            QStringLiteral("qite-video-player"));
+        QVERIFY(player);
+        auto* art = player->findChild<QWidget*>(
+            QStringLiteral("qite-audio-artwork"));
+        auto* controls = player->findChild<QWidget*>(
+            QStringLiteral("qite-video-controls"));
+        QVERIFY(art && controls);
+        QVERIFY(art->isHidden());
+        QCOMPARE(player->height(), controls->sizeHint().height());
+        const int compactHeight = list->item(0)->sizeHint().height();
+        QSignalSpy changed(&attachments, &PostAttachmentList::dimensionsChanged);
+
+        // Simulate Qite's asynchronous metadata notification. The attachment
+        // must resize synchronously without pruning/rebuilding its rows.
+        player->setProperty("qite-audio-artwork-visible", true);
+        QTRY_VERIFY(list->item(0)->sizeHint().height() > compactHeight);
+        QCOMPARE(player->height(), controls->sizeHint().height() + 120);
+        player->setProperty("qite-audio-artwork-visible", false);
+        QTRY_COMPARE(list->item(0)->sizeHint().height(), compactHeight);
+        QCOMPARE(player->height(), controls->sizeHint().height());
+        QVERIFY(changed.count() >= 2);
+    }
+
     void detachedMediaPlayerSurvivesOriginalAttachmentDestruction()
     {
         Backend backend;
