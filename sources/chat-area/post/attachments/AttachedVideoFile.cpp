@@ -4,19 +4,156 @@
 
 #include "AttachedVideoFile.h"
 
+#include <QAction>
+#include <QContextMenuEvent>
+#include <QDir>
 #include <QEvent>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QLayout>
+#include <QMenu>
+#include <QMessageBox>
+#include <QPointer>
+#include <QSaveFile>
 #include <QSizePolicy>
+#include <QStandardPaths>
 #include <QStyle>
+#include <QThread>
 #include <QToolButton>
 
+#include <memory>
+
+#include <qitevideoframe_p.h>
 #include <qitevideo.h>
 
 #include "AttachmentMediaOpener.h"
+#include "backend/AttachmentService.h"
+#include "backend/Backend.h"
 #include "backend/types/BackendFile.h"
+#include "Settings.h"
+#include "options/MLOptions.h"
 #include "ui_AttachedVideoFile.h"
 
 namespace Mattermost {
+namespace {
+
+// Keep the save action with the player, not the message. A detached qite
+// window remains fully functional after the original post was pruned.
+class AttachmentMediaSaveMenu final : public QObject
+{
+public:
+    AttachmentMediaSaveMenu(Backend& backend, QUrl source,
+                            QString fileName, QWidget* player)
+        : QObject(player)
+        , _backend(&backend)
+        , _source(std::move(source))
+        , _fileName(std::move(fileName))
+    {
+        if (auto* frame = player->findChild<QWidget*>(
+                QStringLiteral("qite-video-frame"))) {
+            frame->installEventFilter(this);
+        }
+        if (auto* artwork = player->findChild<QWidget*>(
+                QStringLiteral("qite-audio-artwork"))) {
+            artwork->installEventFilter(this);
+        }
+    }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (!event || event->type() != QEvent::ContextMenu) {
+            return QObject::eventFilter(watched, event);
+        }
+        auto* target = qobject_cast<QWidget*>(watched);
+        if (!target) return false;
+        auto* menu = new QMenu(target);
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        auto* save = menu->addAction(AttachedVideoFile::tr("Save attachment as…"));
+        save->setEnabled(_backend);
+        const QPointer<QWidget> owner(target);
+        connect(save, &QAction::triggered, this, [this, owner] {
+            if (_backend && owner) saveAs(owner);
+        });
+        menu->popup(static_cast<QContextMenuEvent*>(event)->globalPos());
+        return true;
+    }
+
+private:
+    void saveAs(QWidget* player)
+    {
+        if (!_backend) return;
+        const QString downloads = QStandardPaths::writableLocation(
+            QStandardPaths::DownloadLocation);
+        const QString configured = MLOptions::instance()
+            ->optionObject<QString>(DOWNLOAD_LOCATION, downloads)->value().toString();
+        QString fileName = QFileInfo(_fileName).fileName();
+        if (fileName.isEmpty()) fileName = QStringLiteral("attachment");
+
+        const QString destination = QFileDialog::getSaveFileName(
+            player->window(), AttachedVideoFile::tr("Save attachment as"),
+            QDir(configured).filePath(fileName));
+        if (destination.isEmpty() || !_backend) return;
+
+        auto& opener = AttachmentMediaOpener::instance(*_backend);
+        const QString cached = opener.cachedFilePath(_source);
+        const QPointer<QWidget> window(player->window());
+        if (cached.isEmpty()) {
+            // No playback cache yet: reuse the normal authenticated streaming
+            // downloader; qite must remain unaware of where users save files.
+            AttachmentService::instance(*_backend).downloadToFile(
+                _source.path().mid(1), destination, {},
+                [window](const QString& error) {
+                    if (!error.isEmpty() && window) {
+                        QMessageBox::warning(window,
+                            AttachedVideoFile::tr("Save attachment failed"), error);
+                    }
+                });
+            return;
+        }
+
+        // A cached movie can be large. Copy through QSaveFile off the GUI
+        // thread so saving never stalls video playback or the chat viewport.
+        auto error = std::make_shared<QString>();
+        auto* worker = QThread::create([cached, destination, error] {
+            QFile input(cached);
+            if (!input.open(QIODevice::ReadOnly)) {
+                *error = input.errorString();
+                return;
+            }
+            QSaveFile output(destination);
+            if (!output.open(QIODevice::WriteOnly)) {
+                *error = output.errorString();
+                return;
+            }
+            while (!input.atEnd()) {
+                const QByteArray data = input.read(256 * 1024);
+                if (data.isEmpty() || output.write(data) != data.size()) {
+                    *error = input.error() != QFileDevice::NoError
+                        ? input.errorString() : output.errorString();
+                    output.cancelWriting();
+                    return;
+                }
+            }
+            if (!output.commit()) *error = output.errorString();
+        });
+        connect(worker, &QThread::finished, &opener, [window, error] {
+            if (!error->isEmpty() && window) {
+                QMessageBox::warning(window,
+                    AttachedVideoFile::tr("Save attachment failed"), *error);
+            }
+        });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start();
+    }
+
+    QPointer<Backend> _backend;
+    QUrl _source;
+    QString _fileName;
+};
+
+} // namespace
 
 AttachedVideoFile::AttachedVideoFile(
     Backend& backend, const BackendFile& file, bool audio, QWidget* parent)
@@ -74,6 +211,7 @@ void AttachedVideoFile::openMedia()
 
     QWidget* player = ITEVideoController::createPlayer(
         _source, &AttachmentMediaOpener::instance(_backend), this, {}, 0, _audio);
+    new AttachmentMediaSaveMenu(_backend, _source, _fileName, player);
     // Limit the size of a single message without limiting a popped-out window.
     // qite rasterizes frames in a regular alien QWidget: no native child window
     // can escape QListWidget's clipping or confuse Wayland compositors.
