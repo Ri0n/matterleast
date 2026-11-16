@@ -24,15 +24,22 @@ void AttachmentSaveFile::chooseAndSave(Backend& backend, const QString& fileId,
                                        const QString& fileName, QWidget* parent,
                                        const QString& cachedPath)
 {
+    // QFileDialog enters a nested event loop. The originating message may be
+    // pruned while it is open; snapshot all data and guard the backend first.
+    const QString id = fileId;
+    const QString name = fileName;
+    const QString cached = cachedPath;
+    const QPointer<Backend> owner(&backend);
+    const QPointer<QWidget> parentGuard(parent);
     const QString defaultDir =
         QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     const QString preferred = MLOptions::instance()
         ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDir)->value().toString();
     const QString destination = QFileDialog::getSaveFileName(
         parent, QObject::tr("Save attachment as…"),
-        QDir(preferred).filePath(AttachmentSavePaths::safeName(fileName)));
-    if (destination.isEmpty()) return;
-    saveToPath(backend, fileId, destination, parent, cachedPath);
+        QDir(preferred).filePath(AttachmentSavePaths::safeName(name)));
+    if (destination.isEmpty() || !owner) return;
+    saveToPath(*owner, id, destination, parentGuard, cached);
 }
 
 void AttachmentSaveFile::saveToPath(Backend& backend, const QString& fileId,
