@@ -9,6 +9,11 @@ namespace Mattermost::VoiceRecordingPolicy {
 constexpr qint64 MaxVoiceBytes = 100LL * 1024 * 1024;
 constexpr qint64 MinimumVoiceMs = 350;
 
+inline bool canOfferMicrophone(bool hasText, bool hasAttachments,
+                               bool editing, bool sending) {
+    return !hasText && !hasAttachments && !editing && !sending;
+}
+
 // This is a size bound, never an arbitrary wall-clock recording limit.
 inline bool withinLimit(qint64 bytes) {
     return bytes > 0 && bytes <= MaxVoiceBytes;
