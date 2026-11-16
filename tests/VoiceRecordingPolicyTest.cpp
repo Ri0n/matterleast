@@ -27,6 +27,10 @@ private slots:
         QVERIFY(withinLimit(VoiceRecordingPolicy::MaxVoiceBytes));
         QVERIFY(!withinLimit(VoiceRecordingPolicy::MaxVoiceBytes + 1));
         QCOMPARE(VoiceRecordingPolicy::MaxVoiceBytes, qint64(104857600));
+        QVERIFY(!VoiceRecordingPolicy::shouldStopForSize(
+            VoiceRecordingPolicy::MaxVoiceBytes - VoiceRecordingPolicy::ContainerFinalizationReserve - 1));
+        QVERIFY(VoiceRecordingPolicy::shouldStopForSize(
+            VoiceRecordingPolicy::MaxVoiceBytes - VoiceRecordingPolicy::ContainerFinalizationReserve));
     }
 
     void recordingClockHasNoArbitraryDurationLimit()
