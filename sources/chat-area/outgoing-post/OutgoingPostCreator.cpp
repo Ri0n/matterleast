@@ -31,13 +31,16 @@
 #include <QDragMoveEvent>
 #include <QDynamicPropertyChangeEvent>
 #include <QEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QEasingCurve>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QMimeData>
 #include <QPalette>
 #include <QPainter>
@@ -47,11 +50,16 @@
 #include <QSizePolicy>
 #include <QTextCursor>
 #include <QTimer>
+#include <QToolTip>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 
 #include "NewPollDialog.h"
 #include "OutgoingAttachmentList.h"
+#ifdef MATTERLEAST_VOICE_RECORDING
+#include "VoiceMessageRecorder.h"
+#include "VoiceRecordingPolicy.h"
+#endif
 #include "backend/Backend.h"
 #include "backend/AttachmentUploadService.h"
 #include "backend/DraftService.h"
@@ -409,8 +417,48 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 	addEmojiButton = &addEmojiButtonInstance;
     addEmojiButton->installEventFilter(this);
 	sendButton = &sendButtonInstance;
+#ifdef MATTERLEAST_VOICE_RECORDING
+    sendButton->installEventFilter(this);
+    if (!voiceRecorder_) {
+        voiceRecorder_ = new VoiceMessageRecorder(this);
+        connect(voiceRecorder_, &VoiceMessageRecorder::elapsedChanged,
+                this, [this](qint64 elapsedMs) {
+            if (voiceRecorder_->active()) {
+                const QString hint = voiceReleaseOutside_
+                    ? tr("🔴 %1 · Release to discard")
+                    : tr("🔴 %1 · Release to send · Drag away to cancel");
+                setPlaceholderText(hint.arg(
+                    VoiceRecordingPolicy::elapsedLabel(elapsedMs)));
+            }
+        });
+        connect(voiceRecorder_, &VoiceMessageRecorder::completed,
+                this, [this](const QString& path, const QString& error) {
+            voicePointerHeld_ = false;
+            voiceReleaseOutside_ = false;
+            setPlaceholderText(voiceOriginalPlaceholder_);
+            setReadOnly(false);
+            updateSendButtonState();
+            if (!error.isEmpty()) {
+                showVoiceRecordingError(error);
+                return;
+            }
+            if (path.isEmpty()) {
+                return; // Cancelled recording.
+            }
+            QStringList files {path};
+            createAttachmentList(files);
+            sendPostButtonAction();
+        });
+    }
+#endif
 
 	connect(this, &MessageTextEditWidget::escapePressed, this, [this] {
+#ifdef MATTERLEAST_VOICE_RECORDING
+        if (voiceRecorder_ && voiceRecorder_->active()) {
+            finishVoiceRecording(false);
+            return;
+        }
+#endif
 		if (outgoingPostData) {
 			return;
 		}
@@ -460,6 +508,11 @@ void OutgoingPostCreator::init(Backend& backendInstance,
 
 OutgoingPostCreator::~OutgoingPostCreator()
 {
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (voiceRecorder_ && voiceRecorder_->active()) {
+        voiceRecorder_->finish(false);
+    }
+#endif
     destroyRankedEmojiPopup();
     releaseComposerAttachmentUploads();
     flushPersistentDraft();
@@ -594,6 +647,11 @@ static QString getStringInsideQuotes(const QString& str, int& nextPos)
 
 void OutgoingPostCreator::sendPostButtonAction()
 {
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (voiceRecorder_ && (voiceRecorder_->active() || voiceRecorder_->finishing())) {
+        return;
+    }
+#endif
 	if (outgoingPostData) {
 		if (!sendFailed) {
 			qCInfo(lcUploadTrace)
@@ -1053,6 +1111,15 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
 	qCInfo(lcUploadTrace).nospace()
         << "COMPOSER_SEND_FINISH postId=" << confirmedPostId;
 
+#ifdef MATTERLEAST_VOICE_RECORDING
+    // The outbox has acknowledged the post. Do not delete the source file
+    // earlier: retrying a failed upload must retain its original path.
+    for (const QString& path : outgoingPostData->attachmentPaths) {
+        if (VoiceMessageRecorder::isOwnedVoiceFile(path)) {
+            QFile::remove(path);
+        }
+    }
+#endif
 	outgoingPostData.reset();
 	editResidencyLease.reset();
 	sendFailed = false;
@@ -1166,6 +1233,12 @@ void OutgoingPostCreator::createAttachmentList(QStringList& files)
                     if (backend) {
                         AttachmentUploadService::instance(*backend).release(itemId);
                     }
+#ifdef MATTERLEAST_VOICE_RECORDING
+                    // Only our recorder's own files are disposable.
+                    if (VoiceMessageRecorder::isOwnedVoiceFile(path)) {
+                        QFile::remove(path);
+                    }
+#endif
                     schedulePersistentDraftSave();
                     updateSendButtonState();
                     emit previewAttachmentsChanged();
@@ -1253,8 +1326,27 @@ void OutgoingPostCreator::updateSendButtonState()
 	}
 
 	const bool editing = isEditingPost();
+#ifdef MATTERLEAST_VOICE_RECORDING
+    const bool recording = voiceRecorder_ && voiceRecorder_->active();
+    const bool finishingVoice = voiceRecorder_ && voiceRecorder_->finishing();
+    const bool offerVoice = canOfferVoiceRecording();
+    sendButton->setText(recording ? QStringLiteral("●")
+        : offerVoice ? QStringLiteral("🎙")
+                     : editing ? QStringLiteral("✓") : QStringLiteral("➤"));
+    sendButton->setAccessibleName(recording ? tr("Recording voice message")
+        : offerVoice ? tr("Record voice message")
+                     : editing ? tr("Save edited message") : tr("Send"));
+    // Reuse the owner-drawn palette-aware icon rendering, not a color emoji
+    // or a platform-specific icon theme.
+    const QString iconResource = offerVoice
+        ? QStringLiteral(":/icons/voice-microphone") : QString();
+    if (sendButton->property(ThemeIconResourceProperty).toString() != iconResource) {
+        sendButton->setProperty(ThemeIconResourceProperty, iconResource);
+    }
+#else
 	sendButton->setText(editing ? QStringLiteral("✓") : QStringLiteral("➤"));
 	sendButton->setAccessibleName(editing ? tr("Save edited message") : tr("Send"));
+#endif
 
 	bool sendButtonEnabled = true;
 	QString tooltipText;
@@ -1288,6 +1380,19 @@ void OutgoingPostCreator::updateSendButtonState()
 		tooltipText = tr("Send");
 	}
 
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (recording || finishingVoice) {
+        // The recorder owns the transport until its encoder closes the file.
+        sendButtonEnabled = recording;
+        tooltipText = finishingVoice
+            ? tr("Finalizing voice message…")
+            : tr("Release to send · Drag away or press Esc to cancel");
+    } else if (offerVoice) {
+        sendButtonEnabled = true;
+        tooltipText = tr("Hold to record a voice message");
+    }
+#endif
+
 	attachButton->setDisabled(outgoingPostData != nullptr);
 	if (!outgoingPostData) {
 		attachButton->setToolTip(tr("Add"));
@@ -1299,6 +1404,57 @@ void OutgoingPostCreator::updateSendButtonState()
 	sendButton->setDisabled(!sendButtonEnabled);
 	sendButton->setToolTip(tooltipText);
 }
+
+#ifdef MATTERLEAST_VOICE_RECORDING
+bool OutgoingPostCreator::canOfferVoiceRecording() const
+{
+    return VoiceRecordingPolicy::canOfferMicrophone(
+        !toPlainText().isEmpty(), attachmentList != nullptr,
+        postToEdit != nullptr, outgoingPostData != nullptr)
+        && !(voiceRecorder_ && (voiceRecorder_->active()
+                                || voiceRecorder_->finishing()));
+}
+
+void OutgoingPostCreator::showVoiceRecordingError(const QString& message)
+{
+    if (sendButton && !message.isEmpty()) {
+        QToolTip::showText(
+            sendButton->mapToGlobal(sendButton->rect().topRight()),
+            message, sendButton);
+    }
+}
+
+void OutgoingPostCreator::startVoiceRecording()
+{
+    if (!voiceRecorder_ || !canOfferVoiceRecording()) {
+        return;
+    }
+    voiceOriginalPlaceholder_ = placeholderText();
+    voiceReleaseOutside_ = false;
+    QString error;
+    if (!voiceRecorder_->start(error)) {
+        voicePointerHeld_ = false;
+        showVoiceRecordingError(error);
+        updateSendButtonState();
+        return;
+    }
+    // A backend is allowed to report a synchronous permission or codec
+    // failure from record(). Its completed callback may already have run.
+    if (voiceRecorder_->active()) {
+        setReadOnly(true);
+    }
+    updateSendButtonState();
+}
+
+void OutgoingPostCreator::finishVoiceRecording(bool send)
+{
+    if (!voiceRecorder_ || !voiceRecorder_->active()) {
+        return;
+    }
+    voiceRecorder_->finish(send);
+    updateSendButtonState();
+}
+#endif // MATTERLEAST_VOICE_RECORDING
 
 bool OutgoingPostCreator::isCreatingPost()
 {
@@ -1322,6 +1478,49 @@ bool OutgoingPostCreator::eventFilter(QObject* watched, QEvent* event)
     }
 
     const QEvent::Type type = event->type();
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (watched == sendButton) {
+        if (type == QEvent::MouseButtonPress) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton && canOfferVoiceRecording()) {
+                voicePointerHeld_ = true;
+                startVoiceRecording();
+                return true; // Suppress QPushButton's ordinary send click.
+            }
+        } else if (type == QEvent::MouseMove && voicePointerHeld_
+                   && voiceRecorder_ && voiceRecorder_->active()) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QPoint position = mouse->position().toPoint();
+#else
+            const QPoint position = mouse->pos();
+#endif
+            voiceReleaseOutside_ = !sendButton->rect().contains(position);
+            // The meter owns the clock text; mouse movement only changes its
+            // presentation mode, never resets the elapsed time.
+            return true;
+        } else if (type == QEvent::MouseButtonRelease && voicePointerHeld_) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                const QPoint position = mouse->position().toPoint();
+#else
+                const QPoint position = mouse->pos();
+#endif
+                const bool send = sendButton->rect().contains(position);
+                voicePointerHeld_ = false;
+                finishVoiceRecording(send);
+                return true;
+            }
+        } else if (type == QEvent::KeyPress && voiceRecorder_
+                   && voiceRecorder_->active()
+                   && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+            voicePointerHeld_ = false;
+            finishVoiceRecording(false);
+            return true;
+        }
+    }
+#endif
     if (watched == rankedEmojiPopup.data()) {
         if (type == QEvent::Enter) {
             rankedEmojiHideTimer->stop();
@@ -1901,6 +2100,13 @@ void OutgoingPostCreator::destroyRankedEmojiPopup()
 
 bool OutgoingPostCreator::event(QEvent* event)
 {
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (event && event->type() == QEvent::Hide && voiceRecorder_
+        && voiceRecorder_->active()) {
+        voicePointerHeld_ = false;
+        finishVoiceRecording(false);
+    }
+#endif
     const bool replyPropertyChanged = event
         && event->type() == QEvent::DynamicPropertyChange
         && static_cast<QDynamicPropertyChangeEvent*>(event)->propertyName()

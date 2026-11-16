@@ -577,6 +577,9 @@ else()
     # consume the object library inherit the same link requirements instead of
     # duplicating them target by target.
     target_link_libraries(matterleast-core PUBLIC matterleast-qite)
+    # The voice recorder is a private optional implementation; Qt Multimedia
+    # is not required by non-multimedia distribution builds.
+    target_compile_definitions(matterleast-core PRIVATE MATTERLEAST_VOICE_RECORDING)
   endif()
   if(TARGET Qt${QT_VERSION_MAJOR}::DBus)
     target_link_libraries(matterleast-core PUBLIC Qt${QT_VERSION_MAJOR}::DBus)

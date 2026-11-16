@@ -55,6 +55,7 @@ struct OutgoingAttachmentItem;
 
 class ChatLogWidget;
 class EmojiPickerWidget;
+class VoiceMessageRecorder;
 
 class OutgoingPostCreator: public MessageTextEditWidget {
 	Q_OBJECT
@@ -142,6 +143,12 @@ protected:
 private:
 	void createAttachmentList(QStringList& files);
     void startAttachmentUpload(const QString& itemId, const QString& path);
+#ifdef MATTERLEAST_VOICE_RECORDING
+    void startVoiceRecording();
+    void finishVoiceRecording(bool send);
+    bool canOfferVoiceRecording() const;
+    void showVoiceRecordingError(const QString& message);
+#endif
     bool hasAttachmentUploadsInProgress() const;
     bool hasAttachmentUploadFailures() const;
 	void updateSendButtonState ();
@@ -212,6 +219,12 @@ private:
     bool                                rankedEmojiPopupAbove = true;
     bool                                suppressDraftPersistence = false;
     QString                             messagePriority;
+#ifdef MATTERLEAST_VOICE_RECORDING
+    VoiceMessageRecorder*               voiceRecorder_ = nullptr;
+    bool                                voicePointerHeld_ = false;
+    bool                                voiceReleaseOutside_ = false;
+    QString                             voiceOriginalPlaceholder_;
+#endif
     bool                                priorityRequestedAck = false;
     bool                                priorityPersistentNotifications = false;
     bool                                priorityOutboxHookInstalled = false;
