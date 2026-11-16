@@ -1310,8 +1310,20 @@ void OutgoingPostCreator::updateSendButtonState()
 	}
 
 	const bool editing = isEditingPost();
+#ifdef MATTERLEAST_VOICE_RECORDING
+    const bool recording = voiceRecorder_ && voiceRecorder_->active();
+    const bool finishingVoice = voiceRecorder_ && voiceRecorder_->finishing();
+    const bool offerVoice = canOfferVoiceRecording();
+    sendButton->setText(recording ? QStringLiteral("●")
+        : offerVoice ? QStringLiteral("🎙")
+                     : editing ? QStringLiteral("✓") : QStringLiteral("➤"));
+    sendButton->setAccessibleName(recording ? tr("Recording voice message")
+        : offerVoice ? tr("Record voice message")
+                     : editing ? tr("Save edited message") : tr("Send"));
+#else
 	sendButton->setText(editing ? QStringLiteral("✓") : QStringLiteral("➤"));
 	sendButton->setAccessibleName(editing ? tr("Save edited message") : tr("Send"));
+#endif
 
 	bool sendButtonEnabled = true;
 	QString tooltipText;
@@ -1344,6 +1356,19 @@ void OutgoingPostCreator::updateSendButtonState()
 	} else {
 		tooltipText = tr("Send");
 	}
+
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (recording || finishingVoice) {
+        // The recorder owns the transport until its encoder closes the file.
+        sendButtonEnabled = recording;
+        tooltipText = finishingVoice
+            ? tr("Finalizing voice message…")
+            : tr("Release to send · Drag away or press Esc to cancel");
+    } else if (offerVoice) {
+        sendButtonEnabled = true;
+        tooltipText = tr("Hold to record a voice message");
+    }
+#endif
 
 	attachButton->setDisabled(outgoingPostData != nullptr);
 	if (!outgoingPostData) {
