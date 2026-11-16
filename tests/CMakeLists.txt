@@ -19,6 +19,15 @@ target_link_libraries(typing-activity-state-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME typing-activity-state-test COMMAND typing-activity-state-test)
 
+# Voice message policy never has an arbitrary time cutoff: it bounds only
+# encoded file bytes and requires a genuinely empty, idle composer.
+add_executable(voice-recording-policy-test VoiceRecordingPolicyTest.cpp)
+target_include_directories(voice-recording-policy-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(voice-recording-policy-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME voice-recording-policy-test COMMAND voice-recording-policy-test)
+
 # Attachment saves must never escape the selected directory or overwrite
 # an existing file when remote names collide.
 add_executable(attachment-save-paths-test AttachmentSavePathsTest.cpp)
