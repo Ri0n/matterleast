@@ -30,6 +30,10 @@ public:
                                bool audio, QWidget* parent = nullptr);
     ~AttachedVideoFile() override;
 
+    // Called by the attachment list before measuring a QListWidgetItem.
+    // Does not emit dimensionsChanged: the caller owns the layout pass.
+    void setAvailableWidth(int width);
+
 signals:
     void dimensionsChanged();
 
@@ -39,12 +43,15 @@ protected:
 private:
     void openMedia();
     void syncPresentation();
+    void updateInlinePlayerSize();
 
     Backend& _backend;
     QString _fileId;
     QString _fileName;
     QUrl _source;
     bool _audio = false;
+    QSize _videoSize;
+    int _availableWidth = 560;
     Ui::AttachedVideoFile* _ui = nullptr;
     QToolButton* _launch = nullptr;
     QPointer<QWidget> _player;
