@@ -422,13 +422,17 @@ void OutgoingPostCreator::init(Backend& backendInstance,
         connect(voiceRecorder_, &VoiceMessageRecorder::elapsedChanged,
                 this, [this](qint64 elapsedMs) {
             if (voiceRecorder_->active()) {
-                setPlaceholderText(tr("🔴 %1 · Release to send · Drag away to cancel")
-                    .arg(VoiceRecordingPolicy::elapsedLabel(elapsedMs)));
+                const QString hint = voiceReleaseOutside_
+                    ? tr("🔴 %1 · Release to discard")
+                    : tr("🔴 %1 · Release to send · Drag away to cancel");
+                setPlaceholderText(hint.arg(
+                    VoiceRecordingPolicy::elapsedLabel(elapsedMs)));
             }
         });
         connect(voiceRecorder_, &VoiceMessageRecorder::completed,
                 this, [this](const QString& path, const QString& error) {
             voicePointerHeld_ = false;
+            voiceReleaseOutside_ = false;
             setPlaceholderText(voiceOriginalPlaceholder_);
             setReadOnly(false);
             updateSendButtonState();
@@ -1105,6 +1109,15 @@ void OutgoingPostCreator::finishSend(const QString& confirmedPostId)
 	qCInfo(lcUploadTrace).nospace()
         << "COMPOSER_SEND_FINISH postId=" << confirmedPostId;
 
+#ifdef MATTERLEAST_VOICE_RECORDING
+    // The outbox has acknowledged the post. Do not delete the source file
+    // earlier: retrying a failed upload must retain its original path.
+    for (const QString& path : outgoingPostData->attachmentPaths) {
+        if (VoiceMessageRecorder::isOwnedVoiceFile(path)) {
+            QFile::remove(path);
+        }
+    }
+#endif
 	outgoingPostData.reset();
 	editResidencyLease.reset();
 	sendFailed = false;
@@ -1408,6 +1421,7 @@ void OutgoingPostCreator::startVoiceRecording()
         return;
     }
     voiceOriginalPlaceholder_ = placeholderText();
+    voiceReleaseOutside_ = false;
     QString error;
     if (!voiceRecorder_->start(error)) {
         voicePointerHeld_ = false;
@@ -1468,11 +1482,9 @@ bool OutgoingPostCreator::eventFilter(QObject* watched, QEvent* event)
 #else
             const QPoint position = mouse->pos();
 #endif
-            const QString hint = sendButton->rect().contains(position)
-                ? tr("🔴 %1 · Release to send · Drag away to cancel")
-                : tr("🔴 %1 · Release to discard");
-            setPlaceholderText(hint.arg(
-                VoiceRecordingPolicy::elapsedLabel(0))); // Timer refreshes the value.
+            voiceReleaseOutside_ = !sendButton->rect().contains(position);
+            // The meter owns the clock text; mouse movement only changes its
+            // presentation mode, never resets the elapsed time.
             return true;
         } else if (type == QEvent::MouseButtonRelease && voicePointerHeld_) {
             auto* mouse = static_cast<QMouseEvent*>(event);
