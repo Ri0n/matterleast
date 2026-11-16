@@ -317,16 +317,18 @@ void PostAttachmentList::refreshItemSizeHints()
             size = QSize(availableWidth, std::max(height, widget->minimumHeight()));
         }
 #if BUILD_MULTIMEDIA
-        else if (qobject_cast<AttachedVideoFile*>(widget)) {
-            // qite's live player changes the card's intrinsic height. Ask the
-            // card layout for its current hint, not the old QListWidget viewport
-            // geometry, before the outer post is measured.
+        else if (auto* media = qobject_cast<AttachedVideoFile*>(widget)) {
+            // Match the decoded video aspect ratio, subject to the actual
+            // viewport width and enough room for its transport controls.
+            // This also handles resizing an already-playing chat without
+            // bouncing through delayed size-fixup timers.
+            media->setAvailableWidth(availableWidth);
             if (QLayout* content = widget->layout()) {
                 content->activate();
             }
             const QSize hint =
                 widget->sizeHint().expandedTo(widget->minimumSizeHint());
-            size = QSize(availableWidth, hint.height());
+            size = QSize(std::min(availableWidth, hint.width()), hint.height());
         }
 #endif
         else {
