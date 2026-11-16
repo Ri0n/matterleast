@@ -4,9 +4,14 @@
 #include <QListWidget>
 #include <QToolButton>
 
+#include "build-config.h"
 #include "backend/Backend.h"
 #include "backend/types/BackendFile.h"
 #include "chat-area/post/attachments/PostAttachmentList.h"
+#if BUILD_MULTIMEDIA
+#include "chat-area/post/attachments/AttachedVideoFile.h"
+#include <QMediaPlayer>
+#endif
 
 using namespace Mattermost;
 
@@ -60,6 +65,39 @@ private slots:
         QVERIFY(list->item(3)->isHidden());
         QCOMPARE(list->sizeHint().height(), foldedHeight);
     }
+
+#if BUILD_MULTIMEDIA
+    void videoAndAudioPreviewsStayLazyAndNonNative()
+    {
+        Backend backend;
+        PostAttachmentList attachments(backend);
+        std::list<BackendFile> media;
+        for (const auto& spec : {
+                 QPair<QString, QString>{QStringLiteral("sample.mp4"), QStringLiteral("video/mp4")},
+                 QPair<QString, QString>{QStringLiteral("voice.ogg"), QStringLiteral("audio/ogg")}}) {
+            QJsonObject json {
+                {QStringLiteral("id"), spec.first},
+                {QStringLiteral("name"), spec.first},
+                {QStringLiteral("mime_type"), spec.second},
+                {QStringLiteral("size"), 4096},
+            };
+            media.emplace_back(json);
+        }
+        attachments.setFiles(media, QStringLiteral("Test"));
+
+        const auto cards = attachments.findChildren<AttachedVideoFile*>();
+        QCOMPARE(cards.size(), 2);
+        for (auto* card : cards) {
+            QVERIFY(!card->isWindow());
+            QVERIFY(!card->testAttribute(Qt::WA_NativeWindow));
+            QVERIFY(card->findChildren<QMediaPlayer*>().isEmpty());
+            QVERIFY(!card->findChild<QWidget*>(
+                QStringLiteral("qite-video-frame")));
+            QVERIFY(card->findChild<QToolButton*>(
+                QStringLiteral("attachmentMediaLaunch")));
+        }
+    }
+#endif
 
     void threeFilesKeepExistingCards()
     {
