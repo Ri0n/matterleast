@@ -66,6 +66,12 @@ QUrl AttachmentMediaOpener::sourceFor(const BackendFile& file)
     return url;
 }
 
+QString AttachmentMediaOpener::cachedFilePath(const QUrl& source) const
+{
+    const auto entry = _entries.value(source.toString(QUrl::FullyEncoded));
+    return entry && QFileInfo::exists(entry->path) ? entry->path : QString();
+}
+
 std::shared_ptr<AttachmentMediaOpener::Entry>
 AttachmentMediaOpener::ensureEntry(const QUrl& source)
 {
