@@ -18,7 +18,6 @@ namespace Mattermost {
 
 class Backend;
 class BackendFile;
-class QNetworkReply;
 
 // Backend-scoped source provider. A detached qite player may outlive the post
 // and its ChatArea, so neither the media cache nor its source can belong to a
