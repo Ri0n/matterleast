@@ -36,6 +36,8 @@ target_include_directories(post-forward-policy-test PRIVATE
 target_link_libraries(post-forward-policy-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
 add_test(NAME post-forward-policy-test COMMAND post-forward-policy-test)
+set_tests_properties(post-forward-policy-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # The Qt dialog keeps forwarded post data independent from the virtualized
 # chat row and must never expose other destinations for private origins.
