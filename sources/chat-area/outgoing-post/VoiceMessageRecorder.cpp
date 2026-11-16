@@ -243,10 +243,31 @@ bool VoiceMessageRecorder::start(QString& error)
             [this](QMediaRecorder::State state) {
         if (state == QMediaRecorder::StoppedState) {
             if (finishing_) {
-                onRecorderStopped();
+                // Qt 5 changes the requested state synchronously, before
+                // the backend necessarily finishes writing its container.
+                // The statusChanged handler observes completion instead.
+                const auto status = recorder_->status();
+                if (status == QMediaRecorder::LoadedStatus
+                    || status == QMediaRecorder::UnloadedStatus
+                    || status == QMediaRecorder::UnavailableStatus) {
+                    onRecorderStopped();
+                }
             } else if (active_) {
                 recorderFailed(tr("Audio recording stopped unexpectedly."));
             }
+        }
+    });
+    connect(recorder_, &QMediaRecorder::statusChanged, this,
+            [this](QMediaRecorder::Status status) {
+        if (!finishing_ || recorder_->state() != QMediaRecorder::StoppedState) {
+            return;
+        }
+        // Qt 5 FinalizingStatus means the muxer still owns the output file.
+        // No timer, size polling or event-loop spin can substitute for this.
+        if (status == QMediaRecorder::LoadedStatus
+            || status == QMediaRecorder::UnloadedStatus
+            || status == QMediaRecorder::UnavailableStatus) {
+            onRecorderStopped();
         }
     });
 #endif
@@ -306,12 +327,22 @@ void VoiceMessageRecorder::finish(bool send)
     meter_.stop();
     recorder_->stop();
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    // Qt 6 reports StoppedState after pending encoded data has been processed.
     if (recorder_->recorderState() == QMediaRecorder::StoppedState && finishing_) {
-#else
-    if (recorder_->state() == QMediaRecorder::StoppedState && finishing_) {
-#endif
         onRecorderStopped();
     }
+#else
+    // Qt 5's StoppedState is the requested state, not the asynchronous
+    // finalization status. Do not hand the file to the uploader while the
+    // recorder reports RecordingStatus or FinalizingStatus.
+    const auto status = recorder_->status();
+    if (recorder_->state() == QMediaRecorder::StoppedState && finishing_
+        && (status == QMediaRecorder::LoadedStatus
+            || status == QMediaRecorder::UnloadedStatus
+            || status == QMediaRecorder::UnavailableStatus)) {
+        onRecorderStopped();
+    }
+#endif
 }
 
 void VoiceMessageRecorder::recorderFailed(const QString& error)
