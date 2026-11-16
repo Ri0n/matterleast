@@ -11,6 +11,7 @@
 #if BUILD_MULTIMEDIA
 #include "chat-area/post/attachments/AttachedVideoFile.h"
 #include <QMediaPlayer>
+#include <QPointer>
 #endif
 
 using namespace Mattermost;
@@ -67,6 +68,51 @@ private slots:
     }
 
 #if BUILD_MULTIMEDIA
+    void detachedMediaPlayerSurvivesOriginalAttachmentDestruction()
+    {
+        Backend backend;
+        auto* attachments = new PostAttachmentList(backend);
+        QJsonObject video {
+            {QStringLiteral("id"), QStringLiteral("test-video")},
+            {QStringLiteral("name"), QStringLiteral("test.mp4")},
+            {QStringLiteral("mime_type"), QStringLiteral("video/mp4")},
+            {QStringLiteral("size"), 4096},
+        };
+        attachments->setFiles({BackendFile(video)}, QStringLiteral("Test"));
+        auto* card = attachments->findChild<AttachedVideoFile*>();
+        QVERIFY(card);
+
+        auto* launch = card->findChild<QToolButton*>(
+            QStringLiteral("attachmentMediaLaunch"));
+        QVERIFY(launch);
+        launch->click();
+
+        QPointer<QWidget> player = card->findChild<QWidget*>(
+            QStringLiteral("qite-video-player"));
+        QVERIFY(player);
+        QVERIFY(!player->testAttribute(Qt::WA_NativeWindow));
+        QVERIFY(player->findChild<QWidget*>(
+            QStringLiteral("qite-video-frame")));
+
+        auto* popout = player->findChild<QToolButton*>(
+            QStringLiteral("qite-video-window-button"));
+        QVERIFY(popout);
+        popout->click();
+        QVERIFY(player);
+        QWidget* floating = player->window();
+        QVERIFY(floating);
+        QVERIFY(floating != attachments->window());
+        QVERIFY(floating->isWindow());
+
+        // The QListWidget/ChatArea may discard the original post. The popup
+        // must now be the owner and keep the same player alive.
+        delete attachments;
+        QVERIFY(player);
+        QCOMPARE(player->window(), floating);
+        floating->close();
+        QTRY_VERIFY(player.isNull());
+    }
+
     void videoAndAudioPreviewsStayLazyAndNonNative()
     {
         Backend backend;
