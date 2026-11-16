@@ -28,6 +28,28 @@ target_link_libraries(attachment-save-paths-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME attachment-save-paths-test COMMAND attachment-save-paths-test)
 
+# The official forward flow submits a permalink (not copied message data)
+# and restricts private/DM/GM posts to their original conversation.
+add_executable(post-forward-policy-test PostForwardPolicyTest.cpp)
+target_include_directories(post-forward-policy-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(post-forward-policy-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME post-forward-policy-test COMMAND post-forward-policy-test)
+set_tests_properties(post-forward-policy-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The Qt dialog keeps forwarded post data independent from the virtualized
+# chat row and must never expose other destinations for private origins.
+if(TARGET matterleast-core)
+    add_executable(forward-post-dialog-test ForwardPostDialogTest.cpp)
+    target_link_libraries(forward-post-dialog-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME forward-post-dialog-test COMMAND forward-post-dialog-test)
+    set_tests_properties(forward-post-dialog-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # The shared attachment list drives compact presentation in both post themes
 # and interactive quotes, without loading image/video previews at 4+ files.
 if(TARGET matterleast-core)

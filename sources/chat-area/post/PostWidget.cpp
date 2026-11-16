@@ -61,6 +61,7 @@
 #include <QVariant>
 
 #include "MessageContentWidget.h"
+#include "ForwardPostDialog.h"
 #include "Settings.h"
 #include "MessageFormatter.h"
 #include "PostPermalinkUtils.h"
@@ -1355,6 +1356,20 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
                                                 tr("Copy link to clipboard"));
         connect(copyLinkAction, &QAction::triggered, this, [this] {
             QApplication::clipboard()->setText(hoveredLink);
+        });
+    }
+
+    // Forward sends an ordinary permalink post with an optional comment;
+    // unlike Copy message link it lets the user select a destination and
+    // displays the original post before committing.
+    if (!messagePermalink(post).isEmpty()) {
+        QAction* forwardAction = menu.addAction(
+            QIcon::fromTheme(QStringLiteral("mail-forward"),
+                             icon(QStringLiteral(":/icons/link"))),
+            tr("Forward"));
+        connect(forwardAction, &QAction::triggered, this, [this] {
+            auto* dialog = new ForwardPostDialog(backend_, post, window());
+            dialog->show();
         });
     }
 

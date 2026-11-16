@@ -225,6 +225,11 @@ public:
 	//create a direct channel with given user (/channels/direct)
 	void createDirectChannel(const BackendUser& user,
 	                         std::function<void(BackendChannel&)> callback = {});
+    // Report failures as well as success for flows (e.g. forwarding) that
+    // must leave the dialog actionable after a rejected channel creation.
+    void createDirectChannelDetailed(
+        const BackendUser& user,
+        std::function<void(BackendChannel*, const QString&)> callback);
 
 	//create/open a group direct channel (/channels/group)
 	void createGroupChannel(const QStringList& userIds,

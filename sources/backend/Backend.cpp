@@ -1853,28 +1853,67 @@ void Backend::createChannel(BackendTeam& team,
 void Backend::createDirectChannel(const BackendUser& user,
                                   std::function<void(BackendChannel&)> callback)
 {
-    QJsonArray json {getLoginUser().id, user.id};
-
-    NetworkRequest request("channels/direct");
-    httpConnector.post(request, json, HttpResponseCallback(
-        [this, callback = std::move(callback)](const QJsonDocument& doc) mutable {
-            BackendChannel* channel = storage.addDirectChannel(doc.object());
-            if (!channel) {
-                return;
-            }
-
-            LOG_DEBUG("	New Channel added: " << channel->id << " " << channel->display_name);
-            emit storage.directChannels.onNewChannel(*channel);
-
-            // Keep the server-side DM preference in sync with the existing
-            // create-direct-channel behavior used by the official client.
-            updateUserPreferences(BackendUserPreferences {
-                "direct_channel_show", channel->name, "true"});
-
-            if (callback) {
+    createDirectChannelDetailed(
+        user, [callback = std::move(callback)](
+                  BackendChannel* channel, const QString&) mutable {
+            if (channel && callback) {
                 callback(*channel);
             }
-        }));
+        });
+}
+
+void Backend::createDirectChannelDetailed(
+    const BackendUser& user,
+    std::function<void(BackendChannel*, const QString&)> callback)
+{
+    if (user.id.isEmpty() || getLoginUser().id.isEmpty()) {
+        if (callback) {
+            callback(nullptr, tr("Cannot create a direct conversation without user IDs."));
+        }
+        return;
+    }
+
+    QJsonArray json {getLoginUser().id, user.id};
+    NetworkRequest request(QStringLiteral("channels/direct"));
+    httpConnector.post(request, json, HttpResponseCallback(
+        [this, callback = std::move(callback)](
+            QVariant status, QByteArray response, const QNetworkReply& reply) mutable {
+        const QJsonDocument doc = QJsonDocument::fromJson(response);
+        const int httpStatus = reply.attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status.toInt() != QNetworkReply::NoError || httpStatus < 200
+            || httpStatus >= 300 || !doc.isObject()) {
+            if (callback) {
+                const QString serverError = doc.object().value(
+                    QStringLiteral("message")).toString();
+                callback(nullptr, !serverError.isEmpty()
+                    ? serverError : reply.errorString());
+            }
+            return;
+        }
+
+        const QString id = doc.object().value(QStringLiteral("id")).toString();
+        const bool alreadyKnown = !id.isEmpty() && storage.getChannelById(id);
+        BackendChannel* channel = storage.addDirectChannel(doc.object());
+        if (!channel) {
+            if (callback) {
+                callback(nullptr, tr("The server returned an invalid direct channel."));
+            }
+            return;
+        }
+
+        LOG_DEBUG("\tNew Channel added: " << channel->id << " " << channel->display_name);
+        if (!alreadyKnown) {
+            emit storage.directChannels.onNewChannel(*channel);
+        }
+
+        updateUserPreferences(BackendUserPreferences {
+            QStringLiteral("direct_channel_show"), channel->name, QStringLiteral("true")});
+
+        if (callback) {
+            callback(channel, {});
+        }
+    }));
 }
 
 void Backend::createGroupChannel(
