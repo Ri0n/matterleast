@@ -222,6 +222,7 @@ private:
 #ifdef MATTERLEAST_VOICE_RECORDING
     VoiceMessageRecorder*               voiceRecorder_ = nullptr;
     bool                                voicePointerHeld_ = false;
+    bool                                voiceReleaseOutside_ = false;
     QString                             voiceOriginalPlaceholder_;
 #endif
     bool                                priorityRequestedAck = false;
