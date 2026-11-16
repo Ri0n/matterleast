@@ -5,6 +5,7 @@
 #include "AttachedVideoFile.h"
 
 #include <QEvent>
+#include <QLayout>
 #include <QSizePolicy>
 #include <QStyle>
 #include <QToolButton>
@@ -47,8 +48,15 @@ AttachedVideoFile::AttachedVideoFile(
 
 AttachedVideoFile::~AttachedVideoFile()
 {
-    // The inline widget is a child and will be destroyed with this card.
-    // Qite independently owns a popped-out player via its top-level window.
+    // QWidget deletes its children *after* this destructor returns. The
+    // QVideoPlayer::destroyed signal would otherwise run syncPresentation()
+    // while the button has already been deleted by QWidget's teardown.
+    // Detach our observer now, before any child starts destructing.
+    if (_player) {
+        _player->removeEventFilter(this);
+        QObject::disconnect(_player, nullptr, this, nullptr);
+    }
+    // A detached player belongs to qite's top-level window, not this card.
     delete _ui;
 }
 
@@ -81,26 +89,44 @@ void AttachedVideoFile::openMedia()
     _ui->verticalLayout->addWidget(player);
     player->show();
     syncPresentation();
-    emit dimensionsChanged();
 }
 
 bool AttachedVideoFile::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched == _player && event && event->type() == QEvent::ParentChange) {
+        // qite's floating window takes ownership of the live player. On
+        // return it reparents the player, but cannot know our card's layout:
+        // insert it back into the QVBoxLayout rather than leaving it floating
+        // at an absolute position outside the attachment's size hint.
         syncPresentation();
-        emit dimensionsChanged();
     }
     return QWidget::eventFilter(watched, event);
 }
 
 void AttachedVideoFile::syncPresentation()
 {
-    const bool detached = _player && _player->parentWidget() != this;
+    const bool inlinePlayer = _player && _player->parentWidget() == this;
+    if (inlinePlayer && _ui->verticalLayout->indexOf(_player) < 0) {
+        // Qite has just returned the detached player. Its QWidget parent has
+        // changed, but it is not yet managed by our QVBoxLayout.
+        _ui->verticalLayout->addWidget(_player);
+        _player->show();
+    }
+
+    const bool detached = _player && !inlinePlayer;
     const QString title = detached ? tr("Show media window")
         : _audio ? tr("Play audio") : tr("Play video");
     _launch->setText(title);
     _launch->setToolTip(title);
-    _launch->setVisible(!_player || detached);
+    _launch->setVisible(!inlinePlayer);
+
+    // The attachment row and the outer PostWidget measure this hierarchy
+    // immediately after dimensionsChanged(). Make the layout geometry valid
+    // first; they must never see the pre-player height.
+    _ui->verticalLayout->invalidate();
+    _ui->verticalLayout->activate();
+    updateGeometry();
+    emit dimensionsChanged();
 }
 
 } // namespace Mattermost
