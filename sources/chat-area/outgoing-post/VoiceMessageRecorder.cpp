@@ -47,6 +47,7 @@ RecordingFormat selectFormat()
     // AAC/M4A and MP3 work on systems without an Opus encoder; no WAV fallback.
     const Candidate candidates[] = {
         {QMediaFormat::Ogg, Codec::Opus, "ogg"},
+        {QMediaFormat::Ogg, Codec::Vorbis, "ogg"},
         {QMediaFormat::Mpeg4Audio, Codec::AAC, "m4a"},
         {QMediaFormat::MP3, Codec::MP3, "mp3"},
     };
@@ -77,6 +78,7 @@ RecordingFormat selectFormat(QAudioRecorder& recorder)
     };
     const Candidate candidates[] = {
         {"ogg", "opus", "ogg"},
+        {"ogg", "vorbis", "ogg"},
         {"mp4", "aac", "m4a"},
         {"m4a", "aac", "m4a"},
         {"quicktime", "aac", "m4a"},
@@ -194,8 +196,12 @@ bool VoiceMessageRecorder::start(QString& error)
     recorder_->setQuality(QMediaRecorder::NormalQuality);
     connect(recorder_, &QMediaRecorder::recorderStateChanged, this,
             [this](QMediaRecorder::RecorderState state) {
-        if (state == QMediaRecorder::StoppedState && finishing_) {
-            onRecorderStopped();
+        if (state == QMediaRecorder::StoppedState) {
+            if (finishing_) {
+                onRecorderStopped();
+            } else if (active_) {
+                recorderFailed(tr("Audio recording stopped unexpectedly."));
+            }
         }
     });
     connect(recorder_, &QMediaRecorder::errorOccurred, this,
@@ -218,7 +224,8 @@ bool VoiceMessageRecorder::start(QString& error)
         error = tr("No supported compressed audio encoder is available.");
         return false;
     }
-    recorder_->setAudioInput(recorder_->defaultAudioInput());
+    recorder_->setAudioInput(recorder_->defaultAudioInput().isEmpty()
+        ? recorder_->audioInputs().first() : recorder_->defaultAudioInput());
     QAudioEncoderSettings settings;
     settings.setCodec(selected.codec);
     settings.setSampleRate(48000);
@@ -229,8 +236,12 @@ bool VoiceMessageRecorder::start(QString& error)
                                    selected.container);
     connect(recorder_, &QMediaRecorder::stateChanged, this,
             [this](QMediaRecorder::State state) {
-        if (state == QMediaRecorder::StoppedState && finishing_) {
-            onRecorderStopped();
+        if (state == QMediaRecorder::StoppedState) {
+            if (finishing_) {
+                onRecorderStopped();
+            } else if (active_) {
+                recorderFailed(tr("Audio recording stopped unexpectedly."));
+            }
         }
     });
 #endif
@@ -246,7 +257,9 @@ bool VoiceMessageRecorder::start(QString& error)
     emit elapsedChanged(0);
     recorder_->setOutputLocation(QUrl::fromLocalFile(path_));
     recorder_->record();
-    meter_.start();
+    if (active_) {
+        meter_.start();
+    }
     return true;
 }
 
