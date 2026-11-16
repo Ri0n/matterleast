@@ -28,6 +28,10 @@ class AttachmentMediaOpener final : public ITEMediaOpener
 public:
     static AttachmentMediaOpener& instance(Backend& backend);
     static QUrl sourceFor(const BackendFile& file);
+    // Returns only a completed, private cached file. The caller may read it
+    // concurrently with playback; writing a user destination remains the
+    // embedding application's responsibility.
+    QString cachedFilePath(const QUrl& source) const;
 
     QIODevice* open(QUrl& url) override;
     CancelOpen openAsync(QUrl url, QObject* receiver, OpenDone done) override;
