@@ -201,7 +201,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins libxss-dev libhunspell-dev pkg-config
+            qt6-base-dev qt6-svg-dev qt6-multimedia-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins libxss-dev libhunspell-dev pkg-config
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -222,7 +222,7 @@ jobs:
           }
           cmake -S . -B build -G Ninja \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON -DBUILD_MULTIMEDIA=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DWARNINGS_AS_ERRORS=ON \
@@ -251,7 +251,7 @@ jobs:
             echo "::error::DEB must depend on system QtKeychain, not install bundled QtKeychain files"
             exit 1
           fi
-          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqt6keychain1; do
+          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqt6keychain1 libqt6multimedia6; do
             [[ "$depends" == *"$dep"* ]] || {
               echo "::error::Missing Debian 13 dependency: $dep"
               exit 1
