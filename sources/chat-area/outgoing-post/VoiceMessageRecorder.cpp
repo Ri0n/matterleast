@@ -311,8 +311,9 @@ void VoiceMessageRecorder::pollSizeAndTime()
     const QString currentPath = isOwnedVoiceFile(actualPath) ? actualPath : path_;
     const qint64 bytes = QFileInfo(currentPath).size();
     if (VoiceRecordingPolicy::shouldStopForSize(bytes)) {
-        // Keep the recording instead of discarding hours of audio at the cap.
-        // The final size is checked again after muxer headers are committed.
+        // Leave room for the muxer's buffered data and final index.
+        // The final size must still be strictly below 100,000,000 bytes; an
+        // overrun is never uploaded even if the encoder exceeds the reserve.
         finish(true);
     }
 }
@@ -392,8 +393,8 @@ void VoiceMessageRecorder::onRecorderStopped()
         && VoiceRecordingPolicy::withinLimit(bytes);
     if (!valid) {
         if (error_.isEmpty() && !cancelled_) {
-            error_ = bytes > VoiceRecordingPolicy::MaxVoiceBytes
-                ? tr("The voice message exceeds the 100 MiB limit.")
+            error_ = bytes >= VoiceRecordingPolicy::MaxVoiceBytes
+                ? tr("The voice message reached the 100 MB limit.")
                 : tr("The recording was too short or contains no audio.");
         }
         cleanupFailed();
