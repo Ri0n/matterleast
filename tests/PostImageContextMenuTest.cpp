@@ -268,7 +268,7 @@ private slots:
             {QStringLiteral("size"), 4096},
         });
         PostWidget widget(*_backend, post, nullptr, nullptr, nullptr);
-        widget.resize(640, 400);
+        widget.resize(900, 850);
         widget.show();
         QVERIFY(QTest::qWaitForWindowExposed(&widget));
 
@@ -286,6 +286,16 @@ private slots:
         QVERIFY2(actions.contains(QStringLiteral("Save attachment as…")),
                  qPrintable(actions.join(QStringLiteral(", "))));
         QVERIFY(actions.contains(QStringLiteral("Copy post message")));
+
+        launch->click();
+        auto* frame = media->findChild<QWidget*>(
+            QStringLiteral("qite-video-frame"));
+        QVERIFY(frame);
+        QTRY_VERIFY(frame->isVisible());
+        const QStringList playingActions =
+            rightClickMenu(widget, frame, frame->rect().center());
+        QVERIFY2(playingActions.contains(QStringLiteral("Save attachment as…")),
+                 qPrintable(playingActions.join(QStringLiteral(", "))));
     }
 #endif
 
