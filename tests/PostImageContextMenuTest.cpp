@@ -14,12 +14,17 @@
 #include <QTextFragment>
 #include <QTextImageFormat>
 
+#include "build-config.h"
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/post/PostWidget.h"
 #include "chat-area/post/attachments/AttachedImageFile.h"
+#if BUILD_MULTIMEDIA
+#include "chat-area/post/attachments/AttachedVideoFile.h"
+#include <QToolButton>
+#endif
 #include "preview-window/FilePreview.h"
 
 using namespace Mattermost;
@@ -229,6 +234,40 @@ private slots:
             QVERIFY(!qobject_cast<FilePreview*>(topLevel));
         }
     }
+
+#if BUILD_MULTIMEDIA
+    void videoContextMenuUsesPostAttachmentSaveAction()
+    {
+        BackendPost post = makePost(
+            _backend->getStorage(), QStringLiteral("Attached video"));
+        post.files.clear();
+        post.files.emplace_back(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("test-video-id")},
+            {QStringLiteral("name"), QStringLiteral("video.mp4")},
+            {QStringLiteral("mime_type"), QStringLiteral("video/mp4")},
+            {QStringLiteral("size"), 4096},
+        });
+        PostWidget widget(*_backend, post, nullptr, nullptr, nullptr);
+        widget.resize(640, 400);
+        widget.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&widget));
+
+        auto* media = widget.findChild<AttachedVideoFile*>();
+        QVERIFY(media);
+        auto* launch = media->findChild<QToolButton*>(
+            QStringLiteral("attachmentMediaLaunch"));
+        QVERIFY(launch);
+        QTRY_VERIFY(launch->isVisible());
+
+        // The app-global router sends the child's context menu event to
+        // PostWidget; the action must appear there, not only on the qite frame.
+        const QStringList actions =
+            rightClickMenu(widget, launch, launch->rect().center());
+        QVERIFY2(actions.contains(QStringLiteral("Save attachment as…")),
+                 qPrintable(actions.join(QStringLiteral(", "))));
+        QVERIFY(actions.contains(QStringLiteral("Copy post message")));
+    }
+#endif
 
     void messageTextDoesNotOfferCopyImage()
     {
