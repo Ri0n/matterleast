@@ -201,10 +201,10 @@ if(BUILD_MULTIMEDIA)
     FetchContent_Declare(matterleast_qite
         GIT_REPOSITORY https://github.com/Ri0n/qite.git
         GIT_TAG 08b9d8a421d75b187b1225e2e17308400e9fa028)
-    FetchContent_GetProperties(matterleast_qite)
-    if(NOT matterleast_qite_POPULATED)
-        FetchContent_Populate(matterleast_qite)
-    endif()
+    # Qite has no top-level CMakeLists.txt, so MakeAvailable fetches the
+    # pinned sources without adding any of its demo or test targets.
+    # This avoids deprecated FetchContent_Populate() on CMake 4.2+.
+    FetchContent_MakeAvailable(matterleast_qite)
     add_library(matterleast-qite STATIC
         "${matterleast_qite_SOURCE_DIR}/libqite/qite.cpp"
         "${matterleast_qite_SOURCE_DIR}/libqite/qitemedia.cpp"
