@@ -283,11 +283,16 @@ void VoiceMessageRecorder::pollSizeAndTime()
     }
 #endif
 
-    // Never load audio into memory. Check the growing output file and leave
-    // extra room for final container metadata written by stop().
-    const qint64 bytes = QFileInfo(path_).size();
-    if (bytes >= VoiceRecordingPolicy::MaxVoiceBytes) {
-        recorderFailed(tr("The voice message reached the 100 MiB limit."));
+    // Never buffer PCM in memory. Qt may adjust the requested output path;
+    // monitor the actual destination once the recorder has chosen it.
+    const QString actualPath = recorder_
+        ? recorder_->actualLocation().toLocalFile() : QString();
+    const QString currentPath = isOwnedVoiceFile(actualPath) ? actualPath : path_;
+    const qint64 bytes = QFileInfo(currentPath).size();
+    if (VoiceRecordingPolicy::shouldStopForSize(bytes)) {
+        // Keep the recording instead of discarding hours of audio at the cap.
+        // The final size is checked again after muxer headers are committed.
+        finish(true);
     }
 }
 
@@ -344,6 +349,12 @@ void VoiceMessageRecorder::onRecorderStopped()
             error_ = recorder_->errorString();
         }
     }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    // Release microphone capture as soon as the recorder has stopped.
+    if (session_) {
+        session_->setAudioInput(nullptr);
+    }
+#endif
     const qint64 bytes = QFileInfo(finishedPath).size();
     const bool valid = !cancelled_ && error_.isEmpty()
         && elapsed_.elapsed() >= VoiceRecordingPolicy::MinimumVoiceMs
