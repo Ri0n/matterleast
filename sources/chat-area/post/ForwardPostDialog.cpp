@@ -3,14 +3,18 @@
 #include <algorithm>
 #include <utility>
 
+#include <QAbstractItemView>
+#include <QColor>
 #include <QDialogButtonBox>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QListWidgetItem>
+#include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
+#include <QVector>
 #include <QVBoxLayout>
 
 #include "PostForwardPolicy.h"
@@ -284,7 +288,7 @@ void ForwardPostDialog::submit()
         guard->comment_->setReadOnly(false);
         guard->error_->setText(
             result.errorText.isEmpty()
-                ? tr("The server could not forward this message (HTTP %1).")
+                ? ForwardPostDialog::tr("The server could not forward this message (HTTP %1).")
                       .arg(result.httpStatus)
                 : result.errorText);
         guard->error_->show();
