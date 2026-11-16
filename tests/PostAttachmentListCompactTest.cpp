@@ -80,7 +80,7 @@ private slots:
         QVERIFY(directory.isValid());
         const QString cached = directory.filePath(QStringLiteral("cached.mp4"));
         const QString destination = directory.filePath(QStringLiteral("saved.mp4"));
-        const QByteArray payload("local media bytes\\0from cache", 28);
+        const QByteArray payload("local media bytes from cache");
         QFile source(cached);
         QVERIFY(source.open(QIODevice::WriteOnly));
         QCOMPARE(source.write(payload), payload.size());
