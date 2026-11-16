@@ -4,14 +4,19 @@
 
 namespace Mattermost::VoiceRecordingPolicy {
 
-// Mattermost's default maximum attachment size is 100 MiB. Admins may
-// configure a lower limit; the upload service still handles server rejection.
-constexpr qint64 MaxVoiceBytes = 100LL * 1024 * 1024;
+// Use a decimal 100 MB limit, not 100 MiB (104,857,600 bytes).
+// This is also below Mattermost's typical 100 MiB server attachment limit;
+// admins may set a lower cap, which the uploader still enforces.
+constexpr qint64 MaxVoiceBytes = 100LL * 1000 * 1000;
 constexpr qint64 MinimumVoiceMs = 350;
-constexpr qint64 ContainerFinalizationReserve = 256LL * 1024;
 
-// Close the encoder slightly before the hard cap to make room for the
-// muxer's final index/headers written by stop(). No clock-based cutoff.
+// Some encoders (especially long AAC/M4A recordings) write their sample
+// index and other container metadata only when stop() finalizes the file.
+// A 256 KiB reserve can be too small for several hours of audio. Stop at
+// 95 MB to leave 5 MB for that metadata and buffered encoder output.
+// This is a size-based safety margin, not an arbitrary recording time limit.
+constexpr qint64 ContainerFinalizationReserve = 5LL * 1000 * 1000;
+
 inline bool shouldStopForSize(qint64 bytes) {
     return bytes >= MaxVoiceBytes - ContainerFinalizationReserve;
 }
@@ -21,9 +26,10 @@ inline bool canOfferMicrophone(bool hasText, bool hasAttachments,
     return !hasText && !hasAttachments && !editing && !sending;
 }
 
-// This is a size bound, never an arbitrary wall-clock recording limit.
+// Check the finalized file, never just the size observed while recording.
+// Require strictly less than 100 MB so there is no boundary ambiguity.
 inline bool withinLimit(qint64 bytes) {
-    return bytes > 0 && bytes <= MaxVoiceBytes;
+    return bytes > 0 && bytes < MaxVoiceBytes;
 }
 
 inline QString elapsedLabel(qint64 elapsedMs) {
