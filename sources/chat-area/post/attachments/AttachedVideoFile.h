@@ -33,6 +33,8 @@ public:
     // Called by the attachment list before measuring a QListWidgetItem.
     // Does not emit dimensionsChanged: the caller owns the layout pass.
     void setAvailableWidth(int width);
+    // Shared save action for both the post context menu and detached player.
+    void saveAttachmentAs();
 
 signals:
     void dimensionsChanged();
