@@ -45,6 +45,7 @@
 #include <QThreadPool>
 #include "backend/types/BackendFile.h"
 #include "backend/AttachmentService.h"
+#include "AttachmentSaveFile.h"
 #include "Settings.h"
 #include "options/MLOptions.h"
 
@@ -271,27 +272,7 @@ void AttachedImageFile::copyFileImageToClipboard(Backend& backend,
 
 void AttachedImageFile::saveImageAs()
 {
-    const QString defaultDownloadDir =
-        QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    const QDir downloadDir(
-        MLOptions::instance()
-            ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDownloadDir)
-            ->value().toString());
-    const QString saveFileDestination = QFileDialog::getSaveFileName(
-        this, tr("Save image as... - Mattermost"), downloadDir.filePath(fileName));
-    if (saveFileDestination.isEmpty()) {
-        return;
-    }
-
-    AttachmentService::instance(backend).retrieveFile(
-        fileId, [saveFileDestination](const QByteArray& fileContents) {
-        QFile destFile(saveFileDestination);
-        if (!destFile.open(QIODevice::WriteOnly)) {
-            qWarning() << "Cannot save image to" << saveFileDestination << ":" << destFile.errorString();
-            return;
-        }
-        destFile.write(fileContents);
-    });
+    AttachmentSaveFile::chooseAndSave(backend, fileId, fileName, this);
 }
 
 void AttachedImageFile::setPreviewPixmap(QPixmap pixmap)
@@ -440,21 +421,9 @@ void AttachedImageFile::mouseReleaseEvent(QMouseEvent* event)
                 if (!saveOwner) {
                     return;
                 }
-                AttachmentService::instance(saveOwner->backend).retrieveFile(
-                    saveOwner->fileId,
-                    [destination](const QByteArray& contents) {
-                        if (contents.isEmpty()) {
-                            return;
-                        }
-
-                        QFile output(destination);
-                        if (!output.open(QIODevice::WriteOnly)) {
-                            qWarning() << "Cannot save image to" << destination
-                                       << ":" << output.errorString();
-                            return;
-                        }
-                        output.write(contents);
-                    });
+                AttachmentSaveFile::saveToPath(
+                    saveOwner->backend, saveOwner->fileId, destination,
+                    saveOwner.data());
             });
         currentlyOpenFiles.emplace(key, filePreview);
         filePreview->setAttribute(Qt::WA_DeleteOnClose);
