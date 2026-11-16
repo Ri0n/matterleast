@@ -47,6 +47,7 @@ private:
     void removeRemoteResults();
     void submit();
     void sendToChannel(const QString& channelId);
+    void showFailure(const QString& message);
 
     Backend& backend_;
     QString sourceChannelId_;
