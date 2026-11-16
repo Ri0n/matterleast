@@ -3,6 +3,9 @@
 #include <QAbstractTextDocumentLayout>
 #include <QBuffer>
 #include <QClipboard>
+#include <QFile>
+#include <QFileInfo>
+#include <QTemporaryDir>
 #include <QJsonArray>
 #include <QLabel>
 #include <QMenu>
@@ -21,6 +24,7 @@
 #include "backend/types/BackendPost.h"
 #include "chat-area/post/PostWidget.h"
 #include "chat-area/post/attachments/AttachedImageFile.h"
+#include "chat-area/post/attachments/AttachmentSaveFile.h"
 #if BUILD_MULTIMEDIA
 #include "chat-area/post/attachments/AttachedVideoFile.h"
 #include <QToolButton>
@@ -201,6 +205,22 @@ private slots:
     void init()
     {
         QApplication::clipboard()->clear();
+    }
+
+    void imageSaveUsesSharedAuthenticatedStreamingPath()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString destination = directory.filePath(
+            QStringLiteral("saved-original.png"));
+        AttachmentSaveFile::saveToPath(
+            *_backend, FileId, destination);
+        QTRY_VERIFY(QFileInfo::exists(destination));
+        QFile file(destination);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QImage original = QImage::fromData(file.readAll());
+        QCOMPARE(original.size(), OriginalSize);
+        QCOMPARE(original.pixelColor(1, 1), QColor(Qt::red));
     }
 
     void attachedImageOffersCopyOfOriginal()
