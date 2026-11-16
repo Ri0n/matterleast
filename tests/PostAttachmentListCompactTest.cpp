@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QJsonObject>
+#include <QLayout>
 #include <QListWidget>
 #include <QToolButton>
 
