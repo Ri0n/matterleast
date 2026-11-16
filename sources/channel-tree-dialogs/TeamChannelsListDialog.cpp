@@ -9,6 +9,7 @@
 #include <utility>
 
 #include <QFontMetrics>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -95,13 +96,14 @@ public:
         setContextMenuPolicy(Qt::CustomContextMenu);
         setCursor(Qt::PointingHandCursor);
 
-        auto* layout = new QVBoxLayout(this);
+        // Share the same text column between the title and metadata. The
+        // icon column defines the indentation structurally, so font/icon
+        // metrics and display scaling cannot make the two lines drift.
+        auto* layout = new QGridLayout(this);
         layout->setContentsMargins(12, 6, 12, 6);
-        layout->setSpacing(3);
-
-        auto* titleRow = new QHBoxLayout;
-        titleRow->setContentsMargins(0, 0, 0, 0);
-        titleRow->setSpacing(8);
+        layout->setHorizontalSpacing(8);
+        layout->setVerticalSpacing(3);
+        layout->setColumnStretch(1, 1);
 
         auto* icon = new QLabel(this);
         icon->setFixedSize(ChannelIconExtent, ChannelIconExtent);
@@ -109,12 +111,11 @@ public:
         icon->setPixmap(ChannelIcons::channel().pixmap(
             ChannelIconExtent, ChannelIconExtent));
         icon->setAttribute(Qt::WA_TransparentForMouseEvents);
-        titleRow->addWidget(icon, 0, Qt::AlignVCenter);
+        layout->addWidget(icon, 0, 0, Qt::AlignVCenter);
 
         auto* name = new ElidedLabel(channel.display_name, this);
         name->setAttribute(Qt::WA_TransparentForMouseEvents);
-        titleRow->addWidget(name, 1);
-        layout->addLayout(titleRow);
+        layout->addWidget(name, 0, 1);
 
         // Match Mattermost's Browse Channels information hierarchy: the second
         // line is membership/member-count/purpose metadata. Channel *header* is
@@ -178,7 +179,7 @@ public:
             metaRow->addStretch(1);
         }
 
-        layout->addLayout(metaRow);
+        layout->addLayout(metaRow, 1, 1);
 
         connect(this, &QWidget::customContextMenuRequested, this,
                 [this](const QPoint& pos) {
