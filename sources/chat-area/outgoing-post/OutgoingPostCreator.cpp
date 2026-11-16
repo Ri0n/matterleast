@@ -31,6 +31,7 @@
 #include <QDragMoveEvent>
 #include <QDynamicPropertyChangeEvent>
 #include <QEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QEasingCurve>
 #include <QFrame>
