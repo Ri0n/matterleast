@@ -36,6 +36,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -1334,6 +1335,13 @@ void OutgoingPostCreator::updateSendButtonState()
     sendButton->setAccessibleName(recording ? tr("Recording voice message")
         : offerVoice ? tr("Record voice message")
                      : editing ? tr("Save edited message") : tr("Send"));
+    // Reuse the owner-drawn palette-aware icon rendering, not a color emoji
+    // or a platform-specific icon theme.
+    const QString iconResource = offerVoice
+        ? QStringLiteral(":/icons/voice-microphone") : QString();
+    if (sendButton->property(ThemeIconResourceProperty).toString() != iconResource) {
+        sendButton->setProperty(ThemeIconResourceProperty, iconResource);
+    }
 #else
 	sendButton->setText(editing ? QStringLiteral("✓") : QStringLiteral("➤"));
 	sendButton->setAccessibleName(editing ? tr("Save edited message") : tr("Send"));
