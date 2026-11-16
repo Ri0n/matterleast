@@ -1,93 +1,111 @@
-/**
- * Copyright 2021, 2022 Lyubomir Filipov
- *
- * This file is part of Mattermost-QT.
- *
- * Mattermost-QT is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation; either version 3 of the License, or
- * (at your option) any later version.
- *
- * Mattermost-QT is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with Mattermost-QT. if not, see https://www.gnu.org/licenses/.
- */
-
 #include "build-config.h"
 
 #if BUILD_MULTIMEDIA
 
 #include "AttachedVideoFile.h"
 
-#include <QBuffer>
-#include <QPointer>
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QMediaContent>
-#endif
+#include <QEvent>
+#include <QSizePolicy>
+#include <QStyle>
+#include <QToolButton>
 
-#include "ui_AttachedVideoFile.h"
-#include "backend/AttachmentService.h"
+#include <qitevideo.h>
+
+#include "AttachmentMediaOpener.h"
 #include "backend/types/BackendFile.h"
+#include "ui_AttachedVideoFile.h"
 
 namespace Mattermost {
 
-AttachedVideoFile::AttachedVideoFile(Backend& backend, const BackendFile& file, QWidget* parent)
+AttachedVideoFile::AttachedVideoFile(
+    Backend& backend, const BackendFile& file, bool audio, QWidget* parent)
     : QWidget(parent)
-    , ui(new Ui::AttachedVideoFile)
-    , backend(backend)
-    , mediaPlayer(nullptr)
-    , videoWidget(nullptr)
-    , fileId(file.id)
-    , init(true)
+    , _backend(backend)
+    , _fileId(file.id)
+    , _fileName(file.name)
+    , _audio(audio)
+    , _ui(new Ui::AttachedVideoFile)
 {
-    ui->setupUi(this);
-    videoWidget = new QVideoWidget(parent);
-    mediaPlayer = new QMediaPlayer(this);
-
-    ui->videoName->setText(file.name);
-    ui->verticalLayout->addWidget(videoWidget);
-    mediaPlayer->setVideoOutput(videoWidget);
-    videoWidget->show();
+    _ui->setupUi(this);
+    _ui->verticalLayout->setContentsMargins(0, 0, 0, 0);
+    _ui->verticalLayout->setSpacing(4);
+    _ui->videoName->setText(_fileName);
+    _ui->videoName->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    _launch = new QToolButton(this);
+    _launch->setObjectName(QStringLiteral("attachmentMediaLaunch"));
+    _launch->setAutoRaise(true);
+    _launch->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    _launch->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    _launch->setCursor(Qt::PointingHandCursor);
+    _launch->setFocusPolicy(Qt::StrongFocus);
+    _ui->verticalLayout->addWidget(_launch, 0, Qt::AlignLeft);
+    connect(_launch, &QToolButton::clicked, this, &AttachedVideoFile::openMedia);
+    syncPresentation();
 }
 
 AttachedVideoFile::~AttachedVideoFile()
 {
-    delete ui;
+    // The inline widget is a child and will be destroyed with this card.
+    // Qite independently owns a popped-out player via its top-level window.
+    delete _ui;
 }
 
-void AttachedVideoFile::mousePressEvent(QMouseEvent*)
+void AttachedVideoFile::openMedia()
 {
-    QPointer<AttachedVideoFile> self(this);
-    AttachmentService::instance(backend).retrieveFile(fileId, [self](const QByteArray& data) {
-        if (!self) {
-            return;
+    if (_player) {
+        if (_player->parentWidget() != this) {
+            QWidget* floating = _player->window();
+            floating->show();
+            floating->raise();
+            floating->activateWindow();
         }
+        return;
+    }
 
-        QBuffer* previousStream = self->mediaStream;
-        self->mediaStream = new QBuffer(self->mediaPlayer);
-        self->mediaStream->setData(data);
-        if (!self->mediaStream->open(QIODevice::ReadOnly)) {
-            self->mediaStream->deleteLater();
-            self->mediaStream = previousStream;
-            return;
-        }
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        self->mediaPlayer->setSourceDevice(self->mediaStream);
-#else
-        self->mediaPlayer->setMedia(QMediaContent(), self->mediaStream);
-#endif
-        if (previousStream) {
-            previousStream->deleteLater();
-        }
-        self->mediaPlayer->play();
+    BackendFile file;
+    file.id = _fileId;
+    file.name = _fileName;
+    QWidget* player = ITEVideoController::createPlayer(
+        AttachmentMediaOpener::sourceFor(file),
+        &AttachmentMediaOpener::instance(_backend), this, {}, 0, _audio);
+    // Limit the size of a single message without limiting a popped-out window.
+    // qite rasterizes frames in a regular alien QWidget: no native child window
+    // can escape QListWidget's clipping or confuse Wayland compositors.
+    player->setMinimumSize(_audio ? QSize(280, 128) : QSize(320, 220));
+    player->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    _player = player;
+    player->installEventFilter(this);
+    connect(player, &QObject::destroyed, this, [this] {
+        _player = nullptr;
+        syncPresentation();
+        emit dimensionsChanged();
     });
+    _ui->verticalLayout->addWidget(player);
+    player->show();
+    syncPresentation();
+    emit dimensionsChanged();
 }
 
-} /* namespace Mattermost */
+bool AttachedVideoFile::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == _player && event && event->type() == QEvent::ParentChange) {
+        syncPresentation();
+        emit dimensionsChanged();
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+void AttachedVideoFile::syncPresentation()
+{
+    const bool detached = _player && _player->parentWidget() != this;
+    const QString title = detached ? tr("Show media window")
+        : _audio ? tr("Play audio") : tr("Play video");
+    _launch->setText(title);
+    _launch->setToolTip(title);
+    _launch->setVisible(!_player || detached);
+}
+
+} // namespace Mattermost
 
 #endif // BUILD_MULTIMEDIA
