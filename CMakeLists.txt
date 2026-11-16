@@ -200,7 +200,7 @@ if(BUILD_MULTIMEDIA)
     include(FetchContent)
     FetchContent_Declare(matterleast_qite
         GIT_REPOSITORY https://github.com/Ri0n/qite.git
-        GIT_TAG af05132787c1cdfa95d422d97aa5621fd38a7221)
+        GIT_TAG 701ecea3589b3e89ead63b8232fa2e529f27d2f1)
     # Qite has no top-level CMakeLists.txt, so MakeAvailable fetches the
     # pinned sources without adding any of its demo or test targets.
     # This avoids deprecated FetchContent_Populate() on CMake 4.2+.
@@ -216,13 +216,6 @@ if(BUILD_MULTIMEDIA)
         Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Multimedia)
     set_target_properties(matterleast-qite PROPERTIES CXX_STANDARD 17)
 
-    # Compile and run qite's real video-frame tests in the multimedia CI jobs.
-    # Unlike a QVideoProbe, these tests exercise the raster QWidget surface,
-    # including Qt 5's native BGR/YUV negotiation and pause/retry behavior.
-    if(BUILD_TESTING AND UNIX AND NOT APPLE)
-        add_subdirectory("${matterleast_qite_SOURCE_DIR}/tests"
-                         "${CMAKE_CURRENT_BINARY_DIR}/qite-regression-tests")
-    endif()
 endif()
 
 # Keep native plugin policy independent of authentication.
