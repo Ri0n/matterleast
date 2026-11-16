@@ -91,6 +91,7 @@ private slots:
         QVERIFY(addChannel(backend, QStringLiteral("other"), QStringLiteral("O"),
                            QStringLiteral("other")));
         ForwardPostDialog dialog(backend, sourcePost(backend, QStringLiteral("private")));
+        QCOMPARE(dialog.windowModality(), Qt::WindowModal);
         auto* list = dialog.findChild<QListWidget*>(QStringLiteral("forwardDestinations"));
         QVERIFY(list);
         QCOMPARE(list->count(), 1);
