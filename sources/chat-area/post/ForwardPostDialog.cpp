@@ -467,6 +467,20 @@ void ForwardPostDialog::updateSubmitEnabled()
         && selected && !selected->isHidden());
 }
 
+void ForwardPostDialog::showFailure(const QString& message)
+{
+    submitting_ = false;
+    destinations_->setEnabled(true);
+    if (search_) {
+        search_->setEnabled(true);
+    }
+    comment_->setReadOnly(false);
+    error_->setText(message.isEmpty()
+        ? tr("The server could not forward this message.") : message);
+    error_->show();
+    updateSubmitEnabled();
+}
+
 void ForwardPostDialog::submit()
 {
     if (submitting_ || permalink_.isEmpty()) {
@@ -476,55 +490,91 @@ void ForwardPostDialog::submit()
     if (!selected || selected->isHidden()) {
         return;
     }
+    const bool newDirect = selected->data(RemoteUserRole).toBool();
     const QString targetId = selected->data(Qt::UserRole).toString();
-    if (!canForwardPostTo(sourceType_, sourceChannelId_, targetId)) {
+    const QString userId = selected->data(UserIdRole).toString();
+
+    if (newDirect) {
+        if (sourceType_ != BackendChannel::publicChannel || userId.isEmpty()) {
+            return;
+        }
+    } else if (!canForwardPostTo(sourceType_, sourceChannelId_, targetId)) {
         return;
     }
-    BackendChannel* target = backend_.getStorage().getChannelById(targetId);
-    if (!target) {
-        error_->setText(tr("The destination conversation is no longer available."));
-        error_->show();
+
+    submitting_ = true;
+    updateSubmitEnabled();
+    destinations_->setEnabled(false);
+    if (search_) {
+        search_->setEnabled(false);
+    }
+    comment_->setReadOnly(true);
+    error_->hide();
+
+    if (!newDirect) {
+        sendToChannel(targetId);
+        return;
+    }
+
+    // A user returned by server search may have no DM yet. Create/open it
+    // before posting; leave the modal usable if the server rejects creation.
+    if (BackendChannel* existing =
+            backend_.getStorage().getDirectChannelByUserId(userId)) {
+        sendToChannel(existing->id);
+        return;
+    }
+    const BackendUser* targetUser = backend_.getStorage().getUserById(userId);
+    if (!targetUser) {
+        showFailure(tr("The selected user is no longer available."));
+        return;
+    }
+    QPointer<ForwardPostDialog> guard(this);
+    backend_.createDirectChannelDetailed(
+        *targetUser,
+        [guard](BackendChannel* channel, const QString& error) {
+            if (!guard) {
+                return;
+            }
+            if (channel) {
+                guard->sendToChannel(channel->id);
+            } else {
+                guard->showFailure(error);
+            }
+        });
+}
+
+void ForwardPostDialog::sendToChannel(const QString& channelId)
+{
+    BackendChannel* target = backend_.getStorage().getChannelById(channelId);
+    if (!target || !canForwardPostTo(sourceType_, sourceChannelId_, channelId)) {
+        showFailure(tr("The destination conversation is no longer available."));
         return;
     }
 
     const QString message = forwardedPostText(
         comment_->toPlainText(), permalink_);
-    submitting_ = true;
-    updateSubmitEnabled();
-    destinations_->setEnabled(false);
-    if (search_) search_->setEnabled(false);
-    comment_->setReadOnly(true);
-    error_->hide();
-
     const bool publicSource = sourceType_ == BackendChannel::publicChannel;
     QPointer<ForwardPostDialog> guard(this);
     PostCreateService::instance(backend_).createPostDetailed(
         *target, message, {}, {}, {}, {},
-        [guard, targetId, publicSource](PostCreateService::CreatePostResult result) {
+        [guard, channelId, publicSource](PostCreateService::CreatePostResult result) {
         if (!guard) {
             return;
         }
         if (result.success()) {
             Backend& backend = guard->backend_;
             guard->accept();
-            // The official client navigates to the destination for public
-            // forwards, but keeps the original view for private re-shares.
+            // Match Mattermost's navigation rule only after REST acknowledged.
             if (publicSource) {
-                AppNavigationService::instance(backend).openChannel(targetId);
+                AppNavigationService::instance(backend).openChannel(channelId);
             }
             return;
         }
-        guard->submitting_ = false;
-        guard->destinations_->setEnabled(true);
-        if (guard->search_) guard->search_->setEnabled(true);
-        guard->comment_->setReadOnly(false);
-        guard->error_->setText(
+        guard->showFailure(
             result.errorText.isEmpty()
                 ? ForwardPostDialog::tr("The server could not forward this message (HTTP %1).")
                       .arg(result.httpStatus)
                 : result.errorText);
-        guard->error_->show();
-        guard->updateSubmitEnabled();
     });
 }
 
