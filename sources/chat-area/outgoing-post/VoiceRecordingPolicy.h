@@ -8,6 +8,13 @@ namespace Mattermost::VoiceRecordingPolicy {
 // configure a lower limit; the upload service still handles server rejection.
 constexpr qint64 MaxVoiceBytes = 100LL * 1024 * 1024;
 constexpr qint64 MinimumVoiceMs = 350;
+constexpr qint64 ContainerFinalizationReserve = 256LL * 1024;
+
+// Close the encoder slightly before the hard cap to make room for the
+// muxer's final index/headers written by stop(). No clock-based cutoff.
+inline bool shouldStopForSize(qint64 bytes) {
+    return bytes >= MaxVoiceBytes - ContainerFinalizationReserve;
+}
 
 inline bool canOfferMicrophone(bool hasText, bool hasAttachments,
                                bool editing, bool sending) {
