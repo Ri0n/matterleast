@@ -127,6 +127,9 @@ ForwardPostDialog::ForwardPostDialog(
     destinations_->setObjectName(QStringLiteral("forwardDestinations"));
     destinations_->setSelectionMode(QAbstractItemView::SingleSelection);
     destinations_->setMinimumHeight(110);
+    destinations_->viewport()->installEventFilter(this);
+    connect(destinations_->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this](int) { resolveVisibleDirectNames(); });
     layout->addWidget(destinations_, 1);
 
     auto* commentLabel = new QLabel(tr("Comment (optional)"), this);
@@ -185,12 +188,34 @@ ForwardPostDialog::ForwardPostDialog(
             filterDestinations(filter);
         });
     }
+    searchTimer_.setSingleShot(true);
+    searchTimer_.setInterval(RemoteSearchDelayMs);
+    connect(&searchTimer_, &QTimer::timeout, this,
+            [this] { searchRemoteUsers(); });
+    connect(&UserProfileService::instance(backend_),
+            &UserProfileService::profileResolved,
+            this, [this](const QString& userId) { updateResolvedUser(userId); });
 
     populateDestinations();
     updateSubmitEnabled();
     if (search_) {
         search_->setFocus();
     }
+}
+
+bool ForwardPostDialog::eventFilter(QObject* watched, QEvent* event)
+{
+    if (destinations_ && watched == destinations_->viewport() && event
+        && (event->type() == QEvent::Resize || event->type() == QEvent::Show)) {
+        resolveVisibleDirectNames();
+    }
+    return QDialog::eventFilter(watched, event);
+}
+
+void ForwardPostDialog::showEvent(QShowEvent* event)
+{
+    QDialog::showEvent(event);
+    resolveVisibleDirectNames();
 }
 
 void ForwardPostDialog::populateDestinations()
