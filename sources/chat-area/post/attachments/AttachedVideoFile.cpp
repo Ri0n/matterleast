@@ -49,6 +49,15 @@ public:
                 QStringLiteral("qite-audio-artwork"))) {
             artwork->installEventFilter(this);
         }
+        // Compact inline audio has no visible frame/artwork. Preserve the
+        // attachment's Save as... menu on the transport controls and their
+        // interactive children, without coupling Qite to file storage.
+        if (auto* controls = player->findChild<QWidget*>(
+                QStringLiteral("qite-video-controls"))) {
+            controls->installEventFilter(this);
+            for (auto* child : controls->findChildren<QWidget*>())
+                child->installEventFilter(this);
+        }
     }
 
 protected:
