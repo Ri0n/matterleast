@@ -23,6 +23,7 @@ AttachedVideoFile::AttachedVideoFile(
     , _backend(backend)
     , _fileId(file.id)
     , _fileName(file.name)
+    , _source(AttachmentMediaOpener::sourceFor(file))
     , _audio(audio)
     , _ui(new Ui::AttachedVideoFile)
 {
@@ -63,12 +64,8 @@ void AttachedVideoFile::openMedia()
         return;
     }
 
-    BackendFile file;
-    file.id = _fileId;
-    file.name = _fileName;
     QWidget* player = ITEVideoController::createPlayer(
-        AttachmentMediaOpener::sourceFor(file),
-        &AttachmentMediaOpener::instance(_backend), this, {}, 0, _audio);
+        _source, &AttachmentMediaOpener::instance(_backend), this, {}, 0, _audio);
     // Limit the size of a single message without limiting a popped-out window.
     // qite rasterizes frames in a regular alien QWidget: no native child window
     // can escape QListWidget's clipping or confuse Wayland compositors.
