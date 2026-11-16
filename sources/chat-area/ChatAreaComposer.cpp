@@ -274,6 +274,9 @@ void ChatArea::setupComposerUi()
     ui->attachButton->setMenu(attachMenu);
 
     configureActionButton(*ui->sendButton);
+    // The send slot also renders the voice-recording microphone. Match the
+    // adjacent emoji button's logical icon size (including on HiDPI screens).
+    ui->sendButton->setIconSize(ui->addEmojiButton->iconSize());
     QFont sendFont = ui->sendButton->font();
     if (sendFont.pointSizeF() > 0.0) {
         sendFont.setPointSizeF(sendFont.pointSizeF() + 2.0);
