@@ -279,6 +279,11 @@ void ForwardPostDialog::populateDestinations()
 
 void ForwardPostDialog::filterDestinations(const QString& text)
 {
+    // Stale remote search callbacks cannot inject results for an older query.
+    ++searchGeneration_;
+    searchTimer_.stop();
+    removeRemoteResults();
+
     QListWidgetItem* firstVisible = nullptr;
     const QString term = text.trimmed();
     for (int i = 0; i < destinations_->count(); ++i) {
@@ -293,6 +298,163 @@ void ForwardPostDialog::filterDestinations(const QString& text)
     if (!destinations_->currentItem()
         || destinations_->currentItem()->isHidden()) {
         destinations_->setCurrentItem(firstVisible);
+    }
+    if (!submitting_ && sourceType_ == BackendChannel::publicChannel
+        && term.size() >= 2) {
+        searchTimer_.start();
+    }
+    updateSubmitEnabled();
+    resolveVisibleDirectNames();
+}
+
+void ForwardPostDialog::removeRemoteResults()
+{
+    // Remote candidates do not participate in the stable local destination
+    // ordering. Deleting only these rows leaves selection/scroll unchanged
+    // for every existing channel.
+    for (QListWidgetItem* item : std::as_const(remoteRows_)) {
+        const int row = destinations_->row(item);
+        if (row >= 0) {
+            delete destinations_->takeItem(row);
+        }
+    }
+    remoteRows_.clear();
+}
+
+void ForwardPostDialog::resolveVisibleDirectNames()
+{
+    if (!destinations_ || inFlightProfiles_.size() >= MaxVisibleProfileRequests
+        || destinations_->count() == 0) {
+        return;
+    }
+
+    // Query the viewport indices rather than scanning every channel on every
+    // scroll. Include two rows of overscan so names appear before entering.
+    const QRect rect = destinations_->viewport()->rect();
+    const QModelIndex first = destinations_->indexAt(QPoint(4, 2));
+    const QModelIndex last = destinations_->indexAt(
+        QPoint(4, qMax(2, rect.height() - 3)));
+    if (!first.isValid() && !last.isValid()) {
+        return;
+    }
+    const int firstRow = qMax(0, (first.isValid() ? first.row() : last.row()) - 2);
+    const int lastRow = qMin(destinations_->count() - 1,
+                             (last.isValid() ? last.row() : first.row()) + 2);
+    for (int i = firstRow; i <= lastRow
+             && inFlightProfiles_.size() < MaxVisibleProfileRequests; ++i) {
+        const QListWidgetItem* item = destinations_->item(i);
+        if (!item || item->isHidden() || item->data(RemoteUserRole).toBool()) {
+            continue;
+        }
+        const QString userId = item->data(UserIdRole).toString();
+        if (userId.isEmpty() || requestedProfiles_.contains(userId)
+            || backend_.getStorage().getUserById(userId)) {
+            continue;
+        }
+        requestedProfiles_.insert(userId);
+        inFlightProfiles_.insert(userId);
+        QPointer<ForwardPostDialog> guard(this);
+        UserProfileService::instance(backend_).ensureUser(
+            userId, [guard, userId](const BackendUser*) {
+            if (!guard) {
+                return;
+            }
+            guard->inFlightProfiles_.remove(userId);
+            guard->updateResolvedUser(userId);
+            guard->resolveVisibleDirectNames();
+        });
+    }
+}
+
+void ForwardPostDialog::updateResolvedUser(const QString& userId)
+{
+    auto it = directRows_.find(userId);
+    if (it == directRows_.end()) {
+        return;
+    }
+    const BackendUser* user = backend_.getStorage().getUserById(userId);
+    QListWidgetItem* item = it.value();
+    if (!user || !item) {
+        return;
+    }
+    const QString channelId = item->data(Qt::UserRole).toString();
+    const BackendChannel* channel =
+        backend_.getStorage().getChannelById(channelId);
+    if (!channel) {
+        return;
+    }
+
+    const QString label = labelForChannel(*channel, backend_.getStorage());
+    const QString search = label + QLatin1Char(' ') + user->username;
+    if (item->text() != label) {
+        item->setText(label);
+    }
+    item->setData(Qt::UserRole + 1, search);
+    const QString term = search_ ? search_->text().trimmed() : QString();
+    if (!term.isEmpty()) {
+        item->setHidden(!search.contains(term, Qt::CaseInsensitive));
+    }
+    // Deliberately never call sortItems(), rebuild the row model, or move the
+    // current index: a delayed profile response must not move the click target.
+    updateSubmitEnabled();
+}
+
+void ForwardPostDialog::searchRemoteUsers()
+{
+    if (!search_ || submitting_
+        || sourceType_ != BackendChannel::publicChannel) {
+        return;
+    }
+    const QString term = search_->text().trimmed();
+    if (term.size() < 2) {
+        return;
+    }
+    UserSearchOptions options;
+    options.term = term;
+    options.limit = MaxRemoteUserResults;
+    const int generation = searchGeneration_;
+    QPointer<ForwardPostDialog> guard(this);
+    UserProfileService::instance(backend_).searchUsers(
+        options, [guard, generation](QVector<const BackendUser*> users) {
+        if (!guard || guard->submitting_
+            || guard->searchGeneration_ != generation) {
+            return;
+        }
+        guard->showRemoteUsers(users);
+    });
+}
+
+void ForwardPostDialog::showRemoteUsers(
+    const QVector<const BackendUser*>& users)
+{
+    removeRemoteResults();
+
+    const Storage& storage = backend_.getStorage();
+    for (const BackendUser* user : users) {
+        if (!user || user->id.isEmpty() || user->delete_at
+            || user->id == backend_.getLoginUser().id
+            || storage.getDirectChannelByUserId(user->id)) {
+            continue;
+        }
+        const QString name = user->getDisplayName().isEmpty()
+            ? user->username : user->getDisplayName();
+        const QString label = tr("%1 (@%2) · New direct message")
+            .arg(name, user->username);
+        auto* item = new QListWidgetItem(label, destinations_);
+        item->setData(UserIdRole, user->id);
+        item->setData(RemoteUserRole, true);
+        item->setData(Qt::UserRole + 1, name + QLatin1Char(' ')
+            + user->username);
+        remoteRows_.push_back(item);
+    }
+    if (!destinations_->currentItem() || destinations_->currentItem()->isHidden()) {
+        for (int i = 0; i < destinations_->count(); ++i) {
+            QListWidgetItem* item = destinations_->item(i);
+            if (!item->isHidden()) {
+                destinations_->setCurrentItem(item);
+                break;
+            }
+        }
     }
     updateSubmitEnabled();
 }
