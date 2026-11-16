@@ -22,7 +22,9 @@
 #include <QThread>
 #include <QToolButton>
 
+#include <algorithm>
 #include <memory>
+#include <utility>
 
 #include <qitevideoframe_p.h>
 #include <qitevideo.h>
@@ -171,6 +173,9 @@ AttachedVideoFile::AttachedVideoFile(
     _ui->videoName->setText(_fileName);
     _ui->videoName->setTextInteractionFlags(Qt::TextSelectableByMouse);
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    // The filename must not force a 4K-wide item when the attachment title
+    // happens to be longer than its video preview.
+    _ui->videoName->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     _launch = new QToolButton(this);
     _launch->setObjectName(QStringLiteral("attachmentMediaLaunch"));
     _launch->setAutoRaise(true);
@@ -212,21 +217,87 @@ void AttachedVideoFile::openMedia()
     QWidget* player = ITEVideoController::createPlayer(
         _source, &AttachmentMediaOpener::instance(_backend), this, {}, 0, _audio);
     new AttachmentMediaSaveMenu(_backend, _source, _fileName, player);
-    // Limit the size of a single message without limiting a popped-out window.
-    // qite rasterizes frames in a regular alien QWidget: no native child window
-    // can escape QListWidget's clipping or confuse Wayland compositors.
-    player->setMinimumSize(_audio ? QSize(280, 128) : QSize(320, 220));
-    player->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    // qite paints into ordinary QWidget children, not QVideoWidget. The
+    // surrounding chat sets a bounded, aspect-correct inline size; detached
+    // and fullscreen windows are free to expand.
+    player->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     _player = player;
+    if (!_audio) {
+        if (auto* frame = player->findChild<ITEVideoFrameWidget*>()) {
+            connect(frame, &ITEVideoFrameWidget::videoSizeChanged,
+                    this, [this](const QSize& size) {
+                if (!size.isValid() || _videoSize == size) return;
+                _videoSize = size;
+                updateInlinePlayerSize();
+                if (_player && _player->parentWidget() == this) {
+                    _ui->verticalLayout->invalidate();
+                    _ui->verticalLayout->activate();
+                    updateGeometry();
+                    emit dimensionsChanged();
+                }
+            });
+            _videoSize = frame->videoSize();
+        }
+    }
     player->installEventFilter(this);
     connect(player, &QObject::destroyed, this, [this] {
         _player = nullptr;
         syncPresentation();
         emit dimensionsChanged();
     });
-    _ui->verticalLayout->addWidget(player);
+    _ui->verticalLayout->addWidget(player, 0, Qt::AlignLeft);
+    updateInlinePlayerSize();
     player->show();
     syncPresentation();
+}
+
+
+void AttachedVideoFile::setAvailableWidth(int width)
+{
+    const int bounded = std::max(1, width);
+    if (_availableWidth == bounded) return;
+    _availableWidth = bounded;
+    updateInlinePlayerSize();
+}
+
+void AttachedVideoFile::updateInlinePlayerSize()
+{
+    if (!_player || _player->parentWidget() != this) return;
+
+    // Keep a readable timeline and transport buttons without stretching to
+    // the entire chat width. The decoder's frame size determines the picture
+    // aspect ratio; a modest 16:9 placeholder is used before the first frame.
+    const int maxWidth = std::min(_availableWidth, _audio ? 460 : 640);
+    const int minControlsWidth = std::min(maxWidth, _audio ? 340 : 360);
+    const int controlsHeight = [this] {
+        auto* controls = _player->findChild<QWidget*>(
+            QStringLiteral("qite-video-controls"));
+        return controls ? controls->sizeHint().height() : 36;
+    }();
+
+    QSize videoArea;
+    if (_audio) {
+        videoArea = QSize(std::max(1, maxWidth), 120);
+    } else {
+        const QSize frame = _videoSize.isValid() ? _videoSize : QSize(16, 9);
+        videoArea = frame.scaled(QSize(std::max(1, maxWidth), 420),
+                                 Qt::KeepAspectRatio);
+        // Do not enlarge a small source just to fill the preview. The
+        // toolbar may still require a wider black backing area.
+        if (_videoSize.isValid()) {
+            videoArea.setWidth(std::min(videoArea.width(), _videoSize.width()));
+            videoArea.setHeight(std::min(videoArea.height(), _videoSize.height()));
+        }
+    }
+    const int width = std::max(minControlsWidth, videoArea.width());
+    const int height = videoArea.height() + controlsHeight;
+    const QSize target(width, height);
+    _player->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    if (_player->size() != target || _player->minimumSize() != target
+        || _player->maximumSize() != target) {
+        _player->setFixedSize(target);
+        _player->updateGeometry();
+    }
 }
 
 bool AttachedVideoFile::eventFilter(QObject* watched, QEvent* event)
@@ -247,8 +318,19 @@ void AttachedVideoFile::syncPresentation()
     if (inlinePlayer && _ui->verticalLayout->indexOf(_player) < 0) {
         // Qite has just returned the detached player. Its QWidget parent has
         // changed, but it is not yet managed by our QVBoxLayout.
-        _ui->verticalLayout->addWidget(_player);
+        _ui->verticalLayout->addWidget(_player, 0, Qt::AlignLeft);
         _player->show();
+    }
+
+    if (_player) {
+        if (inlinePlayer) {
+            updateInlinePlayerSize();
+        } else {
+            // Pop-out/fullscreen must not inherit the chat's fixed geometry.
+            _player->setMinimumSize(0, 0);
+            _player->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+            _player->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        }
     }
 
     const bool detached = _player && !inlinePlayer;
