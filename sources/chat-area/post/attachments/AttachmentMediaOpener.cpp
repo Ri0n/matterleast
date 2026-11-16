@@ -69,6 +69,15 @@ QUrl AttachmentMediaOpener::sourceFor(const BackendFile& file)
 std::shared_ptr<AttachmentMediaOpener::Entry>
 AttachmentMediaOpener::ensureEntry(const QUrl& source)
 {
+    if (source.isLocalFile()) {
+        // qite retains the resolved file URL for replay/retry. Only recognize
+        // files we ourselves placed in this backend's private media cache.
+        const QString path = source.toLocalFile();
+        for (const auto& entry : _entries) {
+            if (entry->path == path) return entry;
+        }
+        return {};
+    }
     if (source.scheme() != QLatin1String("matterleast-media")
         || source.path().size() < 2 || !_directory.isValid()) {
         return {};
