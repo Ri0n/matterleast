@@ -6,6 +6,7 @@
 #include <QAbstractItemView>
 #include <QColor>
 #include <QDialogButtonBox>
+#include <QEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -14,6 +15,8 @@
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QShowEvent>
 #include <QVector>
 #include <QVBoxLayout>
 
@@ -22,19 +25,29 @@
 #include "backend/Backend.h"
 #include "backend/PostCreateService.h"
 #include "backend/Storage.h"
+#include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
+#include "backend/types/BackendUser.h"
 #include "chat-area/QuotedPostPreview.h"
 #include "navigation/AppNavigationService.h"
 
 namespace Mattermost {
 namespace {
 
+constexpr int MaxVisibleProfileRequests = 12;
+constexpr int MaxRemoteUserResults = 25;
+constexpr int RemoteSearchDelayMs = 250;
+constexpr int UserIdRole = Qt::UserRole + 2;
+constexpr int RemoteUserRole = Qt::UserRole + 3;
+
 struct Destination {
     QString id;
     QString label;
     QString search;
+    QString userId;
+    bool unresolved = false;
 };
 
 QString channelLabel(const BackendChannel& channel)
@@ -55,6 +68,19 @@ QString channelLabel(const BackendChannel& channel)
     default:
         return name;
     }
+}
+
+QString labelForChannel(const BackendChannel& channel, const Storage& storage)
+{
+    if (channel.type == BackendChannel::directChannel) {
+        if (const BackendUser* user = storage.getUserById(channel.name)) {
+            const QString name = user->getDisplayName();
+            if (!name.isEmpty()) {
+                return QStringLiteral("@") + name;
+            }
+        }
+    }
+    return channelLabel(channel);
 }
 
 } // namespace
