@@ -1437,7 +1437,11 @@ void OutgoingPostCreator::startVoiceRecording()
         updateSendButtonState();
         return;
     }
-    setReadOnly(true);
+    // A backend is allowed to report a synchronous permission or codec
+    // failure from record(). Its completed callback may already have run.
+    if (voiceRecorder_->active()) {
+        setReadOnly(true);
+    }
     updateSendButtonState();
 }
 
