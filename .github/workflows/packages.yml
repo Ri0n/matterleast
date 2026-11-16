@@ -56,8 +56,8 @@ jobs:
             runner: ubuntu-22.04
             qt-version: "5.15.3"
             qt6: "OFF"
-            build-runtime-packages: "libqt5sql5-sqlite libqt5svg5"
-            debian-extra-depends: "libqt5svg5"
+            build-runtime-packages: "libqt5sql5-sqlite libqt5svg5 libqt5multimedia5-plugins gstreamer1.0-libav"
+            debian-extra-depends: "libqt5svg5, libqt5multimedia5-plugins, gstreamer1.0-libav"
           - ubuntu-version: "24.04"
             runner: ubuntu-24.04
             qt-version: "6.4.2"
@@ -89,9 +89,9 @@ jobs:
           sudo apt-get update
           packages=(build-essential dpkg-dev fakeroot libxss-dev libhunspell-dev pkg-config)
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
-            packages+=(qt6-base-dev qt6-svg-dev qt6-websockets-dev qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins)
+            packages+=(qt6-base-dev qt6-svg-dev qt6-multimedia-dev qt6-websockets-dev qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins)
           else
-            packages+=(qtbase5-dev libqt5svg5-dev libqt5websockets5-dev qtkeychain-qt5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
+            packages+=(qtbase5-dev libqt5svg5-dev qtmultimedia5-dev libqt5websockets5-dev qtkeychain-qt5-dev libqca-qt5-2-dev libqca-qt5-2-plugins)
           fi
           read -r -a runtime_packages <<< "${{ matrix.build-runtime-packages }}"
           packages+=("${runtime_packages[@]}")
@@ -107,7 +107,7 @@ jobs:
             -DQT_6=${{ matrix.qt6 }} \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
-            -DBUILD_TESTING=ON \
+            -DBUILD_TESTING=ON -DBUILD_MULTIMEDIA=ON \
             -DWARNINGS_AS_ERRORS=ON \
             -DMATTERLEAST_DEBIAN_EXTRA_DEPENDS="${{ matrix.debian-extra-depends }}"
 
@@ -150,15 +150,21 @@ jobs:
           fi
           if [[ "${{ matrix.qt6 }}" == "ON" ]]; then
             keychain_dep=libqt6keychain1
+            multimedia_dep=libqt6multimedia6
           else
             keychain_dep=libqt5keychain1
+            multimedia_dep=libqt5multimedia5
+          fi
+          if [[ "$depends" != *"$multimedia_dep"* ]]; then
+            echo "::error::Missing Qt Multimedia runtime dependency $multimedia_dep: $depends"
+            exit 1
           fi
           if [[ "$depends" != *"$keychain_dep"* ]]; then
             echo "::error::Missing system QtKeychain dependency $keychain_dep: $depends"
             exit 1
           fi
           case "${{ matrix.ubuntu-version }}" in
-            22.04) required_deps=(libqt5sql5-sqlite libqt5svg5) ;;
+            22.04) required_deps=(libqt5sql5-sqlite libqt5svg5 libqt5multimedia5-plugins gstreamer1.0-libav) ;;
             24.04) required_deps=(libqt6sql6-sqlite libqt6svg6) ;;
             26.04) required_deps=(libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins) ;;
             *) echo "::error::Unknown Ubuntu version"; exit 1 ;;
@@ -201,7 +207,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
-            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins libxss-dev libhunspell-dev pkg-config
+            qt6-base-dev qt6-svg-dev qt6-multimedia-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins libxss-dev libhunspell-dev pkg-config
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -222,7 +228,7 @@ jobs:
           }
           cmake -S . -B build -G Ninja \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON -DBUILD_MULTIMEDIA=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
             -DWARNINGS_AS_ERRORS=ON \
@@ -251,7 +257,7 @@ jobs:
             echo "::error::DEB must depend on system QtKeychain, not install bundled QtKeychain files"
             exit 1
           fi
-          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqt6keychain1; do
+          for dep in libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libqt6keychain1 libqt6multimedia6; do
             [[ "$depends" == *"$dep"* ]] || {
               echo "::error::Missing Debian 13 dependency: $dep"
               exit 1

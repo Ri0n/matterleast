@@ -200,7 +200,7 @@ if(BUILD_MULTIMEDIA)
     include(FetchContent)
     FetchContent_Declare(matterleast_qite
         GIT_REPOSITORY https://github.com/Ri0n/qite.git
-        GIT_TAG 39a9b24ee418cd8c789c4dcef78fdec2e870ad88)
+        GIT_TAG 701ecea3589b3e89ead63b8232fa2e529f27d2f1)
     # Qite has no top-level CMakeLists.txt, so MakeAvailable fetches the
     # pinned sources without adding any of its demo or test targets.
     # This avoids deprecated FetchContent_Populate() on CMake 4.2+.
@@ -215,6 +215,7 @@ if(BUILD_MULTIMEDIA)
     target_link_libraries(matterleast-qite PUBLIC
         Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Multimedia)
     set_target_properties(matterleast-qite PROPERTIES CXX_STANDARD 17)
+
 endif()
 
 # Keep native plugin policy independent of authentication.
