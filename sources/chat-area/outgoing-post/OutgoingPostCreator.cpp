@@ -48,6 +48,7 @@
 #include <QSizePolicy>
 #include <QTextCursor>
 #include <QTimer>
+#include <QToolTip>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 
@@ -1382,6 +1383,52 @@ void OutgoingPostCreator::updateSendButtonState()
 	sendButton->setToolTip(tooltipText);
 }
 
+#ifdef MATTERLEAST_VOICE_RECORDING
+bool OutgoingPostCreator::canOfferVoiceRecording() const
+{
+    return VoiceRecordingPolicy::canOfferMicrophone(
+        !toPlainText().isEmpty(), attachmentList != nullptr,
+        postToEdit != nullptr, outgoingPostData != nullptr)
+        && !(voiceRecorder_ && (voiceRecorder_->active()
+                                || voiceRecorder_->finishing()));
+}
+
+void OutgoingPostCreator::showVoiceRecordingError(const QString& message)
+{
+    if (sendButton && !message.isEmpty()) {
+        QToolTip::showText(
+            sendButton->mapToGlobal(sendButton->rect().topRight()),
+            message, sendButton);
+    }
+}
+
+void OutgoingPostCreator::startVoiceRecording()
+{
+    if (!voiceRecorder_ || !canOfferVoiceRecording()) {
+        return;
+    }
+    voiceOriginalPlaceholder_ = placeholderText();
+    QString error;
+    if (!voiceRecorder_->start(error)) {
+        voicePointerHeld_ = false;
+        showVoiceRecordingError(error);
+        updateSendButtonState();
+        return;
+    }
+    setReadOnly(true);
+    updateSendButtonState();
+}
+
+void OutgoingPostCreator::finishVoiceRecording(bool send)
+{
+    if (!voiceRecorder_ || !voiceRecorder_->active()) {
+        return;
+    }
+    voiceRecorder_->finish(send);
+    updateSendButtonState();
+}
+#endif // MATTERLEAST_VOICE_RECORDING
+
 bool OutgoingPostCreator::isCreatingPost()
 {
 	if (isWaitingForPostServerResponse()) {
@@ -1404,6 +1451,51 @@ bool OutgoingPostCreator::eventFilter(QObject* watched, QEvent* event)
     }
 
     const QEvent::Type type = event->type();
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (watched == sendButton) {
+        if (type == QEvent::MouseButtonPress) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton && canOfferVoiceRecording()) {
+                voicePointerHeld_ = true;
+                startVoiceRecording();
+                return true; // Suppress QPushButton's ordinary send click.
+            }
+        } else if (type == QEvent::MouseMove && voicePointerHeld_
+                   && voiceRecorder_ && voiceRecorder_->active()) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QPoint position = mouse->position().toPoint();
+#else
+            const QPoint position = mouse->pos();
+#endif
+            const QString hint = sendButton->rect().contains(position)
+                ? tr("🔴 %1 · Release to send · Drag away to cancel")
+                : tr("🔴 %1 · Release to discard");
+            setPlaceholderText(hint.arg(
+                VoiceRecordingPolicy::elapsedLabel(0))); // Timer refreshes the value.
+            return true;
+        } else if (type == QEvent::MouseButtonRelease && voicePointerHeld_) {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                const QPoint position = mouse->position().toPoint();
+#else
+                const QPoint position = mouse->pos();
+#endif
+                const bool send = sendButton->rect().contains(position);
+                voicePointerHeld_ = false;
+                finishVoiceRecording(send);
+                return true;
+            }
+        } else if (type == QEvent::KeyPress && voiceRecorder_
+                   && voiceRecorder_->active()
+                   && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+            voicePointerHeld_ = false;
+            finishVoiceRecording(false);
+            return true;
+        }
+    }
+#endif
     if (watched == rankedEmojiPopup.data()) {
         if (type == QEvent::Enter) {
             rankedEmojiHideTimer->stop();
@@ -1983,6 +2075,13 @@ void OutgoingPostCreator::destroyRankedEmojiPopup()
 
 bool OutgoingPostCreator::event(QEvent* event)
 {
+#ifdef MATTERLEAST_VOICE_RECORDING
+    if (event && event->type() == QEvent::Hide && voiceRecorder_
+        && voiceRecorder_->active()) {
+        voicePointerHeld_ = false;
+        finishVoiceRecording(false);
+    }
+#endif
     const bool replyPropertyChanged = event
         && event->type() == QEvent::DynamicPropertyChange
         && static_cast<QDynamicPropertyChangeEvent*>(event)->propertyName()
