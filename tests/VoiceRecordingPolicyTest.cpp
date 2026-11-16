@@ -24,13 +24,16 @@ private slots:
         QVERIFY(!withinLimit(0));
         QVERIFY(!withinLimit(-1));
         QVERIFY(withinLimit(1));
-        QVERIFY(withinLimit(VoiceRecordingPolicy::MaxVoiceBytes));
-        QVERIFY(!withinLimit(VoiceRecordingPolicy::MaxVoiceBytes + 1));
-        QCOMPARE(VoiceRecordingPolicy::MaxVoiceBytes, qint64(104857600));
-        QVERIFY(!VoiceRecordingPolicy::shouldStopForSize(
-            VoiceRecordingPolicy::MaxVoiceBytes - VoiceRecordingPolicy::ContainerFinalizationReserve - 1));
-        QVERIFY(VoiceRecordingPolicy::shouldStopForSize(
-            VoiceRecordingPolicy::MaxVoiceBytes - VoiceRecordingPolicy::ContainerFinalizationReserve));
+        // Decimal megabytes, not binary mebibytes.
+        QCOMPARE(VoiceRecordingPolicy::MaxVoiceBytes, qint64(100000000));
+        QVERIFY(withinLimit(99999999));
+        QVERIFY(!withinLimit(100000000));
+        QVERIFY(!withinLimit(100000001));
+        QVERIFY(!withinLimit(104857600)); // Old, incorrect 100 MiB boundary.
+        QCOMPARE(VoiceRecordingPolicy::ContainerFinalizationReserve, qint64(5000000));
+        QVERIFY(!VoiceRecordingPolicy::shouldStopForSize(94999999));
+        QVERIFY(VoiceRecordingPolicy::shouldStopForSize(95000000));
+        QVERIFY(VoiceRecordingPolicy::shouldStopForSize(100000000));
     }
 
     void recordingClockHasNoArbitraryDurationLimit()
