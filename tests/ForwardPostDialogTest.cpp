@@ -11,6 +11,7 @@
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
+#include "backend/UserProfileService.h"
 #include "chat-area/post/ForwardPostDialog.h"
 
 using namespace Mattermost;
@@ -81,6 +82,66 @@ private slots:
         QCOMPARE(visible, 1);
         filter->setText(QStringLiteral("not-there"));
         QVERIFY(!submit->isEnabled());
+    }
+
+    void lateProfileResolutionUpdatesOnlyTheDmRow()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+        storage.addUser(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("self")},
+            {QStringLiteral("username"), QStringLiteral("self")},
+        }, true);
+        QVERIFY(addChannel(backend, QStringLiteral("source"), QStringLiteral("O"),
+                           QStringLiteral("source")));
+        QVERIFY(addChannel(backend, QStringLiteral("known"), QStringLiteral("O"),
+                           QStringLiteral("known")));
+        BackendChannel* dm = storage.addDirectChannel(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("dm")},
+            {QStringLiteral("name"), QStringLiteral("self__unknown")},
+            {QStringLiteral("display_name"), QStringLiteral("")},
+            {QStringLiteral("type"), QStringLiteral("D")},
+        });
+        QVERIFY(dm);
+
+        ForwardPostDialog dialog(backend, sourcePost(backend, QStringLiteral("source")));
+        auto* list = dialog.findChild<QListWidget*>(QStringLiteral("forwardDestinations"));
+        QVERIFY(list);
+        QCOMPARE(list->count(), 3);
+        QListWidgetItem* item = nullptr;
+        for (int i = 0; i < list->count(); ++i) {
+            auto* candidate = list->item(i);
+            if (candidate->data(Qt::UserRole).toString() == QStringLiteral("dm")) {
+                item = candidate;
+                break;
+            }
+        }
+        QVERIFY(item);
+        QCOMPARE(item->text(), QStringLiteral("@unknown"));
+        const int row = list->row(item);
+        QListWidgetItem* selected = list->currentItem();
+        QVERIFY(selected && selected != item);
+
+        storage.addUser(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("unknown")},
+            {QStringLiteral("username"), QStringLiteral("login")},
+            {QStringLiteral("first_name"), QStringLiteral("Jane")},
+            {QStringLiteral("last_name"), QStringLiteral("Doe")},
+        });
+        // Simulate a batched UserProfileService completion. No full row rebuild
+        // or sorting is allowed even after a late name update.
+        UserProfileService::instance(backend).profileResolved(QStringLiteral("unknown"));
+        QCOMPARE(item->text(), QStringLiteral("@Jane Doe"));
+        QCOMPARE(list->row(item), row);
+        QCOMPARE(list->currentItem(), selected);
+        QCOMPARE(item->data(Qt::UserRole).toString(), QStringLiteral("dm"));
+
+        auto* search = dialog.findChild<QLineEdit*>(QStringLiteral("forwardDestinationFilter"));
+        QVERIFY(search);
+        search->setText(QStringLiteral("Jane"));
+        QVERIFY(!item->isHidden());
+        search->setText(QStringLiteral("absent"));
+        QVERIFY(item->isHidden());
     }
 
     void privateOriginOnlyOffersItsOwnChannel()
