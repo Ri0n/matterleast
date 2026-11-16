@@ -191,8 +191,30 @@ if(BUILD_TESTING)
 endif()
 
 if(BUILD_MULTIMEDIA)
-	find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Multimedia REQUIRED)
-	find_package(Qt${QT_VERSION_MAJOR} COMPONENTS MultimediaWidgets REQUIRED)
+    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Multimedia REQUIRED)
+
+    # Qite's raster video output avoids QVideoWidget native child surfaces in
+    # the virtualized chat log. Fetch only for multimedia-enabled builds.
+    # Pin the exact reviewed revision; local/offline builds may set
+    # FETCHCONTENT_SOURCE_DIR_MATTERLEAST_QITE to an existing checkout.
+    include(FetchContent)
+    FetchContent_Declare(matterleast_qite
+        GIT_REPOSITORY https://github.com/Ri0n/qite.git
+        GIT_TAG 08b9d8a421d75b187b1225e2e17308400e9fa028)
+    FetchContent_GetProperties(matterleast_qite)
+    if(NOT matterleast_qite_POPULATED)
+        FetchContent_Populate(matterleast_qite)
+    endif()
+    add_library(matterleast-qite STATIC
+        "${matterleast_qite_SOURCE_DIR}/libqite/qite.cpp"
+        "${matterleast_qite_SOURCE_DIR}/libqite/qitemedia.cpp"
+        "${matterleast_qite_SOURCE_DIR}/libqite/qitevideo.cpp"
+        "${matterleast_qite_SOURCE_DIR}/libqite/qitevideoframe.cpp")
+    target_include_directories(matterleast-qite PUBLIC
+        "${matterleast_qite_SOURCE_DIR}/libqite")
+    target_link_libraries(matterleast-qite PUBLIC
+        Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Multimedia)
+    set_target_properties(matterleast-qite PROPERTIES CXX_STANDARD 17)
 endif()
 
 # Keep native plugin policy independent of authentication.
@@ -553,9 +575,7 @@ else()
     # those Qt modules in its public link interface so integration tests that
     # consume the object library inherit the same link requirements instead of
     # duplicating them target by target.
-    target_link_libraries(matterleast-core PUBLIC
-      Qt${QT_VERSION_MAJOR}::Multimedia
-      Qt${QT_VERSION_MAJOR}::MultimediaWidgets)
+    target_link_libraries(matterleast-core PUBLIC matterleast-qite)
   endif()
   if(TARGET Qt${QT_VERSION_MAJOR}::DBus)
     target_link_libraries(matterleast-core PUBLIC Qt${QT_VERSION_MAJOR}::DBus)
@@ -690,9 +710,6 @@ if(UNIX)
 		COMPONENT Runtime)
 endif()
 
-if(BUILD_MULTIMEDIA)
-	target_link_libraries(${APPID} PRIVATE Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::MultimediaWidgets)
-endif()
 
 set(CPACK_PACKAGE_NAME "${APPID}")
 set(CPACK_PACKAGE_VENDOR "${PRODUCT_VENDOR}")
