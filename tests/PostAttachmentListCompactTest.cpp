@@ -117,7 +117,9 @@ private slots:
         };
         attachments->setFiles({BackendFile(video)}, QStringLiteral("Test"));
         auto* card = attachments->findChild<AttachedVideoFile*>();
+        auto* list = attachments->findChild<QListWidget*>();
         QVERIFY(card);
+        QVERIFY(list);
 
         auto* launch = card->findChild<QToolButton*>(
             QStringLiteral("attachmentMediaLaunch"));
@@ -145,6 +147,18 @@ private slots:
         QVERIFY(floating);
         QVERIFY(floating != attachments->window());
         QVERIFY(floating->isWindow());
+        QCoreApplication::processEvents();
+        const int floatingRowHeight = list->item(0)->sizeHint().height();
+
+        // Returning to an existing message must put the *same* player back
+        // under its QVBoxLayout. Merely changing QWidget::parent is insufficient.
+        popout->click();
+        QTRY_COMPARE(player->parentWidget(), static_cast<QWidget*>(card));
+        QVERIFY(card->layout()->indexOf(player) >= 0);
+        QVERIFY(list->item(0)->sizeHint().height() > floatingRowHeight);
+        popout->click();
+        QTRY_VERIFY(player->window() != attachments->window());
+        floating = player->window();
 
         // The QListWidget/ChatArea may discard the original post. The popup
         // must now be the owner and keep the same player alive.
