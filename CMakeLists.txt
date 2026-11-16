@@ -215,6 +215,14 @@ if(BUILD_MULTIMEDIA)
     target_link_libraries(matterleast-qite PUBLIC
         Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Multimedia)
     set_target_properties(matterleast-qite PROPERTIES CXX_STANDARD 17)
+
+    # Compile and run qite's real video-frame tests in the multimedia CI jobs.
+    # Unlike a QVideoProbe, these tests exercise the raster QWidget surface,
+    # including Qt 5's native BGR/YUV negotiation and pause/retry behavior.
+    if(BUILD_TESTING AND UNIX AND NOT APPLE)
+        add_subdirectory("${matterleast_qite_SOURCE_DIR}/tests"
+                         "${CMAKE_CURRENT_BINARY_DIR}/qite-regression-tests")
+    endif()
 endif()
 
 # Keep native plugin policy independent of authentication.
