@@ -5,6 +5,7 @@
 #if BUILD_MULTIMEDIA
 
 #include <QPointer>
+#include <QUrl>
 #include <QWidget>
 
 class QEvent;
@@ -42,6 +43,7 @@ private:
     Backend& _backend;
     QString _fileId;
     QString _fileName;
+    QUrl _source;
     bool _audio = false;
     Ui::AttachedVideoFile* _ui = nullptr;
     QToolButton* _launch = nullptr;
