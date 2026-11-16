@@ -34,7 +34,7 @@ add_executable(post-forward-policy-test PostForwardPolicyTest.cpp)
 target_include_directories(post-forward-policy-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(post-forward-policy-test PRIVATE
-    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
 add_test(NAME post-forward-policy-test COMMAND post-forward-policy-test)
 
 # The Qt dialog keeps forwarded post data independent from the virtualized
