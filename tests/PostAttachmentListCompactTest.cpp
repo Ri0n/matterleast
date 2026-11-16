@@ -1,7 +1,10 @@
 #include <QtTest>
 
 #include <QJsonObject>
+#include <QFile>
+#include <QFileInfo>
 #include <QLayout>
+#include <QTemporaryDir>
 #include <QListWidget>
 #include <QToolButton>
 
@@ -9,6 +12,7 @@
 #include "backend/Backend.h"
 #include "backend/types/BackendFile.h"
 #include "chat-area/post/attachments/PostAttachmentList.h"
+#include "chat-area/post/attachments/AttachmentSaveFile.h"
 #if BUILD_MULTIMEDIA
 #include "chat-area/post/attachments/AttachedVideoFile.h"
 #include <QMediaPlayer>
@@ -69,6 +73,30 @@ private slots:
     }
 
 #if BUILD_MULTIMEDIA
+    void savingAlreadyCachedMediaAvoidsNetwork()
+    {
+        Backend backend;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString cached = directory.filePath(QStringLiteral("cached.mp4"));
+        const QString destination = directory.filePath(QStringLiteral("saved.mp4"));
+        const QByteArray payload("local media bytes\\0from cache", 28);
+        QFile source(cached);
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        QCOMPARE(source.write(payload), payload.size());
+        source.close();
+
+        // The nonexistent remote ID must never be requested. Both the
+        // thumbnail and the full original belong to the application cache.
+        AttachmentSaveFile::saveToPath(
+            backend, QStringLiteral("not-on-the-server"), destination,
+            nullptr, cached);
+        QTRY_VERIFY(QFileInfo::exists(destination));
+        QFile saved(destination);
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), payload);
+    }
+
     void inlineVideoResizesAttachmentListAndDestroysWithoutCallbacks()
     {
         Backend backend;
