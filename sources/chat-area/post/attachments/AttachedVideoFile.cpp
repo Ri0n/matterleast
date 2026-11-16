@@ -183,6 +183,13 @@ void AttachedVideoFile::openMedia()
 }
 
 
+void AttachedVideoFile::saveAttachmentAs()
+{
+    AttachmentSaveFile::chooseAndSave(
+        _backend, _fileId, _fileName, this,
+        AttachmentMediaOpener::instance(_backend).cachedFilePath(_source));
+}
+
 void AttachedVideoFile::setAvailableWidth(int width)
 {
     const int bounded = std::max(1, width);
