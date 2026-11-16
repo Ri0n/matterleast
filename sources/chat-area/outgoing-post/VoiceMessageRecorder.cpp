@@ -82,9 +82,14 @@ RecordingFormat selectFormat(QAudioRecorder& recorder)
         {"mp4", "aac", "m4a"},
         {"m4a", "aac", "m4a"},
         {"quicktime", "aac", "m4a"},
-        {"mp4", "mpeg", "m4a"},
-        {"m4a", "mpeg", "m4a"},
-        {"quicktime", "mpeg", "m4a"},
+        // The generic "audio/mpeg" codec can mean MP3. Only mark MPEG-4
+        // audio as .m4a when its codec description identifies version 4.
+        {"mp4", "mpegversion=4", "m4a"},
+        {"m4a", "mpegversion=4", "m4a"},
+        {"quicktime", "mpegversion=4", "m4a"},
+        {"mp4", "mpegversion=(int)4", "m4a"},
+        {"m4a", "mpegversion=(int)4", "m4a"},
+        {"quicktime", "mpegversion=(int)4", "m4a"},
         {"mpeg", "mp3", "mp3"},
         {"mp3", "mp3", "mp3"},
         {"mpeg", "layer 3", "mp3"},
