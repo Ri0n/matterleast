@@ -65,6 +65,7 @@ public:
 	void openLoginWindow ();
 	void showWindow ();
 	void toggleShowWindow ();
+    void beginLogout();
 	void reopen ();
 private:
 	// Members are destroyed in reverse declaration order. Keep Backend alive
@@ -77,6 +78,7 @@ private:
 	std::unique_ptr<MainWindow>			mainWindow;
     QPointer<LoginDialog>                 loginDialog;
     TrayWindowController                 trayWindow;
+    bool                                 logoutInProgress_ = false;
 };
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
@@ -160,6 +162,9 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 
 void MattermostApplication::openLoginWindow()
 {
+    if (logoutInProgress_) {
+        return;
+    }
     // Reuse the login dialog if it is still alive, rather than creating
     // multiple simultaneous auto-login attempts from repeated tray clicks.
     if (loginDialog) {
@@ -188,6 +193,8 @@ void MattermostApplication::openLoginWindow()
         loginDialog = nullptr;
         mainWindow = std::make_unique<MainWindow>(nullptr, *trayIcon, backend);
         mainWindow->installRealtimeUiSync();
+        connect(mainWindow.get(), &MainWindow::logoutRequested,
+                this, &MattermostApplication::beginLogout);
         trayWindow.setWindow(mainWindow.get());
         mainWindow->show();
     });
@@ -195,8 +202,35 @@ void MattermostApplication::openLoginWindow()
     dialog->open();
 }
 
+void MattermostApplication::beginLogout()
+{
+    if (logoutInProgress_ || !mainWindow) {
+        return;
+    }
+    logoutInProgress_ = true;
+    trayWindow.setWindow(nullptr);
+
+    // The old window holds BackendPost references and channel/user pointers.
+    // Close and persist its UI state while Storage is still populated.
+    mainWindow->prepareForLogout();
+
+    // This signal came from a QAction owned by MainWindow. Delete it only
+    // after the QAction invocation has unwound, but BEFORE Backend::logout()
+    // clears Storage. A reconnect cannot then show stale post widgets.
+    QTimer::singleShot(0, this, [this] {
+        mainWindow.reset();
+        backend.logout([this] {
+            logoutInProgress_ = false;
+            openLoginWindow();
+        });
+    });
+}
+
 inline void MattermostApplication::showWindow()
 {
+    if (logoutInProgress_) {
+        return; // Never resurrect the old session during logout.
+    }
     if (!trayWindow.window()) {
         // The login dialog may have been closed before authentication.
         // The app deliberately remains running in the tray.
@@ -207,6 +241,9 @@ inline void MattermostApplication::showWindow()
 
 inline void MattermostApplication::toggleShowWindow()
 {
+    if (logoutInProgress_) {
+        return;
+    }
     if (!trayWindow.toggleWindow()) {
         openLoginWindow();
     }
