@@ -154,7 +154,7 @@ void ConversationActionsMenu::populate(
 
     if (!thread) {
         addAction(menu, QStringLiteral("openConversationInTabAction"),
-                  QObject::tr("Open in new tab"), QStringLiteral(":/icons/menu-folder"),
+                  QObject::tr("Open in new tab"), QStringLiteral(":/icons/open-in-new-tab"),
                   [backendPtr, channelId] {
             AppNavigationService::instance(*backendPtr).openChannelInTab(channelId);
         });
