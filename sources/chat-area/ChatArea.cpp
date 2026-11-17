@@ -382,7 +382,9 @@ void ChatArea::setupHeaderUi()
     // by channel ID so sidebar moves/reconciliation never stale its state.
     ConversationActionsMenu::populate(
         *chatActionsMenu, backend, channel.id,
-        channel.team ? channel.team->id : backend.getCurrentTeamContextId(),
+        // DM/GM conversations belong to the current sidebar team context,
+        // which may change while this ChatArea remains open.
+        channel.team ? channel.team->id : QString(),
         this, isThread);
 
 #ifdef MATTERLEAST_ENABLE_AI
