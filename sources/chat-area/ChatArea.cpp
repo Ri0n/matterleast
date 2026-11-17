@@ -38,7 +38,6 @@
 #include "AbstractPostSource.h"
 #include "ChannelPostSource.h"
 #include "ChatLogWidget.h"
-#include "ChannelTopicEditDialog.h"
 #include "FilteredPostSource.h"
 #include "OutboxPostSource.h"
 #include "PostFilterPolicy.h"
@@ -50,7 +49,6 @@
 #include "options/MLOptions.h"
 #include "backend/Backend.h"
 #include "backend/PendingPostService.h"
-#include "backend/NetworkRequest.h"
 #include "backend/ThreadFollowService.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -62,9 +60,8 @@
 #include "channel-tree-dialogs/ViewChannelMembersListDialog.h"
 #include "log.h"
 #include "navigation/AppNavigationService.h"
-#include "navigation/ConversationReference.h"
-#include "navigation/MattermostUrlRouter.h"
 #include "post-collection/PostCollectionView.h"
+#include "ui/ConversationActionsMenu.h"
 #include "ui/IconUtils.h"
 #include "ui/ThemeIconWidgets.h"
 #include "ui_ChatArea.h"
@@ -86,51 +83,6 @@ QString conversationTeamName(Backend& backend, const BackendChannel& channel)
         return team->name;
     }
     return {};
-}
-
-QString channelWebUrl(Backend& backend, const BackendChannel& channel)
-{
-    const QString teamName = conversationTeamName(backend, channel);
-    if (teamName.isEmpty()) {
-        return QString();
-    }
-
-    MattermostUrlRoute::Kind routeKind = MattermostUrlRoute::Kind::LocalOther;
-    QString target;
-    switch (channel.type) {
-    case BackendChannel::publicChannel:
-    case BackendChannel::privateChannel:
-        routeKind = MattermostUrlRoute::Kind::Channel;
-        target = channel.name;
-        break;
-    case BackendChannel::directChannel:
-        routeKind = MattermostUrlRoute::Kind::DirectMessage;
-        if (const BackendUser* user = backend.getStorage().getUserById(channel.name)) {
-            target = user->username;
-        }
-        break;
-    case BackendChannel::groupChannel:
-        routeKind = MattermostUrlRoute::Kind::GroupMessage;
-        target = channel.name;
-        break;
-    default:
-        return QString();
-    }
-
-    const QString routePath =
-        MattermostUrlRouter::conversationPath(routeKind, teamName, target);
-    if (routePath.isEmpty()) {
-        return QString();
-    }
-
-    QString base = NetworkRequest::host();
-    if (base.isEmpty()) {
-        return QString();
-    }
-    while (base.endsWith(QLatin1Char('/'))) {
-        base.chop(1);
-    }
-    return base + routePath;
 }
 
 } // namespace
@@ -420,55 +372,31 @@ void ChatArea::setupHeaderUi()
 
     chatActionsMenu = new QMenu(this);
     chatActionsMenu->setObjectName(QStringLiteral("chatActionsMenu"));
-
-    // Keep menu icon sources alongside their actions. refreshHeaderActionIcons()
-    // can then recreate palette-tinted icons after a system theme switch.
-    const auto addMenuAction = [this](const QString& title,
-                                     const QString& name,
-                                     const QString& iconPath) {
-        QAction* action = chatActionsMenu->addAction(title);
-        action->setObjectName(name);
-        action->setProperty("matterleastMenuIconPath", iconPath);
-        return action;
-    };
-
-    QAction* searchAction = addMenuAction(
-        tr("Search in conversation"),
-        QStringLiteral("searchConversationAction"),
-        QStringLiteral(":/icons/search"));
-    connect(searchAction, &QAction::triggered, this, [this] {
-        emit searchInConversationRequested(channel.id);
-    });
-
-    // Match Mattermost's Channel Settings: 'topic' is the Markdown header,
-    // not the channel purpose. Never show this on a thread (which shares its
-    // parent channel's header). The server authorizes the PATCH itself.
-    if (!isThread && channel.type != BackendChannel::unknown) {
-        QAction* topicAction = addMenuAction(
-            tr("Edit channel topic…"),
-            QStringLiteral("editChannelTopicAction"),
-            QStringLiteral(":/icons/edit"));
-        connect(topicAction, &QAction::triggered, this, [this] {
-            auto* dialog = new ChannelTopicEditDialog(backend, channel, window());
-            dialog->setAttribute(Qt::WA_DeleteOnClose);
-            dialog->open();
-        });
-    }
+    // Exactly the same action factory serves sidebar right-clicks. The
+    // menu lives as long as this ChatArea; each action resolves its target
+    // by channel ID so sidebar moves/reconciliation never stale its state.
+    ConversationActionsMenu::populate(
+        *chatActionsMenu, backend, channel.id,
+        // DM/GM conversations belong to the current sidebar team context,
+        // which may change while this ChatArea remains open.
+        channel.team ? channel.team->id : QString(),
+        this, isThread);
 
 #ifdef MATTERLEAST_ENABLE_AI
     if (isThread) {
         chatActionsMenu->addSeparator();
-        QAction* action = addMenuAction(
-            tr("Open AI chat…"),
-            QStringLiteral("openAgentThreadChatAction"),
-            QStringLiteral(":/icons/message-balloon"));
-        const auto refreshAiAction = [action] {
-            action->setVisible(MLOptions::instance()->value<bool>(
+        QAction* aiAction = chatActionsMenu->addAction(tr("Open AI chat…"));
+        aiAction->setObjectName(QStringLiteral("openAgentThreadChatAction"));
+        IconUtils::setMenuActionIcon(
+            *aiAction, QStringLiteral(":/icons/message-balloon"));
+        const auto refreshAiAction = [aiAction] {
+            aiAction->setVisible(MLOptions::instance()->value<bool>(
                 AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT));
         };
-        connect(chatActionsMenu, &QMenu::aboutToShow, action, refreshAiAction);
+        connect(chatActionsMenu, &QMenu::aboutToShow,
+                aiAction, refreshAiAction);
         refreshAiAction();
-        connect(action, &QAction::triggered, this, [this] {
+        connect(aiAction, &QAction::triggered, this, [this] {
             if (!MLOptions::instance()->value<bool>(
                     AI_AGENT_ENABLED, AI_AGENT_ENABLED_DEFAULT)) return;
             auto* dialog = new AgentThreadChatDialog(
@@ -479,37 +407,6 @@ void ChatArea::setupHeaderUi()
         });
     }
 #endif
-
-    chatActionsMenu->addSeparator();
-    QAction* copyReferenceAction = addMenuAction(
-        tr("Copy reference"),
-        QStringLiteral("copyConversationReferenceAction"),
-        QStringLiteral(":/icons/copy"));
-    QAction* copyLinkAction = addMenuAction(
-        tr("Copy link to chat"),
-        QStringLiteral("copyConversationLinkAction"),
-        QStringLiteral(":/icons/link"));
-
-    auto refreshClipboardActions = [this, copyReferenceAction, copyLinkAction] {
-        const QString reference = ConversationReference::copyText(backend, channel);
-        copyReferenceAction->setVisible(!reference.isEmpty());
-        copyReferenceAction->setEnabled(!reference.isEmpty());
-        copyLinkAction->setEnabled(!channelWebUrl(backend, channel).isEmpty());
-    };
-    connect(chatActionsMenu, &QMenu::aboutToShow, this, refreshClipboardActions);
-    connect(copyReferenceAction, &QAction::triggered, this, [this] {
-        const QString reference = ConversationReference::copyText(backend, channel);
-        if (!reference.isEmpty()) {
-            QApplication::clipboard()->setText(reference);
-        }
-    });
-    connect(copyLinkAction, &QAction::triggered, this, [this] {
-        const QString link = channelWebUrl(backend, channel);
-        if (!link.isEmpty()) {
-            QApplication::clipboard()->setText(link);
-        }
-    });
-    refreshClipboardActions();
 
     chatActionsButton = new QToolButton(this);
     chatActionsButton->setObjectName(QStringLiteral("chatActionsButton"));
@@ -533,7 +430,7 @@ void ChatArea::setupHeaderUi()
         QAction* copyLinkAction = menu.addAction(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/link")),
             tr("Copy link to chat"));
-        const QString link = channelWebUrl(this->backend, this->channel);
+        const QString link = ConversationActionsMenu::channelWebUrl(this->backend, this->channel);
         copyLinkAction->setEnabled(!link.isEmpty());
         if (menu.exec(ui->titleLabel->mapToGlobal(pos)) == copyLinkAction
             && !link.isEmpty()) {

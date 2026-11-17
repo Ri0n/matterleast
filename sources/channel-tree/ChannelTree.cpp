@@ -24,12 +24,17 @@
 
 #include "ChannelTree.h"
 
+#include <QAction>
 #include <QApplication>
+#include <QCursor>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMenu>
+#include <QMessageBox>
 #include <QPointer>
 #include <QStackedWidget>
 #include <QTimer>
@@ -46,6 +51,8 @@
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/SidebarChannelMovePolicy.h"
+#include "channel-tree/SidebarManualOrder.h"
+#include "ui/IconUtils.h"
 #include "channel-tree/SidebarDragScrollPolicy.h"
 #include "channel-tree/channel-item/DirectChannelItem.h"
 #include "channel-tree/team-item/GroupTeamItem.h"
@@ -54,23 +61,6 @@
 namespace Mattermost {
 
 namespace {
-
-QString categoryDisplayName(const SidebarCategory& category)
-{
-    if (!category.displayName.isEmpty()) {
-        return category.displayName;
-    }
-    if (category.type == QStringLiteral("favorites")) {
-        return QStringLiteral("Favorites");
-    }
-    if (category.type == QStringLiteral("channels")) {
-        return QStringLiteral("Channels");
-    }
-    if (category.type == QStringLiteral("direct_messages")) {
-        return QStringLiteral("Direct Messages");
-    }
-    return QStringLiteral("Category");
-}
 
 QPoint dropEventPosition(const QDropEvent* event)
 {
@@ -175,7 +165,10 @@ ChannelTree::ChannelTree (QWidget* parent)
         }
     });
 
-    setItemDelegate(new ChannelItemDelegate(this));
+    auto* categoryDelegate = new ChannelItemDelegate(this);
+    setItemDelegate(categoryDelegate);
+    connect(categoryDelegate, &ChannelItemDelegate::categoryMenuRequested,
+            this, &ChannelTree::showCategoryMenu);
     setMouseTracking(true);
     setDragEnabled(true);
     setAcceptDrops(true);
@@ -311,6 +304,21 @@ void ChannelTree::populateSidebars(Backend& backend)
             Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::channelMentionedChanged,
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
+    if (!categorySyncConnected_) {
+        categorySyncConnected_ = true;
+        connect(&sidebar, &SidebarService::categoriesChanged, this,
+                [this](const QString& teamId) {
+            if (!backendForSidebar) {
+                return;
+            }
+            TeamItem* team = teamToItemMap.value(teamId, nullptr);
+            const SidebarTeamState* state =
+                SidebarService::instance(*backendForSidebar).teamState(teamId);
+            if (team && state) {
+                reconcileTeamSidebar(*backendForSidebar, *team, *state);
+            }
+        });
+    }
 
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
         if (BackendTeam* team = backend.getStorage().getTeamById(it.key())) {
@@ -344,6 +352,17 @@ void ChannelTree::refreshServerSnapshot()
                 });
         });
     });
+}
+
+void ChannelTree::refreshSidebarTeam(const QString& teamId)
+{
+    if (!backendForSidebar) {
+        return;
+    }
+    BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId);
+    if (team) {
+        refreshTeamSidebar(*backendForSidebar, *team);
+    }
 }
 
 void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
@@ -938,9 +957,14 @@ void ChannelTree::removeChannelToItem (QString channelID, QTreeWidgetItem* item)
 void ChannelTree::showContextMenu (const QPoint& pos)
 {
 	QTreeWidgetItem* item = itemAt(pos);
-    if (!item || item->data(0, ItemKindRole).toInt() == CategoryItemKind) {
-		return;
-	}
+    if (!item) {
+        return;
+    }
+    if (item->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+        showCategoryMenu(item->data(0, ItemTeamIdRole).toString(),
+                         item->data(0, ItemIdRole).toString());
+        return;
+    }
 
     const int kind = item->data(0, ItemKindRole).toInt();
     if (kind != TeamItemKind && kind != ChannelItemKind) {
@@ -957,6 +981,192 @@ ChatArea* ChannelTree::getCurrentPage ()
         return nullptr;
     }
 	return qobject_cast<ChatArea*> (chatAreaStackedWidget->currentWidget());
+}
+
+void ChannelTree::showCategoryMenu(const QString& teamId,
+                                   const QString& categoryId)
+{
+    if (!backendForSidebar || teamId.isEmpty() || categoryId.isEmpty()) {
+        return;
+    }
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    const SidebarTeamState* state = sidebar.teamState(teamId);
+    const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
+    if (!category) {
+        return;
+    }
+
+    const bool custom = category->isCustom();
+    const bool muted = category->muted;
+    const bool collapsed = category->collapsed;
+    const QString currentSorting = category->sorting.isEmpty()
+        ? (category->type == QLatin1String("direct_messages")
+            ? QStringLiteral("recent") : QStringLiteral("alpha"))
+        : category->sorting;
+
+    QMenu menu(this);
+    QAction* read = menu.addAction(
+        IconUtils::symbolicIcon(QStringLiteral(":/icons/text-check")),
+        tr("Mark category as read"));
+    // Mattermost's Direct Messages category has its own sorting menu and
+    // intentionally does not offer category-wide Mute.
+    QAction* mute = category->type == QLatin1String("direct_messages")
+        ? nullptr
+        : menu.addAction(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/bell")),
+            muted ? tr("Unmute category") : tr("Mute category"));
+    QAction* collapse = menu.addAction(
+        collapsed ? tr("Expand category") : tr("Collapse category"));
+    if (custom) {
+        menu.addSeparator();
+    }
+    QAction* rename = custom
+        ? menu.addAction(IconUtils::symbolicIcon(QStringLiteral(":/icons/edit")),
+                         tr("Rename category")) : nullptr;
+    QAction* remove = custom
+        ? menu.addAction(IconUtils::symbolicIcon(QStringLiteral(":/icons/trash")),
+                         tr("Delete category")) : nullptr;
+
+    menu.addSeparator();
+    const QString sortLabel = currentSorting == QLatin1String("manual")
+        ? tr("Manually") : currentSorting == QLatin1String("recent")
+            ? tr("Recent activity") : tr("Alphabetically");
+    QMenu* sortMenu = menu.addMenu(tr("Sort: %1").arg(sortLabel));
+    QAction* alpha = sortMenu->addAction(tr("Alphabetically"));
+    QAction* recent = sortMenu->addAction(tr("Recent activity"));
+    QAction* manual = category->type == QLatin1String("direct_messages")
+        ? nullptr : sortMenu->addAction(tr("Manually"));
+    for (QAction* action : {alpha, recent}) {
+        action->setCheckable(true);
+    }
+    if (manual) {
+        manual->setCheckable(true);
+    }
+    alpha->setChecked(currentSorting == QLatin1String("alpha"));
+    recent->setChecked(currentSorting == QLatin1String("recent"));
+    if (manual) {
+        manual->setChecked(currentSorting == QLatin1String("manual"));
+    }
+
+    menu.addSeparator();
+    QAction* create = menu.addAction(
+        IconUtils::symbolicIcon(QStringLiteral(":/icons/add")),
+        tr("Create category"));
+
+    QAction* chosen = menu.exec(QCursor::pos());
+    if (!chosen || !backendForSidebar) {
+        return;
+    }
+
+    // The server may have delivered a new category snapshot while the menu's
+    // modal event loop was running. Resolve again by stable category id.
+    SidebarTeamState* liveState = sidebar.teamState(teamId);
+    const SidebarCategory* liveCategory = liveState
+        ? liveState->category(categoryId) : nullptr;
+    if (!liveCategory) {
+        return;
+    }
+    const auto update = [this, &sidebar](SidebarCategory changed) {
+        QPointer<ChannelTree> guard(this);
+        sidebar.updateCategory(changed, {}, [guard] {
+            if (guard) {
+                QMessageBox::warning(guard, QObject::tr("Category update"),
+                                     QObject::tr("Could not update this category."));
+            }
+        });
+    };
+
+    if (chosen == read) {
+        QPointer<ChannelTree> guard(this);
+        sidebar.markCategoryRead(teamId, categoryId, [guard](bool success) {
+            if (!success && guard) {
+                QMessageBox::warning(guard, QObject::tr("Mark category as read"),
+                                     QObject::tr("Could not mark the category as read."));
+            }
+        });
+    } else if (chosen == mute) {
+        SidebarCategory changed = *liveCategory;
+        changed.muted = !changed.muted;
+        update(std::move(changed));
+    } else if (chosen == collapse) {
+        QTreeWidgetItem* row = nullptr;
+        TeamItem* team = teamToItemMap.value(teamId, nullptr);
+        for (int i = 0; team && i < team->childCount(); ++i) {
+            QTreeWidgetItem* candidate = team->child(i);
+            if (candidate->data(0, ItemIdRole).toString() == categoryId) {
+                row = candidate;
+                break;
+            }
+        }
+        if (row) {
+            row->setExpanded(liveCategory->collapsed);
+        } else {
+            SidebarCategory changed = *liveCategory;
+            changed.collapsed = !changed.collapsed;
+            update(std::move(changed));
+        }
+    } else if (chosen == rename && custom) {
+        bool accepted = false;
+        const QString name = QInputDialog::getText(
+            this, tr("Rename category"), tr("Category name:"),
+            QLineEdit::Normal, liveCategory->displayName, &accepted).trimmed();
+        if (accepted && !name.isEmpty() && name != liveCategory->displayName) {
+            SidebarCategory changed = *liveCategory;
+            changed.displayName = name;
+            update(std::move(changed));
+        }
+    } else if (chosen == remove && custom) {
+        // A visually empty category can still own hidden/capped conversations.
+        // Skip confirmation only when the SERVER membership list is empty.
+        const bool empty = liveCategory->channelIds.isEmpty();
+        if (empty || QMessageBox::question(
+                this, tr("Delete category"),
+                tr("Delete this category? Its conversations will return to their default categories."))
+            == QMessageBox::Yes) {
+            QPointer<ChannelTree> guard(this);
+            sidebar.deleteCategory(teamId, categoryId, [guard](bool success) {
+                if (!success && guard) {
+                    QMessageBox::warning(guard, QObject::tr("Delete category"),
+                                         QObject::tr("Could not delete this category."));
+                }
+            });
+        }
+    } else if (chosen == alpha || chosen == recent
+               || (manual && chosen == manual)) {
+        const QString sorting = chosen == alpha ? QStringLiteral("alpha")
+            : chosen == recent ? QStringLiteral("recent")
+                               : QStringLiteral("manual");
+        if (liveCategory->sorting == sorting) {
+            return;
+        }
+        SidebarCategory changed = *liveCategory;
+        if (sorting == QLatin1String("manual")
+            && changed.sorting != QLatin1String("manual")) {
+            // Materialize the displayed alpha/recent order BEFORE the mode
+            // switch, otherwise the arbitrary server channel_ids reorder rows.
+            changed.channelIds = sidebarManualOrder(
+                changed.channelIds, sidebar.visibleChannelIds(*liveCategory));
+        }
+        changed.sorting = sorting;
+        update(std::move(changed));
+    } else if (chosen == create) {
+        bool accepted = false;
+        const QString name = QInputDialog::getText(
+            this, tr("Create category"), tr("Category name:"),
+            QLineEdit::Normal, QString(), &accepted).trimmed();
+        if (accepted && !name.isEmpty()) {
+            QPointer<ChannelTree> guard(this);
+            // The category is placed above the one whose menu was used,
+            // and that order is persisted with the server's /order endpoint.
+            sidebar.createCategory(teamId, name, {}, categoryId, [guard] {
+                if (guard) {
+                    QMessageBox::warning(
+                        guard, QObject::tr("Create category"),
+                        QObject::tr("Could not create or position this category."));
+                }
+            });
+        }
+    }
 }
 
 void ChannelTree::setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed)
@@ -1044,171 +1254,6 @@ void ChannelTree::setChannelMentionedVisual(const QString& channelId, bool menti
     }
 }
 
-bool ChannelTree::canRemoveChannelFromCategory(const ChannelItem* item) const
-{
-    if (!backendForSidebar || !item || !item->parent()) {
-        return false;
-    }
-
-    QTreeWidgetItem* categoryItem = item->parent();
-    if (categoryItem->data(0, ItemKindRole).toInt() != CategoryItemKind) {
-        return false;
-    }
-
-    const QString teamId = categoryItem->data(0, ItemTeamIdRole).toString();
-    const QString categoryId = categoryItem->data(0, ItemIdRole).toString();
-    const SidebarTeamState* state = SidebarService::instance(*backendForSidebar).teamState(teamId);
-    const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
-    return category && (category->type == QStringLiteral("custom")
-                        || category->type == QStringLiteral("favorites"));
-}
-
-void ChannelTree::removeChannelFromCategory(ChannelItem* item)
-{
-    if (!canRemoveChannelFromCategory(item) || !backendForSidebar) {
-        return;
-    }
-
-    QTreeWidgetItem* sourceCategoryItem = item->parent();
-    QTreeWidgetItem* teamItem = sourceCategoryItem ? sourceCategoryItem->parent() : nullptr;
-    const QString channelId = item->data(0, ItemIdRole).toString();
-    BackendChannel* channel = backendForSidebar->getStorage().getChannelById(channelId);
-    if (!teamItem || !channel) {
-        return;
-    }
-
-    const QString teamId = sourceCategoryItem->data(0, ItemTeamIdRole).toString();
-    SidebarTeamState* state = SidebarService::instance(*backendForSidebar).teamState(teamId);
-    SidebarCategory* sourceCategory = state
-        ? state->category(sourceCategoryItem->data(0, ItemIdRole).toString()) : nullptr;
-    if (!sourceCategory) {
-        return;
-    }
-
-    const bool direct = channel->type == BackendChannel::directChannel
-        || channel->type == BackendChannel::groupChannel;
-    SidebarCategory* targetCategory = state->categoryByType(
-        direct ? QStringLiteral("direct_messages") : QStringLiteral("channels"));
-    if (!targetCategory || targetCategory->id == sourceCategory->id) {
-        return;
-    }
-
-    sourceCategory->channelIds.removeAll(channelId);
-    targetCategory->channelIds.removeAll(channelId);
-    targetCategory->channelIds.push_back(channelId);
-
-    QVector<SidebarCategory> updates {*sourceCategory, *targetCategory};
-    SidebarService::instance(*backendForSidebar).updateCategories(teamId, updates,
-        [this, teamId](const SidebarTeamState&) {
-            if (!backendForSidebar) {
-                return;
-            }
-            BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId);
-            if (team) {
-                refreshTeamSidebar(*backendForSidebar, *team);
-            }
-        });
-}
-
-void ChannelTree::refreshSidebarTeam(const QString& teamId)
-{
-    if (!backendForSidebar) {
-        return;
-    }
-    if (BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId)) {
-        refreshTeamSidebar(*backendForSidebar, *team);
-    }
-}
-
-QVector<QPair<QString, QString>> ChannelTree::customCategoryTargets(const ChannelItem* item) const
-{
-    QVector<QPair<QString, QString>> result;
-    if (!backendForSidebar || !item || !item->parent()) {
-        return result;
-    }
-
-    const QTreeWidgetItem* sourceCategoryItem = item->parent();
-    const QString teamId = sourceCategoryItem->data(0, ItemTeamIdRole).toString();
-    const QString sourceCategoryId = sourceCategoryItem->data(0, ItemIdRole).toString();
-    const SidebarTeamState* state = SidebarService::instance(*backendForSidebar).teamState(teamId);
-    if (!state) {
-        return result;
-    }
-
-    for (const QString& categoryId : state->order) {
-        const SidebarCategory* category = state->category(categoryId);
-        if (!category || !category->isCustom() || category->id == sourceCategoryId) {
-            continue;
-        }
-        result.push_back(qMakePair(category->id, categoryDisplayName(*category)));
-    }
-    return result;
-}
-
-void ChannelTree::createGroupAndMoveChannel(ChannelItem* item)
-{
-    if (!backendForSidebar || !item || !item->parent()) {
-        return;
-    }
-
-    const QString teamId = item->data(0, ItemTeamIdRole).toString();
-    const QString channelId = item->data(0, ItemIdRole).toString();
-    const QString sourceCategoryId = item->parent()->data(0, ItemIdRole).toString();
-    if (teamId.isEmpty() || channelId.isEmpty() || sourceCategoryId.isEmpty()) {
-        return;
-    }
-
-    bool accepted = false;
-    const QString name = QInputDialog::getText(
-        this, tr("Create group"), tr("Group name:"), QLineEdit::Normal,
-        QString(), &accepted).trimmed();
-    if (!accepted || name.isEmpty()) {
-        return;
-    }
-
-    QPointer<ChannelTree> guard(this);
-    SidebarService::instance(*backendForSidebar).createCategory(
-        teamId, name,
-        [guard, teamId, sourceCategoryId, channelId](const SidebarCategory& created) {
-            if (!guard || !guard->backendForSidebar || created.id.isEmpty()) {
-                return;
-            }
-
-            auto& sidebar = SidebarService::instance(*guard->backendForSidebar);
-            SidebarTeamState* state = sidebar.teamState(teamId);
-            const SidebarCategory* source = state ? state->category(sourceCategoryId) : nullptr;
-            const SidebarCategory* target = state ? state->category(created.id) : nullptr;
-            if (!target) {
-                return;
-            }
-
-            QVector<SidebarCategory> updates;
-            if (source && source->id != target->id) {
-                SidebarCategory sourceUpdate = *source;
-                sourceUpdate.channelIds.removeAll(channelId);
-                updates.push_back(std::move(sourceUpdate));
-            }
-
-            SidebarCategory targetUpdate = *target;
-            targetUpdate.channelIds.removeAll(channelId);
-            targetUpdate.channelIds.push_back(channelId);
-            targetUpdate.sorting = QStringLiteral("manual");
-            updates.push_back(std::move(targetUpdate));
-
-            sidebar.updateCategories(teamId, updates,
-                [guard, teamId](const SidebarTeamState&) {
-                    if (guard) {
-                        guard->refreshSidebarTeam(teamId);
-                    }
-                });
-        });
-}
-
-void ChannelTree::moveChannelToCategory(ChannelItem* item, const QString& categoryId)
-{
-    moveChannel(item, categoryId, {}, false, false);
-}
-
 void ChannelTree::moveChannel(ChannelItem* item,
                               const QString& targetCategoryId,
                               const QString& targetChannelId,
@@ -1247,12 +1292,22 @@ void ChannelTree::moveChannel(ChannelItem* item,
     bool changed = false;
     const bool sameCategory = sourceCategoryId == targetCategoryId;
     if (sameCategory) {
+        // DnD is relative to the visible sorted order, NOT the server's
+        // channel_ids order, which may be arbitrary in an alpha/recent group.
+        if (sourceUpdate->sorting != QLatin1String("manual")) {
+            sourceUpdate->channelIds = sidebarManualOrder(
+                sourceUpdate->channelIds, sidebar.visibleChannelIds(*sourceCategory));
+        }
         changed = reorderSidebarChannel(sourceUpdate->channelIds, channelId,
                                         targetChannelId, afterTarget);
         if (changed) {
             sourceUpdate->sorting = QStringLiteral("manual");
         }
     } else {
+        if (explicitPosition && targetUpdate->sorting != QLatin1String("manual")) {
+            targetUpdate->channelIds = sidebarManualOrder(
+                targetUpdate->channelIds, sidebar.visibleChannelIds(*targetCategory));
+        }
         changed = moveSidebarChannel(sourceUpdate->channelIds, targetUpdate->channelIds,
                                      channelId, targetChannelId, afterTarget);
         if (changed && explicitPosition) {

@@ -2,6 +2,10 @@
     <qresource prefix="/icons">
         <file alias="matterleast">img/MatterLeast.svg</file>
         <file alias="burger">img/burger_icon.svg</file>
+        <file alias="dots-vertical">img/dots-vertical.svg</file>
+        <file alias="text-check">img/text-check.svg</file>
+        <file alias="heart-outline">img/heart-outline.svg</file>
+        <file alias="heart-filled">img/heart-filled.svg</file>
         <file alias="search">img/search.svg</file>
         <file alias="add">img/add.svg</file>
         <file alias="bookmark">img/bookmark.svg</file>
@@ -29,6 +33,7 @@
         <file alias="unread">img/unread.svg</file>
         <file alias="filter-variant">img/filter-variant.svg</file>
         <file alias="menu-folder">img/menu-folder.svg</file>
+        <file alias="open-in-new-tab">img/open-in-new-tab.svg</file>
         <file alias="menu-power">img/menu-power.svg</file>
         <file alias="menu-logout">img/menu-logout.svg</file>
         <file alias="menu-settings">img/menu-settings.svg</file>

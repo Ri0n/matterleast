@@ -94,6 +94,14 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
     if (!event) {
         return;
     }
+    // A secondary click requests the context menu for the pointed row.
+    // QTreeWidget's default press handling would select/activate it first,
+    // making "Open in new tab" operate on an already-open conversation.
+    // Qt still delivers the independent context-menu event.
+    if (event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     const QPoint eventPos = event->position().toPoint();
@@ -157,23 +165,34 @@ void ChannelTree::mouseMoveEvent(QMouseEvent* event)
     }
 
     const QModelIndex index = indexAt(event->pos());
-    const bool actionable = index.isValid()
+    const bool hasAdd = index.isValid()
         && index.data(SidebarItem::CategoryActionRole).toBool();
-    const QRect rowRect = actionable ? visualRect(index) : QRect();
-    const QRect actionRect = actionable
-        ? QRect(rowRect.right() - 30 + 1, rowRect.top(), 30, rowRect.height())
-        : QRect();
-    const bool hovered = actionable && actionRect.contains(event->pos());
+    const bool hasMenu = index.isValid()
+        && index.data(SidebarItem::CategoryMenuRole).toBool();
+    const QRect rowRect = (hasAdd || hasMenu) ? visualRect(index) : QRect();
+    const auto accessoryRect = [&rowRect](int slot) {
+        return QRect(rowRect.right() - (slot + 1) * 30 + 1,
+                     rowRect.top(), 30, rowRect.height());
+    };
+    const bool addHovered = hasAdd && accessoryRect(0).contains(event->pos());
+    // The options icon is revealed on category-row hover, not only after
+    // the pointer finds its otherwise invisible 30 px click target.
+    const bool menuHovered = hasMenu && rowRect.contains(event->pos());
 
-    if (index != categoryActionHoverIndex || hovered != categoryActionHovered) {
+    if (index != categoryActionHoverIndex
+        || addHovered != categoryActionHovered
+        || menuHovered != categoryMenuHovered) {
         const QPersistentModelIndex previous = categoryActionHoverIndex;
-        if (previous.isValid()) {
+        if (previous.isValid() && previous != index) {
             model()->setData(previous, false, SidebarItem::CategoryActionHoveredRole);
+            model()->setData(previous, false, SidebarItem::CategoryMenuHoveredRole);
         }
         categoryActionHoverIndex = index;
-        categoryActionHovered = hovered;
+        categoryActionHovered = addHovered;
+        categoryMenuHovered = menuHovered;
         if (index.isValid()) {
-            model()->setData(index, hovered, SidebarItem::CategoryActionHoveredRole);
+            model()->setData(index, addHovered, SidebarItem::CategoryActionHoveredRole);
+            model()->setData(index, menuHovered, SidebarItem::CategoryMenuHoveredRole);
         }
     }
 
@@ -183,6 +202,10 @@ void ChannelTree::mouseMoveEvent(QMouseEvent* event)
 
 void ChannelTree::mouseReleaseEvent(QMouseEvent* event)
 {
+    if (event && event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
     if (sidebarDragActive && event->button() == Qt::LeftButton) {
         finishInternalDrag(event->pos(), true);
         event->accept();
@@ -196,9 +219,12 @@ void ChannelTree::leaveEvent(QEvent* event)
     if (categoryActionHoverIndex.isValid()) {
         model()->setData(categoryActionHoverIndex, false,
                          SidebarItem::CategoryActionHoveredRole);
+        model()->setData(categoryActionHoverIndex, false,
+                         SidebarItem::CategoryMenuHoveredRole);
     }
     categoryActionHoverIndex = QPersistentModelIndex();
     categoryActionHovered = false;
+    categoryMenuHovered = false;
     QTreeWidget::leaveEvent(event);
 }
 

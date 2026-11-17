@@ -262,6 +262,22 @@ jobs:
           CCACHE_COMPILERCHECK: content
         run: cmake --build build --parallel 4
 
+      - name: Thread post source integration (captured first run)
+        shell: pwsh
+        run: |
+          # Windows GUI-subsystem QtTest diagnostics are hidden by CTest.
+          # Capture the first invocation with its assertion and exit status.
+          $log = Join-Path $PWD 'thread-post-source-first-run.txt'
+          & ./build/tests/thread-post-source-integration-test.exe -o "$log,txt"
+          $testExit = $LASTEXITCODE
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Error "QtTest did not produce its thread post source log."
+            exit 1
+          }
+          exit $testExit
+
       - name: Thread tabs integration test (captured first run)
         shell: pwsh
         run: |
@@ -374,7 +390,7 @@ jobs:
 
       - name: Unit tests
         # Tests above already ran exactly once with visible QtTest assertions.
-        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test|channel-member-invite-test|channel-header-text-label-test|user-profile-recovery-test)$"
+        run: ctest --test-dir build --verbose --output-on-failure -E "^(thread-post-source-integration-test|thread-tabs-integration-test|login-bootstrap-test|windows-update-feedback-test|channel-post-source-hidden-history-test|channel-member-invite-test|channel-header-text-label-test|user-profile-recovery-test)$"
 
       - name: Build portable Windows ZIP for PR testing
         shell: pwsh

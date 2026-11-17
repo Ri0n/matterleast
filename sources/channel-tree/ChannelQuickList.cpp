@@ -154,6 +154,11 @@ void ChannelQuickList::keyPressEvent(QKeyEvent* event)
 
 void ChannelQuickList::mousePressEvent(QMouseEvent* event)
 {
+    // Context menus must not change the selected conversation.
+    if (event && event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
     QTreeWidgetItem* pressedItem = nullptr;
     if (event) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -193,6 +198,15 @@ void ChannelQuickList::mousePressEvent(QMouseEvent* event)
     if (leftActivation && pressedItem) {
         activateItem(pressedItem);
     }
+}
+
+void ChannelQuickList::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event && event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
+    QTreeWidget::mouseReleaseEvent(event);
 }
 
 void ChannelQuickList::showEvent(QShowEvent* event)

@@ -19,6 +19,7 @@
 #include "backend/Backend.h"
 #include "backend/DeletedUnreadPostPolicy.h"
 #include "backend/NetworkRequest.h"
+#include "backend/SidebarCategoryOrderPolicy.h"
 #include "backend/PostUnreadRequest.h"
 #include "backend/PostVisibilityPolicy.h"
 #include "backend/QByteArrayCreator.h"
@@ -225,6 +226,7 @@ void SidebarService::clear()
 {
     httpConnector.reset();
     mutedChannelIds.clear();
+    mutedCategoryChannelIds.clear();
     _conversationSearchTerm.clear();
     sidebarByTeam.clear();
     activityTracker.clear();
@@ -256,13 +258,194 @@ QString SidebarService::categoriesPath(const QString& teamId) const
         + QStringLiteral("/channels/categories");
 }
 
-bool SidebarService::isChannelFavorite(const BackendChannel& channel) const
+bool SidebarService::isChannelFavorite(const BackendChannel& channel,
+                                       const QString& teamId) const
 {
-    if (!channel.team) return false;
-    const SidebarTeamState* state = teamState(channel.team->id);
-    const SidebarCategory* favorites = state
-        ? state->categoryByType(QStringLiteral("favorites")) : nullptr;
-    return favorites && favorites->channelIds.contains(channel.id);
+    // DM and GM BackendChannel objects do not necessarily have a team, but
+    // they can be favorites in each team's server-owned sidebar.
+    const QString preferred = !teamId.isEmpty() ? teamId
+        : !backend.getCurrentTeamContextId().isEmpty()
+            ? backend.getCurrentTeamContextId()
+            : channel.team ? channel.team->id : QString();
+    const SidebarTeamState* preferredState = teamState(preferred);
+    if (preferredState) {
+        const SidebarCategory* favorites =
+            preferredState->categoryByType(QStringLiteral("favorites"));
+        return favorites && favorites->channelIds.contains(channel.id);
+    }
+
+    for (auto it = sidebarByTeam.cbegin(); it != sidebarByTeam.cend(); ++it) {
+        const SidebarCategory* favorites =
+            it.value().categoryByType(QStringLiteral("favorites"));
+        if (favorites && favorites->channelIds.contains(channel.id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SidebarService::setChannelFavorite(
+    const QString& teamId, const QString& channelId, bool favorite,
+    std::function<void(bool)> callback)
+{
+    SidebarTeamState* state = teamState(teamId);
+    BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+    if (!state || !channel || channelId.isEmpty()) {
+        if (callback) callback(false);
+        return;
+    }
+    const SidebarCategory* favorites = state->categoryByType(
+        QStringLiteral("favorites"));
+    if (!favorites) {
+        if (callback) callback(false);
+        return;
+    }
+
+    const bool alreadyFavorite = favorites->channelIds.contains(channelId);
+    if (alreadyFavorite == favorite) {
+        if (callback) callback(true);
+        return;
+    }
+
+    // All category moves, including Favorites, share one server update
+    // operation and never modify the destination's sorting mode.
+    const bool direct = channel->type == BackendChannel::directChannel
+        || channel->type == BackendChannel::groupChannel;
+    const SidebarCategory* destination = favorite ? favorites
+        : state->categoryByType(direct ? QStringLiteral("direct_messages")
+                                       : QStringLiteral("channels"));
+    if (!destination) {
+        if (callback) callback(false);
+        return;
+    }
+    moveChannelToCategory(teamId, channelId, destination->id,
+                          std::move(callback));
+}
+
+void SidebarService::moveChannelToCategory(
+    const QString& teamId, const QString& channelId,
+    const QString& targetCategoryId, std::function<void(bool)> callback)
+{
+    const SidebarTeamState* state = teamState(teamId);
+    const SidebarCategory* destination =
+        state ? state->category(targetCategoryId) : nullptr;
+    if (!destination || channelId.isEmpty()
+        || !backend.getStorage().getChannelById(channelId)) {
+        if (callback) callback(false);
+        return;
+    }
+
+    const SidebarCategory* source = nullptr;
+    for (const QString& id : state->order) {
+        const SidebarCategory* candidate = state->category(id);
+        if (candidate && candidate->channelIds.contains(channelId)) {
+            source = candidate;
+            break;
+        }
+    }
+    if (source && source->id == destination->id) {
+        if (callback) callback(true);
+        return;
+    }
+
+    QVector<SidebarCategory> updates;
+    if (source) {
+        SidebarCategory changedSource = *source;
+        changedSource.channelIds.removeAll(channelId);
+        updates.push_back(std::move(changedSource));
+    }
+    SidebarCategory changedDestination = *destination;
+    changedDestination.channelIds.removeAll(channelId);
+    changedDestination.channelIds.append(channelId);
+    updates.push_back(std::move(changedDestination));
+
+    // A move (unlike positional DnD) never changes either category's sorting
+    // policy. In particular, the Favorites order must remain as configured.
+    updateCategories(teamId, updates,
+        [callback](const SidebarTeamState&) {
+            if (callback) callback(true);
+        },
+        [callback] {
+            if (callback) callback(false);
+        });
+}
+
+void SidebarService::removeChannelFromCustomCategory(
+    const QString& teamId, const QString& channelId,
+    std::function<void(bool)> callback)
+{
+    const SidebarTeamState* state = teamState(teamId);
+    BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+    if (!state || !channel) {
+        if (callback) callback(false);
+        return;
+    }
+    const SidebarCategory* source = nullptr;
+    for (const QString& id : state->order) {
+        const SidebarCategory* candidate = state->category(id);
+        if (candidate && candidate->channelIds.contains(channelId)) {
+            source = candidate;
+            break;
+        }
+    }
+    if (!source || (source->type != QLatin1String("custom")
+                    && source->type != QLatin1String("favorites"))) {
+        if (callback) callback(false);
+        return;
+    }
+    const bool direct = channel->type == BackendChannel::directChannel
+        || channel->type == BackendChannel::groupChannel;
+    const SidebarCategory* fallback = state->categoryByType(
+        direct ? QStringLiteral("direct_messages") : QStringLiteral("channels"));
+    if (!fallback) {
+        if (callback) callback(false);
+        return;
+    }
+    moveChannelToCategory(teamId, channelId, fallback->id, std::move(callback));
+}
+
+void SidebarService::markCategoryRead(
+    const QString& teamId, const QString& categoryId,
+    std::function<void(bool)> callback)
+{
+    const SidebarTeamState* state = teamState(teamId);
+    const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
+    if (!category) {
+        if (callback) callback(false);
+        return;
+    }
+    if (category->channelIds.isEmpty()) {
+        if (callback) callback(true);
+        return;
+    }
+
+    // Official API supports one request with all category members, including
+    // currently hidden/capped DMs: POST /channels/members/{user_id}/mark_read.
+    QJsonArray payload;
+    for (const QString& id : category->channelIds) {
+        payload.append(id);
+    }
+    NetworkRequest request(QStringLiteral("channels/members/")
+                           + currentUserId() + QStringLiteral("/mark_read"));
+    httpConnector.post(request, QByteArrayCreator(payload),
+        HttpResponseCallback([this, callback](QVariant status,
+                                             const QJsonDocument& doc) {
+        const bool success = status.toInt() == QNetworkReply::NoError
+            && doc.isObject();
+        if (success) {
+            const QJsonObject viewedTimes = doc.object().value(
+                QStringLiteral("last_viewed_at_times")).toObject();
+            for (auto it = viewedTimes.constBegin(); it != viewedTimes.constEnd(); ++it) {
+                BackendChannel* channel =
+                    backend.getStorage().getChannelById(it.key());
+                if (channel) {
+                    applyServerChannelViewed(*channel,
+                        it.value().toVariant().toULongLong());
+                }
+            }
+        }
+        if (callback) callback(success);
+    }));
 }
 
 bool SidebarService::isChannelMuted(const BackendChannel& channel) const
@@ -272,7 +455,37 @@ bool SidebarService::isChannelMuted(const BackendChannel& channel) const
 
 bool SidebarService::isChannelMuted(const QString& channelId) const
 {
-    return mutedChannelIds.contains(channelId);
+    return mutedChannelIds.contains(channelId)
+        || mutedCategoryChannelIds.contains(channelId);
+}
+
+void SidebarService::rebuildMutedCategoryIndex()
+{
+    QSet<QString> next;
+    for (auto teamIt = sidebarByTeam.cbegin(); teamIt != sidebarByTeam.cend(); ++teamIt) {
+        for (auto it = teamIt->categories.cbegin();
+             it != teamIt->categories.cend(); ++it) {
+            if (!it->muted) {
+                continue;
+            }
+            for (const QString& id : it->channelIds) {
+                next.insert(id);
+            }
+        }
+    }
+    const QSet<QString> previous = std::move(mutedCategoryChannelIds);
+    mutedCategoryChannelIds = std::move(next);
+    // Update only rows whose effective category-mute membership changed.
+    for (const QString& id : mutedCategoryChannelIds) {
+        if (!previous.contains(id)) {
+            emit channelMutedChanged(id, isChannelMuted(id));
+        }
+    }
+    for (const QString& id : previous) {
+        if (!mutedCategoryChannelIds.contains(id)) {
+            emit channelMutedChanged(id, isChannelMuted(id));
+        }
+    }
 }
 
 bool SidebarService::hasUnreadMention(const QString& channelId) const
@@ -1159,6 +1372,7 @@ void SidebarService::storeCategories(QString teamId, SidebarTeamState state,
                 [this, teamId, statePtr, callback, storeResponse] {
                     if (storeResponse) {
                         sidebarByTeam.insert(teamId, *statePtr);
+                        rebuildMutedCategoryIndex();
                         emit categoriesChanged(teamId);
                         if (callback) {
                             callback(sidebarByTeam[teamId]);
@@ -1229,16 +1443,20 @@ void SidebarService::applyLocalTeamState(const QString& teamId, SidebarTeamState
         return;
     }
     sidebarByTeam.insert(teamId, std::move(state));
+    rebuildMutedCategoryIndex();
     emit categoriesChanged(teamId);
 }
 
 void SidebarService::createCategory(
     const QString& teamId,
     const QString& displayName,
-    std::function<void(const SidebarCategory&)> callback)
+    std::function<void(const SidebarCategory&)> callback,
+    const QString& insertBeforeCategoryId,
+    std::function<void()> errorCallback)
 {
     const QString name = displayName.trimmed();
     if (teamId.isEmpty() || name.isEmpty() || currentUserId().isEmpty()) {
+        if (errorCallback) errorCallback();
         return;
     }
 
@@ -1255,20 +1473,80 @@ void SidebarService::createCategory(
 
     NetworkRequest request(categoriesPath(teamId));
     httpConnector.post(request, QByteArrayCreator(payload),
-                       HttpResponseCallback([this, teamId, callback](const QJsonDocument& doc) {
-        SidebarCategory created = SidebarCategory::fromJson(doc.object());
-        if (created.id.isEmpty()) {
+        HttpResponseCallback(
+            [this, teamId, callback, insertBeforeCategoryId, errorCallback](
+                QVariant status, const QJsonDocument& doc) {
+        if (status.toInt() != QNetworkReply::NoError || !doc.isObject()) {
+            if (errorCallback) errorCallback();
             return;
         }
-        SidebarTeamState& state = sidebarByTeam[teamId];
-        state.categories.insert(created.id, created);
-        if (!state.order.contains(created.id)) {
-            state.order.push_back(created.id);
+        SidebarCategory created = SidebarCategory::fromJson(doc.object());
+        if (created.id.isEmpty()) {
+            if (errorCallback) errorCallback();
+            return;
         }
+
+        SidebarTeamState& state = sidebarByTeam[teamId];
+        const bool insertBefore = !insertBeforeCategoryId.isEmpty()
+            && state.order.contains(insertBeforeCategoryId);
+        const QStringList order = sidebarCategoryOrderBefore(
+            state.order, created.id, insertBeforeCategoryId);
+        state.categories.insert(created.id, created);
+        state.order = order;
+
+        // The server creates a category at the end. Place it correctly in the
+        // live sidebar BEFORE notifying the view (no bottom-of-list flash).
+        rebuildMutedCategoryIndex();
         emit categoriesChanged(teamId);
         if (callback) {
             callback(state.categories[created.id]);
         }
+
+        if (insertBefore) {
+            // Persist the exact order for other clients and reconnections.
+            // The existing order endpoint is also used by category DnD.
+            updateCategoryOrder(teamId, order, {}, [this, teamId, errorCallback] {
+                if (BackendTeam* team = backend.getStorage().getTeamById(teamId)) {
+                    retrieveCategories(*team); // Restore authoritative order on failure.
+                }
+                if (errorCallback) errorCallback();
+            });
+        }
+    }));
+}
+
+void SidebarService::deleteCategory(const QString& teamId,
+                                    const QString& categoryId,
+                                    std::function<void(bool)> callback)
+{
+    SidebarTeamState* state = teamState(teamId);
+    const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
+    if (!category || !category->isCustom()) {
+        if (callback) callback(false);
+        return;
+    }
+    NetworkRequest request(categoriesPath(teamId) + QLatin1Char('/') + categoryId);
+    httpConnector.del(request, QByteArrayCreator(QJsonObject()),
+        HttpResponseCallback([this, teamId, callback](QVariant status,
+                                                     const QJsonDocument&) {
+        if (status.toInt() != QNetworkReply::NoError) {
+            if (callback) callback(false);
+            return;
+        }
+        BackendTeam* team = backend.getStorage().getTeamById(teamId);
+        if (!team) {
+            if (callback) callback(false);
+            return;
+        }
+        // Server moves conversations back to their default categories. Get
+        // the authoritative state, including membership and category order.
+        retrieveCategories(*team,
+            [callback](const SidebarTeamState&) {
+                if (callback) callback(true);
+            },
+            [callback] {
+                if (callback) callback(false);
+            });
     }));
 }
 
@@ -1297,6 +1575,7 @@ void SidebarService::updateCategory(const SidebarCategory& category,
         }
         if (storeResponse) {
             sidebarByTeam[teamId].categories.insert(updated.id, updated);
+            rebuildMutedCategoryIndex();
             emit categoriesChanged(teamId);
             if (callback) {
                 callback(sidebarByTeam[teamId].categories[updated.id]);
@@ -1339,6 +1618,7 @@ void SidebarService::updateCategories(const QString& teamId, const QVector<Sideb
 
         if (storeResponse) {
             sidebarByTeam.insert(teamId, std::move(responseState));
+            rebuildMutedCategoryIndex();
             emit categoriesChanged(teamId);
             if (callback) {
                 callback(sidebarByTeam[teamId]);

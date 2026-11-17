@@ -28,7 +28,6 @@
 #include "fwd.h"
 
 class ChannelItemWidget;
-class QMenu;
 
 namespace Mattermost {
 
@@ -44,9 +43,10 @@ public:
     void setUnread (bool unread);
     void setMentioned (bool mentioned);
     void setStatus (const QString& status);
+    // One implementation for every channel/DM/GM sidebar row.
+    void showContextMenu(const QPoint& pos) override;
 protected:
     BackendChannel* backendChannel() const;
-    void addCommonContextMenuActions(QMenu& menu, BackendChannel& channel);
 
     Backend& 			backend;
     ChannelItemWidget* 	widget;

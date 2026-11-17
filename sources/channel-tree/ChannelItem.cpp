@@ -24,20 +24,16 @@
 
 #include "ChannelItem.h"
 
-#include <QApplication>
-#include <QClipboard>
 #include <QMenu>
+#include <QTreeWidget>
 
 #include "ChannelIcons.h"
 #include "ChannelItemWidget.h"
-#include "ChannelTree.h"
 #include "SidebarItem.h"
 #include "backend/Backend.h"
-#include "backend/SidebarService.h"
+#include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
-#include "backend/types/BackendUser.h"
-#include "navigation/AppNavigationService.h"
-#include "navigation/ConversationReference.h"
+#include "ui/ConversationActionsMenu.h"
 
 namespace Mattermost {
 
@@ -133,53 +129,18 @@ BackendChannel* ChannelItem::backendChannel() const
     return channelId.isEmpty() ? nullptr : backend.getStorage().getChannelById(channelId);
 }
 
-void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& channel)
+void ChannelItem::showContextMenu(const QPoint& globalPos)
 {
-    menu.addAction(QStringLiteral("Open in new tab"), [this, &channel] {
-        AppNavigationService::instance(backend).openChannelInTab(channel.id);
-    });
-
-    const QString reference = ConversationReference::copyText(backend, channel);
-    if (!reference.isEmpty()) {
-        menu.addAction(QStringLiteral("Copy reference"), [reference] {
-            QApplication::clipboard()->setText(reference);
-        });
+    const BackendChannel* channel = backendChannel();
+    if (!channel) {
+        return;
     }
-    menu.addSeparator();
-
-    auto& sidebar = SidebarService::instance(backend);
-    const bool muted = sidebar.isChannelMuted(channel);
-    const bool conversation = channel.type == BackendChannel::directChannel
-        || channel.type == BackendChannel::groupChannel;
-
-    menu.addAction(muted
-                       ? (conversation ? QStringLiteral("Unmute Conversation") : QStringLiteral("Unmute Channel"))
-                       : (conversation ? QStringLiteral("Mute Conversation") : QStringLiteral("Mute Channel")),
-                   [this, &channel, muted] {
-        SidebarService::instance(backend).setChannelMuted(channel, !muted);
-    });
-
-    auto* tree = static_cast<ChannelTree*>(treeWidget());
-    if (tree) {
-        const auto targets = tree->customCategoryTargets(this);
-        QMenu* moveMenu = menu.addMenu(QStringLiteral("Move to group"));
-        for (const auto& target : targets) {
-            moveMenu->addAction(target.second, [tree, this, categoryId = target.first] {
-                tree->moveChannelToCategory(this, categoryId);
-            });
-        }
-        if (!targets.isEmpty()) {
-            moveMenu->addSeparator();
-        }
-        moveMenu->addAction(QStringLiteral("Create new group…"), [tree, this] {
-            tree->createGroupAndMoveChannel(this);
-        });
-        if (tree->canRemoveChannelFromCategory(this)) {
-            menu.addAction(QStringLiteral("Remove from group"), [tree, this] {
-                tree->removeChannelFromCategory(this);
-            });
-        }
-    }
+    QMenu menu(treeWidget());
+    menu.setObjectName(QStringLiteral("conversationActionsMenu"));
+    ConversationActionsMenu::populate(
+        menu, backend, channel->id,
+        data(0, SidebarItem::TeamIdRole).toString(), treeWidget());
+    menu.exec(globalPos);
 }
 
 } /* namespace Mattermost */

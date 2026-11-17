@@ -59,7 +59,22 @@ public:
     void clear();
 
     bool isChannelMuted(const BackendChannel& channel) const;
-    bool isChannelFavorite(const BackendChannel& channel) const;
+    bool isChannelFavorite(const BackendChannel& channel,
+                           const QString& teamId = {}) const;
+    // Changes one team's server-owned categories; works for channels, DMs
+    // and group DMs without modifying the Favorites sorting mode.
+    void setChannelFavorite(const QString& teamId, const QString& channelId,
+                            bool favorite, std::function<void(bool)> callback = {});
+    // Single category-move implementation shared by sidebar, chat header
+    // and context menus. Preserves both categories' existing sort modes.
+    void moveChannelToCategory(const QString& teamId, const QString& channelId,
+                               const QString& targetCategoryId,
+                               std::function<void(bool)> callback = {});
+    void removeChannelFromCustomCategory(const QString& teamId,
+                                         const QString& channelId,
+                                         std::function<void(bool)> callback = {});
+    void markCategoryRead(const QString& teamId, const QString& categoryId,
+                          std::function<void(bool)> callback = {});
     bool isChannelMuted(const QString& channelId) const;
     bool hasUnreadMention(const QString& channelId) const;
     void setChannelMentioned(const QString& channelId, bool mentioned);
@@ -123,7 +138,11 @@ public:
     void applyLocalTeamState(const QString& teamId, SidebarTeamState state);
 
     void createCategory(const QString& teamId, const QString& displayName,
-                        std::function<void(const SidebarCategory&)> callback = {});
+                        std::function<void(const SidebarCategory&)> callback = {},
+                        const QString& insertBeforeCategoryId = {},
+                        std::function<void()> errorCallback = {});
+    void deleteCategory(const QString& teamId, const QString& categoryId,
+                        std::function<void(bool)> callback = {});
     void updateCategory(const SidebarCategory& category,
                         std::function<void(const SidebarCategory&)> callback = {},
                         std::function<void()> errorCallback = {},
@@ -161,10 +180,12 @@ private:
     void storeCategories(QString teamId, SidebarTeamState state,
                          std::function<void(const SidebarTeamState&)> callback,
                          bool storeResponse);
+    void rebuildMutedCategoryIndex();
 
     Backend& backend;
     HTTPConnector httpConnector;
     QSet<QString> mutedChannelIds;
+    QSet<QString> mutedCategoryChannelIds;
     QString _conversationSearchTerm;
     QMap<QString, SidebarTeamState> sidebarByTeam;
     ChannelActivityTracker activityTracker;

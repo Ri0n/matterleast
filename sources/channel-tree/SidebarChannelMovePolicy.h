@@ -5,6 +5,18 @@
 
 namespace Mattermost {
 
+// Built-in Favorites is a valid server-side destination, unlike the
+// automatic Channels and Direct Messages categories. A category must never
+// list itself as a destination in its own "Move to category" submenu.
+inline bool sidebarCategoryIsMoveTarget(const QString& type,
+                                       const QString& categoryId,
+                                       const QString& sourceCategoryId)
+{
+    return !categoryId.isEmpty() && categoryId != sourceCategoryId
+        && (type == QLatin1String("custom")
+            || type == QLatin1String("favorites"));
+}
+
 inline bool reorderSidebarChannel(QStringList& channelIds,
                                   const QString& channelId,
                                   const QString& targetChannelId,
