@@ -1353,14 +1353,8 @@ QVector<QPair<QString, QString>> ChannelTree::customCategoryTargets(const Channe
 
     for (const QString& categoryId : state->order) {
         const SidebarCategory* category = state->category(categoryId);
-        if (!category || category->id == sourceCategoryId) {
-            continue;
-        }
-        // Favorites is a built-in category, but a valid move destination.
-        // Built-in Channels and Direct Messages remain implicit defaults,
-        // reached by "Remove from category" instead.
-        if (category->isCustom()
-            || category->type == QLatin1String("favorites")) {
+        if (category && sidebarCategoryIsMoveTarget(
+                category->type, category->id, sourceCategoryId)) {
             result.push_back(qMakePair(category->id, categoryDisplayName(*category)));
         }
     }
