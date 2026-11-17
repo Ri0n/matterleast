@@ -210,6 +210,11 @@ void MattermostApplication::beginLogout()
     logoutInProgress_ = true;
     trayWindow.setWindow(nullptr);
 
+    // Cancel old session requests before removing the UI. Their callbacks
+    // may capture MainWindow / chat widget pointers without a QObject context.
+    // HTTPConnector's generation check suppresses completion on old replies.
+    backend.prepareForLogout();
+
     // The old window holds BackendPost references and channel/user pointers.
     // Close and persist its UI state while Storage is still populated.
     mainWindow->prepareForLogout();
