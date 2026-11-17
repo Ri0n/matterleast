@@ -19,6 +19,7 @@
 #include "backend/Backend.h"
 #include "backend/DeletedUnreadPostPolicy.h"
 #include "backend/NetworkRequest.h"
+#include "backend/SidebarCategoryOrderPolicy.h"
 #include "backend/PostUnreadRequest.h"
 #include "backend/PostVisibilityPolicy.h"
 #include "backend/QByteArrayCreator.h"
@@ -1395,10 +1396,13 @@ void SidebarService::applyLocalTeamState(const QString& teamId, SidebarTeamState
 void SidebarService::createCategory(
     const QString& teamId,
     const QString& displayName,
-    std::function<void(const SidebarCategory&)> callback)
+    std::function<void(const SidebarCategory&)> callback,
+    const QString& insertBeforeCategoryId,
+    std::function<void()> errorCallback)
 {
     const QString name = displayName.trimmed();
     if (teamId.isEmpty() || name.isEmpty() || currentUserId().isEmpty()) {
+        if (errorCallback) errorCallback();
         return;
     }
 
@@ -1415,20 +1419,44 @@ void SidebarService::createCategory(
 
     NetworkRequest request(categoriesPath(teamId));
     httpConnector.post(request, QByteArrayCreator(payload),
-                       HttpResponseCallback([this, teamId, callback](const QJsonDocument& doc) {
-        SidebarCategory created = SidebarCategory::fromJson(doc.object());
-        if (created.id.isEmpty()) {
+        HttpResponseCallback(
+            [this, teamId, callback, insertBeforeCategoryId, errorCallback](
+                QVariant status, const QJsonDocument& doc) {
+        if (status.toInt() != QNetworkReply::NoError || !doc.isObject()) {
+            if (errorCallback) errorCallback();
             return;
         }
-        SidebarTeamState& state = sidebarByTeam[teamId];
-        state.categories.insert(created.id, created);
-        if (!state.order.contains(created.id)) {
-            state.order.push_back(created.id);
+        SidebarCategory created = SidebarCategory::fromJson(doc.object());
+        if (created.id.isEmpty()) {
+            if (errorCallback) errorCallback();
+            return;
         }
+
+        SidebarTeamState& state = sidebarByTeam[teamId];
+        const bool insertBefore = !insertBeforeCategoryId.isEmpty()
+            && state.order.contains(insertBeforeCategoryId);
+        const QStringList order = sidebarCategoryOrderBefore(
+            state.order, created.id, insertBeforeCategoryId);
+        state.categories.insert(created.id, created);
+        state.order = order;
+
+        // The server creates a category at the end. Place it correctly in the
+        // live sidebar BEFORE notifying the view (no bottom-of-list flash).
         rebuildMutedCategoryIndex();
         emit categoriesChanged(teamId);
         if (callback) {
             callback(state.categories[created.id]);
+        }
+
+        if (insertBefore) {
+            // Persist the exact order for other clients and reconnections.
+            // The existing order endpoint is also used by category DnD.
+            updateCategoryOrder(teamId, order, {}, [this, teamId, errorCallback] {
+                if (BackendTeam* team = backend.getStorage().getTeamById(teamId)) {
+                    retrieveCategories(*team); // Restore authoritative order on failure.
+                }
+                if (errorCallback) errorCallback();
+            });
         }
     }));
 }
