@@ -380,7 +380,7 @@ void SidebarService::markCategoryRead(
         if (success) {
             const QJsonObject viewedTimes = doc.object().value(
                 QStringLiteral("last_viewed_at_times")).toObject();
-            for (auto it = viewedTimes.cbegin(); it != viewedTimes.cend(); ++it) {
+            for (auto it = viewedTimes.constBegin(); it != viewedTimes.constEnd(); ++it) {
                 BackendChannel* channel =
                     backend.getStorage().getChannelById(it.key());
                 if (channel) {
