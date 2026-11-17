@@ -1030,7 +1030,10 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
                          tr("Delete category")) : nullptr;
 
     menu.addSeparator();
-    QMenu* sortMenu = menu.addMenu(tr("Sort"));
+    const QString sortLabel = currentSorting == QLatin1String("manual")
+        ? tr("Manually") : currentSorting == QLatin1String("recent")
+            ? tr("Recent activity") : tr("Alphabetically");
+    QMenu* sortMenu = menu.addMenu(tr("Sort: %1").arg(sortLabel));
     QAction* alpha = sortMenu->addAction(tr("Alphabetically"));
     QAction* recent = sortMenu->addAction(tr("Recent activity"));
     QAction* manual = sortMenu->addAction(tr("Manually"));
