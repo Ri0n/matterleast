@@ -9,6 +9,30 @@ class SidebarChannelMovePolicyTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void favoritesAreAValidMoveDestinationFromAnyConversation()
+    {
+        for (const QString& source : {QStringLiteral("channels"),
+                                      QStringLiteral("direct_messages"),
+                                      QStringLiteral("my_custom")}) {
+            QVERIFY(sidebarCategoryIsMoveTarget(
+                QStringLiteral("favorites"), QStringLiteral("favorites_id"), source));
+        }
+        QVERIFY(sidebarCategoryIsMoveTarget(
+            QStringLiteral("custom"), QStringLiteral("another_custom"),
+            QStringLiteral("favorites_id")));
+        QVERIFY(!sidebarCategoryIsMoveTarget(
+            QStringLiteral("favorites"), QStringLiteral("favorites_id"),
+            QStringLiteral("favorites_id")));
+        QVERIFY(!sidebarCategoryIsMoveTarget(
+            QStringLiteral("channels"), QStringLiteral("channels_id"),
+            QStringLiteral("my_custom")));
+        QVERIFY(!sidebarCategoryIsMoveTarget(
+            QStringLiteral("direct_messages"), QStringLiteral("direct_id"),
+            QStringLiteral("my_custom")));
+        QVERIFY(!sidebarCategoryIsMoveTarget(
+            QStringLiteral("favorites"), QString(), QStringLiteral("channels")));
+    }
+
     void reordersBySemanticChannelIdentity()
     {
         QStringList ids {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")};
