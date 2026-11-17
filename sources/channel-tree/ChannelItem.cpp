@@ -24,23 +24,15 @@
 
 #include "ChannelItem.h"
 
-#include <QApplication>
-#include <QClipboard>
 #include <QMenu>
-#include <QMessageBox>
-#include <QPointer>
 
 #include "ChannelIcons.h"
 #include "ChannelItemWidget.h"
-#include "ChannelTree.h"
 #include "SidebarItem.h"
 #include "backend/Backend.h"
-#include "backend/SidebarService.h"
+#include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
-#include "backend/types/BackendUser.h"
-#include "navigation/AppNavigationService.h"
-#include "navigation/ConversationReference.h"
-#include "ui/IconUtils.h"
+#include "ui/ConversationActionsMenu.h"
 
 namespace Mattermost {
 
@@ -136,98 +128,18 @@ BackendChannel* ChannelItem::backendChannel() const
     return channelId.isEmpty() ? nullptr : backend.getStorage().getChannelById(channelId);
 }
 
-void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& channel)
+void ChannelItem::showContextMenu(const QPoint& globalPos)
 {
-    menu.addAction(QStringLiteral("Open in new tab"), [this, &channel] {
-        AppNavigationService::instance(backend).openChannelInTab(channel.id);
-    });
-
-    const QString reference = ConversationReference::copyText(backend, channel);
-    if (!reference.isEmpty()) {
-        menu.addAction(QStringLiteral("Copy reference"), [reference] {
-            QApplication::clipboard()->setText(reference);
-        });
+    const BackendChannel* channel = backendChannel();
+    if (!channel) {
+        return;
     }
-    menu.addSeparator();
-
-    auto& sidebar = SidebarService::instance(backend);
-    const bool muted = sidebar.isChannelMuted(channel);
-    const bool conversation = channel.type == BackendChannel::directChannel
-        || channel.type == BackendChannel::groupChannel;
-
-    menu.addAction(muted
-                       ? (conversation ? QStringLiteral("Unmute Conversation") : QStringLiteral("Unmute Channel"))
-                       : (conversation ? QStringLiteral("Mute Conversation") : QStringLiteral("Mute Channel")),
-                   [this, &channel, muted] {
-        SidebarService::instance(backend).setChannelMuted(channel, !muted);
-    });
-
-    auto* tree = static_cast<ChannelTree*>(treeWidget());
-    if (tree) {
-        // Favorites is a built-in, team-scoped category, not a custom one.
-        // Expose it explicitly on every real channel/DM/GM row as well as
-        // inside the category move submenu. Read membership on menu creation
-        // so its heart and label are always current.
-        const QString teamId = parent()
-            ? parent()->data(0, SidebarItem::TeamIdRole).toString()
-            : data(0, SidebarItem::TeamIdRole).toString();
-        const SidebarTeamState* state = sidebar.teamState(teamId);
-        const SidebarCategory* sourceCategory = state && parent()
-            ? state->category(parent()->data(0, SidebarItem::IdRole).toString())
-            : nullptr;
-        const bool inFavoritesCategory = sourceCategory
-            && sourceCategory->type == QLatin1String("favorites");
-        if (state && state->categoryByType(QStringLiteral("favorites"))) {
-            const bool favorite = sidebar.isChannelFavorite(channel, teamId);
-            QAction* favoriteAction = menu.addAction(
-                IconUtils::symbolicIcon(favorite
-                    ? QStringLiteral(":/icons/heart-filled")
-                    : QStringLiteral(":/icons/heart-outline")),
-                favorite ? QObject::tr("Remove from Favorites")
-                         : QObject::tr("Add to Favorites"));
-            const QString channelId = channel.id;
-            QPointer<QWidget> view(tree);
-            QObject::connect(favoriteAction, &QAction::triggered, tree,
-                             [this, teamId, channelId, view] {
-                BackendChannel* liveChannel =
-                    backend.getStorage().getChannelById(channelId);
-                if (!liveChannel) {
-                    return;
-                }
-                auto& service = SidebarService::instance(backend);
-                const bool next = !service.isChannelFavorite(*liveChannel, teamId);
-                service.setChannelFavorite(
-                    teamId, channelId, next, [view](bool success) {
-                        if (!success && view) {
-                            QMessageBox::warning(
-                                view, QObject::tr("Favorites"),
-                                QObject::tr("Could not update Favorites."));
-                        }
-                    });
-            });
-        }
-
-        const auto targets = tree->customCategoryTargets(this);
-        QMenu* moveMenu = menu.addMenu(QStringLiteral("Move to category"));
-        for (const auto& target : targets) {
-            moveMenu->addAction(target.second, [tree, this, categoryId = target.first] {
-                tree->moveChannelToCategory(this, categoryId);
-            });
-        }
-        if (!targets.isEmpty()) {
-            moveMenu->addSeparator();
-        }
-        moveMenu->addAction(QStringLiteral("Create new category…"), [tree, this] {
-            tree->createCategoryAndMoveChannel(this);
-        });
-        // The dedicated filled-heart action already handles removing from
-        // Favorites, so do not display a second action with the same effect.
-        if (!inFavoritesCategory && tree->canRemoveChannelFromCategory(this)) {
-            menu.addAction(QStringLiteral("Remove from category"), [tree, this] {
-                tree->removeChannelFromCategory(this);
-            });
-        }
-    }
+    QMenu menu(treeWidget());
+    menu.setObjectName(QStringLiteral("conversationActionsMenu"));
+    ConversationActionsMenu::populate(
+        menu, backend, channel->id,
+        data(0, SidebarItem::TeamIdRole).toString(), treeWidget());
+    menu.exec(globalPos);
 }
 
 } /* namespace Mattermost */
