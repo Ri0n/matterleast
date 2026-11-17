@@ -33,6 +33,7 @@
         <file alias="unread">img/unread.svg</file>
         <file alias="filter-variant">img/filter-variant.svg</file>
         <file alias="menu-folder">img/menu-folder.svg</file>
+        <file alias="open-in-new-tab">img/open-in-new-tab.svg</file>
         <file alias="menu-power">img/menu-power.svg</file>
         <file alias="menu-logout">img/menu-logout.svg</file>
         <file alias="menu-settings">img/menu-settings.svg</file>
