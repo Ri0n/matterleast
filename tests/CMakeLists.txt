@@ -839,6 +839,15 @@ if(TARGET matterleast-core)
 endif()
 
 if(TARGET matterleast-core)
+    # Both presentation sites must use identical action definitions, icons
+    # and dynamic Favorites state from one shared conversation menu builder.
+    add_executable(conversation-actions-menu-test ConversationActionsMenuTest.cpp)
+    target_link_libraries(conversation-actions-menu-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME conversation-actions-menu-test COMMAND conversation-actions-menu-test)
+    set_tests_properties(conversation-actions-menu-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(channel-header-text-label-test ChannelHeaderTextLabelTest.cpp)
     target_link_libraries(channel-header-text-label-test
         PRIVATE
