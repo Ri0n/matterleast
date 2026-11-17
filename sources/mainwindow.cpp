@@ -958,12 +958,11 @@ void MainWindow::createMenu()
     quitAction->setShortcutContext(Qt::ApplicationShortcut);
     quitAction->setMenuRole(QAction::QuitRole);
     addAction(quitAction);
-    QAction* logoutAction = fileMenu->addAction("Logout", [this] {
-		backend.logout([this] {
-			doDeinit = true;
-			QMainWindow::close();
-			LOG_DEBUG("Logout done");
-        });
+    QAction* logoutAction = fileMenu->addAction("Logout", this, [this] {
+        // The application must destroy all chat/post widgets while their
+        // Backend::Storage objects are still alive. Never reset the backend
+        // from a callback that retains this MainWindow.
+        emit logoutRequested();
     });
     logoutAction->setObjectName(QStringLiteral("sidebarLogoutAction"));
     IconUtils::setMenuActionIcon(*logoutAction,
@@ -1275,6 +1274,18 @@ void MainWindow::changeEvent(QEvent* event)
 	} else {
 		qDebug() << event->type();
 	}
+}
+
+void MainWindow::prepareForLogout()
+{
+    if (doDeinit) {
+        return;
+    }
+    doDeinit = true;
+    // closeEvent writes navigation/sidebar state while their backing storage
+    // is valid. The application destroys this widget after the QAction stack
+    // has unwound and only then initiates the asynchronous server logout.
+    close();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)

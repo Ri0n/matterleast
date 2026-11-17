@@ -261,6 +261,9 @@ Backend::Backend(QObject *parent)
             this, &Backend::clearTypingActivity);
 	connect (&webSocketConnector, &WebSocketConnector::onConnect,
 	         [this] (bool isReconnect, bool needsHttpResync) {
+        if (!isLoggedIn) {
+            return; // Ignore an in-flight reconnect during logout.
+        }
         CustomEmojiService::instance(*this).resetSession();
 		if (isReconnect) {
 			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
@@ -585,36 +588,71 @@ void Backend::reset ()
 	timeoutTimer.disconnect ();
 	httpConnector.reset ();
 	webSocketConnector.close ();
+    // Session projections must not retain pointers into the old Storage after
+    // logout. Previously currentChannel could still point to a deleted
+    // BackendChannel, even once the MainWindow was destroyed.
+    currentChannel = nullptr;
+    currentTeamContextId.clear();
+    clearTypingActivity();
+    _typingViews.clear();
+    _typingTrackedViews.clear();
 	storage.reset ();
 	nonFilledTeams = 0;
 }
 
-void Backend::logout (std::function<void ()> callback)
+void Backend::prepareForLogout()
 {
-	NetworkRequest request ("users/logout");
-	isLoggedIn = false;
+    isLoggedIn = false;
+    autoLoginEnabledFlag = false;
 
-	//when logging out manually, disable the autologin
-	autoLoginEnabledFlag = false;
+    // First stop the reconnect loop, then cancel outstanding HTTP work while
+    // the old MainWindow and its callback targets still exist. HTTPConnector
+    // increments its generation before destroying replies, so stale response
+    // handlers are suppressed instead of touching destroyed post widgets.
+    webSocketConnector.close();
+    httpConnector.reset();
+}
 
-	timeoutTimer.setSingleShot (true);
-	connect (&timeoutTimer, &QTimer::timeout, [this, callback] {
-		LOG_DEBUG ("Logout timeout");
-		reset ();
-		callback ();
-	});
+void Backend::logout(std::function<void()> callback)
+{
+    NetworkRequest request(QStringLiteral("users/logout"));
+    isLoggedIn = false;
+    autoLoginEnabledFlag = false;
 
-	timeoutTimer.start (1000);
+    // Logout must not race the WebSocket reconnect loop: a late reconnect
+    // previously restarted the HTTP transport during session teardown.
+    webSocketConnector.close();
 
-	httpConnector.post (request, QByteArray(), HttpResponseCallback ([this, callback] (const QJsonDocument&) {
-		LOG_DEBUG ("Logout done");
+    // The server reply and timeout are competing completion paths. The first
+    // one owns reset() and callback; an aborted HTTP request may still invoke
+    // its completion handler while reset() is in progress.
+    const auto completed = QSharedPointer<bool>::create(false);
+    const auto finish = [this, completed, callback = std::move(callback)] {
+        if (*completed) {
+            return;
+        }
+        *completed = true;
+        timeoutTimer.stop();
+        reset();
+        if (callback) {
+            callback();
+        }
+    };
 
-		timeoutTimer.stop();
-		reset ();
+    timeoutTimer.stop();
+    timeoutTimer.disconnect();
+    timeoutTimer.setSingleShot(true);
+    connect(&timeoutTimer, &QTimer::timeout, this, [finish] {
+        LOG_DEBUG("Logout timeout");
+        finish();
+    });
+    timeoutTimer.start(1000);
 
-		// No JSON body logging on logout.
-		callback ();
-	}));
+    httpConnector.post(request, QByteArray(), HttpResponseCallback(
+        [finish](const QJsonDocument&) {
+        LOG_DEBUG("Logout done");
+        finish();
+    }));
 }
 
 void Backend::retrieveUser (const QString & userID, std::function<void(const BackendUser&)> callback)

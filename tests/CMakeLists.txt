@@ -10,6 +10,17 @@ add_test(NAME application-font-test COMMAND application-font-test)
 set_tests_properties(application-font-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Closing LoginDialog deletes it (WA_DeleteOnClose). The persistent tray
+# must never access the old QWidget pointer; it can target a new login window.
+add_executable(tray-window-controller-test TrayWindowControllerTest.cpp)
+target_include_directories(tray-window-controller-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(tray-window-controller-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+add_test(NAME tray-window-controller-test COMMAND tray-window-controller-test)
+set_tests_properties(tray-window-controller-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # A contextual thread pane follows the active conversation unless the tab is pinned.
 # Session-only typing activity is shared between visible channel/thread widgets.
 add_executable(typing-activity-state-test TypingActivityStateTest.cpp)

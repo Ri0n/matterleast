@@ -30,6 +30,7 @@
 #include <QTimer>
 #include <QSaveFile>
 #include <QFileInfo>
+#include <QPointer>
 
 #if defined(Q_OS_WIN) && QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
 #include <QOperatingSystemVersion>
@@ -53,6 +54,7 @@
 #include "ui/IconUtils.h"
 #include "ui/ApplicationFont.h"
 #include "ui/OverlayScrollBarManager.h"
+#include "ui/TrayWindowController.h"
 
 namespace Mattermost {
 
@@ -63,6 +65,7 @@ public:
 	void openLoginWindow ();
 	void showWindow ();
 	void toggleShowWindow ();
+    void beginLogout();
 	void reopen ();
 private:
 	// Members are destroyed in reverse declaration order. Keep Backend alive
@@ -73,8 +76,9 @@ private:
 	std::unique_ptr<QMenu>				trayIconMenu;
 	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
 	std::unique_ptr<MainWindow>			mainWindow;
-	LoginDialog*						loginDialog;
-	QWidget*							currentWindow;
+    QPointer<LoginDialog>                 loginDialog;
+    TrayWindowController                 trayWindow;
+    bool                                 logoutInProgress_ = false;
 };
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
@@ -82,7 +86,6 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 ,_activityMonitor(backend, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
-,currentWindow (nullptr)
 {
     QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
     // Match the installed .desktop file for notification portal identity.
@@ -157,42 +160,98 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 	qApp->setQuitOnLastWindowClosed(false);
 }
 
-void MattermostApplication::openLoginWindow ()
+void MattermostApplication::openLoginWindow()
 {
-	loginDialog = new LoginDialog (nullptr, backend);
-	loginDialog->open();
-	currentWindow = loginDialog;
+    if (logoutInProgress_) {
+        return;
+    }
+    // Reuse the login dialog if it is still alive, rather than creating
+    // multiple simultaneous auto-login attempts from repeated tray clicks.
+    if (loginDialog) {
+        trayWindow.setWindow(loginDialog);
+        trayWindow.showWindow();
+        return;
+    }
 
-	connect (loginDialog, &LoginDialog::accepted, [this] {
-		//create Main Window and open it, after successful login
-		loginDialog = nullptr;
-		mainWindow = std::make_unique<MainWindow> (nullptr, *trayIcon, backend);
+    auto* dialog = new LoginDialog(nullptr, backend);
+    loginDialog = dialog;
+    trayWindow.setWindow(dialog);
+
+    // LoginDialog sets WA_DeleteOnClose. Once it is rejected, never keep it
+    // as the tray target, even before Qt destroys it. QPointer additionally
+    // handles destruction through any other code path.
+    connect(dialog, &QDialog::rejected, this, [this, dialog] {
+        if (trayWindow.window() == dialog) {
+            trayWindow.setWindow(nullptr);
+        }
+        if (loginDialog == dialog) {
+            loginDialog = nullptr;
+        }
+    });
+
+    connect(dialog, &QDialog::accepted, this, [this] {
+        loginDialog = nullptr;
+        mainWindow = std::make_unique<MainWindow>(nullptr, *trayIcon, backend);
         mainWindow->installRealtimeUiSync();
-		mainWindow->show();
-		currentWindow = mainWindow.get();
-	});
+        connect(mainWindow.get(), &MainWindow::logoutRequested,
+                this, &MattermostApplication::beginLogout);
+        trayWindow.setWindow(mainWindow.get());
+        mainWindow->show();
+    });
+
+    dialog->open();
+}
+
+void MattermostApplication::beginLogout()
+{
+    if (logoutInProgress_ || !mainWindow) {
+        return;
+    }
+    logoutInProgress_ = true;
+    trayWindow.setWindow(nullptr);
+
+    // Cancel old session requests before removing the UI. Their callbacks
+    // may capture MainWindow / chat widget pointers without a QObject context.
+    // HTTPConnector's generation check suppresses completion on old replies.
+    backend.prepareForLogout();
+
+    // The old window holds BackendPost references and channel/user pointers.
+    // Close and persist its UI state while Storage is still populated.
+    mainWindow->prepareForLogout();
+
+    // This signal came from a QAction owned by MainWindow. Delete it only
+    // after the QAction invocation has unwound, but BEFORE Backend::logout()
+    // clears Storage. A reconnect cannot then show stale post widgets.
+    QTimer::singleShot(0, this, [this] {
+        mainWindow.reset();
+        backend.logout([this] {
+            logoutInProgress_ = false;
+            openLoginWindow();
+        });
+    });
 }
 
 inline void MattermostApplication::showWindow()
 {
-    if (!currentWindow) return;
-    if (currentWindow->isMinimized()) currentWindow->showNormal();
-    else if (!currentWindow->isVisible()) currentWindow->show();
-    currentWindow->raise();
-    currentWindow->activateWindow();
+    if (logoutInProgress_) {
+        return; // Never resurrect the old session during logout.
+    }
+    if (!trayWindow.window()) {
+        // The login dialog may have been closed before authentication.
+        // The app deliberately remains running in the tray.
+        openLoginWindow();
+    }
+    trayWindow.showWindow();
 }
 
-inline void MattermostApplication::toggleShowWindow ()
+inline void MattermostApplication::toggleShowWindow()
 {
-	if (!currentWindow) {
-		return;
-	}
-
-	if (currentWindow->isVisible()) {
-		currentWindow->hide ();
-	} else {
-		currentWindow->show ();
-	}
+    if (logoutInProgress_) {
+        return;
+    }
+    if (!trayWindow.toggleWindow()) {
+        openLoginWindow();
+    }
 }
 
 } /* namespace Mattermost */
