@@ -105,6 +105,29 @@ private slots:
                  QStringLiteral("https://canonical.example/team/pl/other"));
     }
 
+    void standaloneCopyPayload()
+    {
+        QCOMPARE(forwardedCopyText({}, QStringLiteral("Original **Markdown**")),
+                 QStringLiteral("Original **Markdown**"));
+        QCOMPARE(forwardedCopyText(QStringLiteral("Comment"),
+                                   QStringLiteral("Original")),
+                 QStringLiteral("Comment\n\nOriginal"));
+        QCOMPARE(forwardedCopyText(QStringLiteral("Comment"), {}), QString());
+        const QJsonObject props = forwardedCopyProps(
+            QStringLiteral("original-id"),
+            QStringLiteral("author-id"),
+            QStringLiteral("team-id"));
+        QCOMPARE(props.value(QStringLiteral("isForwarded")).toBool(), true);
+        QCOMPARE(props.value(QStringLiteral("originalPostId")).toString(),
+                 QStringLiteral("original-id"));
+        QCOMPARE(props.value(QStringLiteral("originalAuthorId")).toString(),
+                 QStringLiteral("author-id"));
+        QCOMPARE(props.value(QStringLiteral("current_team_id")).toString(),
+                 QStringLiteral("team-id"));
+        QVERIFY(!forwardedCopyText({}, QStringLiteral("Original"))
+                    .contains(QStringLiteral("/pl/")));
+    }
+
     void forwardingPayload()
     {
         const QString link("https://canonical.example/team/pl/abcdefghijklmnopqrstuvwxyz");

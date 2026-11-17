@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -13,6 +14,8 @@
 
 #include <memory>
 
+#include "Settings.h"
+#include "options/MLOptions.h"
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
@@ -63,6 +66,13 @@ private slots:
     void initTestCase()
     {
         NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
+    }
+
+    void cleanup()
+    {
+        MLOptions::instance()->optionObject<bool>(
+            FORWARD_WITH_PERMALINK, FORWARD_WITH_PERMALINK_DEFAULT)
+            ->setValue(FORWARD_WITH_PERMALINK_DEFAULT);
     }
 
     void publicOriginListsKnownDestinationsAndFilters()
@@ -152,8 +162,19 @@ private slots:
     }
 
 
+    void forwardingUsesCanonicalUrlInRealPostPayload_data()
+    {
+        QTest::addColumn<bool>("usePermalink");
+        QTest::newRow("native-permalink") << true;
+        QTest::newRow("standalone-copy") << false;
+    }
+
     void forwardingUsesCanonicalUrlInRealPostPayload()
     {
+        QFETCH(bool, usePermalink);
+        MLOptions::instance()->optionObject<bool>(
+            FORWARD_WITH_PERMALINK, FORWARD_WITH_PERMALINK_DEFAULT)
+            ->setValue(usePermalink);
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         const QString connectionHost = QStringLiteral("http://127.0.0.1:%1/")
@@ -225,6 +246,7 @@ private slots:
             {QStringLiteral("id"), sourceId},
             {QStringLiteral("channel_id"), QStringLiteral("source")},
             {QStringLiteral("message"), QStringLiteral("Original content")},
+            {QStringLiteral("user_id"), QStringLiteral("original-author")},
         }, backend.getStorage());
         ForwardPostDialog dialog(backend, original);
         auto* destinations = dialog.findChild<QListWidget*>(
@@ -249,16 +271,64 @@ private slots:
         QVERIFY(submit->isEnabled());
         dialog.show();
         submit->click();
-        QTRY_COMPARE(configRequests, 1);
         QTRY_COMPARE(postRequests, 1);
+        QCOMPARE(configRequests, usePermalink ? 1 : 0);
         QCOMPARE(sentPost.value(QStringLiteral("channel_id")).toString(),
                  QStringLiteral("private"));
-        QCOMPARE(sentPost.value(QStringLiteral("message")).toString(),
-                 QStringLiteral("Context\nhttps://canonical.example.net/team/pl/") + sourceId);
+        if (usePermalink) {
+            QCOMPARE(sentPost.value(QStringLiteral("message")).toString(),
+                     QStringLiteral("Context\nhttps://canonical.example.net/team/pl/")
+                         + sourceId);
+            QVERIFY(sentPost.value(QStringLiteral("props")).toObject().isEmpty());
+        } else {
+            QCOMPARE(sentPost.value(QStringLiteral("message")).toString(),
+                     QStringLiteral("Context\n\nOriginal content"));
+            const QJsonObject props = sentPost.value(QStringLiteral("props")).toObject();
+            QVERIFY(props.value(QStringLiteral("isForwarded")).toBool());
+            QCOMPARE(props.value(QStringLiteral("originalPostId")).toString(), sourceId);
+            QCOMPARE(props.value(QStringLiteral("originalAuthorId")).toString(),
+                     QStringLiteral("original-author"));
+            QCOMPARE(props.value(QStringLiteral("current_team_id")).toString(),
+                     QStringLiteral("team"));
+        }
         QVERIFY(!sentPost.value(QStringLiteral("message")).toString()
                     .contains(QStringLiteral("/_redirect/")));
         QTRY_VERIFY(error->isVisible());
         NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
+    }
+
+    void standaloneModeDoesNotDropAttachments()
+    {
+        MLOptions::instance()->optionObject<bool>(
+            FORWARD_WITH_PERMALINK, FORWARD_WITH_PERMALINK_DEFAULT)
+            ->setValue(false);
+        Backend backend;
+        QVERIFY(addChannel(backend, QStringLiteral("source"),
+                           QStringLiteral("O"), QStringLiteral("source")));
+        QVERIFY(addChannel(backend, QStringLiteral("target"),
+                           QStringLiteral("P"), QStringLiteral("target")));
+        const BackendPost original(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("abcdefghijklmnopqrstuvwxyz")},
+            {QStringLiteral("channel_id"), QStringLiteral("source")},
+            {QStringLiteral("user_id"), QStringLiteral("original-author")},
+            {QStringLiteral("message"), QStringLiteral("Attachment attached")},
+            {QStringLiteral("metadata"), QJsonObject{
+                {QStringLiteral("files"), QJsonArray{QJsonObject{
+                    {QStringLiteral("id"), QStringLiteral("existing-file")},
+                    {QStringLiteral("name"), QStringLiteral("photo.png")},
+                }}},
+            }},
+        }, backend.getStorage());
+        ForwardPostDialog dialog(backend, original);
+        auto* submit = dialog.findChild<QPushButton*>(
+            QStringLiteral("forwardSubmit"));
+        auto* error = dialog.findChild<QLabel*>(
+            QStringLiteral("forwardError"));
+        QVERIFY(submit && error);
+        dialog.show();
+        submit->click();
+        QVERIFY(error->isVisible());
+        QVERIFY(error->text().contains(QStringLiteral("attachments")));
     }
 
     void privateOriginOnlyOffersItsOwnChannel()

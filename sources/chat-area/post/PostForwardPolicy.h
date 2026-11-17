@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QString>
 
 namespace Mattermost {
@@ -20,5 +21,11 @@ QString textWithPermalinkPreview(const QString& message,
                                 const QJsonArray& embeds);
 
 QString forwardedPostText(const QString& comment, const QString& permalink);
+
+// Standalone copy mode has no URL: official clients receive normal Markdown.
+QString forwardedCopyText(const QString& comment, const QString& original);
+QJsonObject forwardedCopyProps(const QString& postId,
+                               const QString& authorId,
+                               const QString& teamId);
 
 } // namespace Mattermost

@@ -21,6 +21,8 @@
 #include <QVBoxLayout>
 
 #include "PostForwardPolicy.h"
+#include "Settings.h"
+#include "options/MLOptions.h"
 #include "backend/Backend.h"
 #include "backend/PostCreateService.h"
 #include "PostPermalinkService.h"
@@ -91,6 +93,11 @@ ForwardPostDialog::ForwardPostDialog(
     , backend_(backend)
     , sourceChannelId_(post.channel_id)
     , sourcePostId_(post.id)
+    , sourceMessage_(post.message)
+    , sourceAuthorId_(post.user_id)
+    , sourceHasFileAttachments_(!post.files.empty())
+    , usePermalink_(MLOptions::instance()->optionObject<bool>(
+          FORWARD_WITH_PERMALINK, FORWARD_WITH_PERMALINK_DEFAULT)->value().toBool())
 {
     setObjectName(QStringLiteral("forwardPostDialog"));
     setWindowTitle(tr("Forward message"));
@@ -102,6 +109,8 @@ ForwardPostDialog::ForwardPostDialog(
         backend_.getStorage().getChannelById(sourceChannelId_);
     sourceType_ = source ? source->type : BackendChannel::unknown;
     sourceTeamSlug_ = PostPermalinkService::teamSlugForPost(backend_, post);
+    sourceTeamId_ = source && source->team ? source->team->id
+                                           : backend_.getCurrentTeamContextId();
 
     auto* layout = new QVBoxLayout(this);
     layout->setSpacing(10);
@@ -465,7 +474,7 @@ void ForwardPostDialog::updateSubmitEnabled()
     const QListWidgetItem* selected = destinations_->currentItem();
     forwardButton_->setEnabled(
         !submitting_ && !sourcePostId_.isEmpty()
-        && !sourceTeamSlug_.isEmpty()
+        && (!usePermalink_ || !sourceTeamSlug_.isEmpty())
         && selected && !selected->isHidden());
 }
 
@@ -486,7 +495,7 @@ void ForwardPostDialog::showFailure(const QString& message)
 void ForwardPostDialog::submit()
 {
     if (submitting_ || sourcePostId_.isEmpty()
-        || sourceTeamSlug_.isEmpty()) {
+        || (usePermalink_ && sourceTeamSlug_.isEmpty())) {
         return;
     }
     const QListWidgetItem* selected = destinations_->currentItem();
@@ -505,6 +514,19 @@ void ForwardPostDialog::submit()
         return;
     }
 
+    if (!usePermalink_) {
+        if (sourceHasFileAttachments_) {
+            showFailure(tr("This message has attachments. Standalone forwarding "
+                           "requires copying files; enable permalink forwarding "
+                           "in Settings to forward it."));
+            return;
+        }
+        if (sourceMessage_.isEmpty() || sourceAuthorId_.isEmpty()) {
+            showFailure(tr("The source message or original author is unavailable."));
+            return;
+        }
+    }
+
     submitting_ = true;
     updateSubmitEnabled();
     destinations_->setEnabled(false);
@@ -513,6 +535,11 @@ void ForwardPostDialog::submit()
     }
     comment_->setReadOnly(true);
     error_->hide();
+
+    if (!usePermalink_) {
+        deliverToDestination(targetId, userId, newDirect);
+        return;
+    }
 
     QPointer<ForwardPostDialog> guard(this);
     PostPermalinkService::instance(backend_).resolve(
@@ -573,12 +600,21 @@ void ForwardPostDialog::sendToChannel(const QString& channelId)
         return;
     }
 
-    const QString message = forwardedPostText(
-        comment_->toPlainText(), permalink_);
+    const QString message = usePermalink_
+        ? forwardedPostText(comment_->toPlainText(), permalink_)
+        : forwardedCopyText(comment_->toPlainText(), sourceMessage_);
+    QJsonObject props;
+    if (!usePermalink_) {
+        QString teamId = backend_.getCurrentTeamContextId();
+        if (teamId.isEmpty()) {
+            teamId = target->team ? target->team->id : sourceTeamId_;
+        }
+        props = forwardedCopyProps(sourcePostId_, sourceAuthorId_, teamId);
+    }
     const bool publicSource = sourceType_ == BackendChannel::publicChannel;
     QPointer<ForwardPostDialog> guard(this);
     PostCreateService::instance(backend_).createPostDetailed(
-        *target, message, {}, {}, {}, {},
+        *target, message, {}, {}, props, {},
         [guard, channelId, publicSource](PostCreateService::CreatePostResult result) {
         if (!guard) {
             return;

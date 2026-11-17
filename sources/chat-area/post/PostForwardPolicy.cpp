@@ -99,4 +99,28 @@ QString forwardedPostText(const QString& comment, const QString& permalink)
         ? permalink : comment + QLatin1Char('\n') + permalink;
 }
 
+QString forwardedCopyText(const QString& comment, const QString& original)
+{
+    if (original.isEmpty()) {
+        return {};
+    }
+    return comment.trimmed().isEmpty()
+        ? original : comment + QStringLiteral("\n\n") + original;
+}
+
+QJsonObject forwardedCopyProps(const QString& postId,
+                               const QString& authorId,
+                               const QString& teamId)
+{
+    QJsonObject props{
+        {QStringLiteral("isForwarded"), true},
+        {QStringLiteral("originalPostId"), postId},
+        {QStringLiteral("originalAuthorId"), authorId},
+    };
+    if (!teamId.isEmpty()) {
+        props.insert(QStringLiteral("current_team_id"), teamId);
+    }
+    return props;
+}
+
 } // namespace Mattermost

@@ -143,6 +143,21 @@ SettingsWindow::SettingsWindow(QWidget *parent) :
         composerPage,
         tr("When enabled, Enter inserts a new line and Ctrl+Enter sends the message. "
            "Shift+Enter always inserts a new line.")));
+
+    forwardWithPermalink = new QCheckBox(
+        tr("Do message forwarding with permalink"), composerPage);
+    forwardWithPermalink->setObjectName(QStringLiteral("forwardWithPermalink"));
+    forwardWithPermalink->setChecked(
+        options->optionObject<bool>(FORWARD_WITH_PERMALINK,
+                                    FORWARD_WITH_PERMALINK_DEFAULT)
+            ->value().toBool());
+    composerLayout->addWidget(forwardWithPermalink);
+    composerLayout->addWidget(makeDescription(
+        composerPage,
+        tr("Enabled: native Mattermost forwarding with a message preview. "
+           "Disabled: send a standalone copy of the message with its original "
+           "author recorded. Posts with file attachments currently require "
+           "permalink forwarding.")));
     composerLayout->addStretch(1);
     tabs->addTab(composerPage, tr("Composer"));
 
@@ -580,6 +595,9 @@ void SettingsWindow::applyNewSettings ()
         COMPOSER_SEND_WITH_CTRL_ENTER,
         COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT)
         ->setValue(sendWithCtrlEnter->isChecked());
+    options->optionObject<bool>(FORWARD_WITH_PERMALINK,
+                                FORWARD_WITH_PERMALINK_DEFAULT)
+        ->setValue(forwardWithPermalink->isChecked());
     options->optionObject<bool>(
         UNREAD_MODE_IGNORE_WHILE_FILTERING,
         UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT)

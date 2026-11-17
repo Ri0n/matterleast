@@ -55,7 +55,12 @@ private:
     QString sourceChannelId_;
     QString sourcePostId_;
     QString sourceTeamSlug_;
+    QString sourceTeamId_;
+    QString sourceMessage_;
+    QString sourceAuthorId_;
     QString permalink_;
+    bool sourceHasFileAttachments_ = false;
+    bool usePermalink_ = true;
     int sourceType_ = 0;
     bool submitting_ = false;
 

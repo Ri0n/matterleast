@@ -54,6 +54,7 @@ private:
     Ui::SettingsWindow *ui;
 
     QCheckBox* sendWithCtrlEnter = nullptr;
+    QCheckBox* forwardWithPermalink = nullptr;
 #ifdef MATTERLEAST_ENABLE_AI
     QCheckBox* _aiEnabled = nullptr;
     QLineEdit* _aiCommand = nullptr;
