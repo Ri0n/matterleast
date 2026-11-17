@@ -130,7 +130,9 @@ public:
     void applyLocalTeamState(const QString& teamId, SidebarTeamState state);
 
     void createCategory(const QString& teamId, const QString& displayName,
-                        std::function<void(const SidebarCategory&)> callback = {});
+                        std::function<void(const SidebarCategory&)> callback = {},
+                        const QString& insertBeforeCategoryId = {},
+                        std::function<void()> errorCallback = {});
     void deleteCategory(const QString& teamId, const QString& categoryId,
                         std::function<void(bool)> callback = {});
     void updateCategory(const SidebarCategory& category,
