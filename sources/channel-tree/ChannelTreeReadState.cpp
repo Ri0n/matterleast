@@ -167,8 +167,9 @@ void ChannelTree::mouseMoveEvent(QMouseEvent* event)
                      rowRect.top(), 30, rowRect.height());
     };
     const bool addHovered = hasAdd && accessoryRect(0).contains(event->pos());
-    const bool menuHovered = hasMenu
-        && accessoryRect(hasAdd ? 1 : 0).contains(event->pos());
+    // The options icon is revealed on category-row hover, not only after
+    // the pointer finds its otherwise invisible 30 px click target.
+    const bool menuHovered = hasMenu && rowRect.contains(event->pos());
 
     if (index != categoryActionHoverIndex
         || addHovered != categoryActionHovered
