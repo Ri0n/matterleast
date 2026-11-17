@@ -1122,7 +1122,10 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
             update(std::move(changed));
         }
     } else if (chosen == remove && custom) {
-        if (QMessageBox::question(
+        // A visually empty category can still own hidden/capped conversations.
+        // Skip confirmation only when the SERVER membership list is empty.
+        const bool empty = liveCategory->channelIds.isEmpty();
+        if (empty || QMessageBox::question(
                 this, tr("Delete category"),
                 tr("Delete this category? Its conversations will return to their default categories."))
             == QMessageBox::Yes) {
@@ -1158,7 +1161,16 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
             this, tr("Create category"), tr("Category name:"),
             QLineEdit::Normal, QString(), &accepted).trimmed();
         if (accepted && !name.isEmpty()) {
-            sidebar.createCategory(teamId, name);
+            QPointer<ChannelTree> guard(this);
+            // The category is placed above the one whose menu was used,
+            // and that order is persisted with the server's /order endpoint.
+            sidebar.createCategory(teamId, name, {}, categoryId, [guard] {
+                if (guard) {
+                    QMessageBox::warning(
+                        guard, QObject::tr("Create category"),
+                        QObject::tr("Could not create or position this category."));
+                }
+            });
         }
     }
 }
