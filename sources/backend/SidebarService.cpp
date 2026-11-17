@@ -355,7 +355,21 @@ bool SidebarService::isChannelMuted(const BackendChannel& channel) const
 
 bool SidebarService::isChannelMuted(const QString& channelId) const
 {
-    return mutedChannelIds.contains(channelId);
+    if (mutedChannelIds.contains(channelId)) {
+        return true;
+    }
+    // A muted category suppresses notifications for all of its channels.
+    // The server may not return updated channel notify_props immediately
+    // after a category PUT, so honour the authoritative category flag too.
+    for (auto teamIt = sidebarByTeam.cbegin(); teamIt != sidebarByTeam.cend(); ++teamIt) {
+        for (auto it = teamIt->categories.cbegin();
+             it != teamIt->categories.cend(); ++it) {
+            if (it->muted && it->channelIds.contains(channelId)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool SidebarService::hasUnreadMention(const QString& channelId) const
