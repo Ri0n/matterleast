@@ -62,6 +62,8 @@ public:
     Backend& backendInstance() const { return backend; }
 	void initializationComplete ();
     void installRealtimeUiSync();
+    // Save and close while post widgets can still access valid Storage.
+    void prepareForLogout();
     void beginSemanticNavigation();
 	void openChannelPost(const QString& channelId,
 	                     const QString& postId = QString(),
@@ -80,6 +82,9 @@ public:
 	void setNotificationsCountVisualization (uint32_t notificationsCount);
 	void moveEvent (QMoveEvent* event) override;
 	void dragMoveEvent(QDragMoveEvent* event) override;
+
+signals:
+    void logoutRequested();
 
 private slots:
     void on_usericon_label_clicked();
