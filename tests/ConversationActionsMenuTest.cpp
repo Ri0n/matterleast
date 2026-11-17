@@ -69,7 +69,7 @@ SidebarTeamState teamStateFor(const QString& channelId)
     channels.id = QStringLiteral("channels-id");
     channels.type = QStringLiteral("channels");
     channels.teamId = QStringLiteral("team");
-    channels.channelIds = {channelId};
+    channels.channelIds = QStringList{channelId};
 
     SidebarCategory custom;
     custom.id = QStringLiteral("custom-id");
@@ -80,7 +80,7 @@ SidebarTeamState teamStateFor(const QString& channelId)
     result.categories.insert(favorites.id, favorites);
     result.categories.insert(channels.id, channels);
     result.categories.insert(custom.id, custom);
-    result.order = {favorites.id, channels.id, custom.id};
+    result.order = QStringList{favorites.id, channels.id, custom.id};
     return result;
 }
 
@@ -161,7 +161,7 @@ private slots:
         directs.id = QStringLiteral("directs-id");
         directs.teamId = QStringLiteral("team");
         directs.type = QStringLiteral("direct_messages");
-        directs.channelIds = {QStringLiteral("direct-id"), QStringLiteral("group-id")};
+        directs.channelIds = QStringList{QStringLiteral("direct-id"), QStringLiteral("group-id")};
         state.categories.insert(directs.id, directs);
         state.order.append(directs.id);
         SidebarService::instance(backend).applyLocalTeamState(
