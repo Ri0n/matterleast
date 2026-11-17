@@ -24,12 +24,17 @@
 
 #include "ChannelTree.h"
 
+#include <QAction>
 #include <QApplication>
+#include <QCursor>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMenu>
+#include <QMessageBox>
 #include <QPointer>
 #include <QStackedWidget>
 #include <QTimer>
@@ -47,6 +52,7 @@
 #include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/SidebarChannelMovePolicy.h"
 #include "channel-tree/SidebarManualOrder.h"
+#include "ui/IconUtils.h"
 #include "channel-tree/SidebarDragScrollPolicy.h"
 #include "channel-tree/channel-item/DirectChannelItem.h"
 #include "channel-tree/team-item/GroupTeamItem.h"
@@ -176,7 +182,10 @@ ChannelTree::ChannelTree (QWidget* parent)
         }
     });
 
-    setItemDelegate(new ChannelItemDelegate(this));
+    auto* categoryDelegate = new ChannelItemDelegate(this);
+    setItemDelegate(categoryDelegate);
+    connect(categoryDelegate, &ChannelItemDelegate::categoryMenuRequested,
+            this, &ChannelTree::showCategoryMenu);
     setMouseTracking(true);
     setDragEnabled(true);
     setAcceptDrops(true);
@@ -312,6 +321,21 @@ void ChannelTree::populateSidebars(Backend& backend)
             Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::channelMentionedChanged,
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
+    if (!categorySyncConnected_) {
+        categorySyncConnected_ = true;
+        connect(&sidebar, &SidebarService::categoriesChanged, this,
+                [this](const QString& teamId) {
+            if (!backendForSidebar) {
+                return;
+            }
+            TeamItem* team = teamToItemMap.value(teamId, nullptr);
+            const SidebarTeamState* state =
+                SidebarService::instance(*backendForSidebar).teamState(teamId);
+            if (team && state) {
+                reconcileTeamSidebar(*backendForSidebar, *team, *state);
+            }
+        });
+    }
 
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
         if (BackendTeam* team = backend.getStorage().getTeamById(it.key())) {
@@ -939,9 +963,14 @@ void ChannelTree::removeChannelToItem (QString channelID, QTreeWidgetItem* item)
 void ChannelTree::showContextMenu (const QPoint& pos)
 {
 	QTreeWidgetItem* item = itemAt(pos);
-    if (!item || item->data(0, ItemKindRole).toInt() == CategoryItemKind) {
-		return;
-	}
+    if (!item) {
+        return;
+    }
+    if (item->data(0, ItemKindRole).toInt() == CategoryItemKind) {
+        showCategoryMenu(item->data(0, ItemTeamIdRole).toString(),
+                         item->data(0, ItemIdRole).toString());
+        return;
+    }
 
     const int kind = item->data(0, ItemKindRole).toInt();
     if (kind != TeamItemKind && kind != ChannelItemKind) {
