@@ -7,13 +7,10 @@
 #include <QColor>
 #include <QDialogButtonBox>
 #include <QEvent>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
-#include <QNetworkReply>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -26,7 +23,7 @@
 #include "PostForwardPolicy.h"
 #include "backend/Backend.h"
 #include "backend/PostCreateService.h"
-#include "backend/NetworkRequest.h"
+#include "PostPermalinkService.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -104,15 +101,7 @@ ForwardPostDialog::ForwardPostDialog(
     const BackendChannel* source =
         backend_.getStorage().getChannelById(sourceChannelId_);
     sourceType_ = source ? source->type : BackendChannel::unknown;
-    const BackendTeam* linkTeam = source ? source->team : nullptr;
-    if (!linkTeam) {
-        linkTeam = backend_.getStorage().getTeamById(
-            backend_.getCurrentTeamContextId());
-    }
-    if (!linkTeam && !backend_.getStorage().teams.empty()) {
-        linkTeam = &backend_.getStorage().teams.begin()->second;
-    }
-    sourceTeamSlug_ = linkTeam ? linkTeam->name : QString();
+    sourceTeamSlug_ = PostPermalinkService::teamSlugForPost(backend_, post);
 
     auto* layout = new QVBoxLayout(this);
     layout->setSpacing(10);
@@ -525,46 +514,19 @@ void ForwardPostDialog::submit()
     comment_->setReadOnly(true);
     error_->hide();
 
-    // Resolve the server-configured SiteURL, not the hostname used for this
-    // connection. Mattermost's server-side embed detector matches SiteURL
-    // literally and will not generate a preview for an alternate host or
-    // /_redirect/pl/<id>. A failed config lookup must never send a naked link.
     QPointer<ForwardPostDialog> guard(this);
-    NetworkRequest request(QStringLiteral("config/client?format=old"));
-    configConnector_.get(request, HttpResponseCallback(
-        [guard, targetId, userId, newDirect](QVariant status,
-                                             const QJsonDocument& document) {
-        if (!guard) {
+    PostPermalinkService::instance(backend_).resolve(
+        sourcePostId_, sourceTeamSlug_, true,
+        [guard, targetId, userId, newDirect](const QString& link,
+                                              const QString& error) {
+        if (!guard) return;
+        if (link.isEmpty()) {
+            guard->showFailure(error + ForwardPostDialog::tr(" No message was sent."));
             return;
         }
-        if (status.toInt() != QNetworkReply::NoError || !document.isObject()) {
-            guard->showFailure(
-                ForwardPostDialog::tr("Cannot retrieve the server's Site URL. "
-                                      "No message was sent."));
-            return;
-        }
-        const QJsonObject config = document.object();
-        const QJsonValue previewsEnabled =
-            config.value(QStringLiteral("EnablePermalinkPreviews"));
-        if (previewsEnabled.toString().compare(
-                QLatin1String("false"), Qt::CaseInsensitive) == 0
-            || (previewsEnabled.isBool() && !previewsEnabled.toBool())) {
-            guard->showFailure(
-                ForwardPostDialog::tr("Permalink previews are disabled on this server. "
-                                      "No message was sent."));
-            return;
-        }
-        guard->permalink_ = nativeForwardPermalink(
-            config.value(QStringLiteral("SiteURL")).toString(),
-            guard->sourceTeamSlug_, guard->sourcePostId_);
-        if (guard->permalink_.isEmpty()) {
-            guard->showFailure(
-                ForwardPostDialog::tr("The server's Site URL cannot be used for "
-                                      "message forwarding. No message was sent."));
-            return;
-        }
+        guard->permalink_ = link;
         guard->deliverToDestination(targetId, userId, newDirect);
-    }));
+    });
 }
 
 void ForwardPostDialog::deliverToDestination(const QString& targetId,

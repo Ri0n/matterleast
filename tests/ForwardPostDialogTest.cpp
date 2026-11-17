@@ -1,10 +1,17 @@
 #include <QtTest>
 
+#include <QHostAddress>
+#include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QTcpServer>
+#include <QTcpSocket>
+
+#include <memory>
 
 #include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
@@ -142,6 +149,116 @@ private slots:
         QVERIFY(!item->isHidden());
         search->setText(QStringLiteral("absent"));
         QVERIFY(item->isHidden());
+    }
+
+
+    void forwardingUsesCanonicalUrlInRealPostPayload()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        const QString connectionHost = QStringLiteral("http://127.0.0.1:%1/")
+            .arg(server.serverPort());
+        NetworkRequest::setHost(connectionHost);
+
+        QJsonObject sentPost;
+        int configRequests = 0;
+        int postRequests = 0;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (server.hasPendingConnections()) {
+                QTcpSocket* socket = server.nextPendingConnection();
+                auto buffer = std::make_shared<QByteArray>();
+                auto handled = std::make_shared<bool>(false);
+                connect(socket, &QTcpSocket::readyRead, &server,
+                        [&, socket, buffer, handled] {
+                    if (*handled) return;
+                    buffer->append(socket->readAll());
+                    const int headerEnd = buffer->indexOf("\r\n\r\n");
+                    if (headerEnd < 0) return;
+                    const QByteArray headers = buffer->left(headerEnd);
+                    int bodyLength = 0;
+                    for (const QByteArray& rawLine : headers.split('\n')) {
+                        const QByteArray line = rawLine.trimmed();
+                        if (line.toLower().startsWith("content-length:")) {
+                            bodyLength = line.mid(sizeof("content-length:") - 1)
+                                .trimmed().toInt();
+                        }
+                    }
+                    if (buffer->size() < headerEnd + 4 + bodyLength) return;
+                    *handled = true;
+                    const QByteArray requestLine = headers.left(headers.indexOf('\n')).trimmed();
+                    QByteArray responseBody;
+                    QByteArray status = "200 OK";
+                    if (requestLine.startsWith("GET /api/v4/config/client?format=old ")) {
+                        ++configRequests;
+                        responseBody = R"({"SiteURL":"https://canonical.example.net","EnablePermalinkPreviews":"true"})";
+                    } else if (requestLine.startsWith("POST /api/v4/posts ")) {
+                        ++postRequests;
+                        const QByteArray body = buffer->mid(headerEnd + 4, bodyLength);
+                        sentPost = QJsonDocument::fromJson(body).object();
+                        // We test the actual wire payload, not server-side
+                        // persistence. A deliberate rejection keeps the dialog open.
+                        status = "400 Bad Request";
+                        responseBody = R"({"message":"mock transport received post"})";
+                    } else {
+                        status = "404 Not Found";
+                        responseBody = "{}";
+                    }
+                    const QByteArray response = "HTTP/1.1 " + status
+                        + "\r\nContent-Type: application/json\r\nContent-Length: "
+                        + QByteArray::number(responseBody.size())
+                        + "\r\nConnection: close\r\n\r\n" + responseBody;
+                    socket->write(response);
+                    socket->disconnectFromHost();
+                });
+                connect(socket, &QTcpSocket::disconnected,
+                        socket, &QObject::deleteLater);
+            }
+        });
+
+        Backend backend;
+        QVERIFY(addChannel(backend, QStringLiteral("source"),
+                           QStringLiteral("O"), QStringLiteral("source")));
+        QVERIFY(addChannel(backend, QStringLiteral("private"),
+                           QStringLiteral("P"), QStringLiteral("private")));
+        const QString sourceId = QStringLiteral("abcdefghijklmnopqrstuvwxyz");
+        BackendPost original(QJsonObject{
+            {QStringLiteral("id"), sourceId},
+            {QStringLiteral("channel_id"), QStringLiteral("source")},
+            {QStringLiteral("message"), QStringLiteral("Original content")},
+        }, backend.getStorage());
+        ForwardPostDialog dialog(backend, original);
+        auto* destinations = dialog.findChild<QListWidget*>(
+            QStringLiteral("forwardDestinations"));
+        auto* submit = dialog.findChild<QPushButton>(
+            QStringLiteral("forwardSubmit"));
+        auto* comment = dialog.findChild<QPlainTextEdit>(
+            QStringLiteral("forwardComment"));
+        auto* error = dialog.findChild<QLabel>(
+            QStringLiteral("forwardError"));
+        QVERIFY(destinations && submit && comment && error);
+        for (int index = 0; index < destinations->count(); ++index) {
+            if (destinations->item(index)->data(Qt::UserRole).toString()
+                == QStringLiteral("private")) {
+                destinations->setCurrentRow(index);
+                break;
+            }
+        }
+        QCOMPARE(destinations->currentItem()->data(Qt::UserRole).toString(),
+                 QStringLiteral("private"));
+        comment->setPlainText(QStringLiteral("Context"));
+        QVERIFY(submit->isEnabled());
+        dialog.show();
+        submit->click();
+        QTRY_COMPARE(configRequests, 1);
+        QTRY_COMPARE(postRequests, 1);
+        QCOMPARE(sentPost.value(QStringLiteral("channel_id")).toString(),
+                 QStringLiteral("private"));
+        QCOMPARE(sentPost.value(QStringLiteral("message")).toString(),
+                 QStringLiteral("Context\nhttps://canonical.example.net/team/pl/") + sourceId);
+        QVERIFY(!sentPost.value(QStringLiteral("message")).toString()
+                    .contains(QStringLiteral("/_redirect/")));
+        QTRY_VERIFY(error->isVisible());
+        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
     }
 
     void privateOriginOnlyOffersItsOwnChannel()

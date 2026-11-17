@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QDialog>
-#include "backend/HTTPConnector.h"
 #include <QHash>
 #include <QSet>
 #include <QString>
@@ -57,7 +56,6 @@ private:
     QString sourcePostId_;
     QString sourceTeamSlug_;
     QString permalink_;
-    HTTPConnector configConnector_;
     int sourceType_ = 0;
     bool submitting_ = false;
 

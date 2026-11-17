@@ -49,6 +49,7 @@
 #include <QMoveEvent>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -64,7 +65,7 @@
 #include "ForwardPostDialog.h"
 #include "Settings.h"
 #include "MessageFormatter.h"
-#include "PostPermalinkUtils.h"
+#include "PostPermalinkService.h"
 #include "PostForwardPolicy.h"
 #include "PostQuoteFrame.h"
 #include "PostTimestampPresentation.h"
@@ -1364,7 +1365,7 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     // Forward sends an ordinary permalink post with an optional comment;
     // unlike Copy message link it lets the user select a destination and
     // displays the original post before committing.
-    if (!messagePermalink(post).isEmpty()) {
+    if (!post.id.isEmpty()) {
         QAction* forwardAction = menu.addAction(
             QIcon::fromTheme(QStringLiteral("mail-forward"),
                              icon(QStringLiteral(":/icons/link"))),
@@ -1378,10 +1379,20 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     QAction* copyMessageLinkAction = menu.addAction(icon(QStringLiteral(":/icons/link")),
                                                     tr("Copy message link"));
     connect(copyMessageLinkAction, &QAction::triggered, this, [this] {
-        const QString link = messagePermalink(post);
-        if (!link.isEmpty()) {
+        const QString postId = post.id;
+        const QString teamSlug =
+            PostPermalinkService::teamSlugForPost(backend_, post);
+        const QPointer<PostWidget> guard(this);
+        PostPermalinkService::instance(backend_).resolve(
+            postId, teamSlug, false,
+            [guard](const QString& link, const QString& error) {
+            if (!guard) return;
+            if (link.isEmpty()) {
+                QMessageBox::warning(guard, PostWidget::tr("Copy message link"), error);
+                return;
+            }
             QApplication::clipboard()->setText(link);
-        }
+        });
     });
 
     const QString selectedText = getSelectedText();

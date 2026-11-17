@@ -107,7 +107,7 @@ private slots:
 
     void forwardingPayload()
     {
-        const QString link("https://server/_redirect/pl/postid");
+        const QString link("https://canonical.example/team/pl/abcdefghijklmnopqrstuvwxyz");
         QCOMPARE(forwardedPostText({}, link), link);
         QCOMPARE(forwardedPostText("  \t  ", link), link);
         QCOMPARE(forwardedPostText("Context", link),
