@@ -157,23 +157,33 @@ void ChannelTree::mouseMoveEvent(QMouseEvent* event)
     }
 
     const QModelIndex index = indexAt(event->pos());
-    const bool actionable = index.isValid()
+    const bool hasAdd = index.isValid()
         && index.data(SidebarItem::CategoryActionRole).toBool();
-    const QRect rowRect = actionable ? visualRect(index) : QRect();
-    const QRect actionRect = actionable
-        ? QRect(rowRect.right() - 30 + 1, rowRect.top(), 30, rowRect.height())
-        : QRect();
-    const bool hovered = actionable && actionRect.contains(event->pos());
+    const bool hasMenu = index.isValid()
+        && index.data(SidebarItem::CategoryMenuRole).toBool();
+    const QRect rowRect = (hasAdd || hasMenu) ? visualRect(index) : QRect();
+    const auto accessoryRect = [&rowRect](int slot) {
+        return QRect(rowRect.right() - (slot + 1) * 30 + 1,
+                     rowRect.top(), 30, rowRect.height());
+    };
+    const bool addHovered = hasAdd && accessoryRect(0).contains(event->pos());
+    const bool menuHovered = hasMenu
+        && accessoryRect(hasAdd ? 1 : 0).contains(event->pos());
 
-    if (index != categoryActionHoverIndex || hovered != categoryActionHovered) {
+    if (index != categoryActionHoverIndex
+        || addHovered != categoryActionHovered
+        || menuHovered != categoryMenuHovered) {
         const QPersistentModelIndex previous = categoryActionHoverIndex;
-        if (previous.isValid()) {
+        if (previous.isValid() && previous != index) {
             model()->setData(previous, false, SidebarItem::CategoryActionHoveredRole);
+            model()->setData(previous, false, SidebarItem::CategoryMenuHoveredRole);
         }
         categoryActionHoverIndex = index;
-        categoryActionHovered = hovered;
+        categoryActionHovered = addHovered;
+        categoryMenuHovered = menuHovered;
         if (index.isValid()) {
-            model()->setData(index, hovered, SidebarItem::CategoryActionHoveredRole);
+            model()->setData(index, addHovered, SidebarItem::CategoryActionHoveredRole);
+            model()->setData(index, menuHovered, SidebarItem::CategoryMenuHoveredRole);
         }
     }
 
@@ -196,9 +206,12 @@ void ChannelTree::leaveEvent(QEvent* event)
     if (categoryActionHoverIndex.isValid()) {
         model()->setData(categoryActionHoverIndex, false,
                          SidebarItem::CategoryActionHoveredRole);
+        model()->setData(categoryActionHoverIndex, false,
+                         SidebarItem::CategoryMenuHoveredRole);
     }
     categoryActionHoverIndex = QPersistentModelIndex();
     categoryActionHovered = false;
+    categoryMenuHovered = false;
     QTreeWidget::leaveEvent(event);
 }
 
