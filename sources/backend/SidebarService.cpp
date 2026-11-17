@@ -307,16 +307,8 @@ void SidebarService::setChannelFavorite(
         return;
     }
 
-    // Every conversation belongs to one category per team. Move it without
-    // modifying either category's sorting setting, especially Favorites.
-    const SidebarCategory* source = nullptr;
-    for (const QString& id : state->order) {
-        const SidebarCategory* candidate = state->category(id);
-        if (candidate && candidate->channelIds.contains(channelId)) {
-            source = candidate;
-            break;
-        }
-    }
+    // All category moves, including Favorites, share one server update
+    // operation and never modify the destination's sorting mode.
     const bool direct = channel->type == BackendChannel::directChannel
         || channel->type == BackendChannel::groupChannel;
     const SidebarCategory* destination = favorite ? favorites
@@ -326,28 +318,8 @@ void SidebarService::setChannelFavorite(
         if (callback) callback(false);
         return;
     }
-
-    QVector<SidebarCategory> updates;
-    if (source && source->id != destination->id) {
-        SidebarCategory oldCategory = *source;
-        oldCategory.channelIds.removeAll(channelId);
-        updates.push_back(std::move(oldCategory));
-    }
-    SidebarCategory updatedDestination = *destination;
-    updatedDestination.channelIds.removeAll(channelId);
-    updatedDestination.channelIds.push_back(channelId);
-    updates.push_back(std::move(updatedDestination));
-
-    // The server may not echo category updates through WebSocket. The response
-    // itself is authoritative and updateCategories emits categoriesChanged,
-    // which the live ChannelTree reconciles without resetting the model.
-    updateCategories(teamId, updates,
-        [callback](const SidebarTeamState&) {
-            if (callback) callback(true);
-        },
-        [callback] {
-            if (callback) callback(false);
-        });
+    moveChannelToCategory(teamId, channelId, destination->id,
+                          std::move(callback));
 }
 
 void SidebarService::moveChannelToCategory(
