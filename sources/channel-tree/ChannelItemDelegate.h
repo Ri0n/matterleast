@@ -23,6 +23,8 @@ public:
 signals:
     void categoryActionRequested(const QString& teamId,
                                  const QString& categoryId);
+    void categoryMenuRequested(const QString& teamId,
+                               const QString& categoryId);
 
 protected:
     void initStyleOption(QStyleOptionViewItem* option,
