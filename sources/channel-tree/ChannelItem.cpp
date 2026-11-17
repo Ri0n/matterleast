@@ -27,6 +27,8 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QMenu>
+#include <QMessageBox>
+#include <QPointer>
 
 #include "ChannelIcons.h"
 #include "ChannelItemWidget.h"
@@ -38,6 +40,7 @@
 #include "backend/types/BackendUser.h"
 #include "navigation/AppNavigationService.h"
 #include "navigation/ConversationReference.h"
+#include "ui/IconUtils.h"
 
 namespace Mattermost {
 
@@ -161,6 +164,44 @@ void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& chann
 
     auto* tree = static_cast<ChannelTree*>(treeWidget());
     if (tree) {
+        // Favorites is a built-in, team-scoped category, not a custom one.
+        // Expose it explicitly on every real channel/DM/GM row as well as
+        // inside the category move submenu. Read membership on menu creation
+        // so its heart and label are always current.
+        const QString teamId = parent()
+            ? parent()->data(0, SidebarItem::TeamIdRole).toString()
+            : data(0, SidebarItem::TeamIdRole).toString();
+        const SidebarTeamState* state = sidebar.teamState(teamId);
+        if (state && state->categoryByType(QStringLiteral("favorites"))) {
+            const bool favorite = sidebar.isChannelFavorite(channel, teamId);
+            QAction* favoriteAction = menu.addAction(
+                IconUtils::symbolicIcon(favorite
+                    ? QStringLiteral(":/icons/heart-filled")
+                    : QStringLiteral(":/icons/heart-outline")),
+                favorite ? QObject::tr("Remove from Favorites")
+                         : QObject::tr("Add to Favorites"));
+            const QString channelId = channel.id;
+            QPointer<QWidget> view(tree);
+            QObject::connect(favoriteAction, &QAction::triggered, tree,
+                             [this, teamId, channelId, view] {
+                BackendChannel* liveChannel =
+                    backend.getStorage().getChannelById(channelId);
+                if (!liveChannel) {
+                    return;
+                }
+                auto& service = SidebarService::instance(backend);
+                const bool next = !service.isChannelFavorite(*liveChannel, teamId);
+                service.setChannelFavorite(
+                    teamId, channelId, next, [view](bool success) {
+                        if (!success && view) {
+                            QMessageBox::warning(
+                                view, QObject::tr("Favorites"),
+                                QObject::tr("Could not update Favorites."));
+                        }
+                    });
+            });
+        }
+
         const auto targets = tree->customCategoryTargets(this);
         QMenu* moveMenu = menu.addMenu(QStringLiteral("Move to category"));
         for (const auto& target : targets) {
