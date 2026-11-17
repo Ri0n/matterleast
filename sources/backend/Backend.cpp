@@ -592,6 +592,19 @@ void Backend::reset ()
 	nonFilledTeams = 0;
 }
 
+void Backend::prepareForLogout()
+{
+    isLoggedIn = false;
+    autoLoginEnabledFlag = false;
+
+    // First stop the reconnect loop, then cancel outstanding HTTP work while
+    // the old MainWindow and its callback targets still exist. HTTPConnector
+    // increments its generation before destroying replies, so stale response
+    // handlers are suppressed instead of touching destroyed post widgets.
+    webSocketConnector.close();
+    httpConnector.reset();
+}
+
 void Backend::logout(std::function<void()> callback)
 {
     NetworkRequest request(QStringLiteral("users/logout"));
