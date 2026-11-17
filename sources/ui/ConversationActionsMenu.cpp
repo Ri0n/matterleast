@@ -90,11 +90,14 @@ QAction* addAction(QMenu& menu, const QString& name, const QString& title,
 } // namespace
 
 QString ConversationActionsMenu::channelWebUrl(Backend& backend,
-                                                const BackendChannel& channel)
+                                                const BackendChannel& channel,
+                                                const QString& preferredTeamId)
 {
     const BackendTeam* team = channel.team;
     if (!team) {
-        team = backend.getStorage().getTeamById(backend.getCurrentTeamContextId());
+        team = backend.getStorage().getTeamById(
+            preferredTeamId.isEmpty()
+                ? backend.getCurrentTeamContextId() : preferredTeamId);
     }
     if (!team) {
         return {};
@@ -187,23 +190,25 @@ void ConversationActionsMenu::populate(
     QAction* copyLink = addAction(
         menu, QStringLiteral("copyConversationLinkAction"),
         QObject::tr("Copy link to chat"), QStringLiteral(":/icons/link"),
-        [backendPtr, activeChannel] {
+        [backendPtr, activeChannel, resolveTeam] {
         if (const BackendChannel* channel = activeChannel()) {
             const QString link =
-                ConversationActionsMenu::channelWebUrl(*backendPtr, *channel);
+                ConversationActionsMenu::channelWebUrl(
+                    *backendPtr, *channel, resolveTeam());
             if (!link.isEmpty()) {
                 QApplication::clipboard()->setText(link);
             }
         }
     });
     QObject::connect(&menu, &QMenu::aboutToShow, &menu,
-                     [copyReference, copyLink, activeChannel, backendPtr] {
+                     [copyReference, copyLink, activeChannel, backendPtr, resolveTeam] {
         const BackendChannel* channel = activeChannel();
         const QString reference = channel
             ? ConversationReference::copyText(*backendPtr, *channel) : QString();
         copyReference->setVisible(!reference.isEmpty());
         copyLink->setEnabled(channel
-            && !ConversationActionsMenu::channelWebUrl(*backendPtr, *channel).isEmpty());
+            && !ConversationActionsMenu::channelWebUrl(
+                *backendPtr, *channel, resolveTeam()).isEmpty());
     });
 
     if (thread) {
