@@ -59,7 +59,12 @@ public:
     void clear();
 
     bool isChannelMuted(const BackendChannel& channel) const;
-    bool isChannelFavorite(const BackendChannel& channel) const;
+    bool isChannelFavorite(const BackendChannel& channel,
+                           const QString& teamId = {}) const;
+    // Changes one team's server-owned categories; works for channels, DMs
+    // and group DMs without modifying the Favorites sorting mode.
+    void setChannelFavorite(const QString& teamId, const QString& channelId,
+                            bool favorite, std::function<void(bool)> callback = {});
     bool isChannelMuted(const QString& channelId) const;
     bool hasUnreadMention(const QString& channelId) const;
     void setChannelMentioned(const QString& channelId, bool mentioned);
@@ -124,6 +129,8 @@ public:
 
     void createCategory(const QString& teamId, const QString& displayName,
                         std::function<void(const SidebarCategory&)> callback = {});
+    void deleteCategory(const QString& teamId, const QString& categoryId,
+                        std::function<void(bool)> callback = {});
     void updateCategory(const SidebarCategory& category,
                         std::function<void(const SidebarCategory&)> callback = {},
                         std::function<void()> errorCallback = {},
