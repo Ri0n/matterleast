@@ -146,7 +146,7 @@ public:
 	void removeChannelFromCategory(ChannelItem* item);
 	QVector<QPair<QString, QString>> customCategoryTargets(const ChannelItem* item) const;
 	void moveChannelToCategory(ChannelItem* item, const QString& categoryId);
-	void createGroupAndMoveChannel(ChannelItem* item);
+	void createCategoryAndMoveChannel(ChannelItem* item);
 
 signals:
     void teamSidebarPopulated(const QString& teamId);
