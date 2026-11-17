@@ -256,13 +256,96 @@ QString SidebarService::categoriesPath(const QString& teamId) const
         + QStringLiteral("/channels/categories");
 }
 
-bool SidebarService::isChannelFavorite(const BackendChannel& channel) const
+bool SidebarService::isChannelFavorite(const BackendChannel& channel,
+                                       const QString& teamId) const
 {
-    if (!channel.team) return false;
-    const SidebarTeamState* state = teamState(channel.team->id);
-    const SidebarCategory* favorites = state
-        ? state->categoryByType(QStringLiteral("favorites")) : nullptr;
-    return favorites && favorites->channelIds.contains(channel.id);
+    // DM and GM BackendChannel objects do not necessarily have a team, but
+    // they can be favorites in each team's server-owned sidebar.
+    const QString preferred = !teamId.isEmpty() ? teamId
+        : !backend.getCurrentTeamContextId().isEmpty()
+            ? backend.getCurrentTeamContextId()
+            : channel.team ? channel.team->id : QString();
+    const SidebarTeamState* preferredState = teamState(preferred);
+    if (preferredState) {
+        const SidebarCategory* favorites =
+            preferredState->categoryByType(QStringLiteral("favorites"));
+        return favorites && favorites->channelIds.contains(channel.id);
+    }
+
+    for (auto it = sidebarByTeam.cbegin(); it != sidebarByTeam.cend(); ++it) {
+        const SidebarCategory* favorites =
+            it.value().categoryByType(QStringLiteral("favorites"));
+        if (favorites && favorites->channelIds.contains(channel.id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SidebarService::setChannelFavorite(
+    const QString& teamId, const QString& channelId, bool favorite,
+    std::function<void(bool)> callback)
+{
+    SidebarTeamState* state = teamState(teamId);
+    BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+    if (!state || !channel || channelId.isEmpty()) {
+        if (callback) callback(false);
+        return;
+    }
+    const SidebarCategory* favorites = state->categoryByType(
+        QStringLiteral("favorites"));
+    if (!favorites) {
+        if (callback) callback(false);
+        return;
+    }
+
+    const bool alreadyFavorite = favorites->channelIds.contains(channelId);
+    if (alreadyFavorite == favorite) {
+        if (callback) callback(true);
+        return;
+    }
+
+    // Every conversation belongs to one category per team. Move it without
+    // modifying either category's sorting setting, especially Favorites.
+    const SidebarCategory* source = nullptr;
+    for (const QString& id : state->order) {
+        const SidebarCategory* candidate = state->category(id);
+        if (candidate && candidate->channelIds.contains(channelId)) {
+            source = candidate;
+            break;
+        }
+    }
+    const bool direct = channel->type == BackendChannel::directChannel
+        || channel->type == BackendChannel::groupChannel;
+    const SidebarCategory* destination = favorite ? favorites
+        : state->categoryByType(direct ? QStringLiteral("direct_messages")
+                                       : QStringLiteral("channels"));
+    if (!destination) {
+        if (callback) callback(false);
+        return;
+    }
+
+    QVector<SidebarCategory> updates;
+    if (source && source->id != destination->id) {
+        SidebarCategory oldCategory = *source;
+        oldCategory.channelIds.removeAll(channelId);
+        updates.push_back(std::move(oldCategory));
+    }
+    SidebarCategory updatedDestination = *destination;
+    updatedDestination.channelIds.removeAll(channelId);
+    updatedDestination.channelIds.push_back(channelId);
+    updates.push_back(std::move(updatedDestination));
+
+    // The server may not echo category updates through WebSocket. The response
+    // itself is authoritative and updateCategories emits categoriesChanged,
+    // which the live ChannelTree reconciles without resetting the model.
+    updateCategories(teamId, updates,
+        [callback](const SidebarTeamState&) {
+            if (callback) callback(true);
+        },
+        [callback] {
+            if (callback) callback(false);
+        });
 }
 
 bool SidebarService::isChannelMuted(const BackendChannel& channel) const
@@ -1269,6 +1352,41 @@ void SidebarService::createCategory(
         if (callback) {
             callback(state.categories[created.id]);
         }
+    }));
+}
+
+void SidebarService::deleteCategory(const QString& teamId,
+                                    const QString& categoryId,
+                                    std::function<void(bool)> callback)
+{
+    SidebarTeamState* state = teamState(teamId);
+    const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
+    if (!category || !category->isCustom()) {
+        if (callback) callback(false);
+        return;
+    }
+    NetworkRequest request(categoriesPath(teamId) + QLatin1Char('/') + categoryId);
+    httpConnector.del(request, QByteArrayCreator(QJsonObject()),
+        HttpResponseCallback([this, teamId, callback](QVariant status,
+                                                     const QJsonDocument&) {
+        if (status.toInt() != QNetworkReply::NoError) {
+            if (callback) callback(false);
+            return;
+        }
+        BackendTeam* team = backend.getStorage().getTeamById(teamId);
+        if (!team) {
+            if (callback) callback(false);
+            return;
+        }
+        // Server moves conversations back to their default categories. Get
+        // the authoritative state, including membership and category order.
+        retrieveCategories(*team,
+            [callback](const SidebarTeamState&) {
+                if (callback) callback(true);
+            },
+            [callback] {
+                if (callback) callback(false);
+            });
     }));
 }
 
