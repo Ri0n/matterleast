@@ -173,9 +173,14 @@ void ChannelItemDelegate::paint(QPainter* painter,
     painter->setOpacity(painter->opacity() * (1.0 - collapse));
 
     if (!isConversationRow(index)) {
-        QStyledItemDelegate::paint(painter, content, index);
         const bool showAdd = index.data(SidebarItem::CategoryActionRole).toBool();
         const bool showMenu = index.data(SidebarItem::CategoryMenuRole).toBool();
+        // Keep category titles out of the accessory hit areas, even when
+        // fonts are enlarged or category names are long.
+        QStyleOptionViewItem labelOption(content);
+        labelOption.rect.adjust(0, 0, -(showAdd ? CategoryActionHitWidth : 0)
+                                        - (showMenu ? CategoryActionHitWidth : 0), 0);
+        QStyledItemDelegate::paint(painter, labelOption, index);
         const auto drawAction = [painter, &content](const QString& resource,
                                                     int slot,
                                                     bool hovered) {
