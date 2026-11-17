@@ -267,6 +267,8 @@ void ConversationActionsMenu::populate(
 
     QMenu* categories = menu.addMenu(QObject::tr("Move to category"));
     categories->setObjectName(QStringLiteral("moveConversationToCategoryMenu"));
+    categories->menuAction()->setObjectName(
+        QStringLiteral("moveConversationToCategoryMenu"));
     IconUtils::setMenuActionIcon(*categories->menuAction(),
                                  QStringLiteral(":/icons/menu-folder"));
     QObject::connect(categories, &QMenu::aboutToShow, categories,
