@@ -172,6 +172,11 @@ void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& chann
             ? parent()->data(0, SidebarItem::TeamIdRole).toString()
             : data(0, SidebarItem::TeamIdRole).toString();
         const SidebarTeamState* state = sidebar.teamState(teamId);
+        const SidebarCategory* sourceCategory = state && parent()
+            ? state->category(parent()->data(0, SidebarItem::IdRole).toString())
+            : nullptr;
+        const bool inFavoritesCategory = sourceCategory
+            && sourceCategory->type == QLatin1String("favorites");
         if (state && state->categoryByType(QStringLiteral("favorites"))) {
             const bool favorite = sidebar.isChannelFavorite(channel, teamId);
             QAction* favoriteAction = menu.addAction(
@@ -215,7 +220,9 @@ void ChannelItem::addCommonContextMenuActions(QMenu& menu, BackendChannel& chann
         moveMenu->addAction(QStringLiteral("Create new category…"), [tree, this] {
             tree->createCategoryAndMoveChannel(this);
         });
-        if (tree->canRemoveChannelFromCategory(this)) {
+        // The dedicated filled-heart action already handles removing from
+        // Favorites, so do not display a second action with the same effect.
+        if (!inFavoritesCategory && tree->canRemoveChannelFromCategory(this)) {
             menu.addAction(QStringLiteral("Remove from category"), [tree, this] {
                 tree->removeChannelFromCategory(this);
             });
