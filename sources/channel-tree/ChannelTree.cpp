@@ -62,23 +62,6 @@ namespace Mattermost {
 
 namespace {
 
-QString categoryDisplayName(const SidebarCategory& category)
-{
-    if (!category.displayName.isEmpty()) {
-        return category.displayName;
-    }
-    if (category.type == QStringLiteral("favorites")) {
-        return QStringLiteral("Favorites");
-    }
-    if (category.type == QStringLiteral("channels")) {
-        return QStringLiteral("Channels");
-    }
-    if (category.type == QStringLiteral("direct_messages")) {
-        return QStringLiteral("Direct Messages");
-    }
-    return QStringLiteral("Category");
-}
-
 QPoint dropEventPosition(const QDropEvent* event)
 {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -369,6 +352,17 @@ void ChannelTree::refreshServerSnapshot()
                 });
         });
     });
+}
+
+void ChannelTree::refreshSidebarTeam(const QString& teamId)
+{
+    if (!backendForSidebar) {
+        return;
+    }
+    BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId);
+    if (team) {
+        refreshTeamSidebar(*backendForSidebar, *team);
+    }
 }
 
 void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
