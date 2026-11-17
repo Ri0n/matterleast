@@ -256,6 +256,7 @@ private:
 	QMap<QString, TeamItem*>			teamToItemMap;
 	QSet<QString>						connectedSidebarUsers;
     bool                                customEmojiConnected_ = false;
+    bool                                categorySyncConnected_ = false;
     QSet<QString>                        pendingChannelAdmissions;
 	Backend*							backendForSidebar;
 	bool							renderingSidebar;
