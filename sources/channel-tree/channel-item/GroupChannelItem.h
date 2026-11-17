@@ -31,8 +31,7 @@ namespace Mattermost {
 class GroupChannelItem: public ChannelItem {
 public:
 	using ChannelItem::ChannelItem;
-public:
-	void showContextMenu (const QPoint& pos) override;
+
 };
 
 } /* namespace Mattermost */
