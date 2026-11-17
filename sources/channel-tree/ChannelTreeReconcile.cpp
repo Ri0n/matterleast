@@ -327,6 +327,13 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
         }
         categoryItem->setText(0, categoryDisplayName(*category));
         categoryItem->setData(0, ItemTeamIdRole, teamItem.teamId);
+        // Both controls are paint-only accessories in the existing row.
+        // Keep the quick + for Channels/DMs; every server category also gets
+        // a menu button in the adjacent slot, without changing row height.
+        const bool quickAdd = category->type == QLatin1String("channels")
+            || category->type == QLatin1String("direct_messages");
+        categoryItem->setData(0, SidebarItem::CategoryActionRole, quickAdd);
+        categoryItem->setData(0, SidebarItem::CategoryMenuRole, true);
         categoryItem->setExpanded(!category->collapsed);
 
         active.push_back(ActiveCategory {categoryItem, category, 0});
