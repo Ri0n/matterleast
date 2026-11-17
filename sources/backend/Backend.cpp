@@ -588,6 +588,14 @@ void Backend::reset ()
 	timeoutTimer.disconnect ();
 	httpConnector.reset ();
 	webSocketConnector.close ();
+    // Session projections must not retain pointers into the old Storage after
+    // logout. Previously currentChannel could still point to a deleted
+    // BackendChannel, even once the MainWindow was destroyed.
+    currentChannel = nullptr;
+    currentTeamContextId.clear();
+    clearTypingActivity();
+    _typingViews.clear();
+    _typingTrackedViews.clear();
 	storage.reset ();
 	nonFilledTeams = 0;
 }
