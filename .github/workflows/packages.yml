@@ -62,8 +62,10 @@ jobs:
             runner: ubuntu-24.04
             qt-version: "6.4.2"
             qt6: "ON"
-            build-runtime-packages: "libqt6sql6-sqlite libqt6svg6"
-            debian-extra-depends: "libqt6svg6"
+            # Qt 6.4's GStreamer backend needs plugin elements even when
+            # packages are installed with --no-install-recommends.
+            build-runtime-packages: "libqt6sql6-sqlite libqt6svg6 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav"
+            debian-extra-depends: "libqt6svg6, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav"
           - ubuntu-version: "26.04"
             runner: ubuntu-26.04
             qt-version: "6.10.2"
@@ -165,7 +167,7 @@ jobs:
           fi
           case "${{ matrix.ubuntu-version }}" in
             22.04) required_deps=(libqt5sql5-sqlite libqt5svg5 libqt5multimedia5-plugins gstreamer1.0-libav) ;;
-            24.04) required_deps=(libqt6sql6-sqlite libqt6svg6) ;;
+            24.04) required_deps=(libqt6sql6-sqlite libqt6svg6 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav) ;;
             26.04) required_deps=(libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins) ;;
             *) echo "::error::Unknown Ubuntu version"; exit 1 ;;
           esac
