@@ -334,6 +334,7 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
             || category->type == QLatin1String("direct_messages");
         categoryItem->setData(0, SidebarItem::CategoryActionRole, quickAdd);
         categoryItem->setData(0, SidebarItem::CategoryMenuRole, true);
+        categoryItem->setData(0, SidebarItem::MutedRole, category->muted);
         categoryItem->setExpanded(!category->collapsed);
 
         active.push_back(ActiveCategory {categoryItem, category, 0});
@@ -370,6 +371,12 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
             }
             if (!row) {
                 row = createChannelItem(backend, teamItem, *categoryItem, *channel);
+            }
+            // Only mutate the affected row role when category mute changed;
+            // no model reset, no wholesale ChatArea rebuild.
+            const bool muted = sidebar.isChannelMuted(channelId);
+            if (row->data(0, SidebarItem::MutedRole).toBool() != muted) {
+                static_cast<ChannelItem*>(row)->setMuted(muted);
             }
             moveChild(*categoryItem, row, rowIndex++);
         }
