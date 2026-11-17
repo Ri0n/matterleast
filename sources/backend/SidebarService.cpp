@@ -225,6 +225,7 @@ void SidebarService::clear()
 {
     httpConnector.reset();
     mutedChannelIds.clear();
+    mutedCategoryChannelIds.clear();
     _conversationSearchTerm.clear();
     sidebarByTeam.clear();
     activityTracker.clear();
@@ -355,21 +356,37 @@ bool SidebarService::isChannelMuted(const BackendChannel& channel) const
 
 bool SidebarService::isChannelMuted(const QString& channelId) const
 {
-    if (mutedChannelIds.contains(channelId)) {
-        return true;
-    }
-    // A muted category suppresses notifications for all of its channels.
-    // The server may not return updated channel notify_props immediately
-    // after a category PUT, so honour the authoritative category flag too.
+    return mutedChannelIds.contains(channelId)
+        || mutedCategoryChannelIds.contains(channelId);
+}
+
+void SidebarService::rebuildMutedCategoryIndex()
+{
+    QSet<QString> next;
     for (auto teamIt = sidebarByTeam.cbegin(); teamIt != sidebarByTeam.cend(); ++teamIt) {
         for (auto it = teamIt->categories.cbegin();
              it != teamIt->categories.cend(); ++it) {
-            if (it->muted && it->channelIds.contains(channelId)) {
-                return true;
+            if (!it->muted) {
+                continue;
+            }
+            for (const QString& id : it->channelIds) {
+                next.insert(id);
             }
         }
     }
-    return false;
+    const QSet<QString> previous = std::move(mutedCategoryChannelIds);
+    mutedCategoryChannelIds = std::move(next);
+    // Update only rows whose effective category-mute membership changed.
+    for (const QString& id : mutedCategoryChannelIds) {
+        if (!previous.contains(id)) {
+            emit channelMutedChanged(id, isChannelMuted(id));
+        }
+    }
+    for (const QString& id : previous) {
+        if (!mutedCategoryChannelIds.contains(id)) {
+            emit channelMutedChanged(id, isChannelMuted(id));
+        }
+    }
 }
 
 bool SidebarService::hasUnreadMention(const QString& channelId) const
@@ -1256,6 +1273,7 @@ void SidebarService::storeCategories(QString teamId, SidebarTeamState state,
                 [this, teamId, statePtr, callback, storeResponse] {
                     if (storeResponse) {
                         sidebarByTeam.insert(teamId, *statePtr);
+                        rebuildMutedCategoryIndex();
                         emit categoriesChanged(teamId);
                         if (callback) {
                             callback(sidebarByTeam[teamId]);
@@ -1326,6 +1344,7 @@ void SidebarService::applyLocalTeamState(const QString& teamId, SidebarTeamState
         return;
     }
     sidebarByTeam.insert(teamId, std::move(state));
+    rebuildMutedCategoryIndex();
     emit categoriesChanged(teamId);
 }
 
@@ -1362,6 +1381,7 @@ void SidebarService::createCategory(
         if (!state.order.contains(created.id)) {
             state.order.push_back(created.id);
         }
+        rebuildMutedCategoryIndex();
         emit categoriesChanged(teamId);
         if (callback) {
             callback(state.categories[created.id]);
@@ -1429,6 +1449,7 @@ void SidebarService::updateCategory(const SidebarCategory& category,
         }
         if (storeResponse) {
             sidebarByTeam[teamId].categories.insert(updated.id, updated);
+            rebuildMutedCategoryIndex();
             emit categoriesChanged(teamId);
             if (callback) {
                 callback(sidebarByTeam[teamId].categories[updated.id]);
@@ -1471,6 +1492,7 @@ void SidebarService::updateCategories(const QString& teamId, const QVector<Sideb
 
         if (storeResponse) {
             sidebarByTeam.insert(teamId, std::move(responseState));
+            rebuildMutedCategoryIndex();
             emit categoriesChanged(teamId);
             if (callback) {
                 callback(sidebarByTeam[teamId]);
