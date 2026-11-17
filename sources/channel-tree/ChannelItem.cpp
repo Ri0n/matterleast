@@ -25,6 +25,7 @@
 #include "ChannelItem.h"
 
 #include <QMenu>
+#include <QTreeWidget>
 
 #include "ChannelIcons.h"
 #include "ChannelItemWidget.h"
