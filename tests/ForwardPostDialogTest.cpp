@@ -229,11 +229,11 @@ private slots:
         ForwardPostDialog dialog(backend, original);
         auto* destinations = dialog.findChild<QListWidget*>(
             QStringLiteral("forwardDestinations"));
-        auto* submit = dialog.findChild<QPushButton>(
+        auto* submit = dialog.findChild<QPushButton*>(
             QStringLiteral("forwardSubmit"));
-        auto* comment = dialog.findChild<QPlainTextEdit>(
+        auto* comment = dialog.findChild<QPlainTextEdit*>(
             QStringLiteral("forwardComment"));
-        auto* error = dialog.findChild<QLabel>(
+        auto* error = dialog.findChild<QLabel*>(
             QStringLiteral("forwardError"));
         QVERIFY(destinations && submit && comment && error);
         for (int index = 0; index < destinations->count(); ++index) {
