@@ -261,6 +261,9 @@ Backend::Backend(QObject *parent)
             this, &Backend::clearTypingActivity);
 	connect (&webSocketConnector, &WebSocketConnector::onConnect,
 	         [this] (bool isReconnect, bool needsHttpResync) {
+        if (!isLoggedIn) {
+            return; // Ignore an in-flight reconnect during logout.
+        }
         CustomEmojiService::instance(*this).resetSession();
 		if (isReconnect) {
 			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
@@ -589,32 +592,46 @@ void Backend::reset ()
 	nonFilledTeams = 0;
 }
 
-void Backend::logout (std::function<void ()> callback)
+void Backend::logout(std::function<void()> callback)
 {
-	NetworkRequest request ("users/logout");
-	isLoggedIn = false;
+    NetworkRequest request(QStringLiteral("users/logout"));
+    isLoggedIn = false;
+    autoLoginEnabledFlag = false;
 
-	//when logging out manually, disable the autologin
-	autoLoginEnabledFlag = false;
+    // Logout must not race the WebSocket reconnect loop: a late reconnect
+    // previously restarted the HTTP transport during session teardown.
+    webSocketConnector.close();
 
-	timeoutTimer.setSingleShot (true);
-	connect (&timeoutTimer, &QTimer::timeout, [this, callback] {
-		LOG_DEBUG ("Logout timeout");
-		reset ();
-		callback ();
-	});
+    // The server reply and timeout are competing completion paths. The first
+    // one owns reset() and callback; an aborted HTTP request may still invoke
+    // its completion handler while reset() is in progress.
+    const auto completed = QSharedPointer<bool>::create(false);
+    const auto finish = [this, completed, callback = std::move(callback)] {
+        if (*completed) {
+            return;
+        }
+        *completed = true;
+        timeoutTimer.stop();
+        reset();
+        if (callback) {
+            callback();
+        }
+    };
 
-	timeoutTimer.start (1000);
+    timeoutTimer.stop();
+    timeoutTimer.disconnect();
+    timeoutTimer.setSingleShot(true);
+    connect(&timeoutTimer, &QTimer::timeout, this, [finish] {
+        LOG_DEBUG("Logout timeout");
+        finish();
+    });
+    timeoutTimer.start(1000);
 
-	httpConnector.post (request, QByteArray(), HttpResponseCallback ([this, callback] (const QJsonDocument&) {
-		LOG_DEBUG ("Logout done");
-
-		timeoutTimer.stop();
-		reset ();
-
-		// No JSON body logging on logout.
-		callback ();
-	}));
+    httpConnector.post(request, QByteArray(), HttpResponseCallback(
+        [finish](const QJsonDocument&) {
+        LOG_DEBUG("Logout done");
+        finish();
+    }));
 }
 
 void Backend::retrieveUser (const QString & userID, std::function<void(const BackendUser&)> callback)
