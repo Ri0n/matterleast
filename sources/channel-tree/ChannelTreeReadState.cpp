@@ -94,6 +94,14 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
     if (!event) {
         return;
     }
+    // A secondary click requests the context menu for the pointed row.
+    // QTreeWidget's default press handling would select/activate it first,
+    // making "Open in new tab" operate on an already-open conversation.
+    // Qt still delivers the independent context-menu event.
+    if (event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     const QPoint eventPos = event->position().toPoint();
@@ -194,6 +202,10 @@ void ChannelTree::mouseMoveEvent(QMouseEvent* event)
 
 void ChannelTree::mouseReleaseEvent(QMouseEvent* event)
 {
+    if (event && event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
     if (sidebarDragActive && event->button() == Qt::LeftButton) {
         finishInternalDrag(event->pos(), true);
         event->accept();

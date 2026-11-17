@@ -1035,6 +1035,17 @@ if(TARGET matterleast-core)
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+# A context-menu click must never activate its sidebar row, while left-click
+# navigation and the context-menu signal remain intact.
+if(TARGET matterleast-core)
+    add_executable(sidebar-right-click-test SidebarRightClickTest.cpp)
+    target_link_libraries(sidebar-right-click-test
+        PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME sidebar-right-click-test COMMAND sidebar-right-click-test)
+    set_tests_properties(sidebar-right-click-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Corporate verification is exercised with an ephemeral keypair in CI.
 if(MATTERLEAST_PLUGIN_VERIFY_KEY_FILE AND MATTERLEAST_PLUGIN_SIGNING_KEY_FILE)
     add_executable(trusted-plugin-load-test

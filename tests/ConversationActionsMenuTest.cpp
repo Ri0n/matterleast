@@ -10,6 +10,7 @@
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "ui/ConversationActionsMenu.h"
+#include "navigation/AppNavigationService.h"
 
 using namespace Mattermost;
 
@@ -186,6 +187,29 @@ private slots:
             QVERIFY(actionNamed(sidebar, QStringLiteral("toggleConversationFavoriteAction")));
             QVERIFY(!actionNamed(header, QStringLiteral("editChannelTopicAction")));
         }
+    }
+
+    void openInNewTabRequestsTheClickedConversation()
+    {
+        Backend backend;
+        const QString channelId = QStringLiteral("general-id");
+        QVERIFY(addTeamChannel(backend, channelId));
+        QWidget host;
+        QMenu menu(&host);
+        ConversationActionsMenu::populate(
+            menu, backend, channelId, QStringLiteral("team"), &host);
+
+        QAction* open = actionNamed(menu, QStringLiteral("openConversationInTabAction"));
+        QVERIFY(open);
+        auto& navigation = AppNavigationService::instance(backend);
+        QSignalSpy tabs(&navigation, &AppNavigationService::tabRequested);
+        QSignalSpy ordinaryNavigation(&navigation,
+                                      &AppNavigationService::channelRequested);
+
+        open->trigger();
+        QCOMPARE(tabs.size(), 1);
+        QCOMPARE(tabs.takeFirst().at(0).toString(), channelId);
+        QCOMPARE(ordinaryNavigation.size(), 0);
     }
 
     void favoritesStatusAndIconUpdateInBothMenus()

@@ -120,6 +120,11 @@ void AttentionList::initialize(Backend& backend)
 
 void AttentionList::mousePressEvent(QMouseEvent* event)
 {
+    // A secondary click must not move the attention cursor or open a chat.
+    if (event && event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
     QTreeWidgetItem* pressedItem = nullptr;
     if (event) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -165,6 +170,15 @@ void AttentionList::mousePressEvent(QMouseEvent* event)
     if (repeatActivation && pressedItem == currentItem()) {
         activateItem(pressedItem);
     }
+}
+
+void AttentionList::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event && event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
+    QTreeWidget::mouseReleaseEvent(event);
 }
 
 void AttentionList::retainSelection(QTreeWidgetItem* item)
