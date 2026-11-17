@@ -1353,10 +1353,16 @@ QVector<QPair<QString, QString>> ChannelTree::customCategoryTargets(const Channe
 
     for (const QString& categoryId : state->order) {
         const SidebarCategory* category = state->category(categoryId);
-        if (!category || !category->isCustom() || category->id == sourceCategoryId) {
+        if (!category || category->id == sourceCategoryId) {
             continue;
         }
-        result.push_back(qMakePair(category->id, categoryDisplayName(*category)));
+        // Favorites is a built-in category, but a valid move destination.
+        // Built-in Channels and Direct Messages remain implicit defaults,
+        // reached by "Remove from category" instead.
+        if (category->isCustom()
+            || category->type == QLatin1String("favorites")) {
+            result.push_back(qMakePair(category->id, categoryDisplayName(*category)));
+        }
     }
     return result;
 }
@@ -1422,6 +1428,30 @@ void ChannelTree::createCategoryAndMoveChannel(ChannelItem* item)
 
 void ChannelTree::moveChannelToCategory(ChannelItem* item, const QString& categoryId)
 {
+    if (!backendForSidebar || !item || !item->parent()) {
+        return;
+    }
+    const QString teamId = item->parent()->data(0, ItemTeamIdRole).toString();
+    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    const SidebarTeamState* state = sidebar.teamState(teamId);
+    const SidebarCategory* target = state ? state->category(categoryId) : nullptr;
+    if (!target) {
+        return;
+    }
+    if (target->type == QLatin1String("favorites")) {
+        // Use the same server-backed operation as the heart in the header and
+        // the row context menu. A move to Favorites must not silently switch
+        // its sorting mode to Manual.
+        const QString channelId = item->data(0, ItemIdRole).toString();
+        QPointer<ChannelTree> guard(this);
+        sidebar.setChannelFavorite(teamId, channelId, true, [guard](bool success) {
+            if (!success && guard) {
+                QMessageBox::warning(guard, QObject::tr("Favorites"),
+                                     QObject::tr("Could not add to Favorites."));
+            }
+        });
+        return;
+    }
     moveChannel(item, categoryId, {}, false, false);
 }
 
