@@ -751,6 +751,13 @@ target_include_directories(sidebar-channel-move-policy-test PRIVATE "${CMAKE_SOU
 target_link_libraries(sidebar-channel-move-policy-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME sidebar-channel-move-policy-test COMMAND sidebar-channel-move-policy-test)
 
+# A sorted server category must preserve its visible order when DnD changes
+# its sorting mode to manual. Hidden DM/GM members must not be discarded.
+add_executable(sidebar-manual-order-test SidebarManualOrderTest.cpp)
+target_include_directories(sidebar-manual-order-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(sidebar-manual-order-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME sidebar-manual-order-test COMMAND sidebar-manual-order-test)
 
 add_executable(post-selection-policy-test PostSelectionPolicyTest.cpp)
 target_include_directories(post-selection-policy-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
