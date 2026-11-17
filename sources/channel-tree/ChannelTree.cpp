@@ -46,6 +46,7 @@
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "channel-tree/SidebarChannelMovePolicy.h"
+#include "channel-tree/SidebarManualOrder.h"
 #include "channel-tree/SidebarDragScrollPolicy.h"
 #include "channel-tree/channel-item/DirectChannelItem.h"
 #include "channel-tree/team-item/GroupTeamItem.h"
@@ -1247,12 +1248,22 @@ void ChannelTree::moveChannel(ChannelItem* item,
     bool changed = false;
     const bool sameCategory = sourceCategoryId == targetCategoryId;
     if (sameCategory) {
+        // DnD is relative to the visible sorted order, NOT the server's
+        // channel_ids order, which may be arbitrary in an alpha/recent group.
+        if (sourceUpdate->sorting != QLatin1String("manual")) {
+            sourceUpdate->channelIds = sidebarManualOrder(
+                sourceUpdate->channelIds, sidebar.visibleChannelIds(*sourceCategory));
+        }
         changed = reorderSidebarChannel(sourceUpdate->channelIds, channelId,
                                         targetChannelId, afterTarget);
         if (changed) {
             sourceUpdate->sorting = QStringLiteral("manual");
         }
     } else {
+        if (explicitPosition && targetUpdate->sorting != QLatin1String("manual")) {
+            targetUpdate->channelIds = sidebarManualOrder(
+                targetUpdate->channelIds, sidebar.visibleChannelIds(*targetCategory));
+        }
         changed = moveSidebarChannel(sourceUpdate->channelIds, targetUpdate->channelIds,
                                      channelId, targetChannelId, afterTarget);
         if (changed && explicitPosition) {
