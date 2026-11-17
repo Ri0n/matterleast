@@ -168,10 +168,12 @@ private:
     void storeCategories(QString teamId, SidebarTeamState state,
                          std::function<void(const SidebarTeamState&)> callback,
                          bool storeResponse);
+    void rebuildMutedCategoryIndex();
 
     Backend& backend;
     HTTPConnector httpConnector;
     QSet<QString> mutedChannelIds;
+    QSet<QString> mutedCategoryChannelIds;
     QString _conversationSearchTerm;
     QMap<QString, SidebarTeamState> sidebarByTeam;
     ChannelActivityTracker activityTracker;
