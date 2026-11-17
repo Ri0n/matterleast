@@ -35,26 +35,4 @@ inline QStringList sidebarManualOrder(const QStringList& stored,
     return result;
 }
 
-// Mattermost creates new categories at the end of its server-side order.
-// When creation is requested from a category's options menu, immediately
-// insert the new id before that category and persist the same order via the
-// /categories/order endpoint. Keep all unrelated category positions stable.
-inline QStringList sidebarCategoryOrderBefore(const QStringList& existing,
-                                              const QString& createdId,
-                                              const QString& beforeId)
-{
-    QStringList order = existing;
-    if (createdId.isEmpty()) {
-        return order;
-    }
-    order.removeAll(createdId);
-    const int anchor = order.indexOf(beforeId);
-    if (!beforeId.isEmpty() && anchor >= 0) {
-        order.insert(anchor, createdId);
-    } else {
-        order.push_back(createdId);
-    }
-    return order;
-}
-
 } // namespace Mattermost
