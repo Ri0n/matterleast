@@ -65,6 +65,8 @@ public:
     // and group DMs without modifying the Favorites sorting mode.
     void setChannelFavorite(const QString& teamId, const QString& channelId,
                             bool favorite, std::function<void(bool)> callback = {});
+    void markCategoryRead(const QString& teamId, const QString& categoryId,
+                          std::function<void(bool)> callback = {});
     bool isChannelMuted(const QString& channelId) const;
     bool hasUnreadMention(const QString& channelId) const;
     void setChannelMentioned(const QString& channelId, bool mentioned);
