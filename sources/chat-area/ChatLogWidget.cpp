@@ -1165,11 +1165,31 @@ void ChatLogWidget::updateReadCursorFromVisibility()
                 || readPost->create_at >= conversationTail);
     }
 
+    const bool unreadBefore = sidebar.isChannelUnread(channel);
+    const bool mentionedBefore = sidebar.hasUnreadMention(channel.id);
     followingModel.observeReadThrough(
         channel.id, QString(), *readPost, channelAtEnd, rootUnreadConversation);
     if (channelAtEnd) {
         acknowledgeChannelRead(*backend, channel);
     }
+
+    const FollowingModel::Entry* remaining = followingModel.findEntry(channel.id);
+    qCDebug(lcTimelineTrace).nospace()
+        << "READ_CHANNEL_DECISION list=" << static_cast<const void*>(this)
+        << " channel=" << channel.id
+        << " sourceTailRead=" << sourceTailRead
+        << " rootUnreadCounts=" << rootUnreadConversation
+        << " readPostAt=" << readPost->create_at
+        << " lastRootPostAt=" << channel.last_root_post_at
+        << " lastPostAt=" << channel.last_post_at
+        << " channelAtEnd=" << channelAtEnd
+        << " unreadBefore=" << unreadBefore
+        << " mentionedBefore=" << mentionedBefore
+        << " unreadAfter=" << sidebar.isChannelUnread(channel)
+        << " mentionedAfter=" << sidebar.hasUnreadMention(channel.id)
+        << " modelAttentionAfter=" << (remaining && remaining->requiresAttention())
+        << " modelResumeState=" << (remaining ? static_cast<int>(remaining->resumeState) : -1)
+        << " modelFirstUnread=" << (remaining ? remaining->firstUnreadPostId : QString());
 }
 
 bool ChatLogWidget::isPostLowerEdgeVisible(const QString& postId) const
