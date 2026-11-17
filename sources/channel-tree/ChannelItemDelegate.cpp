@@ -180,6 +180,11 @@ void ChannelItemDelegate::paint(QPainter* painter,
         QStyleOptionViewItem labelOption(content);
         labelOption.rect.adjust(0, 0, -(showAdd ? CategoryActionHitWidth : 0)
                                         - (showMenu ? CategoryActionHitWidth : 0), 0);
+        if (index.data(SidebarItem::MutedRole).toBool()) {
+            QColor mutedText = labelOption.palette.color(QPalette::Text);
+            mutedText.setAlphaF(mutedText.alphaF() * 0.65);
+            labelOption.palette.setColor(QPalette::Text, mutedText);
+        }
         QStyledItemDelegate::paint(painter, labelOption, index);
         const auto drawAction = [painter, &content](const QString& resource,
                                                     int slot,
