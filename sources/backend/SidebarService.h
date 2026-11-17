@@ -65,6 +65,14 @@ public:
     // and group DMs without modifying the Favorites sorting mode.
     void setChannelFavorite(const QString& teamId, const QString& channelId,
                             bool favorite, std::function<void(bool)> callback = {});
+    // Single category-move implementation shared by sidebar, chat header
+    // and context menus. Preserves both categories' existing sort modes.
+    void moveChannelToCategory(const QString& teamId, const QString& channelId,
+                               const QString& targetCategoryId,
+                               std::function<void(bool)> callback = {});
+    void removeChannelFromCustomCategory(const QString& teamId,
+                                         const QString& channelId,
+                                         std::function<void(bool)> callback = {});
     void markCategoryRead(const QString& teamId, const QString& categoryId,
                           std::function<void(bool)> callback = {});
     bool isChannelMuted(const QString& channelId) const;
