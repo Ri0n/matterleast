@@ -49,6 +49,7 @@
 #include "Settings.h"
 #include "options/MLOptions.h"
 #include "backend/Backend.h"
+#include "backend/SidebarService.h"
 #include "backend/PendingPostService.h"
 #include "backend/NetworkRequest.h"
 #include "backend/ThreadFollowService.h"
@@ -439,6 +440,48 @@ void ChatArea::setupHeaderUi()
     connect(searchAction, &QAction::triggered, this, [this] {
         emit searchInConversationRequested(channel.id);
     });
+
+    // Favorites are team-scoped server categories, including for DMs and GMs
+    // (which need not have channel.team). Update from the actual service state
+    // on every opening: another client or DnD can move this conversation.
+    if (!isThread && channel.type != BackendChannel::unknown) {
+        QAction* favoriteAction = addMenuAction(
+            tr("Not in favorites — Add"),
+            QStringLiteral("toggleConversationFavoriteAction"),
+            QStringLiteral(":/icons/heart-outline"));
+        const auto favoriteTeamId = [this] {
+            return channel.team ? channel.team->id
+                                : backend.getCurrentTeamContextId();
+        };
+        const auto syncFavoriteAction = [this, favoriteAction, favoriteTeamId] {
+            const QString teamId = favoriteTeamId();
+            auto& sidebar = SidebarService::instance(backend);
+            const SidebarTeamState* state = sidebar.teamState(teamId);
+            const bool available = state
+                && state->categoryByType(QStringLiteral("favorites"));
+            const bool favorite = available
+                && sidebar.isChannelFavorite(channel, teamId);
+            favoriteAction->setEnabled(available);
+            favoriteAction->setText(favorite
+                ? tr("In favorites — Remove")
+                : tr("Not in favorites — Add"));
+            const QString icon = favorite
+                ? QStringLiteral(":/icons/heart-filled")
+                : QStringLiteral(":/icons/heart-outline");
+            favoriteAction->setProperty("matterleastMenuIconPath", icon);
+            IconUtils::setMenuActionIcon(*favoriteAction, icon);
+        };
+        connect(chatActionsMenu, &QMenu::aboutToShow, this, syncFavoriteAction);
+        connect(favoriteAction, &QAction::triggered, this,
+                [this, favoriteTeamId] {
+            const QString teamId = favoriteTeamId();
+            auto& sidebar = SidebarService::instance(backend);
+            sidebar.setChannelFavorite(
+                teamId, channel.id,
+                !sidebar.isChannelFavorite(channel, teamId));
+        });
+        syncFavoriteAction();
+    }
 
     // Match Mattermost's Channel Settings: 'topic' is the Markdown header,
     // not the channel purpose. Never show this on a thread (which shares its
