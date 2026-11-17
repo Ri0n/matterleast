@@ -71,6 +71,10 @@ public:
 	//login retry - after a HTTP error
 	void loginRetry ();
 
+    // Stop old-session realtime and HTTP work while UI objects are still
+    // alive; the owner then destroys them before logout() resets Storage.
+    void prepareForLogout();
+
 	//logout (/users/logout)
 	void logout (std::function<void ()> callback);
 
