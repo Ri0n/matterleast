@@ -1,5 +1,8 @@
 #include <QtTest>
 
+#include <QJsonArray>
+#include <QJsonObject>
+
 #include "chat-area/post/PostForwardPolicy.h"
 #include "backend/types/BackendChannel.h"
 
@@ -50,6 +53,56 @@ private slots:
         QFETCH(QString, destinationId);
         QFETCH(bool, allowed);
         QCOMPARE(canForwardPostTo(sourceType, sourceId, destinationId), allowed);
+    }
+
+    void canonicalPermalinkMatchesServerRecognizer()
+    {
+        const QString id = QStringLiteral("abcdefghijklmnopqrstuvwx12");
+        QCOMPARE(id.size(), 26);
+        QCOMPARE(nativeForwardPermalink(
+                     QStringLiteral("https://canonical.example.org/mattermost/"),
+                     QStringLiteral("my-team"), id),
+                 QStringLiteral("https://canonical.example.org/mattermost/"
+                                "my-team/pl/") + id);
+        QCOMPARE(nativeForwardPermalink(QStringLiteral("https://official.example"),
+                                        QStringLiteral("team"), id),
+                 QStringLiteral("https://official.example/team/pl/") + id);
+        // An alternate connection URL and /_redirect/pl/id are not used.
+        QVERIFY(nativeForwardPermalink(QStringLiteral("not-a-server"),
+                                      QStringLiteral("team"), id).isEmpty());
+        QVERIFY(nativeForwardPermalink(QStringLiteral("https://server"),
+                                      QStringLiteral("team"), QStringLiteral("short")).isEmpty());
+        QVERIFY(nativeForwardPermalink(QStringLiteral("https://server"),
+                                      QStringLiteral("Invalid Team"), id).isEmpty());
+    }
+
+    void serverAuthorizedPreviewHidesOnlyItsOwnPermalink()
+    {
+        const QString id = QStringLiteral("abcdefghijklmnopqrstuvwx12");
+        const QString url = QStringLiteral("https://canonical.example/team/pl/") + id;
+        const QJsonArray previews{QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("permalink")},
+            {QStringLiteral("data"), QJsonObject{
+                {QStringLiteral("post_id"), id},
+                {QStringLiteral("post"), QJsonObject{
+                    {QStringLiteral("id"), id},
+                    {QStringLiteral("message"), QStringLiteral("original text")},
+                }},
+            }},
+        }};
+        QCOMPARE(textWithPermalinkPreview(url, previews), QString());
+        QCOMPARE(textWithPermalinkPreview(QStringLiteral("Comment\n") + url, previews),
+                 QStringLiteral("Comment"));
+        QCOMPARE(textWithPermalinkPreview(QStringLiteral("Comment\n") + url, {}),
+                 QStringLiteral("Comment\n") + url);
+        const QJsonArray withheld{QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("permalink")},
+            {QStringLiteral("data"), QJsonObject{{QStringLiteral("post_id"), id}}},
+        }};
+        QCOMPARE(textWithPermalinkPreview(url, withheld), url);
+        QCOMPARE(textWithPermalinkPreview(
+                     QStringLiteral("https://canonical.example/team/pl/other"), previews),
+                 QStringLiteral("https://canonical.example/team/pl/other"));
     }
 
     void forwardingPayload()

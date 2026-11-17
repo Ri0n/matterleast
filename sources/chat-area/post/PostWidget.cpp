@@ -65,6 +65,7 @@
 #include "Settings.h"
 #include "MessageFormatter.h"
 #include "PostPermalinkUtils.h"
+#include "PostForwardPolicy.h"
 #include "PostQuoteFrame.h"
 #include "PostTimestampPresentation.h"
 #include "PostDateBoundaryPresentation.h"
@@ -132,8 +133,9 @@ QString displayMessage(const BackendPost& post, const QString& wireMessage)
         return post.poll ? QStringLiteral("(Poll deleted)")
                          : QStringLiteral("(Message deleted)");
     }
-    return quotedPostId(post).isEmpty()
+    const QString text = quotedPostId(post).isEmpty()
         ? wireMessage : QuotedReplyFormat::stripFallback(wireMessage);
+    return textWithPermalinkPreview(text, post.embeds);
 }
 
 

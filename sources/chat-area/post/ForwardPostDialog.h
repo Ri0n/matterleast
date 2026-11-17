@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include "backend/HTTPConnector.h"
 #include <QHash>
 #include <QSet>
 #include <QString>
@@ -46,12 +47,17 @@ private:
     void showRemoteUsers(const QVector<const BackendUser*>& users);
     void removeRemoteResults();
     void submit();
+    void deliverToDestination(const QString& channelId, const QString& userId,
+                              bool newDirect);
     void sendToChannel(const QString& channelId);
     void showFailure(const QString& message);
 
     Backend& backend_;
     QString sourceChannelId_;
+    QString sourcePostId_;
+    QString sourceTeamSlug_;
     QString permalink_;
+    HTTPConnector configConnector_;
     int sourceType_ = 0;
     bool submitting_ = false;
 
