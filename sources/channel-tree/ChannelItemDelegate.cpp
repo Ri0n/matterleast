@@ -174,21 +174,31 @@ void ChannelItemDelegate::paint(QPainter* painter,
 
     if (!isConversationRow(index)) {
         QStyledItemDelegate::paint(painter, content, index);
-        if (index.data(SidebarItem::CategoryActionRole).toBool()) {
-            const QRect hitRect(content.rect.right() - CategoryActionHitWidth + 1,
+        const bool showAdd = index.data(SidebarItem::CategoryActionRole).toBool();
+        const bool showMenu = index.data(SidebarItem::CategoryMenuRole).toBool();
+        const auto drawAction = [painter, &content](const QString& resource,
+                                                    int slot,
+                                                    bool hovered) {
+            const QRect hitRect(content.rect.right()
+                                    - (slot + 1) * CategoryActionHitWidth + 1,
                                 content.rect.top(), CategoryActionHitWidth,
                                 content.rect.height());
             const QRect iconRect(hitRect.center().x() - CategoryActionExtent / 2,
                                  hitRect.center().y() - CategoryActionExtent / 2,
                                  CategoryActionExtent, CategoryActionExtent);
-            const bool actionHovered =
-                index.data(SidebarItem::CategoryActionHoveredRole).toBool();
             painter->save();
-            painter->setOpacity(painter->opacity() * (actionHovered ? 1.0 : 0.48));
-            symbolicDestinationIcon(QStringLiteral(":/icons/add"),
-                                    content.palette.color(QPalette::Text))
+            painter->setOpacity(painter->opacity() * (hovered ? 1.0 : 0.48));
+            symbolicDestinationIcon(resource, content.palette.color(QPalette::Text))
                 .paint(painter, iconRect);
             painter->restore();
+        };
+        if (showMenu) {
+            drawAction(QStringLiteral(":/icons/burger"), showAdd ? 1 : 0,
+                       index.data(SidebarItem::CategoryMenuHoveredRole).toBool());
+        }
+        if (showAdd) {
+            drawAction(QStringLiteral(":/icons/add"), 0,
+                       index.data(SidebarItem::CategoryActionHoveredRole).toBool());
         }
         painter->restore();
         return;
@@ -326,17 +336,30 @@ bool ChannelItemDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
                                       const QStyleOptionViewItem& option,
                                       const QModelIndex& index)
 {
-    if (index.data(SidebarItem::CategoryActionRole).toBool()
-        && event && event->type() == QEvent::MouseButtonRelease) {
+    if (event && event->type() == QEvent::MouseButtonRelease
+        && index.data(SidebarItem::CategoryMenuRole).toBool()) {
         const auto* mouse = static_cast<QMouseEvent*>(event);
-        const QRect hitRect(option.rect.right() - CategoryActionHitWidth + 1,
-                            option.rect.top(), CategoryActionHitWidth,
-                            option.rect.height());
-        if (mouse->button() == Qt::LeftButton && hitRect.contains(mouse->pos())) {
-            emit categoryActionRequested(
-                index.data(SidebarItem::TeamIdRole).toString(),
-                index.data(SidebarItem::IdRole).toString());
-            return true;
+        if (mouse->button() == Qt::LeftButton) {
+            const bool showAdd =
+                index.data(SidebarItem::CategoryActionRole).toBool();
+            const auto slotRect = [&option](int slot) {
+                return QRect(option.rect.right()
+                                 - (slot + 1) * CategoryActionHitWidth + 1,
+                             option.rect.top(), CategoryActionHitWidth,
+                             option.rect.height());
+            };
+            if (showAdd && slotRect(0).contains(mouse->pos())) {
+                emit categoryActionRequested(
+                    index.data(SidebarItem::TeamIdRole).toString(),
+                    index.data(SidebarItem::IdRole).toString());
+                return true;
+            }
+            if (slotRect(showAdd ? 1 : 0).contains(mouse->pos())) {
+                emit categoryMenuRequested(
+                    index.data(SidebarItem::TeamIdRole).toString(),
+                    index.data(SidebarItem::IdRole).toString());
+                return true;
+            }
         }
     }
     return QStyledItemDelegate::editorEvent(event, model, option, index);
