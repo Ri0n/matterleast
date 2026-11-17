@@ -23,7 +23,7 @@ private slots:
 
         login->open();
         QVERIFY(controller.showWindow());
-        QCOMPARE(controller.window(), login);
+        QCOMPARE(controller.window(), static_cast<QWidget*>(login));
 
         // This matches LoginDialog's WA_DeleteOnClose behavior. After
         // destruction, tray activation must not access freed QWidget data.
@@ -36,7 +36,7 @@ private slots:
         auto* replacement = new QDialog;
         controller.setWindow(replacement);
         QVERIFY(controller.showWindow());
-        QCOMPARE(controller.window(), replacement);
+        QCOMPARE(controller.window(), static_cast<QWidget*>(replacement));
         delete replacement;
         QVERIFY(controller.window() == nullptr);
         QVERIFY(!controller.toggleWindow());
