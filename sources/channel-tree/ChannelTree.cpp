@@ -1361,7 +1361,7 @@ QVector<QPair<QString, QString>> ChannelTree::customCategoryTargets(const Channe
     return result;
 }
 
-void ChannelTree::createGroupAndMoveChannel(ChannelItem* item)
+void ChannelTree::createCategoryAndMoveChannel(ChannelItem* item)
 {
     if (!backendForSidebar || !item || !item->parent()) {
         return;
@@ -1376,7 +1376,7 @@ void ChannelTree::createGroupAndMoveChannel(ChannelItem* item)
 
     bool accepted = false;
     const QString name = QInputDialog::getText(
-        this, tr("Create group"), tr("Group name:"), QLineEdit::Normal,
+        this, tr("Create category"), tr("Category name:"), QLineEdit::Normal,
         QString(), &accepted).trimmed();
     if (!accepted || name.isEmpty()) {
         return;
