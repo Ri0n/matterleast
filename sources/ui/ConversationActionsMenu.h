@@ -21,7 +21,8 @@ public:
                          const QString& channelId, const QString& teamId,
                          QWidget* dialogParent, bool thread = false);
 
-    static QString channelWebUrl(Backend& backend, const BackendChannel& channel);
+    static QString channelWebUrl(Backend& backend, const BackendChannel& channel,
+                                 const QString& preferredTeamId = {});
 };
 
 } // namespace Mattermost
