@@ -1012,7 +1012,7 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
 
     QMenu menu(this);
     QAction* read = menu.addAction(
-        IconUtils::symbolicIcon(QStringLiteral(":/icons/bell")),
+        IconUtils::symbolicIcon(QStringLiteral(":/icons/text-check")),
         tr("Mark category as read"));
     // Mattermost's Direct Messages category has its own sorting menu and
     // intentionally does not offer category-wide Mute.
