@@ -202,9 +202,12 @@ void ChannelItemDelegate::paint(QPainter* painter,
                 .paint(painter, iconRect);
             painter->restore();
         };
-        if (showMenu) {
-            drawAction(QStringLiteral(":/icons/burger"), showAdd ? 1 : 0,
-                       index.data(SidebarItem::CategoryMenuHoveredRole).toBool());
+        // Do not draw an always-visible hamburger on every category row.
+        // The subtle vertical ellipsis appears only while the pointer is over
+        // this category, and remains in the existing, palette-aware hit slot.
+        if (showMenu && index.data(SidebarItem::CategoryMenuHoveredRole).toBool()) {
+            drawAction(QStringLiteral(":/icons/dots-vertical"), showAdd ? 1 : 0,
+                       false);
         }
         if (showAdd) {
             drawAction(QStringLiteral(":/icons/add"), 0,
