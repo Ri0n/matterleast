@@ -349,6 +349,50 @@ void SidebarService::setChannelFavorite(
         });
 }
 
+void SidebarService::markCategoryRead(
+    const QString& teamId, const QString& categoryId,
+    std::function<void(bool)> callback)
+{
+    const SidebarTeamState* state = teamState(teamId);
+    const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
+    if (!category) {
+        if (callback) callback(false);
+        return;
+    }
+    if (category->channelIds.isEmpty()) {
+        if (callback) callback(true);
+        return;
+    }
+
+    // Official API supports one request with all category members, including
+    // currently hidden/capped DMs: POST /channels/members/{user_id}/mark_read.
+    QJsonArray payload;
+    for (const QString& id : category->channelIds) {
+        payload.append(id);
+    }
+    NetworkRequest request(QStringLiteral("channels/members/")
+                           + currentUserId() + QStringLiteral("/mark_read"));
+    httpConnector.post(request, QByteArrayCreator(payload),
+        HttpResponseCallback([this, callback](QVariant status,
+                                             const QJsonDocument& doc) {
+        const bool success = status.toInt() == QNetworkReply::NoError
+            && doc.isObject();
+        if (success) {
+            const QJsonObject viewedTimes = doc.object().value(
+                QStringLiteral("last_viewed_at_times")).toObject();
+            for (auto it = viewedTimes.cbegin(); it != viewedTimes.cend(); ++it) {
+                BackendChannel* channel =
+                    backend.getStorage().getChannelById(it.key());
+                if (channel) {
+                    applyServerChannelViewed(*channel,
+                        it.value().toVariant().toULongLong());
+                }
+            }
+        }
+        if (callback) callback(success);
+    }));
+}
+
 bool SidebarService::isChannelMuted(const BackendChannel& channel) const
 {
     return isChannelMuted(channel.id);
