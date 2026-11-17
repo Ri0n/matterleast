@@ -201,6 +201,7 @@ private:
 	void activateChannelItem(QTreeWidgetItem* item);
     void activateVirtualDestination(QTreeWidgetItem* item);
 	void setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed);
+    void showCategoryMenu(const QString& teamId, const QString& categoryId);
 	void setChannelMutedVisual(const QString& channelId, bool muted);
     void refreshChannelUnreadVisual(const QString& channelId);
     void refreshAllChannelActivityVisuals();
@@ -267,6 +268,7 @@ private:
     QPoint                             dragPreviewHotSpot;
     QPersistentModelIndex               categoryActionHoverIndex;
     bool                                categoryActionHovered = false;
+    bool                                categoryMenuHovered = false;
     QVariantAnimation*                  sourceCollapseAnimation = nullptr;
     QVariantAnimation*                  dropGapAnimation = nullptr;
     QVector<QPersistentModelIndex>      dragSourceIndexes;
