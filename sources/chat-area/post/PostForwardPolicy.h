@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QString>
 
 namespace Mattermost {
@@ -27,5 +28,14 @@ QString forwardedCopyText(const QString& comment, const QString& original);
 QJsonObject forwardedCopyProps(const QString& postId,
                                const QString& authorId,
                                const QString& teamId);
+
+// Incoming standalone forwards are identified by their post props, not
+// by the sending client's local forwarding preference.
+struct ForwardedCopyInfo {
+    bool isForwarded = false;
+    QString originalPostId;
+    QString originalAuthorId;
+};
+ForwardedCopyInfo forwardedCopyInfo(const QJsonValue& props);
 
 } // namespace Mattermost

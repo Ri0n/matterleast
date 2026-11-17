@@ -23,6 +23,8 @@
 #include "backend/types/BackendPost.h"
 #include "backend/UserProfileService.h"
 #include "chat-area/post/ForwardPostDialog.h"
+#include "chat-area/post/PostWidget.h"
+#include "chat-area/QuotedPostPreview.h"
 #include "chat-area/post/PostPermalinkService.h"
 #include "navigation/MattermostUrlRouter.h"
 
@@ -311,6 +313,86 @@ private slots:
                     .contains(QStringLiteral("/_redirect/")));
         QTRY_VERIFY(error->isVisible());
         NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
+    }
+
+    void incomingForwardIndicatorIsIndependentOfOutgoingSetting_data()
+    {
+        QTest::addColumn<bool>("usePermalink");
+        QTest::newRow("outgoing-permalink-on") << true;
+        QTest::newRow("outgoing-permalink-off") << false;
+    }
+
+    void incomingForwardIndicatorIsIndependentOfOutgoingSetting()
+    {
+        QFETCH(bool, usePermalink);
+        MLOptions::instance()->optionObject<bool>(
+            FORWARD_WITH_PERMALINK, FORWARD_WITH_PERMALINK_DEFAULT)
+            ->setValue(usePermalink);
+        Backend backend;
+        QVERIFY(addChannel(backend, QStringLiteral("destination"),
+                           QStringLiteral("P"), QStringLiteral("destination")));
+        backend.getStorage().addUser(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("original-author")},
+            {QStringLiteral("username"), QStringLiteral("original-author")},
+            {QStringLiteral("first_name"), QStringLiteral("Original")},
+            {QStringLiteral("last_name"), QStringLiteral("Author")},
+        });
+        BackendPost forward(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("abcdefghijklmnopqrstuvwxyz")},
+            {QStringLiteral("channel_id"), QStringLiteral("destination")},
+            {QStringLiteral("user_id"), QStringLiteral("forwarder")},
+            {QStringLiteral("message"), QStringLiteral("Original **Markdown**")},
+            {QStringLiteral("props"), QJsonObject{
+                {QStringLiteral("isForwarded"), true},
+                {QStringLiteral("originalPostId"), QStringLiteral("source-post")},
+                {QStringLiteral("originalAuthorId"), QStringLiteral("original-author")},
+            }},
+        }, backend.getStorage());
+        PostWidget widget(backend, forward, nullptr, nullptr, nullptr,
+                          PostWidget::PresentationMode::ReadOnlySnapshot);
+        auto* forwardedLabel = widget.findChild<QLabel*>(
+            QStringLiteral("forwardedOriginLabel"));
+        QVERIFY(forwardedLabel);
+        QCOMPARE(forwardedLabel->text(),
+                 QStringLiteral("Forwarded from Original Author"));
+        QVERIFY(!forwardedLabel->isHidden());
+        QCOMPARE(forward.message, QStringLiteral("Original **Markdown**"));
+        QVERIFY(widget.findChildren<QuotedPostPreview*>().isEmpty());
+
+        // Edits may replace metadata in place; don't leave a stale label.
+        forward.props = QJsonObject{};
+        widget.setEdited(forward.message);
+        QVERIFY(forwardedLabel->isHidden());
+
+        const QString originalId =
+            QStringLiteral("abcdefghijklmnopqrstuvwx12");
+        const QString url =
+            QStringLiteral("https://canonical.example.net/team/pl/") + originalId;
+        BackendPost permalinkPost(QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("secondaryabcdefghijkl")},
+            {QStringLiteral("channel_id"), QStringLiteral("destination")},
+            {QStringLiteral("user_id"), QStringLiteral("forwarder")},
+            {QStringLiteral("message"), url},
+            {QStringLiteral("metadata"), QJsonObject{
+                {QStringLiteral("embeds"), QJsonArray{QJsonObject{
+                    {QStringLiteral("type"), QStringLiteral("permalink")},
+                    {QStringLiteral("data"), QJsonObject{
+                        {QStringLiteral("post_id"), originalId},
+                        {QStringLiteral("post"), QJsonObject{
+                            {QStringLiteral("id"), originalId},
+                            {QStringLiteral("user_id"), QStringLiteral("original-author")},
+                            {QStringLiteral("message"), QStringLiteral("Source text")},
+                        }},
+                    }},
+                }}},
+            }},
+        }, backend.getStorage());
+        PostWidget permalinkWidget(backend, permalinkPost,
+                                  nullptr, nullptr, nullptr,
+                                  PostWidget::PresentationMode::ReadOnlySnapshot);
+        QVERIFY(!permalinkWidget.findChild<QLabel*>(
+            QStringLiteral("forwardedOriginLabel")));
+        QCOMPARE(permalinkWidget.findChildren<QuotedPostPreview*>().size(), 1);
     }
 
     void standaloneModeDoesNotDropAttachments()

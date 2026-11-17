@@ -11,13 +11,18 @@
 
 #include "PostWidget.h"
 
+#include <algorithm>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QLabel>
+#include <QPointer>
 #include <QUrl>
 
 #include "MessageContentWidget.h"
+#include "PostForwardPolicy.h"
 #include "backend/Backend.h"
 #include "backend/Storage.h"
+#include "backend/UserProfileService.h"
 #include "backend/types/BackendFile.h"
 #include "backend/types/BackendUser.h"
 #include "chat-area/QuotedPostPreview.h"
@@ -25,6 +30,66 @@
 #include "ui_PostWidget.h"
 
 namespace Mattermost {
+
+void PostWidget::refreshForwardedInfo()
+{
+    const ForwardedCopyInfo info = forwardedCopyInfo(post.props);
+    if (post.isDeleted || !info.isForwarded) {
+        if (forwardedInfoLabel_ && forwardedInfoLabel_->isVisible()) {
+            forwardedInfoLabel_->hide();
+            updateGeometry();
+            emit dimensionsChanged();
+        }
+        return;
+    }
+
+    if (!forwardedInfoLabel_) {
+        forwardedInfoLabel_ = new QLabel(this);
+        forwardedInfoLabel_->setObjectName(QStringLiteral("forwardedOriginLabel"));
+        forwardedInfoLabel_->setTextFormat(Qt::PlainText);
+        forwardedInfoLabel_->setWordWrap(true);
+        forwardedInfoLabel_->setForegroundRole(QPalette::WindowText);
+        QFont forwardedFont = chatFont_;
+        forwardedFont.setItalic(true);
+        if (forwardedFont.pointSizeF() > 0) {
+            forwardedFont.setPointSizeF(
+                std::max(1.0, forwardedFont.pointSizeF() * 0.90));
+        }
+        forwardedInfoLabel_->setFont(forwardedFont);
+        ui->verticalLayout->insertWidget(
+            ui->verticalLayout->indexOf(messageContent), forwardedInfoLabel_);
+    }
+
+    const BackendUser* originalAuthor = info.originalAuthorId.isEmpty()
+        ? nullptr : backend_.getStorage().getUserById(info.originalAuthorId);
+    const QString name = originalAuthor
+        ? originalAuthor->getDisplayName() : QString();
+    const QString text = name.isEmpty()
+        ? tr("Forwarded message")
+        : tr("Forwarded from %1").arg(name);
+    const bool changed = forwardedInfoLabel_->text() != text
+        || !forwardedInfoLabel_->isVisible();
+    forwardedInfoLabel_->setText(text);
+    forwardedInfoLabel_->show();
+    if (changed) {
+        updateGeometry();
+        emit dimensionsChanged();
+    }
+
+    if (!originalAuthor && !info.originalAuthorId.isEmpty()
+        && requestedForwardedAuthorId_ != info.originalAuthorId) {
+        requestedForwardedAuthorId_ = info.originalAuthorId;
+        QPointer<PostWidget> guard(this);
+        UserProfileService::instance(backend_).ensureUser(
+            info.originalAuthorId,
+            [guard, authorId = info.originalAuthorId](const BackendUser* user) {
+            if (guard && user && !guard->post.isDeleted
+                && forwardedCopyInfo(guard->post.props).originalAuthorId == authorId) {
+                guard->refreshForwardedInfo();
+            }
+        });
+    }
+}
 
 void PostWidget::refreshPermalinkPreviews()
 {

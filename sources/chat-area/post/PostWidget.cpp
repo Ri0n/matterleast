@@ -437,6 +437,7 @@ PostWidget::PostWidget(Backend& backend,
 	connect(messageContent, &MessageContentWidget::contentRebuilt,
             this, &PostWidget::connectMessageLinks);
 	messageContent->setMessage(displayMessage(post, post.message));
+    refreshForwardedInfo();
 	refreshPermalinkPreviews();
     updateTimestampPresentation();
     updateTimestampPalette();
@@ -527,6 +528,9 @@ PostWidget::PostWidget(Backend& backend,
     auto& profileService = UserProfileService::instance(backend);
     connect(&profileService, &UserProfileService::profileResolved, this,
             [this](const QString& userId) {
+        if (userId == forwardedCopyInfo(this->post.props).originalAuthorId) {
+            refreshForwardedInfo();
+        }
         if (userId != this->post.user_id) {
             return;
         }
@@ -1844,6 +1848,7 @@ void PostWidget::updateAuthorAvatar()
 void PostWidget::setEdited(const QString& message)
 {
 	messageContent->setMessage(displayMessage(post, message));
+    refreshForwardedInfo();
 	refreshPermalinkPreviews();
 
 	if (post.poll) {
@@ -1970,6 +1975,15 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     chatFont_ = nextFont;
     if (dayBoundaryLabel_)
         dayBoundaryLabel_->setFont(chatFont_);
+    if (forwardedInfoLabel_) {
+        QFont forwardedFont = chatFont_;
+        forwardedFont.setItalic(true);
+        if (forwardedFont.pointSizeF() > 0) {
+            forwardedFont.setPointSizeF(
+                std::max(1.0, forwardedFont.pointSizeF() * 0.90));
+        }
+        forwardedInfoLabel_->setFont(forwardedFont);
+    }
 
     // The designer's legacy 8 pt / 16 px author label truncated larger chat
     // fonts. The nickname uses the same body size, only with bold weight.
@@ -2278,6 +2292,7 @@ void PostWidget::openThreadWindow()
 void PostWidget::markAsDeleted()
 {
 	post.isDeleted = true;
+    refreshForwardedInfo();
     // A deleted post no longer admits local ephemeral invite actions. An
     // in-flight permission reply must not recreate a button for its tombstone.
     ephemeralMentionId_.clear();

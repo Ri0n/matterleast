@@ -124,4 +124,19 @@ QJsonObject forwardedCopyProps(const QString& postId,
     return props;
 }
 
+ForwardedCopyInfo forwardedCopyInfo(const QJsonValue& props)
+{
+    ForwardedCopyInfo info;
+    const QJsonObject object = props.toObject();
+    if (object.value(QStringLiteral("isForwarded")) != QJsonValue(true)) {
+        return info;
+    }
+    info.isForwarded = true;
+    info.originalPostId =
+        object.value(QStringLiteral("originalPostId")).toString();
+    info.originalAuthorId =
+        object.value(QStringLiteral("originalAuthorId")).toString();
+    return info;
+}
+
 } // namespace Mattermost

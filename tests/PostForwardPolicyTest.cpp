@@ -105,6 +105,34 @@ private slots:
                  QStringLiteral("https://canonical.example/team/pl/other"));
     }
 
+    void incomingStandaloneForwardMetadata()
+    {
+        const QJsonObject received{
+            {QStringLiteral("isForwarded"), true},
+            {QStringLiteral("originalPostId"), QStringLiteral("source-post")},
+            {QStringLiteral("originalAuthorId"), QStringLiteral("source-author")},
+            {QStringLiteral("current_team_id"), QStringLiteral("team")},
+        };
+        const ForwardedCopyInfo info = forwardedCopyInfo(received);
+        QVERIFY(info.isForwarded);
+        QCOMPARE(info.originalPostId, QStringLiteral("source-post"));
+        QCOMPARE(info.originalAuthorId, QStringLiteral("source-author"));
+
+        const ForwardedCopyInfo missing = forwardedCopyInfo(QJsonObject{});
+        QVERIFY(!missing.isForwarded);
+        const ForwardedCopyInfo malformed = forwardedCopyInfo(QJsonObject{
+            {QStringLiteral("isForwarded"), QStringLiteral("true")},
+            {QStringLiteral("originalAuthorId"), QStringLiteral("fake")},
+        });
+        QVERIFY(!malformed.isForwarded);
+        const ForwardedCopyInfo partial = forwardedCopyInfo(QJsonObject{
+            {QStringLiteral("isForwarded"), true},
+        });
+        QVERIFY(partial.isForwarded);
+        QVERIFY(partial.originalPostId.isEmpty());
+        QVERIFY(partial.originalAuthorId.isEmpty());
+    }
+
     void standaloneCopyPayload()
     {
         QCOMPARE(forwardedCopyText({}, QStringLiteral("Original **Markdown**")),
