@@ -350,6 +350,88 @@ void SidebarService::setChannelFavorite(
         });
 }
 
+void SidebarService::moveChannelToCategory(
+    const QString& teamId, const QString& channelId,
+    const QString& targetCategoryId, std::function<void(bool)> callback)
+{
+    const SidebarTeamState* state = teamState(teamId);
+    const SidebarCategory* destination =
+        state ? state->category(targetCategoryId) : nullptr;
+    if (!destination || channelId.isEmpty()
+        || !backend.getStorage().getChannelById(channelId)) {
+        if (callback) callback(false);
+        return;
+    }
+
+    const SidebarCategory* source = nullptr;
+    for (const QString& id : state->order) {
+        const SidebarCategory* candidate = state->category(id);
+        if (candidate && candidate->channelIds.contains(channelId)) {
+            source = candidate;
+            break;
+        }
+    }
+    if (source && source->id == destination->id) {
+        if (callback) callback(true);
+        return;
+    }
+
+    QVector<SidebarCategory> updates;
+    if (source) {
+        SidebarCategory changedSource = *source;
+        changedSource.channelIds.removeAll(channelId);
+        updates.push_back(std::move(changedSource));
+    }
+    SidebarCategory changedDestination = *destination;
+    changedDestination.channelIds.removeAll(channelId);
+    changedDestination.channelIds.append(channelId);
+    updates.push_back(std::move(changedDestination));
+
+    // A move (unlike positional DnD) never changes either category's sorting
+    // policy. In particular, the Favorites order must remain as configured.
+    updateCategories(teamId, updates,
+        [callback](const SidebarTeamState&) {
+            if (callback) callback(true);
+        },
+        [callback] {
+            if (callback) callback(false);
+        });
+}
+
+void SidebarService::removeChannelFromCustomCategory(
+    const QString& teamId, const QString& channelId,
+    std::function<void(bool)> callback)
+{
+    const SidebarTeamState* state = teamState(teamId);
+    BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+    if (!state || !channel) {
+        if (callback) callback(false);
+        return;
+    }
+    const SidebarCategory* source = nullptr;
+    for (const QString& id : state->order) {
+        const SidebarCategory* candidate = state->category(id);
+        if (candidate && candidate->channelIds.contains(channelId)) {
+            source = candidate;
+            break;
+        }
+    }
+    if (!source || (source->type != QLatin1String("custom")
+                    && source->type != QLatin1String("favorites"))) {
+        if (callback) callback(false);
+        return;
+    }
+    const bool direct = channel->type == BackendChannel::directChannel
+        || channel->type == BackendChannel::groupChannel;
+    const SidebarCategory* fallback = state->categoryByType(
+        direct ? QStringLiteral("direct_messages") : QStringLiteral("channels"));
+    if (!fallback) {
+        if (callback) callback(false);
+        return;
+    }
+    moveChannelToCategory(teamId, channelId, fallback->id, std::move(callback));
+}
+
 void SidebarService::markCategoryRead(
     const QString& teamId, const QString& categoryId,
     std::function<void(bool)> callback)
