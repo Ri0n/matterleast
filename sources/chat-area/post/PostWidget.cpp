@@ -49,7 +49,6 @@
 #include <QMoveEvent>
 #include <QPalette>
 #include <QPlainTextEdit>
-#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -1362,9 +1361,9 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
         });
     }
 
-    // Forward sends an ordinary permalink post with an optional comment;
-    // unlike Copy message link it lets the user select a destination and
-    // displays the original post before committing.
+    // Forward uses the server's canonical SiteURL so Mattermost expands a
+    // native preview. Copy message link uses the team-independent redirect
+    // URL instead, without an extra HTTP request.
     if (!post.id.isEmpty()) {
         QAction* forwardAction = menu.addAction(
             QIcon::fromTheme(QStringLiteral("mail-forward"),
@@ -1379,20 +1378,10 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     QAction* copyMessageLinkAction = menu.addAction(icon(QStringLiteral(":/icons/link")),
                                                     tr("Copy message link"));
     connect(copyMessageLinkAction, &QAction::triggered, this, [this] {
-        const QString postId = post.id;
-        const QString teamSlug =
-            PostPermalinkService::teamSlugForPost(backend_, post);
-        const QPointer<PostWidget> guard(this);
-        PostPermalinkService::instance(backend_).resolve(
-            postId, teamSlug, false,
-            [guard](const QString& link, const QString& error) {
-            if (!guard) return;
-            if (link.isEmpty()) {
-                QMessageBox::warning(guard, PostWidget::tr("Copy message link"), error);
-                return;
-            }
+        const QString link = PostPermalinkService::redirectPermalink(post.id);
+        if (!link.isEmpty()) {
             QApplication::clipboard()->setText(link);
-        });
+        }
     });
 
     const QString selectedText = getSelectedText();

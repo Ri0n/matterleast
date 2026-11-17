@@ -20,9 +20,10 @@ bool canForwardPostTo(int sourceType,
             || sourceChannelId == targetChannelId);
 }
 
-// The server recognizes permalinks only under its configured SiteURL and the
-// native /<team-slug>/pl/<26-char-post-id> path. The connection host and
-// /_redirect/pl/<id> are not necessarily recognized, so never substitute them.
+// Native forwarding uses the canonical SiteURL and team-based permalink.
+// The official browser also supports /_redirect/pl/<id> for navigation,
+// but its redirect link is not recognized as a preview by this server
+// metadata matcher; don't use it for the Forward payload.
 QString nativeForwardPermalink(QString siteUrl,
                                       const QString& teamSlug,
                                       const QString& postId)

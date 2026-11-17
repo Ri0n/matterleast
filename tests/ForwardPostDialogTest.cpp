@@ -23,6 +23,8 @@
 #include "backend/types/BackendPost.h"
 #include "backend/UserProfileService.h"
 #include "chat-area/post/ForwardPostDialog.h"
+#include "chat-area/post/PostPermalinkService.h"
+#include "navigation/MattermostUrlRouter.h"
 
 using namespace Mattermost;
 
@@ -73,6 +75,20 @@ private slots:
         MLOptions::instance()->optionObject<bool>(
             FORWARD_WITH_PERMALINK, FORWARD_WITH_PERMALINK_DEFAULT)
             ->setValue(FORWARD_WITH_PERMALINK_DEFAULT);
+    }
+
+    void copyLinkStillUsesTeamIndependentRedirect()
+    {
+        const QString postId = QStringLiteral("abcdefghijklmnopqrstuvwxyz");
+        const QString url = PostPermalinkService::redirectPermalink(postId);
+        QCOMPARE(url,
+                 QStringLiteral("https://mattermost.example.test/_redirect/pl/")
+                     + postId);
+        const MattermostUrlRoute route = MattermostUrlRouter::classify(
+            QUrl(url), QUrl(NetworkRequest::host()));
+        QCOMPARE(route.kind, MattermostUrlRoute::Kind::Post);
+        QCOMPARE(route.target, postId);
+        QVERIFY(PostPermalinkService::redirectPermalink({}).isEmpty());
     }
 
     void publicOriginListsKnownDestinationsAndFilters()

@@ -33,6 +33,21 @@ QString PostPermalinkService::teamSlugForPost(Backend& backend, const BackendPos
     if (!team && !storage.teams.empty()) team = &storage.teams.begin()->second;
     return team ? team->name : QString();
 }
+QString PostPermalinkService::redirectPermalink(const QString& postId)
+{
+    if (postId.isEmpty()) {
+        return {};
+    }
+    QString host = NetworkRequest::host();
+    if (host.isEmpty()) {
+        return {};
+    }
+    if (!host.endsWith(QLatin1Char('/'))) {
+        host += QLatin1Char('/');
+    }
+    return host + QStringLiteral("_redirect/pl/") + postId;
+}
+
 void PostPermalinkService::resolve(const QString& postId,
                                    const QString& teamSlug,
                                    bool requirePreview,
