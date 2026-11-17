@@ -131,6 +131,63 @@ private slots:
                  actionSignature(*sidebarCategories));
     }
 
+    void directAndGroupConversationMenusAreIdenticalAcrossSurfaces()
+    {
+        Backend backend;
+        QVERIFY(addTeamChannel(backend, QStringLiteral("normal")));
+        Storage& storage = backend.getStorage();
+        storage.addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("me")},
+            {QStringLiteral("username"), QStringLiteral("me")},
+        }, true);
+        storage.addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("peer")},
+            {QStringLiteral("username"), QStringLiteral("peer")},
+        });
+        QVERIFY(storage.addDirectChannel(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("direct-id")},
+            {QStringLiteral("type"), QStringLiteral("D")},
+            {QStringLiteral("name"), QStringLiteral("me__peer")},
+        }));
+        QVERIFY(storage.addGroupChannel(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("group-id")},
+            {QStringLiteral("type"), QStringLiteral("G")},
+            {QStringLiteral("name"), QStringLiteral("group")},
+            {QStringLiteral("display_name"), QStringLiteral("me, peer")},
+        }));
+
+        SidebarTeamState state = teamStateFor(QStringLiteral("normal"));
+        SidebarCategory directs;
+        directs.id = QStringLiteral("directs-id");
+        directs.teamId = QStringLiteral("team");
+        directs.type = QStringLiteral("direct_messages");
+        directs.channelIds = {QStringLiteral("direct-id"), QStringLiteral("group-id")};
+        state.categories.insert(directs.id, directs);
+        state.order.append(directs.id);
+        SidebarService::instance(backend).applyLocalTeamState(
+            QStringLiteral("team"), state);
+
+        QWidget host;
+        for (const QString& id : {QStringLiteral("direct-id"),
+                                  QStringLiteral("group-id")}) {
+            QMenu header(&host);
+            QMenu sidebar(&host);
+            ConversationActionsMenu::populate(
+                header, backend, id, QStringLiteral("team"), &host);
+            ConversationActionsMenu::populate(
+                sidebar, backend, id, QStringLiteral("team"), &host);
+            emit header.aboutToShow();
+            emit sidebar.aboutToShow();
+            QCOMPARE(actionSignature(header), actionSignature(sidebar));
+            QCOMPARE(actionNamed(header, QStringLiteral("viewConversationProfileAction"))
+                         != nullptr,
+                     id == QLatin1String("direct-id"));
+            QVERIFY(actionNamed(header, QStringLiteral("toggleConversationFavoriteAction")));
+            QVERIFY(actionNamed(sidebar, QStringLiteral("toggleConversationFavoriteAction")));
+            QVERIFY(!actionNamed(header, QStringLiteral("editChannelTopicAction")));
+        }
+    }
+
     void favoritesStatusAndIconUpdateInBothMenus()
     {
         Backend backend;
