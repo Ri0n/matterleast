@@ -1070,12 +1070,13 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
     };
 
     if (chosen == read) {
-        for (const QString& channelId : liveCategory->channelIds) {
-            if (BackendChannel* channel =
-                backendForSidebar->getStorage().getChannelById(channelId)) {
-                backendForSidebar->markChannelAsViewed(*channel);
+        QPointer<ChannelTree> guard(this);
+        sidebar.markCategoryRead(teamId, categoryId, [guard](bool success) {
+            if (!success && guard) {
+                QMessageBox::warning(guard, QObject::tr("Mark category as read"),
+                                     QObject::tr("Could not mark the category as read."));
             }
-        }
+        });
     } else if (chosen == mute) {
         SidebarCategory changed = *liveCategory;
         changed.muted = !changed.muted;
