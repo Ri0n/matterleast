@@ -35,7 +35,7 @@ void PostWidget::refreshForwardedInfo()
 {
     const ForwardedCopyInfo info = forwardedCopyInfo(post.props);
     if (post.isDeleted || !info.isForwarded) {
-        if (forwardedInfoLabel_ && forwardedInfoLabel_->isVisible()) {
+        if (forwardedInfoLabel_ && !forwardedInfoLabel_->isHidden()) {
             forwardedInfoLabel_->hide();
             updateGeometry();
             emit dimensionsChanged();
@@ -68,7 +68,7 @@ void PostWidget::refreshForwardedInfo()
         ? tr("Forwarded message")
         : tr("Forwarded from %1").arg(name);
     const bool changed = forwardedInfoLabel_->text() != text
-        || !forwardedInfoLabel_->isVisible();
+        || forwardedInfoLabel_->isHidden();
     forwardedInfoLabel_->setText(text);
     forwardedInfoLabel_->show();
     if (changed) {
