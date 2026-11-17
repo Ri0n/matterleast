@@ -1014,9 +1014,13 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
     QAction* read = menu.addAction(
         IconUtils::symbolicIcon(QStringLiteral(":/icons/bell")),
         tr("Mark category as read"));
-    QAction* mute = menu.addAction(
-        IconUtils::symbolicIcon(QStringLiteral(":/icons/bell")),
-        muted ? tr("Unmute category") : tr("Mute category"));
+    // Mattermost's Direct Messages category has its own sorting menu and
+    // intentionally does not offer category-wide Mute.
+    QAction* mute = category->type == QLatin1String("direct_messages")
+        ? nullptr
+        : menu.addAction(
+            IconUtils::symbolicIcon(QStringLiteral(":/icons/bell")),
+            muted ? tr("Unmute category") : tr("Mute category"));
     QAction* collapse = menu.addAction(
         collapsed ? tr("Expand category") : tr("Collapse category"));
     if (custom) {
@@ -1036,13 +1040,19 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
     QMenu* sortMenu = menu.addMenu(tr("Sort: %1").arg(sortLabel));
     QAction* alpha = sortMenu->addAction(tr("Alphabetically"));
     QAction* recent = sortMenu->addAction(tr("Recent activity"));
-    QAction* manual = sortMenu->addAction(tr("Manually"));
-    for (QAction* action : {alpha, recent, manual}) {
+    QAction* manual = category->type == QLatin1String("direct_messages")
+        ? nullptr : sortMenu->addAction(tr("Manually"));
+    for (QAction* action : {alpha, recent}) {
         action->setCheckable(true);
+    }
+    if (manual) {
+        manual->setCheckable(true);
     }
     alpha->setChecked(currentSorting == QLatin1String("alpha"));
     recent->setChecked(currentSorting == QLatin1String("recent"));
-    manual->setChecked(currentSorting == QLatin1String("manual"));
+    if (manual) {
+        manual->setChecked(currentSorting == QLatin1String("manual"));
+    }
 
     menu.addSeparator();
     QAction* create = menu.addAction(
@@ -1124,7 +1134,8 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
                 }
             });
         }
-    } else if (chosen == alpha || chosen == recent || chosen == manual) {
+    } else if (chosen == alpha || chosen == recent
+               || (manual && chosen == manual)) {
         const QString sorting = chosen == alpha ? QStringLiteral("alpha")
             : chosen == recent ? QStringLiteral("recent")
                                : QStringLiteral("manual");
