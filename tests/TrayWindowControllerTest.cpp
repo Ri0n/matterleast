@@ -42,6 +42,29 @@ private slots:
         QVERIFY(!controller.toggleWindow());
     }
 
+    void logoutCannotReactivateAnOldButStillAliveMainWindow()
+    {
+        TrayWindowController controller;
+        QWidget mainWindow;
+        controller.setWindow(&mainWindow);
+        QVERIFY(controller.showWindow());
+
+        // Session teardown first removes the tray target, while the old
+        // widgets and all referenced Backend::Storage objects are alive.
+        controller.setWindow(nullptr);
+        mainWindow.hide();
+        QVERIFY(!controller.showWindow());
+        QVERIFY(!controller.toggleWindow());
+        QVERIFY(!mainWindow.isVisible());
+
+        // The replacement target is established only after session reset.
+        QWidget login;
+        controller.setWindow(&login);
+        QVERIFY(controller.showWindow());
+        QVERIFY(login.isVisible());
+        QVERIFY(!mainWindow.isVisible());
+    }
+
     void toggleAStillAliveWindow()
     {
         TrayWindowController controller;
