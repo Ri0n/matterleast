@@ -11,7 +11,13 @@ The BackendOwnStatus implementation uses Mattermost REST API:
 `PUT /users/{user_id}/status`, `PUT /users/{user_id}/status/custom` and
 `DELETE /users/{user_id}/status/custom`. It commits new values locally
 only after a successful HTTP status; failed updates leave the visible state
-unchanged. Actual server and transport errors produce a nonmodal native desktop
+unchanged. For every finite custom-status duration, the backend sends **both**
+the duration label and an absolute UTC `expires_at` timestamp; Mattermost does
+not derive the expiration from the duration label. Fixed durations follow
+Mattermost's minute rounding; `today` ends at local midnight, and `this_week`
+ends on the last day of the locale's week. An explicitly selected date/time is
+sent unchanged. A non-expiring status omits both fields. On success, the local
+user cache stores the same expiration that was sent to the server. Actual server and transport errors produce a nonmodal native desktop
 notification, not a QMessageBox. OperationCanceledError is silent: transport
 rotation can cancel a mutation after the server has already applied it, so
 the client must not present the cancellation as a confirmed failure.
