@@ -27,7 +27,9 @@ public:
 
     bool enable() override
     {
-        enabled_ = host_ && host_->authenticated();
+        // Providers are loaded before login too; lack of a session must
+        // disable starting a call, not prevent capability discovery.
+        enabled_ = host_ != nullptr;
         return enabled_;
     }
 
@@ -97,7 +99,7 @@ public:
 private:
     bool enter(const QString& channelId)
     {
-        if (!enabled_ || channelId.isEmpty() ||
+        if (!enabled_ || !host_->authenticated() || channelId.isEmpty() ||
             snapshot_.state != MatterLeast::PluginApi::CallsState::Idle) {
             return false;
         }
