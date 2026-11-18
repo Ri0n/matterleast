@@ -8,7 +8,10 @@
 
 #include "backend/types/BackendUserProps.h"
 
+class QAction;
 class QComboBox;
+class QEvent;
+class QLabel;
 class QDateTimeEdit;
 class QLineEdit;
 class QPushButton;
@@ -46,13 +49,18 @@ private:
     QPushButton* createSuggestionButton(const BackendUserCustomStatus& suggestion,
                                         const QString& objectName, QWidget* parent);
     void updateSuggestionVisibility();
+    void setSelectedEmoji(const QString& name);
+    void updateEmojiAction();
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
     EmojiRegistry& m_registry;
     BackendUserCustomStatus m_initial;
     QLineEdit* m_text = nullptr;
-    QLineEdit* m_emoji = nullptr;
+    QAction* m_emojiAction = nullptr;
+    QString m_selectedEmoji;
     QComboBox* m_duration = nullptr;
     QDateTimeEdit* m_expiration = nullptr;
+    QLabel* m_expirationLabel = nullptr;
     QScrollArea* m_suggestionsScroll = nullptr;
     QWidget* m_suggestionSection = nullptr;
     QWidget* m_recentSection = nullptr;
