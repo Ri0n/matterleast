@@ -45,10 +45,9 @@ inline QString text(const BackendUser& user)
     return isExpired(user) ? QString() : user.props.customStatus.text;
 }
 
-inline QPixmap pixmap(EmojiRegistry& registry, const BackendUser& user,
+inline QPixmap pixmap(EmojiRegistry& registry, const QString& emojiName,
                       int size, const QFont& baseFont)
 {
-    const QString emojiName = name(user);
     if (emojiName.isEmpty() || size <= 0) {
         return {};
     }
@@ -101,6 +100,12 @@ inline QPixmap pixmap(EmojiRegistry& registry, const BackendUser& user,
     painter.drawText(QRect(0, 0, size, size),
                      Qt::AlignCenter, presentation);
     return result;
+}
+
+inline QPixmap pixmap(EmojiRegistry& registry, const BackendUser& user,
+                      int size, const QFont& baseFont)
+{
+    return pixmap(registry, name(user), size, baseFont);
 }
 
 } // namespace Mattermost::UserStatusEmoji
