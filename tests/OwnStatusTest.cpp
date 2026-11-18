@@ -4,6 +4,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
+#include <QJsonArray>
 #include <QComboBox>
 #include <QPushButton>
 #include <QToolButton>
@@ -266,7 +268,9 @@ private slots:
             [&](const BackendUserCustomStatus& status, std::function<void(bool)> done) {
                 QCOMPARE(status.text, recent.text);
                 ++removed;
-                done(true);
+                // HTTP remove is asynchronous; model that here to avoid
+                // deleting the clicked button within its signal delivery.
+                QTimer::singleShot(0, &editor, [done] { done(true); });
             });
         editor.setRecentStatuses({recent});
         editor.show();
@@ -293,7 +297,7 @@ private slots:
         QVERIFY(remove && remove->isVisible());
         QTest::mouseClick(remove, Qt::LeftButton);
         QCOMPARE(removed, 1);
-        QVERIFY(!editor.findChild<QPushButton*>(
+        QTRY_VERIFY(!editor.findChild<QPushButton*>(
             QStringLiteral("customStatusRecent0")));
         QVERIFY(preset->isVisible()); // Removed recent returns to suggestions.
     }
