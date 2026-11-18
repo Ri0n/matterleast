@@ -1,6 +1,9 @@
 #include <QtTest>
 
 #include <QHash>
+#include <QAction>
+#include <QScrollArea>
+#include <QFormLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -288,10 +291,12 @@ private slots:
         QCOMPARE(editor.statusDuration(), recent.duration);
 
         auto* text = editor.findChild<QLineEdit*>(QStringLiteral("customStatusText"));
-        auto* emoji = editor.findChild<QLineEdit*>(QStringLiteral("customStatusEmoji"));
-        QVERIFY(text && emoji);
+        QVERIFY(text);
         text->clear();
-        emoji->clear();
+        text->setFocus();
+        text->setCursorPosition(0);
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(editor.statusEmoji(), QString());
         auto* remove = editor.findChild<QToolButton*>(
             QStringLiteral("customStatusRemoveRecent0"));
         QVERIFY(remove && remove->isVisible());
@@ -300,6 +305,68 @@ private slots:
         QTRY_VERIFY(!editor.findChild<QPushButton*>(
             QStringLiteral("customStatusRecent0")));
         QVERIFY(preset->isVisible()); // Removed recent returns to suggestions.
+    }
+
+    void inlineEmojiActionAndCompactScrollLayout()
+    {
+        EmojiRegistry registry;
+        BackendUserCustomStatus initial;
+        initial.emoji = QStringLiteral("calendar");
+        initial.text = QStringLiteral("Working");
+        CustomStatusEditorDialog editor(registry, initial);
+        editor.show();
+        QCoreApplication::processEvents();
+
+        auto* text = editor.findChild<QLineEdit*>(
+            QStringLiteral("customStatusText"));
+        auto* emojiAction = editor.findChild<QAction*>(
+            QStringLiteral("customStatusEmojiAction"));
+        auto* scroll = editor.findChild<QScrollArea*>(
+            QStringLiteral("customStatusSuggestionsScroll"));
+        auto* expirationLabel = editor.findChild<QLabel*>(
+            QStringLiteral("customStatusExpiresAtLabel"));
+        auto* duration = editor.findChild<QComboBox*>(
+            QStringLiteral("customStatusDuration"));
+        QVERIFY(text && emojiAction && scroll && expirationLabel && duration);
+        QVERIFY(!editor.findChild<QLineEdit*>(QStringLiteral("customStatusEmoji")));
+        QVERIFY(!emojiAction->icon().isNull());
+        QCOMPARE(scroll->property("mattermostOverlayEdgeButtonsEnabled").toBool(),
+                 false);
+        const QMargins padding = scroll->widget()->layout()->contentsMargins();
+        QVERIFY(padding.left() > 0 && padding.right() > 0);
+        QVERIFY(!expirationLabel->isVisible());
+
+        const int explicitDate = duration->findData(QStringLiteral("date_and_time"));
+        QVERIFY(explicitDate >= 0);
+        duration->setCurrentIndex(explicitDate);
+        QVERIFY(expirationLabel->isVisible());
+        duration->setCurrentIndex(0);
+        QVERIFY(!expirationLabel->isVisible());
+
+        text->setFocus();
+        text->setCursorPosition(text->text().size());
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(text->text(), QStringLiteral("Workin"));
+        QCOMPARE(editor.statusEmoji(), QStringLiteral("calendar"));
+
+        text->setCursorPosition(0);
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(editor.statusEmoji(), QString()); // Backspace at the start removes emoji.
+        QCOMPARE(text->text(), QStringLiteral("Workin")); // Does not eat text.
+        const QImage emptyIcon = emojiAction->icon().pixmap(24, 24).toImage();
+        QVERIFY(!emptyIcon.isNull());
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(text->text(), QStringLiteral("Workin"));
+
+        text->clear();
+        auto* preset = editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusPresetVacation"));
+        QVERIFY(preset && preset->isVisible());
+        QTest::mouseClick(preset, Qt::LeftButton);
+        QCOMPARE(editor.statusEmoji(), QStringLiteral("palm_tree"));
+        QCOMPARE(editor.statusText(), QStringLiteral("On a vacation"));
+        QVERIFY(emojiAction->icon().pixmap(24, 24).toImage() != emptyIcon);
+        QVERIFY(editor.isVisible()); // Action and suggestion do not submit.
     }
 
     void recentStatusesUseMattermostPreferences()
