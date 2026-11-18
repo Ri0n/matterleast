@@ -59,6 +59,7 @@ private:
     QVBoxLayout* m_recentRows = nullptr;
     QVector<BackendUserCustomStatus> m_recentStatuses;
     QVector<QPushButton*> m_presets;
+    QVector<BackendUserCustomStatus> m_presetStatuses;
     RemoveRecent m_removeRecent;
 };
 
