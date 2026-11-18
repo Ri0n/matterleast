@@ -50,7 +50,8 @@ add_test(NAME attachment-save-paths-test COMMAND attachment-save-paths-test)
 
 # The official forward flow submits a permalink (not copied message data)
 # and restricts private/DM/GM posts to their original conversation.
-add_executable(post-forward-policy-test PostForwardPolicyTest.cpp)
+add_executable(post-forward-policy-test PostForwardPolicyTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/chat-area/post/PostForwardPolicy.cpp")
 target_include_directories(post-forward-policy-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(post-forward-policy-test PRIVATE

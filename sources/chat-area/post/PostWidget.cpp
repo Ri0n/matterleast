@@ -64,7 +64,8 @@
 #include "ForwardPostDialog.h"
 #include "Settings.h"
 #include "MessageFormatter.h"
-#include "PostPermalinkUtils.h"
+#include "PostPermalinkService.h"
+#include "PostForwardPolicy.h"
 #include "PostQuoteFrame.h"
 #include "PostTimestampPresentation.h"
 #include "PostDateBoundaryPresentation.h"
@@ -132,8 +133,9 @@ QString displayMessage(const BackendPost& post, const QString& wireMessage)
         return post.poll ? QStringLiteral("(Poll deleted)")
                          : QStringLiteral("(Message deleted)");
     }
-    return quotedPostId(post).isEmpty()
+    const QString text = quotedPostId(post).isEmpty()
         ? wireMessage : QuotedReplyFormat::stripFallback(wireMessage);
+    return textWithPermalinkPreview(text, post.embeds);
 }
 
 
@@ -435,6 +437,7 @@ PostWidget::PostWidget(Backend& backend,
 	connect(messageContent, &MessageContentWidget::contentRebuilt,
             this, &PostWidget::connectMessageLinks);
 	messageContent->setMessage(displayMessage(post, post.message));
+    refreshForwardedInfo();
 	refreshPermalinkPreviews();
     updateTimestampPresentation();
     updateTimestampPalette();
@@ -525,6 +528,9 @@ PostWidget::PostWidget(Backend& backend,
     auto& profileService = UserProfileService::instance(backend);
     connect(&profileService, &UserProfileService::profileResolved, this,
             [this](const QString& userId) {
+        if (userId == forwardedCopyInfo(this->post.props).originalAuthorId) {
+            refreshForwardedInfo();
+        }
         if (userId != this->post.user_id) {
             return;
         }
@@ -1359,10 +1365,10 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
         });
     }
 
-    // Forward sends an ordinary permalink post with an optional comment;
-    // unlike Copy message link it lets the user select a destination and
-    // displays the original post before committing.
-    if (!messagePermalink(post).isEmpty()) {
+    // Forward uses the server's canonical SiteURL so Mattermost expands a
+    // native preview. Copy message link uses the team-independent redirect
+    // URL instead, without an extra HTTP request.
+    if (!post.id.isEmpty()) {
         QAction* forwardAction = menu.addAction(
             QIcon::fromTheme(QStringLiteral("mail-forward"),
                              icon(QStringLiteral(":/icons/link"))),
@@ -1376,7 +1382,7 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     QAction* copyMessageLinkAction = menu.addAction(icon(QStringLiteral(":/icons/link")),
                                                     tr("Copy message link"));
     connect(copyMessageLinkAction, &QAction::triggered, this, [this] {
-        const QString link = messagePermalink(post);
+        const QString link = PostPermalinkService::redirectPermalink(post.id);
         if (!link.isEmpty()) {
             QApplication::clipboard()->setText(link);
         }
@@ -1842,6 +1848,7 @@ void PostWidget::updateAuthorAvatar()
 void PostWidget::setEdited(const QString& message)
 {
 	messageContent->setMessage(displayMessage(post, message));
+    refreshForwardedInfo();
 	refreshPermalinkPreviews();
 
 	if (post.poll) {
@@ -1968,6 +1975,15 @@ void PostWidget::applyChatFont(const QString& serializedFont,
     chatFont_ = nextFont;
     if (dayBoundaryLabel_)
         dayBoundaryLabel_->setFont(chatFont_);
+    if (forwardedInfoLabel_) {
+        QFont forwardedFont = chatFont_;
+        forwardedFont.setItalic(true);
+        if (forwardedFont.pointSizeF() > 0) {
+            forwardedFont.setPointSizeF(
+                std::max(1.0, forwardedFont.pointSizeF() * 0.90));
+        }
+        forwardedInfoLabel_->setFont(forwardedFont);
+    }
 
     // The designer's legacy 8 pt / 16 px author label truncated larger chat
     // fonts. The nickname uses the same body size, only with bold weight.
@@ -2276,6 +2292,7 @@ void PostWidget::openThreadWindow()
 void PostWidget::markAsDeleted()
 {
 	post.isDeleted = true;
+    refreshForwardedInfo();
     // A deleted post no longer admits local ephemeral invite actions. An
     // in-flight permission reply must not recreate a button for its tombstone.
     ephemeralMentionId_.clear();

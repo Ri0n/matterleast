@@ -228,6 +228,7 @@ private:
     void connectMessageLinks();
     void refreshMentionLinks();
     void refreshPermalinkPreviews();
+    void refreshForwardedInfo();
     void openUserProfile(const QString& username);
     void openGroupMention(const QString& groupId);
     void applyChatFont(const QString& serializedFont,
@@ -274,6 +275,8 @@ private:
     QPushButton*                       moreAffordance_ = nullptr;
     QLabel*                            continuationTime_ = nullptr;
     QLabel*                            statusEmojiLabel_ = nullptr;
+    QLabel*                            forwardedInfoLabel_ = nullptr;
+    QString                            requestedForwardedAuthorId_;
     QWidget*                           dayBoundaryWidget_ = nullptr;
     QLabel*                            dayBoundaryLabel_ = nullptr;
     QDate                              dayBoundaryDate_;

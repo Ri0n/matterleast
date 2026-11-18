@@ -35,6 +35,11 @@ static constexpr int DOWNLOAD_IMAGE_MAX_HEIGHT_DEFAULT = 400;
 static constexpr const char* COMPOSER_SEND_WITH_CTRL_ENTER =
     "composer/sendWithCtrlEnter";
 static constexpr bool COMPOSER_SEND_WITH_CTRL_ENTER_DEFAULT = false;
+
+// Default to Mattermost's native permalink preview forwarding. The alternate
+// mode sends a standalone Markdown copy with source attribution in post props.
+static constexpr const char* FORWARD_WITH_PERMALINK = "chat/forwardWithPermalink";
+static constexpr bool FORWARD_WITH_PERMALINK_DEFAULT = true;
 static constexpr const char* COMPOSER_FORMATTING_TOOLBAR_VISIBLE =
     "composer/formattingToolbarVisible";
 static constexpr bool COMPOSER_FORMATTING_TOOLBAR_VISIBLE_DEFAULT = true;
