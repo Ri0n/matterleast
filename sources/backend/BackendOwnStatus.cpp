@@ -185,4 +185,64 @@ void Backend::clearOwnCustomStatus(StatusUpdateResult callback)
         }));
 }
 
+void Backend::retrieveRecentCustomStatuses(RecentCustomStatusesCallback callback)
+{
+    if (!storage.loginUser) {
+        if (callback) callback({});
+        return;
+    }
+    NetworkRequest request(QStringLiteral("users/") + storage.loginUser->id
+                           + QStringLiteral("/preferences/custom_status"));
+    httpConnector.get(request, HttpResponseCallback(
+        [callback](const QJsonDocument& doc, const QNetworkReply& reply) {
+            QVector<BackendUserCustomStatus> result;
+            if (succeeded(reply) && doc.isArray()) {
+                for (const auto& value : doc.array()) {
+                    const QJsonObject preference = value.toObject();
+                    if (preference.value(QStringLiteral("name")).toString()
+                        != QLatin1String("recent_custom_statuses")) {
+                        continue;
+                    }
+                    const QJsonDocument recent = QJsonDocument::fromJson(
+                        preference.value(QStringLiteral("value")).toString().toUtf8());
+                    if (!recent.isArray())
+                        break;
+                    for (const auto& item : recent.array()) {
+                        if (!item.isObject())
+                            continue;
+                        BackendUserCustomStatus status;
+                        status.deserialize(item.toObject());
+                        if (hasCustomStatusContent(status.emoji, status.text))
+                            result.push_back(status);
+                    }
+                    break;
+                }
+            }
+            if (callback) callback(result);
+        }));
+}
+
+void Backend::removeRecentCustomStatus(const BackendUserCustomStatus& status,
+                                       StatusUpdateResult callback)
+{
+    if (!storage.loginUser) {
+        if (callback) callback(false, tr("Not logged in"));
+        return;
+    }
+    NetworkRequest request(QStringLiteral("users/") + storage.loginUser->id
+                           + QStringLiteral("/status/custom/recent/delete"));
+    QJsonObject payload {
+        {QStringLiteral("emoji"), status.emoji},
+        {QStringLiteral("text"), status.text},
+        {QStringLiteral("duration"), status.duration}
+    };
+    if (!status.expiresAt.isEmpty())
+        payload.insert(QStringLiteral("expires_at"), status.expiresAt);
+    httpConnector.post(request, payload,
+        HttpResponseCallback([callback](const QJsonDocument&, const QNetworkReply& reply) {
+            const bool ok = succeeded(reply);
+            if (callback) callback(ok, ok ? QString() : failureMessage(reply));
+        }));
+}
+
 } // namespace Mattermost
