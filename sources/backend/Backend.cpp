@@ -27,6 +27,7 @@
 #include "LoginResponsePolicy.h"
 
 #include <iostream>
+#include <memory>
 #include <utility>
 #include <limits>
 #include <QSharedPointer>
@@ -84,9 +85,18 @@ void Backend::requestCallsPlugin(const QString& method,
         return;
     }
     const QPointer<QObject> lifetime(context);
-    auto reject = [lifetime, completion](const QString& reason) {
-        if (lifetime) {
-            completion(0, QJsonObject{{QStringLiteral("error"), reason}});
+    // An HTTP request may outlive the native plugin. Merely checking a
+    // QPointer is insufficient: destroying a std::function whose target was
+    // compiled inside an unloaded .so can still execute unloaded code.
+    // Clear the callback synchronously as QObject is destroyed, while
+    // QPluginLoader still has the provider library resident.
+    const auto pending = std::make_shared<CallsRequestCompletion>(
+        std::move(completion));
+    QObject::connect(context, &QObject::destroyed, this,
+                     [pending] { *pending = {}; });
+    auto reject = [lifetime, pending](const QString& reason) {
+        if (lifetime && *pending) {
+            (*pending)(0, QJsonObject{{QStringLiteral("error"), reason}});
         }
     };
 
@@ -112,12 +122,12 @@ void Backend::requestCallsPlugin(const QString& method,
 
     NetworkRequest request(relativePath);
     const HttpResponseCallback handler(
-        [lifetime, completion](QVariant, QByteArray payload,
-                               const QNetworkReply& reply) {
-            if (!lifetime) {
-                return; // Calls plugin may already have been disabled/unloaded.
+        [lifetime, pending](QVariant, QByteArray payload,
+                            const QNetworkReply& reply) {
+            if (!lifetime || !*pending) {
+                return; // Callbacks were cleared before plugin unload.
             }
-            completion(reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
+            (*pending)(reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
                        QJsonDocument::fromJson(payload).object());
         });
     if (method == QLatin1String("GET")) {
