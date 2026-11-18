@@ -40,6 +40,9 @@ public:
 	ChooseEmojiDialog 	dialog;
 };
 
-void showEmojiDialog (std::function<void(Emoji)> chooseCallback);
+// The optional requester is used only for native transient-window stacking.
+// The reusable picker remains owned by the main window.
+void showEmojiDialog(std::function<void(Emoji)> chooseCallback,
+                     QWidget* requester = nullptr);
 
 } /* namespace Mattermost */
