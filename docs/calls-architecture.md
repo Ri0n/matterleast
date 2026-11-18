@@ -15,7 +15,8 @@ engines and the internal `Backend`:
 - `CallsHostAccessor` (IID `CallsHostAccessor/1.0`): injected before
   `PluginInterface::enable()`. The base plugin IID remains unchanged.
 - `CallsHostInterface` (IID `CallsHost/1.0`): logged-in identity, scoped
-  authenticated Calls REST requests, and state-change notifications.
+  authenticated Calls REST requests, sends to the existing authenticated
+  sequenced Mattermost WebSocket, and state-change notifications.
 - `CallsTypes.h`: state and participant descriptors using only QtCore types.
 
 Clients use `PluginManager::callsAvailable()`, `callsSnapshot()`, and its
@@ -34,8 +35,11 @@ discarded when its QObject request context is destroyed. Importantly, its
 plugin-owned `std::function` target is cleared synchronously before the
 module unloads; merely testing a `QPointer` on a later response is not enough,
 because the deferred callback's destructor could otherwise execute unloaded
-plugin code. The provider receives forwarded `custom_*`
-WebSocket events and backend connection changes, not raw credentials.
+plugin code. The provider receives forwarded Calls-specific
+`custom_com.mattermost.calls_*` WebSocket events and backend connection
+changes, not raw credentials. Outgoing Calls actions use the same
+authenticated WebSocket and the connector's existing sequence counter;
+the plugin must not create an independent main Mattermost socket.
 
 The provider owns the call state machine and must publish updated snapshots
 through `CallsHostInterface::providerChanged()`. In particular, its
