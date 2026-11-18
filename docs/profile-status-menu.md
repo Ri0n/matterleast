@@ -17,7 +17,8 @@ not derive the expiration from the duration label. Fixed durations follow
 Mattermost's minute rounding; `today` ends at local midnight, and `this_week`
 ends on the last day of the locale's week. An explicitly selected date/time is
 sent unchanged. A non-expiring status omits both fields. On success, the local
-user cache stores the same expiration that was sent to the server. Actual server and transport errors produce a nonmodal native desktop
+user cache stores the same expiration that was sent to the server.
+Actual server and transport errors produce a nonmodal native desktop
 notification, not a QMessageBox. OperationCanceledError is silent: transport
 rotation can cancel a mutation after the server has already applied it, so
 the client must not present the cancellation as a confirmed failure.
