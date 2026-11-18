@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QPushButton>
 #include <QToolButton>
+#include <QStyle>
 #include <QLocale>
 #include <QWidget>
 #include <QPointer>
@@ -252,7 +253,7 @@ private slots:
         QCOMPARE(editor.statusText(), text);
         QCOMPARE(editor.statusDuration(), duration);
         QVERIFY(editor.statusExpiresAt().isEmpty());
-        QVERIFY(!editor.findChild<QWidget*>(
+        QVERIFY(editor.findChild<QWidget*>(
             QStringLiteral("customStatusSuggestionsScroll"))->isVisible());
         // A suggestion only fills the editor: it does not submit or close it.
         QVERIFY(editor.isVisible());
@@ -328,6 +329,14 @@ private slots:
         auto* duration = editor.findChild<QComboBox*>(
             QStringLiteral("customStatusDuration"));
         QVERIFY(text && emojiAction && scroll && expirationLabel && duration);
+        auto* emojiButton = text->findChild<QToolButton*>(
+            QStringLiteral("customStatusEmojiButton"));
+        QVERIFY(emojiButton);
+        QCOMPARE(emojiButton->cursor().shape(), Qt::PointingHandCursor);
+        QCOMPARE(text->style()->pixelMetric(QStyle::PM_LineEditIconSize, nullptr, text), 30);
+        QVERIFY(emojiButton->width() >= 30);
+        QVERIFY(emojiButton->height() >= 30);
+        QVERIFY(scroll->isVisible());
         QVERIFY(!editor.findChild<QLineEdit*>(QStringLiteral("customStatusEmoji")));
         QVERIFY(!emojiAction->icon().isNull());
         QCOMPARE(scroll->property("mattermostOverlayEdgeButtonsEnabled").toBool(),
@@ -367,6 +376,16 @@ private slots:
         QCOMPARE(editor.statusText(), QStringLiteral("On a vacation"));
         QVERIFY(emojiAction->icon().pixmap(24, 24).toImage() != emptyIcon);
         QVERIFY(editor.isVisible()); // Action and suggestion do not submit.
+        // Presets and recent statuses remain accessible while emoji or text
+        // changes. In particular, picking an emoji must not hide the list.
+        QVERIFY(scroll->isVisible());
+        auto* message = editor.findChild<QLineEdit*>(
+            QStringLiteral("customStatusText"));
+        QVERIFY(message);
+        message->setText(QStringLiteral("Edited status"));
+        QVERIFY(scroll->isVisible());
+        duration->setCurrentIndex(duration->findData(QStringLiteral("one_hour")));
+        QVERIFY(scroll->isVisible());
     }
 
     void recentStatusesUseMattermostPreferences()
