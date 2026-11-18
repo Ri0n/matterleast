@@ -886,10 +886,10 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	auto it = eventHandlers.find (eventName);
 	if (it == eventHandlers.end()) {
         if (eventName.startsWith(QStringLiteral("custom_"))) {
-            eventHandler.handleCustomEvent(
-                eventName,
-                jsonObject.value(QStringLiteral("data")).toObject(),
-                jsonObject.value(QStringLiteral("broadcast")).toObject());
+            const QJsonObject data = jsonObject.value(QStringLiteral("data")).toObject();
+            const QJsonObject broadcast = jsonObject.value(QStringLiteral("broadcast")).toObject();
+            eventHandler.forwardCallsCustomEvent(eventName, data, broadcast);
+            eventHandler.handleCustomEvent(eventName, data, broadcast);
             return;
         }
 
