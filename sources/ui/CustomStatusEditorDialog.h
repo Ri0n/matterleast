@@ -15,7 +15,6 @@ class QLabel;
 class QDateTimeEdit;
 class QLineEdit;
 class QPushButton;
-class QScrollArea;
 class QVBoxLayout;
 class QWidget;
 
@@ -55,14 +54,12 @@ private:
     void changeEvent(QEvent* event) override;
 
     EmojiRegistry& m_registry;
-    BackendUserCustomStatus m_initial;
     QLineEdit* m_text = nullptr;
     QAction* m_emojiAction = nullptr;
     QString m_selectedEmoji;
     QComboBox* m_duration = nullptr;
     QDateTimeEdit* m_expiration = nullptr;
     QLabel* m_expirationLabel = nullptr;
-    QScrollArea* m_suggestionsScroll = nullptr;
     QWidget* m_suggestionSection = nullptr;
     QWidget* m_recentSection = nullptr;
     QVBoxLayout* m_recentRows = nullptr;
