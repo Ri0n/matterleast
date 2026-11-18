@@ -23,7 +23,6 @@ namespace Mattermost {
 class Backend;
 class PluginHost;
 
- 
 struct PluginInfo
 {
     QString id;
