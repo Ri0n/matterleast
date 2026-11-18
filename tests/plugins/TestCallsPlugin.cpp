@@ -51,7 +51,7 @@ public:
 
     bool leaveCall() override
     {
-        if (!enabled_ || snapshot_.state != MatterLeast::PluginApi::CallsState::Connected) {
+        if (!enabled_ || snapshot_.state == MatterLeast::PluginApi::CallsState::Idle) {
             return false;
         }
         snapshot_ = {};
