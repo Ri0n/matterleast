@@ -2,16 +2,20 @@
 
 #include <utility>
 
+#include <QAction>
 #include <QComboBox>
 #include <QDateTimeEdit>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPalette>
+#include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -19,9 +23,37 @@
 #include "backend/emoji/EmojiRegistry.h"
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 #include "ui/UserStatusEmoji.h"
+#include "ui/OverlayScrollBarManager.h"
 
 namespace Mattermost {
 namespace {
+
+// QLineEdit owns the clickable leading QAction; the separator is drawn
+// together with its icon, avoiding hard-coded overlay widget geometry.
+QIcon statusEmojiActionIcon(EmojiRegistry& registry, const QString& name,
+                            const QPalette& palette, const QFont& font)
+{
+    QPixmap image(24, 24);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    const QPixmap emoji = UserStatusEmoji::pixmap(registry, name, 19, font);
+    if (!emoji.isNull()) {
+        painter.drawPixmap(1, 2, emoji);
+    } else {
+        // Empty or not-yet-resolved emoji: keep the picker accessible with
+        // a neutral, non-wire-value placeholder.
+        const QColor muted = palette.color(QPalette::Disabled, QPalette::Text);
+        painter.setPen(QPen(muted, 1.4));
+        painter.drawEllipse(QRectF(2.5, 4.5, 15, 15));
+        painter.drawLine(QPointF(7, 12), QPointF(13, 12));
+        painter.drawLine(QPointF(10, 9), QPointF(10, 15));
+    }
+    painter.setPen(QPen(palette.color(QPalette::Mid), 1.0));
+    painter.drawLine(QPointF(22, 3), QPointF(22, 21));
+    return QIcon(image);
+}
 
 QString durationLabel(const QString& duration)
 {
@@ -46,10 +78,15 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
 {
     setObjectName(QStringLiteral("customStatusEditor"));
     setWindowTitle(tr("Set a custom status"));
-    resize(450, 450);
+    resize(520, 550);
+    setMinimumWidth(470);
 
     auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(22, 18, 22, 18);
+    root->setSpacing(14);
     auto* form = new QFormLayout;
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(10);
     root->addLayout(form);
 
     m_text = new QLineEdit(this);
@@ -57,26 +94,24 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
     m_text->setMaxLength(100);
     m_text->setPlaceholderText(tr("What's your status?"));
     m_text->setText(current.text);
-    form->addRow(tr("Status message:"), m_text);
-
-    auto* emojiRow = new QWidget(this);
-    auto* emojiLayout = new QHBoxLayout(emojiRow);
-    emojiLayout->setContentsMargins(0, 0, 0, 0);
-    m_emoji = new QLineEdit(emojiRow);
-    m_emoji->setObjectName(QStringLiteral("customStatusEmoji"));
-    m_emoji->setPlaceholderText(QStringLiteral("speech_balloon"));
-    m_emoji->setText(current.emoji);
-    emojiLayout->addWidget(m_emoji, 1);
-    auto* choose = new QPushButton(tr("Choose…"), emojiRow);
-    emojiLayout->addWidget(choose);
-    connect(choose, &QPushButton::clicked, this, [this] {
-        QPointer<QLineEdit> target(m_emoji);
-        showEmojiDialog([target](const Emoji& emoji) {
-            if (target)
-                target->setText(emoji.name);
+    m_selectedEmoji = current.emoji.trimmed();
+    m_emojiAction = m_text->addAction(QIcon(), QLineEdit::LeadingPosition);
+    m_emojiAction->setObjectName(QStringLiteral("customStatusEmojiAction"));
+    m_text->installEventFilter(this);
+    connect(m_emojiAction, &QAction::triggered, this, [this] {
+        QPointer<CustomStatusEditorDialog> guard(this);
+        showEmojiDialog([guard](const Emoji& emoji) {
+            if (guard)
+                guard->setSelectedEmoji(emoji.name);
         });
     });
-    form->addRow(tr("Emoji:"), emojiRow);
+    connect(&m_registry, &EmojiRegistry::customEmojiAdded, this,
+            [this](const QString& name) {
+        if (name == m_selectedEmoji)
+            updateEmojiAction();
+    });
+    updateEmojiAction();
+    form->addRow(tr("Status message:"), m_text);
 
     m_duration = new QComboBox(this);
     m_duration->setObjectName(QStringLiteral("customStatusDuration"));
@@ -98,36 +133,43 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
     m_expiration->setObjectName(QStringLiteral("customStatusExpiresAt"));
     m_expiration->setCalendarPopup(true);
     m_expiration->setMinimumDateTime(QDateTime::currentDateTime());
-    m_expiration->setVisible(m_duration->currentData().toString()
-                             == QLatin1String("date_and_time"));
-    form->addRow(tr("Clear on:"), m_expiration);
+    const bool showExpiration = m_duration->currentData().toString()
+        == QLatin1String("date_and_time");
+    m_expiration->setVisible(showExpiration);
+    m_expirationLabel = new QLabel(tr("Clear on:"), this);
+    m_expirationLabel->setObjectName(QStringLiteral("customStatusExpiresAtLabel"));
+    m_expirationLabel->setVisible(showExpiration);
+    form->addRow(m_expirationLabel, m_expiration);
 
     auto* scroll = new QScrollArea(this);
     m_suggestionsScroll = scroll;
     scroll->setObjectName(QStringLiteral("customStatusSuggestionsScroll"));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setMaximumHeight(265);
+    scroll->setMaximumHeight(340);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    OverlayScrollBarManager::setEdgeNavigationButtonsEnabled(*scroll, false);
     root->addWidget(scroll, 1);
     m_suggestionSection = new QWidget(scroll);
     auto* suggestions = new QVBoxLayout(m_suggestionSection);
-    suggestions->setContentsMargins(0, 0, 0, 0);
-    suggestions->setSpacing(1);
+    suggestions->setContentsMargins(10, 12, 22, 10);
+    suggestions->setSpacing(5);
     scroll->setWidget(m_suggestionSection);
 
     m_recentSection = new QWidget(m_suggestionSection);
     auto* recentLayout = new QVBoxLayout(m_recentSection);
-    recentLayout->setContentsMargins(0, 0, 0, 0);
-    recentLayout->setSpacing(1);
+    recentLayout->setContentsMargins(0, 0, 0, 12);
+    recentLayout->setSpacing(5);
     auto* recentTitle = new QLabel(tr("RECENT"), m_recentSection);
     recentLayout->addWidget(recentTitle);
     m_recentRows = new QVBoxLayout;
-    m_recentRows->setSpacing(0);
+    m_recentRows->setSpacing(3);
     recentLayout->addLayout(m_recentRows);
     m_recentSection->hide();
     suggestions->addWidget(m_recentSection);
 
     auto* presetTitle = new QLabel(tr("SUGGESTIONS"), m_suggestionSection);
+    presetTitle->setContentsMargins(0, 0, 0, 5);
     suggestions->addWidget(presetTitle);
     const struct {
         const char* id;
@@ -165,19 +207,19 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
 
     connect(m_duration, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this] {
-        m_expiration->setVisible(statusDuration() == QLatin1String("date_and_time"));
+        const bool showExpiration = statusDuration() == QLatin1String("date_and_time");
+        m_expiration->setVisible(showExpiration);
+        m_expirationLabel->setVisible(showExpiration);
         updateSuggestionVisibility();
     });
     connect(m_text, &QLineEdit::textChanged, this,
-            [this] { updateSuggestionVisibility(); });
-    connect(m_emoji, &QLineEdit::textChanged, this,
             [this] { updateSuggestionVisibility(); });
     updateSuggestionVisibility();
 }
 
 QString CustomStatusEditorDialog::statusEmoji() const
 {
-    return m_emoji->text().trimmed();
+    return m_selectedEmoji;
 }
 
 QString CustomStatusEditorDialog::statusText() const
@@ -198,7 +240,7 @@ QString CustomStatusEditorDialog::statusExpiresAt() const
 
 void CustomStatusEditorDialog::applySuggestion(const BackendUserCustomStatus& status)
 {
-    m_emoji->setText(status.emoji);
+    setSelectedEmoji(status.emoji);
     m_text->setText(status.text);
     const int index = m_duration->findData(status.duration);
     m_duration->setCurrentIndex(index < 0 ? 0 : index);
@@ -215,11 +257,11 @@ QPushButton* CustomStatusEditorDialog::createSuggestionButton(
     auto* button = new QPushButton(parent);
     button->setObjectName(objectName);
     button->setFlat(true);
-    button->setMinimumHeight(36);
+    button->setMinimumHeight(42);
     button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* layout = new QHBoxLayout(button);
-    layout->setContentsMargins(8, 3, 8, 3);
-    layout->setSpacing(10);
+    layout->setContentsMargins(8, 4, 8, 4);
+    layout->setSpacing(12);
 
     auto* emoji = new QLabel(button);
     emoji->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -233,6 +275,9 @@ QPushButton* CustomStatusEditorDialog::createSuggestionButton(
 
     auto* label = new QLabel(status.text, button);
     label->setTextFormat(Qt::PlainText);
+    label->setToolTip(status.text);
+    label->setMinimumWidth(0);
+    label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     label->setAttribute(Qt::WA_TransparentForMouseEvents);
     layout->addWidget(label, 1);
     const QString hint = durationLabel(status.duration);
@@ -328,6 +373,48 @@ void CustomStatusEditorDialog::updateSuggestionVisibility()
         }
         m_presets.at(i)->setVisible(!duplicate);
     }
+}
+
+
+void CustomStatusEditorDialog::setSelectedEmoji(const QString& name)
+{
+    const QString normalized = name.trimmed();
+    if (m_selectedEmoji == normalized)
+        return;
+    m_selectedEmoji = normalized;
+    updateEmojiAction();
+    updateSuggestionVisibility();
+}
+
+void CustomStatusEditorDialog::updateEmojiAction()
+{
+    if (!m_emojiAction)
+        return;
+    m_emojiAction->setIcon(statusEmojiActionIcon(
+        m_registry, m_selectedEmoji, m_text->palette(), m_text->font()));
+    m_emojiAction->setToolTip(m_selectedEmoji.isEmpty()
+        ? tr("Choose an emoji")
+        : tr("Change emoji: %1 (Backspace at the start removes it)").arg(m_selectedEmoji));
+}
+
+bool CustomStatusEditorDialog::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_text && event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        if (key->key() == Qt::Key_Backspace && m_text->cursorPosition() == 0
+            && !m_text->hasSelectedText() && !m_selectedEmoji.isEmpty()) {
+            setSelectedEmoji(QString());
+            return true;
+        }
+    }
+    return QDialog::eventFilter(watched, event);
+}
+
+void CustomStatusEditorDialog::changeEvent(QEvent* event)
+{
+    QDialog::changeEvent(event);
+    if (event->type() == QEvent::PaletteChange || event->type() == QEvent::FontChange)
+        updateEmojiAction();
 }
 
 } // namespace Mattermost
