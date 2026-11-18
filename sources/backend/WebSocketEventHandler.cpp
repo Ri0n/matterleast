@@ -66,7 +66,9 @@ WebSocketEventHandler::~WebSocketEventHandler () = default;
 void WebSocketEventHandler::forwardCallsCustomEvent(
     const QString& eventName, const QJsonObject& data, const QJsonObject& broadcast)
 {
-    emit backend.onCallsPluginEvent(eventName, data, broadcast);
+    if (eventName.startsWith(QStringLiteral("custom_com.mattermost.calls_"))) {
+        emit backend.onCallsPluginEvent(eventName, data, broadcast);
+    }
 }
 
 void WebSocketEventHandler::handleEvent (const ChannelViewedEvent& event)
