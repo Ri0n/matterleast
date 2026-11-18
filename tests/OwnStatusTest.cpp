@@ -469,8 +469,7 @@ private slots:
                 body.value(QStringLiteral("expires_at")).toString(),
                 Qt::ISODateWithMs);
         };
-        // Test the first request's duration, too: both mixed and emoji-only
-        // custom statuses use the same wire format.
+        // Both mixed and emoji-only custom statuses use the same wire format.
         QCOMPARE(QJsonDocument::fromJson(lastBody).object()
                      .value(QStringLiteral("duration")).toString(),
                  QStringLiteral("one_hour"));
