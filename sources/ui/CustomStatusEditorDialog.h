@@ -52,6 +52,7 @@ private:
     void setSelectedEmoji(const QString& name);
     void updateEmojiAction();
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
     EmojiRegistry& m_registry;
     BackendUserCustomStatus m_initial;
