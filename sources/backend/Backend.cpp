@@ -75,6 +75,11 @@ enum type {
 };
 }
 
+bool Backend::sendCallsPluginAction(const QString& action, const QJsonObject& data)
+{
+    return loggedIn() && webSocketConnector.sendCallsPluginAction(action, data);
+}
+
 void Backend::requestCallsPlugin(const QString& method,
                                  const QString& relativePath,
                                  const QJsonObject& body,
