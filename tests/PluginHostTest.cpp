@@ -1,6 +1,8 @@
 #include <QtTest/QtTest>
 
 #include "plugins/PluginHost.h"
+#include "plugins/api/CallsHostInterface.h"
+#include "plugins/api/CallsProviderInterface.h"
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/ConversationMenuInterface.h"
 #include "plugins/api/PluginSettingsInterface.h"
@@ -41,6 +43,25 @@ public:
     QString tabThread;
 };
 
+class FakeCallsHost final : public MatterLeast::PluginApi::CallsHostInterface
+{
+public:
+    bool authenticated() const override { return true; }
+    QString localUserId() const override { return QStringLiteral("test-local-user"); }
+
+    void request(const QString&, const QString&, const QJsonObject&,
+                 QObject*, Reply callback) override
+    {
+        ++requests;
+        callback(200, QJsonObject{{QStringLiteral("ok"), true}});
+    }
+
+    void providerChanged() override { ++changes; }
+
+    int changes = 0;
+    int requests = 0;
+};
+
 } // namespace
 
 class PluginHostTest final : public QObject
@@ -48,6 +69,72 @@ class PluginHostTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void supportsCallsProviderLifecycleAndMediaIndependentAbi()
+    {
+        const QString path = qEnvironmentVariable("MATTERLEAST_TEST_CALLS_PLUGIN_PATH");
+        QVERIFY2(!path.isEmpty(), "MATTERLEAST_TEST_CALLS_PLUGIN_PATH is not set");
+
+        FakeConversationHost conversation;
+        FakeCallsHost calls;
+
+        // An optional capability must not load without its required host.
+        {
+            Mattermost::PluginHost missingHost(path, conversation);
+            QVERIFY(missingHost.hasValidMetadata());
+            QVERIFY(!missingHost.loadAndEnable());
+            QVERIFY(!missingHost.isEnabled());
+        }
+
+        Mattermost::PluginHost plugin(path, conversation, &calls);
+        QVERIFY(plugin.hasValidMetadata());
+        QVERIFY(plugin.loadAndEnable());
+        QVERIFY(plugin.isEnabled());
+
+        auto* provider = qobject_cast<MatterLeast::PluginApi::CallsProviderInterface*>(
+            plugin.instance());
+        QVERIFY(provider);
+        QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Idle);
+        QVERIFY(provider->joinCall(QStringLiteral("channel-123")));
+        QVERIFY(!provider->startCall(QStringLiteral("other-channel")));
+        QCOMPARE(provider->snapshot().state,
+                 MatterLeast::PluginApi::CallsState::Connected);
+        QCOMPARE(provider->snapshot().channelId, QStringLiteral("channel-123"));
+        QVERIFY(provider->setMicrophoneMuted(true));
+        QVERIFY(provider->snapshot().microphoneMuted);
+        QVERIFY(calls.changes >= 2);
+
+        provider->onServerEvent(
+            QStringLiteral("custom_calls_test"),
+            QJsonObject{{QStringLiteral("user_id"), QStringLiteral("remote-user")}},
+            QJsonObject());
+        QCOMPARE(provider->snapshot().participants.size(), 1);
+        QCOMPARE(provider->snapshot().participants.first().userId,
+                 QStringLiteral("remote-user"));
+
+        // Critical: QPluginLoader may not unload code while a call is active.
+        QVERIFY(!plugin.disableAndUnload());
+        QVERIFY(plugin.isEnabled());
+        QVERIFY(plugin.instance() != nullptr);
+
+        QVERIFY(provider->leaveCall());
+        QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Idle);
+        QVERIFY(plugin.disableAndUnload());
+        QVERIFY(!plugin.isEnabled());
+        QVERIFY(plugin.instance() == nullptr);
+        QVERIFY(plugin.loadAndEnable());
+        provider = qobject_cast<MatterLeast::PluginApi::CallsProviderInterface*>(
+            plugin.instance());
+        QVERIFY(provider);
+        QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Idle);
+        QVERIFY(provider->startCall(QStringLiteral("another-channel")));
+        provider->onConnectionChanged(false);
+        QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Failed);
+        QVERIFY(!provider->snapshot().errorMessage.isEmpty());
+        QVERIFY(provider->leaveCall());
+        QVERIFY(plugin.disableAndUnload());
+        QVERIFY(!plugin.isEnabled());
+    }
+
     void supportsEnableDisableAndReenableLifecycle()
     {
         const QString pluginPath = qEnvironmentVariable("MATTERLEAST_TEST_PLUGIN_PATH");
