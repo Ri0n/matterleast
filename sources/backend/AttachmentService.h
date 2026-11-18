@@ -36,7 +36,10 @@ public:
     // Only user-owned destinations are recorded; missing/modified files are
     // rejected at lookup, and entries are scoped to this backend session.
     void rememberLocalFile(const QString& fileId, const QString& path);
-    QString localFilePath(const QString& fileId, qint64 expectedSize = -1);
+    // preferredPath is used when a media decoder reopens an earlier saved
+    // location after another copy of the same attachment was saved.
+    QString localFilePath(const QString& fileId, qint64 expectedSize = -1,
+                          const QString& preferredPath = {});
     void retrievePreview(const QString& fileId, Callback callback);
     void retrieveThumbnail(const QString& fileId, Callback callback);
 
