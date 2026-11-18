@@ -1,9 +1,18 @@
 #include <QtTest>
 
 #include <QHash>
+#include <QAction>
+#include <QScrollArea>
+#include <QFormLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
+#include <QJsonArray>
+#include <QComboBox>
+#include <QPushButton>
+#include <QToolButton>
+#include <QStyle>
 #include <QLocale>
 #include <QWidget>
 #include <QPointer>
@@ -17,6 +26,7 @@
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "ui/EmojiPresentation.h"
+#include "ui/CustomStatusEditorDialog.h"
 #include "ui/UserStatusEmoji.h"
 #include "backend/types/BackendUser.h"
 #include "info-dialogs/UserProfileDialog.h"
@@ -199,6 +209,285 @@ private slots:
                      standard, EmojiPresentation::Mode::Reaction), 16);
         QCOMPARE(EmojiPresentation::extent(
                      standard, EmojiPresentation::Mode::StatusJumbo), 48);
+    }
+
+    void presetStatusPopulatesEditor_data()
+    {
+        QTest::addColumn<QString>("button");
+        QTest::addColumn<QString>("emoji");
+        QTest::addColumn<QString>("text");
+        QTest::addColumn<QString>("duration");
+        QTest::newRow("meeting") << QStringLiteral("customStatusPresetMeeting")
+            << QStringLiteral("calendar") << QStringLiteral("In a meeting")
+            << QStringLiteral("one_hour");
+        QTest::newRow("lunch") << QStringLiteral("customStatusPresetLunch")
+            << QStringLiteral("hamburger") << QStringLiteral("Out for lunch")
+            << QStringLiteral("thirty_minutes");
+        QTest::newRow("sick") << QStringLiteral("customStatusPresetSick")
+            << QStringLiteral("sneezing_face") << QStringLiteral("Out sick")
+            << QStringLiteral("today");
+        QTest::newRow("home") << QStringLiteral("customStatusPresetHome")
+            << QStringLiteral("house") << QStringLiteral("Working from home")
+            << QStringLiteral("today");
+        QTest::newRow("vacation") << QStringLiteral("customStatusPresetVacation")
+            << QStringLiteral("palm_tree") << QStringLiteral("On a vacation")
+            << QStringLiteral("this_week");
+    }
+
+    void presetStatusPopulatesEditor()
+    {
+        QFETCH(QString, button);
+        QFETCH(QString, emoji);
+        QFETCH(QString, text);
+        QFETCH(QString, duration);
+        EmojiRegistry registry;
+        CustomStatusEditorDialog editor(registry, {});
+        editor.show();
+        QCoreApplication::processEvents();
+
+        auto* choice = editor.findChild<QPushButton*>(button);
+        QVERIFY(choice);
+        QVERIFY(choice->isVisible());
+        QTest::mouseClick(choice, Qt::LeftButton);
+        QCOMPARE(editor.statusEmoji(), emoji);
+        QCOMPARE(editor.statusText(), text);
+        QCOMPARE(editor.statusDuration(), duration);
+        QVERIFY(editor.statusExpiresAt().isEmpty());
+        QVERIFY(editor.findChild<QWidget*>(
+            QStringLiteral("customStatusSuggestionsScroll"))->isVisible());
+        // A suggestion only fills the editor: it does not submit or close it.
+        QVERIFY(editor.isVisible());
+    }
+
+    void recentStatusesAreSelectableAndRemovable()
+    {
+        EmojiRegistry registry;
+        CustomStatusEditorDialog editor(registry, {});
+        BackendUserCustomStatus recent;
+        recent.emoji = QStringLiteral("calendar");
+        recent.text = QStringLiteral("In a meeting");
+        recent.duration = QStringLiteral("one_hour");
+        int removed = 0;
+        editor.setRemoveRecentCallback(
+            [&](const BackendUserCustomStatus& status, std::function<void(bool)> done) {
+                QCOMPARE(status.text, recent.text);
+                ++removed;
+                // HTTP remove is asynchronous; model that here to avoid
+                // deleting the clicked button within its signal delivery.
+                QTimer::singleShot(0, &editor, [done] { done(true); });
+            });
+        editor.setRecentStatuses({recent});
+        editor.show();
+        QCoreApplication::processEvents();
+
+        auto* recentChoice = editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusRecent0"));
+        auto* preset = editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusPresetMeeting"));
+        QVERIFY(recentChoice && recentChoice->isVisible());
+        QVERIFY(preset && !preset->isVisible()); // No duplicate suggestions.
+        QTest::mouseClick(recentChoice, Qt::LeftButton);
+        QCOMPARE(editor.statusEmoji(), recent.emoji);
+        QCOMPARE(editor.statusText(), recent.text);
+        QCOMPARE(editor.statusDuration(), recent.duration);
+
+        auto* text = editor.findChild<QLineEdit*>(QStringLiteral("customStatusText"));
+        QVERIFY(text);
+        text->clear();
+        text->setFocus();
+        text->setCursorPosition(0);
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(editor.statusEmoji(), QString());
+        auto* remove = editor.findChild<QToolButton*>(
+            QStringLiteral("customStatusRemoveRecent0"));
+        QVERIFY(remove && remove->isVisible());
+        QTest::mouseClick(remove, Qt::LeftButton);
+        QCOMPARE(removed, 1);
+        QTRY_VERIFY(!editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusRecent0")));
+        QVERIFY(preset->isVisible()); // Removed recent returns to suggestions.
+    }
+
+    void inlineEmojiActionAndCompactScrollLayout()
+    {
+        EmojiRegistry registry;
+        BackendUserCustomStatus initial;
+        initial.emoji = QStringLiteral("calendar");
+        initial.text = QStringLiteral("Working");
+        CustomStatusEditorDialog editor(registry, initial);
+        editor.show();
+        QCoreApplication::processEvents();
+
+        auto* text = editor.findChild<QLineEdit*>(
+            QStringLiteral("customStatusText"));
+        auto* emojiAction = editor.findChild<QAction*>(
+            QStringLiteral("customStatusEmojiAction"));
+        auto* scroll = editor.findChild<QScrollArea*>(
+            QStringLiteral("customStatusSuggestionsScroll"));
+        auto* expirationLabel = editor.findChild<QLabel*>(
+            QStringLiteral("customStatusExpiresAtLabel"));
+        auto* duration = editor.findChild<QComboBox*>(
+            QStringLiteral("customStatusDuration"));
+        QVERIFY(text && emojiAction && scroll && expirationLabel && duration);
+        auto* emojiButton = text->findChild<QToolButton*>(
+            QStringLiteral("customStatusEmojiButton"));
+        QVERIFY(emojiButton);
+        QCOMPARE(emojiButton->cursor().shape(), Qt::PointingHandCursor);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QCOMPARE(text->style()->pixelMetric(QStyle::PM_LineEditIconSize, nullptr, text), 30);
+#else
+        QCOMPARE(text->style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, text), 30);
+#endif
+        QVERIFY(emojiButton->width() >= 30);
+        QVERIFY(emojiButton->height() >= 30);
+        QVERIFY(scroll->isVisible());
+        QVERIFY(!editor.findChild<QLineEdit*>(QStringLiteral("customStatusEmoji")));
+        QVERIFY(!emojiAction->icon().isNull());
+        QCOMPARE(scroll->property("mattermostOverlayEdgeButtonsEnabled").toBool(),
+                 false);
+        const QMargins padding = scroll->widget()->layout()->contentsMargins();
+        QVERIFY(padding.left() > 0 && padding.right() > 0);
+        QVERIFY(!expirationLabel->isVisible());
+
+        const int explicitDate = duration->findData(QStringLiteral("date_and_time"));
+        QVERIFY(explicitDate >= 0);
+        duration->setCurrentIndex(explicitDate);
+        QVERIFY(expirationLabel->isVisible());
+        duration->setCurrentIndex(0);
+        QVERIFY(!expirationLabel->isVisible());
+
+        text->setFocus();
+        text->setCursorPosition(text->text().size());
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(text->text(), QStringLiteral("Workin"));
+        QCOMPARE(editor.statusEmoji(), QStringLiteral("calendar"));
+
+        text->setCursorPosition(0);
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(editor.statusEmoji(), QString()); // Backspace at the start removes emoji.
+        QCOMPARE(text->text(), QStringLiteral("Workin")); // Does not eat text.
+        const QImage emptyIcon = emojiAction->icon().pixmap(24, 24).toImage();
+        QVERIFY(!emptyIcon.isNull());
+        QTest::keyClick(text, Qt::Key_Backspace);
+        QCOMPARE(text->text(), QStringLiteral("Workin"));
+
+        text->clear();
+        auto* preset = editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusPresetVacation"));
+        QVERIFY(preset && preset->isVisible());
+        QTest::mouseClick(preset, Qt::LeftButton);
+        QCOMPARE(editor.statusEmoji(), QStringLiteral("palm_tree"));
+        QCOMPARE(editor.statusText(), QStringLiteral("On a vacation"));
+        QVERIFY(emojiAction->icon().pixmap(24, 24).toImage() != emptyIcon);
+        QVERIFY(editor.isVisible()); // Action and suggestion do not submit.
+        // Presets and recent statuses remain accessible while emoji or text
+        // changes. In particular, picking an emoji must not hide the list.
+        QVERIFY(scroll->isVisible());
+        auto* message = editor.findChild<QLineEdit*>(
+            QStringLiteral("customStatusText"));
+        QVERIFY(message);
+        message->setText(QStringLiteral("Edited status"));
+        QVERIFY(scroll->isVisible());
+        duration->setCurrentIndex(duration->findData(QStringLiteral("one_hour")));
+        QVERIFY(scroll->isVisible());
+    }
+
+    void recentStatusesUseMattermostPreferences()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        const QString expiresAt = QStringLiteral("2027-01-01T12:00:00Z");
+        const QJsonObject saved {
+            {QStringLiteral("emoji"), QStringLiteral("palm_tree")},
+            {QStringLiteral("text"), QStringLiteral("On a vacation")},
+            {QStringLiteral("duration"), QStringLiteral("this_week")},
+            {QStringLiteral("expires_at"), expiresAt}
+        };
+        const QJsonObject preference {
+            {QStringLiteral("category"), QStringLiteral("custom_status")},
+            {QStringLiteral("name"), QStringLiteral("recent_custom_statuses")},
+            {QStringLiteral("value"), QString::fromUtf8(
+                QJsonDocument(QJsonArray {saved}).toJson(QJsonDocument::Compact))}
+        };
+        const QByteArray recentResponse =
+            QJsonDocument(QJsonArray {preference}).toJson(QJsonDocument::Compact);
+        QByteArray lastMethod, lastPath, lastBody;
+        int requests = 0;
+
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (QTcpSocket* socket = server.nextPendingConnection()) {
+                auto buffer = QSharedPointer<QByteArray>::create();
+                connect(socket, &QTcpSocket::readyRead, socket,
+                        [&, socket, buffer] {
+                    buffer->append(socket->readAll());
+                    const int headerEnd = buffer->indexOf("\r\n\r\n");
+                    if (headerEnd < 0)
+                        return;
+                    const QByteArray headers = buffer->left(headerEnd);
+                    int bodyLength = 0;
+                    for (const QByteArray& line : headers.split('\n')) {
+                        if (line.trimmed().toLower().startsWith("content-length:"))
+                            bodyLength = line.mid(line.indexOf(':') + 1)
+                                             .trimmed().toInt();
+                    }
+                    if (buffer->size() < headerEnd + 4 + bodyLength)
+                        return;
+                    const QByteArrayList requestLine =
+                        headers.left(headers.indexOf("\r\n")).split(' ');
+                    lastMethod = requestLine.at(0);
+                    lastPath = requestLine.at(1);
+                    lastBody = buffer->mid(headerEnd + 4, bodyLength);
+                    ++requests;
+
+                    const QByteArray response = lastMethod == "GET"
+                        ? recentResponse : QByteArrayLiteral("{}");
+                    socket->write(QByteArrayLiteral(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Content-Length: ") + QByteArray::number(response.size())
+                        + QByteArrayLiteral("\r\nConnection: close\r\n\r\n")
+                        + response);
+                    socket->flush();
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+
+        Backend backend;
+        QVERIFY(backend.getStorage().addUser(
+            QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")}},
+            true));
+
+        bool fetched = false;
+        QVector<BackendUserCustomStatus> recent;
+        backend.retrieveRecentCustomStatuses(
+            [&](QVector<BackendUserCustomStatus> statuses) {
+                recent = std::move(statuses);
+                fetched = true;
+            });
+        QTRY_VERIFY(fetched);
+        QCOMPARE(requests, 1);
+        QCOMPARE(lastMethod, QByteArrayLiteral("GET"));
+        QCOMPARE(lastPath, QByteArrayLiteral(
+            "/api/v4/users/user-1/preferences/custom_status"));
+        QCOMPARE(recent.size(), 1);
+        QCOMPARE(recent.first().emoji, QStringLiteral("palm_tree"));
+        QCOMPARE(recent.first().text, QStringLiteral("On a vacation"));
+        QCOMPARE(recent.first().duration, QStringLiteral("this_week"));
+        QCOMPARE(recent.first().expiresAt, expiresAt);
+
+        bool removed = false, succeeded = false;
+        backend.removeRecentCustomStatus(recent.first(),
+            [&](bool ok, const QString&) { succeeded = ok; removed = true; });
+        QTRY_VERIFY(removed);
+        QVERIFY(succeeded);
+        QCOMPARE(requests, 2);
+        QCOMPARE(lastMethod, QByteArrayLiteral("POST"));
+        QCOMPARE(lastPath, QByteArrayLiteral(
+            "/api/v4/users/user-1/status/custom/recent/delete"));
+        QCOMPARE(QJsonDocument::fromJson(lastBody).object(), saved);
     }
 
     void reconnectWithMultiplePendingReplies()

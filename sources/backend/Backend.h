@@ -96,6 +96,11 @@ public:
                             const QString& duration, const QString& expiresAt,
                             StatusUpdateResult callback);
     void clearOwnCustomStatus(StatusUpdateResult callback);
+    using RecentCustomStatusesCallback =
+        std::function<void(QVector<BackendUserCustomStatus>)>;
+    void retrieveRecentCustomStatuses(RecentCustomStatusesCallback callback);
+    void removeRecentCustomStatus(const BackendUserCustomStatus& status,
+                                  StatusUpdateResult callback);
     // Automatic presence heartbeats use the official WS user_update_active_status.
     // Never change manually selected Away/DND/Offline via the REST status API.
     void reportUserActivity(bool active);

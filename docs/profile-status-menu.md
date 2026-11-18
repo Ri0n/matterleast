@@ -28,6 +28,51 @@ the custom status message appears under the account name.
 These actions are independent of team selection, which is rendered only
 inside the Channels tab.
 
+
+## Suggested and recent statuses
+
+The editor shows five Mattermost-compatible presets, matching the official
+client: In a meeting (calendar / one hour), Out for lunch (hamburger / 30
+minutes), Out sick (sneezing face / today), Working from home (house / today),
+and On a vacation (palm tree / this week). Clicking one fills the existing
+emoji, text, and expiration controls without submitting the status. Any field
+can be changed before pressing OK. The choices remain available below
+the input even if the user changes only the emoji or starts typing.
+
+The status message input embeds a **leading emoji QAction** instead of a
+second text field. The action draws the selected emoji next to a subtle
+vertical divider and opens the ordinary emoji picker. It uses a 30px
+line-edit icon metric and a pointing-hand cursor on its clickable button;
+a local proxy style changes only the status input, not the application style.
+Backspace when the cursor is at the beginning of the message (and no
+selection exists) removes the emoji without deleting message characters.
+An empty emoji uses a neutral choose-emoji icon; selecting a preset or picker
+emoji updates the action. The icon also refreshes when a lazily resolved
+custom emoji arrives.
+
+The reusable picker uses the requesting dialog as its native transient
+parent (without changing QWidget ownership), then raises and activates its
+window after cold initialization. Repeated triggers while opening are ignored
+so a slow first show cannot replace the pending callback.
+
+The editor uses layout-managed outer and scroll-content padding,
+intermediate-height suggestion rows (38px), and spacing between the Recent
+and Suggestions groups. Both groups stay available while selecting an emoji
+or editing the status; only exact duplicates of recent statuses are suppressed
+among the built-in presets. The compact suggestions scroll area disables the
+global edge-jump buttons but keeps its normal scroll bar. The date/time label
+and control are hidden together unless an explicit date was chosen.
+
+Recent statuses are **not** a separate local history. The server automatically
+adds successful custom status changes to the
+`custom_status/recent_custom_statuses` user preference. On opening the
+dialog MatterLeast fetches that preference from
+`GET /users/{id}/preferences/custom_status`, shows its items ahead of
+suggestions, and suppresses any matching preset. Removing a recent item uses
+`POST /users/{id}/status/custom/recent/delete`, so the same history is shared
+with official Mattermost clients on other devices. The async reply is ignored
+if the dialog was already closed; failed removal does not change the list.
+
 ## Empty editor semantics
 
 **OK always commits the user's intent.** Emoji-only sends `PUT` with a

@@ -18,6 +18,7 @@
 #include "ui_mainwindow.h"
 #include "backend/Backend.h"
 #include "backend/CustomStatusValidation.h"
+#include "ui/CustomStatusEditorDialog.h"
 #include "backend/types/BackendUser.h"
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 #include "info-dialogs/UserProfileDialog.h"
@@ -89,86 +90,39 @@ void MainWindow::on_usericon_label_clicked()
 
     QAction* setCustom = menu.addAction(tr("Set a custom status…"));
     connect(setCustom, &QAction::triggered, this, [this] {
-        QDialog editor(this);
-        editor.setObjectName(QStringLiteral("customStatusEditor"));
-        editor.setWindowTitle(tr("Set a custom status"));
-        auto* form = new QFormLayout(&editor);
-
-        auto* textEdit = new QLineEdit(&editor);
-        textEdit->setObjectName(QStringLiteral("customStatusText"));
-        textEdit->setMaxLength(100);
-        textEdit->setPlaceholderText(tr("What's your status?"));
-        textEdit->setText(backend.getLoginUser().props.customStatus.text);
-        form->addRow(tr("Status message:"), textEdit);
-
-        auto* emojiRow = new QWidget(&editor);
-        auto* emojiLayout = new QHBoxLayout(emojiRow);
-        emojiLayout->setContentsMargins(0, 0, 0, 0);
-        auto* emojiName = new QLineEdit(emojiRow);
-        emojiName->setObjectName(QStringLiteral("customStatusEmoji"));
-        emojiName->setPlaceholderText(QStringLiteral("speech_balloon"));
-        emojiName->setText(backend.getLoginUser().props.customStatus.emoji);
-        emojiLayout->addWidget(emojiName, 1);
-        auto* choose = new QPushButton(tr("Choose…"), emojiRow);
-        emojiLayout->addWidget(choose);
-        connect(choose, &QPushButton::clicked, &editor, [emojiName] {
-            QPointer<QLineEdit> target(emojiName);
-            showEmojiDialog([target](const Emoji& emoji) {
-                if (target) target->setText(emoji.name);
+        CustomStatusEditorDialog editor(backend.emojiRegistry(),
+                                        backend.getLoginUser().props.customStatus, this);
+        QPointer<CustomStatusEditorDialog> editorGuard(&editor);
+        QPointer<MainWindow> mainWindowGuard(this);
+        editor.setRemoveRecentCallback(
+            [this, mainWindowGuard](const BackendUserCustomStatus& status,
+                                    std::function<void(bool)> done) {
+                backend.removeRecentCustomStatus(status,
+                    [mainWindowGuard, done](bool ok, const QString& error) {
+                        if (mainWindowGuard)
+                            mainWindowGuard->reportStatusResult(ok, error);
+                        done(ok);
+                    });
             });
-        });
-        form->addRow(tr("Emoji:"), emojiRow);
+        backend.retrieveRecentCustomStatuses(
+            [editorGuard](QVector<BackendUserCustomStatus> statuses) {
+                if (editorGuard)
+                    editorGuard->setRecentStatuses(statuses);
+            });
 
-        auto* duration = new QComboBox(&editor);
-        duration->setObjectName(QStringLiteral("customStatusDuration"));
-        duration->addItem(tr("Don't clear automatically"), QString());
-        duration->addItem(tr("After 30 minutes"), QStringLiteral("thirty_minutes"));
-        duration->addItem(tr("After 1 hour"), QStringLiteral("one_hour"));
-        duration->addItem(tr("After 4 hours"), QStringLiteral("four_hours"));
-        duration->addItem(tr("Today"), QStringLiteral("today"));
-        duration->addItem(tr("This week"), QStringLiteral("this_week"));
-        duration->addItem(tr("Choose date and time"), QStringLiteral("date_and_time"));
-        const QString previousDuration = backend.getLoginUser().props.customStatus.duration;
-        const int index = duration->findData(previousDuration);
-        duration->setCurrentIndex(index < 0 ? 0 : index);
-        form->addRow(tr("Clear status:"), duration);
-
-        auto* expiration = new QDateTimeEdit(QDateTime::currentDateTime().addDays(1), &editor);
-        expiration->setObjectName(QStringLiteral("customStatusExpiresAt"));
-        expiration->setCalendarPopup(true);
-        expiration->setMinimumDateTime(QDateTime::currentDateTime());
-        expiration->setVisible(duration->currentData().toString() ==
-                               QLatin1String("date_and_time"));
-        form->addRow(tr("Clear on:"), expiration);
-        connect(duration, qOverload<int>(&QComboBox::currentIndexChanged),
-                &editor, [duration, expiration] {
-            expiration->setVisible(duration->currentData().toString()
-                == QLatin1String("date_and_time"));
-        });
-
-        auto* buttons = new QDialogButtonBox(
-            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &editor);
-        // OK with an emoji only saves that emoji. OK with both fields empty
-        // explicitly clears the previous custom status; neither may leave
-        // the dialog unresponsive.
-        connect(buttons, &QDialogButtonBox::accepted, &editor, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, &editor, &QDialog::reject);
-        form->addRow(buttons);
-
-        if (editor.exec() != QDialog::Accepted) return;
-        const QString durationValue = duration->currentData().toString();
-        const QString expiresAt = durationValue == QLatin1String("date_and_time")
-            ? expiration->dateTime().toUTC().toString(Qt::ISODate) : QString();
-        QPointer<MainWindow> guard(this);
-        const QString emoji = emojiName->text().trimmed();
-        const QString message = textEdit->text().trimmed();
-        auto finished = [guard](bool ok, const QString& error) {
-            if (guard) guard->reportStatusResult(ok, error);
+        if (editor.exec() != QDialog::Accepted)
+            return;
+        const QString emoji = editor.statusEmoji();
+        const QString message = editor.statusText();
+        auto finished = [mainWindowGuard](bool ok, const QString& error) {
+            if (mainWindowGuard)
+                mainWindowGuard->reportStatusResult(ok, error);
         };
         if (!hasCustomStatusContent(emoji, message)) {
             backend.clearOwnCustomStatus(finished);
         } else {
-            backend.setOwnCustomStatus(emoji, message, durationValue, expiresAt, finished);
+            backend.setOwnCustomStatus(emoji, message, editor.statusDuration(),
+                                       editor.statusExpiresAt(), finished);
         }
     });
 
