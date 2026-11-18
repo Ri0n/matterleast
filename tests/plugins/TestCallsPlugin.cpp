@@ -74,7 +74,7 @@ public:
     void onServerEvent(const QString& name, const QJsonObject& data,
                        const QJsonObject&) override
     {
-        if (!enabled_ || name != QLatin1String("custom_calls_test")) {
+        if (!enabled_ || name != QLatin1String("custom_com.mattermost.calls_test")) {
             return;
         }
         MatterLeast::PluginApi::CallsParticipant participant;
