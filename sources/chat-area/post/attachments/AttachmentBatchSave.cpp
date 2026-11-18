@@ -100,16 +100,17 @@ void AttachmentBatchSave::startNext()
 
     _reply = AttachmentService::instance(_backend).downloadToFile(
         file.id, target,
-        {}, [this, file](const QString& error) {
+        {}, [this, file, target](const QString& error) {
             _reply = nullptr;
             // Some failures (invalid ID, inability to open the target) are
             // synchronous. Defer advancing so failed files cannot recurse.
-            QTimer::singleShot(0, this, [this, file, error] {
+            QTimer::singleShot(0, this, [this, file, target, error] {
                 if (_finished) {
                     return;
                 }
                 ++_completed;
                 if (error.isEmpty() && !_cancelled) {
+                    AttachmentService::instance(_backend).rememberLocalFile(file.id, target);
                     ++_saved;
                 } else if (!_cancelled) {
                     _errors.append(tr("%1: %2").arg(file.name, error));
