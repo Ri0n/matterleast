@@ -126,7 +126,7 @@ private slots:
         QVERIFY(calls.changes >= 2);
 
         provider->onServerEvent(
-            QStringLiteral("custom_calls_test"),
+            QStringLiteral("custom_com.mattermost.calls_test"),
             QJsonObject{{QStringLiteral("user_id"), QStringLiteral("remote-user")}},
             QJsonObject());
         QCOMPARE(provider->snapshot().participants.size(), 1);
