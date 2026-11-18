@@ -52,12 +52,16 @@ void AttachmentService::rememberLocalFile(const QString& fileId, const QString& 
     if (entries.size() > 8) entries.resize(8);
 }
 
-QString AttachmentService::localFilePath(const QString& fileId, qint64 expectedSize)
+QString AttachmentService::localFilePath(const QString& fileId, qint64 expectedSize,
+                                         const QString& preferredPath)
 {
     auto found = localFiles.find(fileId);
     if (found == localFiles.end()) return {};
 
+    const QString preferred = preferredPath.isEmpty()
+        ? QString() : QFileInfo(preferredPath).absoluteFilePath();
     auto& entries = found.value();
+    QString fallback;
     for (auto it = entries.begin(); it != entries.end();) {
         const QFileInfo file(it->path);
         if (!file.isFile() || !file.isReadable() || file.size() != it->size
@@ -65,11 +69,14 @@ QString AttachmentService::localFilePath(const QString& fileId, qint64 expectedS
             it = entries.erase(it);
             continue;
         }
-        if (expectedSize < 0 || file.size() == expectedSize) return it->path;
+        if (expectedSize < 0 || file.size() == expectedSize) {
+            if (preferred.isEmpty() || it->path == preferred) return it->path;
+            if (fallback.isEmpty()) fallback = it->path;
+        }
         ++it;
     }
     if (entries.isEmpty()) localFiles.erase(found);
-    return {};
+    return fallback;
 }
 
 void AttachmentService::retrieveFile(const QString& fileId, Callback callback)
