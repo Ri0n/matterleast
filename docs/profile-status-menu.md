@@ -28,6 +28,27 @@ the custom status message appears under the account name.
 These actions are independent of team selection, which is rendered only
 inside the Channels tab.
 
+
+## Suggested and recent statuses
+
+The editor shows five Mattermost-compatible presets, matching the official
+client: In a meeting (calendar / one hour), Out for lunch (hamburger / 30
+minutes), Out sick (sneezing face / today), Working from home (house / today),
+and On a vacation (palm tree / this week). Clicking one fills the existing
+emoji, text, and expiration controls without submitting the status. Any field
+can be changed before pressing OK. While the user edits a status, the
+suggestion list collapses, as in the web client.
+
+Recent statuses are **not** a separate local history. The server automatically
+adds successful custom status changes to the
+`custom_status/recent_custom_statuses` user preference. On opening the
+dialog MatterLeast fetches that preference from
+`GET /users/{id}/preferences/custom_status`, shows its items ahead of
+suggestions, and suppresses any matching preset. Removing a recent item uses
+`POST /users/{id}/status/custom/recent/delete`, so the same history is shared
+with official Mattermost clients on other devices. The async reply is ignored
+if the dialog was already closed; failed removal does not change the list.
+
 ## Empty editor semantics
 
 **OK always commits the user's intent.** Emoji-only sends `PUT` with a
