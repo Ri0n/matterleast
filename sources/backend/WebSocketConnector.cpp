@@ -681,6 +681,25 @@ bool WebSocketConnector::sendUserTyping(const QString& channelId,
         QString::fromUtf8(request.toJson(QJsonDocument::Compact))) >= 0;
 }
 
+bool WebSocketConnector::sendCallsPluginAction(const QString& action,
+                                               const QJsonObject& data)
+{
+    if (!action.startsWith(QStringLiteral("custom_com.mattermost.calls_"))
+        || d->connectionState != ConnectionState::Connected
+        || d->webSocket.state() != QAbstractSocket::ConnectedState
+        || d->token.isEmpty()) {
+        return false;
+    }
+
+    const QJsonDocument request(QJsonObject {
+        {QStringLiteral("seq"), d->responseSequence++},
+        {QStringLiteral("action"), action},
+        {QStringLiteral("data"), data},
+    });
+    return d->webSocket.sendTextMessage(
+        QString::fromUtf8(request.toJson(QJsonDocument::Compact))) >= 0;
+}
+
 void WebSocketConnector::doHandshake ()
 {
 	QJsonObject jsonData {
