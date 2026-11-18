@@ -176,6 +176,11 @@ public:
         return backend_.loggedIn() ? backend_.getLoginUser().id : QString();
     }
 
+    bool sendAction(const QString& action, const QJsonObject& data) override
+    {
+        return backend_.sendCallsPluginAction(action, data);
+    }
+
     void request(const QString& method, const QString& relativePath,
                  const QJsonObject& body, QObject* context, Reply completion) override
     {
