@@ -21,6 +21,8 @@
 #include "navigation/AppNavigationService.h"
 #include "navigation/ConversationReference.h"
 #include "options/MLOptions.h"
+#include "plugins/api/CallsHostInterface.h"
+#include "plugins/api/CallsProviderInterface.h"
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/ConversationMenuInterface.h"
 #include "plugins/api/MainWindowOverlayInterface.h"
@@ -161,6 +163,38 @@ private:
     Backend& backend_;
 };
 
+class PluginManager::CallsHost final : public MatterLeast::PluginApi::CallsHostInterface
+{
+public:
+    CallsHost(PluginManager& manager, Backend& backend)
+        : manager_(manager), backend_(backend) {}
+
+    bool authenticated() const override { return backend_.loggedIn(); }
+
+    QString localUserId() const override
+    {
+        return backend_.loggedIn() ? backend_.getLoginUser().id : QString();
+    }
+
+    void request(const QString& method, const QString& relativePath,
+                 const QJsonObject& body, QObject* context, Reply completion) override
+    {
+        backend_.requestCallsPlugin(method, relativePath, body, context,
+                                    std::move(completion));
+    }
+
+    void providerChanged() override
+    {
+        if (manager_.callsAvailable()) {
+            emit manager_.callsSnapshotChanged();
+        }
+    }
+
+private:
+    PluginManager& manager_;
+    Backend& backend_;
+};
+
 PluginManager& PluginManager::instance(Backend& backend)
 {
     if (auto* existing = backend.findChild<PluginManager*>(
@@ -177,7 +211,25 @@ PluginManager::PluginManager(Backend& backend)
     : QObject(&backend)
     , backend_(backend)
     , conversationHost_(std::make_unique<ConversationHost>(backend))
+    , callsHost_(std::make_unique<CallsHost>(*this, backend))
 {
+    connect(&backend_, &Backend::onCallsPluginEvent, this,
+            [this](const QString& name, const QJsonObject& data,
+                   const QJsonObject& broadcast) {
+        if (auto* provider = callsProvider()) {
+            provider->onServerEvent(name, data, broadcast);
+        }
+    });
+    connect(&backend_, &Backend::onWebSocketConnect, this, [this] {
+        if (auto* provider = callsProvider()) {
+            provider->onConnectionChanged(true);
+        }
+    });
+    connect(&backend_, &Backend::onWebSocketDisconnect, this, [this] {
+        if (auto* provider = callsProvider()) {
+            provider->onConnectionChanged(false);
+        }
+    });
     if (QCoreApplication* app = QCoreApplication::instance()) {
         connect(app, &QCoreApplication::aboutToQuit,
                 this, [this] { shutdown(); });
@@ -289,7 +341,8 @@ bool PluginManager::loadPluginFile(const QString& filePath)
         return false;
     }
 #endif
-    auto host = std::make_unique<PluginHost>(loadPath, *conversationHost_);
+    auto host = std::make_unique<PluginHost>(
+        loadPath, *conversationHost_, callsHost_.get());
     if (!host->hasValidMetadata()) {
         return false;
     }
@@ -318,8 +371,64 @@ bool PluginManager::loadPluginFile(const QString& filePath)
                 << host->version() << "from" << filePath;
     }
 
+    const bool wasAvailable = callsAvailable();
     plugins_.push_back(std::move(host));
+    if (callsAvailable() != wasAvailable) {
+        emit callsAvailabilityChanged(callsAvailable());
+        emit callsSnapshotChanged();
+    }
     return true;
+}
+
+MatterLeast::PluginApi::CallsProviderInterface* PluginManager::callsProvider() const
+{
+    for (const auto& host : plugins_) {
+        QObject* object = host && host->isEnabled() ? host->instance() : nullptr;
+        auto* provider = object
+            ? qobject_cast<MatterLeast::PluginApi::CallsProviderInterface*>(object)
+            : nullptr;
+        if (provider) {
+            return provider;
+        }
+    }
+    return nullptr;
+}
+
+bool PluginManager::callsAvailable() const
+{
+    return callsProvider() != nullptr;
+}
+
+MatterLeast::PluginApi::CallsSnapshot PluginManager::callsSnapshot() const
+{
+    if (auto* provider = callsProvider()) {
+        return provider->snapshot();
+    }
+    return {};
+}
+
+bool PluginManager::startCall(const QString& channelId)
+{
+    auto* provider = callsProvider();
+    return provider && !channelId.isEmpty() && provider->startCall(channelId);
+}
+
+bool PluginManager::joinCall(const QString& channelId)
+{
+    auto* provider = callsProvider();
+    return provider && !channelId.isEmpty() && provider->joinCall(channelId);
+}
+
+bool PluginManager::leaveCall()
+{
+    auto* provider = callsProvider();
+    return provider && provider->leaveCall();
+}
+
+bool PluginManager::setCallMicrophoneMuted(bool muted)
+{
+    auto* provider = callsProvider();
+    return provider && provider->setMicrophoneMuted(muted);
 }
 
 QList<PluginInfo> PluginManager::pluginInfos() const
@@ -353,6 +462,7 @@ bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
     }
 
     PluginHost& host = **it;
+    const bool wasAvailable = callsAvailable();
     if (host.isEnabled() == enabled) {
         MLOptions::instance()->setValue<bool>(pluginEnabledOption(pluginId), enabled);
         return true;
@@ -379,6 +489,10 @@ bool PluginManager::setPluginEnabled(const QString& pluginId, bool enabled)
     if (enabled) {
         attachWindowOverlay(host);
     }
+    if (callsAvailable() != wasAvailable) {
+        emit callsAvailabilityChanged(callsAvailable());
+    }
+    emit callsSnapshotChanged();
     return true;
 }
 
