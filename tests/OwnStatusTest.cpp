@@ -4,6 +4,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QComboBox>
+#include <QPushButton>
+#include <QToolButton>
 #include <QLocale>
 #include <QWidget>
 #include <QPointer>
@@ -17,6 +20,7 @@
 #include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "ui/EmojiPresentation.h"
+#include "ui/CustomStatusEditorDialog.h"
 #include "ui/UserStatusEmoji.h"
 #include "backend/types/BackendUser.h"
 #include "info-dialogs/UserProfileDialog.h"
@@ -199,6 +203,99 @@ private slots:
                      standard, EmojiPresentation::Mode::Reaction), 16);
         QCOMPARE(EmojiPresentation::extent(
                      standard, EmojiPresentation::Mode::StatusJumbo), 48);
+    }
+
+    void presetStatusPopulatesEditor_data()
+    {
+        QTest::addColumn<QString>("button");
+        QTest::addColumn<QString>("emoji");
+        QTest::addColumn<QString>("text");
+        QTest::addColumn<QString>("duration");
+        QTest::newRow("meeting") << QStringLiteral("customStatusPresetMeeting")
+            << QStringLiteral("calendar") << QStringLiteral("In a meeting")
+            << QStringLiteral("one_hour");
+        QTest::newRow("lunch") << QStringLiteral("customStatusPresetLunch")
+            << QStringLiteral("hamburger") << QStringLiteral("Out for lunch")
+            << QStringLiteral("thirty_minutes");
+        QTest::newRow("sick") << QStringLiteral("customStatusPresetSick")
+            << QStringLiteral("sneezing_face") << QStringLiteral("Out sick")
+            << QStringLiteral("today");
+        QTest::newRow("home") << QStringLiteral("customStatusPresetHome")
+            << QStringLiteral("house") << QStringLiteral("Working from home")
+            << QStringLiteral("today");
+        QTest::newRow("vacation") << QStringLiteral("customStatusPresetVacation")
+            << QStringLiteral("palm_tree") << QStringLiteral("On a vacation")
+            << QStringLiteral("this_week");
+    }
+
+    void presetStatusPopulatesEditor()
+    {
+        QFETCH(QString, button);
+        QFETCH(QString, emoji);
+        QFETCH(QString, text);
+        QFETCH(QString, duration);
+        EmojiRegistry registry;
+        CustomStatusEditorDialog editor(registry, {});
+        editor.show();
+        QCoreApplication::processEvents();
+
+        auto* choice = editor.findChild<QPushButton*>(button);
+        QVERIFY(choice);
+        QVERIFY(choice->isVisible());
+        QTest::mouseClick(choice, Qt::LeftButton);
+        QCOMPARE(editor.statusEmoji(), emoji);
+        QCOMPARE(editor.statusText(), text);
+        QCOMPARE(editor.statusDuration(), duration);
+        QVERIFY(editor.statusExpiresAt().isEmpty());
+        QVERIFY(!editor.findChild<QWidget*>(
+            QStringLiteral("customStatusSuggestionsScroll"))->isVisible());
+        // A suggestion only fills the editor: it does not submit or close it.
+        QVERIFY(editor.isVisible());
+    }
+
+    void recentStatusesAreSelectableAndRemovable()
+    {
+        EmojiRegistry registry;
+        CustomStatusEditorDialog editor(registry, {});
+        BackendUserCustomStatus recent;
+        recent.emoji = QStringLiteral("calendar");
+        recent.text = QStringLiteral("In a meeting");
+        recent.duration = QStringLiteral("one_hour");
+        int removed = 0;
+        editor.setRemoveRecentCallback(
+            [&](const BackendUserCustomStatus& status, std::function<void(bool)> done) {
+                QCOMPARE(status.text, recent.text);
+                ++removed;
+                done(true);
+            });
+        editor.setRecentStatuses({recent});
+        editor.show();
+        QCoreApplication::processEvents();
+
+        auto* recentChoice = editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusRecent0"));
+        auto* preset = editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusPresetMeeting"));
+        QVERIFY(recentChoice && recentChoice->isVisible());
+        QVERIFY(preset && !preset->isVisible()); // No duplicate suggestions.
+        QTest::mouseClick(recentChoice, Qt::LeftButton);
+        QCOMPARE(editor.statusEmoji(), recent.emoji);
+        QCOMPARE(editor.statusText(), recent.text);
+        QCOMPARE(editor.statusDuration(), recent.duration);
+
+        auto* text = editor.findChild<QLineEdit*>(QStringLiteral("customStatusText"));
+        auto* emoji = editor.findChild<QLineEdit*>(QStringLiteral("customStatusEmoji"));
+        QVERIFY(text && emoji);
+        text->clear();
+        emoji->clear();
+        auto* remove = editor.findChild<QToolButton*>(
+            QStringLiteral("customStatusRemoveRecent0"));
+        QVERIFY(remove && remove->isVisible());
+        QTest::mouseClick(remove, Qt::LeftButton);
+        QCOMPARE(removed, 1);
+        QVERIFY(!editor.findChild<QPushButton*>(
+            QStringLiteral("customStatusRecent0")));
+        QVERIFY(preset->isVisible()); // Removed recent returns to suggestions.
     }
 
     void reconnectWithMultiplePendingReplies()
