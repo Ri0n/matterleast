@@ -1,6 +1,8 @@
 #include "Backend.h"
 
+#include <QDateTime>
 #include <QJsonObject>
+#include <QLocale>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
@@ -12,6 +14,45 @@
 
 namespace Mattermost {
 namespace {
+
+// The server validates duration and expires_at together; it does not
+// calculate the expiry time from a duration name. Match the official
+// client's local-calendar semantics, then send an absolute UTC timestamp.
+QString customStatusExpiry(const QString& duration, const QString& suppliedExpiry)
+{
+    if (duration.isEmpty() || !suppliedExpiry.isEmpty())
+        return suppliedExpiry;
+
+    const QDateTime now = QDateTime::currentDateTime();
+    QDateTime expiry;
+    if (duration == QLatin1String("thirty_minutes")) {
+        expiry = now.addSecs(30 * 60);
+    } else if (duration == QLatin1String("one_hour")) {
+        expiry = now.addSecs(60 * 60);
+    } else if (duration == QLatin1String("four_hours")) {
+        expiry = now.addSecs(4 * 60 * 60);
+    } else if (duration == QLatin1String("today")) {
+        // Local midnight, not midnight UTC: daylight-saving days vary in length.
+        expiry = QDateTime(now.date().addDays(1), QTime(0, 0));
+    } else if (duration == QLatin1String("this_week")) {
+        // The final day of the user's locale-specific week at 23:59:59.999.
+        const int firstDay = int(QLocale().firstDayOfWeek());
+        const int daysUntilLastDay =
+            (firstDay + 6 - now.date().dayOfWeek() + 7) % 7;
+        expiry = QDateTime(now.date().addDays(daysUntilLastDay),
+                           QTime(23, 59, 59, 999));
+    }
+    if (!expiry.isValid())
+        return QString();
+
+    // The official client rounds fixed-duration expiry down to a full minute.
+    if (duration == QLatin1String("thirty_minutes")
+        || duration == QLatin1String("one_hour")
+        || duration == QLatin1String("four_hours")) {
+        expiry.setTime(QTime(expiry.time().hour(), expiry.time().minute()));
+    }
+    return expiry.toUTC().toString(Qt::ISODateWithMs);
+}
 
 bool succeeded(const QNetworkReply& reply)
 {
@@ -92,11 +133,16 @@ void Backend::setOwnCustomStatus(const QString& emoji, const QString& text,
     QJsonObject payload {{QStringLiteral("emoji"), trimmedEmoji.isEmpty()
                                        ? QStringLiteral("speech_balloon") : trimmedEmoji},
                          {QStringLiteral("text"), text.trimmed()}};
+    const QString resolvedExpiry = customStatusExpiry(duration, expiresAt);
+    if (duration == QLatin1String("date_and_time") && resolvedExpiry.isEmpty()) {
+        if (callback) callback(false, tr("Choose a date and time for status expiry"));
+        return;
+    }
     if (!duration.isEmpty()) payload.insert(QStringLiteral("duration"), duration);
-    if (!expiresAt.isEmpty()) payload.insert(QStringLiteral("expires_at"), expiresAt);
+    if (!resolvedExpiry.isEmpty()) payload.insert(QStringLiteral("expires_at"), resolvedExpiry);
     QPointer<Backend> guard(this);
     httpConnector.put(request, payload,
-        HttpResponseCallback([guard, id, payload, duration, expiresAt, callback](
+        HttpResponseCallback([guard, id, payload, duration, resolvedExpiry, callback](
                                  const QJsonDocument&, const QNetworkReply& reply) {
             const bool ok = succeeded(reply);
             if (guard && ok) {
@@ -106,7 +152,7 @@ void Backend::setOwnCustomStatus(const QString& emoji, const QString& text,
                     user->props.customStatus.text =
                         payload.value(QStringLiteral("text")).toString();
                     user->props.customStatus.duration = duration;
-                    user->props.customStatus.expiresAt = expiresAt;
+                    user->props.customStatus.expiresAt = resolvedExpiry;
                     emit user->onCustomStatusChanged();
                     emit guard->onOwnCustomStatusChanged();
                 }
