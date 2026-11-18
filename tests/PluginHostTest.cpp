@@ -49,6 +49,17 @@ public:
     bool authenticated() const override { return signedIn; }
     QString localUserId() const override { return QStringLiteral("test-local-user"); }
 
+    bool sendAction(const QString& action, const QJsonObject& data) override
+    {
+        if (!action.startsWith(QStringLiteral("custom_com.mattermost.calls_"))) {
+            return false;
+        }
+        lastAction = action;
+        lastActionChannelId = data.value(QStringLiteral("channelID")).toString();
+        ++actions;
+        return true;
+    }
+
     void request(const QString&, const QString&, const QJsonObject&,
                  QObject*, Reply callback) override
     {
@@ -61,6 +72,9 @@ public:
     bool signedIn = true;
     int changes = 0;
     int requests = 0;
+    int actions = 0;
+    QString lastAction;
+    QString lastActionChannelId;
 };
 
 } // namespace
@@ -100,6 +114,9 @@ private slots:
         QVERIFY(plugin.isEnabled()); // A missing login must not hide the plugin.
         calls.signedIn = true;
         QVERIFY(provider->joinCall(QStringLiteral("channel-123")));
+        QCOMPARE(calls.actions, 1);
+        QCOMPARE(calls.lastAction, QStringLiteral("custom_com.mattermost.calls_join"));
+        QCOMPARE(calls.lastActionChannelId, QStringLiteral("channel-123"));
         QVERIFY(!provider->startCall(QStringLiteral("other-channel")));
         QCOMPARE(provider->snapshot().state,
                  MatterLeast::PluginApi::CallsState::Connected);
