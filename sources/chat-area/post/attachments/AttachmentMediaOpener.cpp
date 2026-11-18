@@ -82,7 +82,8 @@ AttachmentMediaOpener::ensureEntry(const QUrl& source)
         const QString path = source.toLocalFile();
         for (const auto& entry : _entries) {
             if (entry->path == path
-                || AttachmentService::instance(_backend).localFilePath(entry->fileId) == path)
+                || AttachmentService::instance(_backend).localFilePath(
+                    entry->fileId, -1, path) == path)
                 return entry;
         }
         return {};
@@ -126,7 +127,8 @@ QIODevice* AttachmentMediaOpener::open(QUrl& source)
     const auto entry = ensureEntry(source);
     if (!entry) return nullptr;
     const QString saved = AttachmentService::instance(_backend)
-        .localFilePath(entry->fileId);
+        .localFilePath(entry->fileId, -1,
+                       source.isLocalFile() ? source.toLocalFile() : QString());
     const QString path = QFileInfo::exists(entry->path) ? entry->path : saved;
     if (path.isEmpty()) return nullptr;
     auto* device = new QFile(path, this);
