@@ -30,8 +30,11 @@ Backend is authenticated. All Mattermost API authentication, cookies, TLS
 configuration, reconnect handling, and network transport remain in the core.
 The Calls host accepts only supported HTTP methods on official Calls plugin
 paths below `plugins/com.mattermost.calls/api/v1/`. An HTTP completion is
-discarded when its QObject request context is destroyed, avoiding callbacks
-into unloaded plugin code. The provider receives forwarded `custom_*`
+discarded when its QObject request context is destroyed. Importantly, its
+plugin-owned `std::function` target is cleared synchronously before the
+module unloads; merely testing a `QPointer` on a later response is not enough,
+because the deferred callback's destructor could otherwise execute unloaded
+plugin code. The provider receives forwarded `custom_*`
 WebSocket events and backend connection changes, not raw credentials.
 
 The provider owns the call state machine and must publish updated snapshots
