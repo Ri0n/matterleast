@@ -91,7 +91,7 @@ QString durationLabel(const QString& duration)
 
 CustomStatusEditorDialog::CustomStatusEditorDialog(
     EmojiRegistry& registry, const BackendUserCustomStatus& current, QWidget* parent)
-    : QDialog(parent), m_registry(registry), m_initial(current)
+    : QDialog(parent), m_registry(registry)
 {
     setObjectName(QStringLiteral("customStatusEditor"));
     setWindowTitle(tr("Set a custom status"));
@@ -172,7 +172,6 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
     form->addRow(m_expirationLabel, m_expiration);
 
     auto* scroll = new QScrollArea(this);
-    m_suggestionsScroll = scroll;
     scroll->setObjectName(QStringLiteral("customStatusSuggestionsScroll"));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
