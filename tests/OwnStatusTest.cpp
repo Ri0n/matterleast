@@ -465,20 +465,21 @@ private slots:
         // Exercise the actual PUT payload rather than only checking the UI.
         const auto expiryFromLastRequest = [&] {
             const QJsonObject body = QJsonDocument::fromJson(lastBody).object();
-            const QString timestamp = body.value(QStringLiteral("expires_at")).toString();
-            QVERIFY(!timestamp.isEmpty());
-            const QDateTime expiry = QDateTime::fromString(timestamp, Qt::ISODateWithMs);
-            QVERIFY(expiry.isValid());
-            QCOMPARE(expiry.timeSpec(), Qt::UTC);
-            QCOMPARE(user->props.customStatus.expiresAt, timestamp);
-            return expiry;
+            return QDateTime::fromString(
+                body.value(QStringLiteral("expires_at")).toString(),
+                Qt::ISODateWithMs);
         };
         // Test the first request's duration, too: both mixed and emoji-only
         // custom statuses use the same wire format.
         QCOMPARE(QJsonDocument::fromJson(lastBody).object()
                      .value(QStringLiteral("duration")).toString(),
                  QStringLiteral("one_hour"));
-        QVERIFY(expiryFromLastRequest() > QDateTime::currentDateTimeUtc());
+        const QDateTime firstExpiry = expiryFromLastRequest();
+        QVERIFY(firstExpiry.isValid());
+        QCOMPARE(firstExpiry.timeSpec(), Qt::UTC);
+        QCOMPARE(user->props.customStatus.expiresAt,
+                 firstExpiry.toString(Qt::ISODateWithMs));
+        QVERIFY(firstExpiry > QDateTime::currentDateTimeUtc());
 
         const struct { const char* duration; int seconds; } fixedDurations[] = {
             {"thirty_minutes", 30 * 60},
@@ -496,6 +497,10 @@ private slots:
                          .value(QStringLiteral("duration")).toString(),
                      QString::fromLatin1(option.duration));
             const QDateTime expiry = expiryFromLastRequest();
+            QVERIFY(expiry.isValid());
+            QCOMPARE(expiry.timeSpec(), Qt::UTC);
+            QCOMPARE(user->props.customStatus.expiresAt,
+                     expiry.toString(Qt::ISODateWithMs));
             // Like the official web app, fixed durations round to a full minute.
             QVERIFY(expiry >= before.addSecs(option.seconds - 60));
             QVERIFY(expiry <= QDateTime::currentDateTimeUtc().addSecs(option.seconds));
@@ -515,6 +520,10 @@ private slots:
             QTRY_VERIFY(finished);
             QVERIFY(succeeded);
             const QDateTime expiry = expiryFromLastRequest();
+            QVERIFY(expiry.isValid());
+            QCOMPARE(expiry.timeSpec(), Qt::UTC);
+            QCOMPARE(user->props.customStatus.expiresAt,
+                     expiry.toString(Qt::ISODateWithMs));
             if (value == QLatin1String("today")) {
                 QCOMPARE(expiry, QDateTime(today.addDays(1), QTime(0, 0)).toUTC());
             } else {
@@ -537,7 +546,10 @@ private slots:
         QCOMPARE(QJsonDocument::fromJson(lastBody).object()
                      .value(QStringLiteral("duration")).toString(),
                  QStringLiteral("date_and_time"));
-        QCOMPARE(expiryFromLastRequest().toString(Qt::ISODateWithMs), selectedExpiry);
+        const QDateTime explicitResult = expiryFromLastRequest();
+        QVERIFY(explicitResult.isValid());
+        QCOMPARE(explicitResult.toString(Qt::ISODateWithMs), selectedExpiry);
+        QCOMPARE(user->props.customStatus.expiresAt, selectedExpiry);
 
         // A status without automatic clearing must not gain an expiry.
         finished = false;
