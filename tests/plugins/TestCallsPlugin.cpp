@@ -103,6 +103,10 @@ private:
             snapshot_.state != MatterLeast::PluginApi::CallsState::Idle) {
             return false;
         }
+        if (!host_->sendAction(QStringLiteral("custom_com.mattermost.calls_join"),
+                               QJsonObject{{QStringLiteral("channelID"), channelId}})) {
+            return false;
+        }
         snapshot_.channelId = channelId;
         snapshot_.callId = QStringLiteral("fake-call");
         snapshot_.state = MatterLeast::PluginApi::CallsState::Connected;
