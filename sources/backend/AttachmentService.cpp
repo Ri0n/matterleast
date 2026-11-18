@@ -45,7 +45,11 @@ void AttachmentService::rememberLocalFile(const QString& fileId, const QString& 
     const QString absolutePath = file.absoluteFilePath();
     auto& entries = localFiles[fileId];
     for (auto it = entries.begin(); it != entries.end();) {
-        it = it->path == absolutePath ? entries.erase(it) : ++it;
+        if (it->path == absolutePath) {
+            it = entries.erase(it);
+        } else {
+            ++it;
+        }
     }
     entries.prepend({absolutePath, file.size(), file.lastModified()});
     // Repeated saves of one attachment should not grow the session indefinitely.
