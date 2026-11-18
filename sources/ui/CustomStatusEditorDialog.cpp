@@ -1,5 +1,7 @@
 #include "CustomStatusEditorDialog.h"
 
+#include <utility>
+
 #include <QComboBox>
 #include <QDateTimeEdit>
 #include <QDialogButtonBox>
@@ -101,6 +103,7 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
     form->addRow(tr("Clear on:"), m_expiration);
 
     auto* scroll = new QScrollArea(this);
+    m_suggestionsScroll = scroll;
     scroll->setObjectName(QStringLiteral("customStatusSuggestionsScroll"));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
@@ -311,7 +314,7 @@ void CustomStatusEditorDialog::updateSuggestionVisibility()
     const bool unchanged = statusEmoji() == m_initial.emoji
         && statusText() == m_initial.text
         && statusDuration() == initialDuration;
-    m_suggestionSection->parentWidget()->setVisible(empty || unchanged);
+    m_suggestionsScroll->setVisible(empty || unchanged);
 
     // The web client avoids repeating a recently used status in suggestions.
     for (QPushButton* preset : m_presets) {
