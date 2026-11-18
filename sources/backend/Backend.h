@@ -314,6 +314,7 @@ public:
     // session, cookies, transport, and logout cancellation. No credentials
     // or arbitrary HTTP access are exposed to the native Calls provider.
     using CallsRequestCompletion = std::function<void(int, const QJsonObject&)>;
+    bool sendCallsPluginAction(const QString& action, const QJsonObject& data);
     void requestCallsPlugin(const QString& method,
                             const QString& relativePath,
                             const QJsonObject& body,
