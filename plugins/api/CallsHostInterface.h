@@ -22,6 +22,11 @@ public:
     virtual bool authenticated() const = 0;
     virtual QString localUserId() const = 0;
 
+    // Send a Mattermost Calls WebSocket action through the host's existing
+    // authenticated and sequenced connection. Only the official Calls
+    // custom_com.mattermost.calls_* action namespace is accepted.
+    virtual bool sendAction(const QString& action, const QJsonObject& data) = 0;
+
     // Calls plugin API path relative to /api/v4/. Only GET/POST/PUT are
     // supported. A request is discarded after 'context' is destroyed; pass
     // the provider's QObject as context to avoid callbacks after unloading.
