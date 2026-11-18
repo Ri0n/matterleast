@@ -4,6 +4,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLocale>
 #include <QWidget>
 #include <QPointer>
 #include <QTcpServer>
@@ -460,6 +461,108 @@ private slots:
         QVERIFY(user->props.customStatus.text.isEmpty());
         QCOMPARE(customSignal.size(), 2);
 
+        // The Mattermost server rejects a duration without expires_at.
+        // Exercise the actual PUT payload rather than only checking the UI.
+        const auto expiryFromLastRequest = [&] {
+            const QJsonObject body = QJsonDocument::fromJson(lastBody).object();
+            return QDateTime::fromString(
+                body.value(QStringLiteral("expires_at")).toString(),
+                Qt::ISODateWithMs);
+        };
+        // Both mixed and emoji-only custom statuses use the same wire format.
+        QCOMPARE(QJsonDocument::fromJson(lastBody).object()
+                     .value(QStringLiteral("duration")).toString(),
+                 QStringLiteral("one_hour"));
+        const QDateTime firstExpiry = expiryFromLastRequest();
+        QVERIFY(firstExpiry.isValid());
+        QCOMPARE(firstExpiry.timeSpec(), Qt::UTC);
+        QCOMPARE(user->props.customStatus.expiresAt,
+                 firstExpiry.toString(Qt::ISODateWithMs));
+        QVERIFY(firstExpiry > QDateTime::currentDateTimeUtc());
+
+        const struct { const char* duration; int seconds; } fixedDurations[] = {
+            {"thirty_minutes", 30 * 60},
+            {"four_hours", 4 * 60 * 60}
+        };
+        for (const auto& option : fixedDurations) {
+            const QDateTime before = QDateTime::currentDateTimeUtc();
+            finished = false;
+            backend.setOwnCustomStatus(QStringLiteral("coffee"), QStringLiteral("Busy"),
+                QString::fromLatin1(option.duration), {},
+                [&](bool ok, const QString&) { succeeded = ok; finished = true; });
+            QTRY_VERIFY(finished);
+            QVERIFY(succeeded);
+            QCOMPARE(QJsonDocument::fromJson(lastBody).object()
+                         .value(QStringLiteral("duration")).toString(),
+                     QString::fromLatin1(option.duration));
+            const QDateTime expiry = expiryFromLastRequest();
+            QVERIFY(expiry.isValid());
+            QCOMPARE(expiry.timeSpec(), Qt::UTC);
+            QCOMPARE(user->props.customStatus.expiresAt,
+                     expiry.toString(Qt::ISODateWithMs));
+            // Like the official web app, fixed durations round to a full minute.
+            QVERIFY(expiry >= before.addSecs(option.seconds - 60));
+            QVERIFY(expiry <= QDateTime::currentDateTimeUtc().addSecs(option.seconds));
+            QCOMPARE(expiry.time().second(), 0);
+            QCOMPARE(expiry.time().msec(), 0);
+        }
+
+        const QString calendarDurations[] = {
+            QStringLiteral("today"), QStringLiteral("this_week")
+        };
+        for (const QString& value : calendarDurations) {
+            const QDate today = QDate::currentDate();
+            finished = false;
+            backend.setOwnCustomStatus(QStringLiteral("coffee"), QStringLiteral("Busy"),
+                value, {},
+                [&](bool ok, const QString&) { succeeded = ok; finished = true; });
+            QTRY_VERIFY(finished);
+            QVERIFY(succeeded);
+            const QDateTime expiry = expiryFromLastRequest();
+            QVERIFY(expiry.isValid());
+            QCOMPARE(expiry.timeSpec(), Qt::UTC);
+            QCOMPARE(user->props.customStatus.expiresAt,
+                     expiry.toString(Qt::ISODateWithMs));
+            if (value == QLatin1String("today")) {
+                QCOMPARE(expiry, QDateTime(today.addDays(1), QTime(0, 0)).toUTC());
+            } else {
+                const int firstDay = int(QLocale().firstDayOfWeek());
+                const int daysUntilLastDay =
+                    (firstDay + 6 - today.dayOfWeek() + 7) % 7;
+                QCOMPARE(expiry, QDateTime(today.addDays(daysUntilLastDay),
+                                           QTime(23, 59, 59, 999)).toUTC());
+            }
+        }
+
+        const QString selectedExpiry = QDateTime::currentDateTimeUtc()
+                                           .addDays(2).toString(Qt::ISODateWithMs);
+        finished = false;
+        backend.setOwnCustomStatus(QStringLiteral("coffee"), QStringLiteral("Busy"),
+            QStringLiteral("date_and_time"), selectedExpiry,
+            [&](bool ok, const QString&) { succeeded = ok; finished = true; });
+        QTRY_VERIFY(finished);
+        QVERIFY(succeeded);
+        QCOMPARE(QJsonDocument::fromJson(lastBody).object()
+                     .value(QStringLiteral("duration")).toString(),
+                 QStringLiteral("date_and_time"));
+        const QDateTime explicitResult = expiryFromLastRequest();
+        QVERIFY(explicitResult.isValid());
+        QCOMPARE(explicitResult.toString(Qt::ISODateWithMs), selectedExpiry);
+        QCOMPARE(user->props.customStatus.expiresAt, selectedExpiry);
+
+        // A status without automatic clearing must not gain an expiry.
+        finished = false;
+        backend.setOwnCustomStatus(QStringLiteral("coffee"), QStringLiteral("Busy"),
+            QString(), QString(),
+            [&](bool ok, const QString&) { succeeded = ok; finished = true; });
+        QTRY_VERIFY(finished);
+        QVERIFY(succeeded);
+        const QJsonObject indefiniteBody = QJsonDocument::fromJson(lastBody).object();
+        QVERIFY(!indefiniteBody.contains(QStringLiteral("duration")));
+        QVERIFY(!indefiniteBody.contains(QStringLiteral("expires_at")));
+        QVERIFY(user->props.customStatus.expiresAt.isEmpty());
+        const int successfulCustomUpdates = customSignal.size();
+
         statusCode = 500;
         finished = false;
         QString failureReason;
@@ -484,7 +587,7 @@ private slots:
         QCOMPARE(lastMethod, QByteArray("DELETE"));
         QVERIFY(lastPath.endsWith("/users/user-1/status/custom"));
         QVERIFY(user->props.customStatus.text.isEmpty());
-        QCOMPARE(customSignal.size(), 3);
+        QCOMPARE(customSignal.size(), successfulCustomUpdates + 1);
         QVERIFY(user->props.customStatus.emoji.isEmpty());
     }
 };
