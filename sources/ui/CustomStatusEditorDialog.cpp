@@ -39,8 +39,14 @@ public:
     int pixelMetric(PixelMetric metric, const QStyleOption* option,
                     const QWidget* widget) const override
     {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         if (metric == QStyle::PM_LineEditIconSize)
             return 30;
+#else
+        // Qt 5 uses PM_SmallIconSize for QLineEdit side actions.
+        if (metric == QStyle::PM_SmallIconSize)
+            return 30;
+#endif
         return QProxyStyle::pixelMetric(metric, option, widget);
     }
 };
