@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonArray>
@@ -308,6 +310,16 @@ public:
     const EmojiRegistry& emojiRegistry() const { return _emojiRegistry; }
     const QString& serverDomain() const { return loginData.domain; }
 
+    // Authenticated Calls plugin HTTP requests use the existing backend
+    // session, cookies, transport, and logout cancellation. No credentials
+    // or arbitrary HTTP access are exposed to the native Calls provider.
+    using CallsRequestCompletion = std::function<void(int, const QJsonObject&)>;
+    void requestCallsPlugin(const QString& method,
+                            const QString& relativePath,
+                            const QJsonObject& body,
+                            QObject* context,
+                            CallsRequestCompletion completion);
+
 	ServerDialogsMap& getServerDialogsMap ();
 
 	//retrieve list of users that have any relation with logged in user
@@ -364,6 +376,11 @@ signals:
     /** Socket reconnection warrants bounded recovery for materialized thread timelines. */
     void onRealtimeRecovered();
     void onWebSocketDisconnect ();
+    // Relays Mattermost custom_* events to an optional Calls provider.
+    // Never exposes the raw WebSocket transport or authentication token.
+    void onCallsPluginEvent(const QString& eventName,
+                            const QJsonObject& data,
+                            const QJsonObject& broadcast);
     void onWebSocketConnectionStateChanged(WebSocketConnector::ConnectionState state);
     void typingChanged(const QString& channelId, const QString& parentId);
 private:
