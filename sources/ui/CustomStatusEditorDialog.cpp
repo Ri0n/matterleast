@@ -150,6 +150,7 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
             QStringLiteral("customStatusPreset") + QString::fromLatin1(preset.id),
             m_suggestionSection);
         m_presets.push_back(button);
+        m_presetStatuses.push_back(status);
         suggestions->addWidget(button);
         connect(button, &QPushButton::clicked, this,
                 [this, status] { applySuggestion(status); });
@@ -317,15 +318,15 @@ void CustomStatusEditorDialog::updateSuggestionVisibility()
     m_suggestionsScroll->setVisible(empty || unchanged);
 
     // The web client avoids repeating a recently used status in suggestions.
-    for (QPushButton* preset : m_presets) {
+    for (int i = 0; i < m_presets.size(); ++i) {
         bool duplicate = false;
         for (const auto& recent : m_recentStatuses) {
-            if (preset->accessibleName().startsWith(recent.text + QStringLiteral(","))) {
+            if (m_presetStatuses.at(i).text == recent.text) {
                 duplicate = true;
                 break;
             }
         }
-        preset->setVisible(!duplicate);
+        m_presets.at(i)->setVisible(!duplicate);
     }
 }
 
