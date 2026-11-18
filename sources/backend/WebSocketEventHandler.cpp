@@ -63,6 +63,12 @@ WebSocketEventHandler::WebSocketEventHandler (Backend& backend)
 
 WebSocketEventHandler::~WebSocketEventHandler () = default;
 
+void WebSocketEventHandler::forwardCallsCustomEvent(
+    const QString& eventName, const QJsonObject& data, const QJsonObject& broadcast)
+{
+    emit backend.onCallsPluginEvent(eventName, data, broadcast);
+}
+
 void WebSocketEventHandler::handleEvent (const ChannelViewedEvent& event)
 {
 	BackendChannel* channel = storage.getChannelById (event.channelId);
