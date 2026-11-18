@@ -385,7 +385,7 @@ bool PluginManager::loadPluginFile(const QString& filePath)
     return true;
 }
 
-MatterLeast::PluginApi::MatterLeast::PluginApi::CallsProviderInterface* PluginManager::callsProvider() const
+MatterLeast::PluginApi::CallsProviderInterface* PluginManager::callsProvider() const
 {
     for (const auto& host : plugins_) {
         QObject* object = host && host->isEnabled() ? host->instance() : nullptr;
