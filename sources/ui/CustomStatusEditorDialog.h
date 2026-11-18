@@ -12,6 +12,7 @@ class QComboBox;
 class QDateTimeEdit;
 class QLineEdit;
 class QPushButton;
+class QScrollArea;
 class QVBoxLayout;
 class QWidget;
 
@@ -52,6 +53,7 @@ private:
     QLineEdit* m_emoji = nullptr;
     QComboBox* m_duration = nullptr;
     QDateTimeEdit* m_expiration = nullptr;
+    QScrollArea* m_suggestionsScroll = nullptr;
     QWidget* m_suggestionSection = nullptr;
     QWidget* m_recentSection = nullptr;
     QVBoxLayout* m_recentRows = nullptr;
