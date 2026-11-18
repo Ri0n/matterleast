@@ -27,6 +27,7 @@
 #include "LoginResponsePolicy.h"
 
 #include <iostream>
+#include <memory>
 #include <utility>
 #include <limits>
 #include <QSharedPointer>
@@ -72,6 +73,75 @@ enum type {
 	channelMember,
 	teamMember,
 };
+}
+
+bool Backend::sendCallsPluginAction(const QString& action, const QJsonObject& data)
+{
+    return loggedIn() && webSocketConnector.sendCallsPluginAction(action, data);
+}
+
+void Backend::requestCallsPlugin(const QString& method,
+                                 const QString& relativePath,
+                                 const QJsonObject& body,
+                                 QObject* context,
+                                 CallsRequestCompletion completion)
+{
+    if (!context || !completion) {
+        return;
+    }
+    const QPointer<QObject> lifetime(context);
+    // An HTTP request may outlive the native plugin. Merely checking a
+    // QPointer is insufficient: destroying a std::function whose target was
+    // compiled inside an unloaded .so can still execute unloaded code.
+    // Clear the callback synchronously as QObject is destroyed, while
+    // QPluginLoader still has the provider library resident.
+    const auto pending = std::make_shared<CallsRequestCompletion>(
+        std::move(completion));
+    QObject::connect(context, &QObject::destroyed, this,
+                     [pending] { *pending = {}; });
+    auto reject = [lifetime, pending](const QString& reason) {
+        if (lifetime && *pending) {
+            (*pending)(0, QJsonObject{{QStringLiteral("error"), reason}});
+        }
+    };
+
+    // Only official Calls-plugin paths are permitted. URL, host, headers,
+    // token, and cookies are constructed by the main client's network layer.
+    if (!loggedIn()) {
+        reject(QStringLiteral("Mattermost session is not authenticated"));
+        return;
+    }
+    if (!relativePath.startsWith(QStringLiteral("plugins/com.mattermost.calls/api/v1/"))
+        || relativePath.contains(QStringLiteral(".."))
+        || relativePath.contains(QLatin1Char('\\'))
+        || relativePath.contains(QLatin1Char('#'))
+        || relativePath.contains(QStringLiteral("://"))) {
+        reject(QStringLiteral("Unsupported Calls API path"));
+        return;
+    }
+    if (method != QLatin1String("GET") && method != QLatin1String("POST")
+        && method != QLatin1String("PUT")) {
+        reject(QStringLiteral("Unsupported Calls API method"));
+        return;
+    }
+
+    NetworkRequest request(relativePath);
+    const HttpResponseCallback handler(
+        [lifetime, pending](QVariant, QByteArray payload,
+                            const QNetworkReply& reply) {
+            if (!lifetime || !*pending) {
+                return; // Callbacks were cleared before plugin unload.
+            }
+            (*pending)(reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
+                       QJsonDocument::fromJson(payload).object());
+        });
+    if (method == QLatin1String("GET")) {
+        httpConnector.get(request, handler);
+    } else if (method == QLatin1String("POST")) {
+        httpConnector.post(request, QJsonDocument(body), handler);
+    } else {
+        httpConnector.put(request, QJsonDocument(body), handler);
+    }
 }
 
 bool Backend::handleEphemeralMessage(const QJsonObject& data)

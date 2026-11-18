@@ -26,6 +26,7 @@
 
 #include <memory>
 #include <QObject>
+#include <QJsonObject>
 
 class QString;
 class QUrl;
@@ -58,6 +59,7 @@ public:
     // Official desktop presence request; manual is always false for activity.
     void reportUserActivity(bool active);
     bool sendUserTyping(const QString& channelId, const QString& parentId);
+    bool sendCallsPluginAction(const QString& action, const QJsonObject& data);
     bool typingEnabled() const;
     int typingIntervalMs() const;
     int typingMaximumMembers() const;

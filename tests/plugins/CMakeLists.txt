@@ -8,6 +8,14 @@ target_link_libraries(matterleast-test-conversation-plugin
         Qt${QT_VERSION_MAJOR}::Core
 )
 
+add_library(matterleast-test-calls-plugin MODULE
+    TestCallsPlugin.cpp
+)
+target_link_libraries(matterleast-test-calls-plugin PRIVATE
+    matterleast-plugin-api
+    Qt${QT_VERSION_MAJOR}::Core
+)
+
 add_executable(plugin-host-test
     "${CMAKE_SOURCE_DIR}/tests/PluginHostTest.cpp"
     "${CMAKE_SOURCE_DIR}/sources/plugins/PluginHost.cpp"
@@ -25,12 +33,15 @@ target_link_libraries(plugin-host-test
         Qt${QT_VERSION_MAJOR}::Core
 )
 
-add_dependencies(plugin-host-test matterleast-test-conversation-plugin)
+add_dependencies(plugin-host-test
+    matterleast-test-conversation-plugin
+    matterleast-test-calls-plugin)
 
 add_test(
     NAME plugin-host-test
     COMMAND "${CMAKE_COMMAND}" -E env
         "MATTERLEAST_TEST_PLUGIN_PATH=$<TARGET_FILE:matterleast-test-conversation-plugin>"
+        "MATTERLEAST_TEST_CALLS_PLUGIN_PATH=$<TARGET_FILE:matterleast-test-calls-plugin>"
         "$<TARGET_FILE:plugin-host-test>"
 )
 

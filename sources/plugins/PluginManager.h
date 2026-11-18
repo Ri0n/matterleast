@@ -10,9 +10,13 @@
 #include <QStringList>
 #include <QVariantHash>
 
+#include "plugins/api/CallsTypes.h"
+
 class QAction;
 class QWidget;
 class QTemporaryDir;
+
+namespace MatterLeast::PluginApi { class CallsProviderInterface; }
 
 namespace Mattermost {
 
@@ -52,8 +56,21 @@ public:
     QStringList loadedPluginIds() const;
     QStringList pluginSearchPaths() const;
 
+    /** Calls capability is absent when no enabled Calls provider is loaded. */
+    bool callsAvailable() const;
+    MatterLeast::PluginApi::CallsSnapshot callsSnapshot() const;
+    bool startCall(const QString& channelId);
+    bool joinCall(const QString& channelId);
+    bool leaveCall();
+    bool setCallMicrophoneMuted(bool muted);
+
+signals:
+    void callsAvailabilityChanged(bool available);
+    void callsSnapshotChanged();
+
 private:
     class ConversationHost;
+    class CallsHost;
 
     explicit PluginManager(Backend& backend);
     void attachWindowOverlay(PluginHost& host);
@@ -61,10 +78,12 @@ private:
     void loadStandardPlugins();
     bool loadPluginFile(const QString& filePath);
     void shutdown();
+    MatterLeast::PluginApi::CallsProviderInterface* callsProvider() const;
 
     Backend& backend_;
     QPointer<QWidget> _mainWindow;
     std::unique_ptr<ConversationHost> conversationHost_;
+    std::unique_ptr<CallsHost> callsHost_;
     std::unique_ptr<QTemporaryDir> _verifiedPluginDirectory;
     std::vector<std::unique_ptr<PluginHost>> plugins_;
 };

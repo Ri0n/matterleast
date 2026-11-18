@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QLibrary>
 
+#include "plugins/api/CallsHostAccessor.h"
 #include "plugins/api/ConversationAccessor.h"
 #include "plugins/api/PluginInterface.h"
 
@@ -13,10 +14,12 @@ namespace Mattermost {
 
 PluginHost::PluginHost(
     QString filePath,
-    MatterLeast::PluginApi::ConversationAccessingHost& conversationHost)
+    MatterLeast::PluginApi::ConversationAccessingHost& conversationHost,
+    MatterLeast::PluginApi::CallsHostInterface* callsHost)
     : filePath_(std::move(filePath))
     , loader_(filePath_)
     , conversationHost_(conversationHost)
+    , callsHost_(callsHost)
 {
     // QPluginLoader sets PreventUnloadHint by default since Qt 5.7. MatterLeast
     // deliberately supports a real disable/unload lifecycle, so do not leave a
@@ -48,6 +51,10 @@ void PluginHost::injectAccessors(QObject& object)
 {
     if (auto* accessor = qobject_cast<MatterLeast::PluginApi::ConversationAccessor*>(&object)) {
         accessor->setConversationAccessingHost(&conversationHost_);
+    }
+    if (auto* callsAccessor =
+            qobject_cast<MatterLeast::PluginApi::CallsHostAccessor*>(&object)) {
+        callsAccessor->setCallsHost(callsHost_);
     }
 }
 

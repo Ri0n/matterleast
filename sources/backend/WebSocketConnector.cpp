@@ -681,6 +681,25 @@ bool WebSocketConnector::sendUserTyping(const QString& channelId,
         QString::fromUtf8(request.toJson(QJsonDocument::Compact))) >= 0;
 }
 
+bool WebSocketConnector::sendCallsPluginAction(const QString& action,
+                                               const QJsonObject& data)
+{
+    if (!action.startsWith(QStringLiteral("custom_com.mattermost.calls_"))
+        || d->connectionState != ConnectionState::Connected
+        || d->webSocket.state() != QAbstractSocket::ConnectedState
+        || d->token.isEmpty()) {
+        return false;
+    }
+
+    const QJsonDocument request(QJsonObject {
+        {QStringLiteral("seq"), d->responseSequence++},
+        {QStringLiteral("action"), action},
+        {QStringLiteral("data"), data},
+    });
+    return d->webSocket.sendTextMessage(
+        QString::fromUtf8(request.toJson(QJsonDocument::Compact))) >= 0;
+}
+
 void WebSocketConnector::doHandshake ()
 {
 	QJsonObject jsonData {
@@ -886,10 +905,10 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	auto it = eventHandlers.find (eventName);
 	if (it == eventHandlers.end()) {
         if (eventName.startsWith(QStringLiteral("custom_"))) {
-            eventHandler.handleCustomEvent(
-                eventName,
-                jsonObject.value(QStringLiteral("data")).toObject(),
-                jsonObject.value(QStringLiteral("broadcast")).toObject());
+            const QJsonObject data = jsonObject.value(QStringLiteral("data")).toObject();
+            const QJsonObject broadcast = jsonObject.value(QStringLiteral("broadcast")).toObject();
+            eventHandler.forwardCallsCustomEvent(eventName, data, broadcast);
+            eventHandler.handleCustomEvent(eventName, data, broadcast);
             return;
         }
 

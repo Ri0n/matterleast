@@ -8,6 +8,7 @@
 #include <QPluginLoader>
 #include <QString>
 
+#include "plugins/api/CallsHostInterface.h"
 #include "plugins/api/ConversationAccessingHost.h"
 #include "plugins/api/PluginInterface.h"
 
@@ -17,7 +18,8 @@ class PluginHost final
 {
 public:
     PluginHost(QString filePath,
-               MatterLeast::PluginApi::ConversationAccessingHost& conversationHost);
+               MatterLeast::PluginApi::ConversationAccessingHost& conversationHost,
+               MatterLeast::PluginApi::CallsHostInterface* callsHost = nullptr);
     ~PluginHost();
 
     PluginHost(const PluginHost&) = delete;
@@ -42,6 +44,7 @@ private:
     QString filePath_;
     QPluginLoader loader_;
     MatterLeast::PluginApi::ConversationAccessingHost& conversationHost_;
+    MatterLeast::PluginApi::CallsHostInterface* callsHost_ = nullptr;
     QObject* pluginObject_ = nullptr;
     MatterLeast::PluginApi::PluginInterface* plugin_ = nullptr;
     QString id_;
