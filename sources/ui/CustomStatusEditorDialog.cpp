@@ -13,6 +13,8 @@
 #include <QLineEdit>
 #include <QPalette>
 #include <QPainter>
+#include <QProxyStyle>
+#include <QStyle>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSizePolicy>
@@ -28,17 +30,32 @@
 namespace Mattermost {
 namespace {
 
+// QLineEdit's side action is a QToolButton whose geometry is derived from
+// PM_LineEditIconSize. Keep that metric local to the status input so the icon
+// can be legible without manually moving an internal Qt child widget.
+class StatusLineEditStyle final : public QProxyStyle
+{
+public:
+    int pixelMetric(PixelMetric metric, const QStyleOption* option,
+                    const QWidget* widget) const override
+    {
+        if (metric == QStyle::PM_LineEditIconSize)
+            return 30;
+        return QProxyStyle::pixelMetric(metric, option, widget);
+    }
+};
+
 // QLineEdit owns the clickable leading QAction; the separator is drawn
 // together with its icon, avoiding hard-coded overlay widget geometry.
 QIcon statusEmojiActionIcon(EmojiRegistry& registry, const QString& name,
                             const QPalette& palette, const QFont& font)
 {
-    QPixmap image(24, 24);
+    QPixmap image(32, 32);
     image.fill(Qt::transparent);
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
-    const QPixmap emoji = UserStatusEmoji::pixmap(registry, name, 19, font);
+    const QPixmap emoji = UserStatusEmoji::pixmap(registry, name, 27, font);
     if (!emoji.isNull()) {
         painter.drawPixmap(1, 2, emoji);
     } else {
@@ -46,12 +63,12 @@ QIcon statusEmojiActionIcon(EmojiRegistry& registry, const QString& name,
         // a neutral, non-wire-value placeholder.
         const QColor muted = palette.color(QPalette::Disabled, QPalette::Text);
         painter.setPen(QPen(muted, 1.4));
-        painter.drawEllipse(QRectF(2.5, 4.5, 15, 15));
-        painter.drawLine(QPointF(7, 12), QPointF(13, 12));
-        painter.drawLine(QPointF(10, 9), QPointF(10, 15));
+        painter.drawEllipse(QRectF(3, 4, 25, 25));
+        painter.drawLine(QPointF(10, 16), QPointF(21, 16));
+        painter.drawLine(QPointF(15.5, 10.5), QPointF(15.5, 21.5));
     }
     painter.setPen(QPen(palette.color(QPalette::Mid), 1.0));
-    painter.drawLine(QPointF(22, 3), QPointF(22, 21));
+    painter.drawLine(QPointF(30, 3), QPointF(30, 29));
     return QIcon(image);
 }
 
@@ -91,19 +108,32 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
 
     m_text = new QLineEdit(this);
     m_text->setObjectName(QStringLiteral("customStatusText"));
+    auto* emojiStyle = new StatusLineEditStyle;
+    emojiStyle->setParent(m_text);
+    m_text->setStyle(emojiStyle);
+    m_text->setMinimumHeight(42);
     m_text->setMaxLength(100);
     m_text->setPlaceholderText(tr("What's your status?"));
     m_text->setText(current.text);
     m_selectedEmoji = current.emoji.trimmed();
     m_emojiAction = m_text->addAction(QIcon(), QLineEdit::LeadingPosition);
     m_emojiAction->setObjectName(QStringLiteral("customStatusEmojiAction"));
+    // Qt internally represents a QLineEdit QAction with a QToolButton.
+    // Only customize the button belonging to this action (not clear actions).
+    for (QToolButton* button : m_text->findChildren<QToolButton*>()) {
+        if (button->defaultAction() == m_emojiAction) {
+            button->setObjectName(QStringLiteral("customStatusEmojiButton"));
+            button->setCursor(Qt::PointingHandCursor);
+            break;
+        }
+    }
     m_text->installEventFilter(this);
     connect(m_emojiAction, &QAction::triggered, this, [this] {
         QPointer<CustomStatusEditorDialog> guard(this);
         showEmojiDialog([guard](const Emoji& emoji) {
             if (guard)
                 guard->setSelectedEmoji(emoji.name);
-        });
+        }, this);
     });
     connect(&m_registry, &EmojiRegistry::customEmojiAdded, this,
             [this](const QString& name) {
@@ -153,17 +183,17 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
     m_suggestionSection = new QWidget(scroll);
     auto* suggestions = new QVBoxLayout(m_suggestionSection);
     suggestions->setContentsMargins(10, 12, 22, 10);
-    suggestions->setSpacing(5);
+    suggestions->setSpacing(3);
     scroll->setWidget(m_suggestionSection);
 
     m_recentSection = new QWidget(m_suggestionSection);
     auto* recentLayout = new QVBoxLayout(m_recentSection);
     recentLayout->setContentsMargins(0, 0, 0, 12);
-    recentLayout->setSpacing(5);
+    recentLayout->setSpacing(3);
     auto* recentTitle = new QLabel(tr("RECENT"), m_recentSection);
     recentLayout->addWidget(recentTitle);
     m_recentRows = new QVBoxLayout;
-    m_recentRows->setSpacing(3);
+    m_recentRows->setSpacing(2);
     recentLayout->addLayout(m_recentRows);
     m_recentSection->hide();
     suggestions->addWidget(m_recentSection);
@@ -257,10 +287,10 @@ QPushButton* CustomStatusEditorDialog::createSuggestionButton(
     auto* button = new QPushButton(parent);
     button->setObjectName(objectName);
     button->setFlat(true);
-    button->setMinimumHeight(42);
+    button->setMinimumHeight(38);
     button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* layout = new QHBoxLayout(button);
-    layout->setContentsMargins(8, 4, 8, 4);
+    layout->setContentsMargins(8, 3, 8, 3);
     layout->setSpacing(12);
 
     auto* emoji = new QLabel(button);
@@ -354,13 +384,9 @@ void CustomStatusEditorDialog::setRecentStatuses(
 
 void CustomStatusEditorDialog::updateSuggestionVisibility()
 {
-    const bool empty = !hasCustomStatusContent(statusEmoji(), statusText());
-    const QString initialDuration = m_initial.duration == QLatin1String("dont_clear")
-        ? QString() : m_initial.duration;
-    const bool unchanged = statusEmoji() == m_initial.emoji
-        && statusText() == m_initial.text
-        && statusDuration() == initialDuration;
-    m_suggestionsScroll->setVisible(empty || unchanged);
+    // Keep recent and suggested statuses available when the user edits a
+    // message or changes its emoji. Selecting a preset only fills the form.
+    // Hiding this area caused the unexpected disappearance of both groups.
 
     // The web client avoids repeating a recently used status in suggestions.
     for (int i = 0; i < m_presets.size(); ++i) {
