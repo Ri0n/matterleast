@@ -46,7 +46,7 @@ public:
 class FakeCallsHost final : public MatterLeast::PluginApi::CallsHostInterface
 {
 public:
-    bool authenticated() const override { return true; }
+    bool authenticated() const override { return signedIn; }
     QString localUserId() const override { return QStringLiteral("test-local-user"); }
 
     void request(const QString&, const QString&, const QJsonObject&,
@@ -58,6 +58,7 @@ public:
 
     void providerChanged() override { ++changes; }
 
+    bool signedIn = true;
     int changes = 0;
     int requests = 0;
 };
@@ -94,6 +95,10 @@ private slots:
             plugin.instance());
         QVERIFY(provider);
         QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Idle);
+        calls.signedIn = false;
+        QVERIFY(!provider->joinCall(QStringLiteral("channel-123")));
+        QVERIFY(plugin.isEnabled()); // A missing login must not hide the plugin.
+        calls.signedIn = true;
         QVERIFY(provider->joinCall(QStringLiteral("channel-123")));
         QVERIFY(!provider->startCall(QStringLiteral("other-channel")));
         QCOMPARE(provider->snapshot().state,
