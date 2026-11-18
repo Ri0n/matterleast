@@ -39,6 +39,20 @@ emoji, text, and expiration controls without submitting the status. Any field
 can be changed before pressing OK. While the user edits a status, the
 suggestion list collapses, as in the web client.
 
+The status message input embeds a **leading emoji QAction** instead of a
+second text field. The action draws the selected emoji next to a subtle
+vertical divider and opens the ordinary emoji picker. Backspace when the
+cursor is at the beginning of the message (and no selection exists) removes
+the emoji without deleting message characters. An empty emoji uses a neutral
+choose-emoji icon; selecting a preset or picker emoji updates the action.
+The icon also refreshes when a lazily resolved custom emoji arrives.
+
+The editor uses layout-managed outer and scroll-content padding, slightly
+taller suggestion rows and spacing between the Recent and Suggestions groups.
+The compact suggestions scroll area disables the global edge-jump buttons
+but keeps its normal scroll bar. The date/time label and control are hidden
+together unless an explicit date was chosen.
+
 Recent statuses are **not** a separate local history. The server automatically
 adds successful custom status changes to the
 `custom_status/recent_custom_statuses` user preference. On opening the
