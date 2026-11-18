@@ -33,7 +33,7 @@ private:
     Backend& _backend;
     QString _fileId;
     QString _fileName;
-    QString _savedPath;
+    qint64 _fileSize = 0;
     QTemporaryFile _temporaryFile;
     QPointer<QNetworkReply> _downloadReply;
     QLabel* _nameLabel = nullptr;

@@ -59,10 +59,12 @@ void AttachmentSaveFile::saveToPath(Backend& backend, const QString& fileId,
     // Playback already downloaded the original file into a backend-owned
     // temporary cache. Reuse it without a second HTTP request; copy outside
     // the GUI thread and commit atomically to the user's destination.
-    if (!cachedPath.isEmpty() && QFileInfo::exists(cachedPath)) {
+    const QString sourcePath = !cachedPath.isEmpty() && QFileInfo::exists(cachedPath)
+        ? cachedPath : AttachmentService::instance(backend).localFilePath(fileId);
+    if (!sourcePath.isEmpty()) {
         auto error = std::make_shared<QString>();
-        auto* worker = QThread::create([cachedPath, destination, error] {
-            QFile source(cachedPath);
+        auto* worker = QThread::create([sourcePath, destination, error] {
+            QFile source(sourcePath);
             if (!source.open(QIODevice::ReadOnly)) {
                 *error = source.errorString();
                 return;
@@ -84,7 +86,13 @@ void AttachmentSaveFile::saveToPath(Backend& backend, const QString& fileId,
             if (!target.commit()) *error = target.errorString();
         });
         QObject::connect(worker, &QThread::finished, &backend,
-                         [error, reportError] { reportError(*error); });
+                         [&backend, fileId, destination, error, reportError] {
+            if (error->isEmpty()) {
+                AttachmentService::instance(backend).rememberLocalFile(
+                    fileId, destination);
+            }
+            reportError(*error);
+        });
         QObject::connect(worker, &QThread::finished, worker, &QObject::deleteLater);
         worker->start();
         return;
@@ -93,7 +101,11 @@ void AttachmentSaveFile::saveToPath(Backend& backend, const QString& fileId,
     // QSaveFile inside AttachmentService also prevents partially saved media
     // and handles authentication, redirects and HTTP/server errors.
     AttachmentService::instance(backend).downloadToFile(
-        fileId, destination, {}, [reportError](const QString& error) {
+        fileId, destination, {}, [&backend, fileId, destination, reportError](const QString& error) {
+            if (error.isEmpty()) {
+                AttachmentService::instance(backend).rememberLocalFile(
+                    fileId, destination);
+            }
             reportError(error);
         });
 }

@@ -121,12 +121,15 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     const QString fileId = file.id;
     const QString fileName = file.name;
     const uint64_t fileSize = file.size;
-    const auto detectExistingDownload = [this, fileName, fileSize, revealButton] {
+    const auto detectExistingDownload = [this, &backend, fileId, fileName, fileSize, revealButton] {
         const QString defaultDir =
             QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
         const QString configuredDir = MLOptions::instance()
             ->optionObject<QString>(DOWNLOAD_LOCATION, defaultDir)->value().toString();
-        const QFileInfo candidate(QDir(configuredDir).filePath(fileName));
+        const QString known = AttachmentService::instance(backend).localFilePath(
+            fileId, static_cast<qint64>(fileSize));
+        const QFileInfo candidate(known.isEmpty()
+            ? QDir(configuredDir).filePath(fileName) : known);
         if (!candidate.isFile()
             || static_cast<uint64_t>(candidate.size()) != fileSize) {
             return;
@@ -211,7 +214,7 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
                             .arg(QLocale::system().formattedDataSize(received))
                             .arg(QLocale::system().formattedDataSize(total)));
             },
-            [self, fileDestination, cancelButton, revealButton](const QString& error) {
+            [self, &backend, fileId, fileDestination, cancelButton, revealButton](const QString& error) {
                 if (!self) return;
                 self->_downloadReply = nullptr;
                 self->ui->downloadButton->setEnabled(true);
@@ -222,6 +225,8 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
                     emit self->dimensionsChanged();
                     return;
                 }
+                AttachmentService::instance(backend).rememberLocalFile(
+                    fileId, fileDestination);
                 self->downloadedPath = QFileInfo(fileDestination).absoluteFilePath();
                 self->ui->downloadedLabel->setText(self->downloadedPath);
                 self->ui->downloadedLabel->setToolTip(self->tr("Select and copy the saved file path"));
@@ -231,9 +236,12 @@ AttachedBinaryFile::AttachedBinaryFile(Backend& backend, const BackendFile& file
     });
 
     connect(ui->openButton, &QPushButton::clicked, this,
-            [this, &backend, fileId, fileName, cancelButton] {
+            [this, &backend, fileId, fileName, fileSize, cancelButton, detectExistingDownload] {
+        // A batch save can finish after this card was constructed.
+        detectExistingDownload();
         if (!downloadedPath.isEmpty()) {
-            if (QFileInfo::exists(downloadedPath)) {
+            const QFileInfo available(downloadedPath);
+            if (available.isFile() && static_cast<uint64_t>(available.size()) == fileSize) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(downloadedPath));
                 return;
             }

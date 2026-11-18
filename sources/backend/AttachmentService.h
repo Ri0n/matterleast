@@ -3,6 +3,7 @@
 #include <functional>
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QHash>
 #include <QObject>
 #include <QNetworkAccessManager>
@@ -31,6 +32,14 @@ public:
     // may be aborted by the caller; destruction belongs to this service.
     QNetworkReply* downloadToFile(const QString& fileId, const QString& path,
                                   ProgressCallback progress, CompletionCallback completed);
+    // A successfully saved attachment is reusable across virtualized message widgets.
+    // Only user-owned destinations are recorded; missing/modified files are
+    // rejected at lookup, and entries are scoped to this backend session.
+    void rememberLocalFile(const QString& fileId, const QString& path);
+    // preferredPath is used when a media decoder reopens an earlier saved
+    // location after another copy of the same attachment was saved.
+    QString localFilePath(const QString& fileId, qint64 expectedSize = -1,
+                          const QString& preferredPath = {});
     void retrievePreview(const QString& fileId, Callback callback);
     void retrieveThumbnail(const QString& fileId, Callback callback);
 
@@ -42,6 +51,12 @@ private:
     Backend& backend;
     HTTPConnector httpConnector;
     QNetworkAccessManager downloadManager;
+    struct LocalFile {
+        QString path;
+        qint64 size = 0;
+        QDateTime modified;
+    };
+    QHash<QString, QVector<LocalFile>> localFiles;
     QHash<QString, QVector<Callback>> pendingCallbacks;
 };
 

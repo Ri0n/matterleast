@@ -38,6 +38,7 @@ CompactAttachmentRow::CompactAttachmentRow(
     , _backend(backend)
     , _fileId(file.id)
     , _fileName(file.name)
+    , _fileSize(static_cast<qint64>(file.size))
 {
     setObjectName(QStringLiteral("compactAttachmentRow"));
     setFixedHeight(36);
@@ -118,8 +119,10 @@ CompactAttachmentRow::CompactAttachmentRow(
         if (_downloadReply) {
             return;
         }
-        if (!_savedPath.isEmpty() && QFileInfo::exists(_savedPath)) {
-            QDesktopServices::openUrl(QUrl::fromLocalFile(_savedPath));
+        const QString localPath = AttachmentService::instance(_backend)
+            .localFilePath(_fileId, _fileSize);
+        if (!localPath.isEmpty()) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(localPath));
             return;
         }
 
@@ -213,7 +216,8 @@ void CompactAttachmentRow::beginDownload(const QString& destination, bool openAf
             if (openAfter) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(destination));
             } else {
-                self->_savedPath = destination;
+                AttachmentService::instance(self->_backend).rememberLocalFile(
+                    self->_fileId, destination);
                 self->_saveButton->setToolTip(self->tr("Download again"));
                 self->_openButton->setToolTip(self->tr("Open saved file"));
             }

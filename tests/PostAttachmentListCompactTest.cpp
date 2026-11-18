@@ -1,6 +1,9 @@
 #include <QtTest>
 
 #include <QJsonObject>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QPushButton>
 #include <QFile>
 #include <QFileInfo>
 #include <QLayout>
@@ -10,9 +13,12 @@
 
 #include "build-config.h"
 #include "backend/Backend.h"
+#include "backend/AttachmentService.h"
 #include "backend/types/BackendFile.h"
 #include "chat-area/post/attachments/PostAttachmentList.h"
 #include "chat-area/post/attachments/AttachmentSaveFile.h"
+#include "chat-area/post/attachments/AttachedBinaryFile.h"
+#include "chat-area/post/attachments/CompactAttachmentRow.h"
 #if BUILD_MULTIMEDIA
 #include "chat-area/post/attachments/AttachedVideoFile.h"
 #include <QMediaPlayer>
@@ -24,6 +30,8 @@ using namespace Mattermost;
 class PostAttachmentListCompactTest : public QObject
 {
     Q_OBJECT
+
+    QUrl openedUrl;
 
 private:
     static std::list<BackendFile> files(int count)
@@ -41,6 +49,88 @@ private:
     }
 
 private slots:
+    void captureLocalOpen(const QUrl& url)
+    {
+        openedUrl = url;
+    }
+
+    void savedAttachmentsOpenWithoutAnotherDownload()
+    {
+        Backend backend;
+        QTemporaryDir folder;
+        QVERIFY(folder.isValid());
+        const QByteArray payload("batch saved attachment");
+        const QString saved = folder.filePath(QStringLiteral("custom-name.txt"));
+        QFile output(saved);
+        QVERIFY(output.open(QIODevice::WriteOnly));
+        QCOMPARE(output.write(payload), payload.size());
+        output.close();
+
+        const QString fileId = QStringLiteral("batch-file-id");
+        QJsonObject json {
+            {QStringLiteral("id"), fileId},
+            {QStringLiteral("name"), QStringLiteral("original-name.txt")},
+            {QStringLiteral("mime_type"), QStringLiteral("text/plain")},
+            {QStringLiteral("size"), payload.size()}
+        };
+        const BackendFile file(json);
+        auto& service = AttachmentService::instance(backend);
+
+        // The row/card is created before the batch save finishes, then the
+        // successful transfer registers a non-default destination.
+        CompactAttachmentRow compact(backend, file);
+        AttachedBinaryFile regular(backend, file);
+        service.rememberLocalFile(fileId, saved);
+        QCOMPARE(service.localFilePath(fileId, payload.size()), QFileInfo(saved).absoluteFilePath());
+        QCOMPARE(service.localFilePath(fileId, payload.size() + 1), QString());
+
+        QDesktopServices::setUrlHandler("file", this, "captureLocalOpen");
+        const auto openButton = [](QWidget& widget) -> QAbstractButton* {
+            for (auto* button : widget.findChildren<QAbstractButton*>()) {
+                if (button->toolTip() == QStringLiteral("Open file"))
+                    return button;
+            }
+            return nullptr;
+        };
+        auto* compactOpen = openButton(compact);
+        auto* regularOpen = openButton(regular);
+        QVERIFY(compactOpen);
+        QVERIFY(regularOpen);
+        compactOpen->click();
+        QCOMPARE(openedUrl, QUrl::fromLocalFile(QFileInfo(saved).absoluteFilePath()));
+        openedUrl.clear();
+        regularOpen->click();
+        QCOMPARE(openedUrl, QUrl::fromLocalFile(QFileInfo(saved).absoluteFilePath()));
+        QDesktopServices::unsetUrlHandler("file");
+
+        // Removing a saved file must not leave a stale path in the registry.
+        QVERIFY(QFile::remove(saved));
+        QCOMPARE(service.localFilePath(fileId, payload.size()), QString());
+    }
+
+    void savedFileLookupFallsBackToOlderValidCopy()
+    {
+        Backend backend;
+        QTemporaryDir folder;
+        QVERIFY(folder.isValid());
+        auto& service = AttachmentService::instance(backend);
+        const QString id = QStringLiteral("same-attachment");
+        const QByteArray data("same payload");
+        const QString first = folder.filePath(QStringLiteral("first.txt"));
+        const QString second = folder.filePath(QStringLiteral("second.txt"));
+        for (const QString& path : {first, second}) {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write(data), data.size());
+            file.close();
+            service.rememberLocalFile(id, path);
+        }
+        QCOMPARE(service.localFilePath(id, data.size()), second);
+        QVERIFY(QFile::remove(second));
+        QCOMPARE(service.localFilePath(id, data.size()), first);
+        QCOMPARE(service.localFilePath(QStringLiteral("different-id")), QString());
+    }
+
     void fourAttachmentsUseCollapsedRowsWithoutPreviews()
     {
         Backend backend;

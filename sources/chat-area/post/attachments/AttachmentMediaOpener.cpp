@@ -31,6 +31,7 @@ struct AttachmentMediaOpener::Waiter {
 };
 
 struct AttachmentMediaOpener::Entry {
+    QString fileId;
     QString path;
     ITEMediaState* state = nullptr;
     QPointer<QNetworkReply> reply;
@@ -80,7 +81,10 @@ AttachmentMediaOpener::ensureEntry(const QUrl& source)
         // files we ourselves placed in this backend's private media cache.
         const QString path = source.toLocalFile();
         for (const auto& entry : _entries) {
-            if (entry->path == path) return entry;
+            if (entry->path == path
+                || AttachmentService::instance(_backend).localFilePath(
+                    entry->fileId, -1, path) == path)
+                return entry;
         }
         return {};
     }
@@ -107,9 +111,11 @@ AttachmentMediaOpener::ensureEntry(const QUrl& source)
     }
 
     auto entry = std::make_shared<Entry>();
+    entry->fileId = source.path().mid(1);
     entry->path = QDir(_directory.path()).filePath(filename);
     entry->state = new ITEMediaState(this);
-    if (QFileInfo::exists(entry->path)) {
+    if (QFileInfo::exists(entry->path)
+        || !AttachmentService::instance(_backend).localFilePath(entry->fileId).isEmpty()) {
         entry->state->setCachedRanges({{0, 1}});
     }
     _entries.insert(key, entry);
@@ -119,17 +125,20 @@ AttachmentMediaOpener::ensureEntry(const QUrl& source)
 QIODevice* AttachmentMediaOpener::open(QUrl& source)
 {
     const auto entry = ensureEntry(source);
-    if (!entry || !QFileInfo::exists(entry->path)) {
-        return nullptr;
-    }
-    auto* device = new QFile(entry->path, this);
+    if (!entry) return nullptr;
+    const QString saved = AttachmentService::instance(_backend)
+        .localFilePath(entry->fileId, -1,
+                       source.isLocalFile() ? source.toLocalFile() : QString());
+    const QString path = QFileInfo::exists(entry->path) ? entry->path : saved;
+    if (path.isEmpty()) return nullptr;
+    auto* device = new QFile(path, this);
     if (!device->open(QIODevice::ReadOnly)) {
         delete device;
         return nullptr;
     }
     // Use a local URL with the correct extension as the decoder's format hint.
     // Authentication and network access are entirely owned by AttachmentService.
-    source = QUrl::fromLocalFile(entry->path);
+    source = QUrl::fromLocalFile(path);
     return device;
 }
 
@@ -159,7 +168,9 @@ ITEMediaOpener::CancelOpen AttachmentMediaOpener::openAsync(
 
     // A file already downloaded for this session is reusable across players.
     // Completion is queued so qite can establish its cancellation callback.
-    if (QFileInfo::exists(entry->path)) {
+    if (QFileInfo::exists(entry->path)
+        || !AttachmentService::instance(_backend).localFilePath(entry->fileId).isEmpty()) {
+        entry->state->setCachedRanges({{0, 1}});
         QTimer::singleShot(0, this, [guard, waiter, source] {
             if (!guard || waiter->cancelled || !waiter->receiver) return;
             QUrl resolved = source;

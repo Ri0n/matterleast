@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -34,6 +35,52 @@ AttachmentService::AttachmentService(Backend& sourceBackend)
             &backend, &Backend::onNetworkError);
     connect(&httpConnector, &HTTPConnector::onHttpError,
             &backend, &Backend::onHttpError);
+}
+
+void AttachmentService::rememberLocalFile(const QString& fileId, const QString& path)
+{
+    const QFileInfo file(path);
+    if (fileId.isEmpty() || !file.isFile() || !file.isReadable()) return;
+
+    const QString absolutePath = file.absoluteFilePath();
+    auto& entries = localFiles[fileId];
+    for (auto it = entries.begin(); it != entries.end();) {
+        if (it->path == absolutePath) {
+            it = entries.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    entries.prepend({absolutePath, file.size(), file.lastModified()});
+    // Repeated saves of one attachment should not grow the session indefinitely.
+    if (entries.size() > 8) entries.resize(8);
+}
+
+QString AttachmentService::localFilePath(const QString& fileId, qint64 expectedSize,
+                                         const QString& preferredPath)
+{
+    auto found = localFiles.find(fileId);
+    if (found == localFiles.end()) return {};
+
+    const QString preferred = preferredPath.isEmpty()
+        ? QString() : QFileInfo(preferredPath).absoluteFilePath();
+    auto& entries = found.value();
+    QString fallback;
+    for (auto it = entries.begin(); it != entries.end();) {
+        const QFileInfo file(it->path);
+        if (!file.isFile() || !file.isReadable() || file.size() != it->size
+            || file.lastModified() != it->modified) {
+            it = entries.erase(it);
+            continue;
+        }
+        if (expectedSize < 0 || file.size() == expectedSize) {
+            if (preferred.isEmpty() || it->path == preferred) return it->path;
+            if (fallback.isEmpty()) fallback = it->path;
+        }
+        ++it;
+    }
+    if (entries.isEmpty()) localFiles.erase(found);
+    return fallback;
 }
 
 void AttachmentService::retrieveFile(const QString& fileId, Callback callback)
