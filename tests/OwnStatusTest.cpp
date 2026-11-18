@@ -302,6 +302,104 @@ private slots:
         QVERIFY(preset->isVisible()); // Removed recent returns to suggestions.
     }
 
+    void recentStatusesUseMattermostPreferences()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
+                                    .arg(server.serverPort()));
+
+        const QString expiresAt = QStringLiteral("2027-01-01T12:00:00Z");
+        const QJsonObject saved {
+            {QStringLiteral("emoji"), QStringLiteral("palm_tree")},
+            {QStringLiteral("text"), QStringLiteral("On a vacation")},
+            {QStringLiteral("duration"), QStringLiteral("this_week")},
+            {QStringLiteral("expires_at"), expiresAt}
+        };
+        const QJsonObject preference {
+            {QStringLiteral("category"), QStringLiteral("custom_status")},
+            {QStringLiteral("name"), QStringLiteral("recent_custom_statuses")},
+            {QStringLiteral("value"), QString::fromUtf8(
+                QJsonDocument(QJsonArray {saved}).toJson(QJsonDocument::Compact))}
+        };
+        const QByteArray recentResponse =
+            QJsonDocument(QJsonArray {preference}).toJson(QJsonDocument::Compact);
+        QByteArray lastMethod, lastPath, lastBody;
+        int requests = 0;
+
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (QTcpSocket* socket = server.nextPendingConnection()) {
+                auto buffer = QSharedPointer<QByteArray>::create();
+                connect(socket, &QTcpSocket::readyRead, socket,
+                        [&, socket, buffer] {
+                    buffer->append(socket->readAll());
+                    const int headerEnd = buffer->indexOf("\r\n\r\n");
+                    if (headerEnd < 0)
+                        return;
+                    const QByteArray headers = buffer->left(headerEnd);
+                    int bodyLength = 0;
+                    for (const QByteArray& line : headers.split('\n')) {
+                        if (line.trimmed().toLower().startsWith("content-length:"))
+                            bodyLength = line.mid(line.indexOf(':') + 1)
+                                             .trimmed().toInt();
+                    }
+                    if (buffer->size() < headerEnd + 4 + bodyLength)
+                        return;
+                    const QByteArrayList requestLine =
+                        headers.left(headers.indexOf("\r\n")).split(' ');
+                    lastMethod = requestLine.at(0);
+                    lastPath = requestLine.at(1);
+                    lastBody = buffer->mid(headerEnd + 4, bodyLength);
+                    ++requests;
+
+                    const QByteArray response = lastMethod == "GET"
+                        ? recentResponse : QByteArrayLiteral("{}");
+                    socket->write(QByteArrayLiteral(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Content-Length: ") + QByteArray::number(response.size())
+                        + QByteArrayLiteral("\r\nConnection: close\r\n\r\n")
+                        + response);
+                    socket->flush();
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+
+        Backend backend;
+        QVERIFY(backend.getStorage().addUser(
+            QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")}},
+            true));
+
+        bool fetched = false;
+        QVector<BackendUserCustomStatus> recent;
+        backend.retrieveRecentCustomStatuses(
+            [&](QVector<BackendUserCustomStatus> statuses) {
+                recent = std::move(statuses);
+                fetched = true;
+            });
+        QTRY_VERIFY(fetched);
+        QCOMPARE(requests, 1);
+        QCOMPARE(lastMethod, QByteArrayLiteral("GET"));
+        QCOMPARE(lastPath, QByteArrayLiteral(
+            "/api/v4/users/user-1/preferences/custom_status"));
+        QCOMPARE(recent.size(), 1);
+        QCOMPARE(recent.first().emoji, QStringLiteral("palm_tree"));
+        QCOMPARE(recent.first().text, QStringLiteral("On a vacation"));
+        QCOMPARE(recent.first().duration, QStringLiteral("this_week"));
+        QCOMPARE(recent.first().expiresAt, expiresAt);
+
+        bool removed = false, succeeded = false;
+        backend.removeRecentCustomStatus(recent.first(),
+            [&](bool ok, const QString&) { succeeded = ok; removed = true; });
+        QTRY_VERIFY(removed);
+        QVERIFY(succeeded);
+        QCOMPARE(requests, 2);
+        QCOMPARE(lastMethod, QByteArrayLiteral("POST"));
+        QCOMPARE(lastPath, QByteArrayLiteral(
+            "/api/v4/users/user-1/status/custom/recent/delete"));
+        QCOMPARE(QJsonDocument::fromJson(lastBody).object(), saved);
+    }
+
     void reconnectWithMultiplePendingReplies()
     {
         QTcpServer server;
