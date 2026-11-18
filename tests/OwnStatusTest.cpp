@@ -333,7 +333,11 @@ private slots:
             QStringLiteral("customStatusEmojiButton"));
         QVERIFY(emojiButton);
         QCOMPARE(emojiButton->cursor().shape(), Qt::PointingHandCursor);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         QCOMPARE(text->style()->pixelMetric(QStyle::PM_LineEditIconSize, nullptr, text), 30);
+#else
+        QCOMPARE(text->style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, text), 30);
+#endif
         QVERIFY(emojiButton->width() >= 30);
         QVERIFY(emojiButton->height() >= 30);
         QVERIFY(scroll->isVisible());
