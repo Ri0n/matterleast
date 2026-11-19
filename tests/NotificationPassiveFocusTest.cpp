@@ -4,6 +4,12 @@
 #include <QRegularExpression>
 #include <QString>
 
+#include "notifications/TaskbarAttentionPolicy.h"
+
+using namespace Mattermost;
+
+Q_DECLARE_METATYPE(TaskbarAttention)
+
 namespace {
 
 QString readSource(const QString& relativePath)
@@ -34,13 +40,34 @@ class NotificationPassiveFocusTest : public QObject
     Q_OBJECT
 
 private slots:
+    void taskbarAttention_data()
+    {
+        QTest::addColumn<QString>("platform");
+        QTest::addColumn<TaskbarAttention>("attention");
+
+        QTest::newRow("x11") << QStringLiteral("xcb") << TaskbarAttention::NativeAlert;
+        QTest::newRow("windows") << QStringLiteral("windows") << TaskbarAttention::NativeAlert;
+        QTest::newRow("macos") << QStringLiteral("cocoa") << TaskbarAttention::NativeAlert;
+        QTest::newRow("wayland") << QStringLiteral("wayland") << TaskbarAttention::LauncherUrgency;
+        QTest::newRow("wayland-egl") << QStringLiteral("wayland-egl")
+                                    << TaskbarAttention::LauncherUrgency;
+        QTest::newRow("other") << QStringLiteral("offscreen") << TaskbarAttention::None;
+    }
+
+    void taskbarAttention()
+    {
+        QFETCH(QString, platform);
+        QFETCH(TaskbarAttention, attention);
+        QCOMPARE(taskbarAttentionFor(platform, Qt::ApplicationInactive), attention);
+        QCOMPARE(taskbarAttentionFor(platform, Qt::ApplicationActive), TaskbarAttention::None);
+    }
+
     void incomingNotificationsMustNotRequestWindowFocus()
     {
         // An offscreen QtTest has no real window manager. Trying to raise an
         // actual window cannot prove stacking behavior and crashes on some
         // Linux Qt platform plugins. Guard the concrete production delivery
-        // path instead: new messages may publish notifications, but may not
-        // make any window-manager attention or activation requests.
+        // path against direct window activation or an unguarded alert().
         const QString source = readSource(QStringLiteral("sources/mainwindow.cpp"));
         QVERIFY2(!source.isEmpty(), "Cannot read MainWindow source");
         const QString delivery = functionSection(
@@ -48,10 +75,11 @@ private slots:
             QStringLiteral("void MainWindow::unreadMessagesNotify("));
         QVERIFY2(!delivery.isEmpty(), "Cannot locate messageNotify implementation");
         QVERIFY(delivery.contains(QStringLiteral("notificationManager->show(")));
+        QVERIFY(delivery.contains(
+            QStringLiteral("notificationManager->requestTaskbarAttention(*this)")));
 
-        // Match actual calls at the beginning of a statement, not comments
-        // describing APIs. QApplication::alert is included because a desktop
-        // may raise the window while handling its 'attention' request.
+        // Match calls at the beginning of a statement. Only the platform
+        // policy tested above may route a notification to QApplication::alert.
         const QRegularExpression unwanted(QStringLiteral(
             R"((?:^|\n)\s*(?:QApplication::alert|(?:this->)?(?:raise|activateWindow|showNormal))\s*\()"));
         QVERIFY2(!delivery.contains(unwanted),
@@ -78,7 +106,7 @@ private slots:
         QVERIFY2(!manager.isEmpty(), "Cannot read NotificationManager source");
         const QString passive = functionSection(
             manager, QStringLiteral("void NotificationManager::show("),
-            QStringLiteral("void NotificationManager::onFallbackMessageClicked("));
+            QStringLiteral("void NotificationManager::requestTaskbarAttention("));
         QVERIFY2(!passive.isEmpty(), "Cannot locate notification delivery implementation");
         QVERIFY(!passive.contains(QStringLiteral("emit activated(")));
     }

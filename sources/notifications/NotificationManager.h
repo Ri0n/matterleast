@@ -13,6 +13,7 @@
 #endif
 
 class QSystemTrayIcon;
+class QWidget;
 
 namespace Mattermost {
 
@@ -31,8 +32,10 @@ class NotificationManager : public QObject {
     Q_OBJECT
 public:
     explicit NotificationManager(QSystemTrayIcon& trayIcon, QObject* parent = nullptr);
+    ~NotificationManager() override;
 
     void show(const QString& title, const QString& body, const NotificationTarget& target);
+    void requestTaskbarAttention(QWidget& window);
 
 signals:
     void activated(const NotificationTarget& target);
@@ -49,7 +52,9 @@ private:
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
     bool showFreedesktop(const QString& title, const QString& body,
                          const NotificationTarget& target);
+    void clearLauncherUrgency();
     bool freedesktopActionsSupported;
+    bool launcherUrgent = false;
     QMap<uint, NotificationTarget> freedesktopTargets;
 #endif
 

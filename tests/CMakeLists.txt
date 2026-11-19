@@ -21,9 +21,8 @@ add_test(NAME tray-window-controller-test COMMAND tray-window-controller-test)
 set_tests_properties(tray-window-controller-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-# Native notification delivery must not request focus; explicit click
-# activation remains allowed. This is a source-level contract test because
-# offscreen Qt has no window manager and cannot verify raise/activation.
+# Test taskbar attention routing and the notification call sites without a
+# window manager. Actual focus and stacking require a desktop session.
 add_executable(notification-passive-focus-test NotificationPassiveFocusTest.cpp)
 target_include_directories(notification-passive-focus-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
