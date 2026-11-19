@@ -99,13 +99,24 @@ This does not change mention policy or muted-channel suppression.
 
 ## Taskbar attention and window focus
 
-Incoming notifications never raise or activate MatterLeast windows. Desktop
-notifications remain eligible while the user works in another visible window,
-including a detached MatterLeast thread. The taskbar/window attention hint is
-requested only when the whole application is inactive, and is targeted at the
-main window, not at every top-level dialog or detached thread. Clicking an
-actual desktop notification still activates MatterLeast and navigates to the
-post as an explicit user action.
+Incoming notifications must never raise or activate MatterLeast windows.
+Desktop notifications remain eligible while the user works in another visible
+window, including a detached MatterLeast thread. This must remain true even
+when Qt considers MatterLeast inactive, or after following a link from a chat
+into an external browser without clicking inside that browser.
+
+Do not use `QApplication::alert()` for incoming messages. Despite requesting
+attention rather than activation directly, its desktop/window-manager
+implementation can promote or raise the window on some environments (and the
+effect is not necessarily consistent between consecutive notifications).
+Unread counts, the red/blue tray badges, and the normal native desktop
+notification remain available without this taskbar attention request.
+
+The **only** notification path that calls `show()`, `raise()` or
+`activateWindow()` is an explicit notification activation event:
+`NotificationManager::activated`, emitted on the notification's default
+action or fallback tray message click. Clicking the notification still
+activates MatterLeast and navigates to the indicated post or thread.
 
 
 ## System tray unread badges (issue #278)
