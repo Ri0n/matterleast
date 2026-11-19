@@ -202,7 +202,10 @@ private slots:
 
         ChannelTree tree;
         tree.addTeam(backend, *team);
-        // Force a local category reconciliation without any server response.
+        // In the real window this is part of startup: it subscribes to
+        // SidebarService::categoriesChanged. Without it the test's local
+        // category updates never reach the tree.
+        tree.populateSidebars(backend);
         sidebar.applyLocalTeamState(team->id, state);
 
         const auto rowFor = [&tree](const QString& id) -> QTreeWidgetItem* {
