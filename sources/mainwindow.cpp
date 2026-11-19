@@ -1417,14 +1417,13 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 		title = post.getDisplayAuthorName() + " posted in '" + channel.display_name + "'";
 	}
 
+    // Publishing a desktop notification is passive. QApplication::alert()
+    // requests window-manager attention and on some desktops can raise this
+    // window over another application even without a notification click.
+    // Preserve explicit user-initiated activation only in the
+    // NotificationManager::activated handler in MainWindowRealtime.cpp.
 	notificationManager->show(title, post.message,
 	                          NotificationTarget {channel.id, post.id, post.root_id});
-    // A null alert target marks *all* MatterLeast top-level windows for
-    // attention, including detached threads and dialogs. Some window managers
-    // then raise the main window over the window the user is working in.
-    // Only flash the main taskbar entry while the entire app is inactive.
-    if (QApplication::applicationState() != Qt::ApplicationActive)
-        QApplication::alert(this, 0);
 }
 
 void MainWindow::unreadMessagesNotify(const BackendChannel& channel)
