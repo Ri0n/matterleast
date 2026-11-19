@@ -30,7 +30,7 @@ credential or create media on `enable()`. The call may start only when the
 Backend is authenticated. All Mattermost API authentication, cookies, TLS
 configuration, reconnect handling, and network transport remain in the core.
 The Calls host accepts only supported HTTP methods on official Calls plugin
-paths below `plugins/com.mattermost.calls/api/v1/`. An HTTP completion is
+paths below `plugins/com.mattermost.calls/` at the server root. An HTTP completion is
 discarded when its QObject request context is destroyed. Importantly, its
 plugin-owned `std::function` target is cleared synchronously before the
 module unloads; merely testing a `QPointer` on a later response is not enough,
@@ -105,3 +105,36 @@ leave, disable/unload, re-enable, connection-failure state, and cleanup.
 
 The existing plugin SDK external smoke build, signed-plugin policies and
 normal Qt 5/Qt 6 CI must remain green. No existing plugin IID is modified.
+
+## Whiteboard transport (design only)
+
+Psi's collaborative drawing UI and document/operation model should remain
+separate from XMPP/Jingle/SXE. MatterLeast can reuse the interaction and
+presentation concepts, but must inject a transport adapter; merely adding
+a GStreamer data channel is **not** a peer broadcast mechanism.
+
+The official Mattermost RTCD service uses its existing `calls-dc` for RTC
+signaling/metrics, with an explicit message-type decoder and a server-side
+handler per data channel. The SFU does not forward arbitrary custom SCTP
+messages to other call participants. Creating a second channel on the same
+peer connection would also invoke its server-side data-channel handler;
+it is not a supported, independent whiteboard lane.
+Sources: https://github.com/mattermost/rtcd/blob/master/service/rtc/dc.go
+and https://github.com/mattermost/rtcd/blob/master/service/rtc/dc/msg.go.
+
+A practical first transport is an **optional, authenticated Mattermost
+server-side extension**, relaying whiteboard operations over the established
+Mattermost WebSocket mechanism. Only authorized participants in the given
+call/channel may publish or subscribe. A late joiner should receive a
+versioned document snapshot and then an ordered operation tail. Keep
+cursor/pointer moves ephemeral and throttled; persist semantic drawing
+operations (shapes, paths, deletes, undo metadata) with sequence/operation
+IDs and bounded replay. Do not encode every mouse-move as a chat post.
+Neither the current Calls provider nor RTCD should be modified until the
+server capability and wire format are agreed.
+
+The drawing widget should depend only on an interface such as
+`IWhiteboardTransport` (send operation, receive operation, request snapshot,
+connection state); a WebRTC DataChannel transport can be added later if
+Calls/RTCD explicitly supports routing those messages to all participants.
+Do not label server-relayed whiteboards as end-to-end encrypted.

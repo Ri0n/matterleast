@@ -176,9 +176,19 @@ public:
         return backend_.loggedIn() ? backend_.getLoginUser().id : QString();
     }
 
+    bool sendSdp(const QJsonObject& description) override
+    {
+        return backend_.sendCallsSdp(description);
+    }
+
     bool sendAction(const QString& action, const QJsonObject& data) override
     {
         return backend_.sendCallsPluginAction(action, data);
+    }
+
+    QString connectionId() const override
+    {
+        return backend_.callsConnectionId();
     }
 
     void request(const QString& method, const QString& relativePath,

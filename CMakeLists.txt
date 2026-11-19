@@ -220,6 +220,14 @@ endif()
 
 # Keep native plugin policy independent of authentication.
 option(MATTERLEAST_ENABLE_NATIVE_PLUGINS "Allow loading native MatterLeast plugins" ON)
+# Optional Linux audio Calls module. The main MatterLeast target never links
+# against GStreamer; enable only when packaging the separate Calls plugin.
+option(MATTERLEAST_BUILD_CALLS_GSTREAMER "Build optional GStreamer Calls plugin" OFF)
+if(MATTERLEAST_BUILD_CALLS_GSTREAMER
+   AND (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        OR NOT MATTERLEAST_ENABLE_NATIVE_PLUGINS))
+    message(FATAL_ERROR "GStreamer Calls requires Linux and native plugins")
+endif()
 
 # Default builds require system QtKeychain. Explicit ON permits the pinned
 # fallback; only explicit OFF may disable session persistence.
@@ -758,6 +766,27 @@ if(MATTERLEAST_USE_KEYCHAIN AND MATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN)
 endif()
 if(MATTERLEAST_DEBIAN_EXTRA_DEPENDS)
 	string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", ${MATTERLEAST_DEBIAN_EXTRA_DEPENDS}")
+endif()
+# The Calls module is packaged separately. Without this split, dpkg-shlibdeps
+# would pull libgstreamer into the dependencies of ordinary MatterLeast.
+# Keep existing monolithic CPack behavior for builds without the Calls module.
+if(MATTERLEAST_BUILD_CALLS_GSTREAMER)
+    set(CPACK_DEB_COMPONENT_INSTALL ON)
+    set(CPACK_COMPONENTS_ALL Runtime Calls)
+    set(CPACK_DEBIAN_RUNTIME_PACKAGE_NAME "matterleast")
+    set(CPACK_DEBIAN_RUNTIME_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}")
+    set(CPACK_DEBIAN_RUNTIME_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_RUNTIME_PACKAGE_CONFLICTS "mattermost-qt")
+    set(CPACK_DEBIAN_RUNTIME_PACKAGE_SUGGESTS "matterleast-calls-gstreamer")
+    set(CPACK_DEBIAN_CALLS_PACKAGE_NAME "matterleast-calls-gstreamer")
+    set(CPACK_DEBIAN_CALLS_PACKAGE_SECTION "net")
+    # CPack auto-detects ELF dependencies once the MODULE library is properly
+    # assigned to the Calls LIBRARY component. Keep explicit >=1.24 runtime
+    # bounds and the registry-loaded GStreamer elements as well: those are
+    # not guaranteed to be represented by direct ELF DT_NEEDED entries.
+    set(CPACK_DEBIAN_CALLS_PACKAGE_DEPENDS
+        "matterleast (= ${PROJECT_VERSION}), libgstreamer1.0-0 (>= 1.24), libgstreamer-plugins-base1.0-0 (>= 1.24), libgstreamer-plugins-bad1.0-0 (>= 1.24), gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice")
+    set(CPACK_DEBIAN_CALLS_PACKAGE_SHLIBDEPS ON)
 endif()
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 

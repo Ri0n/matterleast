@@ -48,6 +48,13 @@ class FakeCallsHost final : public MatterLeast::PluginApi::CallsHostInterface
 public:
     bool authenticated() const override { return signedIn; }
     QString localUserId() const override { return QStringLiteral("test-local-user"); }
+    QString connectionId() const override { return QStringLiteral("test-connection"); }
+
+    bool sendSdp(const QJsonObject& description) override
+    {
+        lastSdp = description;
+        return true;
+    }
 
     bool sendAction(const QString& action, const QJsonObject& data) override
     {
@@ -70,6 +77,7 @@ public:
     void providerChanged() override { ++changes; }
 
     bool signedIn = true;
+    QJsonObject lastSdp;
     int changes = 0;
     int requests = 0;
     int actions = 0;

@@ -35,6 +35,7 @@ matterleast_sign_plugin(matterleast-seasonal-snow
 
 install(TARGETS matterleast-seasonal-snow
     LIBRARY DESTINATION "${MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR}"
+            COMPONENT Runtime
     RUNTIME DESTINATION "${MATTERLEAST_NATIVE_PLUGIN_INSTALL_DIR}"
-    COMPONENT Runtime
+            COMPONENT Runtime
 )

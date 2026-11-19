@@ -161,6 +161,7 @@ private:
 	void dropEvent (QDropEvent* event) override;
 
 	void setupHeaderUi();
+    void refreshCallButton();
 	void refreshHeaderActionIcons();
 	void requestChannelMemberCount();
 	void updateUsersButton();
@@ -190,6 +191,7 @@ private:
 	QTimer* loadingDelayTimer = nullptr;
 	ThemeIconButton* threadFollowButton = nullptr;
     QToolButton* chatActionsButton = nullptr;
+    QToolButton* chatCallButton = nullptr;
     QMenu* chatActionsMenu = nullptr;
     QPointer<ViewChannelMembersListDialog> channelMembersDialog;
 	QStackedWidget* contentStack = nullptr;

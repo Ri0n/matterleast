@@ -59,6 +59,7 @@
 #include "navigation/AppNavigationService.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/ConversationActionsMenu.h"
+#include "plugins/PluginManager.h"
 #include "ui/IconUtils.h"
 #include "ui/ThemeIconWidgets.h"
 #include "ui_ChatArea.h"
@@ -402,6 +403,35 @@ void ChatArea::setupHeaderUi()
     }
 #endif
 
+    // The Calls module is optional. Reserve no header space for unavailable
+    // capabilities, and never offer a call button in threads or channels yet.
+    if (!isThread && (channel.type == BackendChannel::directChannel
+                      || channel.type == BackendChannel::groupChannel)) {
+        auto& calls = PluginManager::instance(backend);
+        chatCallButton = new QToolButton(this);
+        chatCallButton->setObjectName(QStringLiteral("chatCallButton"));
+        chatCallButton->setAutoRaise(true);
+        chatCallButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        chatCallButton->setIconSize(QSize(HeaderActionIconExtent, HeaderActionIconExtent));
+        chatCallButton->setCursor(Qt::PointingHandCursor);
+        ui->propertieslLayout->addWidget(chatCallButton, 0, Qt::AlignVCenter);
+        connect(chatCallButton, &QToolButton::clicked, this, [this, &calls] {
+            if (!calls.callsAvailable()) return;
+            const auto state = calls.callsSnapshot();
+            if (state.state == MatterLeast::PluginApi::CallsState::Idle) {
+                calls.startCall(channel.id);
+            } else if (state.channelId == channel.id
+                       && state.state != MatterLeast::PluginApi::CallsState::Leaving) {
+                calls.leaveCall();
+            }
+        });
+        connect(&calls, &PluginManager::callsAvailabilityChanged,
+                this, [this] { refreshCallButton(); });
+        connect(&calls, &PluginManager::callsSnapshotChanged,
+                this, [this] { refreshCallButton(); });
+        refreshCallButton();
+    }
+
     chatActionsButton = new QToolButton(this);
     chatActionsButton->setObjectName(QStringLiteral("chatActionsButton"));
     chatActionsButton->setAutoRaise(true);
@@ -481,6 +511,36 @@ void ChatArea::showPinnedPosts(bool show)
         : static_cast<QWidget*>(ui->listWidget));
 }
 
+void ChatArea::refreshCallButton()
+{
+    if (!chatCallButton) return;
+
+    auto& calls = PluginManager::instance(backend);
+    const bool available = calls.callsAvailable();
+    chatCallButton->setVisible(available);
+    if (!available) return;
+
+    const auto state = calls.callsSnapshot();
+    using MatterLeast::PluginApi::CallsState;
+    const bool active = state.state != CallsState::Idle;
+    const bool current = active && state.channelId == channel.id;
+    const bool otherCall = active && !current;
+    const bool leaving = state.state == CallsState::Leaving;
+    const bool failed = state.state == CallsState::Failed;
+    chatCallButton->setEnabled(!otherCall && !leaving);
+
+    const QString hint = otherCall ? tr("A call is active in another conversation")
+        : !active ? tr("Start audio call")
+        : failed ? tr("Close failed call")
+        : state.state == CallsState::Connecting ? tr("Cancel audio call")
+        : tr("Leave audio call");
+    chatCallButton->setToolTip(hint);
+    chatCallButton->setAccessibleName(hint);
+    const QString icon = current ? QStringLiteral(":/icons/call-end")
+                                 : QStringLiteral(":/icons/call-start");
+    chatCallButton->setIcon(IconUtils::symbolicIcon(icon));
+}
+
 void ChatArea::refreshHeaderActionIcons()
 {
     if (!ui) {
@@ -495,6 +555,7 @@ void ChatArea::refreshHeaderActionIcons()
         ui->pinnedPostsButton->setIcon(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/pin")));
     }
+    refreshCallButton();
     if (chatActionsButton) {
         chatActionsButton->setIcon(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/burger")));

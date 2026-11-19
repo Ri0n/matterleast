@@ -315,12 +315,14 @@ public:
     EmojiRegistry& emojiRegistry() { return _emojiRegistry; }
     const EmojiRegistry& emojiRegistry() const { return _emojiRegistry; }
     const QString& serverDomain() const { return loginData.domain; }
+    QString callsConnectionId() const { return webSocketConnector.connectionId(); }
 
     // Authenticated Calls plugin HTTP requests use the existing backend
     // session, cookies, transport, and logout cancellation. No credentials
     // or arbitrary HTTP access are exposed to the native Calls provider.
     using CallsRequestCompletion = std::function<void(int, const QJsonObject&)>;
     bool sendCallsPluginAction(const QString& action, const QJsonObject& data);
+    bool sendCallsSdp(const QJsonObject& description);
     void requestCallsPlugin(const QString& method,
                             const QString& relativePath,
                             const QJsonObject& body,

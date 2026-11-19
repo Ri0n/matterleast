@@ -27,7 +27,9 @@ public:
     // custom_com.mattermost.calls_* action namespace is accepted.
     virtual bool sendAction(const QString& action, const QJsonObject& data) = 0;
 
-    // Calls plugin API path relative to /api/v4/. Only GET/POST/PUT are
+    // Calls API path relative to server root, e.g.
+    // plugins/com.mattermost.calls/config. It is NOT under /api/v4/.
+    // Only GET/POST/PUT are
     // supported. A request is discarded after 'context' is destroyed; pass
     // the provider's QObject as context to avoid callbacks after unloading.
     virtual void request(const QString& method,
@@ -37,6 +39,15 @@ public:
 
     // Notify the main application that snapshot() has changed.
     virtual void providerChanged() = 0;
+
+    // Append new methods after the v1 virtual-method slots. Native providers
+    // compiled against the original CallsHost/1.0 ABI must retain the same
+    // indices for request(), sendAction(), and providerChanged().
+    virtual QString connectionId() const = 0;
+
+    // The server accepts SDP only as binary MessagePack with a compressed
+    // zlib SDP payload. The host owns framing and WebSocket sequencing.
+    virtual bool sendSdp(const QJsonObject& description) = 0;
 };
 
 } // namespace MatterLeast::PluginApi

@@ -20,6 +20,8 @@
         <file alias="emoji">img/emoji.svg</file>
         <file alias="paperclip">img/paperclip.svg</file>
         <file alias="voice-microphone">img/voice-microphone.svg</file>
+        <file alias="call-start">img/call-start.svg</file>
+        <file alias="call-end">img/call-end.svg</file>
         <file alias="message-balloon">img/message-balloon.svg</file>
         <file alias="more-horizontal">img/more-horizontal.svg</file>
         <file alias="edit">img/edit.svg</file>
