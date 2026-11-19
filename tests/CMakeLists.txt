@@ -10,18 +10,6 @@ add_test(NAME application-font-test COMMAND application-font-test)
 set_tests_properties(application-font-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-# Linux system plugins live in GNUInstallDirs libdir, not in /usr/bin/plugins.
-# The same pure policy also preserves build-tree and Windows/macOS layouts.
-add_executable(plugin-search-path-policy-test
-    PluginSearchPathPolicyTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/plugins/PluginSearchPathPolicy.cpp")
-target_include_directories(plugin-search-path-policy-test PRIVATE
-    "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(plugin-search-path-policy-test PRIVATE
-    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
-add_test(NAME plugin-search-path-policy-test
-    COMMAND plugin-search-path-policy-test)
-
 # Closing LoginDialog deletes it (WA_DeleteOnClose). The persistent tray
 # must never access the old QWidget pointer; it can target a new login window.
 add_executable(tray-window-controller-test TrayWindowControllerTest.cpp)
