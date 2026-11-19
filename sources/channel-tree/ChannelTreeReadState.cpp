@@ -1,7 +1,6 @@
 #include "ChannelTree.h"
 
 #include <QMouseEvent>
-#include <QPointer>
 #include <QTimer>
 
 #include "ChannelItem.h"
@@ -32,23 +31,14 @@ void ChannelTree::refreshCurrentChannelReadState(QTreeWidgetItem* item)
 
 void ChannelTree::currentChanged(const QModelIndex& current, const QModelIndex& previous)
 {
-    // Direct-message recency sorting moves existing QTreeWidgetItems with
-    // takeChild()/insertChild(). Taking the current row temporarily detaches it
-    // from the tree and Qt selects a neighbouring row. Treating that transient
-    // model mutation as navigation activates an unrelated ChatArea even though
-    // the user never selected it. Keep the visible conversation authoritative
-    // until its row has been reinserted, then restore the tree current item.
+    // An active row can temporarily be detached during takeChild()/insertChild().
+    // The owning reorder (sidebar reconciliation or ChatArea::moveOnListTop)
+    // now preserves selection synchronously within the structural transaction.
+    // Never treat an intermediate current index as navigation, and never queue
+    // a later setCurrentItem(): that can override a newer user navigation.
     ChatArea* activePage = getCurrentPage();
     if (!renderingSidebar && activePage && activePage->treeItem
         && activePage->treeItem->treeWidget() != this) {
-        QPointer<ChatArea> activeGuard(activePage);
-        QTimer::singleShot(0, this, [this, activeGuard] {
-            if (!activeGuard || !activeGuard->treeItem
-                || activeGuard->treeItem->treeWidget() != this) {
-                return;
-            }
-            setCurrentItem(activeGuard->treeItem);
-        });
         return;
     }
 
