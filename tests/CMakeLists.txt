@@ -21,16 +21,17 @@ add_test(NAME tray-window-controller-test COMMAND tray-window-controller-test)
 set_tests_properties(tray-window-controller-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-# Native notification delivery must not activate MatterLeast. Only the
-# notification's explicit click action can request navigation/focus.
-if(TARGET matterleast-core)
-    add_executable(notification-passive-focus-test NotificationPassiveFocusTest.cpp)
-    target_link_libraries(notification-passive-focus-test PRIVATE
-        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
-    add_test(NAME notification-passive-focus-test COMMAND notification-passive-focus-test)
-    set_tests_properties(notification-passive-focus-test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()
+# Native notification delivery must not request focus; explicit click
+# activation remains allowed. This is a source-level contract test because
+# offscreen Qt has no window manager and cannot verify raise/activation.
+add_executable(notification-passive-focus-test NotificationPassiveFocusTest.cpp)
+target_include_directories(notification-passive-focus-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_compile_definitions(notification-passive-focus-test PRIVATE
+    MATTERLEAST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(notification-passive-focus-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME notification-passive-focus-test COMMAND notification-passive-focus-test)
 
 # A contextual thread pane follows the active conversation unless the tab is pinned.
 # Session-only typing activity is shared between visible channel/thread widgets.
