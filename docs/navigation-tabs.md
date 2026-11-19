@@ -181,6 +181,33 @@ Collection history must remain orthogonal to tab pinning and session restoration
 A transient collection never consumes or replaces a pinned chat tab, never enters
 `NavigationTabsModel`, and is not written to the restart snapshot.
 
+## Passive sidebar refresh must not navigate
+
+A new post (including the user's own post) updates DM/GM recency and can reorder
+the selected row inside a server category. Reconciliation uses
+`QTreeWidgetItem::takeChild()/insertChild()`, which transiently detaches a row
+and may cause Qt to select a neighbouring item. In MatterLeast,
+`currentItemChanged` ordinarily activates the corresponding `ChatArea`, so
+letting that internal selection event escape can unexpectedly switch the open
+conversation after sending a message.
+
+`ChannelTree::reconcileTeamSidebar` now treats each structural reconciliation
+as an atomic UI transaction: it captures the current semantic row identity,
+blocks intermediate tree signals, keeps the existing incremental row moves, and
+restores the selection **synchronously before unblocking signals**. It favours
+the original row when a channel is represented in multiple categories and
+retains a matching channel if the row was reparented. No model reset, delayed
+focus repair, or forced navigation is involved. A legacy chat-row move uses
+the same atomic signal suppression. The old delayed selection restoration in
+`currentChanged` was removed because it could override a later explicit
+navigation after the event loop resumed.
+
+`ChannelTreeSearchActivationTest` covers outgoing activity promoting the
+selected chat to the top of Recent, incoming activity promoting another chat,
+server category reparenting, and an ordinary explicit navigation afterwards.
+These passive refreshes must neither emit navigation signals nor change the
+active conversation.
+
 ## Restart restoration
 
 `NavigationUiController` saves a versioned semantic session through `MLOptions`,
