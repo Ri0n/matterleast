@@ -14,6 +14,7 @@
 #include <QWidget>
 
 #include "PluginHost.h"
+#include "PluginSearchPathPolicy.h"
 #include "PluginSignature.h"
 #include "backend/Backend.h"
 #include "backend/Storage.h"
@@ -256,31 +257,23 @@ void PluginManager::shutdown()
 
 QStringList PluginManager::pluginSearchPaths() const
 {
-    QStringList paths;
-    const QDir applicationDir(QCoreApplication::applicationDirPath());
-    paths.push_back(applicationDir.filePath(QStringLiteral("plugins")));
-
+    QString buildExecutableDir;
+    QString systemRelativeDir;
+#ifdef MATTERLEAST_BUILD_EXECUTABLE_DIR
+    buildExecutableDir = QString::fromLatin1(MATTERLEAST_BUILD_EXECUTABLE_DIR);
+#endif
 #ifdef MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR
-    // The installed Linux module directory is compiled from GNUInstallDirs.
-    // Resolve it relative to the executable so relocatable AppImages and
-    // custom-prefix installations find exactly the same plugin layout.
-    const QString systemPlugins = QDir::cleanPath(applicationDir.filePath(
-        QString::fromLatin1(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR)));
-    if (!paths.contains(systemPlugins)) {
-        paths.push_back(systemPlugins);
-    }
+    systemRelativeDir = QString::fromLatin1(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR);
 #endif
 
-    const QString userData =
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (!userData.isEmpty()) {
-        const QString userPlugins =
-            QDir(userData).filePath(QStringLiteral("plugins"));
-        if (!paths.contains(userPlugins)) {
-            paths.push_back(userPlugins);
-        }
-    }
-    return paths;
+    // Settings and runtime plugin loading share this exact path policy.
+    // Installed Linux binaries use libdir, never an unconditional bin/plugins.
+    // Developer builds still find their build-tree plugins beside the binary.
+    return resolveNativePluginSearchPaths(
+        QCoreApplication::applicationDirPath(),
+        buildExecutableDir,
+        systemRelativeDir,
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
 }
 
 void PluginManager::attachMainWindow(QWidget& window)
