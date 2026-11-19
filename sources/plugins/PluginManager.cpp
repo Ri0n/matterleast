@@ -14,7 +14,6 @@
 #include <QWidget>
 
 #include "PluginHost.h"
-#include "PluginSearchPathPolicy.h"
 #include "PluginSignature.h"
 #include "backend/Backend.h"
 #include "backend/Storage.h"
@@ -257,23 +256,34 @@ void PluginManager::shutdown()
 
 QStringList PluginManager::pluginSearchPaths() const
 {
-    QString buildExecutableDir;
-    QString systemRelativeDir;
-#ifdef MATTERLEAST_BUILD_EXECUTABLE_DIR
-    buildExecutableDir = QString::fromLatin1(MATTERLEAST_BUILD_EXECUTABLE_DIR);
-#endif
+    QStringList paths;
+    const QDir applicationDir(QCoreApplication::applicationDirPath());
+
 #ifdef MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR
-    systemRelativeDir = QString::fromLatin1(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR);
+    // Installed Linux plugins live in libdir, not alongside /usr/bin.
+    // Keep the adjacent directory only for uninstalled developer builds.
+#ifdef MATTERLEAST_BUILD_EXECUTABLE_DIR
+    if (QDir::cleanPath(applicationDir.absolutePath())
+        == QDir::cleanPath(QString::fromLatin1(MATTERLEAST_BUILD_EXECUTABLE_DIR))) {
+        paths.push_back(applicationDir.filePath(QStringLiteral("plugins")));
+    }
+#endif
+    paths.push_back(QDir::cleanPath(applicationDir.filePath(
+        QString::fromLatin1(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR))));
+#else
+    paths.push_back(applicationDir.filePath(QStringLiteral("plugins")));
 #endif
 
-    // Settings and runtime plugin loading share this exact path policy.
-    // Installed Linux binaries use libdir, never an unconditional bin/plugins.
-    // Developer builds still find their build-tree plugins beside the binary.
-    return resolveNativePluginSearchPaths(
-        QCoreApplication::applicationDirPath(),
-        buildExecutableDir,
-        systemRelativeDir,
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    const QString userData =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (!userData.isEmpty()) {
+        const QString userPlugins =
+            QDir(userData).filePath(QStringLiteral("plugins"));
+        if (!paths.contains(userPlugins)) {
+            paths.push_back(userPlugins);
+        }
+    }
+    return paths;
 }
 
 void PluginManager::attachMainWindow(QWidget& window)
