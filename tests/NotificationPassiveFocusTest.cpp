@@ -19,7 +19,7 @@ private slots:
     {
         QPixmap icon(16, 16);
         icon.fill(Qt::white);
-        QSystemTrayIcon tray(QIcon(icon));
+        QSystemTrayIcon tray {QIcon(icon)};
         NotificationManager notifications(tray);
 
         QWidget mainWindow;
