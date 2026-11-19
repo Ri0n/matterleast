@@ -5,9 +5,13 @@
 
 #include "ChannelTree.h"
 
+#include <QItemSelectionModel>
 #include <QPointer>
+#include <QScopedValueRollback>
 #include <QSet>
+#include <QSignalBlocker>
 #include <QStackedWidget>
+#include <QTreeWidgetItemIterator>
 
 #include "VirtualDestinationBlock.h"
 #include "backend/Backend.h"
@@ -190,7 +194,25 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     }
 
     resetDragVisuals(false);
-    renderingSidebar = true;
+
+    // Reordering with takeChild()/insertChild() temporarily invalidates Qt's
+    // current index. Without an atomic reconciliation Qt may select a nearby
+    // row and emit currentItemChanged, which is *navigation* in ChannelTree.
+    // Capture the semantic selection and suppress those intermediate signals.
+    // Re-establish the same selection before exposing the updated tree.
+    const QTreeWidgetItem* previouslyCurrent = currentItem();
+    const int previousKind = previouslyCurrent
+        ? previouslyCurrent->data(0, ItemKindRole).toInt() : UnknownItem;
+    const QString previousId = previouslyCurrent
+        ? previouslyCurrent->data(0, ItemIdRole).toString() : QString();
+    const QString previousTeamId = previouslyCurrent
+        ? previouslyCurrent->data(0, ItemTeamIdRole).toString() : QString();
+    const QString previousParentId = previouslyCurrent && previouslyCurrent->parent()
+        ? previouslyCurrent->parent()->data(0, ItemIdRole).toString() : QString();
+    const bool previouslySelected = previouslyCurrent && previouslyCurrent->isSelected();
+
+    const QSignalBlocker suppressTransientSelection(this);
+    const QScopedValueRollback<bool> renderingGuard(renderingSidebar, true);
 
     auto& sidebar = SidebarService::instance(backend);
     BackendChannel* personalChannel = backend.getStorage().getDirectChannelByUserId(
@@ -410,7 +432,49 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     }
 
     teamItem.setExpanded(true);
-    renderingSidebar = false;
+
+    // Reconcile can move (or replace) the current row. Qt sometimes advances
+    // the selection to an adjacent item while the old row is detached. Restore
+    // by semantic identity, preferring the exact surviving item when a channel
+    // is represented in more than one sidebar category. Never navigate here.
+    QTreeWidgetItem* restored = nullptr;
+    QTreeWidgetItem* matchingParent = nullptr;
+    QTreeWidgetItem* matchingTeam = nullptr;
+    QTreeWidgetItem* firstMatch = nullptr;
+    if (previouslyCurrent) {
+        for (QTreeWidgetItemIterator it(this); *it; ++it) {
+            QTreeWidgetItem* candidate = *it;
+            if (candidate->data(0, ItemKindRole).toInt() != previousKind
+                || candidate->data(0, ItemIdRole).toString() != previousId) {
+                continue;
+            }
+            if (candidate == previouslyCurrent) {
+                restored = candidate;
+                break;
+            }
+            if (!firstMatch) {
+                firstMatch = candidate;
+            }
+            if (candidate->data(0, ItemTeamIdRole).toString() == previousTeamId) {
+                if (!matchingTeam) {
+                    matchingTeam = candidate;
+                }
+                if (candidate->parent()
+                    && candidate->parent()->data(0, ItemIdRole).toString() == previousParentId) {
+                    matchingParent = candidate;
+                }
+            }
+        }
+        if (!restored) {
+            restored = matchingParent ? matchingParent
+                : matchingTeam ? matchingTeam : firstMatch;
+        }
+    }
+    if (restored != currentItem()
+        || (restored && restored->isSelected() != previouslySelected)) {
+        setCurrentItem(restored, 0, previouslySelected
+            ? QItemSelectionModel::ClearAndSelect : QItemSelectionModel::NoUpdate);
+    }
 }
 
 } // namespace Mattermost
