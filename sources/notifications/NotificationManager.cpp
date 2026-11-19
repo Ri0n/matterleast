@@ -5,12 +5,15 @@
 
 #include "NotificationManager.h"
 
+#include "TaskbarAttentionPolicy.h"
+
 #include <algorithm>
 
 #include <QApplication>
 #include <QStringList>
 #include <QSystemTrayIcon>
 #include <QTimer>
+#include <QWidget>
 
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
 #include <QVariantMap>
@@ -42,6 +45,26 @@ int notificationDisplayDurationMs(const QString& title, const QString& body)
     return static_cast<int>(std::clamp(readingMs, minimumMs, maximumMs));
 }
 
+#ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+bool sendLauncherUrgency(bool urgent)
+{
+    const QString desktopId = QGuiApplication::desktopFileName();
+    if (desktopId.isEmpty()) {
+        return false;
+    }
+
+    // Plasma's task manager listens to this launcher update independently
+    // of KWin's window activation protocol.
+    auto message = QDBusMessage::createSignal(
+        QStringLiteral("/com/canonical/Unity/LauncherEntry"),
+        QStringLiteral("com.canonical.Unity.LauncherEntry"),
+        QStringLiteral("Update"));
+    const QVariantMap properties {{QStringLiteral("urgent"), urgent}};
+    message << QStringLiteral("application://%1.desktop").arg(desktopId) << properties;
+    return QDBusConnection::sessionBus().send(message);
+}
+#endif
+
 } // namespace
 
 NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* parent)
@@ -55,6 +78,13 @@ NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* par
             this, &NotificationManager::onFallbackMessageClicked);
 
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+    connect(qApp, &QGuiApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive) {
+            clearLauncherUrgency();
+        }
+    });
+
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         return;
@@ -95,6 +125,13 @@ NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* par
 #endif
 }
 
+NotificationManager::~NotificationManager()
+{
+#ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+    clearLauncherUrgency();
+#endif
+}
+
 void NotificationManager::show(const QString& title, const QString& body,
                                const NotificationTarget& target)
 {
@@ -109,6 +146,24 @@ void NotificationManager::show(const QString& title, const QString& body,
                          notificationDisplayDurationMs(title, body));
 }
 
+void NotificationManager::requestTaskbarAttention(QWidget& window)
+{
+    if (!window.isVisible()) {
+        return;
+    }
+
+    const auto attention = taskbarAttentionFor(QGuiApplication::platformName(),
+                                               QGuiApplication::applicationState());
+    if (attention == TaskbarAttention::NativeAlert) {
+        QApplication::alert(&window);
+    }
+#ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+    if (attention == TaskbarAttention::LauncherUrgency && sendLauncherUrgency(true)) {
+        launcherUrgent = true;
+    }
+#endif
+}
+
 void NotificationManager::onFallbackMessageClicked()
 {
     if (!fallbackTarget.isValid()) {
@@ -121,6 +176,13 @@ void NotificationManager::onFallbackMessageClicked()
 }
 
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+void NotificationManager::clearLauncherUrgency()
+{
+    if (launcherUrgent && sendLauncherUrgency(false)) {
+        launcherUrgent = false;
+    }
+}
+
 bool NotificationManager::showFreedesktop(const QString& title, const QString& body,
                                            const NotificationTarget& target)
 {

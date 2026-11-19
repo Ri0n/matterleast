@@ -99,14 +99,39 @@ This does not change mention policy or muted-channel suppression.
 
 ## Taskbar attention and window focus
 
-Incoming notifications never raise or activate MatterLeast windows. Desktop
-notifications remain eligible while the user works in another visible window,
-including a detached MatterLeast thread. The taskbar/window attention hint is
-requested only when the whole application is inactive, and is targeted at the
-main window, not at every top-level dialog or detached thread. Clicking an
-actual desktop notification still activates MatterLeast and navigates to the
-post as an explicit user action.
+Incoming notifications must never raise or activate MatterLeast windows.
+Desktop notifications remain eligible while the user works in another visible
+window, including a detached MatterLeast thread. Incoming posts can also
+highlight the taskbar when MatterLeast is inactive and its main window is
+visible or minimized.
 
+Qt's Wayland backend implements `QApplication::alert()` by sending an
+`xdg_activation_v1.activate` request. KWin can honor that request and raise
+the window, depending on focus-stealing prevention and activation state.
+If the first reply after opening a link activates MatterLeast, the next
+reply arrives while MatterLeast is already active and skips the taskbar
+request.
+[Qt Wayland implementation](https://github.com/qt/qtbase/blob/v6.10.2/src/plugins/platforms/wayland/plugins/shellintegration/xdg-shell/qwaylandxdgshell.cpp#L573-L592)
+[KWin activation decision](https://github.com/KDE/kwin/blob/v6.6.6/src/xdgactivationv1.cpp#L90-L107)
+
+On Wayland, `NotificationManager` sends a D-Bus
+`com.canonical.Unity.LauncherEntry.Update` signal with the `urgent` flag
+for MatterLeast's desktop entry. Plasma's task manager uses this flag to
+highlight the taskbar item without involving the compositor. The manager
+clears the flag when the application becomes active or the login session
+ends. Panels that lack LauncherEntry support, builds without Qt DBus, and
+desktops without a matching installed entry still get the usual notifications
+and tray badges. [Plasma taskbar attention state](https://github.com/KDE/plasma-desktop/blob/v6.6.6/applets/taskmanager/qml/Task.qml#L596-L602)
+
+On the Qt `xcb`, `windows`, and `cocoa` backends, the manager uses
+`QApplication::alert()` for the main window only. Those backends implement
+attention with a dedicated window hint, taskbar flash, or Dock bounce.
+Backend selection uses Qt's actual platform plugin, so XWayland clients
+running with `xcb` still use the X11 attention hint.
+
+Notification-driven window activation requires a click. The notification's
+default action or fallback tray click emits `NotificationManager::activated`
+for a post target, which opens MatterLeast and navigates to the post or thread.
 
 ## System tray unread badges (issue #278)
 

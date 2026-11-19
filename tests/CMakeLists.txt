@@ -21,6 +21,17 @@ add_test(NAME tray-window-controller-test COMMAND tray-window-controller-test)
 set_tests_properties(tray-window-controller-test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Test taskbar attention routing and the notification call sites without a
+# window manager. Actual focus and stacking require a desktop session.
+add_executable(notification-passive-focus-test NotificationPassiveFocusTest.cpp)
+target_include_directories(notification-passive-focus-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_compile_definitions(notification-passive-focus-test PRIVATE
+    MATTERLEAST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(notification-passive-focus-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME notification-passive-focus-test COMMAND notification-passive-focus-test)
+
 # A contextual thread pane follows the active conversation unless the tab is pinned.
 # Session-only typing activity is shared between visible channel/thread widgets.
 add_executable(typing-activity-state-test TypingActivityStateTest.cpp)
