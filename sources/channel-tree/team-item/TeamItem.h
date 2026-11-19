@@ -50,10 +50,7 @@ public:
 	TeamItem (QTreeWidget& parent, Backend& backend, const QString& name, const QString& teamId);
 	virtual ~TeamItem ();
 public:
-	void addChannel (BackendChannel& channel, QWidget *parent, QStackedWidget* chatAreaParent);
 	virtual ChannelItem* createChannelItem (Backend& backend, ChannelItemWidget* itemWidget) = 0;
-private:
-	int getChannelIndex (const BackendChannel& channel);
 public:
 	Backend&							backend;
 	QString								teamId;

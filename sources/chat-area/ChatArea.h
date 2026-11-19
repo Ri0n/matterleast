@@ -58,7 +58,7 @@ class Backend;
 class BackendChannel;
 class BackendPost;
 class BackendUser;
-class ChannelItem;
+class ChannelTree;
 class PostCollectionView;
 class ThemeIconButton;
 class TypingIndicatorToast;
@@ -67,7 +67,7 @@ class ViewChannelMembersListDialog;
 class ChatArea: public QWidget {
 	Q_OBJECT
 public:
-	explicit ChatArea (Backend& backend, BackendChannel& channel, ChannelItem* treeItem, QWidget *parent = nullptr, bool initialize = true);
+	explicit ChatArea (Backend& backend, BackendChannel& channel, QString teamContextId, QWidget* parent, bool initialize);
 	explicit ChatArea (Backend& backend, BackendChannel& channel, QString rootId, ChatArea* parentArea); //for thread window
 	~ChatArea();
 public:
@@ -75,6 +75,7 @@ public:
 	Backend& getBackend ();
 	BackendChannel& getChannel ();
     QMenu* headerActionsMenu() const { return chatActionsMenu; }
+    QString teamContextId() const;
     ChatArea* parentChatArea() const { return parentArea.data(); }
     /** Last semantic centre captured when an inactive channel view was detached. */
     QString storedNavigationBookmark() const { return storedViewportPostId; }
@@ -149,6 +150,7 @@ private slots:
     void on_userAvatar_clicked();
 
 private:
+    friend class ChannelTree;
     bool eventFilter(QObject* watched, QEvent* event) override;
 	void changeEvent(QEvent* event) override;
 	void showEvent(QShowEvent* event) override;
@@ -173,8 +175,6 @@ private:
 	void beginMessageLoading();
 	void endMessageLoading();
 	void setUserAvatar (const BackendUser& user);
-	void moveOnListTop ();
-	void setUnreadMessagesCount (uint32_t count);
 	void updatePinnedPostsButton ();
 	void updateThreadWindowTitle ();
 	void setupPostSource();
@@ -182,6 +182,7 @@ private:
 	void scheduleStoredPosition();
 
 	QPointer<ChatArea> parentArea;
+    QString sidebarTeamId;
 	QString parentPostId;
 	QString storedViewportPostId;
 	std::uint64_t viewportNavigationGeneration = 0;
@@ -208,12 +209,10 @@ public:
 	Ui::ChatArea* ui;
 	Backend& backend;
 	BackendChannel& channel;
-	ChannelItem* treeItem;
 	QString lastReadPostId;
 	void init();
 	void deinit();
 
-	uint32_t unreadMessagesCount;
 	bool isThread;
 	bool initialized;
 	QSet<ChatArea*> threadsAreas;

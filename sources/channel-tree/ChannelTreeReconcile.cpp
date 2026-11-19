@@ -10,7 +10,6 @@
 #include <QScopedValueRollback>
 #include <QSet>
 #include <QSignalBlocker>
-#include <QStackedWidget>
 #include <QTreeWidgetItemIterator>
 
 #include "VirtualDestinationBlock.h"
@@ -144,8 +143,8 @@ void ChannelTree::flushDeferredSidebarReconciles()
         reconcileTeamSidebar(*backendForSidebar, *teamItem, *state);
     }
 
-    // A channel/team leave mutates the tree directly in the legacy path. When
-    // it occurs during DnD, refresh authoritatively after the drag instead.
+    // Membership changes during a drag are applied after the drag releases
+    // the affected rows.
     for (const QString& teamId : pendingRefreshes) {
         refreshSidebarTeam(teamId);
     }
@@ -168,15 +167,6 @@ void ChannelTree::destroySidebarRow(QTreeWidgetItem* item)
         removeChannelToItem(item->data(0, ItemIdRole).toString(), item);
     }
 
-    if (kind == ChannelItemKind || kind == VirtualDestinationItemKind) {
-        ChatArea* chatArea = item->data(0, Qt::UserRole).value<ChatArea*>();
-        if (chatArea) {
-            if (chatAreaStackedWidget) {
-                chatAreaStackedWidget->removeWidget(chatArea);
-            }
-            delete chatArea;
-        }
-    }
     delete item;
 }
 
@@ -274,12 +264,25 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     }
 
     QMap<QString, QStringList> desiredChannels;
+    QMap<QString, QSet<QString>> searchMatches;
     for (const QString& categoryId : state.order) {
         const SidebarCategory* category = state.category(categoryId);
         if (!category) {
             continue;
         }
         QStringList ids = sidebar.visibleChannelIds(*category);
+        if (sidebar.conversationSearchActive()
+            && category->type == QLatin1String("direct_messages")) {
+            // The directory search augments the regular projection. Keep
+            // ordinary rows alive and hide those outside the current results.
+            const QSet<QString> matches(ids.cbegin(), ids.cend());
+            searchMatches.insert(categoryId, matches);
+            for (const QString& id : sidebar.visibleChannelIds(*category, false)) {
+                if (!matches.contains(id)) {
+                    ids.append(id);
+                }
+            }
+        }
         if (category->type == QStringLiteral("favorites") && personalChannel) {
             ids.removeAll(personalChannel->id);
         }
@@ -368,6 +371,7 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     for (ActiveCategory& entry : active) {
         QTreeWidgetItem* categoryItem = entry.item;
         int rowIndex = 0;
+        const auto matches = searchMatches.constFind(entry.category->id);
         for (const QString& channelId : desiredChannels.value(entry.category->id)) {
             BackendChannel* channel = backend.getStorage().getChannelById(channelId);
             if (!channel) {
@@ -401,6 +405,13 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                 static_cast<ChannelItem*>(row)->setMuted(muted);
             }
             moveChild(*categoryItem, row, rowIndex++);
+            const bool excluded = matches != searchMatches.cend() && !matches->contains(channelId);
+            if (row->data(0, SidebarItem::ConversationSearchExcludedRole).toBool() != excluded) {
+                row->setData(0, SidebarItem::ConversationSearchExcludedRole, excluded);
+                row->setHidden(excluded);
+            } else if (excluded) {
+                row->setHidden(true);
+            }
         }
         entry.desiredRows = rowIndex;
     }
@@ -437,11 +448,16 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     // the selection to an adjacent item while the old row is detached. Restore
     // by semantic identity, preferring the exact surviving item when a channel
     // is represented in more than one sidebar category. Never navigate here.
-    QTreeWidgetItem* restored = nullptr;
+    QTreeWidgetItem* restored = currentItem();
+    if (restored != previouslyCurrent
+        || (restored && (restored->data(0, ItemKindRole).toInt() != previousKind
+                        || restored->data(0, ItemIdRole).toString() != previousId))) {
+        restored = nullptr;
+    }
     QTreeWidgetItem* matchingParent = nullptr;
     QTreeWidgetItem* matchingTeam = nullptr;
     QTreeWidgetItem* firstMatch = nullptr;
-    if (previouslyCurrent) {
+    if (!restored && previouslyCurrent) {
         for (QTreeWidgetItemIterator it(this); *it; ++it) {
             QTreeWidgetItem* candidate = *it;
             if (candidate->data(0, ItemKindRole).toInt() != previousKind
@@ -470,10 +486,32 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                 : matchingTeam ? matchingTeam : firstMatch;
         }
     }
-    if (restored != currentItem()
-        || (restored && restored->isSelected() != previouslySelected)) {
-        setCurrentItem(restored, 0, previouslySelected
-            ? QItemSelectionModel::ClearAndSelect : QItemSelectionModel::NoUpdate);
+    // A previous update may have removed the open chat's row. If that row
+    // comes back, project the active conversation onto it without activation.
+    if (!restored && !previouslyCurrent) {
+        if (ChatArea* page = getCurrentPage()) {
+            const QString channelId = page->getChannel().id;
+            const QString teamId = page->teamContextId();
+            for (QTreeWidgetItem* row : channelToItemMap.value(channelId)) {
+                if (row->data(0, ItemTeamIdRole).toString() == teamId) {
+                    restored = row;
+                    break;
+                }
+            }
+            if (!restored) {
+                QTreeWidgetItem* personal = personalItemForTeam(teamId);
+                if (personal && personal->data(0, ItemChannelIdRole).toString() == channelId) {
+                    restored = personal;
+                }
+            }
+        }
+    }
+
+    const bool select = restored && (previouslySelected || !previouslyCurrent);
+    if (restored != currentItem() || (restored && restored->isSelected() != select)) {
+        const auto command = select ? QItemSelectionModel::ClearAndSelect
+            : (restored ? QItemSelectionModel::Deselect : QItemSelectionModel::Clear);
+        setCurrentItem(restored, 0, command);
     }
 }
 

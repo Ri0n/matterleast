@@ -18,6 +18,7 @@
 #include "backend/types/BackendTeam.h"
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/team-item/TeamItem.h"
+#include "chat-area/ChatArea.h"
 
 namespace Mattermost {
 namespace {
@@ -42,7 +43,8 @@ void ChannelTree::openStoredChannel(QString channelID)
     }
 
     auto existing = channelToItemMap.constFind(channelID);
-    if (existing != channelToItemMap.cend() && !existing.value().isEmpty()) {
+    if ((existing != channelToItemMap.cend() && !existing.value().isEmpty())
+        || channelPages.value(channelID)) {
         openChannel(std::move(channelID));
         return;
     }

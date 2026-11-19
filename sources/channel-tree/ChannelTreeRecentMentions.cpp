@@ -5,7 +5,6 @@
 
 #include "RecentMentionsIcon.h"
 #include "backend/Backend.h"
-#include "chat-area/ChatArea.h"
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/team-item/TeamItem.h"
 
@@ -31,8 +30,6 @@ ChannelItem* ChannelTree::createRecentMentionsItem(
     item->setData(0, ItemIdRole, QStringLiteral("virtual:recent-mentions"));
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
     item->setData(0, ItemDestinationRole, SidebarItem::RecentMentionsDestination);
-    item->setData(0, Qt::UserRole,
-                  QVariant::fromValue(static_cast<ChatArea*>(nullptr)));
     item->setFlags(item->flags()
                    & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled
                        | Qt::ItemIsEditable));

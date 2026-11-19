@@ -415,7 +415,7 @@ private slots:
         verifyAllIcons(file);
         verifyAllIcons(help);
 
-        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+        ChatArea area(backend, *channel, QString(),
                       nullptr, false);
         auto* attachMenu = area.findChild<QMenu*>(
             QStringLiteral("composerAttachMenu"));

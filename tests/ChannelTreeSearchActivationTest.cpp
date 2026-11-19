@@ -3,12 +3,14 @@
 #include <QItemSelectionModel>
 #include <QJsonObject>
 #include <QPixmap>
+#include <QStackedWidget>
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "channel-tree/ChannelTree.h"
+#include "chat-area/ChatArea.h"
 
 using namespace Mattermost;
 
@@ -200,7 +202,9 @@ private slots:
         SidebarService& sidebar = SidebarService::instance(backend);
         sidebar.applyLocalTeamState(team->id, state);
 
+        QStackedWidget stack;
         ChannelTree tree;
+        tree.setChatAreaStackedWidget(&stack);
         tree.addTeam(backend, *team);
         // In the real window this is part of startup: it subscribes to
         // SidebarService::categoriesChanged. Without it the test's local
@@ -228,10 +232,13 @@ private slots:
         QVERIFY(rowFor(second->id));
         QVERIFY(rowFor(third->id));
         tree.setCurrentItem(selected, 0, QItemSelectionModel::ClearAndSelect);
-        backend.setCurrentChannel(*first);
+        QPointer<ChatArea> activePage = tree.getCurrentPage();
+        QVERIFY(activePage);
+        QCOMPARE(backend.getCurrentChannel(), first);
         QCOMPARE(tree.currentItem(), selected);
         QVERIFY(selected->isSelected());
 
+        QSignalSpy activations(&tree, &ChannelTree::channelActivated);
         int selectionNotifications = 0;
         connect(&tree, &QTreeWidget::currentItemChanged, &tree,
                 [&](QTreeWidgetItem*, QTreeWidgetItem*) { ++selectionNotifications; });
@@ -246,6 +253,7 @@ private slots:
         QCOMPARE(tree.selectedItems().size(), 1);
         QCOMPARE(tree.selectedItems().first(), selected);
         QCOMPARE(backend.getCurrentChannel(), first);
+        QCOMPARE(tree.getCurrentPage(), activePage.data());
         QCOMPARE(selected->parent()->indexOfChild(selected), 0);
 
         // Incoming activity promotes a different conversation above the
@@ -287,6 +295,60 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(selectionNotifications, 1);
         QCOMPARE(tree.currentItem(), other);
+        QCOMPARE(activations.count(), 1);
+        QCOMPARE(backend.getCurrentChannel(), second);
+
+        // A DM/GM row is a projection. Keep it across search when it belongs
+        // to the ordinary sidebar, and keep the live chat even if the server
+        // snapshot drops the row while the other page is already materialized.
+        tree.openChannel(first->id);
+        QCOMPARE(tree.getCurrentPage(), activePage.data());
+        state.categories[directs.id].sorting = QStringLiteral("manual");
+        sidebar.applyLocalTeamState(team->id, state);
+        QCOMPARE(selected->parent()->indexOfChild(selected), 0);
+
+        activations.clear();
+        tree.setConversationSearchTerm(QStringLiteral("gm-second"));
+        QCOMPARE(rowFor(first->id), selected);
+        QCOMPARE(rowFor(second->id), other);
+        QVERIFY(selected->isHidden());
+        QVERIFY(!other->isHidden());
+        QCOMPARE(tree.getCurrentPage(), activePage.data());
+        tree.setConversationSearchTerm(QString());
+        QCOMPARE(rowFor(first->id), selected);
+        QCOMPARE(rowFor(second->id), other);
+        QVERIFY(!selected->isHidden());
+
+        SidebarTeamState withoutFirst = state;
+        withoutFirst.categories[directs.id].channelIds.removeAll(first->id);
+        sidebar.applyLocalTeamState(team->id, withoutFirst);
+        QVERIFY(!rowFor(first->id));
+        QVERIFY(!tree.currentItem());
+        QVERIFY(activePage);
+        QCOMPARE(tree.getCurrentPage(), activePage.data());
+        QCOMPARE(backend.getCurrentChannel(), first);
+        QCOMPARE(activePage->teamContextId(), team->id);
+        QCOMPARE(activations.count(), 0);
+
+        tree.openStoredChannel(second->id);
+        QCOMPARE(backend.getCurrentChannel(), second);
+        tree.openStoredChannel(first->id);
+        QCOMPARE(tree.getCurrentPage(), activePage.data());
+        QCOMPARE(backend.getCurrentChannel(), first);
+        QCOMPARE(activations.count(), 2);
+
+        sidebar.applyLocalTeamState(team->id, state);
+        QVERIFY(tree.currentItem());
+        QCOMPARE(tree.currentItem(), rowFor(first->id));
+        QCOMPARE(rowFor(second->id), other);
+        QCOMPARE(tree.getCurrentPage(), activePage.data());
+        QCOMPARE(activations.count(), 2);
+
+        // Losing channel membership still disposes of its page before the
+        // backing BackendChannel can be deleted by Storage.
+        emit first->onLeave();
+        QVERIFY(activePage.isNull());
+        QVERIFY(!rowFor(first->id));
     }
 };
 

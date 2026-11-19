@@ -38,6 +38,9 @@
 #include <QPointer>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QItemSelectionModel>
+#include <QScopedValueRollback>
+#include <QSignalBlocker>
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
@@ -241,22 +244,13 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
         refreshTeamSidebar(backend, team);
 	});
 
-	connect (&team, &BackendTeam::onLeave, this, [this, &team, teamList] {
+    connect(&team, &BackendTeam::onLeave, this, [this, teamId = team.id] {
         if (sidebarDragActive) {
-            pendingSidebarRefreshTeams.insert(team.id);
+            pendingSidebarRefreshTeams.insert(teamId);
             return;
         }
-        clearTeamSidebar(*teamList);
-        teamToItemMap.remove(team.id);
-
-		int index = indexOfTopLevelItem (teamList);
-		if (index == -1) {
-			return;
-		}
-
-		QTreeWidgetItem* item = takeTopLevelItem (index);
-		delete item;
-	});
+        removeTeamSidebar(teamId);
+    });
 
     // Populate only channels at startup. Team members are loaded on demand by
     // the dialogs that actually need them; downloading every member here is a
@@ -362,6 +356,8 @@ void ChannelTree::refreshSidebarTeam(const QString& teamId)
     BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId);
     if (team) {
         refreshTeamSidebar(*backendForSidebar, *team);
+    } else {
+        removeTeamSidebar(teamId);
     }
 }
 
@@ -386,10 +382,19 @@ void ChannelTree::renderTeamSidebar(Backend& backend, TeamItem& teamItem,
     reconcileTeamSidebar(backend, teamItem, state);
 }
 
-void ChannelTree::clearTeamSidebar(TeamItem& teamItem)
+void ChannelTree::removeTeamSidebar(const QString& teamId)
 {
-    while (teamItem.childCount() > 0) {
-        QTreeWidgetItem* row = teamItem.takeChild(0);
+    TeamItem* teamItem = teamToItemMap.take(teamId);
+    if (!teamItem) {
+        return;
+    }
+
+    const QSignalBlocker selectionGuard(this);
+    const QScopedValueRollback<bool> renderingGuard(renderingSidebar, true);
+    const bool removingCurrent = currentItem()
+        && currentItem()->data(0, ItemTeamIdRole).toString() == teamId;
+    while (teamItem->childCount() > 0) {
+        QTreeWidgetItem* row = teamItem->takeChild(0);
         if (!row) {
             continue;
         }
@@ -400,11 +405,12 @@ void ChannelTree::clearTeamSidebar(TeamItem& teamItem)
             }
             delete row;
         } else {
-            // Virtual destinations are direct team children. In particular,
-            // Personal may own a materialized ChatArea, so route it through the
-            // same ownership-aware cleanup as ordinary sidebar rows.
             destroySidebarRow(row);
         }
+    }
+    delete teamItem;
+    if (removingCurrent) {
+        setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
     }
 }
 
@@ -435,7 +441,6 @@ ChannelItem* ChannelTree::createPersonalItem(Backend& backend, TeamItem& teamIte
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
     item->setData(0, ItemDestinationRole, SidebarItem::PersonalDestination);
     item->setData(0, ItemChannelTypeRole, BackendChannel::directChannel);
-    item->setData(0, Qt::UserRole, QVariant::fromValue(static_cast<ChatArea*>(nullptr)));
     item->setFlags(item->flags()
                    & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled | Qt::ItemIsEditable));
     item->setLabel(tr("Personal"));
@@ -473,7 +478,6 @@ ChannelItem* ChannelTree::createSavedItem(Backend& backend, TeamItem& teamItem,
     item->setData(0, ItemIdRole, QStringLiteral("virtual:saved"));
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
     item->setData(0, ItemDestinationRole, SidebarItem::SavedDestination);
-    item->setData(0, Qt::UserRole, QVariant::fromValue(static_cast<ChatArea*>(nullptr)));
     item->setFlags(item->flags()
                    & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled | Qt::ItemIsEditable));
     item->setLabel(tr("Saved"));
@@ -490,7 +494,6 @@ ChannelItem* ChannelTree::createDraftsItem(Backend& backend, TeamItem& teamItem,
     item->setData(0, ItemIdRole, QStringLiteral("virtual:drafts"));
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
     item->setData(0, ItemDestinationRole, SidebarItem::DraftsDestination);
-    item->setData(0, Qt::UserRole, QVariant::fromValue(static_cast<ChatArea*>(nullptr)));
     item->setFlags(item->flags()
                    & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled | Qt::ItemIsEditable));
     item->setLabel(tr("Drafts"));
@@ -552,7 +555,6 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     item->setData(0, ItemKindRole, ChannelItemKind);
     item->setData(0, ItemIdRole, channel.id);
     item->setData(0, ItemTeamIdRole, teamItem.teamId);
-    item->setData(0, Qt::UserRole, QVariant::fromValue(static_cast<ChatArea*>(nullptr)));
     item->setFlags((item->flags() | Qt::ItemIsDragEnabled) & ~Qt::ItemIsDropEnabled);
     item->setLabel(channel.display_name);
 
@@ -666,6 +668,13 @@ void ChannelTree::handleChannelLeave()
     }
 
     const QString channelId = channel->id;
+    // Storage can destroy the channel immediately after onLeave(), including
+    // while a drag defers removal of its rows.
+    if (ChatArea* page = channelPages.take(channelId)) {
+        chatAreaStackedWidget->removeWidget(page);
+        delete page;
+    }
+
     const QList<QTreeWidgetItem*> items = channelToItemMap.value(channelId);
     if (sidebarDragActive) {
         for (QTreeWidgetItem* item : items) {
@@ -681,64 +690,47 @@ void ChannelTree::handleChannelLeave()
         return;
     }
 
+    const QSignalBlocker selectionGuard(this);
+    const QScopedValueRollback<bool> renderingGuard(renderingSidebar, true);
     for (QTreeWidgetItem* item : items) {
-        if (!item || item->data(0, ItemKindRole).toInt() != ChannelItemKind) {
-            continue;
-        }
-
-        removeChannelToItem(channelId, item);
-        ChatArea* chatArea = item->data(0, Qt::UserRole).value<ChatArea*>();
-        if (chatArea && chatAreaStackedWidget) {
-            chatAreaStackedWidget->removeWidget(chatArea);
-        }
-        if (QTreeWidgetItem* parent = item->parent()) {
-            parent->removeChild(item);
-        }
-        delete chatArea;
-        delete item;
+        destroySidebarRow(item);
     }
-
-    channelToItemMap.remove(channelId);
 }
 
-ChatArea* ChannelTree::ensureChatArea(QTreeWidgetItem* item)
+void ChannelTree::activateConversation(const QString& channelId, const QString& teamId)
 {
-    if (!item || !backendForSidebar || !chatAreaStackedWidget) {
-        return nullptr;
+    if (!backendForSidebar || !chatAreaStackedWidget) {
+        return;
     }
 
-    const int kind = item->data(0, ItemKindRole).toInt();
-    if (kind != ChannelItemKind && kind != VirtualDestinationItemKind) {
-        return nullptr;
-    }
-
-    if (ChatArea* existing = item->data(0, Qt::UserRole).value<ChatArea*>()) {
-        return existing;
-    }
-
-    QString channelId = kind == ChannelItemKind
-        ? item->data(0, ItemIdRole).toString()
-        : item->data(0, ItemChannelIdRole).toString();
-    if (channelId.isEmpty() && kind == VirtualDestinationItemKind
-        && item->data(0, ItemDestinationRole).toInt() == SidebarItem::PersonalDestination) {
-        if (BackendChannel* personal = backendForSidebar->getStorage().getDirectChannelByUserId(
-                backendForSidebar->getLoginUser().id)) {
-            channelId = personal->id;
-            item->setData(0, ItemChannelIdRole, channelId);
-        }
-    }
     BackendChannel* channel = backendForSidebar->getStorage().getChannelById(channelId);
     if (!channel) {
-        LOG_DEBUG("Cannot create chat area: channel not found: " << channelId);
-        return nullptr;
+        return;
     }
 
-    auto* channelItem = static_cast<ChannelItem*>(item);
-    auto* chatArea = new ChatArea(*backendForSidebar, *channel, channelItem,
-                                  chatAreaStackedWidget, false);
-    chatAreaStackedWidget->addWidget(chatArea);
-    item->setData(0, Qt::UserRole, QVariant::fromValue(chatArea));
-    return chatArea;
+    ChatArea* currentPage = getCurrentPage();
+    ChatArea* page = channelPages.value(channelId);
+    if (!page) {
+        const QString context = teamId.isEmpty() ? backendForSidebar->getCurrentTeamContextId()
+                                                 : teamId;
+        page = new ChatArea(*backendForSidebar, *channel, context,
+                            chatAreaStackedWidget, false);
+        channelPages.insert(channelId, page);
+        connect(channel, &BackendChannel::onLeave, this, &ChannelTree::handleChannelLeave,
+                Qt::UniqueConnection);
+        chatAreaStackedWidget->addWidget(page);
+    } else if (!teamId.isEmpty()) {
+        page->sidebarTeamId = teamId;
+    }
+
+    if (currentPage && currentPage != page) {
+        currentPage->onDeactivate();
+    }
+    chatAreaStackedWidget->setCurrentWidget(page);
+    // The first widget can already be current after addWidget(). Activation
+    // still initializes it and sets the backend's active channel.
+    page->onActivate();
+    emit channelActivated();
 }
 
 void ChannelTree::activateChannelItem(QTreeWidgetItem* item)
@@ -773,33 +765,8 @@ void ChannelTree::activateChannelItem(QTreeWidgetItem* item)
     // the next event-loop turn, after Qt finishes the click, and can move the
     // selected highlight to another row. Defer admission until search ends.
 
-    ChatArea* newPage = ensureChatArea(item);
-    if (!newPage) {
-        return;
-    }
-
-    if (newPage == getCurrentPage()) {
-        if (!newPage->isVisible()) {
-            chatAreaStackedWidget->setCurrentWidget(newPage);
-        }
-
-        // QStackedWidget automatically makes its first added widget current.
-        // With lazy ChatArea creation that means the first selected channel can
-        // already be getCurrentPage() even though onActivate()/init() have never
-        // run. Activation is idempotent, so always establish the backend current
-        // channel and initialize the page on an explicit channel activation.
-        newPage->onActivate();
-        qDebug() << "Item Activated: " << newPage->channel.display_name;
-        return;
-    }
-
-    if (ChatArea* currentPage = getCurrentPage()) {
-        currentPage->onDeactivate();
-    }
-    chatAreaStackedWidget->setCurrentWidget(newPage);
-    newPage->onActivate();
-
-    qDebug() << "Item Activated: " << newPage->channel.display_name;
+    activateConversation(item->data(0, ItemIdRole).toString(),
+                         item->data(0, ItemTeamIdRole).toString());
 }
 
 void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
@@ -847,24 +814,7 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
     }
 
     item->setData(0, ItemChannelIdRole, channel->id);
-    ChatArea* newPage = ensureChatArea(item);
-    if (!newPage) {
-        return;
-    }
-
-    if (newPage == getCurrentPage()) {
-        if (!newPage->isVisible()) {
-            chatAreaStackedWidget->setCurrentWidget(newPage);
-        }
-        newPage->onActivate();
-        return;
-    }
-
-    if (ChatArea* currentPage = getCurrentPage()) {
-        currentPage->onDeactivate();
-    }
-    chatAreaStackedWidget->setCurrentWidget(newPage);
-    newPage->onActivate();
+    activateConversation(channel->id, item->data(0, ItemTeamIdRole).toString());
 }
 
 void ChannelTree::addGroupChannelsList (Backend& backend)
@@ -917,7 +867,12 @@ void ChannelTree::openChannel (QString channelID)
     }
 
     if (!item) {
-        qDebug() << "openChannel " << channelID << ": channel not found";
+        if (channelPages.value(channelID)) {
+            setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
+            activateConversation(channelID);
+        } else {
+            qDebug() << "openChannel " << channelID << ": channel not found";
+        }
         return;
     }
 

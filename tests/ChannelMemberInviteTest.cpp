@@ -739,7 +739,7 @@ private slots:
         QCOMPARE(fallbackSpy.at(0).at(0).toString(),
                  QStringLiteral("User not in channel"));
 
-        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+        ChatArea area(backend, *channel, QString(),
                       nullptr, false);
         // A matching chat explicitly accepts the event synchronously,
         // suppressing the generic notification without persisting the post.
@@ -819,7 +819,7 @@ private slots:
         QCOMPARE(fallbackSpy.count(), 1);
 
         auto* area = new ChatArea(
-            backend, *channel, static_cast<ChannelItem*>(nullptr), nullptr, false);
+            backend, *channel, QString(), nullptr, false);
         QVERIFY(backend.handleEphemeralMessage(frame(channel->id, true)));
         QCOMPARE(fallbackSpy.count(), 1);
         QVERIFY(!backend.handleEphemeralMessage(frame(channel->id, false)));
@@ -910,7 +910,7 @@ private slots:
             {QStringLiteral("message"), QStringLiteral("Hello @person01")},
         });
         QVERIFY(original);
-        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+        ChatArea area(backend, *channel, QString(),
                       nullptr, false);
         auto* list = area.findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(list);
@@ -962,7 +962,7 @@ private slots:
             {QStringLiteral("message"), QStringLiteral("@person02")},
         });
         QVERIFY(original);
-        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
+        ChatArea area(backend, *channel, QString(),
                       nullptr, false);
         auto* list = area.findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(list);
@@ -1002,8 +1002,7 @@ private slots:
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
 
-        ChatArea area(backend, *channel, static_cast<ChannelItem*>(nullptr),
-                      nullptr);
+        ChatArea area(backend, *channel, QString(), nullptr, true);
         area.resize(700, 500);
         area.show();
         auto* membersButton = area.findChild<QToolButton*>(
@@ -1048,7 +1047,7 @@ private slots:
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
 
-        ChatArea chat(backend, *channel, static_cast<ChannelItem*>(nullptr),
+        ChatArea chat(backend, *channel, QString(),
                       nullptr, false);
         const auto verifyIcon = [](QMenu* menu, const QString& name) {
             if (!menu) {

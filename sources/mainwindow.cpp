@@ -38,7 +38,6 @@
 #include <QLocale>
 #include <QProgressBar>
 #include <QPushButton>
-#include <QSignalBlocker>
 #include <QSplitter>
 #include <QStyle>
 #include <QSystemTrayIcon>
@@ -776,45 +775,6 @@ void MainWindow::refreshChannelUnreadFilter()
 				                  : (channelsCategory ? tr("Browse public channels")
 				                                      : QString()));
 
-			// The active text search already has a deterministic order from
-			// SidebarService::visibleChannelIds(). Do not sort QTreeWidget rows
-			// again by mutable activity/read state: moving selected items here
-			// can also desynchronize Qt's selection from the opened ChatArea.
-			// Keep the regular activity-based order when search is inactive.
-			if (directMessages && !textFilterActive && categoryItem->childCount() > 1) {
-				QTreeWidgetItem* selectedItem = ui->channelList->currentItem();
-				QSignalBlocker selectionSignals(ui->channelList);
-				QVector<QTreeWidgetItem*> children;
-				children.reserve(categoryItem->childCount());
-				for (int i = 0; i < categoryItem->childCount(); ++i) {
-					children.push_back(categoryItem->child(i));
-				}
-				std::stable_sort(children.begin(), children.end(),
-				                 [this, &sidebar](QTreeWidgetItem* a, QTreeWidgetItem* b) {
-					BackendChannel* channelA = backend.getStorage().getChannelById(
-						a ? a->data(0, ChannelTree::ItemIdRole).toString() : QString());
-					BackendChannel* channelB = backend.getStorage().getChannelById(
-						b ? b->data(0, ChannelTree::ItemIdRole).toString() : QString());
-					if (!channelA || !channelB) {
-						return channelA != nullptr;
-					}
-					return sidebar.channelActivityTime(*channelA)
-						> sidebar.channelActivityTime(*channelB);
-				});
-
-				for (int desiredIndex = 0; desiredIndex < children.size(); ++desiredIndex) {
-					QTreeWidgetItem* child = children.at(desiredIndex);
-					const int currentIndex = categoryItem->indexOfChild(child);
-					if (currentIndex >= 0 && currentIndex != desiredIndex) {
-						categoryItem->insertChild(desiredIndex,
-						                          categoryItem->takeChild(currentIndex));
-					}
-				}
-				if (selectedItem && selectedItem->treeWidget() == ui->channelList) {
-					ui->channelList->setCurrentItem(selectedItem);
-				}
-			}
-
 			bool categoryHasVisibleChannels = false;
 			for (int channelIndex = 0; channelIndex < categoryItem->childCount(); ++channelIndex) {
 				QTreeWidgetItem* channelItem = categoryItem->child(channelIndex);
@@ -846,7 +806,9 @@ void MainWindow::refreshChannelUnreadFilter()
 						&& (sidebar.isChannelUnread(*channel) || retained);
 				}
 
-				const bool visible = matchesText && matchesUnread;
+				const bool excludedFromSearch = directMessages && textFilterActive
+					&& channelItem->data(0, SidebarItem::ConversationSearchExcludedRole).toBool();
+				const bool visible = matchesText && matchesUnread && !excludedFromSearch;
 				channelItem->setHidden(!visible);
 				categoryHasVisibleChannels = categoryHasVisibleChannels || visible;
 			}

@@ -13,10 +13,12 @@ A tab stores a semantic destination:
 - display title;
 - whether the tab is pinned against ordinary channel-destination reuse.
 
-Ordinary channel/DM/GM tabs reuse the one normal channel surface owned by
-`ChannelTree` and `chatAreaStackedWidget`. Switching such a tab restores its
-destination through the existing navigation path instead of constructing a
-second `ChatArea` for the same channel.
+Ordinary channel/DM/GM tabs share one `ChatArea` per channel ID, including
+when a channel appears in more than one team or category. The central stack
+owns these pages. `ChannelTree` resolves them by channel ID and emits a
+navigation event after activation. Team context for DM/GM actions lives on
+the page and remains available when its row is absent. A real channel leave
+destroys the page before Storage releases the backing channel.
 
 A thread is different because it already has an independent `ChatArea`.
 Moving a thread to a tab reparents that same widget from the right-hand thread
@@ -183,30 +185,24 @@ A transient collection never consumes or replaces a pinned chat tab, never enter
 
 ## Passive sidebar refresh must not navigate
 
-A new post (including the user's own post) updates DM/GM recency and can reorder
-the selected row inside a server category. Reconciliation uses
-`QTreeWidgetItem::takeChild()/insertChild()`, which transiently detaches a row
-and may cause Qt to select a neighbouring item. In MatterLeast,
-`currentItemChanged` ordinarily activates the corresponding `ChatArea`, so
-letting that internal selection event escape can unexpectedly switch the open
-conversation after sending a message.
+The sidebar is a projection of server categories and conversation search.
+Removing a row leaves the current page, its history and its draft in place.
+If the row returns, reconciliation restores the highlight without activating
+the page again. Explicit navigation can reopen an existing page by channel ID
+while its row is absent.
 
-`ChannelTree::reconcileTeamSidebar` now treats each structural reconciliation
-as an atomic UI transaction: it captures the current semantic row identity,
-blocks intermediate tree signals, keeps the existing incremental row moves, and
-restores the selection **synchronously before unblocking signals**. It favours
-the original row when a channel is represented in multiple categories and
-retains a matching channel if the row was reparented. No model reset, delayed
-focus repair, or forced navigation is involved. A legacy chat-row move uses
-the same atomic signal suppression. The old delayed selection restoration in
-`currentChanged` was removed because it could override a later explicit
-navigation after the event loop resumed.
+`SidebarService` supplies membership and order. `ChannelTree` reconciles
+rows incrementally, retaining existing items across sorting and category
+moves. The search projection hides regular DM/GM rows outside the results
+and materializes additional matches from the conversation directory as
+needed. The main window applies visibility filters to the rendered tree.
+Structural reconciliation waits until any active sidebar drag finishes.
 
-`ChannelTreeSearchActivationTest` covers outgoing activity promoting the
-selected chat to the top of Recent, incoming activity promoting another chat,
-server category reparenting, and an ordinary explicit navigation afterwards.
-These passive refreshes must neither emit navigation signals nor change the
-active conversation.
+Reconciliation blocks intermediate tree signals and restores the final
+selection synchronously because `takeChild()/insertChild()` can temporarily
+select a neighbour. `ChannelTreeSearchActivationTest` checks row identity,
+selection, actual chat activation, search visibility, removal and return
+of the active row, and reuse of the existing page without a row.
 
 ## Restart restoration
 

@@ -145,6 +145,7 @@ public:
 
 
 signals:
+    void channelActivated();
     void teamSidebarPopulated(const QString& teamId);
     void virtualDestinationRequested(int destination, const QString& teamId);
     /** Completion of a stored-channel open that required asynchronous admission/join. */
@@ -178,7 +179,7 @@ private:
     void reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                               const SidebarTeamState& state);
     void destroySidebarRow(QTreeWidgetItem* item);
-	void clearTeamSidebar(TeamItem& teamItem);
+    void removeTeamSidebar(const QString& teamId);
 	QTreeWidgetItem* createCategoryItem(TeamItem& teamItem, const QString& categoryId,
 	                                    const QString& displayName, bool collapsed);
 	ChannelItem* createChannelItem(Backend& backend, TeamItem& teamItem,
@@ -193,7 +194,7 @@ private:
                                           QTreeWidgetItem& parentItem);
     QTreeWidgetItem* personalItemForTeam(const QString& teamId) const;
     void refreshPersonalItems();
-	ChatArea* ensureChatArea(QTreeWidgetItem* item);
+    void activateConversation(const QString& channelId, const QString& teamId = {});
 	void activateChannelItem(QTreeWidgetItem* item);
     void activateVirtualDestination(QTreeWidgetItem* item);
 	void setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed);
@@ -248,6 +249,7 @@ private:
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;
+    QMap<QString, QPointer<ChatArea>>    channelPages;
 	QMap<QString, QList<QTreeWidgetItem*>>	channelToItemMap;
 	QMap<QString, TeamItem*>			teamToItemMap;
 	QSet<QString>						connectedSidebarUsers;

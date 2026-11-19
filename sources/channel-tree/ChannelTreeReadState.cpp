@@ -31,17 +31,6 @@ void ChannelTree::refreshCurrentChannelReadState(QTreeWidgetItem* item)
 
 void ChannelTree::currentChanged(const QModelIndex& current, const QModelIndex& previous)
 {
-    // An active row can temporarily be detached during takeChild()/insertChild().
-    // The owning reorder (sidebar reconciliation or ChatArea::moveOnListTop)
-    // now preserves selection synchronously within the structural transaction.
-    // Never treat an intermediate current index as navigation, and never queue
-    // a later setCurrentItem(): that can override a newer user navigation.
-    ChatArea* activePage = getCurrentPage();
-    if (!renderingSidebar && activePage && activePage->treeItem
-        && activePage->treeItem->treeWidget() != this) {
-        return;
-    }
-
     QTreeWidget::currentChanged(current, previous);
 
     // Sidebar rebuilds are programmatic and must never affect read progress.
