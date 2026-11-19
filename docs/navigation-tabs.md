@@ -13,10 +13,12 @@ A tab stores a semantic destination:
 - display title;
 - whether the tab is pinned against ordinary channel-destination reuse.
 
-Ordinary channel/DM/GM tabs reuse the one normal channel surface owned by
-`ChannelTree` and `chatAreaStackedWidget`. Switching such a tab restores its
-destination through the existing navigation path instead of constructing a
-second `ChatArea` for the same channel.
+Ordinary channel/DM/GM tabs share one `ChatArea` per channel ID, including
+when a channel appears in more than one team or category. The central stack
+owns these pages. `ChannelTree` resolves them by channel ID and emits a
+navigation event after activation. Team context for DM/GM actions lives on
+the page and remains available when its row is absent. A real channel leave
+destroys the page before Storage releases the backing channel.
 
 A thread is different because it already has an independent `ChatArea`.
 Moving a thread to a tab reparents that same widget from the right-hand thread
@@ -180,6 +182,27 @@ central destination.
 Collection history must remain orthogonal to tab pinning and session restoration.
 A transient collection never consumes or replaces a pinned chat tab, never enters
 `NavigationTabsModel`, and is not written to the restart snapshot.
+
+## Passive sidebar refresh must not navigate
+
+The sidebar is a projection of server categories and conversation search.
+Removing a row leaves the current page, its history and its draft in place.
+If the row returns, reconciliation restores the highlight without activating
+the page again. Explicit navigation can reopen an existing page by channel ID
+while its row is absent.
+
+`SidebarService` supplies membership and order. `ChannelTree` reconciles
+rows incrementally, retaining existing items across sorting and category
+moves. The search projection hides regular DM/GM rows outside the results
+and materializes additional matches from the conversation directory as
+needed. The main window applies visibility filters to the rendered tree.
+Structural reconciliation waits until any active sidebar drag finishes.
+
+Reconciliation blocks intermediate tree signals and restores the final
+selection synchronously because `takeChild()/insertChild()` can temporarily
+select a neighbour. `ChannelTreeSearchActivationTest` checks row identity,
+selection, actual chat activation, search visibility, removal and return
+of the active row, and reuse of the existing page without a row.
 
 ## Restart restoration
 

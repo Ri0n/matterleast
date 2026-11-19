@@ -100,7 +100,7 @@ public:
     {
         return activityTracker.openTime(channelId);
     }
-    QStringList visibleChannelIds(const SidebarCategory& category) const;
+    QStringList visibleChannelIds(const SidebarCategory& category, bool applySearch = true) const;
     void setConversationSearchTerm(const QString& term) { _conversationSearchTerm = term.trimmed(); }
     bool conversationSearchActive() const { return !_conversationSearchTerm.isEmpty(); }
     void markChannelViewedLocally(const BackendChannel& channel);

@@ -202,11 +202,10 @@ void NavigationUiController::setupMainWindow()
     }
 
     if (channelTree) {
-        connect(channelTree, &QTreeWidget::currentItemChanged, this,
-                [this](QTreeWidgetItem*, QTreeWidgetItem*) {
+        connect(channelTree, &ChannelTree::channelActivated, this, [this] {
             if (switchingTabs || restoringSession) return;
             QTimer::singleShot(0, this, [this] {
-                // A deferred sidebar selection must not steal an independently
+                // A deferred channel activation must not steal an independently
                 // activated thread tab (including startup session replay).
                 if (channelTree && (!navigationSurfaceStack
                     || navigationSurfaceStack->currentWidget() == mainStack)) {
@@ -1227,7 +1226,7 @@ void NavigationUiController::recordArea(ChatArea* area)
         }
     }
 
-    // Deferred sidebar currentItemChanged notifications can arrive after
+    // Deferred channel activation records can arrive after
     // the thread is already docked. They must not rewrite the active thread
     // location as its parent channel and add a phantom Back step.
     if (!area->isThread && !replayingHistory && currentLocation.isChat()

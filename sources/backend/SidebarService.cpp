@@ -560,7 +560,7 @@ bool SidebarService::isDirectChannelManuallyHidden(const BackendChannel& channel
     return false;
 }
 
-QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) const
+QStringList SidebarService::visibleChannelIds(const SidebarCategory& category, bool applySearch) const
 {
     struct Candidate {
         QString id;
@@ -571,9 +571,8 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
     QVector<Candidate> candidates;
     candidates.reserve(category.channelIds.size());
     BackendChannel* currentChannel = backend.getCurrentChannel();
-    const bool searchingDirects =
-        category.type == QLatin1String("direct_messages")
-        && !_conversationSearchTerm.isEmpty();
+    const bool directs = category.type == QLatin1String("direct_messages");
+    const bool searchingDirects = directs && applySearch && conversationSearchActive();
 
     // A filtered directory is independent of which conversation is selected
     // and how its unread/opened state changes during navigation.
@@ -604,7 +603,7 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
         }
 
         const bool unread = isChannelUnread(*channel);
-        if (!searchingDirects && category.type == QStringLiteral("direct_messages")
+        if (!searchingDirects && directs
             && isDirectChannelManuallyHidden(*channel)
             && !unread && channel != currentChannel) {
             continue;
@@ -612,7 +611,7 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
         candidates.push_back(Candidate {channelId, channel, unread});
     }
 
-    if (category.type == QStringLiteral("direct_messages") && !searchingDirects) {
+    if (directs && !searchingDirects) {
         int unreadCount = 0;
         for (const Candidate& candidate : candidates) {
             unreadCount += candidate.unread ? 1 : 0;
@@ -665,11 +664,20 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category) c
         candidates = std::move(inServerOrder);
     }
 
-    if (!searchingDirects && category.sorting == QStringLiteral("recent")) {
-        std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
-            const uint64_t aTime = std::max(a.channel->last_post_at, a.channel->create_at);
-            const uint64_t bTime = std::max(b.channel->last_post_at, b.channel->create_at);
-            return aTime > bTime;
+    const bool recent = category.sorting == QLatin1String("recent")
+        || (directs && category.sorting.isEmpty());
+    if (!searchingDirects && recent) {
+        std::stable_sort(candidates.begin(), candidates.end(),
+                         [this, directs](const Candidate& a, const Candidate& b) {
+            if (directs) {
+                const auto aActivity = channelActivityTime(*a.channel);
+                const auto bActivity = channelActivityTime(*b.channel);
+                if (aActivity != bActivity) {
+                    return aActivity > bActivity;
+                }
+            }
+            return std::max(a.channel->last_post_at, a.channel->create_at)
+                > std::max(b.channel->last_post_at, b.channel->create_at);
         });
     } else if (!searchingDirects && category.sorting == QStringLiteral("alpha")) {
         std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {

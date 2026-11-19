@@ -11,8 +11,6 @@
 #include "backend/types/BackendPoll.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
-#include "channel-tree/ChannelItem.h"
-#include "channel-tree/SidebarItem.h"
 #include "chat-area/ChatArea.h"
 
 namespace Mattermost {
@@ -40,30 +38,13 @@ QString OutgoingPostCreator::pollCommandTeamId() const
     }
 
     // DM/GM channels do not belong to a team, but Mattermost slash commands
-    // still execute in a team context. The sidebar row is the authoritative
-    // source for that context. A thread inherits it from its parent ChatArea.
+    // still execute in a team context. A thread inherits its parent chat context.
     for (QWidget* widget = parentWidget(); widget; widget = widget->parentWidget()) {
         auto* area = qobject_cast<ChatArea*>(widget);
         if (!area) {
             continue;
         }
-
-        for (ChatArea* contextArea = area; contextArea;
-             contextArea = contextArea->parentChatArea()) {
-            if (contextArea->channel.team) {
-                return contextArea->channel.team->id;
-            }
-            if (!contextArea->treeItem) {
-                continue;
-            }
-
-            const QString teamId = contextArea->treeItem
-                ->data(0, SidebarItem::TeamIdRole).toString();
-            if (!teamId.isEmpty()) {
-                return teamId;
-            }
-        }
-        break;
+        return area->teamContextId();
     }
 
     return QString();

@@ -24,14 +24,6 @@
 
 #include "TeamItem.h"
 
-#include <QMenu>
-#include <QStackedWidget>
-#include "channel-tree/ChannelItemWidget.h"
-#include "channel-tree/ChannelItem.h"
-#include "chat-area/ChatArea.h"
-#include "backend/Backend.h"
-#include "channel-tree/ChannelTree.h"
-
 namespace Mattermost {
 
 TeamItem::TeamItem (QTreeWidget& parent, Backend& backend, const QString& name, const QString& teamId)
@@ -47,53 +39,6 @@ TeamItem::TeamItem (QTreeWidget& parent, Backend& backend, const QString& name, 
 }
 
 TeamItem::~TeamItem () = default;
-
-void TeamItem::addChannel (BackendChannel& channel, QWidget *parent, QStackedWidget* chatAreaParent)
-{
-	ChannelItemWidget* itemWidget = new ChannelItemWidget (parent);
-	itemWidget->setLabel (channel.display_name);
-
-	ChannelItem* item = createChannelItem (backend, itemWidget);
-	insertChild (getChannelIndex (channel), item);
-
-	ChatArea* chatArea = new ChatArea (backend, channel, item, (QWidget*)chatAreaParent, false);
-	chatAreaParent->addWidget(chatArea);
-
-	item->setData(0, Qt::UserRole, QVariant::fromValue (chatArea));
-
-	treeWidget()->setItemWidget (item, 0, itemWidget);
-
-	connect (&channel, &BackendChannel::onLeave, [this, &channel, item, chatAreaParent, chatArea] {
-		qDebug() << "delete channel " << channel.name;
-		ChannelTree* treeWidget = static_cast<ChannelTree*> (this->treeWidget());
-
-		chatAreaParent->removeWidget (chatArea);
-		delete (chatArea);
-		removeChild (item);
-		delete (item);
-		treeWidget->removeChannelToItem (channel.id);
-	});
-
-	ChannelTree* treeWidget = static_cast<ChannelTree*> (this->treeWidget());
-	treeWidget->addChannelToItem (channel.id, item);
-}
-
-int TeamItem::getChannelIndex (const BackendChannel& channel)
-{
-	int i = 0;
-	for (; i < childCount(); ++i) {
-
-		//item->setData(0, Qt::UserRole, QVariant::fromValue (chatArea));
-
-		ChatArea* area = child(i)->data (0, Qt::UserRole).value<ChatArea*>();
-
-		if (channel.last_post_at > area->channel.last_post_at) {
-			break;
-		}
-	}
-
-	return i;
-}
 
 } /* namespace Mattermost */
 

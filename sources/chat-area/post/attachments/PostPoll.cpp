@@ -28,8 +28,6 @@
 #include "backend/types/BackendPoll.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/ChatArea.h"
-#include "channel-tree/ChannelItem.h"
-#include "channel-tree/SidebarItem.h"
 
 namespace Mattermost {
 namespace {
@@ -48,21 +46,10 @@ QString pollActionTeamContextId(QWidget* origin, Backend& backend, const Backend
 			continue;
 		}
 
-		for (ChatArea* contextArea = area; contextArea;
-		     contextArea = contextArea->parentChatArea()) {
-			if (contextArea->channel.team) {
-				return contextArea->channel.team->id;
-			}
-			if (!contextArea->treeItem) {
-				continue;
-			}
-
-			const QString teamId = contextArea->treeItem
-				->data(0, SidebarItem::TeamIdRole).toString();
-			if (!teamId.isEmpty()) {
-				return teamId;
-			}
-		}
+        const QString teamId = area->teamContextId();
+        if (!teamId.isEmpty()) {
+            return teamId;
+        }
 		break;
 	}
 

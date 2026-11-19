@@ -33,7 +33,6 @@
 #include <QStackedWidget>
 #include <QTimer>
 #include <QToolButton>
-#include <QTreeWidget>
 
 #include "AbstractPostSource.h"
 #include "ChannelPostSource.h"
@@ -55,8 +54,6 @@
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendTeam.h"
 #include "backend/types/BackendUser.h"
-#include "channel-tree/ChannelItem.h"
-#include "channel-tree/ChannelItemWidget.h"
 #include "channel-tree-dialogs/ViewChannelMembersListDialog.h"
 #include "log.h"
 #include "navigation/AppNavigationService.h"
@@ -89,16 +86,15 @@ QString conversationTeamName(Backend& backend, const BackendChannel& channel)
 
 ChatArea::ChatArea(Backend& backend,
                    BackendChannel& channel,
-                   ChannelItem* treeItem,
+                   QString teamContextId,
                    QWidget* parent,
                    bool initialize)
     : QWidget(parent)
     , parentArea(nullptr)
+    , sidebarTeamId(std::move(teamContextId))
     , ui(new Ui::ChatArea)
     , backend(backend)
     , channel(channel)
-    , treeItem(treeItem)
-    , unreadMessagesCount(0)
     , isThread(false)
     , initialized(false)
 {
@@ -172,8 +168,6 @@ ChatArea::ChatArea(Backend& backend,
     , ui(new Ui::ChatArea)
     , backend(backend)
     , channel(channel)
-    , treeItem(nullptr)
-    , unreadMessagesCount(0)
     , isThread(true)
     , initialized(false)
     , root_id(std::move(rootId))
@@ -677,20 +671,11 @@ void ChatArea::init()
     // repository residency leases can be released. Rebuild only orchestration
     // connections and the view attachment on activation.
     if (!isThread) {
-        signalConnections.push_back(connect(&channel, &BackendChannel::onViewed,
-                                            this, [this] {
-            LOG_DEBUG("Channel viewed: " << channel.display_name);
-            setUnreadMessagesCount(0);
-        }));
-
         signalConnections.push_back(connect(&channel, &BackendChannel::onUpdated,
                                             this, [this] {
             ui->titleLabel->setText(channel.display_name);
             ui->statusLabel->setLinkTeamName(conversationTeamName(backend, channel));
             ui->statusLabel->setText(channel.getChannelDescription());
-            if (treeItem) {
-                treeItem->setLabel(channel.display_name);
-            }
         }));
 
         signalConnections.push_back(connect(&channel,
@@ -796,9 +781,6 @@ void ChatArea::deinit()
 void ChatArea::setUserAvatar(const BackendUser& user)
 {
     ui->userAvatar->setPixmap(user.avatar);
-    if (channel.type == BackendChannel::directChannel && !isThread && treeItem) {
-        treeItem->setIcon(QIcon(user.avatar));
-    }
 }
 
 Ui::ChatArea* ChatArea::getUi()
@@ -814,6 +796,17 @@ Backend& ChatArea::getBackend()
 BackendChannel& ChatArea::getChannel()
 {
     return channel;
+}
+
+QString ChatArea::teamContextId() const
+{
+    if (channel.team) {
+        return channel.team->id;
+    }
+    if (!sidebarTeamId.isEmpty() && backend.getStorage().getTeamById(sidebarTeamId)) {
+        return sidebarTeamId;
+    }
+    return parentArea ? parentArea->teamContextId() : QString();
 }
 
 void ChatArea::setSplitterEdgeGutters(bool suppressLeft, bool suppressRight)
@@ -983,56 +976,6 @@ void ChatArea::onMove(QPoint)
 {
     // Pinned messages are embedded in the ChatArea; no floating child follows
     // the main-window position anymore.
-}
-
-void ChatArea::moveOnListTop()
-{
-    if (!treeItem || !treeItem->parent() || !treeItem->treeWidget()) {
-        return;
-    }
-
-    QTreeWidgetItem* parent = treeItem->parent();
-    QTreeWidget* tree = treeItem->treeWidget();
-    if (parent->indexOfChild(treeItem) == 0) {
-        return;
-    }
-
-    const bool isCurrent = tree->currentItem() == treeItem;
-    auto* thisItemWidget = static_cast<ChannelItemWidget*>(
-        tree->itemWidget(treeItem, 0));
-    if (!thisItemWidget) {
-        return;
-    }
-
-    auto* newItemWidget = new ChannelItemWidget(thisItemWidget->parentWidget());
-    newItemWidget->setLabel(channel.display_name);
-    if (!thisItemWidget->getPixmap().isNull()) {
-        newItemWidget->setIcon(QIcon(thisItemWidget->getPixmap()));
-    }
-
-    tree->blockSignals(true);
-    QTreeWidgetItem* child = parent->takeChild(parent->indexOfChild(treeItem));
-    parent->insertChild(0, child);
-    tree->blockSignals(false);
-
-    if (child != treeItem) {
-        return;
-    }
-
-    tree->setItemWidget(child, 0, newItemWidget);
-    treeItem->setWidget(newItemWidget);
-    if (isCurrent) {
-        tree->setCurrentItem(child);
-    }
-}
-
-void ChatArea::setUnreadMessagesCount(uint32_t count)
-{
-    unreadMessagesCount = count;
-    if (!treeItem) {
-        return;
-    }
-    treeItem->setText(1, count == 0 ? QString() : QString::number(count));
 }
 
 void ChatArea::resizeEvent(QResizeEvent* event)

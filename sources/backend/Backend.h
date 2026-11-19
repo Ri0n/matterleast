@@ -32,6 +32,7 @@
 #include <QJsonObject>
 #include <QNetworkCookie>
 #include <QObject>
+#include <QPointer>
 #include <QList>
 #include <QSet>
 #include <QNetworkDiskCache>
@@ -409,7 +410,7 @@ private:
     BackendLoginData				loginData;
     QNetworkDiskCache				attachmentsCache;
     RequestTracker					requestTracker;
-    BackendChannel*					currentChannel;
+    QPointer<BackendChannel>            currentChannel;
     QString                             currentTeamContextId;
     QSet<QString> _flaggedPostIds;
     TypingActivityState _typingActivity;

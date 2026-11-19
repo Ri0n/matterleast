@@ -79,6 +79,9 @@ enum Role {
     // is still animated out in lockstep with the destination gap. This role is
     // paint-only and must not affect sizeHint/layout geometry.
     DragSourceHiddenRole,
+
+    // Regular DM/GM rows can stay materialized outside the current search.
+    ConversationSearchExcludedRole,
 };
 
 } // namespace SidebarItem
