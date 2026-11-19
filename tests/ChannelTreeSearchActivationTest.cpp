@@ -157,6 +157,130 @@ private slots:
         tree.setConversationSearchTerm(QString());
         QVERIFY(category->channelIds.contains(groupId));
     }
+
+    void sendingOrReceivingInRecentCategoryCannotActivateAnotherRow()
+    {
+        Backend backend;
+        Storage& storage = backend.getStorage();
+        QVERIFY(storage.addUser(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("self-user")},
+            {QStringLiteral("username"), QStringLiteral("self")},
+        }, true));
+        BackendTeam* team = storage.addTeam(QJsonObject {
+            {QStringLiteral("id"), QStringLiteral("team-id")},
+            {QStringLiteral("name"), QStringLiteral("test-team")},
+            {QStringLiteral("display_name"), QStringLiteral("Test team")},
+        });
+        QVERIFY(team);
+
+        const auto addGroup = [&](const QString& id, int timestamp) {
+            return storage.addGroupChannel(QJsonObject {
+                {QStringLiteral("id"), id},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("name"), id},
+                {QStringLiteral("display_name"), id},
+                {QStringLiteral("create_at"), 1},
+                {QStringLiteral("last_post_at"), timestamp},
+            });
+        };
+        BackendChannel* first = addGroup(QStringLiteral("gm-first"), 100);
+        BackendChannel* second = addGroup(QStringLiteral("gm-second"), 200);
+        BackendChannel* third = addGroup(QStringLiteral("gm-third"), 300);
+        QVERIFY(first && second && third);
+
+        SidebarCategory directs;
+        directs.id = QStringLiteral("dm-category");
+        directs.teamId = team->id;
+        directs.type = QStringLiteral("direct_messages");
+        directs.sorting = QStringLiteral("recent");
+        directs.channelIds = {first->id, second->id, third->id};
+        SidebarTeamState state;
+        state.order = {directs.id};
+        state.categories.insert(directs.id, directs);
+        SidebarService& sidebar = SidebarService::instance(backend);
+        sidebar.applyLocalTeamState(team->id, state);
+
+        ChannelTree tree;
+        tree.addTeam(backend, *team);
+        // Force a local category reconciliation without any server response.
+        sidebar.applyLocalTeamState(team->id, state);
+
+        const auto rowFor = [&tree](const QString& id) -> QTreeWidgetItem* {
+            for (int i = 0; i < tree.topLevelItemCount(); ++i) {
+                auto* teamRow = tree.topLevelItem(i);
+                for (int j = 0; j < teamRow->childCount(); ++j) {
+                    auto* category = teamRow->child(j);
+                    for (int k = 0; k < category->childCount(); ++k) {
+                        auto* item = category->child(k);
+                        if (item->data(0, ChannelTree::ItemIdRole).toString() == id)
+                            return item;
+                    }
+                }
+            }
+            return nullptr;
+        };
+
+        QTreeWidgetItem* selected = rowFor(first->id);
+        QVERIFY(selected);
+        QVERIFY(rowFor(second->id));
+        QVERIFY(rowFor(third->id));
+        tree.setCurrentItem(selected, 0, QItemSelectionModel::ClearAndSelect);
+        backend.setCurrentChannel(*first);
+        QCOMPARE(tree.currentItem(), selected);
+        QVERIFY(selected->isSelected());
+
+        int selectionNotifications = 0;
+        connect(&tree, &QTreeWidget::currentItemChanged, &tree,
+                [&](QTreeWidgetItem*, QTreeWidgetItem*) { ++selectionNotifications; });
+
+        // Own outgoing WebSocket activity promotes the selected conversation
+        // from the bottom of Recent to the top. Intermediate Qt indices are
+        // not a request to navigate to a neighbouring conversation.
+        first->last_post_at = 500;
+        sidebar.applyLocalTeamState(team->id, state);
+        QCOMPARE(selectionNotifications, 0);
+        QCOMPARE(tree.currentItem(), selected);
+        QCOMPARE(tree.selectedItems().size(), 1);
+        QCOMPARE(tree.selectedItems().first(), selected);
+        QCOMPARE(backend.getCurrentChannel(), first);
+        QCOMPARE(selected->parent()->indexOfChild(selected), 0);
+
+        // Incoming activity promotes a different conversation above the
+        // selected one. The active conversation and its selection stay put.
+        third->last_post_at = 600;
+        sidebar.applyLocalTeamState(team->id, state);
+        QCOMPARE(selectionNotifications, 0);
+        QCOMPARE(tree.currentItem(), selected);
+        QCOMPARE(tree.selectedItems().size(), 1);
+        QCOMPARE(tree.selectedItems().first(), selected);
+        QCOMPARE(backend.getCurrentChannel(), first);
+
+        // Server-side category moves can reparent the selected item; they
+        // are equally non-navigational and must retain its identity.
+        SidebarCategory favorites;
+        favorites.id = QStringLiteral("favorites");
+        favorites.teamId = team->id;
+        favorites.type = QStringLiteral("favorites");
+        favorites.channelIds = {first->id};
+        SidebarTeamState moved = state;
+        moved.categories[directs.id].channelIds.removeAll(first->id);
+        moved.categories.insert(favorites.id, favorites);
+        moved.order.prepend(favorites.id);
+        sidebar.applyLocalTeamState(team->id, moved);
+        QCOMPARE(selectionNotifications, 0);
+        QCOMPARE(tree.currentItem(), selected);
+        QCOMPARE(tree.selectedItems().size(), 1);
+        QCOMPARE(tree.selectedItems().first(), selected);
+        QCOMPARE(selected->parent()->data(0, ChannelTree::ItemIdRole).toString(),
+                 favorites.id);
+
+        // Explicit user navigation must still work after all reconciliations.
+        QTreeWidgetItem* other = rowFor(second->id);
+        QVERIFY(other);
+        tree.setCurrentItem(other, 0, QItemSelectionModel::ClearAndSelect);
+        QCOMPARE(selectionNotifications, 1);
+        QCOMPARE(tree.currentItem(), other);
+    }
 };
 
 QTEST_MAIN(ChannelTreeSearchActivationTest)
