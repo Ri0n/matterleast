@@ -596,6 +596,13 @@ else()
   add_executable(${APPID} sources/main.cpp resource.qrc)
   target_link_libraries(${APPID} PRIVATE matterleast-core)
   target_compile_definitions(${APPID} PRIVATE MATTERLEAST_BUILD_VERSION="${PROJECT_VERSION}")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Retain <build-output>/plugins for direct developer runs, but distinguish
+    # that from the installed /usr/bin binary. This also handles multi-config
+    # generators, where the executable and plugins both live in <build>/<config>.
+    target_compile_definitions(matterleast-core PRIVATE
+      "MATTERLEAST_BUILD_EXECUTABLE_DIR=\"$<TARGET_FILE_DIR:${APPID}>\"")
+  endif()
 
   if(WIN32)
     # Keep Windows Explorer/AV/product metadata tied to the same version that
