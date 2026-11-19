@@ -193,9 +193,9 @@ private slots:
         directs.teamId = team->id;
         directs.type = QStringLiteral("direct_messages");
         directs.sorting = QStringLiteral("recent");
-        directs.channelIds = {first->id, second->id, third->id};
+        directs.channelIds = QStringList {first->id, second->id, third->id};
         SidebarTeamState state;
-        state.order = {directs.id};
+        state.order = QStringList {directs.id};
         state.categories.insert(directs.id, directs);
         SidebarService& sidebar = SidebarService::instance(backend);
         sidebar.applyLocalTeamState(team->id, state);
@@ -264,7 +264,7 @@ private slots:
         favorites.id = QStringLiteral("favorites");
         favorites.teamId = team->id;
         favorites.type = QStringLiteral("favorites");
-        favorites.channelIds = {first->id};
+        favorites.channelIds = QStringList {first->id};
         SidebarTeamState moved = state;
         moved.categories[directs.id].channelIds.removeAll(first->id);
         moved.categories.insert(favorites.id, favorites);
