@@ -30,6 +30,8 @@
 #include <QMouseEvent>
 #include <QPointer>
 #include <QResizeEvent>
+#include <QItemSelectionModel>
+#include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QToolButton>
@@ -1010,10 +1012,13 @@ void ChatArea::moveOnListTop()
         newItemWidget->setIcon(QIcon(thisItemWidget->getPixmap()));
     }
 
-    tree->blockSignals(true);
+    // Keep the row move and selection restoration in the same transaction.
+    // In particular, do not expose Qt's interim neighbouring current item to
+    // ChannelTree::currentItemChanged (which normally activates a conversation).
+    const bool wasSelected = treeItem->isSelected();
+    const QSignalBlocker selectionGuard(tree);
     QTreeWidgetItem* child = parent->takeChild(parent->indexOfChild(treeItem));
     parent->insertChild(0, child);
-    tree->blockSignals(false);
 
     if (child != treeItem) {
         return;
@@ -1022,7 +1027,8 @@ void ChatArea::moveOnListTop()
     tree->setItemWidget(child, 0, newItemWidget);
     treeItem->setWidget(newItemWidget);
     if (isCurrent) {
-        tree->setCurrentItem(child);
+        tree->setCurrentItem(child, 0, wasSelected
+            ? QItemSelectionModel::ClearAndSelect : QItemSelectionModel::NoUpdate);
     }
 }
 
