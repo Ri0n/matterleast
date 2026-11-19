@@ -89,11 +89,14 @@ Plugins use `Q_PLUGIN_METADATA` and currently require these fields in the metada
 
 Native plugins are discovered in:
 
-1. `<application directory>/plugins` (build-tree and Windows/macOS bundles)
-2. **Linux:** `<install libdir>/matterleast/plugins` (Debian/Ubuntu: `/usr/lib/<multiarch-triplet>/matterleast/plugins`; Fedora: `/usr/lib64/matterleast/plugins`)
-3. the platform `QStandardPaths::AppDataLocation/plugins` directory
+1. **Windows/macOS bundles:** `<application directory>/plugins`
+2. **Installed Linux:** `<install libdir>/matterleast/plugins` (Debian/Ubuntu: `/usr/lib/<multiarch-triplet>/matterleast/plugins`; Fedora: `/usr/lib64/matterleast/plugins`)
+3. **Uninstalled Linux developer builds only:** `<build executable directory>/plugins`
+4. the platform `QStandardPaths::AppDataLocation/plugins` directory
 
-The Linux directory is determined from CMake's `GNUInstallDirs` and resolved **relative to the executable** at runtime, so an AppImage or a nonstandard installation prefix remains relocatable. Native Linux plugins install as `seasonal-snow.so` (without the usual library prefix). The SDK package is installed under `<install libdir>/cmake/MatterLeastPluginApi` rather than `/usr/lib/cmake`.
+The Linux system directory is determined from CMake's `GNUInstallDirs` and resolved **relative to the executable** at runtime, so an AppImage or a nonstandard installation prefix remains relocatable. The build-directory exception checks the executable's actual build output directory (including a multi-config `Debug`/`Release` directory) against the CMake-generated location; installed Linux builds never advertise or scan `/usr/bin/plugins`. The plugin search path list in **Settings → Plugins** comes from this same runtime policy.
+
+Native Linux plugins install as `seasonal-snow.so` (without the usual library prefix). The SDK package is installed under `<install libdir>/cmake/MatterLeastPluginApi` rather than `/usr/lib/cmake`.
 
 Corporate signed-only builds may instead set
 `-DMATTERLEAST_PLUGIN_VERIFY_KEY_FILE=/path/to/company-public.pem`.

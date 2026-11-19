@@ -258,17 +258,20 @@ QStringList PluginManager::pluginSearchPaths() const
 {
     QStringList paths;
     const QDir applicationDir(QCoreApplication::applicationDirPath());
-    paths.push_back(applicationDir.filePath(QStringLiteral("plugins")));
 
 #ifdef MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR
-    // The installed Linux module directory is compiled from GNUInstallDirs.
-    // Resolve it relative to the executable so relocatable AppImages and
-    // custom-prefix installations find exactly the same plugin layout.
-    const QString systemPlugins = QDir::cleanPath(applicationDir.filePath(
-        QString::fromLatin1(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR)));
-    if (!paths.contains(systemPlugins)) {
-        paths.push_back(systemPlugins);
+    // Installed Linux plugins live in libdir, not alongside /usr/bin.
+    // Keep the adjacent directory only for uninstalled developer builds.
+#ifdef MATTERLEAST_BUILD_EXECUTABLE_DIR
+    if (QDir::cleanPath(applicationDir.absolutePath())
+        == QDir::cleanPath(QString::fromLatin1(MATTERLEAST_BUILD_EXECUTABLE_DIR))) {
+        paths.push_back(applicationDir.filePath(QStringLiteral("plugins")));
     }
+#endif
+    paths.push_back(QDir::cleanPath(applicationDir.filePath(
+        QString::fromLatin1(MATTERLEAST_SYSTEM_PLUGIN_RELATIVE_DIR))));
+#else
+    paths.push_back(applicationDir.filePath(QStringLiteral("plugins")));
 #endif
 
     const QString userData =
