@@ -280,6 +280,10 @@ private slots:
         tree.setCurrentItem(other, 0, QItemSelectionModel::ClearAndSelect);
         QCOMPARE(selectionNotifications, 1);
         QCOMPARE(tree.currentItem(), other);
+        // No queued selection rollback may override a subsequent user choice.
+        QCoreApplication::processEvents();
+        QCOMPARE(selectionNotifications, 1);
+        QCOMPARE(tree.currentItem(), other);
     }
 };
 
