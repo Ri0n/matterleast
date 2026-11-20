@@ -354,6 +354,13 @@ void WebSocketEventHandler::handleEvent (const PostEditedEvent& event)
 	// decided inside PostRepository.
 	repository.cachePostObject(event.postObject);
 
+    if (event.postObject.value(QStringLiteral("type")).toString() == QLatin1String("custom_calls")
+        && event.postObject.value(QStringLiteral("props")).toObject()
+               .value(QStringLiteral("end_at")).toVariant().toLongLong() > 0) {
+        emit backend.callPostEnded(event.channelId,
+                                   event.postObject.value(QStringLiteral("id")).toString());
+    }
+
 	BackendTeam* team = storage.getTeamById (event.teamId);
 	QString teamName = team ? team->name : event.teamId;
 
@@ -392,6 +399,7 @@ void WebSocketEventHandler::handleEvent (const PostDeletedEvent& event)
 	// Invalidations are never admission-gated: a cold channel may still have a
 	// previously cached row that is now known to be stale.
 	PostRepository::instance(backend).invalidateCachedPost(event.postId);
+    emit backend.callPostEnded(event.channelId, event.postId);
 
 	BackendChannel* channel = storage.getChannelById (event.channelId);
 
@@ -456,6 +464,7 @@ void WebSocketEventHandler::handleEvent (const StatusChangeEvent& event)
 	}
 
 	LOG_DEBUG ("User " << user->getDisplayName() << " is " << event.statusString);
+	++user->statusRevision;
 	user->status = event.statusString;
 	emit (user->onStatusChanged());
 }
@@ -693,8 +702,12 @@ void WebSocketEventHandler::handleEvent (const ChannelUpdatedEvent& event)
 
 	LOG_DEBUG ("Channel updated: " << channel->display_name);
 
-	channel->display_name = event.displayName;
-	channel->name = event.name;
+    // Storage normalizes a DM's wire name (two IDs) into the peer ID.
+    // Its label is resolved from the local account's view of that peer.
+    if (channel->type != BackendChannel::directChannel) {
+        channel->display_name = event.displayName;
+        channel->name = event.name;
+    }
 	channel->header = event.header;
 	channel->purpose = event.purpose;
 

@@ -16,6 +16,7 @@
 #include "PluginHost.h"
 #include "PluginSignature.h"
 #include "backend/Backend.h"
+#include "backend/types/BackendPost.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "navigation/AppNavigationService.h"
@@ -176,9 +177,19 @@ public:
         return backend_.loggedIn() ? backend_.getLoginUser().id : QString();
     }
 
+    bool sendSdp(const QJsonObject& description) override
+    {
+        return backend_.sendCallsSdp(description);
+    }
+
     bool sendAction(const QString& action, const QJsonObject& data) override
     {
         return backend_.sendCallsPluginAction(action, data);
+    }
+
+    QString connectionId() const override
+    {
+        return backend_.callsConnectionId();
     }
 
     void request(const QString& method, const QString& relativePath,
@@ -218,11 +229,53 @@ PluginManager::PluginManager(Backend& backend)
     , conversationHost_(std::make_unique<ConversationHost>(backend))
     , callsHost_(std::make_unique<CallsHost>(*this, backend))
 {
+    connectBackendSignals();
+    connect(this, &PluginManager::callsSnapshotChanged,
+            this, &PluginManager::handleIncomingCallSnapshot);
+    connect(this, &PluginManager::callsAvailabilityChanged, this, [this](bool available) {
+        if (!available) clearIncomingCalls();
+    });
+    if (QCoreApplication* app = QCoreApplication::instance()) {
+        connect(app, &QCoreApplication::aboutToQuit,
+                this, [this] { shutdown(); });
+    }
+    loadStandardPlugins();
+}
+
+void PluginManager::restoreBackendConnections(Backend& backend)
+{
+    if (auto* manager = backend.findChild<PluginManager*>(
+            ManagerObjectName, Qt::FindDirectChildrenOnly)) {
+        manager->connectBackendSignals();
+    }
+}
+
+void PluginManager::connectBackendSignals()
+{
     connect(&backend_, &Backend::onCallsPluginEvent, this,
             [this](const QString& name, const QJsonObject& data,
                    const QJsonObject& broadcast) {
+        if (!backend_.loggedIn()) {
+            return;
+        }
+        if (callsAvailable()) {
+            handleIncomingCallEvent(name, data, broadcast);
+        }
         if (auto* provider = callsProvider()) {
             provider->onServerEvent(name, data, broadcast);
+        }
+    });
+    connect(&backend_, &Backend::onNewPost, this,
+            [this](BackendChannel& channel, const BackendPost& post) {
+        if (post.type == QLatin1String("custom_calls")) {
+            announceIncomingCall(channel.id);
+        }
+    });
+    connect(&backend_, &Backend::callPostEnded, this,
+            [this](const QString& channelId, const QString& postId) {
+        const auto invitation = incomingCalls_.constFind(channelId);
+        if (invitation != incomingCalls_.cend() && invitation->call.postId == postId) {
+            endIncomingCall(channelId);
         }
     });
     connect(&backend_, &Backend::onWebSocketConnect, this, [this] {
@@ -231,15 +284,15 @@ PluginManager::PluginManager(Backend& backend)
         }
     });
     connect(&backend_, &Backend::onWebSocketDisconnect, this, [this] {
+        clearIncomingCalls();
         if (auto* provider = callsProvider()) {
             provider->onConnectionChanged(false);
         }
     });
-    if (QCoreApplication* app = QCoreApplication::instance()) {
-        connect(app, &QCoreApplication::aboutToQuit,
-                this, [this] { shutdown(); });
-    }
-    loadStandardPlugins();
+    connect(&backend_, &Backend::sessionEnding, this, [this] {
+        leaveCall();
+        clearIncomingCalls();
+    });
 }
 
 PluginManager::~PluginManager()

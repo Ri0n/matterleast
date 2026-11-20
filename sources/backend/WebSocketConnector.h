@@ -60,6 +60,7 @@ public:
     void reportUserActivity(bool active);
     bool sendUserTyping(const QString& channelId, const QString& parentId);
     bool sendCallsPluginAction(const QString& action, const QJsonObject& data);
+    bool sendCallsSdp(const QJsonObject& description);
     bool typingEnabled() const;
     int typingIntervalMs() const;
     int typingMaximumMembers() const;

@@ -77,3 +77,61 @@ add_test(
         "MATTERLEAST_SNOW_TEST_PLUGIN_PATH=$<TARGET_FILE:matterleast-seasonal-snow>"
         "$<TARGET_FILE:seasonal-snow-test>"
 )
+
+# Binary Calls SDP is not JSON websocket framing: test the exact
+# MessagePack envelope and RFC1950 zlib payload independently.
+add_executable(calls-messagepack-test
+    "${CMAKE_SOURCE_DIR}/tests/CallsMessagePackTest.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/CallsMessagePack.cpp"
+)
+target_include_directories(calls-messagepack-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(calls-messagepack-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test
+    Qt${QT_VERSION_MAJOR}::Core
+)
+add_test(NAME calls-messagepack-test COMMAND calls-messagepack-test)
+
+# Actual native Calls plugin smoke test; enable only on distributions where
+# GStreamer WebRTC development/runtime modules are installed.
+if(MATTERLEAST_BUILD_CALLS_GSTREAMER)
+    add_executable(calls-gstreamer-test
+        CallsGStreamerTest.cpp
+        "${CMAKE_SOURCE_DIR}/sources/plugins/PluginHost.cpp"
+    )
+    target_include_directories(calls-gstreamer-test PRIVATE
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/sources"
+    )
+    target_link_libraries(calls-gstreamer-test PRIVATE
+        matterleast-plugin-api
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    add_executable(calls-window-test
+        CallsWindowTest.cpp
+        "${CMAKE_SOURCE_DIR}/plugins/calls-gstreamer/CallsWindow.cpp"
+    )
+    target_include_directories(calls-window-test PRIVATE "${CMAKE_SOURCE_DIR}")
+    target_link_libraries(calls-window-test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Test
+    )
+    add_test(
+        NAME calls-window-test
+        COMMAND "${CMAKE_COMMAND}" -E env
+            "QT_QPA_PLATFORM=offscreen"
+            "$<TARGET_FILE:calls-window-test>"
+    )
+
+    add_dependencies(calls-gstreamer-test matterleast-calls-gstreamer)
+    add_test(
+        NAME calls-gstreamer-test
+        COMMAND "${CMAKE_COMMAND}" -E env
+            "QT_QPA_PLATFORM=offscreen"
+            "MATTERLEAST_CALLS_TEST_FAKE_AUDIO=1"
+            "MATTERLEAST_CALLS_PLUGIN_PATH=$<TARGET_FILE:matterleast-calls-gstreamer>"
+            "$<TARGET_FILE:calls-gstreamer-test>"
+    )
+endif()

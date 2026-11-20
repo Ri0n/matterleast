@@ -103,6 +103,7 @@ void Backend::setOwnAvailability(const QString& status, StatusUpdateResult callb
             const bool ok = succeeded(reply);
             if (guard && ok) {
                 if (auto* user = guard->storage.getUserById(id)) {
+                    ++user->statusRevision;
                     user->status = status;
                     emit user->onStatusChanged();
                 }

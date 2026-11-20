@@ -1,0 +1,196 @@
+name: Calls GStreamer / Ubuntu 24.04
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/calls-gstreamer/**'
+      - 'plugins/api/CallsHostInterface.h'
+      - 'sources/backend/CallsMessagePack.*'
+      - 'sources/backend/WebSocketConnector.*'
+      - 'sources/backend/Backend.*'
+      - 'sources/plugins/PluginManager.cpp'
+      - 'tests/plugins/CallsGStreamerTest.cpp'
+      - 'tests/plugins/CallsWindowTest.cpp'
+      - 'tests/CallsMessagePackTest.cpp'
+      - 'tests/plugins/CMakeLists.txt'
+      - 'plugins/CMakeLists.txt'
+      - 'CMakeLists.txt'
+      - '.github/workflows/calls-gstreamer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calls-ubuntu2404-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  calls-ubuntu2404:
+    name: Native Qt6 + system GStreamer 1.24 and split DEBs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare-version
+        with:
+          version: ""
+      - name: Restore Ubuntu 24.04 GStreamer/Qt apt cache
+        id: ubuntu-apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/matterleast-calls-apt
+          key: matterleast-calls-ubuntu24-${{ runner.arch }}-v1
+      - name: Install native Ubuntu 24.04 dependencies
+        run: |
+          # The public Azure mirror was measured much faster than the hosted
+          # runner's regional EC2 mirror in the earlier RTCD/webrtcbin PoC.
+          sudo sed -i 's@http://us-east-2.ec2.archive.ubuntu.com/ubuntu@http://azure.archive.ubuntu.com/ubuntu@g' \
+            /etc/apt/sources.list.d/ubuntu.sources
+          apt_archives="$HOME/.cache/matterleast-calls-apt"
+          mkdir -p "$apt_archives/partial"
+          sudo apt-get -o Acquire::Retries=2 update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get \
+            -o Dir::Cache::archives="$apt_archives" \
+            -o APT::Keep-Downloaded-Packages=true \
+            -o Acquire::Retries=2 \
+            install -y --no-install-recommends \
+            ninja-build cmake build-essential pkg-config dpkg-dev fakeroot file \
+            qt6-base-dev qt6-svg-dev qt6-websockets-dev libqt6sql6-sqlite \
+            qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins libssl-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-bad1.0-dev gstreamer1.0-tools \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-nice
+          sudo chown -R "$USER:$USER" "$apt_archives"
+          du -sh "$apt_archives"
+      - name: Save apt cache before media tests
+        if: steps.ubuntu-apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/matterleast-calls-apt
+          key: matterleast-calls-ubuntu24-${{ runner.arch }}-v1
+      - name: Verify native GStreamer
+        run: |
+          test "$(pkg-config --modversion gstreamer-1.0)" = "1.24.2"
+          gst-inspect-1.0 webrtcbin
+          gst-inspect-1.0 rtpopuspay
+          gst-inspect-1.0 rtpopusdepay
+          gst-inspect-1.0 audiomixer
+      - name: Configure and build Calls module
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DQT_6=ON -DBUILD_TESTING=ON -DBUILD_MULTIMEDIA=OFF \
+            -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
+            -DMATTERLEAST_BUILD_CALLS_GSTREAMER=ON \
+            -DWARNINGS_AS_ERRORS=ON
+          # Compile just the native plugin and its smoke tests first, so
+          # failures surface before the expensive full GUI/application build.
+          cmake --build build --parallel 4 --target \
+            calls-gstreamer-test calls-window-test calls-messagepack-test plugin-host-test
+      - name: Native wire codec, plugin-host and actual webrtcbin smoke tests
+        run: |
+          ctest --test-dir build --output-on-failure \
+            -R '^(calls-messagepack-test|plugin-host-test|calls-gstreamer-test|calls-window-test)$'
+      - name: Build MatterLeast for packaging (without rebuilding all tests)
+        run: |
+          cmake -S . -B build -DBUILD_TESTING=OFF
+          cmake --build build --parallel 4
+      - name: Build and inspect independently installable Debian packages
+        run: |
+          mkdir -p package
+          cpack --config build/CPackConfig.cmake -G DEB -B package \
+            -D CPACK_DEBIAN_PACKAGE_DEBUG=ON
+          shopt -s nullglob
+          debs=(package/*.deb)
+          test "${#debs[@]}" -eq 2
+          runtime=''
+          calls=''
+          for deb in "${debs[@]}"; do
+            name=$(dpkg-deb -f "$deb" Package)
+            case "$name" in
+              matterleast) runtime="$deb" ;;
+              matterleast-calls-gstreamer) calls="$deb" ;;
+              *) echo "Unexpected DEB: $name"; exit 1 ;;
+            esac
+          done
+          test -n "$runtime"
+          test -n "$calls"
+          version=$(dpkg-deb -f "$runtime" Version)
+          test "$(dpkg-deb -f "$calls" Version)" = "$version"
+          core_depends=$(dpkg-deb -f "$runtime" Depends)
+          calls_depends=$(dpkg-deb -f "$calls" Depends)
+          echo "MatterLeast dependencies: $core_depends"
+          echo "Calls dependencies: $calls_depends"
+          if grep -qi gstreamer <<< "$core_depends"; then
+            echo "ERROR: the main MatterLeast package unexpectedly requires GStreamer"
+            exit 1
+          fi
+          grep -q 'libgstreamer1.0-0' <<< "$calls_depends"
+          grep -q 'gstreamer1.0-plugins-bad' <<< "$calls_depends"
+          grep -Fq "matterleast (= $version)" <<< "$calls_depends"
+          echo '=== Runtime package installed files ==='
+          dpkg-deb --contents "$runtime" | grep -E '(matterleast|seasonal-snow)' | tail -n 35
+          echo '=== Calls package installed files ==='
+          dpkg-deb --contents "$calls"
+          dpkg-deb --contents "$runtime" | grep -F '/usr/bin/matterleast'
+          dpkg-deb --contents "$runtime" | grep -F '/seasonal-snow.so'
+          if dpkg-deb --contents "$runtime" | grep -Fq '/calls-gstreamer.so'; then
+            echo "ERROR: GStreamer module was packaged inside main MatterLeast"
+            exit 1
+          fi
+          dpkg-deb --contents "$calls" | grep -F '/calls-gstreamer.so'
+          if dpkg-deb --contents "$calls" | grep -Fq '/seasonal-snow.so'; then
+            echo "ERROR: regular bundled plugin leaked into the optional Calls package"
+            exit 1
+          fi
+          # Both plugin library components should appear as real ELF files.
+          file build/plugins/calls-gstreamer.so
+          ldd build/plugins/calls-gstreamer.so | grep libgstreamer
+          if ldd build/matterleast | grep -qi libgstreamer; then
+            echo "ERROR: the main executable links to GStreamer"
+            exit 1
+          fi
+      - name: Install base first, then optional Calls DEB, and test installed module
+        run: |
+          set -euo pipefail
+          runtime=(package/matterleast_*_amd64.deb)
+          calls=(package/matterleast-calls-gstreamer_*_amd64.deb)
+          test "${#runtime[@]}" -eq 1
+          test "${#calls[@]}" -eq 1
+          arch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
+          plugin_dir="/usr/lib/$arch/matterleast/plugins"
+
+          # Installing the base package must not install the optional Calls
+          # module, and its exported plugin SDK must remain available.
+          sudo apt-get install -y --no-install-recommends "./${runtime[0]}"
+          test -f /usr/include/matterleast/plugin/CallsHostInterface.h
+          test -f "$plugin_dir/seasonal-snow.so"
+          test ! -e "$plugin_dir/calls-gstreamer.so"
+          if dpkg-query -W -f='${Status}' matterleast-calls-gstreamer \
+              2>/dev/null | grep -q 'install ok installed'; then
+            echo 'Calls plugin was installed together with base package'
+            exit 1
+          fi
+
+          # Installing Calls should add only the optional module and its
+          # dependencies; verify the loaded library at its installed path.
+          sudo apt-get install -y --no-install-recommends "./${calls[0]}"
+          test -f "$plugin_dir/calls-gstreamer.so"
+          test "$(dpkg-query -S "$plugin_dir/calls-gstreamer.so" \
+                   | cut -d: -f1)" = "matterleast-calls-gstreamer"
+          if ldd "$plugin_dir/calls-gstreamer.so" | grep -q 'not found'; then
+            echo 'Installed native Calls library has unresolved dependencies'
+            exit 1
+          fi
+          QT_QPA_PLATFORM=offscreen \
+          MATTERLEAST_CALLS_TEST_FAKE_AUDIO=1 \
+          MATTERLEAST_CALLS_PLUGIN_PATH="$plugin_dir/calls-gstreamer.so" \
+            build/tests/plugins/calls-gstreamer-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matterleast-calls-gstreamer-ubuntu2404
+          path: package/*.deb
+          if-no-files-found: error
+

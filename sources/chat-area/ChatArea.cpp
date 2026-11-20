@@ -59,6 +59,7 @@
 #include "navigation/AppNavigationService.h"
 #include "post-collection/PostCollectionView.h"
 #include "ui/ConversationActionsMenu.h"
+#include "plugins/PluginManager.h"
 #include "ui/IconUtils.h"
 #include "ui/ThemeIconWidgets.h"
 #include "ui_ChatArea.h"
@@ -122,31 +123,29 @@ ChatArea::ChatArea(Backend& backend,
     ui->outgoingPostCreator->restorePersistentDraft();
 
     ui->titleLabel->setText(channel.display_name);
+    ui->statusLabel->setPresenceRoutingEnabled(false);
     ui->statusLabel->setText(channel.getChannelDescription());
 
-    const BackendUser* user = backend.getStorage().getUserById(channel.name);
-    if (user) {
-        connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
-            setUserAvatar(*user);
+    ui->userAvatar->hide();
+    if (channel.type == BackendChannel::directChannel) {
+        auto& profiles = UserProfileService::instance(backend);
+        connect(&profiles, &UserProfileService::profileResolved, this,
+                [this](const QString& id) {
+            if (id == this->channel.name) bindDirectPeer();
         });
-        connect(user, &BackendUser::onStatusChanged, this, [this, user] {
-            ui->statusLabel->setText(user->status);
+        connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
+            if (isVisible() && directPeer_) {
+                UserProfileService::instance(this->backend).ensureStatuses({directPeer_->id});
+            }
         });
-
-        if (!user->avatar.isNull()) {
-            setUserAvatar(*user);
-        } else {
-            backend.retrieveUserAvatar(user->id);
-        }
-        if (ui->statusLabel->text().isEmpty()) {
-            ui->statusLabel->setText(user->status);
+        bindDirectPeer();
+        if (!directPeer_) {
+            profiles.ensureUser(channel.name);
         }
     } else {
-        ui->userAvatar->clear();
-        ui->userAvatar->hide();
-        ui->usersButton->hide();
         requestChannelMemberCount();
     }
+    ui->usersButton->hide();
 
     // Lazy ChatAreas may be created after the application's eager startup work.
     // Pinned posts are independent from the virtualized timeline and can be
@@ -402,6 +401,35 @@ void ChatArea::setupHeaderUi()
     }
 #endif
 
+    // The Calls module is optional. Reserve no header space for unavailable
+    // capabilities, and never offer a call button in threads or channels yet.
+    if (!isThread && (channel.type == BackendChannel::directChannel
+                      || channel.type == BackendChannel::groupChannel)) {
+        auto& calls = PluginManager::instance(backend);
+        chatCallButton = new QToolButton(this);
+        chatCallButton->setObjectName(QStringLiteral("chatCallButton"));
+        chatCallButton->setAutoRaise(true);
+        chatCallButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        chatCallButton->setIconSize(QSize(HeaderActionIconExtent, HeaderActionIconExtent));
+        chatCallButton->setCursor(Qt::PointingHandCursor);
+        ui->propertieslLayout->addWidget(chatCallButton, 0, Qt::AlignVCenter);
+        connect(chatCallButton, &QToolButton::clicked, this, [this, &calls] {
+            if (!calls.callsAvailable()) return;
+            const auto state = calls.callsSnapshot();
+            if (state.state == MatterLeast::PluginApi::CallsState::Idle) {
+                calls.startCall(channel.id);
+            } else if (state.channelId == channel.id
+                       && state.state != MatterLeast::PluginApi::CallsState::Leaving) {
+                calls.leaveCall();
+            }
+        });
+        connect(&calls, &PluginManager::callsAvailabilityChanged,
+                this, [this] { refreshCallButton(); });
+        connect(&calls, &PluginManager::callsSnapshotChanged,
+                this, [this] { refreshCallButton(); });
+        refreshCallButton();
+    }
+
     chatActionsButton = new QToolButton(this);
     chatActionsButton->setObjectName(QStringLiteral("chatActionsButton"));
     chatActionsButton->setAutoRaise(true);
@@ -481,6 +509,36 @@ void ChatArea::showPinnedPosts(bool show)
         : static_cast<QWidget*>(ui->listWidget));
 }
 
+void ChatArea::refreshCallButton()
+{
+    if (!chatCallButton) return;
+
+    auto& calls = PluginManager::instance(backend);
+    const bool available = calls.callsAvailable();
+    chatCallButton->setVisible(available);
+    if (!available) return;
+
+    const auto state = calls.callsSnapshot();
+    using MatterLeast::PluginApi::CallsState;
+    const bool active = state.state != CallsState::Idle;
+    const bool current = active && state.channelId == channel.id;
+    const bool otherCall = active && !current;
+    const bool leaving = state.state == CallsState::Leaving;
+    const bool failed = state.state == CallsState::Failed;
+    chatCallButton->setEnabled(!otherCall && !leaving);
+
+    const QString hint = otherCall ? tr("A call is active in another conversation")
+        : !active ? tr("Start audio call")
+        : failed ? tr("Close failed call")
+        : state.state == CallsState::Connecting ? tr("Cancel audio call")
+        : tr("Leave audio call");
+    chatCallButton->setToolTip(hint);
+    chatCallButton->setAccessibleName(hint);
+    const QString icon = current ? QStringLiteral(":/icons/call-end")
+                                 : QStringLiteral(":/icons/call-start");
+    chatCallButton->setIcon(IconUtils::symbolicIcon(icon));
+}
+
 void ChatArea::refreshHeaderActionIcons()
 {
     if (!ui) {
@@ -495,6 +553,7 @@ void ChatArea::refreshHeaderActionIcons()
         ui->pinnedPostsButton->setIcon(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/pin")));
     }
+    refreshCallButton();
     if (chatActionsButton) {
         chatActionsButton->setIcon(
             IconUtils::symbolicIcon(QStringLiteral(":/icons/burger")));
@@ -671,6 +730,8 @@ void ChatArea::init()
     // repository residency leases can be released. Rebuild only orchestration
     // connections and the view attachment on activation.
     if (!isThread) {
+        ui->titleLabel->setText(channel.display_name);
+        ui->statusLabel->setText(channel.getChannelDescription());
         signalConnections.push_back(connect(&channel, &BackendChannel::onUpdated,
                                             this, [this] {
             ui->titleLabel->setText(channel.display_name);
@@ -776,6 +837,34 @@ void ChatArea::deinit()
     }
     signalConnections.clear();
     initialized = false;
+}
+
+void ChatArea::bindDirectPeer()
+{
+    auto* user = backend.getStorage().getUserById(channel.name);
+    if (!user || directPeer_ == user) {
+        return;
+    }
+    directPeer_ = user;
+    connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
+        setUserAvatar(*user);
+    });
+    connect(user, &BackendUser::onStatusChanged, this, &ChatArea::refreshPeerStatus);
+    ui->userAvatar->show();
+    setUserAvatar(*user);
+    refreshPeerStatus();
+    auto& profiles = UserProfileService::instance(backend);
+    profiles.ensureAvatar(*user);
+    if (user->status.isEmpty() && backend.loggedIn()) {
+        profiles.ensureStatuses({user->id});
+    }
+}
+
+void ChatArea::refreshPeerStatus()
+{
+    if (directPeer_) {
+        ui->userAvatar->setStatus(directPeer_->status);
+    }
 }
 
 void ChatArea::setUserAvatar(const BackendUser& user)

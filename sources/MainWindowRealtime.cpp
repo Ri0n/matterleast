@@ -11,6 +11,17 @@
 
 #include "ui_mainwindow.h"
 
+#include <memory>
+
+#include <QApplication>
+#include <QSet>
+#include <QTimer>
+
+#include "build-config.h"
+#if BUILD_MULTIMEDIA
+#include <QSoundEffect>
+#endif
+
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
 #include "backend/ServerUiService.h"
@@ -20,12 +31,14 @@
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendDirectChannelsTeam.h"
 #include "backend/types/BackendPost.h"
+#include "backend/types/BackendUser.h"
 #include "channel-tree/AttentionList.h"
 #include "channel-tree/ChannelQuickList.h"
 #include "channel-tree/ChannelTree.h"
 #include "chat-area/ChatArea.h"
 #include "navigation/AppNavigationService.h"
 #include "notifications/NotificationManager.h"
+#include "plugins/PluginManager.h"
 #include "post-collection/PostCollectionView.h"
 #include "server-dialog/ServerDialog.h"
 #include "ui/PresenceAvatarLabel.h"
@@ -104,6 +117,69 @@ void MainWindow::installRealtimeUiSync()
         }
 
         AppNavigationService::instance(backend).openPost(target.postId);
+    });
+
+    auto& plugins = PluginManager::instance(backend);
+    connect(notificationManager.get(), &NotificationManager::incomingCallAnswered,
+            &plugins, &PluginManager::answerIncomingCall);
+    auto* ringTimer = new QTimer(this);
+    ringTimer->setInterval(2600);
+#if BUILD_MULTIMEDIA
+    auto* ringtone = new QSoundEffect(ringTimer);
+    ringtone->setVolume(0.45f);
+    const auto ring = [ringtone] {
+        if (ringtone->source().isEmpty()) {
+            ringtone->setSource(QUrl(QStringLiteral("qrc:/sounds/incoming-call.wav")));
+        }
+        if (ringtone->status() == QSoundEffect::Error) {
+            QApplication::beep();
+        } else {
+            ringtone->play();
+        }
+    };
+#else
+    const auto ring = [] { QApplication::beep(); };
+#endif
+    connect(ringTimer, &QTimer::timeout, this, ring);
+    auto ringing = std::make_shared<QSet<QString>>();
+    const auto stopRinging = [ringing, ringTimer
+#if BUILD_MULTIMEDIA
+                              , ringtone
+#endif
+    ](const QString& id) {
+        ringing->remove(id);
+        if (ringing->isEmpty()) {
+            ringTimer->stop();
+#if BUILD_MULTIMEDIA
+            ringtone->stop();
+#endif
+        }
+    };
+    connect(&plugins, &PluginManager::incomingCallClosed, this,
+            [this, stopRinging](const QString& id) {
+        stopRinging(id);
+        notificationManager->closeIncomingCall(id);
+    });
+    connect(&plugins, &PluginManager::incomingCallStarted, this,
+            [this, ringTimer, ring, ringing, stopRinging](const IncomingCall& call) {
+        auto* channel = backend.getStorage().getChannelById(call.channelId);
+        if (!channel || SidebarService::instance(backend).isChannelMuted(*channel)) {
+            return;
+        }
+        const auto* owner = backend.getStorage().getUserById(call.ownerId);
+        const QString caller = owner ? owner->getDisplayName() : channel->display_name;
+        ringing->insert(call.id);
+        if (!ringTimer->isActive()) {
+            ring();
+            ringTimer->start();
+        }
+        QTimer::singleShot(30000, this, [stopRinging, id = call.id] {
+            stopRinging(id);
+        });
+        notificationManager->show(tr("Incoming audio call"), caller,
+                                  {call.channelId, call.postId,
+                                   call.threadId == call.postId ? QString() : call.threadId,
+                                   call.id});
     });
 
     // Server-originated ephemeral posts are transient by definition: surface

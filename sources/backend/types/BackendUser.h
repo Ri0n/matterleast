@@ -89,6 +89,7 @@ public:
     //filled when status is requested
 	QString 			status;
 	uint64_t			lastActivity;
+    quint64             statusRevision = 0;
 };
 
 } /* namespace Mattermost */

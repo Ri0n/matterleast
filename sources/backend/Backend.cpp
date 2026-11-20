@@ -63,6 +63,7 @@
 #include "RealtimeFallbackService.h"
 #include "types/BackendPoll.h"
 #include "types/BackendNewPollData.h"
+#include "plugins/PluginManager.h"
 #include "reactions/ReactionUsageTracker.h"
 #include "log.h"
 
@@ -73,6 +74,11 @@ enum type {
 	channelMember,
 	teamMember,
 };
+}
+
+bool Backend::sendCallsSdp(const QJsonObject& description)
+{
+    return loggedIn() && webSocketConnector.sendCallsSdp(description);
 }
 
 bool Backend::sendCallsPluginAction(const QString& action, const QJsonObject& data)
@@ -111,7 +117,7 @@ void Backend::requestCallsPlugin(const QString& method,
         reject(QStringLiteral("Mattermost session is not authenticated"));
         return;
     }
-    if (!relativePath.startsWith(QStringLiteral("plugins/com.mattermost.calls/api/v1/"))
+    if (!relativePath.startsWith(QStringLiteral("plugins/com.mattermost.calls/"))
         || relativePath.contains(QStringLiteral(".."))
         || relativePath.contains(QLatin1Char('\\'))
         || relativePath.contains(QLatin1Char('#'))
@@ -125,15 +131,31 @@ void Backend::requestCallsPlugin(const QString& method,
         return;
     }
 
-    NetworkRequest request(relativePath);
+    // Calls is a server plugin served at /plugins/..., not /api/v4/.
+    // Retain the backend authentication while selecting the correct route.
+    NetworkRequest request(QString(), relativePath);
     const HttpResponseCallback handler(
-        [lifetime, pending](QVariant, QByteArray payload,
-                            const QNetworkReply& reply) {
+        [lifetime, pending, method](QVariant, QByteArray payload,
+                                    const QNetworkReply& reply) {
             if (!lifetime || !*pending) {
                 return; // Callbacks were cleared before plugin unload.
             }
-            (*pending)(reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
-                       QJsonDocument::fromJson(payload).object());
+            const int status = reply.attribute(
+                QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status < 200 || status >= 300) {
+                // Log the effective URL after redirects, never credentials,
+                // query parameters, cookies or response bodies.
+                const QString url = reply.url().toString(
+                    QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment);
+                qWarning().noquote()
+                    << "MatterLeast Calls HTTP request failed:"
+                    << method << url
+                    << "status=" << status
+                    << "networkError=" << static_cast<int>(reply.error())
+                    << "contentType=" << reply.header(
+                           QNetworkRequest::ContentTypeHeader).toString();
+            }
+            (*pending)(status, QJsonDocument::fromJson(payload).object());
         });
     if (method == QLatin1String("GET")) {
         httpConnector.get(request, handler);
@@ -668,10 +690,14 @@ void Backend::reset ()
     _typingTrackedViews.clear();
 	storage.reset ();
 	nonFilledTeams = 0;
+    PluginManager::restoreBackendConnections(*this);
 }
 
 void Backend::prepareForLogout()
 {
+    if (isLoggedIn) {
+        emit sessionEnding();
+    }
     isLoggedIn = false;
     autoLoginEnabledFlag = false;
 
@@ -686,6 +712,9 @@ void Backend::prepareForLogout()
 void Backend::logout(std::function<void()> callback)
 {
     NetworkRequest request(QStringLiteral("users/logout"));
+    if (isLoggedIn) {
+        emit sessionEnding();
+    }
     isLoggedIn = false;
     autoLoginEnabledFlag = false;
 
@@ -843,6 +872,7 @@ void Backend::retrieveMultipleUsersStatus (const QVector<QString> & userIDs, std
 
 			user->status = jsonObject.value("status").toString();
 			user->lastActivity = jsonObject.value("last_activity_at").toVariant().toULongLong();
+			++user->statusRevision;
 		}
 
 #if 0

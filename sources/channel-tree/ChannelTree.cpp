@@ -209,12 +209,12 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
                 &UserProfileService::profileResolved, this,
                 [this](const QString& userId) {
             if (!backendForSidebar) return;
-            BackendUser* user = backendForSidebar->getStorage().getUserById(userId);
-            if (!user || !backendForSidebar->getStorage()
-                                  .getDirectChannelByUserId(userId)) return;
-            connect(user, &BackendUser::onCustomStatusChanged,
-                    this, &ChannelTree::onDirectCustomStatusChanged,
-                    Qt::UniqueConnection);
+            auto& storage = backendForSidebar->getStorage();
+            auto* user = storage.getUserById(userId);
+            const auto* channel = storage.getDirectChannelByUserId(userId);
+            if (!user || !channel || !channelToItemMap.contains(channel->id)) return;
+            bindDirectUser(*user);
+            updateDirectUserVisuals(*user);
             updateDirectCustomStatus(*user);
         });
         connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
@@ -562,64 +562,6 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
         item->setIcon(ChannelIcons::conversation(channel.type));
     }
 
-    if (channel.type == BackendChannel::directChannel) {
-        BackendUser* user = backend.getStorage().getUserById(channel.name);
-        if (user) {
-            connect(user, &BackendUser::onCustomStatusChanged,
-                    this, &ChannelTree::onDirectCustomStatusChanged,
-                    Qt::UniqueConnection);
-            item->setStatus(user->status);
-            item->setData(0, SidebarItem::CustomStatusEmojiRole,
-                          UserStatusEmoji::pixmap(backend.emojiRegistry(),
-                                                  *user, 18, font()));
-            if (!user->avatar.isNull()) {
-                item->setIcon(QIcon(user->avatar));
-            }
-
-            if (!connectedSidebarUsers.contains(user->id)) {
-                connectedSidebarUsers.insert(user->id);
-
-                // Avatars are low-priority requests and are now limited to the
-                // actually visible DM set rather than the entire user directory.
-                if (user->avatar.isNull()) {
-                    backend.retrieveUserAvatar(user->id);
-                }
-
-                connect(user, &BackendUser::onStatusChanged, this, [this, user] {
-                    if (!backendForSidebar) {
-                        return;
-                    }
-                    BackendChannel* directChannel = backendForSidebar->getStorage().getDirectChannelByUserId(user->id);
-                    if (!directChannel) {
-                        return;
-                    }
-                    const auto items = channelToItemMap.value(directChannel->id);
-                    for (QTreeWidgetItem* row : items) {
-                        if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
-                            static_cast<ChannelItem*>(row)->setStatus(user->status);
-                        }
-                    }
-                });
-
-                connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
-                    if (!backendForSidebar) {
-                        return;
-                    }
-                    BackendChannel* directChannel = backendForSidebar->getStorage().getDirectChannelByUserId(user->id);
-                    if (!directChannel) {
-                        return;
-                    }
-                    const auto items = channelToItemMap.value(directChannel->id);
-                    for (QTreeWidgetItem* row : items) {
-                        if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
-                            static_cast<ChannelItem*>(row)->setIcon(QIcon(user->avatar));
-                        }
-                    }
-                });
-            }
-        }
-    }
-
     // A channel may appear in multiple sidebar categories and category refreshes
     // routinely destroy/recreate the QTreeWidgetItem objects. Never capture a
     // row pointer in the long-lived BackendChannel::onLeave connection. The
@@ -632,11 +574,62 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
                      Qt::UniqueConnection);
 
     addChannelToItem(channel.id, item);
+    if (channel.type == BackendChannel::directChannel) {
+        if (auto* user = backend.getStorage().getUserById(channel.name)) {
+            bindDirectUser(*user);
+            item->setStatus(user->status);
+            item->setIcon(QIcon(user->avatar));
+            item->setData(0, SidebarItem::CustomStatusEmojiRole,
+                          UserStatusEmoji::pixmap(backend.emojiRegistry(), *user, 18, font()));
+        }
+    }
     auto& sidebar = SidebarService::instance(backend);
     item->setMuted(sidebar.isChannelMuted(channel));
     item->setUnread(sidebar.isChannelUnread(channel));
     item->setMentioned(sidebar.hasUnreadMention(channel.id));
     return item;
+}
+
+void ChannelTree::bindDirectUser(BackendUser& user)
+{
+    if (!connectedSidebarUsers.contains(user.id)) {
+        connectedSidebarUsers.insert(user.id);
+        connect(&user, &QObject::destroyed, this, [this, id = user.id] {
+            connectedSidebarUsers.remove(id);
+        });
+        connect(&user, &BackendUser::onCustomStatusChanged,
+                this, &ChannelTree::onDirectCustomStatusChanged);
+        connect(&user, &BackendUser::onStatusChanged, this, [this, &user] {
+            updateDirectUserVisuals(user);
+        });
+        connect(&user, &BackendUser::onAvatarChanged, this, [this, &user] {
+            updateDirectUserVisuals(user);
+        });
+        auto& profiles = UserProfileService::instance(*backendForSidebar);
+        profiles.ensureAvatar(user);
+        if (user.status.isEmpty() && backendForSidebar->loggedIn()) {
+            profiles.ensureStatuses({user.id});
+        }
+    }
+}
+
+void ChannelTree::updateDirectUserVisuals(const BackendUser& user)
+{
+    if (!backendForSidebar) {
+        return;
+    }
+    const auto* channel = backendForSidebar->getStorage().getDirectChannelByUserId(user.id);
+    if (!channel) {
+        return;
+    }
+    const QIcon avatar(user.avatar);
+    for (QTreeWidgetItem* row : channelToItemMap.value(channel->id)) {
+        if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
+            auto* item = static_cast<ChannelItem*>(row);
+            item->setStatus(user.status);
+            item->setIcon(avatar);
+        }
+    }
 }
 
 void ChannelTree::onDirectCustomStatusChanged()

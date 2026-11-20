@@ -18,6 +18,7 @@
  */
 
 #include "PostWidget.h"
+#include "plugins/PluginManager.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -437,6 +438,37 @@ PostWidget::PostWidget(Backend& backend,
 	connect(messageContent, &MessageContentWidget::contentRebuilt,
             this, &PostWidget::connectMessageLinks);
 	messageContent->setMessage(displayMessage(post, post.message));
+    if (presentationMode_ == PresentationMode::Interactive
+        && post.type == QLatin1String("custom_calls")) {
+        auto& calls = PluginManager::instance(backend_);
+        auto* actions = new QWidget(this);
+        auto* layout = new QHBoxLayout(actions);
+        layout->setContentsMargins(0, 0, 0, 0);
+        auto* accept = new QPushButton(tr("Accept"), actions);
+        auto* decline = new QPushButton(tr("Decline"), actions);
+        accept->setObjectName(QStringLiteral("acceptIncomingCall"));
+        decline->setObjectName(QStringLiteral("declineIncomingCall"));
+        layout->addWidget(accept);
+        layout->addWidget(decline);
+        layout->addStretch();
+        ui->verticalLayout->insertWidget(messageIndex + 1, actions);
+        const auto refresh = [this, actions, &calls, id = post.id] {
+            const bool visible = !calls.incomingCallForPost(id).isEmpty();
+            if (visible != !actions->isHidden()) {
+                actions->setVisible(visible);
+                emit dimensionsChanged();
+            }
+        };
+        connect(&calls, &PluginManager::incomingCallStarted, this, refresh);
+        connect(&calls, &PluginManager::incomingCallClosed, this, refresh);
+        connect(accept, &QPushButton::clicked, this, [&calls, id = post.id] {
+            calls.answerIncomingCall(calls.incomingCallForPost(id), true);
+        });
+        connect(decline, &QPushButton::clicked, this, [&calls, id = post.id] {
+            calls.answerIncomingCall(calls.incomingCallForPost(id), false);
+        });
+        actions->setVisible(!calls.incomingCallForPost(post.id).isEmpty());
+    }
     refreshForwardedInfo();
 	refreshPermalinkPreviews();
     updateTimestampPresentation();

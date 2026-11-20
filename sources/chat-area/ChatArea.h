@@ -161,6 +161,7 @@ private:
 	void dropEvent (QDropEvent* event) override;
 
 	void setupHeaderUi();
+    void refreshCallButton();
 	void refreshHeaderActionIcons();
 	void requestChannelMemberCount();
 	void updateUsersButton();
@@ -174,6 +175,9 @@ private:
 	void focusComposer();
 	void beginMessageLoading();
 	void endMessageLoading();
+    void bindDirectPeer();
+    void refreshPeerStatus();
+    QPointer<BackendUser> directPeer_;
 	void setUserAvatar (const BackendUser& user);
 	void updatePinnedPostsButton ();
 	void updateThreadWindowTitle ();
@@ -190,6 +194,7 @@ private:
 	QTimer* loadingDelayTimer = nullptr;
 	ThemeIconButton* threadFollowButton = nullptr;
     QToolButton* chatActionsButton = nullptr;
+    QToolButton* chatCallButton = nullptr;
     QMenu* chatActionsMenu = nullptr;
     QPointer<ViewChannelMembersListDialog> channelMembersDialog;
 	QStackedWidget* contentStack = nullptr;

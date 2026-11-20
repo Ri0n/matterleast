@@ -23,6 +23,7 @@
  */
 
 #include "WebSocketConnector.h"
+#include "CallsMessagePack.h"
 
 #include "HTTPConnector.h"
 
@@ -679,6 +680,22 @@ bool WebSocketConnector::sendUserTyping(const QString& channelId,
     });
     return d->webSocket.sendTextMessage(
         QString::fromUtf8(request.toJson(QJsonDocument::Compact))) >= 0;
+}
+
+bool WebSocketConnector::sendCallsSdp(const QJsonObject& description)
+{
+    if (d->connectionState != ConnectionState::Connected
+        || d->webSocket.state() != QAbstractSocket::ConnectedState
+        || d->token.isEmpty()) {
+        return false;
+    }
+    const QByteArray msg = CallsMessagePack::encodeSdp(
+        d->responseSequence, description);
+    if (msg.isEmpty() || d->webSocket.sendBinaryMessage(msg) < 0) {
+        return false;
+    }
+    ++d->responseSequence;
+    return true;
 }
 
 bool WebSocketConnector::sendCallsPluginAction(const QString& action,

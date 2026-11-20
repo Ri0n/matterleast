@@ -46,6 +46,19 @@ private slots:
                  QSsl::TlsV1_2OrLater);
     }
 
+    void callsPluginRequestUsesServerRootNotApiV4()
+    {
+        const QString relative = QStringLiteral("plugins/com.mattermost.calls/config");
+        NetworkRequest request(QString(), relative);
+        QCOMPARE(request.url(),
+                 QUrl(QStringLiteral(
+                     "https://chat.example.test/plugins/com.mattermost.calls/config")));
+        NetworkRequest::setHost(QStringLiteral("https://chat.example.test/mattermost/"));
+        NetworkRequest prefixed(QString(), relative);
+        QCOMPARE(prefixed.url(), QUrl(QStringLiteral(
+                     "https://chat.example.test/mattermost/plugins/com.mattermost.calls/config")));
+    }
+
     void preservesEndpointSpecificHeaders()
     {
         QNetworkRequest request(

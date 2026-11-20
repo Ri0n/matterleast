@@ -4,6 +4,14 @@ include("${CMAKE_CURRENT_LIST_DIR}/../cmake/MatterLeastPluginSigning.cmake")
 
 set(MATTERLEAST_PLUGIN_API_VERSION "1.0.0")
 
+# The traditional monolithic DEB includes the Plugin SDK. With Calls split
+# into two components, keep those SDK files in the Runtime component rather
+# than silently dropping headers/CMake exports from the main DEB.
+set(_matterleast_plugin_sdk_component Development)
+if(MATTERLEAST_BUILD_CALLS_GSTREAMER)
+    set(_matterleast_plugin_sdk_component Runtime)
+endif()
+
 add_library(matterleast-plugin-api INTERFACE)
 add_library(MatterLeast::PluginApi ALIAS matterleast-plugin-api)
 
@@ -24,12 +32,12 @@ target_link_libraries(matterleast-plugin-api
 
 install(TARGETS matterleast-plugin-api
     EXPORT MatterLeastPluginApiTargets
-    COMPONENT Development
+    COMPONENT ${_matterleast_plugin_sdk_component}
 )
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/api/"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/matterleast/plugin"
-    COMPONENT Development
+    COMPONENT ${_matterleast_plugin_sdk_component}
     FILES_MATCHING PATTERN "*.h"
 )
 
@@ -52,18 +60,22 @@ install(EXPORT MatterLeastPluginApiTargets
     FILE MatterLeastPluginApiTargets.cmake
     NAMESPACE MatterLeast::
     DESTINATION "${MATTERLEAST_PLUGIN_API_CMAKE_DIR}"
-    COMPONENT Development
+    COMPONENT ${_matterleast_plugin_sdk_component}
 )
 
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/MatterLeastPluginApiConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/MatterLeastPluginApiConfigVersion.cmake"
     DESTINATION "${MATTERLEAST_PLUGIN_API_CMAKE_DIR}"
-    COMPONENT Development
+    COMPONENT ${_matterleast_plugin_sdk_component}
 )
 
 # Bundle the seasonal visual effect on desktop; it remains a normal native
 # plugin with an independent enable/disable lifecycle in Settings.
 if(NOT ANDROID)
     add_subdirectory(seasonal-snow)
+endif()
+
+if(MATTERLEAST_BUILD_CALLS_GSTREAMER)
+    add_subdirectory(calls-gstreamer)
 endif()

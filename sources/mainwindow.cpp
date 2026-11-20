@@ -1290,6 +1290,12 @@ void MainWindow::restoreNavigationSessionWhenReady()
 
 void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 {
+    if (post.type == QLatin1String("custom_calls")
+        && (channel.type == BackendChannel::directChannel
+            || channel.type == BackendChannel::groupChannel)
+        && PluginManager::instance(backend).callsAvailable()) {
+        return;  // Calls owns the live invitation notification.
+    }
 	if (post.isOwnPost()) {
 		return;
 	}

@@ -1,4 +1,4 @@
-# Calls provider architecture (phase 1)
+# Calls provider architecture
 
 ## Boundary
 
@@ -30,7 +30,7 @@ credential or create media on `enable()`. The call may start only when the
 Backend is authenticated. All Mattermost API authentication, cookies, TLS
 configuration, reconnect handling, and network transport remain in the core.
 The Calls host accepts only supported HTTP methods on official Calls plugin
-paths below `plugins/com.mattermost.calls/api/v1/`. An HTTP completion is
+paths below `plugins/com.mattermost.calls/` at the server root. An HTTP completion is
 discarded when its QObject request context is destroyed. Importantly, its
 plugin-owned `std::function` target is cleared synchronously before the
 module unloads; merely testing a `QPointer` on a later response is not enough,
@@ -47,18 +47,44 @@ through `CallsHostInterface::providerChanged()`. In particular, its
 a pending asynchronous operation, media callbacks, or UI objects that have not
 been disconnected. `PluginHost::disableAndUnload()` respects such a refusal.
 
-A real Calls implementation needs asynchronous states (Connecting, Connected,
-Leaving, Failed) driven by server acknowledgements; the fake test provider
-completes transitions synchronously, deliberately without speaking to a server.
-This stage adds neither active Calls UI nor a production Calls client.
+The GStreamer provider drives its Connecting, Connected, Leaving and Failed
+transitions with server events and media callbacks. The fake test provider
+completes transitions synchronously without speaking to a server.
+
+### Incoming invitations
+The core tracks live DM/GM invitations from the authenticated Calls WebSocket
+while a Calls provider is available. The invitation binds one call ID to its
+server-created `custom_calls` post. The chat card and desktop actions use the
+same state. Decline dismisses the invitation for the current user through the
+Calls API. Accept and Decline verify the active call ID before sending
+channel-scoped actions. A server end event or a new call in the channel cancels
+an in-progress join of the previous invitation. The server takes a channel ID
+for these actions, so the check and the action cannot be atomic.
+
+Normal last-participant departure updates the original post with `end_at`,
+which also clears the invitation in cold timelines. Explicit end, join,
+disconnect, and plugin disable clear the corresponding local actions. Logout
+leaves the media session and clears invitations before credentials are reset.
+The persistent manager restores its Backend signal connections after the
+session reset so the next login receives Calls events.
+
+Incoming DM/GM calls in unmuted conversations ring locally for up to 30 seconds
+and publish a passive desktop notification. Freedesktop notification servers
+with action support show Accept and Decline. The basic tray fallback opens the
+chat card on click. The card stays available while the invitation is pending.
+Live invitations require a recent start event on the authenticated socket.
 
 ### Media engine
 
-The future `matterleast-calls-gstreamer` plugin will own the Calls protocol,
-per-call participant model, and its internal `IMediaEngine`. The first engine
-will use GStreamer's native C API from C++, with all pipeline operations on an
-explicit GLib context and results delivered to Qt through queued events. No
-GStreamer/GLib/Pion types cross the public Calls plugin ABI.
+The optional `matterleast-calls-gstreamer` plugin owns the Calls protocol,
+per-call participant model, and media engine. It uses GStreamer's native C API
+from C++, with pipeline operations on an explicit GLib context and results
+delivered to Qt through queued events. The public Calls plugin ABI uses Qt
+types.
+
+Before joining a call, the provider checks the ICE, DTLS and SCTP elements
+that `webrtcbin` needs at runtime. On Gentoo, `media-plugins/gst-plugins-libnice`
+supplies the `nicesrc` and `nicesink` elements required to create an RTP sink pad.
 
 A Mattermost call uses one local `webrtcbin` peer connection connected to
 RTCD's SFU and independently identified inbound tracks for each remote
@@ -91,12 +117,10 @@ only if the distribution packages it separately:
   verify the plugin and media capabilities, then disable the plugin and
   confirm the chat application remains fully functional.
 
-Package splitting and real Calls media implementation belong to a follow-up
-PR once a true GStreamer target exists. Phase 1 does **not** add a redundant
-or empty package to the release. The fake Calls provider is compiled for tests
-only, never installed in production.
+Call-enabled DEB builds package the GStreamer module separately. The fake Calls
+provider is compiled for tests only.
 
-## Phase 1 verification
+## Verification
 
 `plugin-host-test` builds and loads a fake Calls provider with no multimedia
 libraries and tests missing host, pre-login discovery, authenticated join,
@@ -105,3 +129,36 @@ leave, disable/unload, re-enable, connection-failure state, and cleanup.
 
 The existing plugin SDK external smoke build, signed-plugin policies and
 normal Qt 5/Qt 6 CI must remain green. No existing plugin IID is modified.
+
+## Whiteboard transport (design only)
+
+Psi's collaborative drawing UI and document/operation model should remain
+separate from XMPP/Jingle/SXE. MatterLeast can reuse the interaction and
+presentation concepts, but must inject a transport adapter; merely adding
+a GStreamer data channel is **not** a peer broadcast mechanism.
+
+The official Mattermost RTCD service uses its existing `calls-dc` for RTC
+signaling/metrics, with an explicit message-type decoder and a server-side
+handler per data channel. The SFU does not forward arbitrary custom SCTP
+messages to other call participants. Creating a second channel on the same
+peer connection would also invoke its server-side data-channel handler;
+it is not a supported, independent whiteboard lane.
+Sources: https://github.com/mattermost/rtcd/blob/master/service/rtc/dc.go
+and https://github.com/mattermost/rtcd/blob/master/service/rtc/dc/msg.go.
+
+A practical first transport is an **optional, authenticated Mattermost
+server-side extension**, relaying whiteboard operations over the established
+Mattermost WebSocket mechanism. Only authorized participants in the given
+call/channel may publish or subscribe. A late joiner should receive a
+versioned document snapshot and then an ordered operation tail. Keep
+cursor/pointer moves ephemeral and throttled; persist semantic drawing
+operations (shapes, paths, deletes, undo metadata) with sequence/operation
+IDs and bounded replay. Do not encode every mouse-move as a chat post.
+Neither the current Calls provider nor RTCD should be modified until the
+server capability and wire format are agreed.
+
+The drawing widget should depend only on an interface such as
+`IWhiteboardTransport` (send operation, receive operation, request snapshot,
+connection state); a WebRTC DataChannel transport can be added later if
+Calls/RTCD explicitly supports routing those messages to all participants.
+Do not label server-relayed whiteboards as end-to-end encrypted.

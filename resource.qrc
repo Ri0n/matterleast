@@ -1,4 +1,7 @@
 <RCC>
+    <qresource prefix="/sounds">
+        <file alias="incoming-call.wav">resources/incoming-call.wav</file>
+    </qresource>
     <qresource prefix="/icons">
         <file alias="matterleast">img/MatterLeast.svg</file>
         <file alias="burger">img/burger_icon.svg</file>
@@ -20,6 +23,8 @@
         <file alias="emoji">img/emoji.svg</file>
         <file alias="paperclip">img/paperclip.svg</file>
         <file alias="voice-microphone">img/voice-microphone.svg</file>
+        <file alias="call-start">img/call-start.svg</file>
+        <file alias="call-end">img/call-end.svg</file>
         <file alias="message-balloon">img/message-balloon.svg</file>
         <file alias="more-horizontal">img/more-horizontal.svg</file>
         <file alias="edit">img/edit.svg</file>

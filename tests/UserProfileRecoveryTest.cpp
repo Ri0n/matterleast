@@ -17,9 +17,11 @@
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendUser.h"
+#include "chat-area/ChatArea.h"
 #include "chat-area/post/PostWidget.h"
 #include "chat-area/post/MessageContentWidget.h"
 #include "info-dialogs/UserProfileDialog.h"
+#include "ui/PresenceAvatarLabel.h"
 
 using namespace Mattermost;
 
@@ -179,6 +181,89 @@ private slots:
         });
         emit profiles.profileResolved(kUserId);
         QCOMPARE(label->text(), QStringLiteral("Updated Author"));
+    }
+
+    void directChatSubscribesToLatePeerPresence()
+    {
+        Backend backend;
+        auto& storage = backend.getStorage();
+        const QString selfId = QStringLiteral("local-user");
+        QVERIFY(storage.addUser({{QStringLiteral("id"), selfId},
+                                 {QStringLiteral("username"), QStringLiteral("local")}}, true));
+        auto* channel = storage.addDirectChannel({
+            {QStringLiteral("id"), QStringLiteral("dm")},
+            {QStringLiteral("type"), QStringLiteral("D")},
+            {QStringLiteral("name"), selfId + QStringLiteral("__") + kUserId},
+        });
+        QVERIFY(channel);
+        QCOMPARE(channel->name, kUserId);
+        ChatArea area(backend, *channel, QString(), nullptr, false);
+        auto* avatar = area.findChild<PresenceAvatarLabel*>(QStringLiteral("userAvatar"));
+        QVERIFY(avatar);
+        const auto avatarImage = [avatar] {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            return avatar->pixmap().toImage();
+#else
+            return avatar->pixmap(Qt::ReturnByValue).toImage();
+#endif
+        };
+
+        auto* peer = storage.addUser(userJson());
+        QVERIFY(peer);
+        peer->avatar = QPixmap(32, 32);
+        peer->avatar.fill(Qt::blue);
+        peer->avatar_picture_update = peer->last_picture_update;
+        peer->status = QStringLiteral("online");
+        emit UserProfileService::instance(backend).profileResolved(kUserId);
+        const QImage online = avatarImage();
+        QVERIFY(!online.isNull());
+        avatar->setStatus(QStringLiteral("online"));
+        QCOMPARE(avatarImage(), online);
+
+        peer->status = QStringLiteral("away");
+        emit peer->onStatusChanged();
+        const QImage away = avatarImage();
+        QVERIFY(away != online);
+        avatar->setStatus(QStringLiteral("away"));
+        QCOMPARE(avatarImage(), away);
+    }
+
+    void lateStatusResponseDoesNotOverrideRealtimePresence()
+    {
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        NetworkRequest::setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+
+        Backend backend;
+        auto* peer = backend.getStorage().addUser(userJson());
+        QVERIFY(peer);
+        peer->status = QStringLiteral("away");
+        bool statusFetched = false;
+        UserProfileService::instance(backend).ensureStatuses({peer->id}, [&] {
+            statusFetched = true;
+        });
+
+        QTRY_VERIFY(server.hasPendingConnections());
+        auto* socket = server.nextPendingConnection();
+        QTRY_VERIFY(socket->bytesAvailable() > 0);
+        QVERIFY(socket->readAll().startsWith("POST /api/v4/users/status/ids"));
+
+        WebSocketEventHandler handler(backend);
+        handler.handleEvent(StatusChangeEvent({{QStringLiteral("user_id"), peer->id},
+                                                {QStringLiteral("status"), QStringLiteral("online")}}, {}));
+        QCOMPARE(peer->status, QStringLiteral("online"));
+
+        const auto body = QJsonDocument(QJsonArray{QJsonObject{
+            {QStringLiteral("user_id"), peer->id},
+            {QStringLiteral("status"), QStringLiteral("offline")},
+        }}).toJson(QJsonDocument::Compact);
+        socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                      "Connection: close\r\nContent-Length: " + QByteArray::number(body.size())
+                      + "\r\n\r\n" + body);
+        socket->disconnectFromHost();
+        QTRY_VERIFY(statusFetched);
+        QCOMPARE(peer->status, QStringLiteral("online"));
     }
 
     void dottedMentionsRemainClickableAfterBodyRebuild()
