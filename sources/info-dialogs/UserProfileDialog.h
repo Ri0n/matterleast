@@ -22,7 +22,6 @@
 
 #include <QDialog>
 
-#include "backend/HTTPConnector.h"
 #include "fwd.h"
 
 class QEvent;
@@ -67,9 +66,6 @@ private:
     void startDirectMessage();
 
     Ui::UserProfileDialog* ui;
-    // Kept only for the backend-less legacy constructor. Backend-backed
-    // profiles use UserProfileService so every consumer shares one avatar.
-    HTTPConnector avatarConnector;
     Backend* backend = nullptr;
     QString userId;
 };

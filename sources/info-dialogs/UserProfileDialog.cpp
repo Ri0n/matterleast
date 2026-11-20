@@ -25,14 +25,11 @@
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QLayoutItem>
-#include <QNetworkRequest>
 #include <QPixmap>
-#include <QPointer>
 #include <QPushButton>
 #include <QTimer>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
@@ -104,8 +101,9 @@ UserProfileDialog::UserProfileDialog(Backend* backendInstance,
             ui->avatar->clear();
         }
     } else {
-        // Keep the backend-less constructor functional for legacy callers. It
-        // has no shared Storage/UserProfileService to publish the avatar into.
+        // Without a Backend there is no trustworthy server identity.
+        // Display the avatar already supplied by the caller, but never fetch
+        // it from the process-global last-login host.
         if (!user.avatar.isNull()) {
             ui->avatar->setPixmap(user.avatar.scaled(ProfileAvatarSize,
                                                       ProfileAvatarSize,
@@ -115,33 +113,7 @@ UserProfileDialog::UserProfileDialog(Backend* backendInstance,
             ui->avatar->clear();
         }
 
-        if (!user.id.isEmpty()) {
-            const QString pictureVersion = QString::number(
-                static_cast<qulonglong>(user.last_picture_update));
-            NetworkRequest request(
-                QStringLiteral("users/") + user.id + QStringLiteral("/image?_=")
-                    + pictureVersion,
-                true);
-            request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
-                                 QNetworkRequest::PreferCache);
 
-            QPointer<UserProfileDialog> guard(this);
-            avatarConnector.get(request, HttpResponseCallback(
-                [guard](QByteArray avatarData) {
-                    if (!guard) {
-                        return;
-                    }
-                    QPixmap pixmap;
-                    if (!pixmap.loadFromData(avatarData)) {
-                        return;
-                    }
-                    guard->ui->avatar->setPixmap(
-                        pixmap.scaled(ProfileAvatarSize,
-                                      ProfileAvatarSize,
-                                      Qt::KeepAspectRatio,
-                                      Qt::SmoothTransformation));
-                }));
-        }
     }
 
     ui->fullnameValue->setText(user.first_name + QLatin1Char(' ') + user.last_name);
