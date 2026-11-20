@@ -281,14 +281,20 @@ void CallsWindow::setMicrophoneDevices(const QList<CallsMediaDevice>& available,
                                        const QString& selectedId)
 {
     availableMicrophones_.clear();
-    QSet<QString> seen;
+    QHash<QString, int> indexByName;
     for (const auto& item : available) {
-        if (item.kind != CallsDeviceKind::Microphone || item.id.isEmpty()
-            || seen.contains(item.id)) {
+        if (item.kind != CallsDeviceKind::Microphone || item.id.isEmpty()) {
             continue;
         }
-        seen.insert(item.id);
-        availableMicrophones_.append(item);
+        const QString key = item.displayName.simplified().toCaseFolded();
+        const auto existing = indexByName.constFind(key);
+        if (existing == indexByName.cend()) {
+            indexByName.insert(key, availableMicrophones_.size());
+            availableMicrophones_.append(item);
+        } else if (item.id == selectedId) {
+            // Keep the selected backend for the same logical microphone.
+            availableMicrophones_[existing.value()] = item;
+        }
     }
     selectedMicrophoneId_ = selectedId;
     if (microphoneDevices_->menu()->isVisible()) {
@@ -399,14 +405,19 @@ void CallsWindow::setCameraDevices(const QList<CallsMediaDevice>& available,
                                    const QString& selectedId)
 {
     availableCameras_.clear();
-    QSet<QString> seen;
+    QHash<QString, int> indexByName;
     for (const auto& item : available) {
-        if (item.kind != CallsDeviceKind::Camera || item.id.isEmpty()
-            || seen.contains(item.id)) {
+        if (item.kind != CallsDeviceKind::Camera || item.id.isEmpty()) {
             continue;
         }
-        seen.insert(item.id);
-        availableCameras_.append(item);
+        const QString key = item.displayName.simplified().toCaseFolded();
+        const auto existing = indexByName.constFind(key);
+        if (existing == indexByName.cend()) {
+            indexByName.insert(key, availableCameras_.size());
+            availableCameras_.append(item);
+        } else if (item.id == selectedId) {
+            availableCameras_[existing.value()] = item;
+        }
     }
     selectedCameraId_ = selectedId;
     if (cameraDevices_->menu()->isVisible()) rebuildCameraDeviceMenu();

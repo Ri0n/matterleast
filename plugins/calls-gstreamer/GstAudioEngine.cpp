@@ -883,6 +883,12 @@ struct GstAudioEngine::Impl
         }
         deviceCache_.clear();
         QList<CallsMediaDevice> devices;
+        // More than one GstDeviceProvider may enumerate the same physical
+        // device, with different properties and IDs. Group those aliases by
+        // device kind and normalized user-visible name. Pick a stable source
+        // with a platform media provider preferred over raw ALSA.
+        QHash<QString, int> logicalDeviceIndex;
+        QHash<QString, int> logicalDevicePriority;
         GstDeviceMonitor* monitor = gst_device_monitor_new();
         if (monitor) {
             gst_device_monitor_add_filter(monitor, "Audio/Source", nullptr);
@@ -909,18 +915,48 @@ struct GstAudioEngine::Impl
                         + QString::fromLatin1(
                         QCryptographicHash::hash(identity, QCryptographicHash::Sha256)
                             .toHex().left(20));
-                    // GstDeviceMonitor can report the same capture source
-                    // more than once (e.g. across overlapping providers/
-                    // filters). Suffixing the hash would turn duplicates into
-                    // distinct selectable entries on every rescan. Only keep
-                    // each unique device identity once.
-                    if (!deviceCache_.contains(id)) {
-                        deviceCache_.insert(id, GST_DEVICE(gst_object_ref(device)));
-                        devices.append({id, label.isEmpty()
-                                            ? (isCamera ? QStringLiteral("Camera")
-                                                        : QStringLiteral("Microphone"))
-                                            : label, kind});
+                    const QString displayName = label.isEmpty()
+                        ? (isCamera ? QStringLiteral("Camera")
+                                    : QStringLiteral("Microphone"))
+                        : label;
+                    const QString logicalKey =
+                        QString::number(int(kind)) + QLatin1Char('|')
+                        + displayName.simplified().toCaseFolded();
+                    const QString provider =
+                        (QString::fromLatin1(G_OBJECT_TYPE_NAME(device))
+                         + QLatin1Char(' ')
+                         + QString::fromUtf8(serialized ? serialized : ""))
+                            .toCaseFolded();
+                    // An existing user choice wins over backend preference
+                    // when the same logical device is enumerated twice.
+                    const int score =
+                        (id == selectedAudioId_ || id == selectedVideoId_ ? 1000 : 0)
+                        + (provider.contains(QLatin1String("pipewire")) ? 70
+                           : provider.contains(QLatin1String("pulse")) ? 60
+                           : provider.contains(QLatin1String("wasapi")) ? 60
+                           : provider.contains(QLatin1String("alsa")) ? 20 : 0);
+                    const auto existing = logicalDeviceIndex.constFind(logicalKey);
+                    if (existing != logicalDeviceIndex.cend()) {
+                        const int index = existing.value();
+                        const int oldScore = logicalDevicePriority.value(logicalKey);
+                        const QString previousId = devices.at(index).id;
+                        if (score < oldScore
+                            || (score == oldScore && id >= previousId)) {
+                            g_free(rawClass);
+                            g_free(serialized);
+                            if (properties) gst_structure_free(properties);
+                            g_free(name);
+                            continue;
+                        }
+                        gst_object_unref(deviceCache_.take(previousId));
+                        devices[index] = {id, displayName, kind};
+                        logicalDevicePriority[logicalKey] = score;
+                    } else {
+                        logicalDeviceIndex.insert(logicalKey, devices.size());
+                        logicalDevicePriority.insert(logicalKey, score);
+                        devices.append({id, displayName, kind});
                     }
+                    deviceCache_.insert(id, GST_DEVICE(gst_object_ref(device)));
                     g_free(rawClass);
                     g_free(serialized);
                     if (properties) gst_structure_free(properties);

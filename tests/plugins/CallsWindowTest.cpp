@@ -127,6 +127,14 @@ private slots:
         // Hot-plug can report the same native GstDevice twice; it must not
         // create duplicate rows or replace existing popup actions.
         available.append(available.first());
+        // The same physical source may be reported by PulseAudio and ALSA
+        // with different GstDevice IDs (properties differ by provider).
+        available.append({QStringLiteral("microphone-alsa"),
+                          QStringLiteral("USB  microphone"),
+                          CallsDeviceKind::Microphone});
+        available.append({QStringLiteral("microphone-third"),
+                          QStringLiteral("Laptop microphone"),
+                          CallsDeviceKind::Microphone});
         window.setMicrophoneDevices(available, QStringLiteral("microphone-one"));
         emit select->menu()->aboutToShow();
         QCOMPARE(select->menu()->actions().size(), 4);
@@ -196,7 +204,7 @@ private slots:
         window.setCameraDevices({
             {QStringLiteral("camera-one"), QStringLiteral("USB camera"),
              CallsDeviceKind::Camera},
-            {QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+            {QStringLiteral("camera-alternate"), QStringLiteral("USB camera "),
              CallsDeviceKind::Camera},
             {QStringLiteral("camera-two"), QStringLiteral("Second camera"),
              CallsDeviceKind::Camera}
