@@ -34,11 +34,13 @@
 #include <QNetworkDiskCache>
 #include <QNetworkReply>
 #include <QNetworkCookie>
+#include <QNetworkCookieJar>
 #include <QPointer>
 #include <QStandardPaths>
 
 #include "LocalPostDeleteTracker.h"
 #include "NetworkRequest.h"
+#include "NetworkSessionContext.h"
 #include "QByteArrayCreator.h"
 #include "Settings.h"
 #include "UploadTrace.h"
@@ -64,16 +66,38 @@ static QNetworkDiskCache* createDiskCache ()
 	return diskCache;
 }
 
-static std::unique_ptr<QNetworkAccessManager> createNetworkManager ()
+// The account context is the only cookie store for isolated connectors.
+// Qt's automatic cookie jar must not independently replay or overwrite
+// credentials after a Set-Cookie response.
+class SessionCookieJar final : public QNetworkCookieJar
 {
-	auto manager = std::make_unique<QNetworkAccessManager>();
-	manager->setCache(createDiskCache());
-	manager->setAutoDeleteReplies(true);
-	return manager;
+public:
+    using QNetworkCookieJar::QNetworkCookieJar;
+
+    QList<QNetworkCookie> cookiesForUrl(const QUrl&) const override { return {}; }
+    bool setCookiesFromUrl(const QList<QNetworkCookie>&, const QUrl&) override
+    {
+        return false;
+    }
+};
+
+static std::unique_ptr<QNetworkAccessManager> createNetworkManager(bool diskCache)
+{
+    auto manager = std::make_unique<QNetworkAccessManager>();
+    if (!diskCache)
+        manager->setCookieJar(new SessionCookieJar(manager.get()));
+    // Shared on-disk HTTP caching is unsafe across accounts with different
+    // credentials. Keep legacy behavior but disable it for isolated sessions
+    // until their individual cache directories are in place.
+    if (diskCache)
+        manager->setCache(createDiskCache());
+    manager->setAutoDeleteReplies(true);
+    return manager;
 }
 
-HTTPConnector::HTTPConnector ()
-:qnetworkManager (createNetworkManager ())
+HTTPConnector::HTTPConnector(NetworkSessionContext* session)
+    : sessionContext(session)
+    , qnetworkManager(createNetworkManager(session == nullptr))
 {
 	connectors.insert(this);
 
@@ -124,7 +148,7 @@ void HTTPConnector::reset ()
     // Destroy the old network manager while multipart request bodies are still
     // alive. Its replies may still reference their multipart body during
     // teardown.
-	qnetworkManager = createNetworkManager();
+	qnetworkManager = createNetworkManager(sessionContext == nullptr);
     activeMultipartRequests.clear();
 	processQueues();
 }
@@ -197,7 +221,7 @@ void HTTPConnector::restartTransport ()
 		return;
 	}
 
-	qnetworkManager = createNetworkManager();
+	qnetworkManager = createNetworkManager(sessionContext == nullptr);
 	restartingTransport = false;
 	processQueues();
 }
@@ -313,7 +337,17 @@ void HTTPConnector::del(QNetworkRequest& request,
 
 void HTTPConnector::enqueue(PendingRequest request)
 {
-    if (request.method == Method::Get) {
+    if (sessionContext) {
+        // A request's caller may have used the legacy global constructor.
+        // Never forward its authentication headers into another session.
+        request.request.setRawHeader("Cookie", QByteArray());
+        request.request.setRawHeader("X-CSRF-Token", QByteArray());
+        request.request.setRawHeader("Authorization", QByteArray());
+        if (request.method == Method::Get)
+            sessionContext->applyDesktopProfile(request.request);
+        else
+            sessionContext->applyDesktopMutationProfile(request.request);
+    } else if (request.method == Method::Get) {
         NetworkRequest::applyDesktopProfile(request.request);
     } else {
         NetworkRequest::applyDesktopMutationProfile(request.request);
@@ -514,7 +548,12 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
                     QNetworkCookie::parseCookies(header.second));
             }
             if (!responseCookies.isEmpty()) {
-                NetworkRequest::updateSessionCookies(responseCookies);
+                if (connector->sessionContext) {
+                    connector->sessionContext->updateSessionCookiesFrom(
+                        currentReply->url(), responseCookies);
+                } else {
+                    NetworkRequest::updateSessionCookies(responseCookies);
+                }
             }
 
             if (currentReply->operation()

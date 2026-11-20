@@ -43,11 +43,14 @@ class QNetworkAccessManager;
 namespace Mattermost {
 
 class QByteArrayCreator;
+class NetworkSessionContext;
 
 class HTTPConnector: public QObject {
 	Q_OBJECT
 public:
-	HTTPConnector ();
+    // Default constructor preserves the existing legacy single-server path.
+    // An explicit context must outlive this connector and all its requests.
+    explicit HTTPConnector(NetworkSessionContext* session = nullptr);
 	virtual ~HTTPConnector ();
 
 	void reset ();
@@ -98,6 +101,7 @@ private:
 		quint64 requestGeneration);
 
 	static QSet<HTTPConnector*> connectors;
+    NetworkSessionContext* sessionContext = nullptr; // externally owned
 
 	std::unique_ptr<QNetworkAccessManager> qnetworkManager;
 	QQueue<PendingRequest> highPriorityRequests;

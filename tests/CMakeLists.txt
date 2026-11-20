@@ -1030,6 +1030,7 @@ endif()
 add_executable(network-request-test
     NetworkRequestTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/NetworkRequest.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/NetworkSessionContext.cpp"
 )
 
 target_include_directories(network-request-test
@@ -1044,6 +1045,15 @@ target_link_libraries(network-request-test
 )
 
 add_test(NAME network-request-test COMMAND network-request-test)
+
+# A pair of account-bound HTTP transports must not exchange tokens or
+# Set-Cookie state, even when connecting to the same Mattermost origin.
+if(TARGET matterleast-core)
+    add_executable(http-connector-session-test HttpConnectorSessionTest.cpp)
+    target_link_libraries(http-connector-session-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Network)
+    add_test(NAME http-connector-session-test COMMAND http-connector-session-test)
+endif()
 
 # Selecting search-only DM must not rebuild QTreeWidget during a selection update.
 if(TARGET matterleast-core)
