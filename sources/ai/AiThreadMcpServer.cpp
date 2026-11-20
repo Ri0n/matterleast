@@ -12,7 +12,6 @@
 #include <QUuid>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/PostCreateService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
@@ -90,10 +89,13 @@ QJsonObject toolCatalog()
 
 AiThreadMcpServer& AiThreadMcpServer::instance(Backend& backend)
 {
-    static QPointer<AiThreadMcpServer> instance;
-    if (!instance)
-        instance = new AiThreadMcpServer(backend);
-    return *instance;
+    // MCP credentials are tied to exactly one Backend. A process singleton
+    // would silently expose the first account's socket to another account.
+    if (auto* existing = backend.findChild<AiThreadMcpServer*>(
+            QString(), Qt::FindDirectChildrenOnly)) {
+        return *existing;
+    }
+    return *new AiThreadMcpServer(backend);
 }
 
 AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
@@ -157,7 +159,7 @@ QString AiThreadMcpServer::createSession(const QString& channelId, const QString
     }
     const QString token = newToken();
     _sessions.insert(token, Session {channelId, rootId,
-        _backend.getLoginUser().id, NetworkRequest::host(), false, {}});
+        _backend.getLoginUser().id, _backend.networkSession().host(), false, {}});
     return token;
 }
 
@@ -169,7 +171,7 @@ bool AiThreadMcpServer::authorized(const QString& token) const
         && _server.isListening() && _backend.loggedIn()
         && it != _sessions.cend()
         && it->loginUserId == _backend.getLoginUser().id
-        && it->serverHost == NetworkRequest::host();
+        && it->serverHost == _backend.networkSession().host();
 }
 
 void AiThreadMcpServer::revokeSession(const QString& token)
