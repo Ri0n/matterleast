@@ -24,6 +24,7 @@
 #include "backend/HTTPConnector.h"
 #include "backend/CustomStatusValidation.h"
 #include "backend/NetworkRequest.h"
+#include "backend/NetworkSessionContext.h"
 #include "backend/Storage.h"
 #include "ui/EmojiPresentation.h"
 #include "ui/CustomStatusEditorDialog.h"
@@ -128,8 +129,6 @@ private slots:
     void profileDisplaysCustomStatusAndTracksEdits()
     {
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
         const QJsonObject customStatus {
             {QStringLiteral("emoji"), QStringLiteral("coffee")},
             {QStringLiteral("text"), QStringLiteral("<focus & work>")},
@@ -398,8 +397,6 @@ private slots:
     {
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
-                                    .arg(server.serverPort()));
 
         const QString expiresAt = QStringLiteral("2027-01-01T12:00:00Z");
         const QJsonObject saved {
@@ -458,8 +455,8 @@ private slots:
         });
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         QVERIFY(backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")}},
             true));
@@ -498,8 +495,6 @@ private slots:
     {
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
-                                    .arg(server.serverPort()));
 
         QHash<QByteArray, int> attempts;
         bool restarting = false;
@@ -532,11 +527,14 @@ private slots:
             }
         });
 
-        HTTPConnector first, second;
+        NetworkSessionContext session;
+        session.setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+        HTTPConnector first(&session), second(&session);
         int completed = 0;
         bool allSucceeded = true;
         for (int i = 0; i < 4; ++i) {
-            NetworkRequest request(QStringLiteral("probe/%1").arg(i));
+            NetworkRequest request(session, QStringLiteral("probe/%1").arg(i));
             auto callback = HttpResponseCallback(
                 [&](const QJsonDocument& doc, const QNetworkReply& reply) {
                     allSucceeded = allSucceeded
@@ -586,8 +584,6 @@ private slots:
         QFETCH(QString, action);
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
-                                    .arg(server.serverPort()));
 
         int incomingMutations = 0;
         bool restartScheduled = false;
@@ -622,8 +618,8 @@ private slots:
         });
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendUser* user = backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")},
                          {QStringLiteral("username"), QStringLiteral("user")}},
@@ -663,8 +659,6 @@ private slots:
     {
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
-                                    .arg(server.serverPort()));
 
         int statusCode = 200;
         QByteArray lastMethod, lastPath, lastBody;
@@ -703,8 +697,8 @@ private slots:
         });
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendUser* user = backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")},
                          {QStringLiteral("username"), QStringLiteral("user")}},
