@@ -45,6 +45,7 @@ private slots:
 private:
 	void setError (const QString& errorStr);
 	void loginToServer (const BackendLoginData& loginData);
+    void cancelAutomaticLogin();
 
 	Backend&			backend;
 	Ui::LoginDialog*	ui;
@@ -52,6 +53,7 @@ private:
     BackendLoginData _savedLoginData;
     bool _autoLoginEnabled = false;
     bool _attemptInProgress = false;
+    quint64 _loginAttemptGeneration = 0;
 };
 
 } /* namespace Mattermost */

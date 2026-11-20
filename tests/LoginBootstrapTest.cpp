@@ -18,6 +18,7 @@ class LoginHttpServer final : public QTcpServer
 {
 public:
     bool offline = true;
+    bool holdResponses = false;
     int requests = 0;
 
     LoginHttpServer()
@@ -35,6 +36,7 @@ public:
                         socket->property("responded").toBool()) return;
                     socket->setProperty("responded", true);
                     ++requests;
+                    if (holdResponses) return;
 
                     const QByteArray body = offline
                         ? QByteArrayLiteral("{}")
@@ -83,6 +85,7 @@ private slots:
             QNetworkReply::ContentAccessDenied, 401, empty);
         QVERIFY(!rejected.accepted);
         QVERIFY(!rejected.retryable);
+        QVERIFY(validateLoginResponse(QNetworkReply::InternalServerError, 500, empty).retryable);
         QVERIFY(validateLoginResponse(QNetworkReply::NoError, 200, valid).accepted);
     }
 
@@ -106,6 +109,50 @@ private slots:
         QCOMPARE(settings->value<QString>(QStringLiteral("token")),
                  QStringLiteral("legacy-only"));
         settings->setValue<QString>(QStringLiteral("token"), QString());
+    }
+
+    void canCancelInFlightSavedSessionAndConnectToAnotherServer()
+    {
+        LoginHttpServer stalled;
+        LoginHttpServer replacement;
+        stalled.holdResponses = true;
+        replacement.offline = false;
+        QVERIFY(stalled.listen(QHostAddress::LocalHost));
+        QVERIFY(replacement.listen(QHostAddress::LocalHost));
+
+        Backend backend;
+        BackendLoginData oldLogin;
+        oldLogin.domain = QStringLiteral("http://127.0.0.1:%1/")
+            .arg(stalled.serverPort());
+        oldLogin.username = QStringLiteral("old-user");
+        oldLogin.token = QStringLiteral("old-session-token");
+
+        bool canceledCallbackInvoked = false;
+        backend.login(oldLogin, [&](const QString&) {
+            canceledCallbackInvoked = true;
+        });
+        QTRY_COMPARE(stalled.requests, 1);
+        backend.cancelPendingLogin();
+        QVERIFY(!backend.loggedIn());
+
+        BackendLoginData newLogin;
+        newLogin.domain = QStringLiteral("http://127.0.0.1:%1/")
+            .arg(replacement.serverPort());
+        newLogin.username = QStringLiteral("new-user");
+        newLogin.token = QStringLiteral("new-session-token");
+        bool completed = false;
+        QString resultToken;
+        backend.login(newLogin, [&](const QString& token) {
+            resultToken = token;
+            completed = true;
+        });
+        QTRY_VERIFY(completed);
+        QCOMPARE(resultToken, newLogin.token);
+        QCOMPARE(replacement.requests, 1);
+        QVERIFY(!canceledCallbackInvoked);
+        QVERIFY(backend.getStorage().loginUser);
+        QCOMPARE(backend.getStorage().loginUser->id,
+                 QStringLiteral("user-id"));
     }
 
     void doesNotEnterMainWindowWithEmptyProfileAndRecoversOnRetry()
