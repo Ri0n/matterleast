@@ -88,11 +88,11 @@ jobs:
           # Compile just the native plugin and its smoke tests first, so
           # failures surface before the expensive full GUI/application build.
           cmake --build build --parallel 4 --target \
-            calls-gstreamer-test calls-window-test calls-messagepack-test plugin-host-test
+            calls-gstreamer-test calls-window-test calls-messagepack-test calls-media-map-test plugin-host-test
       - name: Native wire codec, plugin-host and actual webrtcbin smoke tests
         run: |
           ctest --test-dir build --output-on-failure \
-            -R '^(calls-messagepack-test|plugin-host-test|calls-gstreamer-test|calls-window-test)$'
+            -R '^(calls-messagepack-test|calls-media-map-test|plugin-host-test|calls-gstreamer-test|calls-window-test)$'
       - name: Build MatterLeast for packaging (without rebuilding all tests)
         run: |
           cmake -S . -B build -DBUILD_TESTING=OFF
