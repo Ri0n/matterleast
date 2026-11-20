@@ -13,7 +13,6 @@
 #include <QUrlQuery>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/PendingPostService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
@@ -185,9 +184,11 @@ public:
         if (!listen(QHostAddress::LocalHost)) {
             return false;
         }
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(serverPort()));
         return true;
+    }
+    QString baseUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1/").arg(serverPort());
     }
 };
 
@@ -308,7 +309,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -372,7 +373,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -414,7 +415,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -482,7 +483,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto metadata = channelJson(100, 100);
         metadata.insert(QStringLiteral("create_at"), double(timestamp(0)));
         BackendChannel channel(backend.getStorage(), metadata);
@@ -584,7 +585,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -636,7 +637,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         BackendChannel channel(backend.getStorage(), channelJson(19, 40));
         ChannelPostSource raw(backend, channel);
         FilteredPostSource visible(raw, mainTimelinePost);
@@ -664,7 +665,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         BackendChannel channel(backend.getStorage(), channelJson(19, 40));
         ChannelPostSource raw(backend, channel);
         FilteredPostSource visible(raw, mainTimelinePost);
@@ -699,7 +700,7 @@ private slots:
 
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -808,7 +809,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
