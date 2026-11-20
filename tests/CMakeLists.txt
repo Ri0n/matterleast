@@ -1060,6 +1060,13 @@ add_test(NAME network-request-test COMMAND network-request-test)
 # A pair of account-bound HTTP transports must not exchange tokens or
 # Set-Cookie state, even when connecting to the same Mattermost origin.
 if(TARGET matterleast-core)
+    add_executable(local-post-delete-tracker-test LocalPostDeleteTrackerTest.cpp)
+    target_link_libraries(local-post-delete-tracker-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME local-post-delete-tracker-test COMMAND local-post-delete-tracker-test)
+    set_tests_properties(local-post-delete-tracker-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(http-connector-session-test HttpConnectorSessionTest.cpp)
     target_link_libraries(http-connector-session-test PRIVATE
         matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Network)
