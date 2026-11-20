@@ -1030,6 +1030,7 @@ endif()
 add_executable(network-request-test
     NetworkRequestTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/NetworkRequest.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/NetworkSessionContext.cpp"
 )
 
 target_include_directories(network-request-test
