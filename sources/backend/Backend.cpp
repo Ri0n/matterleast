@@ -332,6 +332,7 @@ Backend::Backend(QObject *parent)
 :QObject (parent)
 ,_emojiRegistry()
 ,serverDialogsMap (*this)
+,httpConnector(&_networkSession)
 ,webSocketEventHandler (*this)
 ,webSocketConnector (webSocketEventHandler)
 ,currentChannel (nullptr)
@@ -509,6 +510,8 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
     const bool restartingAfterFailure = _lastLoginFailureTransient;
     _lastLoginFailureTransient = false;
     loginData = credentials;
+    _networkSession.setHost(credentials.domain);
+    // Temporary bridge for callers not yet migrated to Backend::networkSession().
     NetworkRequest::setHost(credentials.domain);
     if (restartingAfterFailure) {
         // There is no WebSocket yet to signal a route change during offline
@@ -518,8 +521,9 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 
 	if (!credentials.token.isEmpty()) {
 
-		NetworkRequest::setToken (credentials.token);
-		NetworkRequest request ("users/me");
+		_networkSession.setToken(credentials.token);
+        NetworkRequest::setToken(credentials.token);
+		NetworkRequest request(_networkSession, "users/me");
 
 		httpConnector.get (request, HttpResponseCallback ([this, callback](const QJsonDocument& data, const QNetworkReply& reply) {
 			loginSuccess (data, reply, callback);
@@ -527,7 +531,7 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 
 
 #if 0
-		NetworkRequest request1 ("users/me/preferences");
+		NetworkRequest request1(_networkSession, "users/me/preferences");
 
 		httpConnector.get (request1, [this, callback](QVariant, QByteArray data, const QNetworkReply& reply) {
 			QJsonDocument doc = QJsonDocument::fromJson(data);
@@ -554,8 +558,9 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 
     // A password login must not accidentally reuse a previously rejected
     // Bearer/cookie token from a failed saved-session attempt.
+    _networkSession.clearToken();
     NetworkRequest::clearToken();
-	NetworkRequest request ("users/login");
+	NetworkRequest request(_networkSession, "users/login");
 
 
 	httpConnector.post (request, json, HttpResponseCallback ([this, callback](const QJsonDocument& data, const QNetworkReply& reply) {
@@ -569,6 +574,7 @@ void Backend::cancelPendingLogin()
     // Invalidate the HTTP generation before aborting replies so a late
     // /users/me response cannot initialize a session after cancellation.
     httpConnector.reset();
+    _networkSession.clearToken();
     NetworkRequest::clearToken();
     _lastLoginFailureTransient = false;
 }
@@ -577,13 +583,14 @@ void Backend::loginRetry ()
 {
 	if (!loginData.token.isEmpty()) {
 
-		NetworkRequest::setToken (loginData.token);
-		NetworkRequest request ("users/me");
+		_networkSession.setToken(loginData.token);
+        NetworkRequest::setToken(loginData.token);
+		NetworkRequest request(_networkSession, "users/me");
 
 		LOG_DEBUG("Retrying authenticated login request");
 
 		httpConnector.get (request, HttpResponseCallback ([this](QVariant, QByteArray, const QNetworkReply&) {
-			webSocketConnector.open (NetworkRequest::host() + "api/v4/", loginData.token);
+			webSocketConnector.open (_networkSession.host() + "api/v4/", loginData.token);
 			isLoggedIn = true;
 			//loginSuccess (data, reply, [this] (const QString& token) {
 		//	});
@@ -635,7 +642,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
         return;
     }
     QByteArray issuedToken = reply.rawHeader("Token");
-    if (NetworkRequest::getToken().isEmpty() && issuedToken.isEmpty()) {
+    if (_networkSession.token().isEmpty() && issuedToken.isEmpty()) {
         qWarning() << "Login rejected: server returned no session token";
         if (callback) callback(QString());
         return;
@@ -644,11 +651,12 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     BackendUser* loginUser = storage.addUser(doc.object(), true);
     loginUser->isLoginUser = true;
 
-    if (NetworkRequest::getToken().isEmpty()) {
-        NetworkRequest::setToken(issuedToken);
+    if (_networkSession.token().isEmpty()) {
+        _networkSession.setToken(QString::fromUtf8(issuedToken));
+        NetworkRequest::setToken(QString::fromUtf8(issuedToken));
     }
 
-	webSocketConnector.open (NetworkRequest::host() + "api/v4/", NetworkRequest::getToken());
+	webSocketConnector.open (_networkSession.host() + "api/v4/", _networkSession.token());
 	isLoggedIn = true;
 	retrieveUserPreferences ();
 
@@ -661,7 +669,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     }
 
 	//retrieveAllPublicTeams ();
-	if (callback) callback(NetworkRequest::getToken());
+	if (callback) callback(_networkSession.token());
 }
 
 void Backend::reset ()
@@ -684,6 +692,7 @@ void Backend::reset ()
                 if (flagged) _flaggedPostIds.insert(postId);
                 else _flaggedPostIds.remove(postId);
             });
+    _networkSession.clearToken();
 	NetworkRequest::clearToken ();
 
 	//reinit all network connectors
@@ -721,7 +730,7 @@ void Backend::prepareForLogout()
 
 void Backend::logout(std::function<void()> callback)
 {
-    NetworkRequest request(QStringLiteral("users/logout"));
+    NetworkRequest request(_networkSession, QStringLiteral("users/logout"));
     if (isLoggedIn) {
         emit sessionEnding();
     }
@@ -784,7 +793,7 @@ void Backend::retrieveUser (const QString & userID, std::function<void(const Bac
 
 void Backend::retrieveUserPreferences ()
 {
-	NetworkRequest request ("users/" + getLoginUser().id + "/preferences");
+	NetworkRequest request (_networkSession, "users/" + getLoginUser().id + "/preferences");
 
 	httpConnector.get (request, HttpResponseCallback ([this](const QJsonDocument& doc) {
 

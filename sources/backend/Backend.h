@@ -42,6 +42,7 @@
 
 #include "backend/types/BackendLoginData.h"
 #include "backend/HTTPConnector.h"
+#include "backend/NetworkSessionContext.h"
 #include "backend/emoji/EmojiRegistry.h"
 #include "backend/WebSocketConnector.h"
 #include "backend/WebSocketEventHandler.h"
@@ -315,6 +316,8 @@ public:
 
 	Storage& getStorage ();
 
+    NetworkSessionContext& networkSession() { return _networkSession; }
+    const NetworkSessionContext& networkSession() const { return _networkSession; }
     EmojiRegistry& emojiRegistry() { return _emojiRegistry; }
     const EmojiRegistry& emojiRegistry() const { return _emojiRegistry; }
     const QString& serverDomain() const { return loginData.domain; }
@@ -411,6 +414,7 @@ private:
     EmojiRegistry                   _emojiRegistry;
     ServerDialogsMap				serverDialogsMap;
 
+    NetworkSessionContext            _networkSession;
     HTTPConnector 					httpConnector;
     WebSocketEventHandler			webSocketEventHandler;
     WebSocketConnector				webSocketConnector;
