@@ -13,6 +13,7 @@
 #include <QJsonObject>
 
 #include "backend/DirectConversationSidebarPolicy.h"
+#include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
 #include "backend/QByteArrayCreator.h"
 #include "backend/types/BackendChannel.h"
