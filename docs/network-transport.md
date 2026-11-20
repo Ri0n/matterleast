@@ -132,6 +132,30 @@ two local server origins, verify account-correct attachments and channel
 references, and prove that reset of one account cancels only its own HTTP
 callbacks (even with multiple service connectors).
 
+## Account-owned navigation, links and UI state
+
+UI navigation no longer interprets Mattermost URLs relative to the last
+process-wide login. `AppNavigationService` classifies absolute and relative
+links against its owning Backend's `NetworkSessionContext::host()`.
+Cold-post resolution reuses `Backend::httpTransport()`, fetching post,
+channel and team records in the correct server's Storage without allocating
+a short-lived `QNetworkAccessManager` for each link.
+
+`PostPermalinkService` constructs copied `/_redirect/pl/` links from an
+explicit Backend, and its canonical-SiteURL lookup uses a service connector
+bound to that Backend. This keeps official native forward previews anchored
+to the correct server even when the two accounts share post IDs. Channel
+web links, KTalk plugin requests, and navigation-session persistence keys
+also use the owning Backend's server identity. Session-key hashing preserves
+the previous `host + unit separator + user ID` layout, so existing
+single-account saved tabs remain readable.
+
+Auto-joining a stored public channel reuses its Backend HTTP transport
+instead of creating an ephemeral connector per click; an asynchronous reply
+is ignored if the sidebar now belongs to a different Backend. All these
+changes leave the old process-global facade available only for remaining
+unmigrated consumers, not as an implicit fallback in new UI code.
+
 ## Per-account local post deletion
 
 `LocalPostDeleteTracker` is owned by `Storage`, never a process-global set.
