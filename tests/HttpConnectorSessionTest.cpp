@@ -6,6 +6,7 @@
 #include <QTcpSocket>
 
 #include "backend/HTTPConnector.h"
+#include "backend/LocalPostDeleteTracker.h"
 #include "backend/NetworkRequest.h"
 #include "backend/NetworkSessionContext.h"
 
@@ -142,6 +143,44 @@ private slots:
         QVERIFY2(!third.contains("legacy-token"),
                  "A legacy-global token reached a bound session connector");
         NetworkRequest::clearToken();
+    }
+
+    void postDeletionTrackingDoesNotCrossHttpConnectors()
+    {
+        CookieServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        const QString host = QStringLiteral("http://127.0.0.1:%1/")
+            .arg(server.serverPort());
+        NetworkSessionContext firstContext;
+        NetworkSessionContext secondContext;
+        firstContext.setHost(host);
+        secondContext.setHost(host);
+        firstContext.setToken(QStringLiteral("account-one-token"));
+        secondContext.setToken(QStringLiteral("account-two-token"));
+
+        LocalPostDeleteTracker firstTracker;
+        LocalPostDeleteTracker secondTracker;
+        HTTPConnector first(&firstContext, &firstTracker);
+        HTTPConnector second(&secondContext, &secondTracker);
+
+        const QString id = QStringLiteral("shared-post-id");
+        NetworkRequest firstDelete(firstContext, QStringLiteral("posts/") + id);
+        NetworkRequest secondDelete(secondContext, QStringLiteral("posts/") + id);
+        first.del(firstDelete);
+        second.del(secondDelete);
+        QTRY_COMPARE(server.received.size(), 2);
+
+        // Reset one transport before consuming its websocket delete event.
+        first.reset();
+        QVERIFY(!firstTracker.take(id));
+        QVERIFY(secondTracker.take(id));
+
+        // The same ID remains one-shot inside each separate tracker.
+        firstTracker.noteRequest(firstDelete.url());
+        secondTracker.noteRequest(secondDelete.url());
+        QVERIFY(firstTracker.take(id));
+        QVERIFY(!firstTracker.take(id));
+        QVERIFY(secondTracker.take(id));
     }
 
     void redirectedOriginCannotModifyContextCookies()

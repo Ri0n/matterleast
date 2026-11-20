@@ -72,10 +72,26 @@ Do not replace the legacy facade with another process-global accessor.
 Before enabling production multi-session operation, route *all* API request constructors,
 response `Set-Cookie` handling, websocket login URLs and login/retry/logout
 through their owning session context. Revisit services that construct absolute
-URLs, per-account disk caches, and other global state (`LocalPostDeleteTracker`,
-reaction usage, etc.) before allowing a second live Backend. Forbid an
+URLs, attachment caches, and other global state (reaction usage,
+server/plugin configuration, etc.) before allowing a second live Backend. Forbid an
 implicit-current-account fallback in these paths. Keep context lifetime longer
 than queued requests, and guard async replies by their owning session generation.
+
+## Per-account local post deletion
+
+`LocalPostDeleteTracker` is owned by `Storage`, never a process-global set.
+The primary `HTTPConnector` receives a non-owning pointer to that account's
+tracker. A DELETE request marks an origin in the current account; its matching
+WebSocket event consumes the same account's marker via `BackendChannel`.
+Transport reset, failed DELETE and Storage reset clear only the owning
+account's markers. Standalone HTTP connectors without a Storage tracker do
+not record local post-deletion origins.
+
+The tracker is an in-memory one-shot identity set, with no timers or
+persistence; logout/retry does not mutate any other account. A test uses the
+same channel and post ID in two independent Storage instances to verify that
+only the originating account removes its local timeline row, while the other
+treats the event as a remote deletion.
 
 ## Common request profile
 

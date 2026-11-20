@@ -1,14 +1,10 @@
 #include "LocalPostDeleteTracker.h"
 
-#include <QSet>
 #include <QStringList>
 #include <QUrl>
 
 namespace Mattermost {
-namespace LocalPostDeleteTracker {
 namespace {
-
-QSet<QString> pendingPostIds;
 
 QString postIdFromDeleteUrl(const QUrl& url)
 {
@@ -21,31 +17,28 @@ QString postIdFromDeleteUrl(const QUrl& url)
 
 } // namespace
 
-void noteRequest(const QUrl& url)
+void LocalPostDeleteTracker::noteRequest(const QUrl& url)
 {
     const QString postId = postIdFromDeleteUrl(url);
-    if (!postId.isEmpty()) {
+    if (!postId.isEmpty())
         pendingPostIds.insert(postId);
-    }
 }
 
-void clearFailedRequest(const QUrl& url)
+void LocalPostDeleteTracker::clearFailedRequest(const QUrl& url)
 {
     const QString postId = postIdFromDeleteUrl(url);
-    if (!postId.isEmpty()) {
+    if (!postId.isEmpty())
         pendingPostIds.remove(postId);
-    }
 }
 
-bool take(const QString& postId)
+bool LocalPostDeleteTracker::take(const QString& postId)
 {
     return !postId.isEmpty() && pendingPostIds.remove(postId);
 }
 
-void clear()
+void LocalPostDeleteTracker::clear()
 {
     pendingPostIds.clear();
 }
 
-} // namespace LocalPostDeleteTracker
 } // namespace Mattermost

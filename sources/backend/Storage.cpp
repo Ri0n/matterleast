@@ -38,6 +38,7 @@ Storage::~Storage () = default;
 
 void Storage::reset ()
 {
+    localPostDeleteTracker.clear();
 	teams.clear();
 
 	directChannels.channels.clear();

@@ -1,13 +1,13 @@
 #include "BackendChannel.h"
 
-#include "backend/LocalPostDeleteTracker.h"
+#include "backend/Storage.h"
 #include "log.h"
 
 namespace Mattermost {
 
 void BackendChannel::deletePost(QString postId)
 {
-    const bool locallyInitiated = LocalPostDeleteTracker::take(postId);
+    const bool locallyInitiated = storage.localPostDeleteTracker.take(postId);
     BackendPost* existingPost = findPostById(postId);
     if (!existingPost) {
         LOG_DEBUG("BackendChannel::deletePost: post with ID " << postId << " not found");
