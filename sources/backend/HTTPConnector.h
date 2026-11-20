@@ -53,6 +53,10 @@ public:
     explicit HTTPConnector(NetworkSessionContext* session = nullptr);
 	virtual ~HTTPConnector ();
 
+    // Called before login requests; partitions the HTTP disk cache by
+    // account. A missing/failed cache path disables disk caching, never
+    // falls back to another account's cache.
+    void configureAccountCache(const QString& accountIdentity);
 	void reset ();
 	void restartTransport ();
 	static void restartAllTransports ();
@@ -102,6 +106,7 @@ private:
 
 	static QSet<HTTPConnector*> connectors;
     NetworkSessionContext* sessionContext = nullptr; // externally owned
+    QString accountCacheDirectory;
 
 	std::unique_ptr<QNetworkAccessManager> qnetworkManager;
 	QQueue<PendingRequest> highPriorityRequests;

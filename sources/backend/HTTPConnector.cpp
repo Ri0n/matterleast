@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <QAbstractNetworkCache>
 #include <QDebug>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QHttpMultiPart>
@@ -51,10 +52,10 @@ namespace Mattermost {
 
 QSet<HTTPConnector*> HTTPConnector::connectors;
 
-static QNetworkDiskCache* createDiskCache ()
+static QNetworkDiskCache* createDiskCache(const QString& directory)
 {
-	QNetworkDiskCache* diskCache = new QNetworkDiskCache ();
-	diskCache->setCacheDirectory (QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
+    auto* diskCache = new QNetworkDiskCache();
+    diskCache->setCacheDirectory(directory);
 
 	const qint64 cacheSizeMB = std::max<qint64>(
 		1,
@@ -81,23 +82,26 @@ public:
     }
 };
 
-static std::unique_ptr<QNetworkAccessManager> createNetworkManager(bool diskCache)
+static std::unique_ptr<QNetworkAccessManager> createNetworkManager(
+    NetworkSessionContext* session, const QString& cacheDirectory)
 {
     auto manager = std::make_unique<QNetworkAccessManager>();
-    if (!diskCache)
+    if (session)
         manager->setCookieJar(new SessionCookieJar(manager.get()));
-    // Shared on-disk HTTP caching is unsafe across accounts with different
-    // credentials. Keep legacy behavior but disable it for isolated sessions
-    // until their individual cache directories are in place.
-    if (diskCache)
-        manager->setCache(createDiskCache());
+    // Legacy single-server installations keep their previous cache path.
+    // Authenticated multi-server contexts use an opaque account partition.
+    const QString directory = session
+        ? cacheDirectory
+        : QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    if (!directory.isEmpty())
+        manager->setCache(createDiskCache(directory));
     manager->setAutoDeleteReplies(true);
     return manager;
 }
 
 HTTPConnector::HTTPConnector(NetworkSessionContext* session)
     : sessionContext(session)
-    , qnetworkManager(createNetworkManager(session == nullptr))
+    , qnetworkManager(createNetworkManager(session, {}))
 {
 	connectors.insert(this);
 
@@ -116,6 +120,32 @@ HTTPConnector::HTTPConnector(NetworkSessionContext* session)
 			const qint64 cacheSizeMB = std::max<qint64>(1, value.toLongLong());
 			diskCache->setMaximumCacheSize(cacheSizeMB * 1024 * 1024);
 		});
+}
+
+void HTTPConnector::configureAccountCache(const QString& accountIdentity)
+{
+    if (!sessionContext) return;
+    const QString opaqueId = sessionContext->cachePartitionId(accountIdentity);
+    const QString directory = opaqueId.isEmpty()
+        ? QString()
+        : QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+            + QStringLiteral("/http-accounts/") + opaqueId;
+    // A failing filesystem must disable the cache, not reuse a previous
+    // account's directory (which could expose authenticated responses).
+    const bool usable = !directory.isEmpty() && QDir().mkpath(directory);
+    const QString next = usable ? directory : QString();
+    if (accountCacheDirectory == next)
+        return;
+    accountCacheDirectory = next;
+    if (!qnetworkManager) return;
+    if (next.isEmpty()) {
+        qnetworkManager->setCache(nullptr);
+    } else if (auto* diskCache =
+        qobject_cast<QNetworkDiskCache*>(qnetworkManager->cache())) {
+        diskCache->setCacheDirectory(next);
+    } else {
+        qnetworkManager->setCache(createDiskCache(next));
+    }
 }
 
 HTTPConnector::~HTTPConnector ()
@@ -148,7 +178,7 @@ void HTTPConnector::reset ()
     // Destroy the old network manager while multipart request bodies are still
     // alive. Its replies may still reference their multipart body during
     // teardown.
-	qnetworkManager = createNetworkManager(sessionContext == nullptr);
+	qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
     activeMultipartRequests.clear();
 	processQueues();
 }
@@ -221,7 +251,7 @@ void HTTPConnector::restartTransport ()
 		return;
 	}
 
-	qnetworkManager = createNetworkManager(sessionContext == nullptr);
+	qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
 	restartingTransport = false;
 	processQueues();
 }

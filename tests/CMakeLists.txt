@@ -796,6 +796,17 @@ target_include_directories(post-unread-request-test PRIVATE "${CMAKE_SOURCE_DIR}
 target_link_libraries(post-unread-request-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME post-unread-request-test COMMAND post-unread-request-test)
 
+# Authenticated Backend instances must keep login, preferences and
+# cancellation isolated across simultaneous fake Mattermost servers.
+if(TARGET matterleast-core)
+    add_executable(backend-multi-server-login-test BackendMultiServerLoginTest.cpp)
+    target_link_libraries(backend-multi-server-login-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Network)
+    add_test(NAME backend-multi-server-login-test COMMAND backend-multi-server-login-test)
+    set_tests_properties(backend-multi-server-login-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 if(TARGET matterleast-core)
     add_executable(user-profile-recovery-test UserProfileRecoveryTest.cpp)
     target_link_libraries(user-profile-recovery-test

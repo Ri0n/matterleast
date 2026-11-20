@@ -1,5 +1,6 @@
 #include "NetworkSessionContext.h"
 
+#include <QCryptographicHash>
 #include <QLocale>
 #include <QSslConfiguration>
 #include <QUrl>
@@ -53,6 +54,17 @@ void NetworkSessionContext::setHost(const QString& host)
     if (!host_.isEmpty() && host_ != next)
         clearToken();
     host_ = next;
+}
+
+QString NetworkSessionContext::cachePartitionId(const QString& accountIdentity) const
+{
+    if (host_.isEmpty() || accountIdentity.trimmed().isEmpty())
+        return {};
+    QByteArray material = host_.toUtf8();
+    material.append(char(0));
+    material.append(accountIdentity.trimmed().toCaseFolded().toUtf8());
+    return QString::fromLatin1(
+        QCryptographicHash::hash(material, QCryptographicHash::Sha256).toHex());
 }
 
 void NetworkSessionContext::clearToken()

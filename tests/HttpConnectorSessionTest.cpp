@@ -95,6 +95,8 @@ private slots:
         secondContext.setToken(QStringLiteral("second-token"));
         HTTPConnector first(&firstContext);
         HTTPConnector second(&secondContext);
+        first.configureAccountCache(QStringLiteral("first-account"));
+        second.configureAccountCache(QStringLiteral("second-account"));
 
         int completed = 0;
         NetworkRequest firstRequest(firstContext, QStringLiteral("probe/one"));
