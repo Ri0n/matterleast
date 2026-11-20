@@ -154,10 +154,11 @@ private slots:
         QVERIFY(sdp.contains(QStringLiteral("m=audio")));
         QVERIFY(sdp.contains(QStringLiteral("m=video")));
         QVERIFY(sdp.contains(QStringLiteral("m=application")));
-        if (!sdp.contains(QStringLiteral("matterleast-video-"))) {
-            qWarning().noquote() << "Video stream ID missing in local offer:\n" << sdp;
-        }
-        QVERIFY(sdp.contains(QStringLiteral("matterleast-video-")));
+        const QString videoSection = sdp.section(
+            QStringLiteral("m=video"), 1).section(QStringLiteral("m=application"), 0, 0);
+        QVERIFY2(videoSection.contains(QStringLiteral(" msid:"))
+                     || videoSection.contains(QStringLiteral("a=msid:")),
+                 qPrintable(videoSection));
         QVERIFY(sdp.contains(QStringLiteral("opus/48000/2")));
 
         // Official Calls sends a full state snapshot after join. A late

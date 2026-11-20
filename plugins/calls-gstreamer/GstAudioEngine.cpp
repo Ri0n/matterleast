@@ -13,6 +13,7 @@
 #include <QJsonValue>
 #include <QImage>
 #include <QUuid>
+#include <QRandomGenerator>
 #include <QHash>
 #include <QMetaObject>
 #include <QObject>
@@ -496,6 +497,27 @@ struct GstAudioEngine::Impl
         makeOffer();
     }
 
+    static GstPadProbeReturn onFirstVideoRtp(GstPad*, GstPadProbeInfo* info,
+                                             gpointer userData)
+    {
+        auto* self = static_cast<Impl*>(userData);
+        if (!(GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)
+            || self->videoPrimed_.exchange(true)) {
+            return GST_PAD_PROBE_OK;
+        }
+        // The first synthetic RTP buffer is harmless before ICE/DTLS has
+        // connected. It primes the RTP payloader's SSRC/caps before the
+        // offer is created. Then the media gate remains closed until
+        // Mattermost accepts video_on and the user opens the real camera.
+        self->post([self] {
+            if (self->cameraValve_ && !self->cameraEnabled_) {
+                g_object_set(self->cameraValve_, "drop", TRUE, nullptr);
+            }
+            self->makeOffer();
+        });
+        return GST_PAD_PROBE_OK;
+    }
+
     void buildVideoPipeline()
     {
         // Keep a send transceiver in the initial offer, but no camera device
@@ -535,12 +557,22 @@ struct GstAudioEngine::Impl
             return;
         }
         g_object_set(cameraSource_, "is-live", TRUE, nullptr);
-        g_object_set(cameraValve_, "drop", TRUE, nullptr);
+        g_object_set(cameraValve_, "drop", FALSE, nullptr);
+        // Use a fixed nonzero SSRC for the lifetime of this peer connection.
+        // Incoming RTCD tracks are matched to the media-stream ID in SDP.
+        videoSsrc_ = QRandomGenerator::global()->generate();
+        if (!videoSsrc_) videoSsrc_ = 1;
+        g_object_set(payloader, "ssrc", videoSsrc_, nullptr);
         GstCaps* rawCaps = gst_caps_from_string(
             "video/x-raw,width=(int)640,height=(int)360,framerate=(fraction)15/1");
-        GstCaps* rtpCaps = gst_caps_from_string(
-            "application/x-rtp,media=(string)video,encoding-name=(string)VP8,"
-            "clock-rate=(int)90000,payload=(int)96");
+        GstCaps* rtpCaps = gst_caps_new_simple(
+            "application/x-rtp",
+            "media", G_TYPE_STRING, "video",
+            "encoding-name", G_TYPE_STRING, "VP8",
+            "clock-rate", G_TYPE_INT, 90000,
+            "payload", G_TYPE_INT, 96,
+            "ssrc", G_TYPE_UINT, videoSsrc_,
+            nullptr);
         GstCaps* rgbCaps = gst_caps_from_string("video/x-raw,format=(string)RGB");
         g_object_set(rawFilter, "caps", rawCaps, nullptr);
         g_object_set(rtpFilter, "caps", rtpCaps, nullptr);
@@ -573,6 +605,8 @@ struct GstAudioEngine::Impl
             notifyError(QStringLiteral("Could not attach camera to webrtcbin"));
             return;
         }
+        gst_pad_add_probe(src, GST_PAD_PROBE_TYPE_BUFFER,
+                          onFirstVideoRtp, this, nullptr);
         gst_object_unref(src);
         videoStreamId_ = QStringLiteral("matterleast-video-")
             + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -746,7 +780,8 @@ struct GstAudioEngine::Impl
 
     void makeOffer()
     {
-        if (!webrtc_ || creatingDescription_ || localOfferPending_) return;
+        if (!webrtc_ || creatingDescription_ || localOfferPending_
+            || (enableVideo_ && !videoPrimed_)) return;
         creatingDescription_ = true;
         GstPromise* promise = gst_promise_new_with_change_func(
             onCreatedDescription, this, nullptr);
@@ -1093,6 +1128,8 @@ struct GstAudioEngine::Impl
     QString selectedVideoId_;
     std::atomic<bool> cameraEnabled_ {false};
     QString videoStreamId_;
+    guint videoSsrc_ = 0;
+    std::atomic<bool> videoPrimed_ {false};
     std::atomic<bool> running_ {false};
     std::thread thread_;
     GMainContext* context_ = nullptr;
