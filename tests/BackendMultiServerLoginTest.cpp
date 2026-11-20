@@ -368,6 +368,10 @@ private slots:
 
         // The canonical SiteURL used for native forwarding is independent
         // of the most recently authenticated server's connection origin.
+        // Login/startup may independently fetch the client configuration.
+        // Count only the additional requests caused by permalink resolution.
+        const int firstConfigBaseline = serverOne.clientConfigRequests;
+        const int secondConfigBaseline = serverTwo.clientConfigRequests;
         QString firstPermalink;
         QString secondPermalink;
         QString firstLinkError;
@@ -391,8 +395,8 @@ private slots:
             QStringLiteral("https://canonical-user-one.example.test/")));
         QVERIFY(secondPermalink.startsWith(
             QStringLiteral("https://canonical-user-two.example.test/")));
-        QCOMPARE(serverOne.clientConfigRequests, 1);
-        QCOMPARE(serverTwo.clientConfigRequests, 1);
+        QCOMPARE(serverOne.clientConfigRequests, firstConfigBaseline + 1);
+        QCOMPARE(serverTwo.clientConfigRequests, secondConfigBaseline + 1);
         checkCookies(serverOne.clientConfigCookies, "token-one", "token-two");
         checkCookies(serverTwo.clientConfigCookies, "token-two", "token-one");
 
