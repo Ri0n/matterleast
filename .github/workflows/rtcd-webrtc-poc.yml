@@ -1,0 +1,130 @@
+name: RTCD / GStreamer WebRTC PoC
+
+# Explicit opt-in: real three-party SFU tests pull Docker and GStreamer packages.
+# Do not run on every push or pull request.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded PoC runs only consume runner time and repeat apt downloads.
+concurrency:
+  group: rtcd-webrtc-poc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rtcd-webrtcbin:
+    name: GStreamer webrtcbin ↔ RTCD v1.2.6
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate Python PoC syntax
+        run: /usr/bin/python3 -m py_compile tests/webrtc/rtcd_webrtcbin_poc.py tests/webrtc/rtcd_conference_poc.py
+
+      - name: Restore GStreamer deb cache
+        id: gst-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/matterleast-rtcd-apt
+          key: rtcd-gstreamer-ubuntu24-${{ runner.arch }}-v1
+
+      - name: Install GStreamer and Python signaling prerequisites
+        run: |
+          # Some hosted runners resolve Ubuntu archives to very slow regional
+          # EC2 mirrors (13+ min for packages that fetch in ~20s on Azure).
+          # Use the public Azure mirror observed to be fast in this workflow.
+          sudo sed -i 's@http://us-east-2.ec2.archive.ubuntu.com/ubuntu@http://azure.archive.ubuntu.com/ubuntu@g' \
+            /etc/apt/sources.list.d/ubuntu.sources
+          apt_archives="$HOME/.cache/matterleast-rtcd-apt"
+          mkdir -p "$apt_archives/partial"
+          sudo apt-get -o Acquire::Retries=2 update
+          sudo apt-get -y --no-install-recommends \
+            -o Dir::Cache::archives="$apt_archives" \
+            -o APT::Keep-Downloaded-Packages=true \
+            -o Acquire::Retries=2 install \
+            python3-gi python3-msgpack python3-websocket \
+            gir1.2-gstreamer-1.0 gir1.2-gst-plugins-bad-1.0 \
+            gstreamer1.0-tools gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+            gstreamer1.0-nice
+          sudo chown -R "$USER:$USER" "$apt_archives"
+          du -sh "$apt_archives"
+
+      - name: Save GStreamer deb cache before running tests
+        if: steps.gst-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/matterleast-rtcd-apt
+          key: rtcd-gstreamer-ubuntu24-${{ runner.arch }}-v1
+
+      - name: Verify media plugins
+        run: |
+          gst-inspect-1.0 webrtcbin
+          gst-inspect-1.0 opusenc
+          gst-inspect-1.0 sctpenc
+          gst-inspect-1.0 dtlsenc
+
+      - name: Start real Mattermost RTCD container
+        run: |
+          docker pull mattermost/rtcd:v1.2.6
+          # Host networking gives webrtcbin and RTCD the same routable ICE
+          # addresses, avoiding Docker bridge NAT in this transport PoC.
+          docker run --rm -d --name matterleast-rtcd-poc --network host \
+            -e RTCD_LOGGER_ENABLEFILE=false \
+            -e RTCD_LOGGER_CONSOLELEVEL=DEBUG \
+            -e RTCD_API_SECURITY_ALLOWSELFREGISTRATION=true \
+            -e RTCD_RTC_UDPSOCKETSCOUNT=1 \
+            mattermost/rtcd:v1.2.6
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8045/version; then
+              echo
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs matterleast-rtcd-poc
+          exit 1
+
+      - name: Run actual SDP/ICE/DTLS/SCTP/Opus interop
+        env:
+          RTCD_URL: http://127.0.0.1:8045
+          GST_DEBUG: 'webrtc*:5,sctp*:5,dtls*:5,transport*:5,nice*:3'
+          GST_DEBUG_NO_COLOR: '1'
+          GST_DEBUG_FILE: /tmp/matterleast-gst-webrtc.log
+        run: |
+          set +e
+          /usr/bin/python3 tests/webrtc/rtcd_webrtcbin_poc.py
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo '=== Relevant GStreamer transport diagnostics ==='
+            grep -Ei 'SCTP|data.?channel|DTLS|BUNDLE|ERROR|WARN|ICE' /tmp/matterleast-gst-webrtc.log | tail -n 220 || true
+          fi
+          exit "$status"
+
+      - name: Verify SFU received an incoming audio track
+        run: |
+          # A local rtpopuspay packet count cannot prove packets reached RTCD.
+          # Pion's OnTrack fires on receipt of an actual RTP packet.
+          docker logs matterleast-rtcd-poc > /tmp/rtcd-media.log 2>&1
+          if ! grep -q 'new track received' /tmp/rtcd-media.log; then
+            echo 'RTCD did not report receiving an RTP track'
+            tail -n 200 /tmp/rtcd-media.log
+            exit 1
+          fi
+          grep 'new track received' /tmp/rtcd-media.log
+
+      - name: Three-user Opus conference with verified late join and stream continuity
+        env:
+          RTCD_URL: http://127.0.0.1:8045
+          GST_DEBUG: 'webrtc*:3,sctp*:3,dtls*:3'
+          GST_DEBUG_NO_COLOR: '1'
+        run: /usr/bin/python3 tests/webrtc/rtcd_conference_poc.py
+
+      - name: RTCD diagnostics
+        if: always()
+        run: |
+          docker logs --tail 250 matterleast-rtcd-poc 2>&1 || true
+          docker rm -f matterleast-rtcd-poc 2>/dev/null || true
