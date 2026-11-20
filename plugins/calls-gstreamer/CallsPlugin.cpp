@@ -215,6 +215,7 @@ public:
             snapshot_.state != MatterLeast::PluginApi::CallsState::Connected) {
             return false;
         }
+        if (snapshot_.microphoneMuted == muted) return true;
         const QString action = muted ? QStringLiteral("mute")
                                      : QStringLiteral("unmute");
         if (!host_->sendAction(QLatin1String(CallsPrefix) + action, {})) {
@@ -222,6 +223,11 @@ public:
         }
         engine_->setMicrophoneMuted(muted);
         snapshot_.microphoneMuted = muted;
+        for (auto& participant : snapshot_.participants) {
+            if (participant.sessionId == originalConnectionId_) {
+                participant.microphoneMuted = muted;
+            }
+        }
         changed();
         return true;
     }
@@ -243,7 +249,8 @@ public:
             && (eventConnection == originalConnectionId_
                 || eventConnection == host_->connectionId());
         const bool isOurChannel = channel == snapshot_.channelId
-            || broadcastChannel == snapshot_.channelId;
+            || broadcastChannel == snapshot_.channelId
+            || data.value(QStringLiteral("channel_id")).toString() == snapshot_.channelId;
 
         if (name == QLatin1String("custom_com.mattermost.calls_error")
             && isOurSession) {
@@ -324,9 +331,55 @@ public:
         }
 
         if (!isOurChannel) return;
-        const QString userId = data.value(QStringLiteral("user_id")).toString();
         const QString sessionId = data.value(QStringLiteral("session_id")).toString();
-        if (userId.isEmpty() || sessionId.isEmpty()) return;
+        if (sessionId.isEmpty()) return;
+
+        if (name == QLatin1String("custom_com.mattermost.calls_host_mute")) {
+            // A host_mute is addressed to the affected user. Acknowledge with
+            // our ordinary mute action, which broadcasts user_muted.
+            if (sessionId == originalConnectionId_ && engine_) {
+                if (snapshot_.state == CallsState::Connected) {
+                    setMicrophoneMuted(true);
+                } else {
+                    engine_->setMicrophoneMuted(true);
+                    snapshot_.microphoneMuted = true;
+                    changed();
+                }
+            }
+            return;
+        }
+
+        const bool mutedEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_muted");
+        const bool unmutedEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_unmuted");
+        if (mutedEvent || unmutedEvent) {
+            // Official Calls events use userID, unlike user_joined (user_id).
+            // Session ID is the stable key, even for multiple devices.
+            const QString userId = data.value(QStringLiteral("userID")).toString();
+            const bool muted = mutedEvent;
+            for (auto& participant : snapshot_.participants) {
+                if (participant.sessionId != sessionId
+                    || (!userId.isEmpty() && participant.userId != userId)) {
+                    continue;
+                }
+                if (participant.microphoneMuted != muted) {
+                    participant.microphoneMuted = muted;
+                    changed();
+                }
+                break;
+            }
+            if (sessionId == originalConnectionId_
+                && snapshot_.microphoneMuted != muted && engine_) {
+                snapshot_.microphoneMuted = muted;
+                engine_->setMicrophoneMuted(muted);
+                changed();
+            }
+            return;
+        }
+
+        const QString userId = data.value(QStringLiteral("user_id")).toString();
+        if (userId.isEmpty()) return;
         if (name == QLatin1String("custom_com.mattermost.calls_user_joined")) {
             for (const auto& participant : snapshot_.participants) {
                 if (participant.sessionId == sessionId) return;
@@ -441,6 +494,14 @@ private:
                 if (snapshot_.state == MatterLeast::PluginApi::CallsState::Connecting) {
                     snapshot_.state = MatterLeast::PluginApi::CallsState::Connected;
                     changed();
+                    // The server initializes Unmuted=false. Our microphone
+                    // starts active, so publish that initial state once media
+                    // is actually connected to the SFU.
+                    if (!snapshot_.microphoneMuted
+                        && !host_->sendAction(QLatin1String(CallsPrefix)
+                                              + QStringLiteral("unmute"), {})) {
+                        fail(QStringLiteral("Failed to publish microphone state"));
+                    }
                 }
             },
             iceUrls_);

@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QApplication>
 #include <QFrame>
+#include <QLabel>
 #include <QPushButton>
 
 #include "plugins/PluginHost.h"
@@ -184,6 +185,51 @@ private slots:
         QCOMPARE(provider->snapshot().participants.at(0).userId, QStringLiteral("alice"));
         QCOMPARE(provider->snapshot().participants.at(1).userId, QStringLiteral("bob"));
         QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
+        auto* bobTile = [&]() -> QFrame* {
+            for (QFrame* tile : window->findChildren<QFrame*>(
+                     QStringLiteral("callsParticipantTile"))) {
+                if (tile->property("sessionId").toString()
+                    == QStringLiteral("session-bob")) return tile;
+            }
+            return nullptr;
+        }();
+        QVERIFY(bobTile);
+        auto* bobMuteLabel = bobTile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantMute"));
+        QVERIFY(bobMuteLabel);
+        QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone off"));
+
+        // The official server emits userID (camelCase) for mute changes,
+        // while join events and call_state use user_id.
+        const QJsonObject bobIdentity {
+            {QStringLiteral("userID"), QStringLiteral("bob")},
+            {QStringLiteral("session_id"), QStringLiteral("session-bob")}
+        };
+        const QJsonObject inChannel {
+            {QStringLiteral("channel_id"), QStringLiteral("channel-A")}
+        };
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_unmuted"),
+            bobIdentity, inChannel);
+        QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
+        QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone on"));
+
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_muted"),
+            bobIdentity, {{QStringLiteral("channel_id"),
+                          QStringLiteral("unrelated-channel")}});
+        QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_muted"),
+            {{QStringLiteral("userID"), QStringLiteral("someone-else")},
+             {QStringLiteral("session_id"), QStringLiteral("session-bob")}},
+            inChannel);
+        QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_muted"),
+            bobIdentity, inChannel);
+        QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
+        QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone off"));
 
         // A call_state from another channel must not overwrite our state.
         QJsonObject foreignState = stateEvent;
@@ -201,6 +247,7 @@ private slots:
             {{QStringLiteral("channel_id"), QStringLiteral("channel-A")}});
         QCOMPARE(provider->snapshot().participants.size(), 3);
         QCOMPARE(window->findChildren<QFrame*>(QStringLiteral("callsParticipantTile")).size(), 3);
+        QVERIFY(provider->snapshot().participants.at(2).microphoneMuted);
         provider->onServerEvent(
             QStringLiteral("custom_com.mattermost.calls_user_left"),
             {{QStringLiteral("user_id"), QStringLiteral("charlie")},

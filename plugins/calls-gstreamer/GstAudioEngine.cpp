@@ -144,6 +144,7 @@ struct GstAudioEngine::Impl
                 pipeline_ = nullptr;
                 webrtc_ = nullptr;
                 volume_ = nullptr;
+                valve_ = nullptr;
                 mixer_ = nullptr;
             }
             g_main_loop_quit(loop_);
@@ -202,6 +203,7 @@ struct GstAudioEngine::Impl
         webrtc_ = gst_element_factory_make("webrtcbin", "calls-peer");
         mixer_ = gst_element_factory_make("audiomixer", "remote-mixer");
         volume_ = gst_element_factory_make("volume", "microphone-mute");
+        valve_ = gst_element_factory_make("valve", "microphone-rtp-gate");
         const bool testAudio = qEnvironmentVariable("MATTERLEAST_CALLS_TEST_FAKE_AUDIO")
             == QLatin1String("1");
         GstElement* input = gst_element_factory_make(
@@ -215,7 +217,7 @@ struct GstAudioEngine::Impl
         GstElement* playback = gst_element_factory_make(
             testAudio ? "fakesink" : "autoaudiosink", "speaker");
         std::vector<GstElement*> elements = {
-            webrtc_, mixer_, volume_, input, convert, resample,
+            webrtc_, mixer_, volume_, valve_, input, convert, resample,
             encoder, payloader, capsFilter, playbackConvert, playback
         };
 
@@ -229,6 +231,7 @@ struct GstAudioEngine::Impl
                 pipeline_ = nullptr;
                 webrtc_ = nullptr;
                 volume_ = nullptr;
+                valve_ = nullptr;
                 mixer_ = nullptr;
                 return;
             }
@@ -263,10 +266,10 @@ struct GstAudioEngine::Impl
             }
         }
 
-        gst_bin_add_many(GST_BIN(pipeline_), webrtc_, mixer_, volume_, input,
+        gst_bin_add_many(GST_BIN(pipeline_), webrtc_, mixer_, volume_, valve_, input,
                          convert, resample, encoder, payloader, capsFilter,
                          playbackConvert, playback, nullptr);
-        if (!gst_element_link_many(input, convert, resample, volume_,
+        if (!gst_element_link_many(input, convert, resample, volume_, valve_,
                                    encoder, payloader, capsFilter, nullptr)
             || !gst_element_link_many(mixer_, playbackConvert, playback, nullptr)) {
             notifyError(QStringLiteral("Could not link GStreamer Opus/audio pipeline"));
@@ -513,6 +516,9 @@ struct GstAudioEngine::Impl
 
     void setMuted(bool muted)
     {
+        // Stop outgoing Opus RTP instead of transmitting encoded silence.
+        // Preserve the webrtcbin sender/transceiver across mute toggles.
+        if (valve_) g_object_set(valve_, "drop", gboolean(muted), nullptr);
         if (volume_) g_object_set(volume_, "mute", gboolean(muted), nullptr);
     }
 
@@ -530,6 +536,7 @@ struct GstAudioEngine::Impl
     GstElement* webrtc_ = nullptr;
     GstElement* mixer_ = nullptr;
     GstElement* volume_ = nullptr;
+    GstElement* valve_ = nullptr;
     bool creatingDescription_ = false;
     bool localOfferPending_ = false;
     bool answerRemoteOffer_ = false;
@@ -562,7 +569,7 @@ QString GstAudioEngine::checkRuntime()
         // request an RTP sink pad or create the Calls data channel.
         "webrtcbin", "nicesrc", "nicesink", "dtlsenc", "dtlsdec", "sctpenc", "sctpdec",
         "autoaudiosrc", "autoaudiosink", "audiotestsrc", "audiomixer",
-        "audioconvert", "audioresample", "volume",
+        "audioconvert", "audioresample", "volume", "valve",
         "opusenc", "rtpopuspay", "rtpopusdepay", "opusdec",
         "capsfilter", "queue"
     };
