@@ -99,8 +99,10 @@ static std::unique_ptr<QNetworkAccessManager> createNetworkManager(
     return manager;
 }
 
-HTTPConnector::HTTPConnector(NetworkSessionContext* session)
+HTTPConnector::HTTPConnector(NetworkSessionContext* session,
+                             LocalPostDeleteTracker* deletionTracker)
     : sessionContext(session)
+    , postDeleteTracker(deletionTracker)
     , qnetworkManager(createNetworkManager(session, {}))
 {
 	connectors.insert(this);
@@ -173,7 +175,8 @@ void HTTPConnector::reset ()
 	replayedReplies.clear();
 	activeRequests = 0;
 	restartingTransport = false;
-    LocalPostDeleteTracker::clear();
+    if (postDeleteTracker)
+        postDeleteTracker->clear();
 
     // Destroy the old network manager while multipart request bodies are still
     // alive. Its replies may still reference their multipart body during
@@ -352,7 +355,8 @@ void HTTPConnector::del(QNetworkRequest& request,
     // initiated here and the same post_deleted event received from another
     // client. Only exact DELETE /posts/{id} requests are recorded; unrelated
     // DELETE endpoints (thread unfollow, channel membership, etc.) are ignored.
-    LocalPostDeleteTracker::noteRequest(request.url());
+    if (postDeleteTracker)
+        postDeleteTracker->noteRequest(request.url());
 
 	enqueue(PendingRequest {
 		Method::Delete,
@@ -589,8 +593,10 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
             if (currentReply->operation()
                     == QNetworkAccessManager::DeleteOperation
                 && currentReply->error() != QNetworkReply::NoError) {
-                LocalPostDeleteTracker::clearFailedRequest(
-                    currentReply->request().url());
+                if (connector->postDeleteTracker) {
+                    connector->postDeleteTracker->clearFailedRequest(
+                        currentReply->request().url());
+                }
             }
 
             // This callback is allowed to synchronously reset or even destroy

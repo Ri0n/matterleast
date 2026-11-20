@@ -29,6 +29,7 @@
 #include <QJsonArray>
 #include <map>
 #include <QSharedPointer>
+#include "backend/LocalPostDeleteTracker.h"
 #include "backend/types/BackendUser.h"
 #include "backend/types/BackendTeam.h"
 #include "backend/types/BackendDirectChannelsTeam.h"
@@ -77,6 +78,10 @@ public:
 
 	void printTeams ();
 public:
+    // Shared exclusively by this Storage, its Backend HTTP transport, and
+    // BackendChannel instances created from this Storage.
+    LocalPostDeleteTracker localPostDeleteTracker;
+
 	std::map<QString, BackendTeam>					teams;
 	BackendDirectChannelsTeam						directChannels;
 	BackendDirectChannelsTeam						groupChannels;

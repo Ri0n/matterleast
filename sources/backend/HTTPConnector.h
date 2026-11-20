@@ -44,13 +44,15 @@ namespace Mattermost {
 
 class QByteArrayCreator;
 class NetworkSessionContext;
+class LocalPostDeleteTracker;
 
 class HTTPConnector: public QObject {
 	Q_OBJECT
 public:
     // Default constructor preserves the existing legacy single-server path.
     // An explicit context must outlive this connector and all its requests.
-    explicit HTTPConnector(NetworkSessionContext* session = nullptr);
+    explicit HTTPConnector(NetworkSessionContext* session = nullptr,
+                           LocalPostDeleteTracker* postDeleteTracker = nullptr);
 	virtual ~HTTPConnector ();
 
     // Called before login requests; partitions the HTTP disk cache by
@@ -106,6 +108,7 @@ private:
 
 	static QSet<HTTPConnector*> connectors;
     NetworkSessionContext* sessionContext = nullptr; // externally owned
+    LocalPostDeleteTracker* postDeleteTracker = nullptr; // Storage-owned
     QString accountCacheDirectory;
 
 	std::unique_ptr<QNetworkAccessManager> qnetworkManager;
