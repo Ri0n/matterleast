@@ -109,7 +109,7 @@ private slots:
             QStringLiteral("callsMicrophoneDevices"));
         QVERIFY(select);
         QVERIFY(select->isEnabled());
-        QCOMPARE(select->arrowType(), Qt::NoArrow);
+        QCOMPARE(select->arrowType(), Qt::DownArrow);
         QList<CallsMediaDevice> available {
             {QStringLiteral("microphone-one"), QStringLiteral("USB microphone"),
              CallsDeviceKind::Microphone},
@@ -179,7 +179,7 @@ private slots:
         QVERIFY(camera->isVisible());
         QCOMPARE(camera->toolTip(), QStringLiteral("Server has EnableVideo disabled"));
         QCOMPARE(selector->toolTip(), camera->toolTip());
-        QCOMPARE(selector->arrowType(), Qt::NoArrow);
+        QCOMPARE(selector->arrowType(), Qt::DownArrow);
         window.setCameraAvailable(true);
         QVERIFY(camera->isVisible());
         QVERIFY(camera->isEnabled());

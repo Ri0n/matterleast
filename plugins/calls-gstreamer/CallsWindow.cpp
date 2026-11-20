@@ -191,7 +191,7 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     controls->addWidget(microphone_);
     microphoneDevices_ = new QToolButton(dock);
     microphoneDevices_->setObjectName(QStringLiteral("callsMicrophoneDevices"));
-    microphoneDevices_->setArrowType(Qt::NoArrow);
+    microphoneDevices_->setArrowType(Qt::DownArrow);
     microphoneDevices_->setPopupMode(QToolButton::InstantPopup);
     microphoneDevices_->setFixedSize(22, 44);
     microphoneDevices_->setCursor(Qt::PointingHandCursor);
@@ -213,7 +213,7 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     controls->addWidget(cameraButton_);
     cameraDevices_ = new QToolButton(dock);
     cameraDevices_->setObjectName(QStringLiteral("callsCameraDevices"));
-    cameraDevices_->setArrowType(Qt::NoArrow);
+    cameraDevices_->setArrowType(Qt::DownArrow);
     cameraDevices_->setPopupMode(QToolButton::InstantPopup);
     cameraDevices_->setFixedSize(22, 44);
     cameraDevices_->setCursor(Qt::PointingHandCursor);
@@ -830,6 +830,10 @@ void CallsWindow::updateAppearance()
         "QToolButton#callsMicrophone:focus, QToolButton#callsMicrophoneDevices:focus,"
         " QToolButton#callsCamera:focus, QToolButton#callsCameraDevices:focus { border: 2px solid %4; }"
         "QToolButton#callsMicrophone:checked, QToolButton#callsCamera:checked { background: %4; color: %5; border-color: %4; }"
+        // Qt paints a second menu-indicator on InstantPopup tool buttons.
+        // Retain our centered DownArrow but suppress this extra glyph.
+        "QToolButton#callsMicrophoneDevices::menu-indicator,"
+        " QToolButton#callsCameraDevices::menu-indicator { image: none; width: 0px; height: 0px; }"
         "QToolButton#callsMicrophone:disabled, QToolButton#callsMicrophoneDevices:disabled,"
         " QToolButton#callsCamera:disabled, QToolButton#callsCameraDevices:disabled { background: %7; border-color: %2; }"
         "QPushButton#callsEnd { background: #b9374b; color: white; border: none;"
