@@ -37,7 +37,7 @@ void Backend::addPost(BackendChannel& channel,
         json.insert(QStringLiteral("root_id"), rootID);
     }
 
-    NetworkRequest request(QStringLiteral("posts"));
+    NetworkRequest request(_networkSession, QStringLiteral("posts"));
     httpConnector.post(request, json, HttpResponseCallback([](QVariant, QByteArray) {
         // The authoritative post is delivered through the normal websocket path.
     }));

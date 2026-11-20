@@ -11,7 +11,7 @@ namespace Mattermost {
 
 void Backend::retrieveJoinableTeams(std::function<void(QJsonArray)> callback)
 {
-    NetworkRequest request(QStringLiteral("teams?per_page=200&page=0"));
+    NetworkRequest request(_networkSession, QStringLiteral("teams?per_page=200&page=0"));
     httpConnector.get(request, HttpResponseCallback(
         [callback = std::move(callback)](const QJsonDocument& doc) mutable {
             if (callback) {
@@ -30,7 +30,7 @@ void Backend::joinTeam(const QString& teamId)
         {QStringLiteral("user_id"), getLoginUser().id},
         {QStringLiteral("team_id"), teamId},
     };
-    NetworkRequest request(QStringLiteral("teams/") + teamId
+    NetworkRequest request(_networkSession, QStringLiteral("teams/") + teamId
                            + QStringLiteral("/members"));
     httpConnector.post(request, QByteArrayCreator(payload), HttpResponseCallback(
         [this, teamId](QVariant, QByteArray) {
