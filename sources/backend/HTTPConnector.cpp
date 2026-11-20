@@ -34,6 +34,7 @@
 #include <QNetworkDiskCache>
 #include <QNetworkReply>
 #include <QNetworkCookie>
+#include <QNetworkCookieJar>
 #include <QPointer>
 #include <QStandardPaths>
 
@@ -65,9 +66,26 @@ static QNetworkDiskCache* createDiskCache ()
 	return diskCache;
 }
 
+// The account context is the only cookie store for isolated connectors.
+// Qt's automatic cookie jar must not independently replay or overwrite
+// credentials after a Set-Cookie response.
+class SessionCookieJar final : public QNetworkCookieJar
+{
+public:
+    using QNetworkCookieJar::QNetworkCookieJar;
+
+    QList<QNetworkCookie> cookiesForUrl(const QUrl&) const override { return {}; }
+    bool setCookiesFromUrl(const QList<QNetworkCookie>&, const QUrl&) override
+    {
+        return false;
+    }
+};
+
 static std::unique_ptr<QNetworkAccessManager> createNetworkManager(bool diskCache)
 {
     auto manager = std::make_unique<QNetworkAccessManager>();
+    if (!diskCache)
+        manager->setCookieJar(new SessionCookieJar(manager.get()));
     // Shared on-disk HTTP caching is unsafe across accounts with different
     // credentials. Keep legacy behavior but disable it for isolated sessions
     // until their individual cache directories are in place.
