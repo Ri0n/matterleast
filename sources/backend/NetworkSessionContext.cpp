@@ -78,6 +78,15 @@ void NetworkSessionContext::updateSessionCookies(const QList<QNetworkCookie>& co
     }
 }
 
+bool NetworkSessionContext::updateSessionCookiesFrom(
+    const QUrl& responseUrl, const QList<QNetworkCookie>& cookies)
+{
+    if (!isMattermostOrigin(responseUrl))
+        return false;
+    updateSessionCookies(cookies);
+    return true;
+}
+
 QNetworkRequest NetworkSessionContext::request(const QString& urlRoot,
                                                const QString& path,
                                                bool useCache) const
