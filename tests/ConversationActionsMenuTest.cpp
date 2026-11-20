@@ -5,7 +5,6 @@
 #include <QMenu>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
@@ -92,11 +91,6 @@ class ConversationActionsMenuTest : public QObject
     Q_OBJECT
 
 private slots:
-    void initTestCase()
-    {
-        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
-    }
-
     void channelCopyLinksUseOwningBackend()
     {
         Backend first;
@@ -108,7 +102,6 @@ private slots:
         QVERIFY(firstChannel);
         QVERIFY(secondChannel);
 
-        NetworkRequest::setHost(QStringLiteral("https://unrelated.example.test/"));
         const QString firstLink =
             ConversationActionsMenu::channelWebUrl(first, *firstChannel);
         const QString secondLink =
@@ -117,7 +110,6 @@ private slots:
         QVERIFY(secondLink.startsWith(QStringLiteral("https://second.example.test/")));
         QCOMPARE(firstLink.mid(QStringLiteral("https://first.example.test").size()),
                  secondLink.mid(QStringLiteral("https://second.example.test").size()));
-        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
     }
 
     void headerAndSidebarExposeExactlyTheSameActions()
