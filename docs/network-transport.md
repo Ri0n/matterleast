@@ -152,9 +152,17 @@ single-account saved tabs remain readable.
 
 Auto-joining a stored public channel reuses its Backend HTTP transport
 instead of creating an ephemeral connector per click; an asynchronous reply
-is ignored if the sidebar now belongs to a different Backend. All these
-changes leave the old process-global facade available only for remaining
-unmigrated consumers, not as an implicit fallback in new UI code.
+is ignored if the sidebar now belongs to a different Backend.
+
+The opt-in AI MCP server now has exactly one QObject-owned instance per
+Backend rather than a process-wide singleton. Its short-lived capability
+tokens are matched to that Backend's login user and HTTP origin, and are
+revoked upon `Backend::sessionEnding()` even when the same user later logs
+in again to the same origin. This prevents an AI window in one account from
+reusing another account's local MCP endpoint.
+
+These changes leave the old process-global facade available only for
+remaining unmigrated consumers, not as an implicit fallback in new UI code.
 
 ## Per-account local post deletion
 
