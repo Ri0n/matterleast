@@ -29,9 +29,9 @@ authentication headers are only added to the matching scheme, host and port.
 `clearToken()`, `getToken()`, `host()`, cookie update and desktop-profile
 methods intentionally remain a **legacy singleton facade** for the current
 one-account runtime, preserving existing behavior. Do not use that facade
-in new multi-account code. The current `Backend` and `HTTPConnector` have
-not yet been fully converted, so multiple simultaneous authenticated
-Backends are **not safe or enabled** merely because this context exists.
+in new multi-account code. The production application cannot yet present or
+manage simultaneous full-featured Backends; the compatibility facade remains
+until its UI and service callers have been migrated.
 
 `HTTPConnector` can now be constructed with a non-owning
 `NetworkSessionContext*`. In that mode, it applies the owner's credentials
@@ -47,7 +47,23 @@ be replaced with per-account cache directories before enabling cache again.
 This isolation does not authorize callers to reuse a wrong URL: independent
 sessions must still construct requests against their own context.
 
-Before enabling concurrent logins, route *all* API request constructors,
+`Backend` now owns its own `NetworkSessionContext` for its entire
+lifetime, and constructs its `HTTPConnector` bound to that context. Its
+authenticated login, retry and logout requests, post-login user preferences,
+and websocket URL/token are sourced directly from its instance context.
+Two independent `Backend` instances can authenticate to separate local
+Mattermost API fixtures at once; regression tests also check that cancelling
+one in-flight login does not cancel another.
+
+**Migration boundary:** the existing single-server caller path still sets the
+legacy `NetworkRequest` host/token during login, because other Backend
+methods, services and UI factories still call its static methods. Those
+remaining callers must migrate before the single-server façade can be
+deleted or arbitrary simultaneous production operations can be enabled.
+No additional connection manager or UI is being switched on by this step.
+Do not replace the legacy facade with another process-global accessor.
+
+Before enabling production multi-session operation, route *all* API request constructors,
 response `Set-Cookie` handling, websocket login URLs and login/retry/logout
 through their owning session context. Revisit services that construct absolute
 URLs, per-account disk caches, and other global state (`LocalPostDeleteTracker`,
