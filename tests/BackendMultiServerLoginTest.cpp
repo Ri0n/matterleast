@@ -80,6 +80,15 @@ public:
                             {QStringLiteral("message"), QStringLiteral("origin-") + QString::fromUtf8(id)},
                             {QStringLiteral("create_at"), 1000.0}
                         }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/channels/channel-")
+                               && requestLine.contains("/posts?")) {
+                        // After resolving a cold post, PostRepository fetches
+                        // a before/after slice. Return a valid empty page, not
+                        // a channel record, and track both account-local reads.
+                        ++contextPageRequests;
+                        contextPageCookies.append(cookie);
+                        body = QByteArrayLiteral(
+                            R"({"posts":{},"order":[],"prev_post_id":"","next_post_id":""})");
                     } else if (requestLine.startsWith("GET /api/v4/channels/channel-")) {
                         ++channelLookupRequests;
                         channelLookupCookies.append(cookie);
@@ -164,6 +173,8 @@ public:
     int clientConfigRequests = 0;
     int postLookupRequests = 0;
     int channelLookupRequests = 0;
+    int contextPageRequests = 0;
+    QList<QByteArray> contextPageCookies;
     int teamLookupRequests = 0;
     QList<QByteArray> clientConfigCookies;
     QList<QByteArray> postLookupCookies;
@@ -420,12 +431,16 @@ private slots:
         QTRY_COMPARE(serverTwo.postLookupRequests, 2);
         QTRY_COMPARE(serverOne.channelLookupRequests, 1);
         QTRY_COMPARE(serverTwo.channelLookupRequests, 1);
+        QTRY_COMPARE(serverOne.contextPageRequests, 2);
+        QTRY_COMPARE(serverTwo.contextPageRequests, 2);
         QTRY_COMPARE(serverOne.teamLookupRequests, 1);
         QTRY_COMPARE(serverTwo.teamLookupRequests, 1);
         checkCookies(serverOne.postLookupCookies, "token-one", "token-two");
         checkCookies(serverTwo.postLookupCookies, "token-two", "token-one");
         checkCookies(serverOne.channelLookupCookies, "token-one", "token-two");
         checkCookies(serverTwo.channelLookupCookies, "token-two", "token-one");
+        checkCookies(serverOne.contextPageCookies, "token-one", "token-two");
+        checkCookies(serverTwo.contextPageCookies, "token-two", "token-one");
         checkCookies(serverOne.teamLookupCookies, "token-one", "token-two");
         checkCookies(serverTwo.teamLookupCookies, "token-two", "token-one");
     }
