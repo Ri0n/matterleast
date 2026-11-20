@@ -413,8 +413,11 @@ private slots:
             QStringLiteral("channel-user-two")));
         QVERIFY(!backendTwo.getStorage().getChannelById(
             QStringLiteral("channel-user-one")));
-        QTRY_COMPARE(serverOne.postLookupRequests, 1);
-        QTRY_COMPARE(serverTwo.postLookupRequests, 1);
+        // Cold navigation first resolves the missing post; the forced
+        // around-post context subsequently validates that same post via
+        // PostRepository::loadPost(). Both reads must stay on the owner.
+        QTRY_COMPARE(serverOne.postLookupRequests, 2);
+        QTRY_COMPARE(serverTwo.postLookupRequests, 2);
         QTRY_COMPARE(serverOne.channelLookupRequests, 1);
         QTRY_COMPARE(serverTwo.channelLookupRequests, 1);
         QTRY_COMPARE(serverOne.teamLookupRequests, 1);
