@@ -177,11 +177,8 @@ PostRepository& PostRepository::instance(Backend& backend)
 PostRepository::PostRepository(Backend& sourceBackend)
     : QObject(&sourceBackend)
     , backend(sourceBackend)
+    , httpConnector(sourceBackend.httpTransport())
 {
-    connect(&httpConnector, &HTTPConnector::onNetworkError,
-            &backend, &Backend::onNetworkError);
-    connect(&httpConnector, &HTTPConnector::onHttpError,
-            &backend, &Backend::onHttpError);
     initializeResidentMemory();
 }
 
@@ -201,7 +198,7 @@ PostRepository::CacheAccount PostRepository::currentCacheAccount() const
         return account;
     }
 
-    account.server = NetworkRequest::host();
+    account.server = backend.networkSession().host();
     account.userId = loginUser->id;
     if (!account.isValid()) {
         account = CacheAccount {};
@@ -286,7 +283,7 @@ void PostRepository::coalescedGet(const QString& path, JsonCallback callback)
     const CacheAccount cacheAccount = currentCacheAccount();
     const QString requestScope = cacheAccount.isValid()
         ? cacheAccount.server + QChar(0x1f) + cacheAccount.userId
-        : NetworkRequest::host();
+        : backend.networkSession().host();
     const QString requestKey = requestScope + QChar(0x1f) + path;
 
     auto existing = inFlightGets.find(requestKey);
@@ -312,7 +309,7 @@ void PostRepository::coalescedGet(const QString& path, JsonCallback callback)
         << " path=" << path;
 
     QPointer<PostRepository> guard(this);
-    NetworkRequest request(path);
+    NetworkRequest request(backend.networkSession(), path);
     httpConnector.get(request, HttpResponseCallback(
         [guard, requestKey, requestContext, path](QVariant status, QByteArray data,
                                                  const QNetworkReply& reply) mutable {
@@ -408,7 +405,7 @@ void PostRepository::searchPosts(const QString& teamId,
         {QStringLiteral("per_page"), safePerPage},
     };
 
-    NetworkRequest request(path);
+    NetworkRequest request(backend.networkSession(), path);
     httpConnector.post(request, QByteArrayCreator(body), HttpResponseCallback(
         [safePerPage, callback = std::move(callback)](
             QVariant status, const QJsonDocument& doc) mutable {

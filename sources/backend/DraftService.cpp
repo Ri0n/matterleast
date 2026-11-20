@@ -114,6 +114,7 @@ DraftService& DraftService::instance(Backend& backend)
 DraftService::DraftService(Backend& backendInstance)
     : QObject(&backendInstance)
     , backend(backendInstance)
+    , connector(&backendInstance.networkSession())
 {
     ensureIdentity();
     LocalContentKeyStore::request(this, [this](const QByteArray& key) {
@@ -146,7 +147,7 @@ void DraftService::ensureIdentity()
         return;
     }
 
-    QByteArray identityMaterial = NetworkRequest::host().toUtf8();
+    QByteArray identityMaterial = backend.networkSession().host().toUtf8();
     identityMaterial.append('\0');
     identityMaterial.append(userId.toUtf8());
     const QString nextIdentity = QString::fromLatin1(
@@ -551,7 +552,7 @@ void DraftService::syncEntry(const DraftEntry& draft)
         {QStringLiteral("props"), props},
     };
 
-    NetworkRequest request(QStringLiteral("drafts"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("drafts"));
     const QString key = draft.key();
     connector.post(
         request, QByteArrayCreator(payload),
@@ -747,7 +748,7 @@ void DraftService::syncAllTeams()
     remoteKeysSeen.clear();
 
     for (const QString& teamId : teamIds) {
-        NetworkRequest request(
+        NetworkRequest request(backend.networkSession(), 
             QStringLiteral("users/me/teams/") + teamId
             + QStringLiteral("/drafts"));
         connector.get(

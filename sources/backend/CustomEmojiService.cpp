@@ -182,6 +182,7 @@ CustomEmojiService& CustomEmojiService::instance(Backend& backend)
 CustomEmojiService::CustomEmojiService(Backend& backend)
     : QObject(&backend)
     , _backend(backend)
+    , _httpConnector(&backend.networkSession())
     , _missingNames(MaxRememberedMissingNames)
 {
     removeLegacyUnscopedEmojiCache();
@@ -261,7 +262,7 @@ void CustomEmojiService::searchEmojis(const QString& term)
     QJsonObject body;
     body.insert(QStringLiteral("term"), search);
 
-    NetworkRequest request(QStringLiteral("emoji/search"));
+    NetworkRequest request(_backend.networkSession(), QStringLiteral("emoji/search"));
     _httpConnector.post(request, QByteArrayCreator(body),
                         HttpResponseCallback(
         [this, search](const QJsonDocument& doc, const QNetworkReply& reply) {
@@ -298,7 +299,7 @@ void CustomEmojiService::ensureBrowsePageLoaded()
     }
     _browsePageRequested = true;
 
-    NetworkRequest request(QStringLiteral("emoji?page=0&per_page=60"));
+    NetworkRequest request(_backend.networkSession(), QStringLiteral("emoji?page=0&per_page=60"));
     _httpConnector.get(request, HttpResponseCallback(
         [this](const QJsonDocument& doc, const QNetworkReply& reply) {
             if (reply.error() != QNetworkReply::NoError) {
@@ -359,7 +360,7 @@ void CustomEmojiService::flushPendingNames()
         names.push_back(name);
     }
 
-    NetworkRequest request(QStringLiteral("emoji/names"));
+    NetworkRequest request(_backend.networkSession(), QStringLiteral("emoji/names"));
     _httpConnector.post(request, QByteArrayCreator(names),
                         HttpResponseCallback(
         [this, requested](const QJsonDocument& doc, const QNetworkReply& reply) {
@@ -409,7 +410,7 @@ void CustomEmojiService::flushPendingNames()
 void CustomEmojiService::lookupNamesIndividually(const QSet<QString>& names)
 {
     for (const QString& requestedName : names) {
-        NetworkRequest request(QStringLiteral("emoji/name/") + requestedName);
+        NetworkRequest request(_backend.networkSession(), QStringLiteral("emoji/name/") + requestedName);
         _httpConnector.get(request, HttpResponseCallback(
             [this, requestedName](const QJsonDocument& doc, const QNetworkReply& reply) {
                 if (reply.error() != QNetworkReply::NoError) {
@@ -461,7 +462,7 @@ void CustomEmojiService::ensureImage(const QString& id, const QString& name)
         return;
     }
 
-    NetworkRequest request(QStringLiteral("emoji/") + id + QStringLiteral("/image"));
+    NetworkRequest request(_backend.networkSession(), QStringLiteral("emoji/") + id + QStringLiteral("/image"));
     request.setPriority(QNetworkRequest::LowPriority);
     request.setAttribute(QNetworkRequest::BackgroundRequestAttribute, true);
 

@@ -14,6 +14,7 @@
 #include "Backend.h"
 #include "HttpResponseCallback.h"
 #include "NetworkRequest.h"
+#include "NetworkSessionCookieJar.h"
 
 namespace Mattermost {
 
@@ -30,11 +31,12 @@ AttachmentService& AttachmentService::instance(Backend& backend)
 AttachmentService::AttachmentService(Backend& sourceBackend)
     : QObject(&sourceBackend)
     , backend(sourceBackend)
+    , httpConnector(sourceBackend.httpTransport())
 {
-    connect(&httpConnector, &HTTPConnector::onNetworkError,
-            &backend, &Backend::onNetworkError);
-    connect(&httpConnector, &HTTPConnector::onHttpError,
-            &backend, &Backend::onHttpError);
+    // The streaming manager is intentionally separate: QSaveFile receives
+    // chunks without holding the entire attachment in RAM. Its implicit Qt
+    // cookie jar must not retain credentials across login/logout.
+    downloadManager.setCookieJar(new NetworkSessionCookieJar(&downloadManager));
 }
 
 void AttachmentService::rememberLocalFile(const QString& fileId, const QString& path)
@@ -147,7 +149,7 @@ void AttachmentService::retrieve(const QString& requestPath, Callback callback)
     pendingCallbacks.insert(
         requestPath, QVector<Callback> {std::move(callback)});
 
-    NetworkRequest request(requestPath, true);
+    NetworkRequest request(backend.networkSession(), requestPath, true);
     request.setPriority(QNetworkRequest::LowPriority);
     request.setAttribute(QNetworkRequest::BackgroundRequestAttribute, true);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
@@ -171,7 +173,7 @@ void AttachmentService::retrieve(const QString& requestPath, Callback callback)
 
 void AttachmentService::retrieveChecked(const QString& requestPath, DownloadCallback callback)
 {
-    NetworkRequest request(requestPath, false);
+    NetworkRequest request(backend.networkSession(), requestPath, false);
     request.setPriority(QNetworkRequest::LowPriority);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                          QNetworkRequest::AlwaysNetwork);
@@ -215,7 +217,7 @@ QNetworkReply* AttachmentService::downloadToFile(
     }
 
     const QString requestPath = QStringLiteral("files/") + fileId;
-    NetworkRequest request(requestPath, false);
+    NetworkRequest request(backend.networkSession(), requestPath, false);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                          QNetworkRequest::AlwaysNetwork);
     QNetworkReply* reply = downloadManager.get(request);

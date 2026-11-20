@@ -70,11 +70,9 @@ PostCreateService& PostCreateService::instance(Backend& backend)
 PostCreateService::PostCreateService(Backend& sourceBackend)
     : QObject(&sourceBackend)
     , backend(sourceBackend)
+    , httpConnector(sourceBackend.httpTransport())
 {
-    connect(&httpConnector, &HTTPConnector::onNetworkError,
-            &backend, &Backend::onNetworkError);
-    connect(&httpConnector, &HTTPConnector::onHttpError,
-            &backend, &Backend::onHttpError);
+    // Backend already forwards errors from the shared network transport.
 }
 
 void PostCreateService::stagePendingPostMetadata(
@@ -165,7 +163,7 @@ void PostCreateService::createPostDetailed(
     }
 
     QPointer<PostCreateService> guard(this);
-    NetworkRequest request(QStringLiteral("posts"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("posts"));
     const QByteArrayCreator payload(json);
     httpConnector.post(
         request, payload,
@@ -235,7 +233,7 @@ void PostCreateService::editPost(const QString& postId,
     }
 
     QPointer<PostCreateService> guard(this);
-    NetworkRequest request(QStringLiteral("posts/") + postId + QStringLiteral("/patch"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("posts/") + postId + QStringLiteral("/patch"));
     const QByteArrayCreator payload(json);
     httpConnector.put(request, payload, HttpResponseCallback(
         [guard, callback = std::move(callback)](QVariant status,
@@ -274,7 +272,7 @@ void PostCreateService::submitPoll(BackendChannel& channel,
     const BackendNewPollData commandPollData = pollData;
     QPointer<PostCreateService> guard(this);
 
-    NetworkRequest configurationRequest(NetworkRequest::matterpoll,
+    NetworkRequest configurationRequest(backend.networkSession(), NetworkRequest::matterpoll,
                                         QStringLiteral("configuration"));
     httpConnector.get(configurationRequest, HttpResponseCallback(
         [guard, channelId, teamId, commandPollData,
@@ -304,7 +302,7 @@ void PostCreateService::submitPoll(BackendChannel& channel,
                 return;
             }
 
-            NetworkRequest request(QStringLiteral("commands/execute"));
+            NetworkRequest request(guard->backend.networkSession(), QStringLiteral("commands/execute"));
             QJsonObject json {
                 {QStringLiteral("channel_id"), channelId},
                 {QStringLiteral("command"), buildMatterpollCommand(trigger, commandPollData)},

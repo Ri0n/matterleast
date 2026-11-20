@@ -94,7 +94,7 @@ private:
     BackendPost* ingestEditedPost(const QJsonObject& postObject);
 
     Backend& backend;
-    HTTPConnector httpConnector;
+    HTTPConnector& httpConnector;
     QHash<QString, QJsonObject> pendingPostMetadata;
 };
 

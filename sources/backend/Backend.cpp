@@ -439,6 +439,19 @@ Backend::Backend(QObject *parent)
 	(void)RealtimeFallbackService::instance(*this);
 }
 
+Backend::~Backend()
+{
+    // QObject children (account services) normally outlive Backend members
+    // until QObject's base destructor. Destroy them while the session, Storage
+    // and shared transport still exist, so their own transport destructors
+    // cannot reference an already-destroyed NetworkSessionContext.
+    HTTPConnector::resetSessionTransports(&_networkSession);
+    const auto ownedChildren = children();
+    for (QObject* child : ownedChildren) {
+        delete child;
+    }
+}
+
 // Full HTTP header diagnostics are a compile-time opt-in. They may contain
 // private server-specific fields even after known authentication headers are
 // redacted; never enable this in production builds.
@@ -574,7 +587,7 @@ void Backend::cancelPendingLogin()
     if (isLoggedIn) return;
     // Invalidate the HTTP generation before aborting replies so a late
     // /users/me response cannot initialize a session after cancellation.
-    httpConnector.reset();
+    HTTPConnector::resetSessionTransports(&_networkSession);
     _networkSession.clearToken();
     NetworkRequest::clearToken();
     _lastLoginFailureTransient = false;
@@ -698,7 +711,7 @@ void Backend::reset ()
 
 	//reinit all network connectors
 	timeoutTimer.disconnect ();
-	httpConnector.reset ();
+    HTTPConnector::resetSessionTransports(&_networkSession);
 	webSocketConnector.close ();
     // Session projections must not retain pointers into the old Storage after
     // logout. Previously currentChannel could still point to a deleted
@@ -726,7 +739,7 @@ void Backend::prepareForLogout()
     // increments its generation before destroying replies, so stale response
     // handlers are suppressed instead of touching destroyed post widgets.
     webSocketConnector.close();
-    httpConnector.reset();
+    HTTPConnector::resetSessionTransports(&_networkSession);
 }
 
 void Backend::logout(std::function<void()> callback)

@@ -13,6 +13,7 @@
 #include <QJsonObject>
 
 #include "backend/DirectConversationSidebarPolicy.h"
+#include "backend/Backend.h"
 #include "backend/NetworkRequest.h"
 #include "backend/QByteArrayCreator.h"
 #include "backend/types/BackendChannel.h"
@@ -91,7 +92,7 @@ void SidebarService::resurfaceDirectConversation(BackendChannel& channel, uint64
         return;
     }
 
-    NetworkRequest request(QStringLiteral("users/") + userId + QStringLiteral("/preferences"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("users/") + userId + QStringLiteral("/preferences"));
     httpConnector.put(request, QByteArrayCreator(preferences),
                       HttpResponseCallback([](const QJsonDocument&) {}));
 }

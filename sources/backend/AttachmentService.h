@@ -49,7 +49,7 @@ private:
     void retrieveChecked(const QString& requestPath, DownloadCallback callback);
 
     Backend& backend;
-    HTTPConnector httpConnector;
+    HTTPConnector& httpConnector;
     QNetworkAccessManager downloadManager;
     struct LocalFile {
         QString path;

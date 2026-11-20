@@ -1,13 +1,17 @@
 #include <QtTest>
 
+#include <QFile>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
 
 #include "backend/Backend.h"
+#include "backend/AttachmentService.h"
+#include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendLoginData.h"
 
@@ -54,6 +58,18 @@ public:
                             {QStringLiteral("id"), QString::fromUtf8(id)},
                             {QStringLiteral("username"), QStringLiteral("fixture")}
                         }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/files/shared-file ")) {
+                        ++fileRequests;
+                        fileCookies.append(cookie);
+                        body = QByteArrayLiteral("bytes-") + id;
+                    } else if (requestLine.startsWith(
+                                   "GET /api/v4/teams/name/shared-team/channels/name/shared-channel ")) {
+                        ++referenceRequests;
+                        referenceCookies.append(cookie);
+                        body = QJsonDocument(QJsonObject {
+                            {QStringLiteral("id"), QString::fromUtf8(id) + QStringLiteral("-channel")},
+                            {QStringLiteral("display_name"), QString::fromUtf8(id) + QStringLiteral(" Channel")}
+                        }).toJson(QJsonDocument::Compact);
                     } else if (requestLine.startsWith("GET /api/v4/users/")
                                && requestLine.contains("/preferences ")) {
                         ++preferencesRequests;
@@ -73,9 +89,19 @@ public:
                         body = QByteArrayLiteral("{}");
                     }
 
+                    // The second and subsequent file requests are streaming
+                    // downloads. Deliberately attempt to poison Qt's automatic
+                    // cookie jar; these cookies must never reach later requests.
+                    const QByteArray setCookie =
+                        requestLine.startsWith("GET /api/v4/files/shared-file ")
+                            && fileRequests >= 2
+                            ? QByteArrayLiteral("Set-Cookie: STREAMONLY=")
+                                + id + QByteArrayLiteral("\r\n")
+                            : QByteArray();
                     socket->write(QByteArrayLiteral("HTTP/1.1 ") + status
-                        + QByteArrayLiteral("\r\nContent-Type: application/json"
-                                            "\r\nConnection: close"
+                        + QByteArrayLiteral("\r\nContent-Type: application/json\r\n")
+                        + setCookie
+                        + QByteArrayLiteral("Connection: close"
                                             "\r\nContent-Length: ")
                         + QByteArray::number(body.size())
                         + QByteArrayLiteral("\r\n\r\n") + body);
@@ -95,6 +121,10 @@ public:
     int identityRequests = 0;
     int preferencesRequests = 0;
     int profileRequests = 0;
+    int fileRequests = 0;
+    int referenceRequests = 0;
+    QList<QByteArray> fileCookies;
+    QList<QByteArray> referenceCookies;
     QList<QByteArray> identityCookies;
     QList<QByteArray> preferenceCookies;
     QList<QByteArray> profileCookies;
@@ -212,6 +242,81 @@ private slots:
         QCOMPARE(serverTwo.profileRequests, 1);
         checkCookies(serverOne.profileCookies, "token-one", "token-two");
         checkCookies(serverTwo.profileCookies, "token-two", "token-one");
+
+        // AttachmentService uses the Backend's HTTP transport (one manager,
+        // queue and disk-cache partition per account). The other service
+        // retains an error-local connector for expected 404 misses.
+        QByteArray firstFile;
+        QByteArray secondFile;
+        AttachmentService::instance(backendOne).retrieveFile(
+            QStringLiteral("shared-file"),
+            [&](const QByteArray& data) { firstFile = data; });
+        AttachmentService::instance(backendTwo).retrieveFile(
+            QStringLiteral("shared-file"),
+            [&](const QByteArray& data) { secondFile = data; });
+        QTRY_COMPARE(firstFile, QByteArrayLiteral("bytes-user-one"));
+        QTRY_COMPARE(secondFile, QByteArrayLiteral("bytes-user-two"));
+        QCOMPARE(serverOne.fileRequests, 1);
+        QCOMPARE(serverTwo.fileRequests, 1);
+        checkCookies(serverOne.fileCookies, "token-one", "token-two");
+        checkCookies(serverTwo.fileCookies, "token-two", "token-one");
+
+        QTemporaryDir output;
+        QVERIFY(output.isValid());
+        for (int iteration = 0; iteration < 2; ++iteration) {
+            const QString firstPath = output.filePath(
+                QStringLiteral("first-%1.bin").arg(iteration));
+            const QString secondPath = output.filePath(
+                QStringLiteral("second-%1.bin").arg(iteration));
+            bool firstSaved = false;
+            bool secondSaved = false;
+            QString firstError;
+            QString secondError;
+            QVERIFY(AttachmentService::instance(backendOne).downloadToFile(
+                QStringLiteral("shared-file"), firstPath, {},
+                [&](const QString& error) {
+                    firstError = error;
+                    firstSaved = true;
+                }));
+            QVERIFY(AttachmentService::instance(backendTwo).downloadToFile(
+                QStringLiteral("shared-file"), secondPath, {},
+                [&](const QString& error) {
+                    secondError = error;
+                    secondSaved = true;
+                }));
+            QTRY_VERIFY(firstSaved && secondSaved);
+            QVERIFY2(firstError.isEmpty(), qPrintable(firstError));
+            QVERIFY2(secondError.isEmpty(), qPrintable(secondError));
+            QFile firstSavedFile(firstPath);
+            QFile secondSavedFile(secondPath);
+            QVERIFY(firstSavedFile.open(QIODevice::ReadOnly));
+            QVERIFY(secondSavedFile.open(QIODevice::ReadOnly));
+            QCOMPARE(firstSavedFile.readAll(), QByteArrayLiteral("bytes-user-one"));
+            QCOMPARE(secondSavedFile.readAll(), QByteArrayLiteral("bytes-user-two"));
+        }
+        QCOMPARE(serverOne.fileRequests, 3);
+        QCOMPARE(serverTwo.fileRequests, 3);
+        checkCookies(serverOne.fileCookies, "token-one", "token-two");
+        checkCookies(serverTwo.fileCookies, "token-two", "token-one");
+        for (const QByteArray& cookie : serverOne.fileCookies)
+            QVERIFY(!cookie.contains("STREAMONLY"));
+        for (const QByteArray& cookie : serverTwo.fileCookies)
+            QVERIFY(!cookie.contains("STREAMONLY"));
+
+        QString firstChannel;
+        QString secondChannel;
+        ChannelReferenceService::instance(backendOne).resolve(
+            QStringLiteral("shared-team"), QStringLiteral("shared-channel"),
+            [&](const QString& name) { firstChannel = name; });
+        ChannelReferenceService::instance(backendTwo).resolve(
+            QStringLiteral("shared-team"), QStringLiteral("shared-channel"),
+            [&](const QString& name) { secondChannel = name; });
+        QTRY_COMPARE(firstChannel, QStringLiteral("user-one Channel"));
+        QTRY_COMPARE(secondChannel, QStringLiteral("user-two Channel"));
+        QCOMPARE(serverOne.referenceRequests, 1);
+        QCOMPARE(serverTwo.referenceRequests, 1);
+        checkCookies(serverOne.referenceCookies, "token-one", "token-two");
+        checkCookies(serverTwo.referenceCookies, "token-two", "token-one");
     }
 
     void cancellationOfOneLoginDoesNotCancelTheOther()

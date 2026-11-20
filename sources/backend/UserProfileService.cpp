@@ -71,6 +71,7 @@ UserProfileService& UserProfileService::instance(Backend& backend)
 UserProfileService::UserProfileService(Backend& backend)
     : QObject(&backend)
     , backend(backend)
+    , httpConnector(&backend.networkSession())
 {
     connect(&httpConnector, &HTTPConnector::onNetworkError,
             &backend, &Backend::onNetworkError);
@@ -171,7 +172,7 @@ void UserProfileService::ensureUserByUsername(
 
     const QString encodedUsername =
         QString::fromLatin1(QUrl::toPercentEncoding(username));
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("users/username/") + encodedUsername);
     httpConnector.get(request, HttpResponseCallback(
         [this, username, callback = std::move(callback)](
@@ -259,7 +260,7 @@ void UserProfileService::requestAvatar(const QString& userId,
     const QString key = userId + QLatin1Char(':') + pictureVersionString;
     const quint64 generation = _profileGeneration;
 
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("users/") + userId + QStringLiteral("/image?_=")
             + pictureVersionString,
         true);
@@ -352,7 +353,7 @@ void UserProfileService::ensureStatuses(const QStringList& userIds,
             }
         }
 
-        NetworkRequest request(QStringLiteral("users/status/ids"));
+        NetworkRequest request(backend.networkSession(), QStringLiteral("users/status/ids"));
         httpConnector.post(request, QByteArrayCreator(payload),
                            HttpResponseCallback([this, generation, next = next.lock(),
                                                  revisions = std::move(revisions)](const QJsonDocument& doc) {
@@ -408,7 +409,7 @@ void UserProfileService::searchUsers(
         payload.insert(QStringLiteral("not_in_channel_id"), options.notInChannelId);
     }
 
-    NetworkRequest request(QStringLiteral("users/search"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("users/search"));
     httpConnector.post(request, QByteArrayCreator(payload),
                        HttpResponseCallback([this, callback](const QJsonDocument& doc) {
         QVector<const BackendUser*> users;
@@ -453,7 +454,7 @@ void UserProfileService::autocompleteUsers(
         }
     }
 
-    NetworkRequest request(url);
+    NetworkRequest request(backend.networkSession(), url);
     httpConnector.get(request, HttpResponseCallback(
         [this, callback = std::move(callback)](const QJsonDocument& doc) mutable {
             UserAutocompleteResult result;
@@ -500,7 +501,7 @@ void UserProfileService::ensureTeamMembers(BackendTeam& team,
     const auto fetchPage = std::make_shared<std::function<void(int)>>();
 
     *fetchPage = [this, &team, callback, userIds, fetchPage](int page) {
-        NetworkRequest request(
+        NetworkRequest request(backend.networkSession(), 
             QStringLiteral("teams/") + team.id + QStringLiteral("/members?page=")
             + QString::number(page) + QStringLiteral("&per_page=")
             + QString::number(MembersPerPage));
@@ -579,7 +580,7 @@ void UserProfileService::requestProfileBatch(const QStringList& userIds, int att
     }
 
     const quint64 generation = _profileGeneration;
-    NetworkRequest request(QStringLiteral("users/ids"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("users/ids"));
     httpConnector.post(request, QByteArrayCreator(payload),
                        HttpResponseCallback(
         [this, userIds, attempt, generation](QVariant status, const QJsonDocument& doc) {
@@ -667,7 +668,7 @@ void UserProfileService::refreshKnownUsersSince(qint64 since)
             payload.push_back(pending->takeFirst());
         }
 
-        NetworkRequest request(
+        NetworkRequest request(backend.networkSession(), 
             QStringLiteral("users/ids?since=") + sinceQuery);
         httpConnector.post(request, QByteArrayCreator(payload),
                            HttpResponseCallback([this, fetchNext](const QJsonDocument& doc) {

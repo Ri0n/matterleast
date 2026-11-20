@@ -88,6 +88,50 @@ server/plugin configuration, etc.) before allowing a second live Backend. Forbid
 implicit-current-account fallback in these paths. Keep context lifetime longer
 than queued requests, and guard async replies by their owning session generation.
 
+## Account-owned service transports
+
+`Backend::httpTransport()` supplies the existing account-owned connector
+for routine attachment fetching, post creation and post repository requests.
+They share the Backend's connection pool, scheduling queue, error reporting
+and account-partitioned HTTP disk cache rather than creating duplicate
+`QNetworkAccessManager` objects and competing cache directories.
+
+Services whose request lifecycle or expected 404 responses must remain
+independent (e.g. thread follow lookups, draft synchronization, channel
+reference resolution, emoji discovery, user profile fetches, sidebar requests,
+and plugin bundle discovery) retain separate `HTTPConnector` instances
+**bound to their owner's `Backend::networkSession()`**. They cannot send
+requests to the last-selected account's URL, and cannot send its credentials.
+Those secondary connectors intentionally have no additional disk cache.
+For efficiency, account-bound connectors create their Qt network manager
+lazily on the first request, and reset/reconnect does not allocate another
+manager while the service is idle.
+
+Download-to-file streaming retains a separate Qt network manager to avoid
+buffering whole files into memory. Its requests use the owning Backend's
+`NetworkSessionContext`; it also installs the same no-replay cookie jar
+policy as account-bound API connectors. A streamed response cannot silently
+populate an independent Qt cookie jar with credentials that outlive logout
+or account changes. This is covered by two sequential streaming downloads
+from each of two independently authenticated Backends; the local API fixture
+tries to set a cookie on the first stream and verifies it is not sent back.
+Caller-owned files and API authentication remain separate concerns.
+
+End-of-session cancellation now uses
+`HTTPConnector::resetSessionTransports(&backend.networkSession())` to reset
+only connectors bound to that exact context, including isolated service
+connectors and the shared Backend transport. One Backend's logout cannot
+cancel another server's pending requests. `Backend` also tears down its
+QObject child services during its own destructor while the account session
+and Storage members still exist, preventing references to dead account
+state during service destruction.
+
+No process-global current-account fallback, additional timers or model
+resets are introduced. Integration fixtures authenticate two Backends to
+two local server origins, verify account-correct attachments and channel
+references, and prove that reset of one account cancels only its own HTTP
+callbacks (even with multiple service connectors).
+
 ## Per-account local post deletion
 
 `LocalPostDeleteTracker` is owned by `Storage`, never a process-global set.

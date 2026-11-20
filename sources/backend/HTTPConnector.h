@@ -62,6 +62,10 @@ public:
 	void reset ();
 	void restartTransport ();
 	static void restartAllTransports ();
+    // Invalidate every HTTP connector belonging to exactly one session.
+    // Do not abort requests on unrelated accounts or create an implicit
+    // current-account singleton.
+    static void resetSessionTransports(const NetworkSessionContext* session);
 
 	void get (QNetworkRequest &request, HttpResponseCallback responseHandler);
 	void post (QNetworkRequest &request, const QByteArrayCreator &data, HttpResponseCallback responseHandler);

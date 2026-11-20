@@ -33,9 +33,9 @@ QString siteRelativePath(QString path)
     return path;
 }
 
-QUrl siteUrl(const QString& path)
+QUrl siteUrl(const QString& baseHost, const QString& path)
 {
-    QString base = NetworkRequest::host();
+    QString base = baseHost;
     QString suffix = path;
     if (base.isEmpty() || suffix.isEmpty()) {
         return {};
@@ -64,6 +64,8 @@ WebappPluginService& WebappPluginService::instance(Backend& backend)
 
 WebappPluginService::WebappPluginService(Backend& backend)
     : QObject(&backend)
+    , _backend(backend)
+    , httpConnector_(&backend.networkSession())
 {
 }
 
@@ -113,7 +115,7 @@ void WebappPluginService::startLoad()
 {
     loading_ = true;
 
-    NetworkRequest request(QStringLiteral("plugins/webapp"));
+    NetworkRequest request(_backend.networkSession(), QStringLiteral("plugins/webapp"));
     httpConnector_.get(request, HttpResponseCallback(
         [this](QVariant status, const QJsonDocument& document) {
             if (status.toInt() != QNetworkReply::NoError || !document.isArray()) {
@@ -194,7 +196,7 @@ void WebappPluginService::clear()
 QUrl WebappPluginService::bundleUrl(const QString& pluginId) const
 {
     const WebappPluginManifest* manifest = plugin(pluginId);
-    return manifest ? siteUrl(manifest->bundlePath) : QUrl();
+    return manifest ? siteUrl(_backend.networkSession().host(), manifest->bundlePath) : QUrl();
 }
 
 void WebappPluginService::fetchBundle(const QString& pluginId, BundleCallback callback)
@@ -227,7 +229,7 @@ void WebappPluginService::fetchLoadedBundle(const QString& pluginId,
     }
 
     const QString path = siteRelativePath(manifest->bundlePath);
-    NetworkRequest request(QString(), path, true);
+    NetworkRequest request(_backend.networkSession(), QString(), path, true);
     request.setPriority(QNetworkRequest::LowPriority);
     httpConnector_.get(request, HttpResponseCallback(
         [callback = std::move(callback)](QVariant status, QByteArray data) mutable {

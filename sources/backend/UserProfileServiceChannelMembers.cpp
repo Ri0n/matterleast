@@ -33,7 +33,7 @@ void UserProfileService::queryChannelMemberCount(
     }
 
     QPointer<BackendChannel> channelGuard(&channel);
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("channels/") + channel.id + QStringLiteral("/stats"));
     httpConnector.get(request, HttpResponseCallback(
         [channelGuard, callback = std::move(callback)](
@@ -63,7 +63,7 @@ void UserProfileService::loadChannelMembersPage(
     }
 
     QPointer<BackendChannel> channelGuard(&channel);
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("channels/") + channel.id
         + QStringLiteral("/members?page=") + QString::number(page)
         + QStringLiteral("&per_page=") + QString::number(perPage));
@@ -136,7 +136,7 @@ void UserProfileService::loadChannelMemberRolesByIds(
 
     QPointer<BackendChannel> channelGuard(&channel);
     QPointer<UserProfileService> guard(this);
-    NetworkRequest request(QStringLiteral("channels/") + channel.id
+    NetworkRequest request(backend.networkSession(), QStringLiteral("channels/") + channel.id
                            + QStringLiteral("/members/ids"));
     httpConnector.post(request, QByteArrayCreator(pendingIds), HttpResponseCallback(
         [guard, channelGuard, seen, callback = std::move(callback)](

@@ -255,6 +255,7 @@ private slots:
         });
 
         Backend backend;
+        backend.networkSession().setHost(connectionHost);
         QVERIFY(addChannel(backend, QStringLiteral("source"),
                            QStringLiteral("O"), QStringLiteral("source")));
         QVERIFY(addChannel(backend, QStringLiteral("private"),

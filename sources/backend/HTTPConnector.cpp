@@ -42,6 +42,7 @@
 #include "LocalPostDeleteTracker.h"
 #include "NetworkRequest.h"
 #include "NetworkSessionContext.h"
+#include "NetworkSessionCookieJar.h"
 #include "QByteArrayCreator.h"
 #include "Settings.h"
 #include "UploadTrace.h"
@@ -67,27 +68,12 @@ static QNetworkDiskCache* createDiskCache(const QString& directory)
 	return diskCache;
 }
 
-// The account context is the only cookie store for isolated connectors.
-// Qt's automatic cookie jar must not independently replay or overwrite
-// credentials after a Set-Cookie response.
-class SessionCookieJar final : public QNetworkCookieJar
-{
-public:
-    using QNetworkCookieJar::QNetworkCookieJar;
-
-    QList<QNetworkCookie> cookiesForUrl(const QUrl&) const override { return {}; }
-    bool setCookiesFromUrl(const QList<QNetworkCookie>&, const QUrl&) override
-    {
-        return false;
-    }
-};
-
 static std::unique_ptr<QNetworkAccessManager> createNetworkManager(
     NetworkSessionContext* session, const QString& cacheDirectory)
 {
     auto manager = std::make_unique<QNetworkAccessManager>();
     if (session)
-        manager->setCookieJar(new SessionCookieJar(manager.get()));
+        manager->setCookieJar(new NetworkSessionCookieJar(manager.get()));
     // Legacy single-server installations keep their previous cache path.
     // Authenticated multi-server contexts use an opaque account partition.
     const QString directory = session
@@ -103,7 +89,9 @@ HTTPConnector::HTTPConnector(NetworkSessionContext* session,
                              LocalPostDeleteTracker* deletionTracker)
     : sessionContext(session)
     , postDeleteTracker(deletionTracker)
-    , qnetworkManager(createNetworkManager(session, {}))
+    , qnetworkManager(session
+        ? std::unique_ptr<QNetworkAccessManager>()
+        : createNetworkManager(nullptr, {}))
 {
 	connectors.insert(this);
 
@@ -181,7 +169,9 @@ void HTTPConnector::reset ()
     // Destroy the old network manager while multipart request bodies are still
     // alive. Its replies may still reference their multipart body during
     // teardown.
-	qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
+	qnetworkManager = sessionContext
+        ? std::unique_ptr<QNetworkAccessManager>()
+        : createNetworkManager(nullptr, accountCacheDirectory);
     activeMultipartRequests.clear();
 	processQueues();
 }
@@ -202,8 +192,34 @@ void HTTPConnector::restartAllTransports ()
 	}
 }
 
+void HTTPConnector::resetSessionTransports(const NetworkSessionContext* session)
+{
+    if (!session) {
+        return;
+    }
+
+    // Resetting a connector may synchronously destroy other connectors via
+    // callbacks, so keep QPointer guards as in restartAllTransports().
+    QList<QPointer<HTTPConnector>> owned;
+    for (HTTPConnector* connector : connectors) {
+        if (connector->sessionContext == session) {
+            owned.append(QPointer<HTTPConnector>(connector));
+        }
+    }
+    for (const QPointer<HTTPConnector>& connector : owned) {
+        if (connector) {
+            connector->reset();
+        }
+    }
+}
+
 void HTTPConnector::restartTransport ()
 {
+    // Unused account services have no network manager to restart.
+    if (!qnetworkManager && highPriorityRequests.isEmpty()
+        && lowPriorityRequests.isEmpty()) {
+        return;
+    }
 	if (restartingTransport) {
 		return;
 	}
@@ -254,7 +270,9 @@ void HTTPConnector::restartTransport ()
 		return;
 	}
 
-	qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
+	qnetworkManager = sessionContext
+        ? std::unique_ptr<QNetworkAccessManager>()
+        : createNetworkManager(nullptr, accountCacheDirectory);
 	restartingTransport = false;
 	processQueues();
 }
@@ -438,6 +456,10 @@ void HTTPConnector::processQueues()
 
 void HTTPConnector::startRequest(PendingRequest request)
 {
+    // Create isolated network resources only when this feature makes a request.
+    if (!qnetworkManager) {
+        qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
+    }
 	if (request.jsonData) {
 		request.request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 	}
