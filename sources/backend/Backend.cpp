@@ -688,6 +688,11 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
 
 void Backend::reset ()
 {
+    if (isLoggedIn) {
+        // Account-scoped capabilities must be revoked before the blanket
+        // QObject::disconnect() below removes their lifecycle observers.
+        emit sessionEnding();
+    }
 	isLoggedIn = false;
     CustomEmojiService::instance(*this).resetSession();
     _emojiRegistry.clearCustomEmojis();

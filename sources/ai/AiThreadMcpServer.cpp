@@ -12,7 +12,6 @@
 #include <QUuid>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/PostCreateService.h"
 #include "backend/PostProps.h"
 #include "backend/PostRepository.h"
@@ -90,10 +89,18 @@ QJsonObject toolCatalog()
 
 AiThreadMcpServer& AiThreadMcpServer::instance(Backend& backend)
 {
-    static QPointer<AiThreadMcpServer> instance;
-    if (!instance)
-        instance = new AiThreadMcpServer(backend);
-    return *instance;
+    // MCP credentials are tied to exactly one Backend. A process singleton
+    // would silently expose the first account's socket to another account.
+    auto* server = backend.findChild<AiThreadMcpServer*>(
+        QString(), Qt::FindDirectChildrenOnly);
+    if (!server) {
+        server = new AiThreadMcpServer(backend);
+    }
+    // Backend::reset() disconnects its QObject signals. Reconnect on the
+    // next access without duplicate handlers after the next login.
+    QObject::connect(&backend, &Backend::sessionEnding, server,
+                     &AiThreadMcpServer::revokeAllSessions, Qt::UniqueConnection);
+    return *server;
 }
 
 AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
@@ -108,8 +115,7 @@ AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
             [this](const QVariant& value) {
         if (value.toBool()) return;
         // Revocation is immediate even if an AI chat or subprocess remains open.
-        _sessions.clear();
-        stopListening();
+        revokeAllSessions();
     });
 
     connect(&_server, &QLocalServer::newConnection, this, [this] {
@@ -157,7 +163,7 @@ QString AiThreadMcpServer::createSession(const QString& channelId, const QString
     }
     const QString token = newToken();
     _sessions.insert(token, Session {channelId, rootId,
-        _backend.getLoginUser().id, NetworkRequest::host(), false, {}});
+        _backend.getLoginUser().id, _backend.networkSession().host(), false, {}});
     return token;
 }
 
@@ -169,13 +175,19 @@ bool AiThreadMcpServer::authorized(const QString& token) const
         && _server.isListening() && _backend.loggedIn()
         && it != _sessions.cend()
         && it->loginUserId == _backend.getLoginUser().id
-        && it->serverHost == NetworkRequest::host();
+        && it->serverHost == _backend.networkSession().host();
 }
 
 void AiThreadMcpServer::revokeSession(const QString& token)
 {
     if (_sessions.remove(token) && _sessions.isEmpty())
         stopListening();
+}
+
+void AiThreadMcpServer::revokeAllSessions()
+{
+    _sessions.clear();
+    stopListening();
 }
 
 void AiThreadMcpServer::stopListening()

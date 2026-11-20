@@ -3,6 +3,10 @@
 #include <QWidget>
 
 #include "SettingsWindow.h"
+#ifdef MATTERLEAST_ENABLE_AI
+#include "ai/AiThreadMcpServer.h"
+#include "backend/Backend.h"
+#endif
 
 using namespace Mattermost;
 
@@ -11,6 +15,25 @@ class AiCompileTimeGateTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void aiMcpServerIsScopedToItsBackend()
+    {
+#ifdef MATTERLEAST_ENABLE_AI
+        Backend firstBackend;
+        Backend secondBackend;
+        auto& first = AiThreadMcpServer::instance(firstBackend);
+        auto& second = AiThreadMcpServer::instance(secondBackend);
+        QVERIFY(&first != &second);
+        QCOMPARE(&first, &AiThreadMcpServer::instance(firstBackend));
+        QCOMPARE(&second, &AiThreadMcpServer::instance(secondBackend));
+        QCOMPARE(first.parent(), static_cast<QObject*>(&firstBackend));
+        QCOMPARE(second.parent(), static_cast<QObject*>(&secondBackend));
+        QVERIFY(!first.listening());
+        QVERIFY(!second.listening());
+#else
+        QSKIP("AI MCP is intentionally not part of this build");
+#endif
+    }
+
     void aiSettingsMatchBuildFlag()
     {
         SettingsWindow dialog;

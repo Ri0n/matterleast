@@ -173,26 +173,18 @@ void ChannelTree::openStoredChannel(QString channelID)
                     return;
                 }
 
-                auto* connector = new HTTPConnector;
-                connector->setParent(guard);
-                QObject::connect(connector, &HTTPConnector::onNetworkError,
-                                 guard->backendForSidebar, &Backend::onNetworkError);
-                QObject::connect(connector, &HTTPConnector::onHttpError,
-                                 guard->backendForSidebar, &Backend::onHttpError);
-
-                NetworkRequest request(QStringLiteral("channels/") + channelID
+                // No one-shot network manager per click: the owning Backend
+                // already provides the account-scoped HTTP queue and error relay.
+                QPointer<Backend> account(guard->backendForSidebar);
+                NetworkRequest request(account->networkSession(), QStringLiteral("channels/") + channelID
                                        + QStringLiteral("/members"));
                 const QJsonObject payload {
                     {QStringLiteral("user_id"), guard->backendForSidebar->getLoginUser().id},
                 };
-                QPointer<HTTPConnector> connectorGuard(connector);
-                connector->post(request, QByteArrayCreator(payload), HttpResponseCallback(
-                    [guard, connectorGuard, channelID, teamId](
+                account->httpTransport().post(request, QByteArrayCreator(payload), HttpResponseCallback(
+                    [guard, account, channelID, teamId](
                         QVariant status, const QJsonDocument&) {
-                        if (connectorGuard) {
-                            connectorGuard->deleteLater();
-                        }
-                        if (!guard || !guard->backendForSidebar) {
+                        if (!guard || !account || guard->backendForSidebar != account) {
                             return;
                         }
 

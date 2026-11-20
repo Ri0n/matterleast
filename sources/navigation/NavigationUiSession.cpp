@@ -14,7 +14,6 @@
 
 #include "AppNavigationService.h"
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/PostRepository.h"
 #include "backend/types/BackendChannel.h"
 #include "channel-tree/ChannelTree.h"
@@ -81,10 +80,11 @@ bool restorePosition(ChatLogWidget* view, const QString& postId,
 QString NavigationUiController::sessionSettingsKey() const
 {
     Backend* owner = backend();
-    if (!owner || !owner->getStorage().loginUser || NetworkRequest::host().isEmpty()) return {};
+    if (!owner || !owner->getStorage().loginUser
+        || owner->networkSession().host().isEmpty()) return {};
     const QString user = owner->getStorage().loginUser->id;
     if (user.isEmpty()) return {};
-    const QByteArray account = (NetworkRequest::host() + QChar(0x1f) + user).toUtf8();
+    const QByteArray account = (owner->networkSession().host() + QChar(0x1f) + user).toUtf8();
     return QStringLiteral("navigation_session/")
         + QString::fromLatin1(QCryptographicHash::hash(account, QCryptographicHash::Sha256).toHex());
 }

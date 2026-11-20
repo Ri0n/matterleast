@@ -132,6 +132,44 @@ two local server origins, verify account-correct attachments and channel
 references, and prove that reset of one account cancels only its own HTTP
 callbacks (even with multiple service connectors).
 
+## Account-owned navigation, links and UI state
+
+UI navigation no longer interprets Mattermost URLs relative to the last
+process-wide login. `AppNavigationService` classifies absolute and relative
+links against its owning Backend's `NetworkSessionContext::host()`.
+Cold-post resolution reuses `Backend::httpTransport()`, fetching post,
+channel and team records in the correct server's Storage without allocating
+a short-lived `QNetworkAccessManager` for each link.
+
+`PostPermalinkService` constructs copied `/_redirect/pl/` links from an
+explicit Backend, and its canonical-SiteURL lookup uses a service connector
+bound to that Backend. This keeps official native forward previews anchored
+to the correct server even when the two accounts share post IDs. Channel
+web links, KTalk plugin requests, and navigation-session persistence keys
+also use the owning Backend's server identity. Session-key hashing preserves
+the previous `host + unit separator + user ID` layout, so existing
+single-account saved tabs remain readable.
+
+Auto-joining a stored public channel reuses its Backend HTTP transport
+instead of creating an ephemeral connector per click; an asynchronous reply
+is ignored if the sidebar now belongs to a different Backend.
+
+Legacy profile dialogs constructed without a Backend can still render a
+caller-supplied avatar but no longer fetch remote avatars using the global
+last-login host: without an account they cannot safely choose a server.
+Backend-backed dialogs continue to use the shared UserProfileService for
+lazy avatar loading and consistent cache updates.
+
+The opt-in AI MCP server now has exactly one QObject-owned instance per
+Backend rather than a process-wide singleton. Its short-lived capability
+tokens are matched to that Backend's login user and HTTP origin, and are
+revoked upon `Backend::sessionEnding()` even when the same user later logs
+in again to the same origin. This prevents an AI window in one account from
+reusing another account's local MCP endpoint.
+
+These changes leave the old process-global facade available only for
+remaining unmigrated consumers, not as an implicit fallback in new UI code.
+
 ## Per-account local post deletion
 
 `LocalPostDeleteTracker` is owned by `Storage`, never a process-global set.

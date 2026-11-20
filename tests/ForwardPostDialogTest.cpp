@@ -81,16 +81,36 @@ private slots:
 
     void copyLinkStillUsesTeamIndependentRedirect()
     {
+        Backend backend;
+        backend.networkSession().setHost(
+            QStringLiteral("https://mattermost.example.test/"));
         const QString postId = QStringLiteral("abcdefghijklmnopqrstuvwxyz");
-        const QString url = PostPermalinkService::redirectPermalink(postId);
+        const QString url = PostPermalinkService::redirectPermalink(backend, postId);
         QCOMPARE(url,
                  QStringLiteral("https://mattermost.example.test/_redirect/pl/")
                      + postId);
         const MattermostUrlRoute route = MattermostUrlRouter::classify(
-            QUrl(url), QUrl(NetworkRequest::host()));
+            QUrl(url), QUrl(backend.networkSession().host()));
         QCOMPARE(route.kind, MattermostUrlRoute::Kind::Post);
         QCOMPARE(route.target, postId);
-        QVERIFY(PostPermalinkService::redirectPermalink({}).isEmpty());
+        QVERIFY(PostPermalinkService::redirectPermalink(backend, {}).isEmpty());
+    }
+
+    void copiedPostLinksStayOnTheirOwnBackend()
+    {
+        Backend first;
+        Backend second;
+        const QString postId = QStringLiteral("same-id-on-different-servers");
+        first.networkSession().setHost(QStringLiteral("https://server-one.example.test/"));
+        second.networkSession().setHost(QStringLiteral("https://server-two.example.test/"));
+
+        // An unrelated legacy login must not change either account's links.
+        NetworkRequest::setHost(QStringLiteral("https://unrelated.example.test/"));
+        QCOMPARE(PostPermalinkService::redirectPermalink(first, postId),
+                 QStringLiteral("https://server-one.example.test/_redirect/pl/") + postId);
+        QCOMPARE(PostPermalinkService::redirectPermalink(second, postId),
+                 QStringLiteral("https://server-two.example.test/_redirect/pl/") + postId);
+        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
     }
 
     void publicOriginListsKnownDestinationsAndFilters()

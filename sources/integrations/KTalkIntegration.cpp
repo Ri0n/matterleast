@@ -121,6 +121,7 @@ KTalkIntegration& KTalkIntegration::instance(Backend& backend)
 KTalkIntegration::KTalkIntegration(Backend& backend)
     : QObject(&backend)
     , backend_(backend)
+    , httpConnector_(&backend.networkSession())
     , icon_(defaultVideoIcon())
 {
     auto& plugins = WebappPluginService::instance(backend_);
@@ -180,7 +181,7 @@ void KTalkIntegration::requestIcon()
 
     const QString requestedPluginId = pluginId_;
     NetworkRequest request(
-        QString(), pluginPath(requestedPluginId, QLatin1String(AppBarIconSuffix)), true);
+        backend_.networkSession(), QString(), pluginPath(requestedPluginId, QLatin1String(AppBarIconSuffix)), true);
     request.setPriority(QNetworkRequest::LowPriority);
     httpConnector_.get(request, HttpResponseCallback(
         [this, requestedPluginId](QVariant status, QByteArray data) {
@@ -260,7 +261,7 @@ void KTalkIntegration::submitStartMeeting(QWidget* parent,
     const QString activePluginId = pluginId_;
     QPointer<QWidget> parentGuard(parent);
     NetworkRequest request(
-        QString(), pluginPath(activePluginId, QLatin1String(StartMeetingSuffix)));
+        backend_.networkSession(), QString(), pluginPath(activePluginId, QLatin1String(StartMeetingSuffix)));
     httpConnector_.post(request, payload, HttpResponseCallback(
         [this, activePluginId, parentGuard](QVariant status,
                                             QByteArray data,

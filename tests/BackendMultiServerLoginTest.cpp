@@ -13,6 +13,8 @@
 #include "backend/AttachmentService.h"
 #include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
+#include "chat-area/post/PostPermalinkService.h"
+#include "navigation/AppNavigationService.h"
 #include "backend/types/BackendLoginData.h"
 
 using namespace Mattermost;
@@ -57,6 +59,53 @@ public:
                         body = QJsonDocument(QJsonObject{
                             {QStringLiteral("id"), QString::fromUtf8(id)},
                             {QStringLiteral("username"), QStringLiteral("fixture")}
+                        }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/config/client?format=old ")) {
+                        ++clientConfigRequests;
+                        clientConfigCookies.append(cookie);
+                        body = QJsonDocument(QJsonObject {
+                            {QStringLiteral("SiteURL"),
+                             QStringLiteral("https://canonical-%1.example.test")
+                                 .arg(QString::fromUtf8(id))},
+                            {QStringLiteral("EnablePermalinkPreviews"), QStringLiteral("true")}
+                        }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/posts/abcdefghijklmnopqrstuvwxyz ")) {
+                        ++postLookupRequests;
+                        postLookupCookies.append(cookie);
+                        body = QJsonDocument(QJsonObject {
+                            {QStringLiteral("id"), QStringLiteral("abcdefghijklmnopqrstuvwxyz")},
+                            {QStringLiteral("channel_id"),
+                             QStringLiteral("channel-") + QString::fromUtf8(id)},
+                            {QStringLiteral("user_id"), QString::fromUtf8(id)},
+                            {QStringLiteral("message"), QStringLiteral("origin-") + QString::fromUtf8(id)},
+                            {QStringLiteral("create_at"), 1000.0}
+                        }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/channels/channel-")
+                               && requestLine.contains("/posts?")) {
+                        // After resolving a cold post, PostRepository fetches
+                        // a before/after slice. Return a valid empty page, not
+                        // a channel record, and track both account-local reads.
+                        ++contextPageRequests;
+                        contextPageCookies.append(cookie);
+                        body = QByteArrayLiteral(
+                            R"({"posts":{},"order":[],"prev_post_id":"","next_post_id":""})");
+                    } else if (requestLine.startsWith("GET /api/v4/channels/channel-")) {
+                        ++channelLookupRequests;
+                        channelLookupCookies.append(cookie);
+                        body = QJsonDocument(QJsonObject {
+                            {QStringLiteral("id"), QStringLiteral("channel-") + QString::fromUtf8(id)},
+                            {QStringLiteral("team_id"), QStringLiteral("team-") + QString::fromUtf8(id)},
+                            {QStringLiteral("type"), QStringLiteral("O")},
+                            {QStringLiteral("name"), QStringLiteral("shared-channel")},
+                            {QStringLiteral("display_name"), QStringLiteral("Distinct Channel")}
+                        }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/teams/team-")) {
+                        ++teamLookupRequests;
+                        teamLookupCookies.append(cookie);
+                        body = QJsonDocument(QJsonObject {
+                            {QStringLiteral("id"), QStringLiteral("team-") + QString::fromUtf8(id)},
+                            {QStringLiteral("name"), QStringLiteral("team-") + QString::fromUtf8(id)},
+                            {QStringLiteral("display_name"), QStringLiteral("Distinct Team")}
                         }).toJson(QJsonDocument::Compact);
                     } else if (requestLine.startsWith("GET /api/v4/files/shared-file ")) {
                         ++fileRequests;
@@ -121,6 +170,16 @@ public:
     int identityRequests = 0;
     int preferencesRequests = 0;
     int profileRequests = 0;
+    int clientConfigRequests = 0;
+    int postLookupRequests = 0;
+    int channelLookupRequests = 0;
+    int contextPageRequests = 0;
+    QList<QByteArray> contextPageCookies;
+    int teamLookupRequests = 0;
+    QList<QByteArray> clientConfigCookies;
+    QList<QByteArray> postLookupCookies;
+    QList<QByteArray> channelLookupCookies;
+    QList<QByteArray> teamLookupCookies;
     int fileRequests = 0;
     int referenceRequests = 0;
     QList<QByteArray> fileCookies;
@@ -317,6 +376,73 @@ private slots:
         QCOMPARE(serverTwo.referenceRequests, 1);
         checkCookies(serverOne.referenceCookies, "token-one", "token-two");
         checkCookies(serverTwo.referenceCookies, "token-two", "token-one");
+
+        // The canonical SiteURL used for native forwarding is independent
+        // of the most recently authenticated server's connection origin.
+        // Login/startup may independently fetch the client configuration.
+        // Count only the additional requests caused by permalink resolution.
+        const int firstConfigBaseline = serverOne.clientConfigRequests;
+        const int secondConfigBaseline = serverTwo.clientConfigRequests;
+        QString firstPermalink;
+        QString secondPermalink;
+        QString firstLinkError;
+        QString secondLinkError;
+        PostPermalinkService::instance(backendOne).resolve(
+            QStringLiteral("abcdefghijklmnopqrstuvwxyz"), QStringLiteral("shared-team"), true,
+            [&](const QString& url, const QString& error) {
+                firstPermalink = url;
+                firstLinkError = error;
+            });
+        PostPermalinkService::instance(backendTwo).resolve(
+            QStringLiteral("abcdefghijklmnopqrstuvwxyz"), QStringLiteral("shared-team"), true,
+            [&](const QString& url, const QString& error) {
+                secondPermalink = url;
+                secondLinkError = error;
+            });
+        QTRY_VERIFY(!firstPermalink.isEmpty() && !secondPermalink.isEmpty());
+        QVERIFY(firstLinkError.isEmpty());
+        QVERIFY(secondLinkError.isEmpty());
+        QVERIFY(firstPermalink.startsWith(
+            QStringLiteral("https://canonical-user-one.example.test/")));
+        QVERIFY(secondPermalink.startsWith(
+            QStringLiteral("https://canonical-user-two.example.test/")));
+        QCOMPARE(serverOne.clientConfigRequests, firstConfigBaseline + 1);
+        QCOMPARE(serverTwo.clientConfigRequests, secondConfigBaseline + 1);
+        checkCookies(serverOne.clientConfigCookies, "token-one", "token-two");
+        checkCookies(serverTwo.clientConfigCookies, "token-two", "token-one");
+
+        // Neither server has the post's channel or team in Storage. Cold
+        // navigation must first fetch the post, channel, and team through
+        // the owning Backend; equal post IDs must not cross account boundaries.
+        AppNavigationService::instance(backendOne).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
+        AppNavigationService::instance(backendTwo).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
+        QTRY_VERIFY(backendOne.getStorage().getChannelById(
+            QStringLiteral("channel-user-one")) != nullptr);
+        QTRY_VERIFY(backendTwo.getStorage().getChannelById(
+            QStringLiteral("channel-user-two")) != nullptr);
+        QVERIFY(!backendOne.getStorage().getChannelById(
+            QStringLiteral("channel-user-two")));
+        QVERIFY(!backendTwo.getStorage().getChannelById(
+            QStringLiteral("channel-user-one")));
+        // Cold navigation first resolves the missing post; the forced
+        // around-post context subsequently validates that same post via
+        // PostRepository::loadPost(). Both reads must stay on the owner.
+        QTRY_COMPARE(serverOne.postLookupRequests, 2);
+        QTRY_COMPARE(serverTwo.postLookupRequests, 2);
+        QTRY_COMPARE(serverOne.channelLookupRequests, 1);
+        QTRY_COMPARE(serverTwo.channelLookupRequests, 1);
+        QTRY_COMPARE(serverOne.contextPageRequests, 2);
+        QTRY_COMPARE(serverTwo.contextPageRequests, 2);
+        QTRY_COMPARE(serverOne.teamLookupRequests, 1);
+        QTRY_COMPARE(serverTwo.teamLookupRequests, 1);
+        checkCookies(serverOne.postLookupCookies, "token-one", "token-two");
+        checkCookies(serverTwo.postLookupCookies, "token-two", "token-one");
+        checkCookies(serverOne.channelLookupCookies, "token-one", "token-two");
+        checkCookies(serverTwo.channelLookupCookies, "token-two", "token-one");
+        checkCookies(serverOne.contextPageCookies, "token-one", "token-two");
+        checkCookies(serverTwo.contextPageCookies, "token-two", "token-one");
+        checkCookies(serverOne.teamLookupCookies, "token-one", "token-two");
+        checkCookies(serverTwo.teamLookupCookies, "token-two", "token-one");
     }
 
     void cancellationOfOneLoginDoesNotCancelTheOther()
