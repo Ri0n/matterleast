@@ -24,14 +24,15 @@ and policy methods do not depend on global state. Two contexts can be used
 interleaved in one GUI thread without exchanging authentication headers;
 authentication headers are only added to the matching scheme, host and port.
 
-`NetworkRequest` now offers constructors taking an explicit
-`NetworkSessionContext`. Its old static `setHost()`, `setToken()`,
+`NetworkRequest` offers constructors taking an explicit
+`NetworkSessionContext`. Its static `setHost()`, `setToken()`,
 `clearToken()`, `getToken()`, `host()`, cookie update and desktop-profile
-methods intentionally remain a **legacy singleton facade** for the current
-one-account runtime, preserving existing behavior. Do not use that facade
-in new multi-account code. The production application cannot yet present or
-manage simultaneous full-featured Backends; the compatibility facade remains
-until its UI and service callers have been migrated.
+methods remain a **legacy compatibility facade** for standalone old callers
+and tests, **not** for the active Backend. No Backend login/retry/logout path
+publishes its origin or credentials to this facade. It must not be used as a
+current-account selector. The production UI still supports only one active
+full-featured Backend; removing the compatibility API and enabling multi-server
+presentation are separate subsequent steps.
 
 `HTTPConnector` can now be constructed with a non-owning
 `NetworkSessionContext*`. In that mode, it applies the owner's credentials
@@ -70,13 +71,15 @@ origin, not the most recent global login. Independent Backend integration
 tests assert that ordinary post-login profile fetches hit two different
 local Mattermost servers even when the global legacy URL points at only one.
 
-The current single-server login **still writes** the legacy
-`NetworkRequest` host/token for yet-unmigrated service and UI request
-producers. They must be moved to their owning Backend context before the
-facade can be removed or multi-server operation enabled in the UI.
-Standalone test Backends that intentionally skip login now explicitly
-initialize their own `networkSession()` origin; the Backend no longer
-silently relies on the global host for its own HTTP methods.
+Backend login, retry, cancellation, session reset and HTTP authorization
+failures **never write to the legacy** `NetworkRequest` host/token. This closes
+the last explicit path by which an actual login copied a server token into a
+process-wide variable, where it could have been mistaken for another account's
+credentials by an old unbound HTTP client. Integration tests seed an unrelated
+legacy host/token and prove neither of two concurrently logged-in Backends
+changes it. All account-owned API calls remain authenticated correctly and
+never send the seeded legacy token. Standalone tests intentionally skipping
+login explicitly initialize their own `networkSession()` host.
 No new current-account global, connection manager or UI switch is
 introduced by this step.
 
