@@ -41,9 +41,15 @@ legacy request from sending the global token. Returned cookies are admitted
 only when the actual response origin matches the session context. The old
 default constructor keeps its existing behavior.
 
-An explicitly bound connector temporarily **disables HTTP disk caching**
-because the legacy QNetworkDiskCache uses a shared process directory; it must
-be replaced with per-account cache directories before enabling cache again.
+An explicitly bound connector uses a distinct HTTP disk cache directory,
+derived from a SHA-256 digest of its configured server base URL and stable
+account identity (currently the login name). Raw server URLs, usernames and
+tokens never occur in cache directory names. On missing identity or filesystem
+failure, caching is disabled rather than falling back to another account's
+directory. The old single-account cache path remains supported by the legacy
+connector. Reset and network-route restart preserve the bound cache partition.
+The configured size limit is currently per account; the future session manager
+can divide an overall cache budget among connected accounts.
 This isolation does not authorize callers to reuse a wrong URL: independent
 sessions must still construct requests against their own context.
 

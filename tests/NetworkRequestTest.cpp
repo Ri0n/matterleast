@@ -194,6 +194,21 @@ private slots:
         QVERIFY(afterRemoval.rawHeader("Cookie").contains("MMAUTHTOKEN=login-token"));
     }
 
+    void accountCacheNamespaceIsStableAndScoped()
+    {
+        NetworkSessionContext first;
+        NetworkSessionContext second;
+        first.setHost(QStringLiteral("https://one.example.test/"));
+        second.setHost(QStringLiteral("https://two.example.test/"));
+        const QString firstKey = first.cachePartitionId(QStringLiteral("alice"));
+        QVERIFY(!firstKey.isEmpty());
+        QCOMPARE(firstKey, first.cachePartitionId(QStringLiteral("Alice")));
+        QVERIFY(firstKey != first.cachePartitionId(QStringLiteral("bob")));
+        QVERIFY(firstKey != second.cachePartitionId(QStringLiteral("alice")));
+        QVERIFY(!firstKey.contains(QStringLiteral("alice")));
+        QVERIFY(!firstKey.contains(QStringLiteral("example.test")));
+    }
+
     void neverLeaksSessionHeadersToAnotherOrigin()
     {
         NetworkRequest::setToken(QStringLiteral("session-token"));

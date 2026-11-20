@@ -511,6 +511,7 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
     _lastLoginFailureTransient = false;
     loginData = credentials;
     _networkSession.setHost(credentials.domain);
+    httpConnector.configureAccountCache(credentials.username);
     // Temporary bridge for callers not yet migrated to Backend::networkSession().
     NetworkRequest::setHost(credentials.domain);
     if (restartingAfterFailure) {

@@ -22,6 +22,8 @@ public:
     void setToken(const QString& token) { token_ = token; }
     const QString& token() const { return token_; }
     void clearToken();
+    // Stable opaque disk-cache namespace; never use a raw URL or login as a path.
+    QString cachePartitionId(const QString& accountIdentity) const;
     void updateSessionCookies(const QList<QNetworkCookie>& cookies);
     // Ignore Set-Cookie from a redirect or response on another origin.
     bool updateSessionCookiesFrom(const QUrl& responseUrl,
