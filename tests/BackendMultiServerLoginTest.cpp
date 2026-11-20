@@ -59,6 +59,15 @@ public:
                         ++preferencesRequests;
                         preferenceCookies.append(cookie);
                         body = QByteArrayLiteral("[]");
+                    } else if (requestLine.startsWith("GET /api/v4/users/")) {
+                        ++profileRequests;
+                        profileCookies.append(cookie);
+                        body = QJsonDocument(QJsonObject {
+                            {QStringLiteral("id"),
+                             QString::fromUtf8(id) + QStringLiteral("-profile")},
+                            {QStringLiteral("username"),
+                             QStringLiteral("independent-profile")}
+                        }).toJson(QJsonDocument::Compact);
                     } else {
                         status = QByteArrayLiteral("404 Not Found");
                         body = QByteArrayLiteral("{}");
@@ -85,8 +94,10 @@ public:
     bool holdIdentity = false;
     int identityRequests = 0;
     int preferencesRequests = 0;
+    int profileRequests = 0;
     QList<QByteArray> identityCookies;
     QList<QByteArray> preferenceCookies;
+    QList<QByteArray> profileCookies;
 };
 
 BackendLoginData credentials(const FakeMattermostServer& server,
@@ -180,6 +191,27 @@ private slots:
         QTRY_COMPARE(serverTwo.preferencesRequests, 2);
         checkCookies(serverOne.preferenceCookies, "token-one", "token-two");
         checkCookies(serverTwo.preferenceCookies, "token-two", "token-one");
+
+        // Both accounts now perform ordinary Backend API operations after
+        // the process-wide legacy URL has been replaced by the last login.
+        // They must retrieve different server-local profiles, not just
+        // different authentication headers sent to the same wrong server.
+        QString firstProfile;
+        QString secondProfile;
+        backendOne.retrieveUser(QStringLiteral("shared-profile-id"),
+                                [&](const BackendUser& user) {
+            firstProfile = user.id;
+        });
+        backendTwo.retrieveUser(QStringLiteral("shared-profile-id"),
+                                [&](const BackendUser& user) {
+            secondProfile = user.id;
+        });
+        QTRY_COMPARE(firstProfile, QStringLiteral("user-one-profile"));
+        QTRY_COMPARE(secondProfile, QStringLiteral("user-two-profile"));
+        QCOMPARE(serverOne.profileRequests, 1);
+        QCOMPARE(serverTwo.profileRequests, 1);
+        checkCookies(serverOne.profileCookies, "token-one", "token-two");
+        checkCookies(serverTwo.profileCookies, "token-two", "token-one");
     }
 
     void cancellationOfOneLoginDoesNotCancelTheOther()
