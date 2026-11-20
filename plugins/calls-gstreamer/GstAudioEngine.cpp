@@ -6,6 +6,9 @@
 #include <utility>
 #include <vector>
 
+#include <QCryptographicHash>
+#include <QDebug>
+#include <QHash>
 #include <QJsonValue>
 #include <QMetaObject>
 #include <QObject>
@@ -35,12 +38,14 @@ struct GstAudioEngine::Impl
 {
     Impl(QObject* receiver, DescriptionHandler onDescription,
          CandidateHandler onCandidate, ErrorHandler onError,
-         ConnectedHandler onConnected, QStringList iceServers)
+         ConnectedHandler onConnected, QStringList iceServers,
+         DevicesHandler onDevices)
         : receiver_(receiver)
         , onDescription_(std::move(onDescription))
         , onCandidate_(std::move(onCandidate))
         , onError_(std::move(onError))
         , onConnected_(std::move(onConnected))
+        , onDevices_(std::move(onDevices))
         , iceServers_(std::move(iceServers))
     {
         context_ = g_main_context_new();
@@ -101,6 +106,15 @@ struct GstAudioEngine::Impl
             }, Qt::QueuedConnection);
     }
 
+    void notifyDevices(const QList<CallsMediaDevice>& devices)
+    {
+        if (!receiver_ || !onDevices_) return;
+        QMetaObject::invokeMethod(receiver_,
+            [cb = onDevices_, devices, selected = selectedAudioId_] {
+                if (cb) cb(devices, selected);
+            }, Qt::QueuedConnection);
+    }
+
     // Always enqueue on a GSource: g_main_context_invoke_full() may execute
     // synchronously on the caller's (Qt) thread when it acquires the context.
     void enqueue(std::function<void()> operation)
@@ -146,7 +160,13 @@ struct GstAudioEngine::Impl
                 volume_ = nullptr;
                 valve_ = nullptr;
                 mixer_ = nullptr;
+                audioInput_ = nullptr;
+                audioConvert_ = nullptr;
             }
+            for (auto it = deviceCache_.begin(); it != deviceCache_.end(); ++it) {
+                gst_object_unref(it.value());
+            }
+            deviceCache_.clear();
             g_main_loop_quit(loop_);
         });
         if (thread_.joinable()) thread_.join();
@@ -296,6 +316,8 @@ struct GstAudioEngine::Impl
             return;
         }
         gst_object_unref(sink);
+        audioInput_ = input;
+        audioConvert_ = convert;
 
         GstBus* bus = gst_element_get_bus(pipeline_);
         gst_bus_set_sync_handler(bus, onBus, this, nullptr);
@@ -514,6 +536,117 @@ struct GstAudioEngine::Impl
         else pendingIce_.push_back(ice);
     }
 
+    // Enumerate only when requested. Device handles stay on the GLib worker
+    // and no GStreamer pointers enter a Qt widget or plugin API.
+    void scanAudioDevices()
+    {
+        for (auto it = deviceCache_.begin(); it != deviceCache_.end(); ++it) {
+            gst_object_unref(it.value());
+        }
+        deviceCache_.clear();
+        QList<CallsMediaDevice> devices;
+        GstDeviceMonitor* monitor = gst_device_monitor_new();
+        if (monitor) {
+            gst_device_monitor_add_filter(monitor, "Audio/Source", nullptr);
+            if (gst_device_monitor_start(monitor)) {
+                GList* found = gst_device_monitor_get_devices(monitor);
+                for (GList* cursor = found; cursor; cursor = cursor->next) {
+                    auto* device = GST_DEVICE(cursor->data);
+                    gchar* name = gst_device_get_display_name(device);
+                    GstStructure* properties = gst_device_get_properties(device);
+                    gchar* serialized = properties
+                        ? gst_structure_to_string(properties) : nullptr;
+                    const QString label = QString::fromUtf8(name ? name : "");
+                    const QByteArray identity =
+                        (label + QLatin1Char('|')
+                         + QString::fromUtf8(serialized ? serialized : "")).toUtf8();
+                    QString id = QStringLiteral("audio:") + QString::fromLatin1(
+                        QCryptographicHash::hash(identity, QCryptographicHash::Sha256)
+                            .toHex().left(20));
+                    const QString base = id;
+                    int collision = 1;
+                    while (deviceCache_.contains(id)) {
+                        id = base + QLatin1Char(':') + QString::number(collision++);
+                    }
+                    deviceCache_.insert(id, GST_DEVICE(gst_object_ref(device)));
+                    devices.append({id,
+                                    label.isEmpty() ? QStringLiteral("Microphone") : label,
+                                    CallsDeviceKind::Microphone});
+                    g_free(serialized);
+                    if (properties) gst_structure_free(properties);
+                    g_free(name);
+                }
+                g_list_free_full(found, reinterpret_cast<GDestroyNotify>(gst_object_unref));
+                gst_device_monitor_stop(monitor);
+            }
+            gst_object_unref(monitor);
+        }
+        notifyDevices(devices);
+    }
+
+    void selectAudioInput(const QString& id)
+    {
+        if (!pipeline_ || !audioInput_ || !audioConvert_ || id == selectedAudioId_) {
+            return;
+        }
+        GstElement* replacement = nullptr;
+        if (id.isEmpty()) {
+            const bool fake = qEnvironmentVariable("MATTERLEAST_CALLS_TEST_FAKE_AUDIO")
+                == QLatin1String("1");
+            replacement = gst_element_factory_make(
+                fake ? "audiotestsrc" : "autoaudiosrc", nullptr);
+            if (replacement && fake) {
+                g_object_set(replacement, "is-live", TRUE, nullptr);
+            }
+        } else {
+            const auto it = deviceCache_.constFind(id);
+            if (it != deviceCache_.cend()) {
+                replacement = gst_device_create_element(it.value(), nullptr);
+            }
+        }
+        if (!replacement) {
+            qWarning() << "MatterLeast Calls: selected microphone no longer available";
+            scanAudioDevices();
+            return;
+        }
+
+        // Leave the encoder, RTP transceiver, ICE and Qt participant tiles
+        // intact. A source-only switch must not recreate the call or offer.
+        GstElement* previous = audioInput_;
+        gst_object_ref(previous);
+        gst_element_set_state(previous, GST_STATE_NULL);
+        gst_element_unlink(previous, audioConvert_);
+        gst_bin_remove(GST_BIN(pipeline_), previous);
+        const bool added = gst_bin_add(GST_BIN(pipeline_), replacement);
+        const bool installed = added
+            && gst_element_link(replacement, audioConvert_)
+            && gst_element_sync_state_with_parent(replacement);
+        if (installed) {
+            audioInput_ = replacement;
+            selectedAudioId_ = id;
+            gst_object_unref(previous);
+            scanAudioDevices();
+            return;
+        }
+
+        // Restore the previous device on failure rather than leaving an
+        // unlinked microphone in an otherwise connected call.
+        if (added) {
+            gst_element_set_state(replacement, GST_STATE_NULL);
+            gst_bin_remove(GST_BIN(pipeline_), replacement);
+        } else {
+            gst_object_unref(replacement);
+        }
+        if (!gst_bin_add(GST_BIN(pipeline_), previous)
+            || !gst_element_link(previous, audioConvert_)
+            || !gst_element_sync_state_with_parent(previous)) {
+            notifyError(QStringLiteral("Could not restore the previous microphone"));
+            return;
+        }
+        qWarning() << "MatterLeast Calls: microphone switch failed";
+        scanAudioDevices();
+    }
+
     void setMuted(bool muted)
     {
         // Stop outgoing Opus RTP instead of transmitting encoded silence.
@@ -527,7 +660,10 @@ struct GstAudioEngine::Impl
     CandidateHandler onCandidate_;
     ErrorHandler onError_;
     ConnectedHandler onConnected_;
+    DevicesHandler onDevices_;
     QStringList iceServers_;
+    QHash<QString, GstDevice*> deviceCache_;
+    QString selectedAudioId_;
     std::atomic<bool> running_ {false};
     std::thread thread_;
     GMainContext* context_ = nullptr;
@@ -537,6 +673,8 @@ struct GstAudioEngine::Impl
     GstElement* mixer_ = nullptr;
     GstElement* volume_ = nullptr;
     GstElement* valve_ = nullptr;
+    GstElement* audioInput_ = nullptr;
+    GstElement* audioConvert_ = nullptr;
     bool creatingDescription_ = false;
     bool localOfferPending_ = false;
     bool answerRemoteOffer_ = false;
@@ -547,10 +685,12 @@ struct GstAudioEngine::Impl
 GstAudioEngine::GstAudioEngine(
     QObject* receiver, DescriptionHandler onDescription,
     CandidateHandler onCandidate, ErrorHandler onError,
-    ConnectedHandler onConnected, QStringList iceServers)
+    ConnectedHandler onConnected, QStringList iceServers,
+    DevicesHandler onDevices)
     : d_(std::make_unique<Impl>(receiver, std::move(onDescription),
                                std::move(onCandidate), std::move(onError),
-                               std::move(onConnected), std::move(iceServers)))
+                               std::move(onConnected), std::move(iceServers),
+                               std::move(onDevices)))
 {
 }
 
@@ -598,6 +738,16 @@ void GstAudioEngine::receiveCandidate(const QJsonObject& candidate)
     d_->post([self = d_.get(), candidate] {
         self->receiveCandidate(candidate);
     });
+}
+
+void GstAudioEngine::requestDevices()
+{
+    d_->post([self = d_.get()] { self->scanAudioDevices(); });
+}
+
+void GstAudioEngine::setAudioInputDevice(const QString& id)
+{
+    d_->post([self = d_.get(), id] { self->selectAudioInput(id); });
 }
 
 void GstAudioEngine::setMicrophoneMuted(bool muted)

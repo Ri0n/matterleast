@@ -9,6 +9,8 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QMenu>
+#include <QAction>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
@@ -168,6 +170,20 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     microphone_->setFixedSize(48, 44);
     microphone_->setCursor(Qt::PointingHandCursor);
     controls->addWidget(microphone_);
+    microphoneDevices_ = new QToolButton(dock);
+    microphoneDevices_->setObjectName(QStringLiteral("callsMicrophoneDevices"));
+    microphoneDevices_->setArrowType(Qt::DownArrow);
+    microphoneDevices_->setPopupMode(QToolButton::InstantPopup);
+    microphoneDevices_->setFixedSize(22, 44);
+    microphoneDevices_->setCursor(Qt::PointingHandCursor);
+    microphoneDevices_->setMenu(new QMenu(microphoneDevices_));
+    microphoneDevices_->setToolTip(tr("Choose microphone"));
+    microphoneDevices_->setAccessibleName(microphoneDevices_->toolTip());
+    controls->addWidget(microphoneDevices_);
+    connect(microphoneDevices_->menu(), &QMenu::aboutToShow, this, [this] {
+        if (refreshDevices_) refreshDevices_();
+        rebuildMicrophoneDeviceMenu();
+    });
     controls->addStretch(1);
 
     endButton_ = new QPushButton(dock);
@@ -204,6 +220,47 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     connect(&elapsedTick_, &QTimer::timeout, this, [this] { updateTimerLabel(); });
     updateAppearance();
     updateSnapshot({});
+}
+
+void CallsWindow::setMicrophoneDeviceHandlers(
+    DeviceSelectionHandler choose, RefreshDevicesHandler refresh)
+{
+    chooseMicrophone_ = std::move(choose);
+    refreshDevices_ = std::move(refresh);
+}
+
+void CallsWindow::setMicrophoneDevices(const QList<CallsMediaDevice>& available,
+                                       const QString& selectedId)
+{
+    availableMicrophones_.clear();
+    for (const auto& item : available) {
+        if (item.kind == CallsDeviceKind::Microphone) {
+            availableMicrophones_.append(item);
+        }
+    }
+    selectedMicrophoneId_ = selectedId;
+    if (microphoneDevices_->menu()->isVisible()) {
+        rebuildMicrophoneDeviceMenu();
+    }
+}
+
+void CallsWindow::rebuildMicrophoneDeviceMenu()
+{
+    QMenu* menu = microphoneDevices_->menu();
+    menu->clear();
+    const auto addChoice = [this, menu](const QString& title, const QString& id) {
+        QAction* action = menu->addAction(title);
+        action->setCheckable(true);
+        action->setChecked(id == selectedMicrophoneId_);
+        connect(action, &QAction::triggered, this, [this, id] {
+            if (chooseMicrophone_) chooseMicrophone_(id);
+        });
+    };
+    addChoice(tr("System default"), {});
+    if (!availableMicrophones_.isEmpty()) menu->addSeparator();
+    for (const CallsMediaDevice& device : availableMicrophones_) {
+        addChoice(device.displayName, device.id);
+    }
 }
 
 QString CallsWindow::participantLabel(const QString& userId)
@@ -422,6 +479,7 @@ void CallsWindow::updateControls()
         microphone_->setChecked(connected && !snapshot_.microphoneMuted);
     }
     microphone_->setEnabled(connected);
+    microphoneDevices_->setEnabled(connected && bool(chooseMicrophone_));
     microphone_->setToolTip(snapshot_.microphoneMuted ? tr("Unmute microphone")
                                                       : tr("Mute microphone"));
     microphone_->setAccessibleName(microphone_->toolTip());
@@ -476,12 +534,12 @@ void CallsWindow::updateAppearance()
         "QLabel#callsHeaderSubtitle, QLabel#callsParticipantMute,"
         " QLabel#callsParticipantCount, QLabel#callsPlaceholder { color: %6; }"
         "QFrame#callsControls { background: %7; border: 1px solid %2; border-radius: 10px; }"
-        "QToolButton#callsMicrophone { background: %7; color: %8; border: 1px solid %2;"
+        "QToolButton#callsMicrophone, QToolButton#callsMicrophoneDevices { background: %7; color: %8; border: 1px solid %2;"
         " border-radius: 8px; }"
-        "QToolButton#callsMicrophone:hover { border-color: %4; }"
-        "QToolButton#callsMicrophone:focus { border: 2px solid %4; }"
+        "QToolButton#callsMicrophone:hover, QToolButton#callsMicrophoneDevices:hover { border-color: %4; }"
+        "QToolButton#callsMicrophone:focus, QToolButton#callsMicrophoneDevices:focus { border: 2px solid %4; }"
         "QToolButton#callsMicrophone:checked { background: %4; color: %5; border-color: %4; }"
-        "QToolButton#callsMicrophone:disabled { background: %7; border-color: %2; }"
+        "QToolButton#callsMicrophone:disabled, QToolButton#callsMicrophoneDevices:disabled { background: %7; border-color: %2; }"
         "QPushButton#callsEnd { background: #b9374b; color: white; border: none;"
         " border-radius: 8px; padding: 6px 12px; font-weight: 600; }"
         "QPushButton#callsEnd:hover { background: #a52e41; }"

@@ -11,6 +11,7 @@
 #include <QTimer>
 
 #include "plugins/api/CallsTypes.h"
+#include "CallsMediaDevice.h"
 
 class QCloseEvent;
 class QEvent;
@@ -29,6 +30,8 @@ class CallsWindow final : public QDialog
 public:
     using MuteHandler = std::function<bool(bool muted)>;
     using EndHandler = std::function<void()>;
+    using DeviceSelectionHandler = std::function<void(const QString& id)>;
+    using RefreshDevicesHandler = std::function<void()>;
 
     explicit CallsWindow(MuteHandler mute, EndHandler end,
                          QString localUserId = {}, QWidget* parent = nullptr);
@@ -36,6 +39,10 @@ public:
     void showForCall(const MatterLeast::PluginApi::CallsSnapshot& state,
                      const QString& conversationTitle);
     void updateSnapshot(const MatterLeast::PluginApi::CallsSnapshot& state);
+    void setMicrophoneDeviceHandlers(DeviceSelectionHandler choose,
+                                     RefreshDevicesHandler refresh);
+    void setMicrophoneDevices(const QList<CallsMediaDevice>& available,
+                              const QString& selectedId);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -55,12 +62,17 @@ private:
     void updateHeader();
     void updateControls();
     void updateMicrophoneIcon();
+    void rebuildMicrophoneDeviceMenu();
     void updateAppearance();
     void updateTimerLabel();
     static QString participantLabel(const QString& userId);
 
     MuteHandler mute_;
     EndHandler end_;
+    DeviceSelectionHandler chooseMicrophone_;
+    RefreshDevicesHandler refreshDevices_;
+    QList<CallsMediaDevice> availableMicrophones_;
+    QString selectedMicrophoneId_;
     MatterLeast::PluginApi::CallsSnapshot snapshot_;
     QString conversationTitle_;
     QString localUserId_;
@@ -74,6 +86,7 @@ private:
     QLabel* callSubtitle_ = nullptr;
     QLabel* participantCount_ = nullptr;
     QToolButton* microphone_ = nullptr;
+    QToolButton* microphoneDevices_ = nullptr;
     QPushButton* endButton_ = nullptr;
     QTimer elapsedTick_;
     QElapsedTimer elapsedTime_;

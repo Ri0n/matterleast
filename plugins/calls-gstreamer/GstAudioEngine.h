@@ -4,6 +4,8 @@
 #include <memory>
 
 #include <QJsonObject>
+#include <QList>
+#include "CallsMediaDevice.h"
 #include <QString>
 #include <QStringList>
 
@@ -19,10 +21,13 @@ public:
     using CandidateHandler = std::function<void(const QJsonObject&)>;
     using ErrorHandler = std::function<void(const QString&)>;
     using ConnectedHandler = std::function<void()>;
+    using DevicesHandler = std::function<void(const QList<CallsMediaDevice>&,
+                                               const QString& selectedMicrophone)>;
 
     GstAudioEngine(QObject* receiver, DescriptionHandler onDescription,
                    CandidateHandler onCandidate, ErrorHandler onError,
-                   ConnectedHandler onConnected, QStringList iceServers);
+                   ConnectedHandler onConnected, QStringList iceServers,
+                   DevicesHandler onDevices = {});
     ~GstAudioEngine();
     GstAudioEngine(const GstAudioEngine&) = delete;
     GstAudioEngine& operator=(const GstAudioEngine&) = delete;
@@ -32,6 +37,8 @@ public:
     void receiveDescription(const QJsonObject& description);
     void receiveCandidate(const QJsonObject& candidate);
     void setMicrophoneMuted(bool muted);
+    void requestDevices();
+    void setAudioInputDevice(const QString& id);
     void stop();
 
 private:

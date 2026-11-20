@@ -461,6 +461,13 @@ private:
                 [this](bool muted) { return setMicrophoneMuted(muted); },
                 [this] { leaveCall(); },
                 host_ ? host_->localUserId() : QString());
+            window_->setMicrophoneDeviceHandlers(
+                [this](const QString& id) {
+                    if (engine_) engine_->setAudioInputDevice(id);
+                },
+                [this] {
+                    if (engine_) engine_->requestDevices();
+                });
         }
         QString title;
         if (conversationHost_) {
@@ -504,8 +511,15 @@ private:
                     }
                 }
             },
-            iceUrls_);
+            iceUrls_,
+            [this](const QList<CallsMediaDevice>& devices,
+                   const QString& selectedMicrophone) {
+                if (window_) {
+                    window_->setMicrophoneDevices(devices, selectedMicrophone);
+                }
+            });
         engine_->start();
+        engine_->requestDevices();
     }
 
     void fail(const QString& error)

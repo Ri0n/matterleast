@@ -5,6 +5,8 @@
 #include <QGridLayout>
 #include <QScrollArea>
 #include <QLabel>
+#include <QMenu>
+#include <QAction>
 #include <QPushButton>
 #include <QToolButton>
 
@@ -89,6 +91,46 @@ private slots:
 
         window.close();
         QCOMPARE(leaves, 1);
+    }
+
+    void microphoneDeviceSelection()
+    {
+        QString chosen;
+        int refreshes = 0;
+        CallsWindow window([](bool) { return true; }, [] {});
+        window.setMicrophoneDeviceHandlers(
+            [&](const QString& id) { chosen = id; },
+            [&] { ++refreshes; });
+        CallsSnapshot state;
+        state.state = CallsState::Connected;
+        state.channelId = QStringLiteral("dm-1");
+        window.showForCall(state, QStringLiteral("Direct"));
+        auto* select = window.findChild<QToolButton*>(
+            QStringLiteral("callsMicrophoneDevices"));
+        QVERIFY(select);
+        QVERIFY(select->isEnabled());
+        QList<CallsMediaDevice> available {
+            {QStringLiteral("microphone-one"), QStringLiteral("USB microphone"),
+             CallsDeviceKind::Microphone},
+            {QStringLiteral("microphone-two"), QStringLiteral("Laptop microphone"),
+             CallsDeviceKind::Microphone}
+        };
+        window.setMicrophoneDevices(available, QStringLiteral("microphone-one"));
+        QVERIFY(select->menu());
+        emit select->menu()->aboutToShow();
+        QCOMPARE(refreshes, 1);
+        QCOMPARE(select->menu()->actions().size(), 4); // Default, separator, two devices
+        QCOMPARE(select->menu()->actions().at(2)->text(), QStringLiteral("USB microphone"));
+        QVERIFY(select->menu()->actions().at(2)->isChecked());
+        select->menu()->actions().at(3)->trigger();
+        QCOMPARE(chosen, QStringLiteral("microphone-two"));
+        window.setMicrophoneDevices(available, chosen);
+        emit select->menu()->aboutToShow();
+        QVERIFY(select->menu()->actions().at(3)->isChecked());
+
+        state.state = CallsState::Leaving;
+        window.updateSnapshot(state);
+        QVERIFY(!select->isEnabled());
     }
 
     void responsiveStageAndFailureClose()
