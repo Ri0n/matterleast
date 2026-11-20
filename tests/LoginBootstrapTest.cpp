@@ -19,7 +19,7 @@ class LoginHttpServer final : public QTcpServer
 public:
     bool offline = true;
     bool holdResponses = false;
-    int requests = 0;
+    int identityRequests = 0;
 
     LoginHttpServer()
     {
@@ -35,7 +35,12 @@ public:
                     if (!bytes.contains("\r\n\r\n") ||
                         socket->property("responded").toBool()) return;
                     socket->setProperty("responded", true);
-                    ++requests;
+                    // The successful login also requests preferences and
+                    // may initiate other API calls. Count only the identity
+                    // request that this test intends to verify.
+                    if (bytes.startsWith("GET /api/v4/users/me HTTP/")) {
+                        ++identityRequests;
+                    }
                     if (holdResponses) return;
 
                     const QByteArray body = offline
@@ -131,7 +136,7 @@ private slots:
         backend.login(oldLogin, [&](const QString&) {
             canceledCallbackInvoked = true;
         });
-        QTRY_COMPARE(stalled.requests, 1);
+        QTRY_COMPARE(stalled.identityRequests, 1);
         backend.cancelPendingLogin();
         QVERIFY(!backend.loggedIn());
 
@@ -148,7 +153,7 @@ private slots:
         });
         QTRY_VERIFY(completed);
         QCOMPARE(resultToken, newLogin.token);
-        QCOMPARE(replacement.requests, 1);
+        QCOMPARE(replacement.identityRequests, 1);
         QVERIFY(!canceledCallbackInvoked);
         QVERIFY(backend.getStorage().loginUser);
         QCOMPARE(backend.getStorage().loginUser->id,
