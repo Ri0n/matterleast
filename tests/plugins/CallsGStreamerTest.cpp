@@ -154,6 +154,9 @@ private slots:
         QVERIFY(sdp.contains(QStringLiteral("m=audio")));
         QVERIFY(sdp.contains(QStringLiteral("m=video")));
         QVERIFY(sdp.contains(QStringLiteral("m=application")));
+        if (!sdp.contains(QStringLiteral("matterleast-video-"))) {
+            qWarning().noquote() << "Video stream ID missing in local offer:\n" << sdp;
+        }
         QVERIFY(sdp.contains(QStringLiteral("matterleast-video-")));
         QVERIFY(sdp.contains(QStringLiteral("opus/48000/2")));
 
