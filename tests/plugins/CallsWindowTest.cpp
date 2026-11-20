@@ -247,7 +247,11 @@ private slots:
         QImage frame(320, 180, QImage::Format_RGB888);
         frame.fill(Qt::green);
         window.setParticipantVideo(QStringLiteral("bob-session"), frame);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+        QVERIFY(!video->pixmap(Qt::ReturnByValue).isNull());
+#else
         QVERIFY(!video->pixmap().isNull());
+#endif
         window.setParticipantCameraState(QStringLiteral("bob-session"), false);
         QVERIFY(!video->isVisible());
         window.setCameraState(false);
