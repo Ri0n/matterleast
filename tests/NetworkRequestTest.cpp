@@ -4,6 +4,7 @@
 #include <QSslConfiguration>
 
 #include "backend/NetworkRequest.h"
+#include "backend/NetworkSessionContext.h"
 
 using namespace Mattermost;
 
@@ -92,6 +93,105 @@ private slots:
         QVERIFY(cookie.contains("MMCSRF=csrf-value"));
         QCOMPARE(request.rawHeader("X-CSRF-Token"),
                  QByteArray("csrf-value"));
+    }
+
+    void isolatedSessionsNeverShareTokensOrCookies()
+    {
+        NetworkSessionContext first;
+        NetworkSessionContext second;
+        first.setHost(QStringLiteral("https://one.example.test/mattermost/"));
+        second.setHost(QStringLiteral("https://two.example.test/"));
+        first.setToken(QStringLiteral("first-secret"));
+        second.setToken(QStringLiteral("second-secret"));
+        first.updateSessionCookies({
+            QNetworkCookie(QByteArrayLiteral("MMCSRF"), QByteArrayLiteral("first-csrf")),
+            QNetworkCookie(QByteArrayLiteral("MMUSERID"), QByteArrayLiteral("first-user"))
+        });
+        second.updateSessionCookies({
+            QNetworkCookie(QByteArrayLiteral("MMCSRF"), QByteArrayLiteral("second-csrf"))
+        });
+
+        NetworkRequest fromFirst(first, QStringLiteral("posts"));
+        NetworkRequest fromSecond(second, QStringLiteral("posts"));
+        QCOMPARE(fromFirst.url(), QUrl(QStringLiteral(
+            "https://one.example.test/mattermost/api/v4/posts")));
+        QCOMPARE(fromSecond.url(), QUrl(QStringLiteral(
+            "https://two.example.test/api/v4/posts")));
+
+        first.applyDesktopMutationProfile(fromFirst);
+        second.applyDesktopMutationProfile(fromSecond);
+        QVERIFY(fromFirst.rawHeader("Cookie").contains("first-secret"));
+        QVERIFY(fromFirst.rawHeader("Cookie").contains("first-user"));
+        QVERIFY(!fromFirst.rawHeader("Cookie").contains("second-secret"));
+        QCOMPARE(fromFirst.rawHeader("X-CSRF-Token"), QByteArray("first-csrf"));
+        QVERIFY(fromSecond.rawHeader("Cookie").contains("second-secret"));
+        QVERIFY(!fromSecond.rawHeader("Cookie").contains("first-secret"));
+        QCOMPARE(fromSecond.rawHeader("X-CSRF-Token"), QByteArray("second-csrf"));
+
+        // A legacy login cannot modify an explicitly bound session.
+        NetworkRequest::setHost(QStringLiteral("https://legacy.example.test/"));
+        NetworkRequest::setToken(QStringLiteral("legacy-secret"));
+        NetworkRequest later(first, QStringLiteral("users/me"));
+        QCOMPARE(later.url(), QUrl(QStringLiteral(
+            "https://one.example.test/mattermost/api/v4/users/me")));
+        QVERIFY(later.rawHeader("Cookie").contains("first-secret"));
+        QVERIFY(!later.rawHeader("Cookie").contains("legacy-secret"));
+    }
+
+    void perSessionLogoutAndOriginChecksRemainIsolated()
+    {
+        NetworkSessionContext first;
+        NetworkSessionContext second;
+        first.setHost(QStringLiteral("https://one.example.test/"));
+        second.setHost(QStringLiteral("https://two.example.test/"));
+        first.setToken(QStringLiteral("first-secret"));
+        second.setToken(QStringLiteral("second-secret"));
+
+        QNetworkRequest foreign(QUrl(QStringLiteral(
+            "https://two.example.test/api/v4/posts")));
+        first.applyDesktopMutationProfile(foreign);
+        QVERIFY(foreign.rawHeader("Cookie").isEmpty());
+        QVERIFY(foreign.rawHeader("X-CSRF-Token").isEmpty());
+
+        first.clearToken();
+        QVERIFY(NetworkRequest(first, QStringLiteral("users/me"))
+                    .rawHeader("Cookie").isEmpty());
+        QVERIFY(NetworkRequest(second, QStringLiteral("users/me"))
+                    .rawHeader("Cookie").contains("second-secret"));
+
+        first.setHost(QStringLiteral("https://other.example.test/"));
+        first.setToken(QStringLiteral("new-secret"));
+        QVERIFY(NetworkRequest(first, QStringLiteral("users/me"))
+                    .rawHeader("Cookie").contains("new-secret"));
+        QVERIFY(NetworkRequest(second, QStringLiteral("users/me"))
+                    .rawHeader("Cookie").contains("second-secret"));
+    }
+
+    void perSessionCookieReplacementAndRemoval()
+    {
+        NetworkSessionContext session;
+        session.setHost(QStringLiteral("https://example.test/"));
+        session.setToken(QStringLiteral("login-token"));
+        session.updateSessionCookies({
+            QNetworkCookie(QByteArrayLiteral("MMCSRF"), QByteArrayLiteral("old")),
+            QNetworkCookie(QByteArrayLiteral("MMUSERID"), QByteArrayLiteral("user"))
+        });
+        session.updateSessionCookies({
+            QNetworkCookie(QByteArrayLiteral("mmcsrf"), QByteArrayLiteral("new"))
+        });
+        QNetworkRequest request = session.request(
+            QStringLiteral("api/v4/"), QStringLiteral("posts"));
+        session.applyDesktopMutationProfile(request);
+        QCOMPARE(request.rawHeader("X-CSRF-Token"), QByteArray("new"));
+        QVERIFY(!request.rawHeader("Cookie").contains("old"));
+        session.updateSessionCookies({
+            QNetworkCookie(QByteArrayLiteral("MMCSRF"), QByteArray())
+        });
+        QNetworkRequest afterRemoval = session.request(
+            QStringLiteral("api/v4/"), QStringLiteral("posts"));
+        session.applyDesktopMutationProfile(afterRemoval);
+        QVERIFY(afterRemoval.rawHeader("X-CSRF-Token").isEmpty());
+        QVERIFY(afterRemoval.rawHeader("Cookie").contains("MMAUTHTOKEN=login-token"));
     }
 
     void neverLeaksSessionHeadersToAnotherOrigin()
