@@ -78,9 +78,10 @@ public:
 
 	void printTeams ();
 public:
-    // Shared exclusively by this Storage, its Backend HTTP transport, and
-    // BackendChannel instances created from this Storage.
-    LocalPostDeleteTracker localPostDeleteTracker;
+    // Per-session transient bookkeeping, not logical Storage contents.
+    // BackendChannel intentionally keeps a const Storage reference; consuming
+    // a local deletion origin must not require making the model mutable.
+    mutable LocalPostDeleteTracker localPostDeleteTracker;
 
 	std::map<QString, BackendTeam>					teams;
 	BackendDirectChannelsTeam						directChannels;

@@ -355,8 +355,9 @@ void HTTPConnector::del(QNetworkRequest& request,
     // initiated here and the same post_deleted event received from another
     // client. Only exact DELETE /posts/{id} requests are recorded; unrelated
     // DELETE endpoints (thread unfollow, channel membership, etc.) are ignored.
-    if (postDeleteTracker)
+    if (postDeleteTracker) {
         postDeleteTracker->noteRequest(request.url());
+    }
 
 	enqueue(PendingRequest {
 		Method::Delete,
