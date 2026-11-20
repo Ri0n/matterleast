@@ -117,10 +117,20 @@ from each of two independently authenticated Backends; the local API fixture
 tries to set a cookie on the first stream and verifies it is not sent back.
 Caller-owned files and API authentication remain separate concerns.
 
+End-of-session cancellation now uses
+`HTTPConnector::resetSessionTransports(&backend.networkSession())` to reset
+only connectors bound to that exact context, including isolated service
+connectors and the shared Backend transport. One Backend's logout cannot
+cancel another server's pending requests. `Backend` also tears down its
+QObject child services during its own destructor while the account session
+and Storage members still exist, preventing references to dead account
+state during service destruction.
+
 No process-global current-account fallback, additional timers or model
-resets are introduced. An integration fixture authenticates two Backends to
-two local server origins and verifies that attachment bytes and channel
-reference lookups remain account-correct after both logins.
+resets are introduced. Integration fixtures authenticate two Backends to
+two local server origins, verify account-correct attachments and channel
+references, and prove that reset of one account cancels only its own HTTP
+callbacks (even with multiple service connectors).
 
 ## Per-account local post deletion
 
