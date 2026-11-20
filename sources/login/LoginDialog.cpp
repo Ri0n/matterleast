@@ -144,9 +144,9 @@ void LoginDialog::cancelAutomaticLogin()
     _autoLoginEnabled = false;
     _autoLoginRetryTimer.stop();
     ++_loginAttemptGeneration;
-    if (_attemptInProgress) {
-        backend.cancelPendingLogin();
-    }
+    // Also clear the old transport/token between scheduled retries or while
+    // the keyring read is pending, not only during an active HTTP request.
+    backend.cancelPendingLogin();
     _attemptInProgress = false;
     setError(QString());
     ui->loginInProgressLabel->hide();
