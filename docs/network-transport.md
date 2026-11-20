@@ -16,6 +16,31 @@ Desktop v6.3.0 release:
 The profile is centralized in `NetworkRequest`; endpoint code should not grow
 its own generic browser/client headers.
 
+## Multi-server HTTP identity boundary
+
+`NetworkSessionContext` is the new per-account owner for normalized server
+host, session token, returned session cookies and CSRF. Its request factory
+and policy methods do not depend on global state. Two contexts can be used
+interleaved in one GUI thread without exchanging authentication headers;
+authentication headers are only added to the matching scheme, host and port.
+
+`NetworkRequest` now offers constructors taking an explicit
+`NetworkSessionContext`. Its old static `setHost()`, `setToken()`,
+`clearToken()`, `getToken()`, `host()`, cookie update and desktop-profile
+methods intentionally remain a **legacy singleton facade** for the current
+one-account runtime, preserving existing behavior. Do not use that facade
+in new multi-account code. The current `Backend` and `HTTPConnector` have
+not yet been fully converted, so multiple simultaneous authenticated
+Backends are **not safe or enabled** merely because this context exists.
+
+Before enabling concurrent logins, route *all* API request constructors,
+response `Set-Cookie` handling, websocket login URLs and login/retry/logout
+through their owning session context. Revisit services that construct absolute
+URLs, per-account disk caches, and other global state (`LocalPostDeleteTracker`,
+reaction usage, etc.) before allowing a second live Backend. Forbid an
+implicit-current-account fallback in these paths. Keep context lifetime longer
+than queued requests, and guard async replies by their owning session generation.
+
 ## Common request profile
 
 Every request sent through `HTTPConnector` receives the common profile even
