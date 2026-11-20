@@ -19,7 +19,6 @@
 
 #include "build-config.h"
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendPost.h"
 #include "chat-area/post/PostWidget.h"
@@ -197,8 +196,6 @@ private slots:
     void initTestCase()
     {
         QVERIFY(_server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(_server.serverPort()));
         _backend = std::make_unique<Backend>();
         _backend->networkSession().setHost(
             QStringLiteral("http://127.0.0.1:%1/").arg(_server.serverPort()));
