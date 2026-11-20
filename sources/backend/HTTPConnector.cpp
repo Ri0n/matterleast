@@ -42,6 +42,7 @@
 #include "LocalPostDeleteTracker.h"
 #include "NetworkRequest.h"
 #include "NetworkSessionContext.h"
+#include "NetworkSessionCookieJar.h"
 #include "QByteArrayCreator.h"
 #include "Settings.h"
 #include "UploadTrace.h"
@@ -67,27 +68,12 @@ static QNetworkDiskCache* createDiskCache(const QString& directory)
 	return diskCache;
 }
 
-// The account context is the only cookie store for isolated connectors.
-// Qt's automatic cookie jar must not independently replay or overwrite
-// credentials after a Set-Cookie response.
-class SessionCookieJar final : public QNetworkCookieJar
-{
-public:
-    using QNetworkCookieJar::QNetworkCookieJar;
-
-    QList<QNetworkCookie> cookiesForUrl(const QUrl&) const override { return {}; }
-    bool setCookiesFromUrl(const QList<QNetworkCookie>&, const QUrl&) override
-    {
-        return false;
-    }
-};
-
 static std::unique_ptr<QNetworkAccessManager> createNetworkManager(
     NetworkSessionContext* session, const QString& cacheDirectory)
 {
     auto manager = std::make_unique<QNetworkAccessManager>();
     if (session)
-        manager->setCookieJar(new SessionCookieJar(manager.get()));
+        manager->setCookieJar(new NetworkSessionCookieJar(manager.get()));
     // Legacy single-server installations keep their previous cache path.
     // Authenticated multi-server contexts use an opaque account partition.
     const QString directory = session

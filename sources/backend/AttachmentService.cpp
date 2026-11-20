@@ -14,6 +14,7 @@
 #include "Backend.h"
 #include "HttpResponseCallback.h"
 #include "NetworkRequest.h"
+#include "NetworkSessionCookieJar.h"
 
 namespace Mattermost {
 
@@ -32,7 +33,10 @@ AttachmentService::AttachmentService(Backend& sourceBackend)
     , backend(sourceBackend)
     , httpConnector(sourceBackend.httpTransport())
 {
-    // Backend already forwards errors from the shared network transport.
+    // The streaming manager is intentionally separate: QSaveFile receives
+    // chunks without holding the entire attachment in RAM. Its implicit Qt
+    // cookie jar must not retain credentials across login/logout.
+    downloadManager.setCookieJar(new NetworkSessionCookieJar(&downloadManager));
 }
 
 void AttachmentService::rememberLocalFile(const QString& fileId, const QString& path)
