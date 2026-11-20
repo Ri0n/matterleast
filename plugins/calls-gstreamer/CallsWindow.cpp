@@ -175,8 +175,8 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     stageLayout->addWidget(placeholder_, 1);
     layout->addWidget(stage, 1);
 
-    // Audio-only subset of Psi's one-row call controls. Never display
-    // camera/share/device/security controls that the provider cannot use.
+    // Psi-like one-row controls. Disabled camera controls explain missing
+    // capabilities rather than silently disappearing from the call window.
     auto* dock = new QFrame(this);
     dock->setObjectName(QStringLiteral("callsControls"));
     auto* controls = new QHBoxLayout(dock);
@@ -191,7 +191,7 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     controls->addWidget(microphone_);
     microphoneDevices_ = new QToolButton(dock);
     microphoneDevices_->setObjectName(QStringLiteral("callsMicrophoneDevices"));
-    microphoneDevices_->setArrowType(Qt::DownArrow);
+    microphoneDevices_->setArrowType(Qt::NoArrow);
     microphoneDevices_->setPopupMode(QToolButton::InstantPopup);
     microphoneDevices_->setFixedSize(22, 44);
     microphoneDevices_->setCursor(Qt::PointingHandCursor);
@@ -213,7 +213,7 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     controls->addWidget(cameraButton_);
     cameraDevices_ = new QToolButton(dock);
     cameraDevices_->setObjectName(QStringLiteral("callsCameraDevices"));
-    cameraDevices_->setArrowType(Qt::DownArrow);
+    cameraDevices_->setArrowType(Qt::NoArrow);
     cameraDevices_->setPopupMode(QToolButton::InstantPopup);
     cameraDevices_->setFixedSize(22, 44);
     cameraDevices_->setCursor(Qt::PointingHandCursor);
@@ -281,10 +281,14 @@ void CallsWindow::setMicrophoneDevices(const QList<CallsMediaDevice>& available,
                                        const QString& selectedId)
 {
     availableMicrophones_.clear();
+    QSet<QString> seen;
     for (const auto& item : available) {
-        if (item.kind == CallsDeviceKind::Microphone) {
-            availableMicrophones_.append(item);
+        if (item.kind != CallsDeviceKind::Microphone || item.id.isEmpty()
+            || seen.contains(item.id)) {
+            continue;
         }
+        seen.insert(item.id);
+        availableMicrophones_.append(item);
     }
     selectedMicrophoneId_ = selectedId;
     if (microphoneDevices_->menu()->isVisible()) {
@@ -294,20 +298,78 @@ void CallsWindow::setMicrophoneDevices(const QList<CallsMediaDevice>& available,
 
 void CallsWindow::rebuildMicrophoneDeviceMenu()
 {
-    QMenu* menu = microphoneDevices_->menu();
-    menu->clear();
-    const auto addChoice = [this, menu](const QString& title, const QString& id) {
-        QAction* action = menu->addAction(title);
-        action->setCheckable(true);
-        action->setChecked(id == selectedMicrophoneId_);
-        connect(action, &QAction::triggered, this, [this, id] {
-            if (chooseMicrophone_) chooseMicrophone_(id);
-        });
+    updateDeviceMenu(microphoneDevices_->menu(), availableMicrophones_,
+                     selectedMicrophoneId_, CallsDeviceKind::Microphone);
+}
+
+// Reconcile the menu in place. Device-monitor updates can arrive while the
+// popup is open; clearing and recreating all actions disrupts mouse selection
+// and is unnecessary for a changed device set.
+void CallsWindow::updateDeviceMenu(QMenu* menu,
+                                    const QList<CallsMediaDevice>& devices,
+                                    const QString& selectedId,
+                                    CallsDeviceKind kind)
+{
+    QHash<QString, QAction*> existing;
+    QAction* separator = nullptr;
+    for (QAction* action : menu->actions()) {
+        if (action->isSeparator()) {
+            if (!separator) {
+                separator = action;
+            } else {
+                menu->removeAction(action);
+                action->deleteLater();
+            }
+            continue;
+        }
+        const QString id = action->data().toString();
+        if (existing.contains(id)) {
+            menu->removeAction(action);
+            action->deleteLater();
+        } else {
+            existing.insert(id, action);
+        }
+    }
+
+    const auto ensureAction = [this, menu, kind, &existing, &selectedId](
+                                  const QString& id, const QString& title) {
+        QAction* action = existing.take(id);
+        if (!action) {
+            action = menu->addAction(title);
+            action->setData(id);
+            action->setCheckable(true);
+            connect(action, &QAction::triggered, this, [this, kind, id] {
+                if (kind == CallsDeviceKind::Microphone) {
+                    if (chooseMicrophone_) chooseMicrophone_(id);
+                } else if (chooseCamera_) {
+                    chooseCamera_(id);
+                }
+            });
+        }
+        action->setText(title);
+        action->setChecked(id == selectedId);
     };
-    addChoice(tr("System default"), {});
-    if (!availableMicrophones_.isEmpty()) menu->addSeparator();
-    for (const CallsMediaDevice& device : availableMicrophones_) {
-        addChoice(device.displayName, device.id);
+
+    ensureAction({}, tr("System default"));
+    if (devices.isEmpty()) {
+        if (separator) {
+            menu->removeAction(separator);
+            separator->deleteLater();
+        }
+    } else if (!separator) {
+        menu->addSeparator();
+    }
+    QSet<QString> seen;
+    for (const CallsMediaDevice& device : devices) {
+        if (device.id.isEmpty() || seen.contains(device.id)) continue;
+        seen.insert(device.id);
+        ensureAction(device.id, device.displayName);
+    }
+    // Deleting obsolete actions later avoids destroying the object under a
+    // QMenu event handler during asynchronous device hot-plug changes.
+    for (QAction* obsolete : existing) {
+        menu->removeAction(obsolete);
+        obsolete->deleteLater();
     }
 }
 
@@ -319,11 +381,11 @@ void CallsWindow::setCameraHandlers(CameraHandler toggle,
     updateControls();
 }
 
-void CallsWindow::setCameraAvailable(bool available)
+void CallsWindow::setCameraAvailable(bool available,
+                                     const QString& unavailableReason)
 {
     cameraAvailable_ = available;
-    cameraButton_->setVisible(available);
-    cameraDevices_->setVisible(available);
+    cameraUnavailableReason_ = available ? QString() : unavailableReason;
     updateControls();
 }
 
@@ -337,10 +399,14 @@ void CallsWindow::setCameraDevices(const QList<CallsMediaDevice>& available,
                                    const QString& selectedId)
 {
     availableCameras_.clear();
-    for (const auto& device : available) {
-        if (device.kind == CallsDeviceKind::Camera) {
-            availableCameras_.append(device);
+    QSet<QString> seen;
+    for (const auto& item : available) {
+        if (item.kind != CallsDeviceKind::Camera || item.id.isEmpty()
+            || seen.contains(item.id)) {
+            continue;
         }
+        seen.insert(item.id);
+        availableCameras_.append(item);
     }
     selectedCameraId_ = selectedId;
     if (cameraDevices_->menu()->isVisible()) rebuildCameraDeviceMenu();
@@ -348,21 +414,8 @@ void CallsWindow::setCameraDevices(const QList<CallsMediaDevice>& available,
 
 void CallsWindow::rebuildCameraDeviceMenu()
 {
-    QMenu* menu = cameraDevices_->menu();
-    menu->clear();
-    const auto addChoice = [this, menu](const QString& title, const QString& id) {
-        QAction* action = menu->addAction(title);
-        action->setCheckable(true);
-        action->setChecked(id == selectedCameraId_);
-        connect(action, &QAction::triggered, this, [this, id] {
-            if (chooseCamera_) chooseCamera_(id);
-        });
-    };
-    addChoice(tr("System default"), {});
-    if (!availableCameras_.isEmpty()) menu->addSeparator();
-    for (const auto& device : availableCameras_) {
-        addChoice(device.displayName, device.id);
-    }
+    updateDeviceMenu(cameraDevices_->menu(), availableCameras_,
+                     selectedCameraId_, CallsDeviceKind::Camera);
 }
 
 void CallsWindow::setParticipantSpeaking(const QString& sessionId, bool speaking)
@@ -690,8 +743,6 @@ void CallsWindow::updateControls()
     }
     microphone_->setEnabled(connected);
     microphoneDevices_->setEnabled(connected && bool(chooseMicrophone_));
-    cameraButton_->setVisible(cameraAvailable_);
-    cameraDevices_->setVisible(cameraAvailable_);
     cameraButton_->setEnabled(connected && cameraAvailable_
                               && bool(toggleCamera_));
     cameraDevices_->setEnabled(connected && cameraAvailable_
@@ -700,9 +751,21 @@ void CallsWindow::updateControls()
         const QSignalBlocker guard(cameraButton_);
         cameraButton_->setChecked(cameraEnabled_);
     }
-    cameraButton_->setToolTip(cameraEnabled_ ? tr("Turn camera off")
-                                             : tr("Turn camera on"));
-    cameraButton_->setAccessibleName(cameraButton_->toolTip());
+    QString cameraTip;
+    if (!cameraAvailable_) {
+        cameraTip = cameraUnavailableReason_.isEmpty()
+            ? tr("Camera is unavailable for this call")
+            : cameraUnavailableReason_;
+    } else if (!connected) {
+        cameraTip = tr("Camera will be available after connecting");
+    } else {
+        cameraTip = cameraEnabled_ ? tr("Turn camera off") : tr("Turn camera on");
+    }
+    cameraButton_->setToolTip(cameraTip);
+    cameraButton_->setAccessibleName(cameraTip);
+    cameraButton_->setStatusTip(cameraTip);
+    cameraDevices_->setToolTip(cameraAvailable_ ? tr("Choose camera") : cameraTip);
+    cameraDevices_->setAccessibleName(cameraDevices_->toolTip());
     updateCameraIcon();
     microphone_->setToolTip(snapshot_.microphoneMuted ? tr("Unmute microphone")
                                                       : tr("Mute microphone"));

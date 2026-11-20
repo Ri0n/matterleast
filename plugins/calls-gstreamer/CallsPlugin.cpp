@@ -155,6 +155,8 @@ public:
         snapshot_ = {};
         snapshot_.state = CallsState::Connecting;
         snapshot_.channelId = channelId;
+        videoAvailable_ = false;
+        videoUnavailableReason_ = tr("Checking video support on the Calls server…");
         originalConnectionId_ = host_->connectionId();
         changed();
         showCallWindow();
@@ -184,9 +186,23 @@ public:
                 return;
             }
             iceUrls_ = iceServerUrls(response);
-            videoAvailable_ = response.value(QStringLiteral("EnableVideo")).toBool()
-                && GstAudioEngine::checkVideoRuntime().isEmpty();
-            if (window_) window_->setCameraAvailable(false);
+            const bool serverAllowsVideo =
+                response.value(QStringLiteral("EnableVideo")).toBool();
+            const QString videoRuntimeError = serverAllowsVideo
+                ? GstAudioEngine::checkVideoRuntime() : QString();
+            videoAvailable_ = serverAllowsVideo && videoRuntimeError.isEmpty();
+            if (!serverAllowsVideo) {
+                videoUnavailableReason_ = tr(
+                    "Camera disabled by the Mattermost Calls server (EnableVideo)");
+            } else if (!videoRuntimeError.isEmpty()) {
+                videoUnavailableReason_ = tr("Camera unavailable: %1")
+                    .arg(videoRuntimeError);
+            } else {
+                videoUnavailableReason_ = tr("Preparing camera media…");
+            }
+            if (window_) {
+                window_->setCameraAvailable(false, videoUnavailableReason_);
+            }
             if (!host_->sendAction(QLatin1String(CallsPrefix) + QStringLiteral("join"),
                                    {{QStringLiteral("channelID"), snapshot_.channelId}})) {
                 fail(QStringLiteral("Could not send Mattermost Calls join request"));
@@ -210,13 +226,14 @@ public:
         snapshot_ = {};
         iceUrls_.clear();
         videoAvailable_ = false;
+        videoUnavailableReason_.clear();
         cameraEnabled_ = false;
         cameraPending_ = false;
         videoStreamId_.clear();
         videoMidToSession_.clear();
         if (window_) {
             window_->setCameraState(false);
-            window_->setCameraAvailable(false);
+            window_->setCameraAvailable(false, tr("No active call"));
         }
         originalConnectionId_.clear();
         changed();
@@ -667,12 +684,19 @@ private:
             },
             [this](const QString& id) {
                 videoStreamId_ = id;
-                if (window_) window_->setCameraAvailable(videoAvailable_ && !id.isEmpty());
+                if (window_) {
+                    window_->setCameraAvailable(
+                        videoAvailable_ && !id.isEmpty(),
+                        id.isEmpty() ? tr("Camera media could not be initialized")
+                                     : videoUnavailableReason_);
+                }
             },
             videoAvailable_);
         engine_->start();
         engine_->requestDevices();
-        if (window_) window_->setCameraAvailable(false);
+        if (window_) {
+            window_->setCameraAvailable(false, videoUnavailableReason_);
+        }
     }
 
     void fail(const QString& error)
@@ -698,6 +722,7 @@ private:
     QString videoStreamId_;
     QHash<QString, QString> videoMidToSession_;
     bool videoAvailable_ = false;
+    QString videoUnavailableReason_;
     bool cameraEnabled_ = false;
     bool cameraPending_ = false;
     QString originalConnectionId_;

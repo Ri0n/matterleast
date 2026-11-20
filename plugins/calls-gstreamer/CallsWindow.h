@@ -48,7 +48,7 @@ public:
                               const QString& selectedId);
     void setCameraHandlers(CameraHandler toggle,
                            DeviceSelectionHandler choose);
-    void setCameraAvailable(bool available);
+    void setCameraAvailable(bool available, const QString& unavailableReason = {});
     void setCameraState(bool enabled);
     void setCameraDevices(const QList<CallsMediaDevice>& available,
                           const QString& selectedId);
@@ -80,6 +80,8 @@ private:
     void updateMicrophoneIcon();
     void rebuildMicrophoneDeviceMenu();
     void rebuildCameraDeviceMenu();
+    void updateDeviceMenu(QMenu* menu, const QList<CallsMediaDevice>& devices,
+                          const QString& selectedId, CallsDeviceKind kind);
     void updateCameraIcon();
     void refreshParticipantVideo(const QString& sessionId);
     void refreshParticipantActivity(const QString& sessionId);
@@ -99,6 +101,7 @@ private:
     QHash<QString, bool> participantRaisedHand_;
     QHash<QString, bool> participantScreenSharing_;
     bool cameraAvailable_ = false;
+    QString cameraUnavailableReason_;
     bool cameraEnabled_ = false;
     DeviceSelectionHandler chooseMicrophone_;
     RefreshDevicesHandler refreshDevices_;

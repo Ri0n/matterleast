@@ -909,16 +909,18 @@ struct GstAudioEngine::Impl
                         + QString::fromLatin1(
                         QCryptographicHash::hash(identity, QCryptographicHash::Sha256)
                             .toHex().left(20));
-                    const QString base = id;
-                    int collision = 1;
-                    while (deviceCache_.contains(id)) {
-                        id = base + QLatin1Char(':') + QString::number(collision++);
+                    // GstDeviceMonitor can report the same capture source
+                    // more than once (e.g. across overlapping providers/
+                    // filters). Suffixing the hash would turn duplicates into
+                    // distinct selectable entries on every rescan. Only keep
+                    // each unique device identity once.
+                    if (!deviceCache_.contains(id)) {
+                        deviceCache_.insert(id, GST_DEVICE(gst_object_ref(device)));
+                        devices.append({id, label.isEmpty()
+                                            ? (isCamera ? QStringLiteral("Camera")
+                                                        : QStringLiteral("Microphone"))
+                                            : label, kind});
                     }
-                    deviceCache_.insert(id, GST_DEVICE(gst_object_ref(device)));
-                    devices.append({id, label.isEmpty()
-                                        ? (isCamera ? QStringLiteral("Camera")
-                                                    : QStringLiteral("Microphone"))
-                                        : label, kind});
                     g_free(rawClass);
                     g_free(serialized);
                     if (properties) gst_structure_free(properties);

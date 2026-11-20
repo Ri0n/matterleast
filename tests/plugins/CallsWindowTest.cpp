@@ -109,6 +109,7 @@ private slots:
             QStringLiteral("callsMicrophoneDevices"));
         QVERIFY(select);
         QVERIFY(select->isEnabled());
+        QCOMPARE(select->arrowType(), Qt::NoArrow);
         QList<CallsMediaDevice> available {
             {QStringLiteral("microphone-one"), QStringLiteral("USB microphone"),
              CallsDeviceKind::Microphone},
@@ -122,6 +123,19 @@ private slots:
         QCOMPARE(select->menu()->actions().size(), 4); // Default, separator, two devices
         QCOMPARE(select->menu()->actions().at(2)->text(), QStringLiteral("USB microphone"));
         QVERIFY(select->menu()->actions().at(2)->isChecked());
+        QAction* firstDeviceAction = select->menu()->actions().at(2);
+        // Hot-plug can report the same native GstDevice twice; it must not
+        // create duplicate rows or replace existing popup actions.
+        available.append(available.first());
+        window.setMicrophoneDevices(available, QStringLiteral("microphone-one"));
+        emit select->menu()->aboutToShow();
+        QCOMPARE(select->menu()->actions().size(), 4);
+        QCOMPARE(select->menu()->actions().at(2), firstDeviceAction);
+        available.append({QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+                          CallsDeviceKind::Camera});
+        window.setMicrophoneDevices(available, QStringLiteral("microphone-one"));
+        emit select->menu()->aboutToShow();
+        QCOMPARE(select->menu()->actions().size(), 4);
         select->menu()->actions().at(3)->trigger();
         QCOMPARE(chosen, QStringLiteral("microphone-two"));
         window.setMicrophoneDevices(available, chosen);
@@ -158,7 +172,14 @@ private slots:
             QStringLiteral("callsCameraDevices"));
         QVERIFY(camera);
         QVERIFY(selector);
-        QVERIFY(!camera->isVisible());
+        QVERIFY(camera->isVisible());
+        QVERIFY(!camera->isEnabled());
+        window.setCameraAvailable(
+            false, QStringLiteral("Server has EnableVideo disabled"));
+        QVERIFY(camera->isVisible());
+        QCOMPARE(camera->toolTip(), QStringLiteral("Server has EnableVideo disabled"));
+        QCOMPARE(selector->toolTip(), camera->toolTip());
+        QCOMPARE(selector->arrowType(), Qt::NoArrow);
         window.setCameraAvailable(true);
         QVERIFY(camera->isVisible());
         QVERIFY(camera->isEnabled());
@@ -171,6 +192,20 @@ private slots:
         emit selector->menu()->aboutToShow();
         QCOMPARE(selector->menu()->actions().size(), 3);
         QVERIFY(selector->menu()->actions().at(2)->isChecked());
+        QAction* firstCameraAction = selector->menu()->actions().at(2);
+        window.setCameraDevices({
+            {QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+             CallsDeviceKind::Camera},
+            {QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+             CallsDeviceKind::Camera},
+            {QStringLiteral("camera-two"), QStringLiteral("Second camera"),
+             CallsDeviceKind::Camera}
+        }, QStringLiteral("camera-one"));
+        emit selector->menu()->aboutToShow();
+        QCOMPARE(selector->menu()->actions().size(), 4);
+        QCOMPARE(selector->menu()->actions().at(2), firstCameraAction);
+        emit selector->menu()->aboutToShow();
+        QCOMPARE(selector->menu()->actions().size(), 4);
         selector->menu()->actions().first()->trigger();
         QCOMPARE(selected, QString());
 
