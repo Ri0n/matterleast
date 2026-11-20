@@ -88,6 +88,35 @@ server/plugin configuration, etc.) before allowing a second live Backend. Forbid
 implicit-current-account fallback in these paths. Keep context lifetime longer
 than queued requests, and guard async replies by their owning session generation.
 
+## Account-owned service transports
+
+`Backend::httpTransport()` supplies the existing account-owned connector
+for routine attachment fetching, post creation and post repository requests.
+They share the Backend's connection pool, scheduling queue, error reporting
+and account-partitioned HTTP disk cache rather than creating duplicate
+`QNetworkAccessManager` objects and competing cache directories.
+
+Services whose request lifecycle or expected 404 responses must remain
+independent (e.g. thread follow lookups, draft synchronization, channel
+reference resolution, emoji discovery, user profile fetches, sidebar requests,
+and plugin bundle discovery) retain separate `HTTPConnector` instances
+**bound to their owner's `Backend::networkSession()`**. They cannot send
+requests to the last-selected account's URL, and cannot send its credentials.
+Those secondary connectors intentionally have no additional disk cache.
+For efficiency, account-bound connectors create their Qt network manager
+lazily on the first request, and reset/reconnect does not allocate another
+manager while the service is idle.
+
+Download-to-file streaming retains a separate Qt network manager to avoid
+buffering whole files into memory; the request itself uses the owning
+Backend's `NetworkSessionContext`. Caller-owned files and API auth
+remain separate concerns.
+
+No process-global current-account fallback, additional timers or model
+resets are introduced. An integration fixture authenticates two Backends to
+two local server origins and verifies that attachment bytes and channel
+reference lookups remain account-correct after both logins.
+
 ## Per-account local post deletion
 
 `LocalPostDeleteTracker` is owned by `Storage`, never a process-global set.
