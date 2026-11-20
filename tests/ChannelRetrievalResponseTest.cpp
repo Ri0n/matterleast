@@ -8,7 +8,6 @@
 #include <QTcpSocket>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 
@@ -70,8 +69,6 @@ private slots:
     {
         QTcpServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
-                                    .arg(server.serverPort()));
 
         int channelRequests = 0;
         connect(&server, &QTcpServer::newConnection, &server, [&] {
@@ -129,7 +126,8 @@ private slots:
 
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Storage& storage = backend.getStorage();
         storage.addUser(QJsonObject{
             {"id", "user-1"}, {"username", "user-1"}
