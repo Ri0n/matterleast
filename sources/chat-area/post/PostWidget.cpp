@@ -1414,7 +1414,7 @@ void PostWidget::showPostContextMenu(const QPoint& globalPos)
     QAction* copyMessageLinkAction = menu.addAction(icon(QStringLiteral(":/icons/link")),
                                                     tr("Copy message link"));
     connect(copyMessageLinkAction, &QAction::triggered, this, [this] {
-        const QString link = PostPermalinkService::redirectPermalink(post.id);
+        const QString link = PostPermalinkService::redirectPermalink(backend_, post.id);
         if (!link.isEmpty()) {
             QApplication::clipboard()->setText(link);
         }

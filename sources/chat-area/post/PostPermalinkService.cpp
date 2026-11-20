@@ -22,6 +22,8 @@ PostPermalinkService& PostPermalinkService::instance(Backend& backend)
 }
 PostPermalinkService::PostPermalinkService(Backend& backend)
     : QObject(&backend)
+    , backend_(backend)
+    , connector_(&backend.networkSession())
 {
 }
 QString PostPermalinkService::teamSlugForPost(Backend& backend, const BackendPost& post)
@@ -33,12 +35,12 @@ QString PostPermalinkService::teamSlugForPost(Backend& backend, const BackendPos
     if (!team && !storage.teams.empty()) team = &storage.teams.begin()->second;
     return team ? team->name : QString();
 }
-QString PostPermalinkService::redirectPermalink(const QString& postId)
+QString PostPermalinkService::redirectPermalink(const Backend& backend, const QString& postId)
 {
     if (postId.isEmpty()) {
         return {};
     }
-    QString host = NetworkRequest::host();
+    QString host = backend.networkSession().host();
     if (host.isEmpty()) {
         return {};
     }
@@ -60,7 +62,7 @@ void PostPermalinkService::resolve(const QString& postId,
     }
     // The server's configured SiteURL, NOT the local connection DNS alias,
     // determines whether Mattermost expands a forwarded post as a preview.
-    NetworkRequest request(QStringLiteral("config/client?format=old"));
+    NetworkRequest request(backend_.networkSession(), QStringLiteral("config/client?format=old"));
     const QPointer<PostPermalinkService> guard(this);
     connector_.get(request, HttpResponseCallback(
         [guard, postId, teamSlug, requirePreview,

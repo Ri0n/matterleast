@@ -51,11 +51,9 @@ public:
         , backend(sourceBackend)
         , postId(std::move(targetPostId))
         , callback(std::move(completed))
+        , httpConnector(sourceBackend.httpTransport())
     {
-        connect(&httpConnector, &HTTPConnector::onNetworkError,
-                &backend, &Backend::onNetworkError);
-        connect(&httpConnector, &HTTPConnector::onHttpError,
-                &backend, &Backend::onHttpError);
+        // Cold permalink resolution uses the existing account transport.
     }
 
     void start()
@@ -68,7 +66,7 @@ public:
 
         qCDebug(lcNavigationResolve) << "Resolving post" << postId;
         QPointer<NavigationPostResolver> guard(this);
-        NetworkRequest request(QStringLiteral("posts/") + postId);
+        NetworkRequest request(backend.networkSession(), QStringLiteral("posts/") + postId);
         httpConnector.get(request, HttpResponseCallback(
             [guard](QVariant status, const QJsonDocument& doc) {
                 if (guard) {
@@ -110,7 +108,7 @@ private:
     void requestChannel()
     {
         QPointer<NavigationPostResolver> guard(this);
-        NetworkRequest request(QStringLiteral("channels/") + channelId);
+        NetworkRequest request(backend.networkSession(), QStringLiteral("channels/") + channelId);
         httpConnector.get(request, HttpResponseCallback(
             [guard](QVariant status, const QJsonDocument& doc) {
                 if (guard) {
@@ -172,7 +170,7 @@ private:
         qCDebug(lcNavigationResolve)
             << "Channel" << channelId << "requires missing team" << teamId;
         QPointer<NavigationPostResolver> guard(this);
-        NetworkRequest request(QStringLiteral("teams/") + teamId);
+        NetworkRequest request(backend.networkSession(), QStringLiteral("teams/") + teamId);
         httpConnector.get(request, HttpResponseCallback(
             [guard, teamId](QVariant status, const QJsonDocument& doc) {
                 if (guard) {
@@ -268,7 +266,7 @@ private:
     QJsonObject postObject;
     QJsonObject channelObject;
     Callback callback;
-    HTTPConnector httpConnector;
+    HTTPConnector& httpConnector;
 };
 
 } // namespace
@@ -458,7 +456,7 @@ void AppNavigationService::openUrlImpl(const QUrl& url, bool inTab)
         return;
     }
 
-    const QUrl serverUrl(NetworkRequest::host());
+    const QUrl serverUrl(backend.networkSession().host());
     const MattermostUrlRoute route =
         MattermostUrlRouter::classify(url, serverUrl);
 

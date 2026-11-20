@@ -14,7 +14,6 @@
 #include <QPointer>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
@@ -130,7 +129,7 @@ QString ConversationActionsMenu::channelWebUrl(Backend& backend,
     if (path.isEmpty()) {
         return {};
     }
-    QString base = NetworkRequest::host();
+    QString base = backend.networkSession().host();
     while (base.endsWith(QLatin1Char('/'))) {
         base.chop(1);
     }
