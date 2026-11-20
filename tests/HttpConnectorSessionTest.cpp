@@ -134,8 +134,11 @@ private slots:
             [&completed](QByteArray) { ++completed; }));
         QTRY_COMPARE(completed, 3);
         const QByteArray third = server.cookieFor("/api/v4/probe/legacy");
-        QVERIFY(third.contains("MMAUTHTOKEN=first-token"));
-        QVERIFY(!third.contains("legacy-token"));
+        QVERIFY2(third.contains("MMAUTHTOKEN=first-token"),
+                 qPrintable(QStringLiteral("Unexpected outgoing cookie: %1")
+                     .arg(QString::fromLatin1(third))));
+        QVERIFY2(!third.contains("legacy-token"),
+                 "A legacy-global token reached a bound session connector");
         NetworkRequest::clearToken();
     }
 
