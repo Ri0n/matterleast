@@ -8,6 +8,8 @@
 #include <QTcpSocket>
 
 #include "backend/Backend.h"
+#include "backend/AttachmentService.h"
+#include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendLoginData.h"
 
@@ -54,6 +56,18 @@ public:
                             {QStringLiteral("id"), QString::fromUtf8(id)},
                             {QStringLiteral("username"), QStringLiteral("fixture")}
                         }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/files/shared-file ")) {
+                        ++fileRequests;
+                        fileCookies.append(cookie);
+                        body = QByteArrayLiteral("bytes-") + id;
+                    } else if (requestLine.startsWith(
+                                   "GET /api/v4/teams/name/shared-team/channels/name/shared-channel ")) {
+                        ++referenceRequests;
+                        referenceCookies.append(cookie);
+                        body = QJsonDocument(QJsonObject {
+                            {QStringLiteral("id"), QString::fromUtf8(id) + QStringLiteral("-channel")},
+                            {QStringLiteral("display_name"), QString::fromUtf8(id) + QStringLiteral(" Channel")}
+                        }).toJson(QJsonDocument::Compact);
                     } else if (requestLine.startsWith("GET /api/v4/users/")
                                && requestLine.contains("/preferences ")) {
                         ++preferencesRequests;
@@ -95,6 +109,10 @@ public:
     int identityRequests = 0;
     int preferencesRequests = 0;
     int profileRequests = 0;
+    int fileRequests = 0;
+    int referenceRequests = 0;
+    QList<QByteArray> fileCookies;
+    QList<QByteArray> referenceCookies;
     QList<QByteArray> identityCookies;
     QList<QByteArray> preferenceCookies;
     QList<QByteArray> profileCookies;
@@ -212,6 +230,39 @@ private slots:
         QCOMPARE(serverTwo.profileRequests, 1);
         checkCookies(serverOne.profileCookies, "token-one", "token-two");
         checkCookies(serverTwo.profileCookies, "token-two", "token-one");
+
+        // AttachmentService uses the Backend's HTTP transport (one manager,
+        // queue and disk-cache partition per account). The other service
+        // retains an error-local connector for expected 404 misses.
+        QByteArray firstFile;
+        QByteArray secondFile;
+        AttachmentService::instance(backendOne).retrieveFile(
+            QStringLiteral("shared-file"),
+            [&](const QByteArray& data) { firstFile = data; });
+        AttachmentService::instance(backendTwo).retrieveFile(
+            QStringLiteral("shared-file"),
+            [&](const QByteArray& data) { secondFile = data; });
+        QTRY_COMPARE(firstFile, QByteArrayLiteral("bytes-user-one"));
+        QTRY_COMPARE(secondFile, QByteArrayLiteral("bytes-user-two"));
+        QCOMPARE(serverOne.fileRequests, 1);
+        QCOMPARE(serverTwo.fileRequests, 1);
+        checkCookies(serverOne.fileCookies, "token-one", "token-two");
+        checkCookies(serverTwo.fileCookies, "token-two", "token-one");
+
+        QString firstChannel;
+        QString secondChannel;
+        ChannelReferenceService::instance(backendOne).resolve(
+            QStringLiteral("shared-team"), QStringLiteral("shared-channel"),
+            [&](const QString& name) { firstChannel = name; });
+        ChannelReferenceService::instance(backendTwo).resolve(
+            QStringLiteral("shared-team"), QStringLiteral("shared-channel"),
+            [&](const QString& name) { secondChannel = name; });
+        QTRY_COMPARE(firstChannel, QStringLiteral("user-one Channel"));
+        QTRY_COMPARE(secondChannel, QStringLiteral("user-two Channel"));
+        QCOMPARE(serverOne.referenceRequests, 1);
+        QCOMPARE(serverTwo.referenceRequests, 1);
+        checkCookies(serverOne.referenceCookies, "token-one", "token-two");
+        checkCookies(serverTwo.referenceCookies, "token-two", "token-one");
     }
 
     void cancellationOfOneLoginDoesNotCancelTheOther()
