@@ -1,9 +1,11 @@
 #include <QtTest>
 
+#include <QFile>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
 
@@ -87,9 +89,19 @@ public:
                         body = QByteArrayLiteral("{}");
                     }
 
+                    // The second and subsequent file requests are streaming
+                    // downloads. Deliberately attempt to poison Qt's automatic
+                    // cookie jar; these cookies must never reach later requests.
+                    const QByteArray setCookie =
+                        requestLine.startsWith("GET /api/v4/files/shared-file ")
+                            && fileRequests >= 2
+                            ? QByteArrayLiteral("Set-Cookie: STREAMONLY=")
+                                + id + QByteArrayLiteral("\r\n")
+                            : QByteArray();
                     socket->write(QByteArrayLiteral("HTTP/1.1 ") + status
-                        + QByteArrayLiteral("\r\nContent-Type: application/json"
-                                            "\r\nConnection: close"
+                        + QByteArrayLiteral("\r\nContent-Type: application/json\r\n")
+                        + setCookie
+                        + QByteArrayLiteral("Connection: close"
                                             "\r\nContent-Length: ")
                         + QByteArray::number(body.size())
                         + QByteArrayLiteral("\r\n\r\n") + body);
@@ -248,6 +260,48 @@ private slots:
         QCOMPARE(serverTwo.fileRequests, 1);
         checkCookies(serverOne.fileCookies, "token-one", "token-two");
         checkCookies(serverTwo.fileCookies, "token-two", "token-one");
+
+        QTemporaryDir output;
+        QVERIFY(output.isValid());
+        for (int iteration = 0; iteration < 2; ++iteration) {
+            const QString firstPath = output.filePath(
+                QStringLiteral("first-%1.bin").arg(iteration));
+            const QString secondPath = output.filePath(
+                QStringLiteral("second-%1.bin").arg(iteration));
+            bool firstSaved = false;
+            bool secondSaved = false;
+            QString firstError;
+            QString secondError;
+            QVERIFY(AttachmentService::instance(backendOne).downloadToFile(
+                QStringLiteral("shared-file"), firstPath, {},
+                [&](const QString& error) {
+                    firstError = error;
+                    firstSaved = true;
+                }));
+            QVERIFY(AttachmentService::instance(backendTwo).downloadToFile(
+                QStringLiteral("shared-file"), secondPath, {},
+                [&](const QString& error) {
+                    secondError = error;
+                    secondSaved = true;
+                }));
+            QTRY_VERIFY(firstSaved && secondSaved);
+            QVERIFY2(firstError.isEmpty(), qPrintable(firstError));
+            QVERIFY2(secondError.isEmpty(), qPrintable(secondError));
+            QFile firstSavedFile(firstPath);
+            QFile secondSavedFile(secondPath);
+            QVERIFY(firstSavedFile.open(QIODevice::ReadOnly));
+            QVERIFY(secondSavedFile.open(QIODevice::ReadOnly));
+            QCOMPARE(firstSavedFile.readAll(), QByteArrayLiteral("bytes-user-one"));
+            QCOMPARE(secondSavedFile.readAll(), QByteArrayLiteral("bytes-user-two"));
+        }
+        QCOMPARE(serverOne.fileRequests, 3);
+        QCOMPARE(serverTwo.fileRequests, 3);
+        checkCookies(serverOne.fileCookies, "token-one", "token-two");
+        checkCookies(serverTwo.fileCookies, "token-two", "token-one");
+        for (const QByteArray& cookie : serverOne.fileCookies)
+            QVERIFY(!cookie.contains("STREAMONLY"));
+        for (const QByteArray& cookie : serverTwo.fileCookies)
+            QVERIFY(!cookie.contains("STREAMONLY"));
 
         QString firstChannel;
         QString secondChannel;
