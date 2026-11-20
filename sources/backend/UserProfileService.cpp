@@ -326,8 +326,12 @@ void UserProfileService::ensureStatuses(const QStringList& userIds,
 
     const auto pending = std::make_shared<QStringList>(std::move(ids));
     const auto fetchNext = std::make_shared<std::function<void()>>();
+    const auto generation = _profileGeneration;
 
-    *fetchNext = [this, callback, pending, fetchNext] {
+    *fetchNext = [this, callback, pending, generation, next = std::weak_ptr(fetchNext)] {
+        if (generation != _profileGeneration) {
+            return;
+        }
         if (pending->isEmpty()) {
             if (callback) {
                 callback();
@@ -336,24 +340,31 @@ void UserProfileService::ensureStatuses(const QStringList& userIds,
         }
 
         QJsonArray payload;
-        QStringList batch;
+        QHash<QString, quint64> revisions;
         const int batchSize = std::min(
             MaxStatusesPerRequest, static_cast<int>(pending->size()));
-        batch.reserve(batchSize);
+        revisions.reserve(batchSize);
         for (int i = 0; i < batchSize; ++i) {
             const QString userId = pending->takeFirst();
-            batch.push_back(userId);
-            payload.push_back(userId);
+            if (auto* user = backend.getStorage().getUserById(userId)) {
+                revisions.insert(userId, ++user->statusRevision);
+                payload.push_back(userId);
+            }
         }
 
         NetworkRequest request(QStringLiteral("users/status/ids"));
         httpConnector.post(request, QByteArrayCreator(payload),
-                           HttpResponseCallback([this, fetchNext](const QJsonDocument& doc) {
+                           HttpResponseCallback([this, generation, next = next.lock(),
+                                                 revisions = std::move(revisions)](const QJsonDocument& doc) {
+            if (generation != _profileGeneration) {
+                return;
+            }
             for (const auto& value : doc.array()) {
                 const QJsonObject object = value.toObject();
-                BackendUser* user = backend.getStorage().getUserById(
-                    object.value(QStringLiteral("user_id")).toString());
-                if (!user) {
+                const QString userId = object.value(QStringLiteral("user_id")).toString();
+                const auto revision = revisions.constFind(userId);
+                auto* user = backend.getStorage().getUserById(userId);
+                if (!user || revision == revisions.cend() || user->statusRevision != *revision) {
                     continue;
                 }
 
@@ -367,7 +378,7 @@ void UserProfileService::ensureStatuses(const QStringList& userIds,
                     emit user->onStatusChanged();
                 }
             }
-            (*fetchNext)();
+            (*next)();
         }));
     };
 

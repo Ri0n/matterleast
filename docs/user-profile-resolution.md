@@ -8,4 +8,11 @@ A transient unsuccessful `/users/ids` request must not immediately complete all 
 
 The backend service's generation invalidates delayed retries after account/session reset. Do not let stale profile or avatar responses mutate the new account storage.
 
-Tests: `UserProfileRecoveryTest.cpp` covers the UI rebinding path and retry after a temporary HTTP failure.
+Direct-message headers and sidebar rows bind presence and avatar updates when
+`profileResolved` delivers their peer. The peer ID is the normalized DM name
+in Storage. Generic channel metadata events preserve that ID and the
+profile-derived label. A newer presence fetch or realtime update invalidates
+an older status response for the same user.
+
+`UserProfileRecoveryTest.cpp` covers late profile binding, retries after a
+temporary HTTP failure, and ordering when presence changes during a fetch.

@@ -123,31 +123,29 @@ ChatArea::ChatArea(Backend& backend,
     ui->outgoingPostCreator->restorePersistentDraft();
 
     ui->titleLabel->setText(channel.display_name);
+    ui->statusLabel->setPresenceRoutingEnabled(false);
     ui->statusLabel->setText(channel.getChannelDescription());
 
-    const BackendUser* user = backend.getStorage().getUserById(channel.name);
-    if (user) {
-        connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
-            setUserAvatar(*user);
+    ui->userAvatar->hide();
+    if (channel.type == BackendChannel::directChannel) {
+        auto& profiles = UserProfileService::instance(backend);
+        connect(&profiles, &UserProfileService::profileResolved, this,
+                [this](const QString& id) {
+            if (id == this->channel.name) bindDirectPeer();
         });
-        connect(user, &BackendUser::onStatusChanged, this, [this, user] {
-            ui->statusLabel->setText(user->status);
+        connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
+            if (isVisible() && directPeer_) {
+                UserProfileService::instance(this->backend).ensureStatuses({directPeer_->id});
+            }
         });
-
-        if (!user->avatar.isNull()) {
-            setUserAvatar(*user);
-        } else {
-            backend.retrieveUserAvatar(user->id);
-        }
-        if (ui->statusLabel->text().isEmpty()) {
-            ui->statusLabel->setText(user->status);
+        bindDirectPeer();
+        if (!directPeer_) {
+            profiles.ensureUser(channel.name);
         }
     } else {
-        ui->userAvatar->clear();
-        ui->userAvatar->hide();
-        ui->usersButton->hide();
         requestChannelMemberCount();
     }
+    ui->usersButton->hide();
 
     // Lazy ChatAreas may be created after the application's eager startup work.
     // Pinned posts are independent from the virtualized timeline and can be
@@ -732,6 +730,8 @@ void ChatArea::init()
     // repository residency leases can be released. Rebuild only orchestration
     // connections and the view attachment on activation.
     if (!isThread) {
+        ui->titleLabel->setText(channel.display_name);
+        ui->statusLabel->setText(channel.getChannelDescription());
         signalConnections.push_back(connect(&channel, &BackendChannel::onUpdated,
                                             this, [this] {
             ui->titleLabel->setText(channel.display_name);
@@ -837,6 +837,34 @@ void ChatArea::deinit()
     }
     signalConnections.clear();
     initialized = false;
+}
+
+void ChatArea::bindDirectPeer()
+{
+    auto* user = backend.getStorage().getUserById(channel.name);
+    if (!user || directPeer_ == user) {
+        return;
+    }
+    directPeer_ = user;
+    connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
+        setUserAvatar(*user);
+    });
+    connect(user, &BackendUser::onStatusChanged, this, &ChatArea::refreshPeerStatus);
+    ui->userAvatar->show();
+    setUserAvatar(*user);
+    refreshPeerStatus();
+    auto& profiles = UserProfileService::instance(backend);
+    profiles.ensureAvatar(*user);
+    if (user->status.isEmpty() && backend.loggedIn()) {
+        profiles.ensureStatuses({user->id});
+    }
+}
+
+void ChatArea::refreshPeerStatus()
+{
+    if (directPeer_) {
+        ui->userAvatar->setStatus(directPeer_->status);
+    }
 }
 
 void ChatArea::setUserAvatar(const BackendUser& user)

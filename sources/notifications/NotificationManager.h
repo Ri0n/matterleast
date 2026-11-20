@@ -21,6 +21,7 @@ struct NotificationTarget {
     QString channelId;
     QString postId;
     QString rootId;
+    QString callId = {};
 
     bool isValid() const
     {
@@ -35,10 +36,12 @@ public:
     ~NotificationManager() override;
 
     void show(const QString& title, const QString& body, const NotificationTarget& target);
+    void closeIncomingCall(const QString& callId);
     void requestTaskbarAttention(QWidget& window);
 
 signals:
     void activated(const NotificationTarget& target);
+    void incomingCallAnswered(const QString& callId, bool accept);
 
 private slots:
     void onFallbackMessageClicked();

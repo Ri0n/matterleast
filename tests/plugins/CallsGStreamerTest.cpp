@@ -100,6 +100,9 @@ private slots:
             Mattermost::PluginHost* loader;
             ~ScopedPluginCleanup()
             {
+                if (!loader->instance()) {
+                    return;
+                }
                 if (provider->snapshot().state
                     != MatterLeast::PluginApi::CallsState::Idle) {
                     provider->leaveCall();

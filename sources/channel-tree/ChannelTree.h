@@ -173,6 +173,8 @@ private:
 	void handleChannelLeave();
     void handleChannelUpdated();
     void onDirectCustomStatusChanged();
+    void bindDirectUser(BackendUser& user);
+    void updateDirectUserVisuals(const BackendUser& user);
 	void refreshTeamSidebar(Backend& backend, BackendTeam& team);
 	void renderTeamSidebar(Backend& backend, TeamItem& teamItem,
 	                       const SidebarTeamState& state);

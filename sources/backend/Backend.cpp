@@ -63,6 +63,7 @@
 #include "RealtimeFallbackService.h"
 #include "types/BackendPoll.h"
 #include "types/BackendNewPollData.h"
+#include "plugins/PluginManager.h"
 #include "reactions/ReactionUsageTracker.h"
 #include "log.h"
 
@@ -689,10 +690,14 @@ void Backend::reset ()
     _typingTrackedViews.clear();
 	storage.reset ();
 	nonFilledTeams = 0;
+    PluginManager::restoreBackendConnections(*this);
 }
 
 void Backend::prepareForLogout()
 {
+    if (isLoggedIn) {
+        emit sessionEnding();
+    }
     isLoggedIn = false;
     autoLoginEnabledFlag = false;
 
@@ -707,6 +712,9 @@ void Backend::prepareForLogout()
 void Backend::logout(std::function<void()> callback)
 {
     NetworkRequest request(QStringLiteral("users/logout"));
+    if (isLoggedIn) {
+        emit sessionEnding();
+    }
     isLoggedIn = false;
     autoLoginEnabledFlag = false;
 
@@ -864,6 +872,7 @@ void Backend::retrieveMultipleUsersStatus (const QVector<QString> & userIDs, std
 
 			user->status = jsonObject.value("status").toString();
 			user->lastActivity = jsonObject.value("last_activity_at").toVariant().toULongLong();
+			++user->statusRevision;
 		}
 
 #if 0

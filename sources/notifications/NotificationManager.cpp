@@ -27,6 +27,8 @@ namespace Mattermost {
 
 namespace {
 
+constexpr int IncomingCallDurationMs = 30000;
+
 int notificationDisplayDurationMs(const QString& title, const QString& body)
 {
     // Give a short notification enough time to register, while allowing a
@@ -46,6 +48,17 @@ int notificationDisplayDurationMs(const QString& title, const QString& body)
 }
 
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+void closeFreedesktopNotification(uint id)
+{
+    auto message = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("CloseNotification"));
+    message << id;
+    QDBusConnection::sessionBus().asyncCall(message);
+}
+
 bool sendLauncherUrgency(bool urgent)
 {
     const QString desktopId = QGuiApplication::desktopFileName();
@@ -128,6 +141,11 @@ NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* par
 NotificationManager::~NotificationManager()
 {
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+    for (auto it = freedesktopTargets.cbegin(); it != freedesktopTargets.cend(); ++it) {
+        if (!it->callId.isEmpty()) {
+            closeFreedesktopNotification(it.key());
+        }
+    }
     clearLauncherUrgency();
 #endif
 }
@@ -143,7 +161,8 @@ void NotificationManager::show(const QString& title, const QString& body,
 
     fallbackTarget = target;
     trayIcon.showMessage(title, body, QSystemTrayIcon::Information,
-                         notificationDisplayDurationMs(title, body));
+                         target.callId.isEmpty() ? notificationDisplayDurationMs(title, body)
+                                                 : IncomingCallDurationMs);
 }
 
 void NotificationManager::requestTaskbarAttention(QWidget& window)
@@ -160,6 +179,26 @@ void NotificationManager::requestTaskbarAttention(QWidget& window)
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
     if (attention == TaskbarAttention::LauncherUrgency && sendLauncherUrgency(true)) {
         launcherUrgent = true;
+    }
+#endif
+}
+
+void NotificationManager::closeIncomingCall(const QString& callId)
+{
+    if (callId.isEmpty()) {
+        return;
+    }
+    if (fallbackTarget.callId == callId) {
+        fallbackTarget = {};
+    }
+#ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+    for (auto it = freedesktopTargets.begin(); it != freedesktopTargets.end();) {
+        if (it->callId != callId) {
+            ++it;
+            continue;
+        }
+        closeFreedesktopNotification(it.key());
+        it = freedesktopTargets.erase(it);
     }
 #endif
 }
@@ -202,19 +241,27 @@ bool NotificationManager::showFreedesktop(const QString& title, const QString& b
     if (target.isValid()) {
         actions << QStringLiteral("default") << tr("Open");
     }
-    const QVariantMap hints {
+    if (!target.callId.isEmpty()) {
+        actions << QStringLiteral("accept-call") << tr("Accept")
+                << QStringLiteral("decline-call") << tr("Decline");
+    }
+    QVariantMap hints {
         {QStringLiteral("desktop-entry"),
          QStringLiteral("io.github.Ri0n.MatterLeast")},
     };
+    if (!target.callId.isEmpty()) {
+        hints.insert(QStringLiteral("suppress-sound"), true);
+    }
     const QList<QVariant> arguments {
         qApp->applicationName(),
         QVariant::fromValue(uint(0)),
         QStringLiteral("io.github.Ri0n.MatterLeast"),
         title,
-        body,
+        target.callId.isEmpty() ? body : body.toHtmlEscaped(),
         actions,
         hints,
-        notificationDisplayDurationMs(title, body),
+        target.callId.isEmpty() ? notificationDisplayDurationMs(title, body)
+                                : IncomingCallDurationMs,
     };
 
     const QDBusMessage message = notifications.callWithArgumentList(
@@ -232,18 +279,22 @@ bool NotificationManager::showFreedesktop(const QString& title, const QString& b
 
 void NotificationManager::onActionInvoked(uint notificationId, const QString& actionKey)
 {
-    if (actionKey != QStringLiteral("default")) {
-        return;
-    }
-
     const auto it = freedesktopTargets.constFind(notificationId);
     if (it == freedesktopTargets.cend()) {
         return;
     }
 
-    const NotificationTarget target = it.value();
-    freedesktopTargets.remove(notificationId);
-    emit activated(target);
+    const auto target = it.value();
+    if (actionKey == QLatin1String("default")) {
+        if (target.callId.isEmpty()) {
+            freedesktopTargets.remove(notificationId);
+        }
+        emit activated(target);
+    } else if (!target.callId.isEmpty()
+               && (actionKey == QLatin1String("accept-call")
+                   || actionKey == QLatin1String("decline-call"))) {
+        emit incomingCallAnswered(target.callId, actionKey == QLatin1String("accept-call"));
+    }
 }
 
 void NotificationManager::onNotificationClosed(uint notificationId, uint reason)

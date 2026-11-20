@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QPointer>
@@ -32,11 +33,20 @@ struct PluginInfo
     bool enabled = false;
 };
 
+struct IncomingCall {
+    QString id;
+    QString channelId;
+    QString postId;
+    QString threadId;
+    QString ownerId;
+};
+
 class PluginManager final : public QObject
 {
     Q_OBJECT
 public:
     static PluginManager& instance(Backend& backend);
+    static void restoreBackendConnections(Backend& backend);
     ~PluginManager() override;
 
     QList<QAction*> createConversationMenuActions(
@@ -63,16 +73,39 @@ public:
     bool joinCall(const QString& channelId);
     bool leaveCall();
     bool setCallMicrophoneMuted(bool muted);
+    QString incomingCallForPost(const QString& postId) const;
+    void answerIncomingCall(const QString& callId, bool accept);
 
 signals:
     void callsAvailabilityChanged(bool available);
     void callsSnapshotChanged();
+    void incomingCallStarted(const IncomingCall& call);
+    void incomingCallClosed(const QString& callId);
 
 private:
     class ConversationHost;
     class CallsHost;
+    struct IncomingInvitation {
+        IncomingCall call;
+        qint64 startAt = 0;
+        bool pending = true;
+        bool announced = false;
+        bool checking = false;
+    };
+
+    void handleIncomingCallEvent(const QString& name, const QJsonObject& data,
+                                 const QJsonObject& broadcast);
+    void announceIncomingCall(const QString& channelId);
+    void closeIncomingCall(const QString& channelId);
+    void endIncomingCall(const QString& channelId);
+    void clearIncomingCalls();
+    void handleIncomingCallSnapshot();
+    QHash<QString, IncomingInvitation> incomingCalls_;
+    QString joiningIncomingCallId_;
+    quint64 incomingCallsGeneration_ = 0;
 
     explicit PluginManager(Backend& backend);
+    void connectBackendSignals();
     void attachWindowOverlay(PluginHost& host);
     void restorePluginSettings(const QString& pluginId, QObject& object);
     void loadStandardPlugins();

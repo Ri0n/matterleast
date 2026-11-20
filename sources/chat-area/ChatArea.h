@@ -175,6 +175,9 @@ private:
 	void focusComposer();
 	void beginMessageLoading();
 	void endMessageLoading();
+    void bindDirectPeer();
+    void refreshPeerStatus();
+    QPointer<BackendUser> directPeer_;
 	void setUserAvatar (const BackendUser& user);
 	void updatePinnedPostsButton ();
 	void updateThreadWindowTitle ();
