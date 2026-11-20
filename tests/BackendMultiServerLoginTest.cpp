@@ -12,6 +12,7 @@
 #include "backend/Backend.h"
 #include "backend/AttachmentService.h"
 #include "backend/ChannelReferenceService.h"
+#include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "chat-area/post/PostPermalinkService.h"
 #include "navigation/AppNavigationService.h"
@@ -208,6 +209,8 @@ void checkCookies(const QList<QByteArray>& cookies,
                  "The API request lacked its own server session token");
         QVERIFY2(!cookie.contains(otherToken),
                  "An API request leaked another server's authentication");
+        QVERIFY2(!cookie.contains("legacy-fixture-token"),
+                 "An account request reused the legacy global token");
     }
 }
 } // namespace
@@ -221,6 +224,20 @@ private slots:
         QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
         QCoreApplication::setApplicationName(QStringLiteral("backend-multi-server-login-test"));
         QStandardPaths::setTestModeEnabled(true);
+    }
+
+    void init()
+    {
+        // An unrelated legacy caller must not be silently reconfigured by
+        // login, retry, cancellation or reset of an independent Backend.
+        NetworkRequest::setHost(QStringLiteral("https://legacy-fixture.example.test/"));
+        NetworkRequest::setToken(QStringLiteral("legacy-fixture-token"));
+    }
+
+    void cleanup()
+    {
+        NetworkRequest::clearToken();
+        NetworkRequest::setHost({});
     }
 
     void concurrentlyAuthenticatesTwoIndependentBackends()
@@ -261,10 +278,13 @@ private slots:
                  QStringLiteral("user-one"));
         QCOMPARE(backendTwo.getStorage().loginUser->id,
                  QStringLiteral("user-two"));
+        QCOMPARE(NetworkRequest::host(),
+                 QStringLiteral("https://legacy-fixture.example.test/"));
+        QCOMPARE(NetworkRequest::getToken(), QStringLiteral("legacy-fixture-token"));
 
-        // Each Backend's immediate post-login preferences request must go
-        // through the correct host and carry the correct credentials, even
-        // though the legacy static NetworkRequest host now points to serverTwo.
+        // Login must neither update the legacy context nor source its
+        // credentials. Each Backend's preferences request must use its own
+        // server host and authentication instead.
         QTRY_COMPARE(serverOne.preferencesRequests, 1);
         QTRY_COMPARE(serverTwo.preferencesRequests, 1);
         QCOMPARE(serverOne.identityRequests, 1);
@@ -281,10 +301,9 @@ private slots:
         checkCookies(serverOne.preferenceCookies, "token-one", "token-two");
         checkCookies(serverTwo.preferenceCookies, "token-two", "token-one");
 
-        // Both accounts now perform ordinary Backend API operations after
-        // the process-wide legacy URL has been replaced by the last login.
-        // They must retrieve different server-local profiles, not just
-        // different authentication headers sent to the same wrong server.
+        // Both accounts perform normal Backend API operations even while
+        // the unrelated legacy host remains unchanged. They must retrieve
+        // different server-local profiles, not just use different headers.
         QString firstProfile;
         QString secondProfile;
         backendOne.retrieveUser(QStringLiteral("shared-profile-id"),
@@ -443,6 +462,17 @@ private slots:
         checkCookies(serverTwo.contextPageCookies, "token-two", "token-one");
         checkCookies(serverOne.teamLookupCookies, "token-one", "token-two");
         checkCookies(serverTwo.teamLookupCookies, "token-two", "token-one");
+
+        // A reset must discard only its Backend credentials and must not
+        // overwrite or clear the unrelated process-legacy login.
+        backendOne.reset();
+        QVERIFY(!backendOne.loggedIn());
+        QVERIFY(backendTwo.loggedIn());
+        QCOMPARE(NetworkRequest::host(),
+                 QStringLiteral("https://legacy-fixture.example.test/"));
+        QCOMPARE(NetworkRequest::getToken(), QStringLiteral("legacy-fixture-token"));
+        backendTwo.retrieveUserPreferences();
+        QTRY_COMPARE(serverTwo.preferencesRequests, 3);
     }
 
     void cancellationOfOneLoginDoesNotCancelTheOther()
@@ -468,6 +498,9 @@ private slots:
                             });
         QTRY_COMPARE(stalled.identityRequests, 1);
         waitingBackend.cancelPendingLogin();
+        QCOMPARE(NetworkRequest::host(),
+                 QStringLiteral("https://legacy-fixture.example.test/"));
+        QCOMPARE(NetworkRequest::getToken(), QStringLiteral("legacy-fixture-token"));
         QTRY_VERIFY(activeComplete);
         QCOMPARE(activeToken, QStringLiteral("active-token"));
         QVERIFY(!staleCallback);
