@@ -2,6 +2,7 @@
 
 #include <QHostAddress>
 #include <QNetworkReply>
+#include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
 
@@ -22,6 +23,20 @@ public:
         QByteArray cookie;
     };
     QVector<Received> received;
+    bool holdResponses = false;
+    QVector<QPair<QPointer<QTcpSocket>, QByteArray>> pendingResponses;
+
+    void releaseHeldResponses()
+    {
+        auto held = std::move(pendingResponses);
+        pendingResponses.clear();
+        for (const auto& entry : held) {
+            if (entry.first) {
+                entry.first->write(entry.second);
+                entry.first->disconnectFromHost();
+            }
+        }
+    }
 
     CookieServer()
     {
@@ -54,11 +69,16 @@ public:
                             ? QByteArrayLiteral("two")
                             : QByteArrayLiteral("legacy");
                     const QByteArray body = QByteArrayLiteral("{}");
-                    socket->write(
+                    const QByteArray response =
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                         "Set-Cookie: MMUSERID=" + label +
-                        "\r\nConnection: close\r\nContent-Length: 2\r\n\r\n" + body);
-                    socket->disconnectFromHost();
+                        "\r\nConnection: close\r\nContent-Length: 2\r\n\r\n" + body;
+                    if (holdResponses) {
+                        pendingResponses.append(qMakePair(QPointer<QTcpSocket>(socket), response));
+                    } else {
+                        socket->write(response);
+                        socket->disconnectFromHost();
+                    }
                 });
             }
         });
@@ -181,6 +201,57 @@ private slots:
         QVERIFY(firstTracker.take(id));
         QVERIFY(!firstTracker.take(id));
         QVERIFY(secondTracker.take(id));
+    }
+
+    void accountResetCancelsOnlyItsBoundConnectors()
+    {
+        CookieServer server;
+        server.holdResponses = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        const QString host = QStringLiteral("http://127.0.0.1:%1/")
+            .arg(server.serverPort());
+
+        NetworkSessionContext firstAccount;
+        NetworkSessionContext secondAccount;
+        firstAccount.setHost(host);
+        secondAccount.setHost(host);
+        firstAccount.setToken(QStringLiteral("first-token"));
+        secondAccount.setToken(QStringLiteral("second-token"));
+
+        // Two independent service connectors share the first account, while
+        // the third belongs to an unrelated Backend on the same test server.
+        HTTPConnector firstService(&firstAccount);
+        HTTPConnector secondService(&firstAccount);
+        HTTPConnector otherAccount(&secondAccount);
+        int firstCompletions = 0;
+        int secondCompletions = 0;
+        int otherCompletions = 0;
+        NetworkRequest firstRequest(firstAccount, QStringLiteral("probe/first"));
+        NetworkRequest secondRequest(firstAccount, QStringLiteral("probe/second"));
+        NetworkRequest otherRequest(secondAccount, QStringLiteral("probe/other"));
+        firstService.get(firstRequest, HttpResponseCallback(
+            [&](QByteArray) { ++firstCompletions; }));
+        secondService.get(secondRequest, HttpResponseCallback(
+            [&](QByteArray) { ++secondCompletions; }));
+        otherAccount.get(otherRequest, HttpResponseCallback(
+            [&](QByteArray) { ++otherCompletions; }));
+        QTRY_COMPARE(server.received.size(), 3);
+
+        HTTPConnector::resetSessionTransports(&firstAccount);
+        server.releaseHeldResponses();
+        QTRY_COMPARE(otherCompletions, 1);
+        QCOMPARE(firstCompletions, 0);
+        QCOMPARE(secondCompletions, 0);
+        QVERIFY(server.cookieFor("/api/v4/probe/other").contains(
+            "MMAUTHTOKEN=second-token"));
+
+        // Reset leaves both the first account's connectors reusable.
+        server.holdResponses = false;
+        NetworkRequest retry(firstAccount, QStringLiteral("probe/reused"));
+        firstService.get(retry, HttpResponseCallback(
+            [&](QByteArray) { ++firstCompletions; }));
+        QTRY_COMPARE(firstCompletions, 1);
+        QCOMPARE(secondCompletions, 0);
     }
 
     void redirectedOriginCannotModifyContextCookies()
