@@ -71,6 +71,9 @@ public:
 	//login to server (/users/login)
 	void login (const BackendLoginData& loginData, std::function<void(const QString&)> callback);
 
+    // Cancel an unfinished startup login without affecting stored credentials.
+    void cancelPendingLogin();
+
 	//login retry - after a HTTP error
 	void loginRetry ();
 

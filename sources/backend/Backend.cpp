@@ -563,6 +563,16 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 	}));
 }
 
+void Backend::cancelPendingLogin()
+{
+    if (isLoggedIn) return;
+    // Invalidate the HTTP generation before aborting replies so a late
+    // /users/me response cannot initialize a session after cancellation.
+    httpConnector.reset();
+    NetworkRequest::clearToken();
+    _lastLoginFailureTransient = false;
+}
+
 void Backend::loginRetry ()
 {
 	if (!loginData.token.isEmpty()) {

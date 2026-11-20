@@ -67,6 +67,13 @@ LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
     if (backend.autoLoginEnabled() && !loginData.domain.isEmpty()
         && !loginData.username.isEmpty()) {
         _autoLoginEnabled = true;
+        // Keep cancellation available even while the keyring is being read.
+        ui->domain_lineEdit->setEnabled(false);
+        ui->username_lineEdit->setEnabled(false);
+        ui->password_lineEdit->setEnabled(false);
+        ui->login_pushButton->setText(tr("&Cancel"));
+        ui->loginInProgressLabel->setText(tr("Restoring saved session…"));
+        ui->loginInProgressLabel->show();
         QPointer<LoginDialog> guard(this);
         SessionTokenStore::read(
             this, loginData.domain, loginData.username,
@@ -88,10 +95,14 @@ LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
                     // Keyring unavailable is not "entry not found".
                     // Preserve legacy settings on temporary keyring errors.
                     _autoLoginEnabled = false;
+                    setError(QString());
+                    ui->loginInProgressLabel->hide();
                     return;
                 }
                 if (!loginData.areAllFieldsFilled()) {
                     _autoLoginEnabled = false;
+                    setError(QString());
+                    ui->loginInProgressLabel->hide();
                     return;
                 }
                 _savedLoginData = loginData;
@@ -107,7 +118,10 @@ LoginDialog::~LoginDialog()
 
 void LoginDialog::on_login_pushButton_clicked()
 {
-    _autoLoginEnabled = false;
+    if (_autoLoginEnabled) {
+        cancelAutomaticLogin();
+        return;
+    }
     _autoLoginRetryTimer.stop();
     if (_attemptInProgress) return;
 	BackendLoginData loginData;
@@ -125,22 +139,38 @@ void LoginDialog::on_login_pushButton_clicked()
     loginToServer(loginData);
 }
 
+void LoginDialog::cancelAutomaticLogin()
+{
+    _autoLoginEnabled = false;
+    _autoLoginRetryTimer.stop();
+    ++_loginAttemptGeneration;
+    // Also clear the old transport/token between scheduled retries or while
+    // the keyring read is pending, not only during an active HTTP request.
+    backend.cancelPendingLogin();
+    _attemptInProgress = false;
+    setError(QString());
+    ui->loginInProgressLabel->hide();
+    ui->domain_lineEdit->setFocus();
+    ui->domain_lineEdit->selectAll();
+}
 
 void LoginDialog::loginToServer (const BackendLoginData& loginData)
 {
     if (_attemptInProgress) return;
     _attemptInProgress = true;
+    const quint64 attemptGeneration = ++_loginAttemptGeneration;
     ui->domain_lineEdit->setEnabled(false);
     ui->username_lineEdit->setEnabled(false);
     ui->password_lineEdit->setEnabled(false);
-    ui->login_pushButton->setEnabled(false);
+    // During automatic restoration this button is Cancel, not Login.
+    ui->login_pushButton->setEnabled(_autoLoginEnabled);
     ui->error_label->clear();
     ui->loginInProgressLabel->show();
 
     LOG_DEBUG ("LoginDialog login");
     QPointer<LoginDialog> guard(this);
-    backend.login(loginData, [this, guard, loginData](const QString& token) mutable {
-        if (!guard) return;
+    backend.login(loginData, [this, guard, loginData, attemptGeneration](const QString& token) mutable {
+        if (!guard || attemptGeneration != _loginAttemptGeneration) return;
         _attemptInProgress = false;
         if (!token.isEmpty()) {
             _autoLoginRetryTimer.stop();
@@ -165,7 +195,7 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
             // login dialog until /users/me returned a valid user identity.
             // Never create a partially initialized MainWindow.
             ui->loginInProgressLabel->setText(
-                tr("Server unavailable. Retrying saved session…"));
+                tr("Server unavailable. Retrying…"));
             _autoLoginRetryTimer.start(3000);
             return;
         }
@@ -194,6 +224,13 @@ void LoginDialog::onNetworkError (uint32_t errorNumber, const QString& errorText
 
 void LoginDialog::onHttpError (uint32_t errorNumber, const QString& errorText)
 {
+    if (_autoLoginEnabled) {
+        // A server-side 5xx is still part of the cancellable saved-session
+        // recovery. Do not unlock the form or hide the Cancel button here.
+        ui->error_label->setText(
+            tr("HTTP error %1: %2").arg(errorNumber).arg(errorText));
+        return;
+    }
 	if (errorText.isEmpty() && !ui->error_label->text().isEmpty()) {
 		return;
 	} else {
@@ -208,6 +245,7 @@ void LoginDialog::setError (const QString& errorStr)
     ui->username_lineEdit->setEnabled(true);
     ui->password_lineEdit->setEnabled(true);
     ui->login_pushButton->setEnabled(true);
+    ui->login_pushButton->setText(tr("&Login"));
 
     ui->error_label->setText (errorStr);
 }

@@ -27,6 +27,9 @@ target_include_directories(matterleast-calls-gstreamer PRIVATE
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
+target_compile_definitions(matterleast-calls-gstreamer PRIVATE
+    GST_USE_UNSTABLE_API
+)
 set_target_properties(matterleast-calls-gstreamer PROPERTIES
     CXX_STANDARD 17
 )
