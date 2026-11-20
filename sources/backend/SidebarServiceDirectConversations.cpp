@@ -91,7 +91,7 @@ void SidebarService::resurfaceDirectConversation(BackendChannel& channel, uint64
         return;
     }
 
-    NetworkRequest request(QStringLiteral("users/") + userId + QStringLiteral("/preferences"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("users/") + userId + QStringLiteral("/preferences"));
     httpConnector.put(request, QByteArrayCreator(preferences),
                       HttpResponseCallback([](const QJsonDocument&) {}));
 }

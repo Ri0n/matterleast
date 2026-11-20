@@ -81,6 +81,7 @@ private:
     void finishLoad(bool success);
     void fetchLoadedBundle(const QString& pluginId, BundleCallback callback);
 
+    Backend& _backend;
     HTTPConnector httpConnector_;
     QVector<WebappPluginManifest> plugins_;
     QVector<LoadCallback> loadWaiters_;

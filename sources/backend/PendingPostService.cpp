@@ -45,7 +45,7 @@ QString pendingStoreIdentity(Backend& backend)
     if (userId.isEmpty()) {
         return {};
     }
-    QByteArray material = NetworkRequest::host().toUtf8();
+    QByteArray material = backend.networkSession().host().toUtf8();
     material.append('\0');
     material.append(userId.toUtf8());
     return QString::fromLatin1(

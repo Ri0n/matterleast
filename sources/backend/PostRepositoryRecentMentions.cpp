@@ -105,7 +105,7 @@ void PostRepository::searchRecentMentions(const QString& terms,
         {QStringLiteral("per_page"), safePerPage},
     };
 
-    NetworkRequest request(QStringLiteral("posts/search"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("posts/search"));
     httpConnector.post(
         request,
         QByteArrayCreator(body),
