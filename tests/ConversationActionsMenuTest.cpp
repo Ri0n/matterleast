@@ -97,6 +97,29 @@ private slots:
         NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
     }
 
+    void channelCopyLinksUseOwningBackend()
+    {
+        Backend first;
+        Backend second;
+        first.networkSession().setHost(QStringLiteral("https://first.example.test/"));
+        second.networkSession().setHost(QStringLiteral("https://second.example.test/"));
+        BackendChannel* firstChannel = addTeamChannel(first, QStringLiteral("shared-channel"));
+        BackendChannel* secondChannel = addTeamChannel(second, QStringLiteral("shared-channel"));
+        QVERIFY(firstChannel);
+        QVERIFY(secondChannel);
+
+        NetworkRequest::setHost(QStringLiteral("https://unrelated.example.test/"));
+        const QString firstLink =
+            ConversationActionsMenu::channelWebUrl(first, *firstChannel);
+        const QString secondLink =
+            ConversationActionsMenu::channelWebUrl(second, *secondChannel);
+        QVERIFY(firstLink.startsWith(QStringLiteral("https://first.example.test/")));
+        QVERIFY(secondLink.startsWith(QStringLiteral("https://second.example.test/")));
+        QCOMPARE(firstLink.mid(QStringLiteral("https://first.example.test").size()),
+                 secondLink.mid(QStringLiteral("https://second.example.test").size()));
+        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
+    }
+
     void headerAndSidebarExposeExactlyTheSameActions()
     {
         Backend backend;
