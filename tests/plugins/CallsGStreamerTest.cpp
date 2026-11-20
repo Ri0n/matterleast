@@ -238,6 +238,32 @@ private slots:
         QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
         QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone off"));
 
+        auto* activity = bobTile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantActivity"));
+        QVERIFY(activity);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_voice_on"),
+            bobIdentity, inChannel);
+        QCOMPARE(activity->text(), QStringLiteral("Speaking"));
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_raise_hand"),
+            bobIdentity, inChannel);
+        QVERIFY(activity->text().contains(QStringLiteral("Hand raised")));
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_screen_on"),
+            bobIdentity, inChannel);
+        QVERIFY(activity->text().contains(QStringLiteral("Sharing screen")));
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_voice_off"),
+            bobIdentity, inChannel);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_unraise_hand"),
+            bobIdentity, inChannel);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_screen_off"),
+            bobIdentity, inChannel);
+        QVERIFY(activity->text().isEmpty());
+
         // A call_state from another channel must not overwrite our state.
         QJsonObject foreignState = stateEvent;
         foreignState.insert(QStringLiteral("channel_id"),

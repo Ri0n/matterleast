@@ -53,6 +53,9 @@ public:
     void setCameraDevices(const QList<CallsMediaDevice>& available,
                           const QString& selectedId);
     void setParticipantCameraState(const QString& sessionId, bool enabled);
+    void setParticipantSpeaking(const QString& sessionId, bool speaking);
+    void setParticipantHandRaised(const QString& sessionId, bool raised);
+    void setParticipantScreenSharing(const QString& sessionId, bool sharing);
     void setParticipantVideo(const QString& sessionId, const QImage& image);
 
 protected:
@@ -67,6 +70,7 @@ private:
         QLabel* title = nullptr;
         QLabel* microphone = nullptr;
         QLabel* video = nullptr;
+        QLabel* activity = nullptr;
     };
 
     void updateParticipants(const QList<MatterLeast::PluginApi::CallsParticipant>& participants);
@@ -78,6 +82,7 @@ private:
     void rebuildCameraDeviceMenu();
     void updateCameraIcon();
     void refreshParticipantVideo(const QString& sessionId);
+    void refreshParticipantActivity(const QString& sessionId);
     void updateAppearance();
     void updateTimerLabel();
     static QString participantLabel(const QString& userId);
@@ -90,6 +95,9 @@ private:
     QString selectedCameraId_;
     QHash<QString, QImage> participantVideo_;
     QHash<QString, bool> participantVideoEnabled_;
+    QHash<QString, bool> participantSpeaking_;
+    QHash<QString, bool> participantRaisedHand_;
+    QHash<QString, bool> participantScreenSharing_;
     bool cameraAvailable_ = false;
     bool cameraEnabled_ = false;
     DeviceSelectionHandler chooseMicrophone_;

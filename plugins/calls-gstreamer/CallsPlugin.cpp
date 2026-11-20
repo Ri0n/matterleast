@@ -211,6 +211,7 @@ public:
         iceUrls_.clear();
         videoAvailable_ = false;
         cameraEnabled_ = false;
+        cameraPending_ = false;
         videoStreamId_.clear();
         videoMidToSession_.clear();
         if (window_) {
@@ -347,6 +348,13 @@ public:
                     if (!sessionId.isEmpty()) {
                         window_->setParticipantCameraState(
                             sessionId, session.value(QStringLiteral("video")).toBool());
+                        window_->setParticipantHandRaised(
+                            sessionId, session.value(QStringLiteral("raised_hand"))
+                                           .toVariant().toLongLong() > 0);
+                        const QString sharing = call.value(QStringLiteral("props"))
+                            .toObject().value(
+                                QStringLiteral("screen_sharing_session_id")).toString();
+                        window_->setParticipantScreenSharing(sessionId, sessionId == sharing);
                     }
                 }
             }
@@ -378,12 +386,59 @@ public:
             name == QLatin1String("custom_com.mattermost.calls_user_video_off");
         if (videoOnEvent || videoOffEvent) {
             const QString userId = data.value(QStringLiteral("userID")).toString();
+            if (sessionId == originalConnectionId_
+                && userId == host_->localUserId()) {
+                if (videoOnEvent && cameraEnabled_ && cameraPending_) {
+                    // RTCD has processed video_on before the server echoes
+                    // the event. Only now allow the first video RTP packet;
+                    // racing it against signaling can make SFU OnTrack skip
+                    // the stream permanently.
+                    cameraPending_ = false;
+                    if (engine_) engine_->setCameraPublishing(true);
+                } else if (videoOffEvent) {
+                    cameraPending_ = false;
+                    if (cameraEnabled_ && engine_) engine_->setCameraEnabled(false);
+                }
+            }
             for (const auto& participant : snapshot_.participants) {
                 if (participant.sessionId == sessionId
                     && (userId.isEmpty() || participant.userId == userId)) {
                     if (window_) window_->setParticipantCameraState(sessionId, videoOnEvent);
                     break;
                 }
+            }
+            return;
+        }
+
+        const bool voiceOn =
+            name == QLatin1String("custom_com.mattermost.calls_user_voice_on");
+        const bool voiceOff =
+            name == QLatin1String("custom_com.mattermost.calls_user_voice_off");
+        const bool handRaised =
+            name == QLatin1String("custom_com.mattermost.calls_user_raise_hand");
+        const bool handLowered =
+            name == QLatin1String("custom_com.mattermost.calls_user_unraise_hand");
+        const bool screenOn =
+            name == QLatin1String("custom_com.mattermost.calls_user_screen_on");
+        const bool screenOff =
+            name == QLatin1String("custom_com.mattermost.calls_user_screen_off");
+        if (voiceOn || voiceOff || handRaised || handLowered || screenOn || screenOff) {
+            const QString userId = data.value(QStringLiteral("userID")).toString();
+            for (const auto& participant : snapshot_.participants) {
+                if (participant.sessionId != sessionId
+                    || (!userId.isEmpty() && participant.userId != userId)) {
+                    continue;
+                }
+                if (window_) {
+                    if (voiceOn || voiceOff) {
+                        window_->setParticipantSpeaking(sessionId, voiceOn);
+                    } else if (handRaised || handLowered) {
+                        window_->setParticipantHandRaised(sessionId, handRaised);
+                    } else {
+                        window_->setParticipantScreenSharing(sessionId, screenOn);
+                    }
+                }
+                break;
             }
             return;
         }
@@ -586,9 +641,10 @@ private:
                         return;
                     }
                     cameraEnabled_ = true;
-                    if (engine_) engine_->setCameraPublishing(true);
+                    cameraPending_ = true;
                 } else if (cameraEnabled_) {
                     cameraEnabled_ = false;
+                    cameraPending_ = false;
                     host_->sendAction(QLatin1String(CallsPrefix)
                                       + QStringLiteral("video_off"), {});
                 }
@@ -643,6 +699,7 @@ private:
     QHash<QString, QString> videoMidToSession_;
     bool videoAvailable_ = false;
     bool cameraEnabled_ = false;
+    bool cameraPending_ = false;
     QString originalConnectionId_;
     QString previousConnectionId_;
     quint64 generation_ = 0;

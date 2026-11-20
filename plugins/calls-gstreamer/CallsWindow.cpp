@@ -365,6 +365,45 @@ void CallsWindow::rebuildCameraDeviceMenu()
     }
 }
 
+void CallsWindow::setParticipantSpeaking(const QString& sessionId, bool speaking)
+{
+    if (sessionId.isEmpty()) return;
+    participantSpeaking_.insert(sessionId, speaking);
+    refreshParticipantActivity(sessionId);
+}
+
+void CallsWindow::setParticipantHandRaised(const QString& sessionId, bool raised)
+{
+    if (sessionId.isEmpty()) return;
+    participantRaisedHand_.insert(sessionId, raised);
+    refreshParticipantActivity(sessionId);
+}
+
+void CallsWindow::setParticipantScreenSharing(const QString& sessionId, bool sharing)
+{
+    if (sessionId.isEmpty()) return;
+    participantScreenSharing_.insert(sessionId, sharing);
+    refreshParticipantActivity(sessionId);
+}
+
+void CallsWindow::refreshParticipantActivity(const QString& sessionId)
+{
+    const auto tile = tiles_.constFind(sessionId);
+    if (tile == tiles_.cend() || !tile.value().activity) return;
+    QStringList statuses;
+    if (participantSpeaking_.value(sessionId, false)) {
+        statuses.append(tr("Speaking"));
+    }
+    if (participantRaisedHand_.value(sessionId, false)) {
+        statuses.append(tr("Hand raised"));
+    }
+    if (participantScreenSharing_.value(sessionId, false)) {
+        statuses.append(tr("Sharing screen"));
+    }
+    tile.value().activity->setText(statuses.join(QStringLiteral(" · ")));
+    tile.value().activity->setVisible(!statuses.isEmpty());
+}
+
 void CallsWindow::setParticipantCameraState(const QString& sessionId, bool enabled)
 {
     if (sessionId.isEmpty()) return;
@@ -446,6 +485,9 @@ void CallsWindow::updateParticipants(const QList<CallsParticipant>& participants
         delete it.value().frame;
         participantVideo_.remove(it.key());
         participantVideoEnabled_.remove(it.key());
+        participantSpeaking_.remove(it.key());
+        participantRaisedHand_.remove(it.key());
+        participantScreenSharing_.remove(it.key());
         it = tiles_.erase(it);
         membershipChanged = true;
     }
@@ -489,11 +531,18 @@ void CallsWindow::updateParticipants(const QList<CallsParticipant>& participants
             tile.microphone->setObjectName(QStringLiteral("callsParticipantMute"));
             tile.microphone->setAlignment(Qt::AlignCenter);
             tile.microphone->setTextFormat(Qt::PlainText);
+            tile.activity = new QLabel(tile.frame);
+            tile.activity->setObjectName(QStringLiteral("callsParticipantActivity"));
+            tile.activity->setAlignment(Qt::AlignCenter);
+            tile.activity->setTextFormat(Qt::PlainText);
+            tile.activity->setWordWrap(true);
+            tile.activity->hide();
             box->addStretch(1);
             box->addWidget(tile.avatar, 0, Qt::AlignHCenter);
             box->addWidget(tile.video);
             box->addWidget(tile.title);
             box->addWidget(tile.microphone);
+            box->addWidget(tile.activity);
             box->addStretch(1);
             tiles_.insert(participant.sessionId, tile);
         }
@@ -512,6 +561,7 @@ void CallsWindow::updateParticipants(const QList<CallsParticipant>& participants
         tile.microphone->setText(participant.microphoneMuted ? tr("Microphone off")
                                                             : tr("Microphone on"));
         refreshParticipantVideo(participant.sessionId);
+        refreshParticipantActivity(participant.sessionId);
     }
     tileOrder_ = nextOrder;
     if (membershipChanged) tileColumns_ = 0;
@@ -706,6 +756,7 @@ void CallsWindow::updateAppearance()
         "QFrame#callsParticipantTile { background: %3; border: 1px solid %2; border-radius: 10px; }"
         "QLabel#callsParticipantAvatar { background: %4; color: %5; border-radius: 26px; }"
         "QLabel#callsHeaderSubtitle, QLabel#callsParticipantMute,"
+        " QLabel#callsParticipantActivity,"
         " QLabel#callsParticipantCount, QLabel#callsPlaceholder { color: %6; }"
         "QFrame#callsControls { background: %7; border: 1px solid %2; border-radius: 10px; }"
         "QToolButton#callsMicrophone, QToolButton#callsMicrophoneDevices,"

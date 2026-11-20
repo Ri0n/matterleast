@@ -115,7 +115,9 @@ present, camera controls are enabled after the local WebRTC stream ID has
 been established. A VP8 transceiver is negotiated once, with an RTP gate
 that stays closed while the camera is off. The camera is only opened after
 the user enables it and is closed on disable. The outgoing video
-`msid` matches the server-side `video_on` signal. Incoming VP8 frames
+`msid` matches the server-side `video_on` signal. The sender opens its
+video RTP gate only after the server echoes `user_video_on`; this avoids
+a race in RTCD's first-packet stream classification. Incoming VP8 frames
 use the SFU's `calls-dc` MediaMap to associate the RTP MID with the
 correct participant session. The camera UI does not appear when the
 server or the local GStreamer runtime lacks video support.
@@ -124,3 +126,8 @@ server or the local GStreamer runtime lacks video support.
 (including repeated toggles, late joins and device hot-plug) before
 production release. Video is a separate capability from the already
 validated audio implementation.
+
+The call window also reflects RTCD's real-time `user_voice_on/off`,
+`user_raise_hand/unraise_hand`, and `user_screen_on/off` notifications
+as per-participant activity indicators. Screen sharing itself is not yet
+sent or displayed as a dedicated screen-sharing stage.

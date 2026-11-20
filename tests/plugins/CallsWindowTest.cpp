@@ -174,6 +174,9 @@ private slots:
         selector->menu()->actions().first()->trigger();
         QCOMPARE(selected, QString());
 
+        window.setParticipantSpeaking(QStringLiteral("bob-session"), true);
+        window.setParticipantHandRaised(QStringLiteral("bob-session"), true);
+        window.setParticipantScreenSharing(QStringLiteral("bob-session"), true);
         window.setParticipantCameraState(QStringLiteral("bob-session"), true);
         auto* tile = [&]() -> QFrame* {
             for (auto* candidate : window.findChildren<QFrame*>(
@@ -184,6 +187,16 @@ private slots:
             return nullptr;
         }();
         QVERIFY(tile);
+        auto* activity = tile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantActivity"));
+        QVERIFY(activity);
+        QVERIFY(activity->text().contains(QStringLiteral("Speaking")));
+        QVERIFY(activity->text().contains(QStringLiteral("Hand raised")));
+        QVERIFY(activity->text().contains(QStringLiteral("Sharing screen")));
+        window.setParticipantSpeaking(QStringLiteral("bob-session"), false);
+        window.setParticipantHandRaised(QStringLiteral("bob-session"), false);
+        window.setParticipantScreenSharing(QStringLiteral("bob-session"), false);
+        QVERIFY(!activity->isVisible());
         auto* video = tile->findChild<QLabel*>(
             QStringLiteral("callsParticipantVideo"));
         QVERIFY(video);
