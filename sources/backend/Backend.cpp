@@ -133,7 +133,7 @@ void Backend::requestCallsPlugin(const QString& method,
 
     // Calls is a server plugin served at /plugins/..., not /api/v4/.
     // Retain the backend authentication while selecting the correct route.
-    NetworkRequest request(QString(), relativePath);
+    NetworkRequest request(_networkSession, QString(), relativePath);
     const HttpResponseCallback handler(
         [lifetime, pending, method](QVariant, QByteArray payload,
                                     const QNetworkReply& reply) {
@@ -776,7 +776,7 @@ void Backend::logout(std::function<void()> callback)
 
 void Backend::retrieveUser (const QString & userID, std::function<void(const BackendUser&)> callback)
 {
-	NetworkRequest request ("users/" + userID);
+	NetworkRequest request (_networkSession, "users/" + userID);
 
 	LOG_DEBUG ("retrieveUser " << userID);
 
@@ -825,7 +825,7 @@ void Backend::retrieveUserPreferences ()
 
 void Backend::updateUserPreferences (const BackendUserPreferences& preferences)
 {
-	NetworkRequest request ("users/" + getLoginUser().id + "/preferences");
+	NetworkRequest request (_networkSession, "users/" + getLoginUser().id + "/preferences");
 
 	QJsonArray jsonArr;
 	jsonArr.push_back (QJsonObject {
@@ -844,7 +844,7 @@ void Backend::updateUserPreferences (const BackendUserPreferences& preferences)
 
 void Backend::deleteUserPreferences (const BackendUserPreferences& preferences)
 {
-    NetworkRequest request("users/" + getLoginUser().id + "/preferences/delete");
+    NetworkRequest request(_networkSession, "users/" + getLoginUser().id + "/preferences/delete");
 
     QJsonArray jsonArr;
     jsonArr.push_back(QJsonObject {
@@ -871,7 +871,7 @@ void Backend::retrieveMultipleUsersStatus (const QVector<QString> & userIDs, std
 		userIDsJson.push_back (id);
 	}
 
-	NetworkRequest request ("users/status/ids");
+	NetworkRequest request (_networkSession, "users/status/ids");
 
 	httpConnector.post (request, userIDsJson, HttpResponseCallback ([this, callback] (const QJsonDocument& doc) {
 
@@ -905,7 +905,7 @@ void Backend::retrieveMultipleUsersStatus (const QVector<QString> & userIDs, std
 
 void Backend::retrieveTotalUsersCount (std::function<void(uint32_t)> callback)
 {
-	NetworkRequest request ("users/stats");
+	NetworkRequest request (_networkSession, "users/stats");
 
 	httpConnector.get (request, HttpResponseCallback ([this, callback] (const QJsonDocument& doc) {
 
@@ -920,7 +920,7 @@ void Backend::retrieveTotalUsersCount (std::function<void(uint32_t)> callback)
 }
 
 void Backend::retrieveKnownUsers (std::function<void()> callback){
- 	NetworkRequest requestKnown ("users/known");
+ 	NetworkRequest requestKnown (_networkSession, "users/known");
  	httpConnector.get (requestKnown, HttpResponseCallback ([this, callback] (const QJsonDocument& doc) {
 		storage.knownUsers = doc.array();
 		callback();
@@ -935,7 +935,7 @@ void Backend::retrieveAllUsers ()
 	static uint32_t obtainedPages;
 
 	for (uint32_t page = 0; page < totalPages; ++page) {
-		NetworkRequest request ("users?per_page=" + QString::number(usersPerPage) + "&active=true&page=" + QString::number(page));
+		NetworkRequest request (_networkSession, "users?per_page=" + QString::number(usersPerPage) + "&active=true&page=" + QString::number(page));
 
 		httpConnector.get (request, HttpResponseCallback ([this, page, totalPages, usersPerPage] (const QJsonDocument& doc) {
 
@@ -996,7 +996,7 @@ void Backend::retrieveAllUsers ()
 
 void Backend::retrieveUserAvatar (const QString & userID)
 {
-	NetworkRequest request ("users/" + userID + "/image", true);
+	NetworkRequest request (_networkSession, "users/" + userID + "/image", true);
 	request.setPriority(QNetworkRequest::LowPriority);
 
  	request.setAttribute(QNetworkRequest::BackgroundRequestAttribute, true);
@@ -1028,7 +1028,7 @@ void Backend::retrieveUserAvatar (const QString & userID)
 
 void Backend::retrieveFile (const QString & fileID, std::function<void(const QByteArray&)> callback)
 {
-	NetworkRequest request ("files/" + fileID, true);
+	NetworkRequest request (_networkSession, "files/" + fileID, true);
 
 	QIODevice* cachedFile = attachmentsCache.data (fileID);
 
@@ -1066,7 +1066,7 @@ void Backend::retrieveFile (const QString & fileID, std::function<void(const QBy
  */
 void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
 {
-    NetworkRequest request ("users/me/teams");
+    NetworkRequest request (_networkSession, "users/me/teams");
     //request.setRawHeader("X-Requested-With", "XMLHttpRequest");
 
     LOG_DEBUG ("retrieveOwnTeams request");
@@ -1107,7 +1107,7 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
 
 void Backend::retrieveAllPublicTeams ()
 {
-    NetworkRequest request ("teams");
+    NetworkRequest request (_networkSession, "teams");
 
     LOG_DEBUG ("retrieveOwnTeams request");
 
@@ -1122,7 +1122,7 @@ void Backend::retrieveAllPublicTeams ()
 
 void Backend::retrieveTeam (QString teamID)
 {
-	NetworkRequest request ("teams/" + teamID);
+	NetworkRequest request (_networkSession, "teams/" + teamID);
 
 	LOG_DEBUG ("retrieveTeam '" << teamID << "'");
 
@@ -1148,7 +1148,7 @@ void Backend::retrieveTeamPublicChannelsPage(
     int perPage,
     std::function<void(QJsonArray)> callback)
 {
-    NetworkRequest request(publicChannelsPagePath(teamID, page, perPage));
+    NetworkRequest request(_networkSession, publicChannelsPagePath(teamID, page, perPage));
     httpConnector.get(request, HttpResponseCallback(
         [callback = std::move(callback)](QVariant, const QJsonDocument& doc) mutable {
             if (callback) {
@@ -1162,7 +1162,7 @@ void Backend::searchTeamPublicChannels(
     QString term,
     std::function<void(QJsonArray)> callback)
 {
-    NetworkRequest request(QStringLiteral("teams/") + teamID
+    NetworkRequest request(_networkSession, QStringLiteral("teams/") + teamID
                            + QStringLiteral("/channels/search"));
     const QJsonObject payload {{QStringLiteral("term"), std::move(term)}};
     httpConnector.post(request, QByteArrayCreator(payload),
@@ -1192,7 +1192,7 @@ void Backend::retrieveChannelsMemberCounts(
         return;
     }
 
-    NetworkRequest request(QStringLiteral("channels/stats/member_count"));
+    NetworkRequest request(_networkSession, QStringLiteral("channels/stats/member_count"));
     httpConnector.post(request, QByteArrayCreator(payload),
                        HttpResponseCallback(
         [callback = std::move(callback)](const QJsonDocument& doc) mutable {
@@ -1204,7 +1204,7 @@ void Backend::retrieveChannelsMemberCounts(
 
 void Backend::retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback)
 {
-    NetworkRequest request ("users/me/teams/" + team.id + "/channels");
+    NetworkRequest request (_networkSession, "users/me/teams/" + team.id + "/channels");
     QPointer<BackendTeam> teamGuard(&team);
 
     httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (
@@ -1271,7 +1271,7 @@ void Backend::retrieveOwnAllChannelMemberships (std::function<void ()> callback)
 void Backend::retrieveTeamMembers (BackendTeam& team, int page)
 {
 	static constexpr int itemsPerPage = 60;
-	NetworkRequest request ("teams/" + team.id + "/members?page=" + QString::number(page) + "&per_page=" + QString::number (itemsPerPage));
+	NetworkRequest request (_networkSession, "teams/" + team.id + "/members?page=" + QString::number(page) + "&per_page=" + QString::number (itemsPerPage));
 
 	//LOG_DEBUG ("retrieveTeamMembers " << team.display_name << " page " << page);
 
@@ -1295,7 +1295,7 @@ void Backend::retrieveTeamMembers (BackendTeam& team, int page)
 
 void Backend::retrieveTeamMember (BackendTeam& team, const BackendUser& user)
 {
-	NetworkRequest request ("teams/" + team.id + "/members/" + user.id);
+	NetworkRequest request (_networkSession, "teams/" + team.id + "/members/" + user.id);
 	RequestTrackerEntry trackedEntry (RequestTrackerID::teamMember, &team, &user);
 
 	if (requestTracker.hasEntry (trackedEntry)) {
@@ -1323,7 +1323,7 @@ void Backend::retrieveChannel (BackendTeam& team,
                                QString channelID,
                                std::function<void(BackendChannel&)> callback)
 {
-    NetworkRequest request("channels/" + channelID);
+    NetworkRequest request(_networkSession, "channels/" + channelID);
     LOG_DEBUG("retrieveChannel '" << channelID << "' of team '" << team.name << "'");
 
     QPointer<BackendTeam> teamGuard(&team);
@@ -1370,7 +1370,7 @@ void Backend::retrieveChannel (BackendTeam& team,
 
 void Backend::retrieveDirectChannel (QString channelID)
 {
-    NetworkRequest request("channels/" + channelID);
+    NetworkRequest request(_networkSession, "channels/" + channelID);
     LOG_DEBUG("retrieveDirectChannel " << channelID);
 
     httpConnector.get(request, HttpResponseCallback(
@@ -1408,7 +1408,7 @@ void Backend::retrieveDirectChannel (QString channelID)
 
 void Backend::retrieveChannelPosts (BackendChannel& channel, int page, int perPage)
 {
-    NetworkRequest request ("channels/" + channel.id + "/posts?page=" + QString::number(page) + "&per_page=" + QString::number(perPage));
+    NetworkRequest request (_networkSession, "channels/" + channel.id + "/posts?page=" + QString::number(page) + "&per_page=" + QString::number(perPage));
     //LOG_DEBUG ("retrieveChannelPosts request for " << channel.display_name << " (" << channel.id << ")");
 
     httpConnector.get (request, HttpResponseCallback ([this, &channel](const QJsonDocument& doc) {
@@ -1428,7 +1428,7 @@ void Backend::retrieveChannelPosts (BackendChannel& channel, int page, int perPa
 
 void Backend::retrieveChannelPinnedPosts (BackendChannel& channel)
 {
-    NetworkRequest request ("channels/" + channel.id + "/pinned");
+    NetworkRequest request (_networkSession, "channels/" + channel.id + "/pinned");
     //LOG_DEBUG ("retrieveChannelPinnedPosts request for " << channel.display_name << " (" << channel.id << ")");
 
     httpConnector.get (request, HttpResponseCallback ([this, &channel](const QJsonDocument& doc) {
@@ -1449,7 +1449,7 @@ void Backend::retrieveChannelOlderPosts (BackendChannel& channel, int perPage)
 		return;
 	}
 
-    NetworkRequest request ("channels/" + channel.id + "/posts?page=" + QString::number(0) + "&per_page=" + QString::number(perPage) + "&before=" + channel.posts.front().id);
+    NetworkRequest request (_networkSession, "channels/" + channel.id + "/posts?page=" + QString::number(0) + "&per_page=" + QString::number(perPage) + "&before=" + channel.posts.front().id);
 
     httpConnector.get (request, HttpResponseCallback ([this, &channel](const QJsonDocument& doc) {
 
@@ -1469,7 +1469,7 @@ void Backend::retrieveChannelUnreadPost(
     BackendChannel& channel, std::function<void(const QString&)> responseHandler,
     bool rootsOnly)
 {
-    NetworkRequest request("users/me/channels/" + channel.id
+    NetworkRequest request(_networkSession, "users/me/channels/" + channel.id
                            + "/posts/unread?limit_before=0&limit_after=1");
 
     httpConnector.get(request, HttpResponseCallback(
@@ -1495,7 +1495,7 @@ void Backend::retrieveChannelUnreadPost(
 
 void Backend::retrieveChannelMember (BackendChannel& channel, const BackendUser& user)
 {
-	NetworkRequest request ("channels/" + channel.id + "/members/" + user.id);
+	NetworkRequest request (_networkSession, "channels/" + channel.id + "/members/" + user.id);
 	RequestTrackerEntry trackedEntry (RequestTrackerID::channelMember, &channel, &user);
 
 	if (requestTracker.hasEntry (trackedEntry)) {
@@ -1521,7 +1521,7 @@ void Backend::retrieveChannelMember (BackendChannel& channel, const BackendUser&
 
 void Backend::retrievePollMetadata (BackendPoll& poll)
 {
-	NetworkRequest request (NetworkRequest::matterpoll, "polls/" + poll.id + "/metadata");
+	NetworkRequest request (_networkSession, NetworkRequest::matterpoll, "polls/" + poll.id + "/metadata");
 
 	LOG_DEBUG ("retrievePollMetadata request");
 
@@ -1545,7 +1545,7 @@ void Backend::markChannelAsViewed (BackendChannel& channel)
 	//maybe add prev_channel_id, the Mattermost API supports it
 	//json.insert ("prev_channel_id", channel.id);
 
-	NetworkRequest request ("channels/members/me/view");
+	NetworkRequest request (_networkSession, "channels/members/me/view");
 
 	httpConnector.post (request, json, HttpResponseCallback ([this](QVariant, QByteArray) {
 
@@ -1575,7 +1575,7 @@ void Backend::editChannelProperties (BackendChannel& channel, const BackendChann
 
 	QByteArray data (QJsonDocument (json).toJson(QJsonDocument::Compact));
 
-	NetworkRequest request ("channels/" + channel.id);
+	NetworkRequest request (_networkSession, "channels/" + channel.id);
 	request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
 	httpConnector.put (request, data, HttpResponseCallback ([this](QVariant, QByteArray) {
@@ -1610,7 +1610,7 @@ void Backend::addPost (BackendChannel& channel, const QString& message, const QL
 	}
 
 
-	NetworkRequest request ("posts");
+	NetworkRequest request (_networkSession, "posts");
 
 	httpConnector.post (request, json, HttpResponseCallback ([this](QVariant, QByteArray) {
 #if 0
@@ -1642,7 +1642,7 @@ void Backend::editPost (const QString& postID, const QString& message, const QLi
 
     QByteArray data (QJsonDocument (json).toJson(QJsonDocument::Compact));
 
-	NetworkRequest request ("posts/" + postID + "/patch");
+	NetworkRequest request (_networkSession, "posts/" + postID + "/patch");
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
 	httpConnector.put (request, data, HttpResponseCallback ([this](const QJsonDocument& doc) {
@@ -1657,14 +1657,14 @@ void Backend::editPost (const QString& postID, const QString& message, const QLi
 
 void Backend::deletePost (const QString postID)
 {
-	NetworkRequest request ("posts/" + postID);
+	NetworkRequest request (_networkSession, "posts/" + postID);
 
 	httpConnector.del (request);
 }
 
 void Backend::pinPost(const QString& postID, const QString& channelID)
 {
-	NetworkRequest request(
+	NetworkRequest request(_networkSession, 
 	    QStringLiteral("posts/") + postID + QStringLiteral("/pin"));
 	httpConnector.post(
 	    request, QByteArray(),
@@ -1680,7 +1680,7 @@ void Backend::pinPost(const QString& postID, const QString& channelID)
 
 void Backend::unpinPost(const QString& postID, const QString& channelID)
 {
-	NetworkRequest request(
+	NetworkRequest request(_networkSession, 
 	    QStringLiteral("posts/") + postID + QStringLiteral("/unpin"));
 	httpConnector.post(
 	    request, QByteArray(),
@@ -1696,7 +1696,7 @@ void Backend::unpinPost(const QString& postID, const QString& channelID)
 
 void Backend::addPoll (BackendChannel& channel, const BackendNewPollData& pollData)
 {
-	NetworkRequest request ("actions/dialogs/submit");
+	NetworkRequest request (_networkSession, "actions/dialogs/submit");
 
 	QJsonObject json {
 		{"callback_id", ""},
@@ -1747,7 +1747,7 @@ void Backend::addPostReaction(const QString& postID, const QString& emojiName)
 		{"create_at", 0},
 	};
 
-	NetworkRequest request("reactions");
+	NetworkRequest request(_networkSession, "reactions");
 	httpConnector.post(request, json, HttpResponseCallback([](QVariant, QByteArray) {
 		// The authoritative model update arrives as reaction_added.
 	}));
@@ -1756,7 +1756,7 @@ void Backend::addPostReaction(const QString& postID, const QString& emojiName)
 void Backend::removePostReaction(const QString& postID, const QString& emojiName)
 {
     const QByteArray encodedEmoji = QUrl::toPercentEncoding(emojiName);
-    NetworkRequest request(
+    NetworkRequest request(_networkSession, 
         QStringLiteral("users/") + getLoginUser().id
         + QStringLiteral("/posts/") + postID
         + QStringLiteral("/reactions/")
@@ -1766,7 +1766,7 @@ void Backend::removePostReaction(const QString& postID, const QString& emojiName
 
 void Backend::sendPostAction (const BackendPost& post, const QString& action)
 {
-	NetworkRequest request  ("posts/" + post.id + "/actions/" + action);
+	NetworkRequest request  (_networkSession, "posts/" + post.id + "/actions/" + action);
 
 	httpConnector.post (request, QByteArray(), HttpResponseCallback ([this](const QJsonDocument& doc) {
 
@@ -1840,7 +1840,7 @@ void Backend::uploadFile(
     filePart.setBodyDevice(file);
     multipart->append(filePart);
 
-    NetworkRequest request(QStringLiteral("files"));
+    NetworkRequest request(_networkSession, QStringLiteral("files"));
     request.setRawHeader("Accept", "application/json");
 
     const QString connectionId = webSocketConnector.connectionId();
@@ -1987,7 +1987,7 @@ void Backend::createChannel(BackendTeam& team,
     };
 
     QPointer<BackendTeam> teamGuard(&team);
-    NetworkRequest request(QStringLiteral("channels"));
+    NetworkRequest request(_networkSession, QStringLiteral("channels"));
     httpConnector.post(request, QByteArrayCreator(payload), HttpResponseCallback(
         [this, teamGuard, callback = std::move(callback)](
             QVariant status, const QJsonDocument& doc) mutable {
@@ -2032,7 +2032,7 @@ void Backend::createDirectChannelDetailed(
     }
 
     QJsonArray json {getLoginUser().id, user.id};
-    NetworkRequest request(QStringLiteral("channels/direct"));
+    NetworkRequest request(_networkSession, QStringLiteral("channels/direct"));
     httpConnector.post(request, json, HttpResponseCallback(
         [this, callback = std::move(callback)](
             QVariant status, QByteArray response, const QNetworkReply& reply) mutable {
@@ -2091,7 +2091,7 @@ void Backend::createGroupChannel(
         return;
     }
 
-    NetworkRequest request(QStringLiteral("channels/group"));
+    NetworkRequest request(_networkSession, QStringLiteral("channels/group"));
     httpConnector.post(request, QByteArrayCreator(payload), HttpResponseCallback(
         [this, callback = std::move(callback)](
             QVariant status, const QJsonDocument& doc) mutable {
@@ -2130,7 +2130,7 @@ void Backend::addUserToChannel (const BackendChannel& channel,
 		{"user_id", userID}
 	};
 
-	NetworkRequest request ("channels/" + channel.id + "/members");
+	NetworkRequest request (_networkSession, "channels/" + channel.id + "/members");
 
 	httpConnector.post(request, json, HttpResponseCallback(
         [callback = std::move(callback)](QVariant status, QByteArray) mutable {
@@ -2142,7 +2142,7 @@ void Backend::addUserToChannel (const BackendChannel& channel,
 
 void Backend::removeUserFromChannel (const BackendChannel& channel, const QString& userID)
 {
-	NetworkRequest request ("channels/" + channel.id + "/members/" + userID);
+	NetworkRequest request (_networkSession, "channels/" + channel.id + "/members/" + userID);
 	httpConnector.del (request);
 
 	//there is no need of response callback, because a webSocket event 'user_removed' will come
@@ -2166,7 +2166,7 @@ void Backend::addUserToTeam (const BackendTeam& team, const QString& userID)
 		{"team_id", team.id}
 	};
 
-	NetworkRequest request ("teams/" + team.id + "/members");
+	NetworkRequest request (_networkSession, "teams/" + team.id + "/members");
 
 	httpConnector.post (request, json, HttpResponseCallback ([this](QVariant, QByteArray) {
 #if 0
@@ -2181,7 +2181,7 @@ void Backend::addUserToTeam (const BackendTeam& team, const QString& userID)
 
 void Backend::removeUserFromTeam (const BackendTeam& team, const QString& userID)
 {
-	NetworkRequest request ("teams/" + team.id + "/members/" + userID);
+	NetworkRequest request (_networkSession, "teams/" + team.id + "/members/" + userID);
 
 	httpConnector.del (request);
 }
@@ -2190,7 +2190,7 @@ void Backend::removeUserFromTeam (const BackendTeam& team, const QString& userID
 void Backend::sendSubmitDialog (const QJsonDocument& json)
 {
 	// The dialog submission may contain private data; do not log the payload.
-	NetworkRequest request ("actions/dialogs/submit");
+	NetworkRequest request (_networkSession, "actions/dialogs/submit");
 	httpConnector.post (request, json, HttpResponseCallback ([] (QVariant, QByteArray) {
 #if 0
 		QJsonDocument doc2 = QJsonDocument::fromJson(data);

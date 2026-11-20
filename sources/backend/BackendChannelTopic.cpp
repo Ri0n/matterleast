@@ -35,7 +35,7 @@ void Backend::editChannelHeader(BackendChannel& channel, const QString& header,
     }
 
     const QString channelId = channel.id;
-    NetworkRequest request(QStringLiteral("channels/") + channelId
+    NetworkRequest request(_networkSession, QStringLiteral("channels/") + channelId
                            + QStringLiteral("/patch"));
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QStringLiteral("application/json"));

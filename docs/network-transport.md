@@ -61,13 +61,24 @@ Two independent `Backend` instances can authenticate to separate local
 Mattermost API fixtures at once; regression tests also check that cancelling
 one in-flight login does not cancel another.
 
-**Migration boundary:** the existing single-server caller path still sets the
-legacy `NetworkRequest` host/token during login, because other Backend
-methods, services and UI factories still call its static methods. Those
-remaining callers must migrate before the single-server façade can be
-deleted or arbitrary simultaneous production operations can be enabled.
-No additional connection manager or UI is being switched on by this step.
-Do not replace the legacy facade with another process-global accessor.
+**Migration boundary:** every API request constructed directly by
+`Backend` (including `BackendChannelMembers`, `BackendOwnStatus`,
+`BackendChannelTopic`, `BackendPostCreate`, and `BackendTeamDirectory`)
+now gets an explicit `Backend::networkSession()` source for its URL and
+authorization. Async membership callbacks verify the same Backend session
+origin, not the most recent global login. Independent Backend integration
+tests assert that ordinary post-login profile fetches hit two different
+local Mattermost servers even when the global legacy URL points at only one.
+
+The current single-server login **still writes** the legacy
+`NetworkRequest` host/token for yet-unmigrated service and UI request
+producers. They must be moved to their owning Backend context before the
+facade can be removed or multi-server operation enabled in the UI.
+Standalone test Backends that intentionally skip login now explicitly
+initialize their own `networkSession()` origin; the Backend no longer
+silently relies on the global host for its own HTTP methods.
+No new current-account global, connection manager or UI switch is
+introduced by this step.
 
 Before enabling production multi-session operation, route *all* API request constructors,
 response `Set-Cookie` handling, websocket login URLs and login/retry/logout

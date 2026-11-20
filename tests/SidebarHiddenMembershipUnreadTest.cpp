@@ -134,6 +134,8 @@ private slots:
     {
         QFETCH(QString, type);
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         auto& sidebar = SidebarService::instance(backend);
@@ -152,6 +154,8 @@ private slots:
     void membershipEventAboutCurrentUserIsStillVisible()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         auto& sidebar = SidebarService::instance(backend);
@@ -168,6 +172,8 @@ private slots:
             QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel* channel = makeChannel(backend);
         QVERIFY(channel);
         channel->last_post_at = 2000;
@@ -212,6 +218,8 @@ private slots:
     void postedMentionMetadataIsRecipientSpecific()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel* channel = makeChannel(backend);
         QVERIFY(channel);
         auto& following = FollowingModel::instance(backend);
@@ -306,6 +314,8 @@ private slots:
     void unknownMentionCountDoesNotInventAttentionNavigation()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel* channel = makeChannel(backend);
         QVERIFY(channel);
         auto& sidebar = SidebarService::instance(backend);
@@ -372,6 +382,8 @@ private slots:
     void mentionedChannelRemainsInUnreadProjectionWhileUnread()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel* channel = makeChannel(backend);
         QVERIFY(channel);
 
@@ -450,6 +462,8 @@ private slots:
     void meaningfulSystemChangeIsNotSuppressed()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         auto& sidebar = SidebarService::instance(backend);

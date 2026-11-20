@@ -93,7 +93,7 @@ void Backend::setOwnAvailability(const QString& status, StatusUpdateResult callb
         return;
     }
     const QString id = storage.loginUser->id;
-    NetworkRequest request(QStringLiteral("users/") + id + QStringLiteral("/status"));
+    NetworkRequest request(_networkSession, QStringLiteral("users/") + id + QStringLiteral("/status"));
     const QJsonObject payload {{QStringLiteral("user_id"), id},
                                {QStringLiteral("status"), status}};
     QPointer<Backend> guard(this);
@@ -129,7 +129,7 @@ void Backend::setOwnCustomStatus(const QString& emoji, const QString& text,
         return;
     }
     const QString id = storage.loginUser->id;
-    NetworkRequest request(QStringLiteral("users/") + id + QStringLiteral("/status/custom"));
+    NetworkRequest request(_networkSession, QStringLiteral("users/") + id + QStringLiteral("/status/custom"));
     const QString trimmedEmoji = emoji.trimmed();
     QJsonObject payload {{QStringLiteral("emoji"), trimmedEmoji.isEmpty()
                                        ? QStringLiteral("speech_balloon") : trimmedEmoji},
@@ -169,7 +169,7 @@ void Backend::clearOwnCustomStatus(StatusUpdateResult callback)
         return;
     }
     const QString id = storage.loginUser->id;
-    NetworkRequest request(QStringLiteral("users/") + id + QStringLiteral("/status/custom"));
+    NetworkRequest request(_networkSession, QStringLiteral("users/") + id + QStringLiteral("/status/custom"));
     QPointer<Backend> guard(this);
     httpConnector.del(request, QByteArrayCreator(QByteArray()),
         HttpResponseCallback([guard, id, callback](
@@ -192,7 +192,7 @@ void Backend::retrieveRecentCustomStatuses(RecentCustomStatusesCallback callback
         if (callback) callback({});
         return;
     }
-    NetworkRequest request(QStringLiteral("users/") + storage.loginUser->id
+    NetworkRequest request(_networkSession, QStringLiteral("users/") + storage.loginUser->id
                            + QStringLiteral("/preferences/custom_status"));
     httpConnector.get(request, HttpResponseCallback(
         [callback](const QJsonDocument& doc, const QNetworkReply& reply) {
@@ -230,7 +230,7 @@ void Backend::removeRecentCustomStatus(const BackendUserCustomStatus& status,
         if (callback) callback(false, tr("Not logged in"));
         return;
     }
-    NetworkRequest request(QStringLiteral("users/") + storage.loginUser->id
+    NetworkRequest request(_networkSession, QStringLiteral("users/") + storage.loginUser->id
                            + QStringLiteral("/status/custom/recent/delete"));
     QJsonObject payload {
         {QStringLiteral("emoji"), status.emoji},

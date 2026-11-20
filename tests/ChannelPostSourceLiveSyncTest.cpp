@@ -140,6 +140,8 @@ private slots:
         NetworkRequest::setHost(
             QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(
             backend.getStorage(), channelJson(1, timestamp(1)));
         QVERIFY(channel.addPost(rootPost(1)));
@@ -172,6 +174,8 @@ private slots:
     void transientBackendEventExtendsSemanticTail()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(
             backend.getStorage(), channelJson(1, timestamp(1)));
         BackendPost* first = channel.addPost(rootPost(1));
@@ -214,6 +218,8 @@ private slots:
     void residentBackendEventIsNotAppendedTwice()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(
             backend.getStorage(), channelJson(1, timestamp(1)));
         QVERIFY(channel.addPost(rootPost(1)));

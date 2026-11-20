@@ -42,7 +42,7 @@ void Backend::hasChannelPermissions(BackendChannel& channel,
     state->names = getLoginUser().roles.join(QLatin1Char(' ')).split(
         QLatin1Char(' '), Qt::SkipEmptyParts);
     const QString userId = getLoginUser().id;
-    const QString host = NetworkRequest::host();
+    const QString host = networkSession().host();
     QPointer<Backend> guard(this);
     QPointer<BackendChannel> channelGuard(&channel);
     const auto membershipLoaded =
@@ -56,7 +56,7 @@ void Backend::hasChannelPermissions(BackendChannel& channel,
                                     .split(QLatin1Char(' '), Qt::SkipEmptyParts));
         }
         if (--state->pending != 0) return;
-        if (guard->getLoginUser().id != userId || NetworkRequest::host() != host) {
+        if (guard->getLoginUser().id != userId || guard->networkSession().host() != host) {
             callback(false);
             return;
         }
@@ -70,13 +70,13 @@ void Backend::hasChannelPermissions(BackendChannel& channel,
         // admin flag (or a built-in role name) grants membership management.
         QJsonArray names;
         for (const QString& name : std::as_const(state->names)) names.append(name);
-        NetworkRequest request(QStringLiteral("roles/names"));
+        NetworkRequest request(guard->networkSession(), QStringLiteral("roles/names"));
         guard->httpConnector.post(request, names, HttpResponseCallback(
             [guard, channelGuard, userId, host, required, callback]
             (QVariant roleStatus, const QJsonDocument& roles) {
             if (!guard || !channelGuard) return;
             QSet<QString> granted;
-            if (guard->getLoginUser().id == userId && NetworkRequest::host() == host
+            if (guard->getLoginUser().id == userId && guard->networkSession().host() == host
                 && teamChannel(*channelGuard)
                 && roleStatus.toInt() == QNetworkReply::NoError && roles.isArray()) {
                 for (const QJsonValue& value : roles.array()) {
@@ -100,10 +100,10 @@ void Backend::hasChannelPermissions(BackendChannel& channel,
             callback(allowed);
         }));
     };
-    NetworkRequest channelRequest(QStringLiteral("channels/") + channel.id
+    NetworkRequest channelRequest(_networkSession, QStringLiteral("channels/") + channel.id
         + QStringLiteral("/members/") + userId);
     httpConnector.get(channelRequest, HttpResponseCallback(membershipLoaded));
-    NetworkRequest teamRequest(QStringLiteral("teams/") + channel.team->id
+    NetworkRequest teamRequest(_networkSession, QStringLiteral("teams/") + channel.team->id
         + QStringLiteral("/members/") + userId);
     httpConnector.get(teamRequest, HttpResponseCallback(membershipLoaded));
 }
@@ -143,7 +143,7 @@ void Backend::setChannelMemberAdmin(BackendChannel& channel,
 
     const QString channelId = channel.id;
     const QString currentUserId = getLoginUser().id;
-    const QString host = NetworkRequest::host();
+    const QString host = networkSession().host();
     QPointer<Backend> backendGuard(this);
     QPointer<BackendChannel> channelGuard(&channel);
     const auto fail = [callback](const QJsonDocument& doc, const QNetworkReply& reply) {
@@ -156,7 +156,7 @@ void Backend::setChannelMemberAdmin(BackendChannel& channel,
         }
     };
 
-    NetworkRequest request(QStringLiteral("channels/") + channelId
+    NetworkRequest request(_networkSession, QStringLiteral("channels/") + channelId
                            + QStringLiteral("/members/") + userId
                            + QStringLiteral("/schemeRoles"));
     const QJsonObject body {
@@ -169,7 +169,7 @@ void Backend::setChannelMemberAdmin(BackendChannel& channel,
         (const QJsonDocument& response, const QNetworkReply& reply) {
         if (!backendGuard || !channelGuard
             || backendGuard->getLoginUser().id != currentUserId
-            || NetworkRequest::host() != host) {
+            || backendGuard->networkSession().host() != host) {
             return;
         }
         const int code = reply.attribute(
@@ -181,7 +181,7 @@ void Backend::setChannelMemberAdmin(BackendChannel& channel,
 
         // PUT returns only {"status":"OK"}, not the updated member.
         // Read it back before updating the canonical role and the row.
-        NetworkRequest getMember(QStringLiteral("channels/") + channelId
+        NetworkRequest getMember(backendGuard->networkSession(), QStringLiteral("channels/") + channelId
                                  + QStringLiteral("/members/") + userId);
         backendGuard->httpConnector.get(getMember, HttpResponseCallback(
             [backendGuard, channelGuard, channelId, userId, admin, currentUserId,
@@ -189,7 +189,7 @@ void Backend::setChannelMemberAdmin(BackendChannel& channel,
                              const QNetworkReply& memberReply) {
             if (!backendGuard || !channelGuard
                 || backendGuard->getLoginUser().id != currentUserId
-                || NetworkRequest::host() != host) {
+                || backendGuard->networkSession().host() != host) {
                 return;
             }
             const QJsonObject member = memberDoc.object();
@@ -218,7 +218,7 @@ void Backend::addChannelMember(BackendChannel& channel, const QString& userId,
         callback(false, tr("Invalid channel member."));
         return;
     }
-    NetworkRequest request(QStringLiteral("channels/") + channel.id + QStringLiteral("/members"));
+    NetworkRequest request(_networkSession, QStringLiteral("channels/") + channel.id + QStringLiteral("/members"));
     const QJsonObject payload {{QStringLiteral("user_id"), userId}};
     const QString channelId = channel.id;
     QPointer<Backend> guard(this);

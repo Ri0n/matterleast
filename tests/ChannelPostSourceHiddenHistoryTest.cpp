@@ -307,6 +307,8 @@ private slots:
         server.interleaved = true;
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -369,6 +371,8 @@ private slots:
         server.hiddenCount = 0;
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -409,6 +413,8 @@ private slots:
         server.postOverrides.insert(44, rootPost(44, 80));
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -475,6 +481,8 @@ private slots:
         server.hiddenCount = 100;
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto metadata = channelJson(100, 100);
         metadata.insert(QStringLiteral("create_at"), double(timestamp(0)));
         BackendChannel channel(backend.getStorage(), metadata);
@@ -575,6 +583,8 @@ private slots:
         server.viewportResponseDelayMs = 50;
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -625,6 +635,8 @@ private slots:
         server.hiddenCount = 40;
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(backend.getStorage(), channelJson(19, 40));
         ChannelPostSource raw(backend, channel);
         FilteredPostSource visible(raw, mainTimelinePost);
@@ -651,6 +663,8 @@ private slots:
         server.hiddenCount = 40;
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(backend.getStorage(), channelJson(19, 40));
         ChannelPostSource raw(backend, channel);
         FilteredPostSource visible(raw, mainTimelinePost);
@@ -684,6 +698,8 @@ private slots:
         QVERIFY(server.start());
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
@@ -791,6 +807,8 @@ private slots:
         server.hiddenCount = hiddenCount;
         QVERIFY(server.start());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("self")},
             {QStringLiteral("username"), QStringLiteral("self")}
