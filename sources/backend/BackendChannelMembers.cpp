@@ -70,7 +70,7 @@ void Backend::hasChannelPermissions(BackendChannel& channel,
         // admin flag (or a built-in role name) grants membership management.
         QJsonArray names;
         for (const QString& name : std::as_const(state->names)) names.append(name);
-        NetworkRequest request(_networkSession, QStringLiteral("roles/names"));
+        NetworkRequest request(guard->networkSession(), QStringLiteral("roles/names"));
         guard->httpConnector.post(request, names, HttpResponseCallback(
             [guard, channelGuard, userId, host, required, callback]
             (QVariant roleStatus, const QJsonDocument& roles) {
@@ -181,7 +181,7 @@ void Backend::setChannelMemberAdmin(BackendChannel& channel,
 
         // PUT returns only {"status":"OK"}, not the updated member.
         // Read it back before updating the canonical role and the row.
-        NetworkRequest getMember(_networkSession, QStringLiteral("channels/") + channelId
+        NetworkRequest getMember(backendGuard->networkSession(), QStringLiteral("channels/") + channelId
                                  + QStringLiteral("/members/") + userId);
         backendGuard->httpConnector.get(getMember, HttpResponseCallback(
             [backendGuard, channelGuard, channelId, userId, admin, currentUserId,
