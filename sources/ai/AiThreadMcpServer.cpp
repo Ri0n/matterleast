@@ -91,22 +91,21 @@ AiThreadMcpServer& AiThreadMcpServer::instance(Backend& backend)
 {
     // MCP credentials are tied to exactly one Backend. A process singleton
     // would silently expose the first account's socket to another account.
-    if (auto* existing = backend.findChild<AiThreadMcpServer*>(
-            QString(), Qt::FindDirectChildrenOnly)) {
-        return *existing;
+    auto* server = backend.findChild<AiThreadMcpServer*>(
+        QString(), Qt::FindDirectChildrenOnly);
+    if (!server) {
+        server = new AiThreadMcpServer(backend);
     }
-    return *new AiThreadMcpServer(backend);
+    // Backend::reset() disconnects its QObject signals. Reconnect on the
+    // next access without duplicate handlers after the next login.
+    QObject::connect(&backend, &Backend::sessionEnding, server,
+                     &AiThreadMcpServer::revokeAllSessions, Qt::UniqueConnection);
+    return *server;
 }
 
 AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
     : QObject(&backend), _backend(backend)
 {
-    // A local MCP token must not become valid again after the same user logs
-    // back in on the same server. Revoke it at the account session boundary.
-    connect(&_backend, &Backend::sessionEnding, this, [this] {
-        _sessions.clear();
-        stopListening();
-    });
     // Never listen as a side effect of constructing the UI. The endpoint is
     // created lazily, only after explicit user opt-in and opening an AI chat.
     _server.setSocketOptions(QLocalServer::UserAccessOption);
@@ -116,8 +115,7 @@ AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
             [this](const QVariant& value) {
         if (value.toBool()) return;
         // Revocation is immediate even if an AI chat or subprocess remains open.
-        _sessions.clear();
-        stopListening();
+        revokeAllSessions();
     });
 
     connect(&_server, &QLocalServer::newConnection, this, [this] {
@@ -184,6 +182,12 @@ void AiThreadMcpServer::revokeSession(const QString& token)
 {
     if (_sessions.remove(token) && _sessions.isEmpty())
         stopListening();
+}
+
+void AiThreadMcpServer::revokeAllSessions()
+{
+    _sessions.clear();
+    stopListening();
 }
 
 void AiThreadMcpServer::stopListening()
