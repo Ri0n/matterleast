@@ -103,7 +103,9 @@ HTTPConnector::HTTPConnector(NetworkSessionContext* session,
                              LocalPostDeleteTracker* deletionTracker)
     : sessionContext(session)
     , postDeleteTracker(deletionTracker)
-    , qnetworkManager(createNetworkManager(session, {}))
+    , qnetworkManager(session
+        ? std::unique_ptr<QNetworkAccessManager>()
+        : createNetworkManager(nullptr, {}))
 {
 	connectors.insert(this);
 
@@ -181,7 +183,9 @@ void HTTPConnector::reset ()
     // Destroy the old network manager while multipart request bodies are still
     // alive. Its replies may still reference their multipart body during
     // teardown.
-	qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
+	qnetworkManager = sessionContext
+        ? std::unique_ptr<QNetworkAccessManager>()
+        : createNetworkManager(nullptr, accountCacheDirectory);
     activeMultipartRequests.clear();
 	processQueues();
 }
@@ -204,6 +208,10 @@ void HTTPConnector::restartAllTransports ()
 
 void HTTPConnector::restartTransport ()
 {
+    // Unused account services have no network manager to restart.
+    if (!qnetworkManager && highPriorityRequests.isEmpty()
+        && lowPriorityRequests.isEmpty())
+        return;
 	if (restartingTransport) {
 		return;
 	}
@@ -254,7 +262,9 @@ void HTTPConnector::restartTransport ()
 		return;
 	}
 
-	qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
+	qnetworkManager = sessionContext
+        ? std::unique_ptr<QNetworkAccessManager>()
+        : createNetworkManager(nullptr, accountCacheDirectory);
 	restartingTransport = false;
 	processQueues();
 }
@@ -438,6 +448,9 @@ void HTTPConnector::processQueues()
 
 void HTTPConnector::startRequest(PendingRequest request)
 {
+    // Create isolated network resources only when this feature makes a request.
+    if (!qnetworkManager)
+        qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
 	if (request.jsonData) {
 		request.request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 	}

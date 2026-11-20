@@ -291,7 +291,7 @@ private:
     // Must outlive callback/residency members during reverse member destruction.
     bool shuttingDown = false;
     Backend& backend;
-    HTTPConnector httpConnector;
+    HTTPConnector& httpConnector;
     PostCacheService postCache;
     struct ResidentObservation {
         quint64 sequence = 0;

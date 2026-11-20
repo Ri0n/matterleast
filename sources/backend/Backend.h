@@ -316,6 +316,9 @@ public:
 
 	Storage& getStorage ();
 
+    // Account-scoped transport. Ordinary services reuse this manager/queue;
+    // independently cancellable services own a connector bound to the session.
+    HTTPConnector& httpTransport() { return httpConnector; }
     NetworkSessionContext& networkSession() { return _networkSession; }
     const NetworkSessionContext& networkSession() const { return _networkSession; }
     EmojiRegistry& emojiRegistry() { return _emojiRegistry; }
