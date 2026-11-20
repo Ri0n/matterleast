@@ -128,6 +128,8 @@ private slots:
     void profileDisplaysCustomStatusAndTracksEdits()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         const QJsonObject customStatus {
             {QStringLiteral("emoji"), QStringLiteral("coffee")},
             {QStringLiteral("text"), QStringLiteral("<focus & work>")},
@@ -456,6 +458,8 @@ private slots:
         });
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         QVERIFY(backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")}},
             true));
@@ -618,6 +622,8 @@ private slots:
         });
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendUser* user = backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")},
                          {QStringLiteral("username"), QStringLiteral("user")}},
@@ -697,6 +703,8 @@ private slots:
         });
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendUser* user = backend.getStorage().addUser(
             QJsonObject {{QStringLiteral("id"), QStringLiteral("user-1")},
                          {QStringLiteral("username"), QStringLiteral("user")}},

@@ -101,6 +101,8 @@ private slots:
     void ownEmojiOnlyCustomStatusAppearsOnPostHeader()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         const QJsonObject customStatus {
             {QStringLiteral("emoji"), QStringLiteral("coffee")},
             {QStringLiteral("text"), QString()},
@@ -142,6 +144,8 @@ private slots:
     void lateProfileUpdatesAlreadyVisibleAuthor()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto post = makePost(backend.getStorage());
         QCOMPARE(post.author, nullptr);
 
@@ -186,6 +190,8 @@ private slots:
     void directChatSubscribesToLatePeerPresence()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         const QString selfId = QStringLiteral("local-user");
         QVERIFY(storage.addUser({{QStringLiteral("id"), selfId},
@@ -236,6 +242,8 @@ private slots:
             QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* peer = backend.getStorage().addUser(userJson());
         QVERIFY(peer);
         peer->status = QStringLiteral("away");
@@ -269,6 +277,8 @@ private slots:
     void dottedMentionsRemainClickableAfterBodyRebuild()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         BackendUser* author = backend.getStorage().addUser(userJson());
         QVERIFY(author);
         auto post = BackendPost(QJsonObject {
@@ -354,6 +364,8 @@ private slots:
             QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& profiles = UserProfileService::instance(backend);
         int callbackCount = 0;
         const BackendUser* resolved = nullptr;

@@ -285,6 +285,8 @@ private slots:
             QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* channel = backend.getStorage().addGroupChannel(
@@ -310,6 +312,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* channel = storage.addGroupChannel(QJsonObject {{"id", "channel"}, {"type", "G"}});
@@ -337,6 +341,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "old"}});
@@ -364,6 +370,8 @@ private slots:
         NetworkRequest::setHost(
             QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {
             {QStringLiteral("id"), QStringLiteral("user")},
@@ -453,6 +461,8 @@ private slots:
         QSystemTrayIcon tray;
         {
             Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
             backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
             MainWindow window(nullptr, tray, backend);
             window.show();
@@ -502,6 +512,8 @@ private slots:
         }
         {
             Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
             backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
             MainWindow window(nullptr, tray, backend);
             window.show();
@@ -545,6 +557,8 @@ private slots:
         // before the one-time restoreSession() readiness gate has run.
         MLOptions::instance()->setValue(sessionKey(), QByteArray());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -597,6 +611,8 @@ private slots:
             sessionKey(), QJsonDocument(snapshot).toJson(QJsonDocument::Compact));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -648,6 +664,8 @@ private slots:
                 .toJson(QJsonDocument::Compact));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -714,6 +732,8 @@ private slots:
                 .toJson(QJsonDocument::Compact));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -803,6 +823,8 @@ private slots:
                 .toJson(QJsonDocument::Compact));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -933,6 +955,8 @@ private slots:
                                     {"active_tab", destination}};
         MLOptions::instance()->setValue(sessionKey(), QJsonDocument(snapshot).toJson());
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
         MainWindow window(nullptr, tray, backend);
@@ -963,6 +987,8 @@ private slots:
             {"tabs", QJsonArray {destination}}, {"active_tab", destination}}).toJson();
         MLOptions::instance()->setValue(sessionKey(), original);
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {{"id", "other-user"}, {"username", "other"}}, true);
         QSystemTrayIcon tray;
         MainWindow window(nullptr, tray, backend);
@@ -981,6 +1007,8 @@ private slots:
         // Synthetic posts only: no IDs, timestamps or message contents from
         // production conversations or diagnostic logs.
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "tester"}, {"username", "me"}}, true);
         storage.addUser(QJsonObject {{"id", "sender"}, {"username", "colleague"}});
@@ -1022,6 +1050,8 @@ private slots:
                                     .arg(server.serverPort()));
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         storage.addUser(QJsonObject {{"id", "peer"}, {"username", "peer"}});
@@ -1069,6 +1099,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
@@ -1136,6 +1168,8 @@ private slots:
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, false);
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -1211,6 +1245,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
@@ -1308,6 +1344,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
@@ -1412,6 +1450,8 @@ private slots:
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -1561,6 +1601,8 @@ private slots:
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -1688,6 +1730,8 @@ private slots:
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
@@ -1767,6 +1811,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
@@ -1838,6 +1884,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "team"}});
@@ -1927,6 +1975,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* channel = backend.getStorage().addGroupChannel(
             QJsonObject {{"id", "channel"}, {"type", "G"}});
@@ -1955,6 +2005,8 @@ private slots:
     void rootDeliveredByAnotherRequestResolvesSummary()
     {
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* channel = backend.getStorage().addGroupChannel(
             QJsonObject {{"id", "channel"}, {"type", "G"}});
@@ -1978,6 +2030,8 @@ private slots:
         formatOption->setValue(true);
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto& storage = backend.getStorage();
         storage.addUser(
             QJsonObject{{"id", "user"}, {"username", "tester"}}, true);
@@ -2122,6 +2176,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* channel = backend.getStorage().addGroupChannel(
             QJsonObject {{"id", "channel"}, {"type", "G"}});
@@ -2155,6 +2211,8 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         auto* channel = backend.getStorage().addGroupChannel(
             QJsonObject {{"id", "channel"}, {"type", "G"}});

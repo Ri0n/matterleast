@@ -128,6 +128,8 @@ private slots:
         });
 
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         Storage& storage = backend.getStorage();
         storage.addUser(QJsonObject{
             {"id", "user-1"}, {"username", "user-1"}

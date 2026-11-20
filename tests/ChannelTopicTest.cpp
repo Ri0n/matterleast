@@ -128,6 +128,8 @@ private slots:
         QVERIFY(prepare(server));
         server.returnedHeader = QStringLiteral("New **Markdown** topic");
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         QSignalSpy changed(channel, &BackendChannel::onUpdated);
@@ -160,6 +162,8 @@ private slots:
         QVERIFY(prepare(server));
         server.httpStatus = 403;
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         QSignalSpy changed(channel, &BackendChannel::onUpdated);
@@ -183,6 +187,8 @@ private slots:
         FakeChannelServer server;
         QVERIFY(prepare(server));
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         int responses = 0;
@@ -206,6 +212,8 @@ private slots:
         QVERIFY(prepare(server));
         server.httpStatus = 403;
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         ChannelTopicEditDialog dialog(backend, *channel);
@@ -242,6 +250,8 @@ private slots:
         QVERIFY(prepare(server));
         server.returnedHeader = QStringLiteral("Updated topic");
         Backend backend;
+        // Tests without login explicitly supply this Backend's server origin.
+        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         ChannelTopicEditDialog dialog(backend, *channel);
