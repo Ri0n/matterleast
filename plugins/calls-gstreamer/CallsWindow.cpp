@@ -9,6 +9,8 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QMenu>
+#include <QAction>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
@@ -49,6 +51,25 @@ QIcon microphoneIcon(const QColor& ink, bool muted)
     if (muted) {
         painter.setPen(QPen(ink, 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         painter.drawLine(QPointF(11, 11), QPointF(37, 37));
+    }
+    return QIcon(pixmap);
+}
+
+QIcon cameraIcon(const QColor& ink, bool disabled)
+{
+    QPixmap pixmap(48, 48);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(ink, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.drawRoundedRect(QRectF(8, 15, 24, 19), 4, 4);
+    painter.drawLine(QPointF(32, 20), QPointF(41, 15));
+    painter.drawLine(QPointF(41, 15), QPointF(41, 34));
+    painter.drawLine(QPointF(41, 34), QPointF(32, 29));
+    if (disabled) {
+        painter.setPen(QPen(ink, 4, Qt::SolidLine, Qt::RoundCap));
+        painter.drawLine(QPointF(7, 8), QPointF(43, 40));
     }
     return QIcon(pixmap);
 }
@@ -154,8 +175,8 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     stageLayout->addWidget(placeholder_, 1);
     layout->addWidget(stage, 1);
 
-    // Audio-only subset of Psi's one-row call controls. Never display
-    // camera/share/device/security controls that the provider cannot use.
+    // Psi-like one-row controls. Disabled camera controls explain missing
+    // capabilities rather than silently disappearing from the call window.
     auto* dock = new QFrame(this);
     dock->setObjectName(QStringLiteral("callsControls"));
     auto* controls = new QHBoxLayout(dock);
@@ -168,6 +189,42 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     microphone_->setFixedSize(48, 44);
     microphone_->setCursor(Qt::PointingHandCursor);
     controls->addWidget(microphone_);
+    microphoneDevices_ = new QToolButton(dock);
+    microphoneDevices_->setObjectName(QStringLiteral("callsMicrophoneDevices"));
+    microphoneDevices_->setArrowType(Qt::DownArrow);
+    microphoneDevices_->setPopupMode(QToolButton::InstantPopup);
+    microphoneDevices_->setFixedSize(22, 44);
+    microphoneDevices_->setCursor(Qt::PointingHandCursor);
+    microphoneDevices_->setMenu(new QMenu(microphoneDevices_));
+    microphoneDevices_->setToolTip(tr("Choose microphone"));
+    microphoneDevices_->setAccessibleName(microphoneDevices_->toolTip());
+    controls->addWidget(microphoneDevices_);
+    connect(microphoneDevices_->menu(), &QMenu::aboutToShow, this, [this] {
+        if (refreshDevices_) refreshDevices_();
+        rebuildMicrophoneDeviceMenu();
+    });
+
+    cameraButton_ = new QToolButton(dock);
+    cameraButton_->setObjectName(QStringLiteral("callsCamera"));
+    cameraButton_->setCheckable(true);
+    cameraButton_->setIconSize(QSize(24, 24));
+    cameraButton_->setFixedSize(48, 44);
+    cameraButton_->setCursor(Qt::PointingHandCursor);
+    controls->addWidget(cameraButton_);
+    cameraDevices_ = new QToolButton(dock);
+    cameraDevices_->setObjectName(QStringLiteral("callsCameraDevices"));
+    cameraDevices_->setArrowType(Qt::DownArrow);
+    cameraDevices_->setPopupMode(QToolButton::InstantPopup);
+    cameraDevices_->setFixedSize(22, 44);
+    cameraDevices_->setCursor(Qt::PointingHandCursor);
+    cameraDevices_->setMenu(new QMenu(cameraDevices_));
+    cameraDevices_->setToolTip(tr("Choose camera"));
+    cameraDevices_->setAccessibleName(cameraDevices_->toolTip());
+    controls->addWidget(cameraDevices_);
+    connect(cameraDevices_->menu(), &QMenu::aboutToShow, this, [this] {
+        if (refreshDevices_) refreshDevices_();
+        rebuildCameraDeviceMenu();
+    });
     controls->addStretch(1);
 
     endButton_ = new QPushButton(dock);
@@ -179,6 +236,13 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     controls->addWidget(endButton_);
     layout->addWidget(dock);
 
+    connect(cameraButton_, &QToolButton::toggled, this, [this](bool enabled) {
+        if (!toggleCamera_ || !toggleCamera_(enabled)) {
+            const QSignalBlocker blocker(cameraButton_);
+            cameraButton_->setChecked(cameraEnabled_);
+        }
+        updateCameraIcon();
+    });
     connect(microphone_, &QToolButton::toggled, this, [this](bool enabled) {
         if (!mute_ || !mute_(!enabled)) {
             const QSignalBlocker guard(microphone_);
@@ -204,6 +268,250 @@ CallsWindow::CallsWindow(MuteHandler mute, EndHandler end,
     connect(&elapsedTick_, &QTimer::timeout, this, [this] { updateTimerLabel(); });
     updateAppearance();
     updateSnapshot({});
+}
+
+void CallsWindow::setMicrophoneDeviceHandlers(
+    DeviceSelectionHandler choose, RefreshDevicesHandler refresh)
+{
+    chooseMicrophone_ = std::move(choose);
+    refreshDevices_ = std::move(refresh);
+}
+
+void CallsWindow::setMicrophoneDevices(const QList<CallsMediaDevice>& available,
+                                       const QString& selectedId)
+{
+    availableMicrophones_.clear();
+    QHash<QString, int> indexByName;
+    for (const auto& item : available) {
+        if (item.kind != CallsDeviceKind::Microphone || item.id.isEmpty()) {
+            continue;
+        }
+        const QString key = item.displayName.simplified().toCaseFolded();
+        const auto existing = indexByName.constFind(key);
+        if (existing == indexByName.cend()) {
+            indexByName.insert(key, availableMicrophones_.size());
+            availableMicrophones_.append(item);
+        } else if (item.id == selectedId) {
+            // Keep the selected backend for the same logical microphone.
+            availableMicrophones_[existing.value()] = item;
+        }
+    }
+    selectedMicrophoneId_ = selectedId;
+    if (microphoneDevices_->menu()->isVisible()) {
+        rebuildMicrophoneDeviceMenu();
+    }
+}
+
+void CallsWindow::rebuildMicrophoneDeviceMenu()
+{
+    updateDeviceMenu(microphoneDevices_->menu(), availableMicrophones_,
+                     selectedMicrophoneId_, CallsDeviceKind::Microphone);
+}
+
+// Reconcile the menu in place. Device-monitor updates can arrive while the
+// popup is open; clearing and recreating all actions disrupts mouse selection
+// and is unnecessary for a changed device set.
+void CallsWindow::updateDeviceMenu(QMenu* menu,
+                                    const QList<CallsMediaDevice>& devices,
+                                    const QString& selectedId,
+                                    CallsDeviceKind kind)
+{
+    QHash<QString, QAction*> existing;
+    QAction* separator = nullptr;
+    for (QAction* action : menu->actions()) {
+        if (action->isSeparator()) {
+            if (!separator) {
+                separator = action;
+            } else {
+                menu->removeAction(action);
+                action->deleteLater();
+            }
+            continue;
+        }
+        const QString id = action->data().toString();
+        if (existing.contains(id)) {
+            menu->removeAction(action);
+            action->deleteLater();
+        } else {
+            existing.insert(id, action);
+        }
+    }
+
+    const auto ensureAction = [this, menu, kind, &existing, &selectedId](
+                                  const QString& id, const QString& title) {
+        QAction* action = existing.take(id);
+        if (!action) {
+            action = menu->addAction(title);
+            action->setData(id);
+            action->setCheckable(true);
+            connect(action, &QAction::triggered, this, [this, kind, id] {
+                if (kind == CallsDeviceKind::Microphone) {
+                    if (chooseMicrophone_) chooseMicrophone_(id);
+                } else if (chooseCamera_) {
+                    chooseCamera_(id);
+                }
+            });
+        }
+        action->setText(title);
+        action->setChecked(id == selectedId);
+    };
+
+    ensureAction({}, tr("System default"));
+    if (devices.isEmpty()) {
+        if (separator) {
+            menu->removeAction(separator);
+            separator->deleteLater();
+        }
+    } else if (!separator) {
+        menu->addSeparator();
+    }
+    QSet<QString> seen;
+    for (const CallsMediaDevice& device : devices) {
+        if (device.id.isEmpty() || seen.contains(device.id)) continue;
+        seen.insert(device.id);
+        ensureAction(device.id, device.displayName);
+    }
+    // Deleting obsolete actions later avoids destroying the object under a
+    // QMenu event handler during asynchronous device hot-plug changes.
+    for (QAction* obsolete : existing) {
+        menu->removeAction(obsolete);
+        obsolete->deleteLater();
+    }
+}
+
+void CallsWindow::setCameraHandlers(CameraHandler toggle,
+                                     DeviceSelectionHandler choose)
+{
+    toggleCamera_ = std::move(toggle);
+    chooseCamera_ = std::move(choose);
+    updateControls();
+}
+
+void CallsWindow::setCameraAvailable(bool available,
+                                     const QString& unavailableReason)
+{
+    cameraAvailable_ = available;
+    cameraUnavailableReason_ = available ? QString() : unavailableReason;
+    updateControls();
+}
+
+void CallsWindow::setCameraState(bool enabled)
+{
+    cameraEnabled_ = enabled;
+    updateControls();
+}
+
+void CallsWindow::setCameraDevices(const QList<CallsMediaDevice>& available,
+                                   const QString& selectedId)
+{
+    availableCameras_.clear();
+    QHash<QString, int> indexByName;
+    for (const auto& item : available) {
+        if (item.kind != CallsDeviceKind::Camera || item.id.isEmpty()) {
+            continue;
+        }
+        const QString key = item.displayName.simplified().toCaseFolded();
+        const auto existing = indexByName.constFind(key);
+        if (existing == indexByName.cend()) {
+            indexByName.insert(key, availableCameras_.size());
+            availableCameras_.append(item);
+        } else if (item.id == selectedId) {
+            availableCameras_[existing.value()] = item;
+        }
+    }
+    selectedCameraId_ = selectedId;
+    if (cameraDevices_->menu()->isVisible()) rebuildCameraDeviceMenu();
+}
+
+void CallsWindow::rebuildCameraDeviceMenu()
+{
+    updateDeviceMenu(cameraDevices_->menu(), availableCameras_,
+                     selectedCameraId_, CallsDeviceKind::Camera);
+}
+
+void CallsWindow::setParticipantSpeaking(const QString& sessionId, bool speaking)
+{
+    if (sessionId.isEmpty()) return;
+    participantSpeaking_.insert(sessionId, speaking);
+    refreshParticipantActivity(sessionId);
+}
+
+void CallsWindow::setParticipantHandRaised(const QString& sessionId, bool raised)
+{
+    if (sessionId.isEmpty()) return;
+    participantRaisedHand_.insert(sessionId, raised);
+    refreshParticipantActivity(sessionId);
+}
+
+void CallsWindow::setParticipantScreenSharing(const QString& sessionId, bool sharing)
+{
+    if (sessionId.isEmpty()) return;
+    participantScreenSharing_.insert(sessionId, sharing);
+    refreshParticipantActivity(sessionId);
+}
+
+void CallsWindow::refreshParticipantActivity(const QString& sessionId)
+{
+    const auto tile = tiles_.constFind(sessionId);
+    if (tile == tiles_.cend() || !tile.value().activity) return;
+    QStringList statuses;
+    if (participantSpeaking_.value(sessionId, false)) {
+        statuses.append(tr("Speaking"));
+    }
+    if (participantRaisedHand_.value(sessionId, false)) {
+        statuses.append(tr("Hand raised"));
+    }
+    if (participantScreenSharing_.value(sessionId, false)) {
+        statuses.append(tr("Sharing screen"));
+    }
+    tile.value().activity->setText(statuses.join(QStringLiteral(" · ")));
+    tile.value().activity->setVisible(!statuses.isEmpty());
+}
+
+void CallsWindow::setParticipantCameraState(const QString& sessionId, bool enabled)
+{
+    if (sessionId.isEmpty()) return;
+    participantVideoEnabled_.insert(sessionId, enabled);
+    if (!enabled) participantVideo_.remove(sessionId);
+    refreshParticipantVideo(sessionId);
+}
+
+void CallsWindow::setParticipantVideo(const QString& sessionId,
+                                      const QImage& image)
+{
+    if (sessionId.isEmpty()) return;
+    if (image.isNull()) participantVideo_.remove(sessionId);
+    else participantVideo_.insert(sessionId, image);
+    refreshParticipantVideo(sessionId);
+}
+
+void CallsWindow::refreshParticipantVideo(const QString& sessionId)
+{
+    const auto it = tiles_.constFind(sessionId);
+    if (it == tiles_.cend() || !it.value().video) return;
+    auto* label = it.value().video;
+    const bool active = participantVideoEnabled_.value(sessionId, false);
+    const auto frame = participantVideo_.constFind(sessionId);
+    label->setVisible(active);
+    it.value().avatar->setVisible(!active);
+    if (!active) return;
+    if (frame == participantVideo_.cend() || frame.value().isNull()) {
+        label->clear();
+        label->setText(tr("Camera on"));
+        return;
+    }
+    const int width = qMax(100, it.value().frame->width() - 22);
+    label->setPixmap(QPixmap::fromImage(frame.value()).scaled(
+        QSize(width, 152), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+}
+
+void CallsWindow::updateCameraIcon()
+{
+    if (!cameraButton_) return;
+    const QColor ink = cameraButton_->isChecked()
+        ? palette().color(QPalette::HighlightedText)
+        : palette().color(QPalette::ButtonText);
+    cameraButton_->setIcon(cameraIcon(ink, !cameraButton_->isChecked()));
 }
 
 QString CallsWindow::participantLabel(const QString& userId)
@@ -239,6 +547,11 @@ void CallsWindow::updateParticipants(const QList<CallsParticipant>& participants
         }
         grid_->removeWidget(it.value().frame);
         delete it.value().frame;
+        participantVideo_.remove(it.key());
+        participantVideoEnabled_.remove(it.key());
+        participantSpeaking_.remove(it.key());
+        participantRaisedHand_.remove(it.key());
+        participantScreenSharing_.remove(it.key());
         it = tiles_.erase(it);
         membershipChanged = true;
     }
@@ -270,14 +583,30 @@ void CallsWindow::updateParticipants(const QList<CallsParticipant>& participants
             tile.title->setAlignment(Qt::AlignCenter);
             tile.title->setTextFormat(Qt::PlainText);
             tile.title->setMinimumWidth(0);
+            tile.video = new QLabel(tile.frame);
+            tile.video->setObjectName(QStringLiteral("callsParticipantVideo"));
+            tile.video->setAlignment(Qt::AlignCenter);
+            tile.video->setTextFormat(Qt::PlainText);
+            tile.video->setMinimumSize(0, 0);
+            tile.video->setFixedHeight(152);
+            tile.video->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            tile.video->hide();
             tile.microphone = new QLabel(tile.frame);
             tile.microphone->setObjectName(QStringLiteral("callsParticipantMute"));
             tile.microphone->setAlignment(Qt::AlignCenter);
             tile.microphone->setTextFormat(Qt::PlainText);
+            tile.activity = new QLabel(tile.frame);
+            tile.activity->setObjectName(QStringLiteral("callsParticipantActivity"));
+            tile.activity->setAlignment(Qt::AlignCenter);
+            tile.activity->setTextFormat(Qt::PlainText);
+            tile.activity->setWordWrap(true);
+            tile.activity->hide();
             box->addStretch(1);
             box->addWidget(tile.avatar, 0, Qt::AlignHCenter);
+            box->addWidget(tile.video);
             box->addWidget(tile.title);
             box->addWidget(tile.microphone);
+            box->addWidget(tile.activity);
             box->addStretch(1);
             tiles_.insert(participant.sessionId, tile);
         }
@@ -295,6 +624,8 @@ void CallsWindow::updateParticipants(const QList<CallsParticipant>& participants
                                        : participant.userId.left(1).toUpper());
         tile.microphone->setText(participant.microphoneMuted ? tr("Microphone off")
                                                             : tr("Microphone on"));
+        refreshParticipantVideo(participant.sessionId);
+        refreshParticipantActivity(participant.sessionId);
     }
     tileOrder_ = nextOrder;
     if (membershipChanged) tileColumns_ = 0;
@@ -422,6 +753,31 @@ void CallsWindow::updateControls()
         microphone_->setChecked(connected && !snapshot_.microphoneMuted);
     }
     microphone_->setEnabled(connected);
+    microphoneDevices_->setEnabled(connected && bool(chooseMicrophone_));
+    cameraButton_->setEnabled(connected && cameraAvailable_
+                              && bool(toggleCamera_));
+    cameraDevices_->setEnabled(connected && cameraAvailable_
+                               && bool(chooseCamera_));
+    {
+        const QSignalBlocker guard(cameraButton_);
+        cameraButton_->setChecked(cameraEnabled_);
+    }
+    QString cameraTip;
+    if (!cameraAvailable_) {
+        cameraTip = cameraUnavailableReason_.isEmpty()
+            ? tr("Camera is unavailable for this call")
+            : cameraUnavailableReason_;
+    } else if (!connected) {
+        cameraTip = tr("Camera will be available after connecting");
+    } else {
+        cameraTip = cameraEnabled_ ? tr("Turn camera off") : tr("Turn camera on");
+    }
+    cameraButton_->setToolTip(cameraTip);
+    cameraButton_->setAccessibleName(cameraTip);
+    cameraButton_->setStatusTip(cameraTip);
+    cameraDevices_->setToolTip(cameraAvailable_ ? tr("Choose camera") : cameraTip);
+    cameraDevices_->setAccessibleName(cameraDevices_->toolTip());
+    updateCameraIcon();
     microphone_->setToolTip(snapshot_.microphoneMuted ? tr("Unmute microphone")
                                                       : tr("Mute microphone"));
     microphone_->setAccessibleName(microphone_->toolTip());
@@ -474,14 +830,23 @@ void CallsWindow::updateAppearance()
         "QFrame#callsParticipantTile { background: %3; border: 1px solid %2; border-radius: 10px; }"
         "QLabel#callsParticipantAvatar { background: %4; color: %5; border-radius: 26px; }"
         "QLabel#callsHeaderSubtitle, QLabel#callsParticipantMute,"
+        " QLabel#callsParticipantActivity,"
         " QLabel#callsParticipantCount, QLabel#callsPlaceholder { color: %6; }"
         "QFrame#callsControls { background: %7; border: 1px solid %2; border-radius: 10px; }"
-        "QToolButton#callsMicrophone { background: %7; color: %8; border: 1px solid %2;"
+        "QToolButton#callsMicrophone, QToolButton#callsMicrophoneDevices,"
+        " QToolButton#callsCamera, QToolButton#callsCameraDevices { background: %7; color: %8; border: 1px solid %2;"
         " border-radius: 8px; }"
-        "QToolButton#callsMicrophone:hover { border-color: %4; }"
-        "QToolButton#callsMicrophone:focus { border: 2px solid %4; }"
-        "QToolButton#callsMicrophone:checked { background: %4; color: %5; border-color: %4; }"
-        "QToolButton#callsMicrophone:disabled { background: %7; border-color: %2; }"
+        "QToolButton#callsMicrophone:hover, QToolButton#callsMicrophoneDevices:hover,"
+        " QToolButton#callsCamera:hover, QToolButton#callsCameraDevices:hover { border-color: %4; }"
+        "QToolButton#callsMicrophone:focus, QToolButton#callsMicrophoneDevices:focus,"
+        " QToolButton#callsCamera:focus, QToolButton#callsCameraDevices:focus { border: 2px solid %4; }"
+        "QToolButton#callsMicrophone:checked, QToolButton#callsCamera:checked { background: %4; color: %5; border-color: %4; }"
+        // Qt paints a second menu-indicator on InstantPopup tool buttons.
+        // Retain our centered DownArrow but suppress this extra glyph.
+        "QToolButton#callsMicrophoneDevices::menu-indicator,"
+        " QToolButton#callsCameraDevices::menu-indicator { image: none; width: 0px; height: 0px; }"
+        "QToolButton#callsMicrophone:disabled, QToolButton#callsMicrophoneDevices:disabled,"
+        " QToolButton#callsCamera:disabled, QToolButton#callsCameraDevices:disabled { background: %7; border-color: %2; }"
         "QPushButton#callsEnd { background: #b9374b; color: white; border: none;"
         " border-radius: 8px; padding: 6px 12px; font-weight: 600; }"
         "QPushButton#callsEnd:hover { background: #a52e41; }"
@@ -490,6 +855,7 @@ void CallsWindow::updateAppearance()
         .arg(stage.name(), border.name(), tile.name(), accent.name(),
              accentInk.name(), secondary.name(), button.name(), buttonInk.name()));
     updateMicrophoneIcon();
+    updateCameraIcon();
     updatingAppearance_ = false;
 }
 

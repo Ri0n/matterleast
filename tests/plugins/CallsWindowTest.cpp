@@ -5,6 +5,8 @@
 #include <QGridLayout>
 #include <QScrollArea>
 #include <QLabel>
+#include <QMenu>
+#include <QAction>
 #include <QPushButton>
 #include <QToolButton>
 
@@ -89,6 +91,167 @@ private slots:
 
         window.close();
         QCOMPARE(leaves, 1);
+    }
+
+    void microphoneDeviceSelection()
+    {
+        QString chosen;
+        int refreshes = 0;
+        CallsWindow window([](bool) { return true; }, [] {});
+        window.setMicrophoneDeviceHandlers(
+            [&](const QString& id) { chosen = id; },
+            [&] { ++refreshes; });
+        CallsSnapshot state;
+        state.state = CallsState::Connected;
+        state.channelId = QStringLiteral("dm-1");
+        window.showForCall(state, QStringLiteral("Direct"));
+        auto* select = window.findChild<QToolButton*>(
+            QStringLiteral("callsMicrophoneDevices"));
+        QVERIFY(select);
+        QVERIFY(select->isEnabled());
+        QCOMPARE(select->arrowType(), Qt::DownArrow);
+        QList<CallsMediaDevice> available {
+            {QStringLiteral("microphone-one"), QStringLiteral("USB microphone"),
+             CallsDeviceKind::Microphone},
+            {QStringLiteral("microphone-two"), QStringLiteral("Laptop microphone"),
+             CallsDeviceKind::Microphone}
+        };
+        window.setMicrophoneDevices(available, QStringLiteral("microphone-one"));
+        QVERIFY(select->menu());
+        emit select->menu()->aboutToShow();
+        QCOMPARE(refreshes, 1);
+        QCOMPARE(select->menu()->actions().size(), 4); // Default, separator, two devices
+        QCOMPARE(select->menu()->actions().at(2)->text(), QStringLiteral("USB microphone"));
+        QVERIFY(select->menu()->actions().at(2)->isChecked());
+        QAction* firstDeviceAction = select->menu()->actions().at(2);
+        // Hot-plug can report the same native GstDevice twice; it must not
+        // create duplicate rows or replace existing popup actions.
+        available.append(available.first());
+        // The same physical source may be reported by PulseAudio and ALSA
+        // with different GstDevice IDs (properties differ by provider).
+        available.append({QStringLiteral("microphone-alsa"),
+                          QStringLiteral("USB  microphone"),
+                          CallsDeviceKind::Microphone});
+        available.append({QStringLiteral("microphone-third"),
+                          QStringLiteral("Laptop microphone"),
+                          CallsDeviceKind::Microphone});
+        window.setMicrophoneDevices(available, QStringLiteral("microphone-one"));
+        emit select->menu()->aboutToShow();
+        QCOMPARE(select->menu()->actions().size(), 4);
+        QCOMPARE(select->menu()->actions().at(2), firstDeviceAction);
+        available.append({QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+                          CallsDeviceKind::Camera});
+        window.setMicrophoneDevices(available, QStringLiteral("microphone-one"));
+        emit select->menu()->aboutToShow();
+        QCOMPARE(select->menu()->actions().size(), 4);
+        select->menu()->actions().at(3)->trigger();
+        QCOMPARE(chosen, QStringLiteral("microphone-two"));
+        window.setMicrophoneDevices(available, chosen);
+        emit select->menu()->aboutToShow();
+        QVERIFY(select->menu()->actions().at(3)->isChecked());
+
+        state.state = CallsState::Leaving;
+        window.updateSnapshot(state);
+        QVERIFY(!select->isEnabled());
+    }
+
+    void cameraControlsAndParticipantVideo()
+    {
+        QList<bool> cameraActions;
+        QString selected;
+        CallsWindow window([](bool) { return true; }, [] {});
+        window.setCameraHandlers(
+            [&](bool enabled) { cameraActions.append(enabled); return true; },
+            [&](const QString& id) { selected = id; });
+        window.setCameraDevices({
+            {QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+             CallsDeviceKind::Camera}
+        }, QStringLiteral("camera-one"));
+        CallsSnapshot state;
+        state.state = CallsState::Connected;
+        state.channelId = QStringLiteral("dm-video");
+        state.participants = {
+            CallsParticipant{QStringLiteral("alice"), QStringLiteral("alice-session"), false},
+            CallsParticipant{QStringLiteral("bob"), QStringLiteral("bob-session"), false}
+        };
+        window.showForCall(state, QStringLiteral("Video test"));
+        auto* camera = window.findChild<QToolButton*>(QStringLiteral("callsCamera"));
+        auto* selector = window.findChild<QToolButton*>(
+            QStringLiteral("callsCameraDevices"));
+        QVERIFY(camera);
+        QVERIFY(selector);
+        QVERIFY(camera->isVisible());
+        QVERIFY(!camera->isEnabled());
+        window.setCameraAvailable(
+            false, QStringLiteral("Server has EnableVideo disabled"));
+        QVERIFY(camera->isVisible());
+        QCOMPARE(camera->toolTip(), QStringLiteral("Server has EnableVideo disabled"));
+        QCOMPARE(selector->toolTip(), camera->toolTip());
+        QCOMPARE(selector->arrowType(), Qt::DownArrow);
+        window.setCameraAvailable(true);
+        QVERIFY(camera->isVisible());
+        QVERIFY(camera->isEnabled());
+        QVERIFY(!camera->icon().isNull());
+        QTest::mouseClick(camera, Qt::LeftButton);
+        QCOMPARE(cameraActions, QList<bool>{true});
+        window.setCameraState(true);
+        QVERIFY(camera->isChecked());
+        QVERIFY(selector->menu());
+        emit selector->menu()->aboutToShow();
+        QCOMPARE(selector->menu()->actions().size(), 3);
+        QVERIFY(selector->menu()->actions().at(2)->isChecked());
+        QAction* firstCameraAction = selector->menu()->actions().at(2);
+        window.setCameraDevices({
+            {QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+             CallsDeviceKind::Camera},
+            {QStringLiteral("camera-alternate"), QStringLiteral("USB camera "),
+             CallsDeviceKind::Camera},
+            {QStringLiteral("camera-two"), QStringLiteral("Second camera"),
+             CallsDeviceKind::Camera}
+        }, QStringLiteral("camera-one"));
+        emit selector->menu()->aboutToShow();
+        QCOMPARE(selector->menu()->actions().size(), 4);
+        QCOMPARE(selector->menu()->actions().at(2), firstCameraAction);
+        emit selector->menu()->aboutToShow();
+        QCOMPARE(selector->menu()->actions().size(), 4);
+        selector->menu()->actions().first()->trigger();
+        QCOMPARE(selected, QString());
+
+        window.setParticipantSpeaking(QStringLiteral("bob-session"), true);
+        window.setParticipantHandRaised(QStringLiteral("bob-session"), true);
+        window.setParticipantScreenSharing(QStringLiteral("bob-session"), true);
+        window.setParticipantCameraState(QStringLiteral("bob-session"), true);
+        auto* tile = [&]() -> QFrame* {
+            for (auto* candidate : window.findChildren<QFrame*>(
+                     QStringLiteral("callsParticipantTile"))) {
+                if (candidate->property("sessionId").toString()
+                    == QLatin1String("bob-session")) return candidate;
+            }
+            return nullptr;
+        }();
+        QVERIFY(tile);
+        auto* activity = tile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantActivity"));
+        QVERIFY(activity);
+        QVERIFY(activity->text().contains(QStringLiteral("Speaking")));
+        QVERIFY(activity->text().contains(QStringLiteral("Hand raised")));
+        QVERIFY(activity->text().contains(QStringLiteral("Sharing screen")));
+        window.setParticipantSpeaking(QStringLiteral("bob-session"), false);
+        window.setParticipantHandRaised(QStringLiteral("bob-session"), false);
+        window.setParticipantScreenSharing(QStringLiteral("bob-session"), false);
+        QVERIFY(!activity->isVisible());
+        auto* video = tile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantVideo"));
+        QVERIFY(video);
+        QVERIFY(video->isVisible());
+        QImage frame(320, 180, QImage::Format_RGB888);
+        frame.fill(Qt::green);
+        window.setParticipantVideo(QStringLiteral("bob-session"), frame);
+        QVERIFY(!video->pixmap().isNull());
+        window.setParticipantCameraState(QStringLiteral("bob-session"), false);
+        QVERIFY(!video->isVisible());
+        window.setCameraState(false);
+        QVERIFY(!camera->isChecked());
     }
 
     void responsiveStageAndFailureClose()

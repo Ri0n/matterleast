@@ -2,6 +2,8 @@
 #include <utility>
 
 #include <QDebug>
+#include <QHash>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QObject>
@@ -153,6 +155,8 @@ public:
         snapshot_ = {};
         snapshot_.state = CallsState::Connecting;
         snapshot_.channelId = channelId;
+        videoAvailable_ = false;
+        videoUnavailableReason_ = tr("Checking video support on the Calls server…");
         originalConnectionId_ = host_->connectionId();
         changed();
         showCallWindow();
@@ -182,6 +186,23 @@ public:
                 return;
             }
             iceUrls_ = iceServerUrls(response);
+            const bool serverAllowsVideo =
+                response.value(QStringLiteral("EnableVideo")).toBool();
+            const QString videoRuntimeError = serverAllowsVideo
+                ? GstAudioEngine::checkVideoRuntime() : QString();
+            videoAvailable_ = serverAllowsVideo && videoRuntimeError.isEmpty();
+            if (!serverAllowsVideo) {
+                videoUnavailableReason_ = tr(
+                    "Camera disabled by the Mattermost Calls server (EnableVideo)");
+            } else if (!videoRuntimeError.isEmpty()) {
+                videoUnavailableReason_ = tr("Camera unavailable: %1")
+                    .arg(videoRuntimeError);
+            } else {
+                videoUnavailableReason_ = tr("Preparing camera media…");
+            }
+            if (window_) {
+                window_->setCameraAvailable(false, videoUnavailableReason_);
+            }
             if (!host_->sendAction(QLatin1String(CallsPrefix) + QStringLiteral("join"),
                                    {{QStringLiteral("channelID"), snapshot_.channelId}})) {
                 fail(QStringLiteral("Could not send Mattermost Calls join request"));
@@ -204,6 +225,16 @@ public:
         engine_.reset(); // Blocks until the GLib thread and all RTP pads stop.
         snapshot_ = {};
         iceUrls_.clear();
+        videoAvailable_ = false;
+        videoUnavailableReason_.clear();
+        cameraEnabled_ = false;
+        cameraPending_ = false;
+        videoStreamId_.clear();
+        videoMidToSession_.clear();
+        if (window_) {
+            window_->setCameraState(false);
+            window_->setCameraAvailable(false, tr("No active call"));
+        }
         originalConnectionId_.clear();
         changed();
         return true;
@@ -215,6 +246,7 @@ public:
             snapshot_.state != MatterLeast::PluginApi::CallsState::Connected) {
             return false;
         }
+        if (snapshot_.microphoneMuted == muted) return true;
         const QString action = muted ? QStringLiteral("mute")
                                      : QStringLiteral("unmute");
         if (!host_->sendAction(QLatin1String(CallsPrefix) + action, {})) {
@@ -222,6 +254,11 @@ public:
         }
         engine_->setMicrophoneMuted(muted);
         snapshot_.microphoneMuted = muted;
+        for (auto& participant : snapshot_.participants) {
+            if (participant.sessionId == originalConnectionId_) {
+                participant.microphoneMuted = muted;
+            }
+        }
         changed();
         return true;
     }
@@ -243,7 +280,8 @@ public:
             && (eventConnection == originalConnectionId_
                 || eventConnection == host_->connectionId());
         const bool isOurChannel = channel == snapshot_.channelId
-            || broadcastChannel == snapshot_.channelId;
+            || broadcastChannel == snapshot_.channelId
+            || data.value(QStringLiteral("channel_id")).toString() == snapshot_.channelId;
 
         if (name == QLatin1String("custom_com.mattermost.calls_error")
             && isOurSession) {
@@ -320,13 +358,139 @@ public:
             snapshot_.callId = id;
             snapshot_.participants = std::move(participants);
             changed();
+            if (window_) {
+                for (const auto& entry : sessions.toArray()) {
+                    const QJsonObject session = entry.toObject();
+                    const QString sessionId = session.value(QStringLiteral("session_id")).toString();
+                    if (!sessionId.isEmpty()) {
+                        window_->setParticipantCameraState(
+                            sessionId, session.value(QStringLiteral("video")).toBool());
+                        window_->setParticipantHandRaised(
+                            sessionId, session.value(QStringLiteral("raised_hand"))
+                                           .toVariant().toLongLong() > 0);
+                        const QString sharing = call.value(QStringLiteral("props"))
+                            .toObject().value(
+                                QStringLiteral("screen_sharing_session_id")).toString();
+                        window_->setParticipantScreenSharing(sessionId, sessionId == sharing);
+                    }
+                }
+            }
             return;
         }
 
         if (!isOurChannel) return;
-        const QString userId = data.value(QStringLiteral("user_id")).toString();
         const QString sessionId = data.value(QStringLiteral("session_id")).toString();
-        if (userId.isEmpty() || sessionId.isEmpty()) return;
+        if (sessionId.isEmpty()) return;
+
+        if (name == QLatin1String("custom_com.mattermost.calls_host_mute")) {
+            // A host_mute is addressed to the affected user. Acknowledge with
+            // our ordinary mute action, which broadcasts user_muted.
+            if (sessionId == originalConnectionId_ && engine_) {
+                if (snapshot_.state == CallsState::Connected) {
+                    setMicrophoneMuted(true);
+                } else {
+                    engine_->setMicrophoneMuted(true);
+                    snapshot_.microphoneMuted = true;
+                    changed();
+                }
+            }
+            return;
+        }
+
+        const bool videoOnEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_video_on");
+        const bool videoOffEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_video_off");
+        if (videoOnEvent || videoOffEvent) {
+            const QString userId = data.value(QStringLiteral("userID")).toString();
+            if (sessionId == originalConnectionId_
+                && userId == host_->localUserId()) {
+                if (videoOnEvent && cameraEnabled_ && cameraPending_) {
+                    // RTCD has processed video_on before the server echoes
+                    // the event. Only now allow the first video RTP packet;
+                    // racing it against signaling can make SFU OnTrack skip
+                    // the stream permanently.
+                    cameraPending_ = false;
+                    if (engine_) engine_->setCameraPublishing(true);
+                } else if (videoOffEvent) {
+                    cameraPending_ = false;
+                    if (cameraEnabled_ && engine_) engine_->setCameraEnabled(false);
+                }
+            }
+            for (const auto& participant : snapshot_.participants) {
+                if (participant.sessionId == sessionId
+                    && (userId.isEmpty() || participant.userId == userId)) {
+                    if (window_) window_->setParticipantCameraState(sessionId, videoOnEvent);
+                    break;
+                }
+            }
+            return;
+        }
+
+        const bool voiceOn =
+            name == QLatin1String("custom_com.mattermost.calls_user_voice_on");
+        const bool voiceOff =
+            name == QLatin1String("custom_com.mattermost.calls_user_voice_off");
+        const bool handRaised =
+            name == QLatin1String("custom_com.mattermost.calls_user_raise_hand");
+        const bool handLowered =
+            name == QLatin1String("custom_com.mattermost.calls_user_unraise_hand");
+        const bool screenOn =
+            name == QLatin1String("custom_com.mattermost.calls_user_screen_on");
+        const bool screenOff =
+            name == QLatin1String("custom_com.mattermost.calls_user_screen_off");
+        if (voiceOn || voiceOff || handRaised || handLowered || screenOn || screenOff) {
+            const QString userId = data.value(QStringLiteral("userID")).toString();
+            for (const auto& participant : snapshot_.participants) {
+                if (participant.sessionId != sessionId
+                    || (!userId.isEmpty() && participant.userId != userId)) {
+                    continue;
+                }
+                if (window_) {
+                    if (voiceOn || voiceOff) {
+                        window_->setParticipantSpeaking(sessionId, voiceOn);
+                    } else if (handRaised || handLowered) {
+                        window_->setParticipantHandRaised(sessionId, handRaised);
+                    } else {
+                        window_->setParticipantScreenSharing(sessionId, screenOn);
+                    }
+                }
+                break;
+            }
+            return;
+        }
+
+        const bool mutedEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_muted");
+        const bool unmutedEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_unmuted");
+        if (mutedEvent || unmutedEvent) {
+            // Official Calls events use userID, unlike user_joined (user_id).
+            // Session ID is the stable key, even for multiple devices.
+            const QString userId = data.value(QStringLiteral("userID")).toString();
+            const bool muted = mutedEvent;
+            for (auto& participant : snapshot_.participants) {
+                if (participant.sessionId != sessionId
+                    || (!userId.isEmpty() && participant.userId != userId)) {
+                    continue;
+                }
+                if (participant.microphoneMuted != muted) {
+                    participant.microphoneMuted = muted;
+                    changed();
+                }
+                break;
+            }
+            if (sessionId == originalConnectionId_
+                && snapshot_.microphoneMuted != muted && engine_) {
+                snapshot_.microphoneMuted = muted;
+                engine_->setMicrophoneMuted(muted);
+                changed();
+            }
+            return;
+        }
+
+        const QString userId = data.value(QStringLiteral("user_id")).toString();
+        if (userId.isEmpty()) return;
         if (name == QLatin1String("custom_com.mattermost.calls_user_joined")) {
             for (const auto& participant : snapshot_.participants) {
                 if (participant.sessionId == sessionId) return;
@@ -408,6 +572,25 @@ private:
                 [this](bool muted) { return setMicrophoneMuted(muted); },
                 [this] { leaveCall(); },
                 host_ ? host_->localUserId() : QString());
+            window_->setMicrophoneDeviceHandlers(
+                [this](const QString& id) {
+                    if (engine_) engine_->setAudioInputDevice(id);
+                },
+                [this] {
+                    if (engine_) engine_->requestDevices();
+                });
+            window_->setCameraHandlers(
+                [this](bool enabled) {
+                    if (!engine_ || !videoAvailable_ || videoStreamId_.isEmpty()
+                        || snapshot_.state != MatterLeast::PluginApi::CallsState::Connected) {
+                        return false;
+                    }
+                    engine_->setCameraEnabled(enabled);
+                    return true;
+                },
+                [this](const QString& id) {
+                    if (engine_) engine_->setVideoInputDevice(id);
+                });
         }
         QString title;
         if (conversationHost_) {
@@ -441,10 +624,79 @@ private:
                 if (snapshot_.state == MatterLeast::PluginApi::CallsState::Connecting) {
                     snapshot_.state = MatterLeast::PluginApi::CallsState::Connected;
                     changed();
+                    // The server initializes Unmuted=false. Our microphone
+                    // starts active, so publish that initial state once media
+                    // is actually connected to the SFU.
+                    if (!snapshot_.microphoneMuted
+                        && !host_->sendAction(QLatin1String(CallsPrefix)
+                                              + QStringLiteral("unmute"), {})) {
+                        fail(QStringLiteral("Failed to publish microphone state"));
+                    }
                 }
             },
-            iceUrls_);
+            iceUrls_,
+            [this](const QList<CallsMediaDevice>& devices,
+                   const QString& selectedMicrophone, const QString& selectedCamera) {
+                if (window_) {
+                    window_->setMicrophoneDevices(devices, selectedMicrophone);
+                    window_->setCameraDevices(devices, selectedCamera);
+                }
+            },
+            [this](bool enabled, const QString& error) {
+                if (!error.isEmpty()) {
+                    qWarning() << "MatterLeast Calls camera:" << error;
+                }
+                if (enabled) {
+                    if (videoStreamId_.isEmpty() || !videoAvailable_
+                        || !host_->sendAction(
+                            QLatin1String(CallsPrefix) + QStringLiteral("video_on"),
+                            {{QStringLiteral("data"),
+                              QString::fromUtf8(QJsonDocument(QJsonObject{
+                                  {QStringLiteral("videoStreamID"), videoStreamId_}
+                              }).toJson(QJsonDocument::Compact))}})) {
+                        if (engine_) engine_->setCameraEnabled(false);
+                        return;
+                    }
+                    cameraEnabled_ = true;
+                    cameraPending_ = true;
+                } else if (cameraEnabled_) {
+                    cameraEnabled_ = false;
+                    cameraPending_ = false;
+                    host_->sendAction(QLatin1String(CallsPrefix)
+                                      + QStringLiteral("video_off"), {});
+                }
+                if (window_) {
+                    window_->setCameraState(cameraEnabled_);
+                    window_->setParticipantCameraState(originalConnectionId_,
+                                                        cameraEnabled_);
+                }
+            },
+            [this](const QString& mid, const QImage& frame) {
+                if (!window_) return;
+                const QString sessionId = mid == QLatin1String("#local")
+                    ? originalConnectionId_ : videoMidToSession_.value(mid);
+                if (!sessionId.isEmpty()) window_->setParticipantVideo(sessionId, frame);
+            },
+            [this](const QHash<QString, QString>& mapping) {
+                for (auto it = mapping.cbegin(); it != mapping.cend(); ++it) {
+                    videoMidToSession_.insert(it.key(), it.value());
+                }
+            },
+            [this](const QString& id) {
+                videoStreamId_ = id;
+                if (window_) {
+                    window_->setCameraAvailable(
+                        videoAvailable_ && !id.isEmpty(),
+                        id.isEmpty() ? tr("Camera media could not be initialized")
+                                     : videoUnavailableReason_);
+                }
+            },
+            videoAvailable_);
         engine_->start();
+        engine_->requestDevices();
+        if (window_) {
+            window_->setCameraAvailable(false, videoUnavailableReason_);
+        }
     }
 
     void fail(const QString& error)
@@ -467,6 +719,12 @@ private:
     std::unique_ptr<CallsWindow> window_;
     std::unique_ptr<GstAudioEngine> engine_;
     QStringList iceUrls_;
+    QString videoStreamId_;
+    QHash<QString, QString> videoMidToSession_;
+    bool videoAvailable_ = false;
+    QString videoUnavailableReason_;
+    bool cameraEnabled_ = false;
+    bool cameraPending_ = false;
     QString originalConnectionId_;
     QString previousConnectionId_;
     quint64 generation_ = 0;

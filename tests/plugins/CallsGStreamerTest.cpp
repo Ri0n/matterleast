@@ -4,7 +4,9 @@
 #include <QTimer>
 #include <QApplication>
 #include <QFrame>
+#include <QLabel>
 #include <QPushButton>
+#include <QToolButton>
 
 #include "plugins/PluginHost.h"
 #include "plugins/api/CallsHostInterface.h"
@@ -42,7 +44,8 @@ public:
         QTimer::singleShot(0, context, [this, callback, valid] {
             ++configReplies;
             callback(valid ? configStatus : 404,
-                     {{QStringLiteral("ICEServersConfigs"), QJsonArray()}});
+                     {{QStringLiteral("ICEServersConfigs"), QJsonArray()},
+                      {QStringLiteral("EnableVideo"), enableVideo}});
         });
     }
 
@@ -65,6 +68,7 @@ public:
     void providerChanged() override { ++changed; }
 
     bool signedIn = true;
+    bool enableVideo = true;
     int configStatus = 200;
     int configRequests = 0;
     int configReplies = 0;
@@ -150,7 +154,13 @@ private slots:
         const QString sdp = calls.offers.first()
                             .value(QStringLiteral("sdp")).toString();
         QVERIFY(sdp.contains(QStringLiteral("m=audio")));
+        QVERIFY(sdp.contains(QStringLiteral("m=video")));
         QVERIFY(sdp.contains(QStringLiteral("m=application")));
+        const QString videoSection = sdp.section(
+            QStringLiteral("m=video"), 1).section(QStringLiteral("m=application"), 0, 0);
+        QVERIFY2(videoSection.contains(QStringLiteral(" msid:"))
+                     || videoSection.contains(QStringLiteral("a=msid:")),
+                 qPrintable(videoSection));
         QVERIFY(sdp.contains(QStringLiteral("opus/48000/2")));
 
         // Official Calls sends a full state snapshot after join. A late
@@ -184,6 +194,77 @@ private slots:
         QCOMPARE(provider->snapshot().participants.at(0).userId, QStringLiteral("alice"));
         QCOMPARE(provider->snapshot().participants.at(1).userId, QStringLiteral("bob"));
         QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
+        auto* bobTile = [&]() -> QFrame* {
+            for (QFrame* tile : window->findChildren<QFrame*>(
+                     QStringLiteral("callsParticipantTile"))) {
+                if (tile->property("sessionId").toString()
+                    == QStringLiteral("session-bob")) return tile;
+            }
+            return nullptr;
+        }();
+        QVERIFY(bobTile);
+        auto* bobMuteLabel = bobTile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantMute"));
+        QVERIFY(bobMuteLabel);
+        QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone off"));
+
+        // The official server emits userID (camelCase) for mute changes,
+        // while join events and call_state use user_id.
+        const QJsonObject bobIdentity {
+            {QStringLiteral("userID"), QStringLiteral("bob")},
+            {QStringLiteral("session_id"), QStringLiteral("session-bob")}
+        };
+        const QJsonObject inChannel {
+            {QStringLiteral("channel_id"), QStringLiteral("channel-A")}
+        };
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_unmuted"),
+            bobIdentity, inChannel);
+        QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
+        QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone on"));
+
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_muted"),
+            bobIdentity, {{QStringLiteral("channel_id"),
+                          QStringLiteral("unrelated-channel")}});
+        QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_muted"),
+            {{QStringLiteral("userID"), QStringLiteral("someone-else")},
+             {QStringLiteral("session_id"), QStringLiteral("session-bob")}},
+            inChannel);
+        QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_muted"),
+            bobIdentity, inChannel);
+        QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
+        QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone off"));
+
+        auto* activity = bobTile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantActivity"));
+        QVERIFY(activity);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_voice_on"),
+            bobIdentity, inChannel);
+        QCOMPARE(activity->text(), QStringLiteral("Speaking"));
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_raise_hand"),
+            bobIdentity, inChannel);
+        QVERIFY(activity->text().contains(QStringLiteral("Hand raised")));
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_screen_on"),
+            bobIdentity, inChannel);
+        QVERIFY(activity->text().contains(QStringLiteral("Sharing screen")));
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_voice_off"),
+            bobIdentity, inChannel);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_unraise_hand"),
+            bobIdentity, inChannel);
+        provider->onServerEvent(
+            QStringLiteral("custom_com.mattermost.calls_user_screen_off"),
+            bobIdentity, inChannel);
+        QVERIFY(activity->text().isEmpty());
 
         // A call_state from another channel must not overwrite our state.
         QJsonObject foreignState = stateEvent;
@@ -201,6 +282,7 @@ private slots:
             {{QStringLiteral("channel_id"), QStringLiteral("channel-A")}});
         QCOMPARE(provider->snapshot().participants.size(), 3);
         QCOMPARE(window->findChildren<QFrame*>(QStringLiteral("callsParticipantTile")).size(), 3);
+        QVERIFY(provider->snapshot().participants.at(2).microphoneMuted);
         provider->onServerEvent(
             QStringLiteral("custom_com.mattermost.calls_user_left"),
             {{QStringLiteral("user_id"), QStringLiteral("charlie")},
@@ -238,6 +320,44 @@ private slots:
         QVERIFY(provider->snapshot().errorMessage.contains(QStringLiteral("/plugins/")));
         QVERIFY(!calls.actions.contains(QStringLiteral("custom_com.mattermost.calls_join")));
         QVERIFY(calls.offers.isEmpty());
+        QVERIFY(provider->leaveCall());
+        QVERIFY(loader.disableAndUnload());
+    }
+
+    void videoDisabledByServerIsExplained()
+    {
+        EmptyConversationHost conversations;
+        FakeCallsHost calls;
+        calls.enableVideo = false; // Default in Mattermost Calls.
+        Mattermost::PluginHost loader(
+            qEnvironmentVariable("MATTERLEAST_CALLS_PLUGIN_PATH"),
+            conversations, &calls);
+        QVERIFY(loader.loadAndEnable());
+        auto* provider = qobject_cast<MatterLeast::PluginApi::CallsProviderInterface*>(
+            loader.instance());
+        QVERIFY(provider);
+        QVERIFY(provider->joinCall(QStringLiteral("channel-A")));
+        QTRY_COMPARE_WITH_TIMEOUT(calls.configReplies, 1, 3000);
+
+        QWidget* window = nullptr;
+        for (QWidget* widget : QApplication::topLevelWidgets()) {
+            if (widget->objectName() == QLatin1String("callsWindow")) {
+                window = widget;
+                break;
+            }
+        }
+        QVERIFY(window);
+        auto* camera = window->findChild<QToolButton*>(QStringLiteral("callsCamera"));
+        auto* cameraDevices = window->findChild<QToolButton*>(
+            QStringLiteral("callsCameraDevices"));
+        QVERIFY(camera);
+        QVERIFY(cameraDevices);
+        QVERIFY(camera->isVisible());
+        QVERIFY(cameraDevices->isVisible());
+        QVERIFY(!camera->isEnabled());
+        QVERIFY(!cameraDevices->isEnabled());
+        QVERIFY(camera->toolTip().contains(QStringLiteral("EnableVideo")));
+        QCOMPARE(cameraDevices->toolTip(), camera->toolTip());
         QVERIFY(provider->leaveCall());
         QVERIFY(loader.disableAndUnload());
     }
