@@ -196,8 +196,9 @@ void HTTPConnector::restartTransport ()
 {
     // Unused account services have no network manager to restart.
     if (!qnetworkManager && highPriorityRequests.isEmpty()
-        && lowPriorityRequests.isEmpty())
+        && lowPriorityRequests.isEmpty()) {
         return;
+    }
 	if (restartingTransport) {
 		return;
 	}
@@ -435,8 +436,9 @@ void HTTPConnector::processQueues()
 void HTTPConnector::startRequest(PendingRequest request)
 {
     // Create isolated network resources only when this feature makes a request.
-    if (!qnetworkManager)
+    if (!qnetworkManager) {
         qnetworkManager = createNetworkManager(sessionContext, accountCacheDirectory);
+    }
 	if (request.jsonData) {
 		request.request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 	}
