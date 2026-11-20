@@ -426,7 +426,8 @@ Backend::Backend(QObject *parent)
 					exit (1);
 				});
 			} else {
-				NetworkRequest::clearToken ();
+                // Failed unauthenticated requests may invalidate only this account.
+                _networkSession.clearToken();
 			}
 		}
 	});
@@ -525,8 +526,7 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
     loginData = credentials;
     _networkSession.setHost(credentials.domain);
     httpConnector.configureAccountCache(credentials.username);
-    // Temporary bridge for callers not yet migrated to Backend::networkSession().
-    NetworkRequest::setHost(credentials.domain);
+
     if (restartingAfterFailure) {
         // There is no WebSocket yet to signal a route change during offline
         // startup. Force fresh HTTP connections for each automatic retry.
@@ -536,7 +536,7 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 	if (!credentials.token.isEmpty()) {
 
 		_networkSession.setToken(credentials.token);
-        NetworkRequest::setToken(credentials.token);
+
 		NetworkRequest request(_networkSession, "users/me");
 
 		httpConnector.get (request, HttpResponseCallback ([this, callback](const QJsonDocument& data, const QNetworkReply& reply) {
@@ -573,7 +573,7 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
     // A password login must not accidentally reuse a previously rejected
     // Bearer/cookie token from a failed saved-session attempt.
     _networkSession.clearToken();
-    NetworkRequest::clearToken();
+
 	NetworkRequest request(_networkSession, "users/login");
 
 
@@ -589,7 +589,7 @@ void Backend::cancelPendingLogin()
     // /users/me response cannot initialize a session after cancellation.
     HTTPConnector::resetSessionTransports(&_networkSession);
     _networkSession.clearToken();
-    NetworkRequest::clearToken();
+
     _lastLoginFailureTransient = false;
 }
 
@@ -598,7 +598,7 @@ void Backend::loginRetry ()
 	if (!loginData.token.isEmpty()) {
 
 		_networkSession.setToken(loginData.token);
-        NetworkRequest::setToken(loginData.token);
+
 		NetworkRequest request(_networkSession, "users/me");
 
 		LOG_DEBUG("Retrying authenticated login request");
@@ -667,7 +667,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
 
     if (_networkSession.token().isEmpty()) {
         _networkSession.setToken(QString::fromUtf8(issuedToken));
-        NetworkRequest::setToken(QString::fromUtf8(issuedToken));
+
     }
 
 	webSocketConnector.open (_networkSession.host() + "api/v4/", _networkSession.token());
@@ -712,7 +712,6 @@ void Backend::reset ()
                 else _flaggedPostIds.remove(postId);
             });
     _networkSession.clearToken();
-	NetworkRequest::clearToken ();
 
 	//reinit all network connectors
 	timeoutTimer.disconnect ();
