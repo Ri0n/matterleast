@@ -108,9 +108,14 @@ lazily on the first request, and reset/reconnect does not allocate another
 manager while the service is idle.
 
 Download-to-file streaming retains a separate Qt network manager to avoid
-buffering whole files into memory; the request itself uses the owning
-Backend's `NetworkSessionContext`. Caller-owned files and API auth
-remain separate concerns.
+buffering whole files into memory. Its requests use the owning Backend's
+`NetworkSessionContext`; it also installs the same no-replay cookie jar
+policy as account-bound API connectors. A streamed response cannot silently
+populate an independent Qt cookie jar with credentials that outlive logout
+or account changes. This is covered by two sequential streaming downloads
+from each of two independently authenticated Backends; the local API fixture
+tries to set a cookie on the first stream and verifies it is not sent back.
+Caller-owned files and API authentication remain separate concerns.
 
 No process-global current-account fallback, additional timers or model
 resets are introduced. An integration fixture authenticates two Backends to
