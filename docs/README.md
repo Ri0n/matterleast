@@ -16,6 +16,7 @@ This directory is the durable engineering context for MatterLeast. It is intenti
 | Unread sidebar tab, Following/Channels/Muted checkboxes, Channels unread-only toggle | [Sidebar Unread filtering](unread-mode.md) | changing source selection, muted inclusion, persisted filters or sidebar projection |
 | desktop notification conditions, Favorites policy and preference modes | [Desktop notifications](desktop-notifications.md) | changing root-post eligibility, notification settings, muted-channel suppression or Following boundaries |
 | virtual sidebar views and collections | [Virtual sidebar destinations](sidebar-virtual-destinations.md) | changing Personal, Saved, Recent Mentions or search paging |
+| multi-server connection profiles, overlapping views, per-view tabs/history | [Multi-server workspaces](multi-server-workspaces.md) | changing account/session ownership, view membership, navigation isolation, aggregation or cross-account routing |
 | central navigation tabs, docked/tabbed/detached thread presentation | [Central navigation tabs](navigation-tabs.md) | changing tab ownership, semantic destinations or thread reparenting |
 | keyboard shortcuts for navigation tabs and quitting | [Navigation tab and exit shortcuts](navigation-shortcuts.md) | changing tab close/cycling or quitting |
 | channel discovery, channel creation, DM/GM picker and sidebar category actions | [Channel and conversation discovery](channel-discovery.md) | changing public-channel browsing, participant matching, or sidebar + actions |
