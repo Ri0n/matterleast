@@ -154,6 +154,12 @@ Auto-joining a stored public channel reuses its Backend HTTP transport
 instead of creating an ephemeral connector per click; an asynchronous reply
 is ignored if the sidebar now belongs to a different Backend.
 
+Legacy profile dialogs constructed without a Backend can still render a
+caller-supplied avatar but no longer fetch remote avatars using the global
+last-login host: without an account they cannot safely choose a server.
+Backend-backed dialogs continue to use the shared UserProfileService for
+lazy avatar loading and consistent cache updates.
+
 The opt-in AI MCP server now has exactly one QObject-owned instance per
 Backend rather than a process-wide singleton. Its short-lived capability
 tokens are matched to that Backend's login user and HTTP origin, and are
