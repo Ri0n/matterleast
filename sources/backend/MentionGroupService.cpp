@@ -101,6 +101,7 @@ MentionGroupService& MentionGroupService::instance(Backend& backend)
 MentionGroupService::MentionGroupService(Backend& sourceBackend)
     : QObject(&sourceBackend)
     , backend(sourceBackend)
+    , httpConnector(&sourceBackend.networkSession())
 {
 }
 
@@ -138,7 +139,7 @@ void MentionGroupService::ensureTeamGroups(const QString& teamId, GroupsCallback
     loadingTeams.insert(teamId);
     const quint64 requestGeneration = cacheGeneration;
 
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("teams/") + teamId
         + QStringLiteral("/groups?paginate=false&filter_allow_reference=true&include_member_count=true"));
     httpConnector.get(request, HttpResponseCallback(
@@ -185,7 +186,7 @@ void MentionGroupService::searchReferenceGroups(const QString& teamId,
     }
 
     const quint64 requestGeneration = cacheGeneration;
-    NetworkRequest request(url);
+    NetworkRequest request(backend.networkSession(), url);
     httpConnector.get(request, HttpResponseCallback(
         [this, teamId, requestGeneration,
          callback = std::move(callback)](const QJsonDocument& doc) mutable {
@@ -227,7 +228,7 @@ void MentionGroupService::searchGroups(const QString& query,
         + QString::number(std::max(1, limit))
         + QStringLiteral("&include_member_count=true");
 
-    NetworkRequest request(url);
+    NetworkRequest request(backend.networkSession(), url);
     httpConnector.get(request, HttpResponseCallback(
         [callback = std::move(callback)](const QJsonDocument& doc) mutable {
             QVector<MentionGroup> result;
@@ -267,7 +268,7 @@ void MentionGroupService::createCustomGroup(const QString& displayName,
         {QStringLiteral("user_ids"), users},
     };
 
-    NetworkRequest request(QStringLiteral("groups"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("groups"));
     httpConnector.post(
         request, QByteArrayCreator(payload),
         HttpResponseCallback(
@@ -293,7 +294,7 @@ void MentionGroupService::updateCustomGroup(const QString& groupId,
         {QStringLiteral("display_name"), displayName},
     };
 
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("groups/") + groupId + QStringLiteral("/patch"));
     httpConnector.put(
         request, QByteArrayCreator(payload),
@@ -329,7 +330,7 @@ void MentionGroupService::addMembers(const QString& groupId,
         return;
     }
 
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("groups/") + groupId + QStringLiteral("/members"));
     httpConnector.post(
         request,
@@ -368,7 +369,7 @@ void MentionGroupService::removeMembers(const QString& groupId,
         return;
     }
 
-    NetworkRequest request(
+    NetworkRequest request(backend.networkSession(), 
         QStringLiteral("groups/") + groupId + QStringLiteral("/members"));
     httpConnector.del(
         request,
@@ -462,7 +463,7 @@ void MentionGroupService::retrieveMembers(const QString& groupId, MembersCallbac
     auto members = std::make_shared<QVector<MentionGroupMember>>();
     auto fetchPage = std::make_shared<std::function<void(int)>>();
     *fetchPage = [this, groupId, callback = std::move(callback), members, fetchPage](int page) mutable {
-        NetworkRequest request(
+        NetworkRequest request(backend.networkSession(), 
             QStringLiteral("users?in_group=") + groupId
             + QStringLiteral("&page=") + QString::number(page)
             + QStringLiteral("&per_page=") + QString::number(GroupMembersPerPage));

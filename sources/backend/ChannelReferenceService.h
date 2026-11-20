@@ -40,6 +40,7 @@ private:
     void resolveDetails(const QString& teamName, const QString& slug,
                         DetailsCallback callback);
 
+    Backend& _backend;
     HTTPConnector _http;
     QHash<QString, Details> _resolved;
     QHash<QString, QVector<DetailsCallback>> _pending;

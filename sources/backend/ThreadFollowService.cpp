@@ -161,6 +161,7 @@ ThreadFollowService& ThreadFollowService::instance(Backend& backend)
 ThreadFollowService::ThreadFollowService(Backend& sourceBackend)
     : QObject(&sourceBackend)
     , _backend(sourceBackend)
+    , _httpConnector(&sourceBackend.networkSession())
 {
     // A GET for an unfollowed thread is expected to fail because the server's
     // GetThreadForUser path only exposes following memberships. Keep those
@@ -188,7 +189,7 @@ void ThreadFollowService::queryThread(const QString& teamId,
     // This endpoint returns the current user's ThreadResponse, not merely a
     // boolean following flag. Keep its read metadata so navigation can use the
     // same last_viewed_at boundary as the Mattermost web client.
-    NetworkRequest request(threadPath(teamId, threadId));
+    NetworkRequest request(_backend.networkSession(), threadPath(teamId, threadId));
     _httpConnector.get(request, HttpResponseCallback(
         [callback = std::move(callback)](QVariant status, const QJsonDocument& doc) mutable {
             ThreadState state;
@@ -377,7 +378,7 @@ void ThreadFollowService::queryTeamPage(
         << " excludeDirect=" << excludeDirect
         << " perPage=" << perPage;
 
-    NetworkRequest request(path);
+    NetworkRequest request(_backend.networkSession(), path);
     _httpConnector.get(request, HttpResponseCallback(
         [this, teamIds, teamIndex, teamId, continuationPage, unreadOnly, perPage, collected,
          callback = std::move(callback)](const QJsonDocument& doc,
@@ -482,7 +483,7 @@ void ThreadFollowService::setFollowing(const QString& teamId,
         return;
     }
 
-    NetworkRequest request(threadPath(teamId, threadId) + QStringLiteral("/following"));
+    NetworkRequest request(_backend.networkSession(), threadPath(teamId, threadId) + QStringLiteral("/following"));
     if (!following) {
         // HTTPConnector's DELETE API is intentionally fire-and-forget. Update
         // the UI optimistically; the next thread query reconciles it.
@@ -520,7 +521,7 @@ void ThreadFollowService::markThreadUnread(const QString& teamId,
         return;
     }
 
-    NetworkRequest request(threadUnreadPath(userId, teamId, threadId, postId));
+    NetworkRequest request(_backend.networkSession(), threadUnreadPath(userId, teamId, threadId, postId));
     _httpConnector.post(
         request, QByteArrayCreator(QByteArray {}),
         HttpResponseCallback([callback = std::move(callback)](
@@ -558,7 +559,7 @@ void ThreadFollowService::markThreadReadThrough(
         }
         return;
     }
-    NetworkRequest request(threadPath(teamId, threadId)
+    NetworkRequest request(_backend.networkSession(), threadPath(teamId, threadId)
                            + QStringLiteral("/read/") + QString::number(lastReadAt));
     _httpConnector.put(request, QByteArrayCreator(QJsonObject {}),
                        HttpResponseCallback([this, teamId, threadId, callback = std::move(callback)](

@@ -25,6 +25,8 @@ ChannelReferenceService& ChannelReferenceService::instance(Backend& backend)
 
 ChannelReferenceService::ChannelReferenceService(Backend& backend)
     : QObject(&backend)
+    , _backend(backend)
+    , _http(&backend.networkSession())
 {
 }
 
@@ -72,7 +74,7 @@ void ChannelReferenceService::resolveDetails(
         + QString::fromLatin1(QUrl::toPercentEncoding(teamName))
         + QStringLiteral("/channels/name/")
         + QString::fromLatin1(QUrl::toPercentEncoding(slug));
-    NetworkRequest request(endpoint);
+    NetworkRequest request(_backend.networkSession(), endpoint);
     QPointer<ChannelReferenceService> guard(this);
     const auto complete = [guard, key](const Details& details, bool definitiveMiss) {
         if (!guard) return;
@@ -103,7 +105,7 @@ void ChannelReferenceService::resolveDetails(
             static const QRegularExpression channelIdExpression(
                 QStringLiteral("^[a-z0-9]{26}$"));
             if (status == 404 && channelIdExpression.match(slug).hasMatch()) {
-                NetworkRequest byId(QStringLiteral("channels/") + slug);
+                NetworkRequest byId(guard->_backend.networkSession(), QStringLiteral("channels/") + slug);
                 guard->_http.get(byId, HttpResponseCallback(
                     [complete](QVariant, QByteArray data, const QNetworkReply& fallback) {
                         const int resultStatus = fallback.attribute(

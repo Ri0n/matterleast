@@ -133,6 +133,7 @@ SidebarService& SidebarService::instance(Backend& backend)
 SidebarService::SidebarService(Backend& backend)
     : QObject(&backend)
     , backend(backend)
+    , httpConnector(&backend.networkSession())
 {
     connect(&httpConnector, &HTTPConnector::onNetworkError,
             &backend, &Backend::onNetworkError);
@@ -176,7 +177,7 @@ void SidebarService::refreshKnownChannelSummaries(std::function<void()> callback
     QPointer<SidebarService> guard(this);
     for (const auto& entry : teams) {
         const QString teamId = entry.first;
-        NetworkRequest request(QStringLiteral("users/me/teams/") + teamId
+        NetworkRequest request(backend.networkSession(), QStringLiteral("users/me/teams/") + teamId
                                + QStringLiteral("/channels"));
         httpConnector.get(request, HttpResponseCallback(
             [guard, remaining, callback, teamId](QVariant status, const QJsonDocument& doc) {
@@ -425,7 +426,7 @@ void SidebarService::markCategoryRead(
     for (const QString& id : category->channelIds) {
         payload.append(id);
     }
-    NetworkRequest request(QStringLiteral("channels/members/")
+    NetworkRequest request(backend.networkSession(), QStringLiteral("channels/members/")
                            + currentUserId() + QStringLiteral("/mark_read"));
     httpConnector.post(request, QByteArrayCreator(payload),
         HttpResponseCallback([this, callback](QVariant status,
@@ -797,7 +798,7 @@ void SidebarService::reconcileDeletedUnreadPost(const QString& channelId,
         // server returns a normal history page. /posts?since=... instead
         // provides a complete post-since window, including edited/deleted
         // records, which we inspect without trusting stale total_msg_count.
-        NetworkRequest request(QStringLiteral("channels/") + channelId
+        NetworkRequest request(backend.networkSession(), QStringLiteral("channels/") + channelId
             + QStringLiteral("/posts?since=")
             + QString::number(static_cast<qulonglong>(
                 std::max<uint64_t>(1, lastViewedAt))));
@@ -836,7 +837,7 @@ void SidebarService::reconcileDeletedUnreadPost(const QString& channelId,
                 // actual conversation. The server retains CRT thread reads.
                 const quint64 readCheckId = ++_nextDeletedUnreadCheckId;
                 _pendingDeletedUnreadChecks.insert(channelId, readCheckId);
-                NetworkRequest readRequest(
+                NetworkRequest readRequest(backend.networkSession(), 
                     QStringLiteral("channels/members/me/mark_read"));
                 readRequest.setTransferTimeout(10000);
                 httpConnector.post(readRequest,
@@ -1004,7 +1005,7 @@ void SidebarService::markPostUnread(const QString& postId,
         return;
     }
 
-    NetworkRequest request(postUnreadPath(userId, postId));
+    NetworkRequest request(backend.networkSession(), postUnreadPath(userId, postId));
     httpConnector.post(
         request,
         QByteArrayCreator(postUnreadPayload(collapsedThreadsEnabled)),
@@ -1128,7 +1129,7 @@ void SidebarService::retrieveChannelMemberships(std::function<void()> callback)
     const auto fetchPage = std::make_shared<std::function<void(int)>>();
 
     *fetchPage = [this, memberships, fetchPage](int page) {
-        NetworkRequest request(
+        NetworkRequest request(backend.networkSession(), 
             QStringLiteral("users/") + currentUserId()
             + QStringLiteral("/channel_members?page=") + QString::number(page)
             + QStringLiteral("&per_page=") + QString::number(channelMembershipsPerPage));
@@ -1231,7 +1232,7 @@ void SidebarService::retrieveChannelPreferences(std::function<void()> callback)
         return;
     }
 
-    NetworkRequest request(QStringLiteral("users/") + currentUserId() + QStringLiteral("/preferences"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("users/") + currentUserId() + QStringLiteral("/preferences"));
     httpConnector.get(request, HttpResponseCallback(
         [this](QVariant status, const QJsonDocument& doc) {
         if (status.toInt() != QNetworkReply::NoError || !doc.isArray()) {
@@ -1296,7 +1297,7 @@ void SidebarService::retrieveChannelPreferences(std::function<void()> callback)
 
 void SidebarService::retrieveClientConfig(std::function<void()> callback)
 {
-    NetworkRequest request(QStringLiteral("config/client?format=old"));
+    NetworkRequest request(backend.networkSession(), QStringLiteral("config/client?format=old"));
     httpConnector.get(request, HttpResponseCallback([this, callback](const QJsonDocument& doc) {
         collapsedThreadsConfig = doc.object().value(QStringLiteral("CollapsedThreads")).toString();
         updateCollapsedThreadsMode();
@@ -1337,7 +1338,7 @@ void SidebarService::setChannelMuted(BackendChannel& channel, bool muted,
         return;
     }
 
-    NetworkRequest request(QStringLiteral("channels/") + channel.id + QStringLiteral("/members/")
+    NetworkRequest request(backend.networkSession(), QStringLiteral("channels/") + channel.id + QStringLiteral("/members/")
                            + currentUserId() + QStringLiteral("/notify_props"));
     const QJsonObject props {
         {QStringLiteral("mark_unread"), muted ? QStringLiteral("mention") : QStringLiteral("all")},
@@ -1400,7 +1401,7 @@ void SidebarService::retrieveCategories(BackendTeam& team,
     const QString teamId = team.id;
     retrieveChannelMemberships([this, teamId, callback, errorCallback, storeResponse] {
         retrieveChannelPreferences([this, teamId, callback, errorCallback, storeResponse] {
-            NetworkRequest request(categoriesPath(teamId));
+            NetworkRequest request(backend.networkSession(), categoriesPath(teamId));
             httpConnector.get(request, HttpResponseCallback(
                 [this, teamId, callback, errorCallback, storeResponse](
                     QVariant status, const QJsonDocument& doc) {
@@ -1479,7 +1480,7 @@ void SidebarService::createCategory(
     payload.remove(QStringLiteral("id"));
     payload.remove(QStringLiteral("sort_order"));
 
-    NetworkRequest request(categoriesPath(teamId));
+    NetworkRequest request(backend.networkSession(), categoriesPath(teamId));
     httpConnector.post(request, QByteArrayCreator(payload),
         HttpResponseCallback(
             [this, teamId, callback, insertBeforeCategoryId, errorCallback](
@@ -1533,7 +1534,7 @@ void SidebarService::deleteCategory(const QString& teamId,
         if (callback) callback(false);
         return;
     }
-    NetworkRequest request(categoriesPath(teamId) + QLatin1Char('/') + categoryId);
+    NetworkRequest request(backend.networkSession(), categoriesPath(teamId) + QLatin1Char('/') + categoryId);
     httpConnector.del(request, QByteArrayCreator(QJsonObject()),
         HttpResponseCallback([this, teamId, callback](QVariant status,
                                                      const QJsonDocument&) {
@@ -1563,7 +1564,7 @@ void SidebarService::updateCategory(const SidebarCategory& category,
                                     std::function<void()> errorCallback,
                                     bool storeResponse)
 {
-    NetworkRequest request(categoriesPath(category.teamId) + QLatin1Char('/') + category.id);
+    NetworkRequest request(backend.networkSession(), categoriesPath(category.teamId) + QLatin1Char('/') + category.id);
     httpConnector.put(request, QByteArrayCreator(category.toJson()),
                       HttpResponseCallback([this, teamId = category.teamId, callback,
                                             errorCallback, storeResponse](
@@ -1604,7 +1605,7 @@ void SidebarService::updateCategories(const QString& teamId, const QVector<Sideb
         payload.push_back(category.toJson());
     }
 
-    NetworkRequest request(categoriesPath(teamId));
+    NetworkRequest request(backend.networkSession(), categoriesPath(teamId));
     httpConnector.put(request, QByteArrayCreator(payload),
                       HttpResponseCallback([this, teamId, callback, errorCallback,
                                             storeResponse](QVariant status,
@@ -1647,7 +1648,7 @@ void SidebarService::updateCategoryOrder(const QString& teamId, const QStringLis
         payload.push_back(categoryId);
     }
 
-    NetworkRequest request(categoriesPath(teamId) + QStringLiteral("/order"));
+    NetworkRequest request(backend.networkSession(), categoriesPath(teamId) + QStringLiteral("/order"));
     httpConnector.put(request, QByteArrayCreator(payload),
                       HttpResponseCallback([this, teamId, callback, errorCallback,
                                             storeResponse](QVariant status,
