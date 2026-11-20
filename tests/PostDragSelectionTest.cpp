@@ -173,6 +173,8 @@ void openThread(Thread& thread, const QString& secondMessage, bool secondHasImag
     NetworkRequest::setHost(
         QStringLiteral("http://127.0.0.1:%1/").arg(thread.server->serverPort()));
     thread.backend = std::make_unique<Backend>();
+    thread.backend->networkSession().setHost(
+        QStringLiteral("http://127.0.0.1:%1/").arg(thread.server->serverPort()));
     Storage& storage = thread.backend->getStorage();
     storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
     BackendTeam* team = storage.addTeam(

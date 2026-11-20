@@ -200,6 +200,8 @@ private slots:
         NetworkRequest::setHost(
             QStringLiteral("http://127.0.0.1:%1/").arg(_server.serverPort()));
         _backend = std::make_unique<Backend>();
+        _backend->networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(_server.serverPort()));
     }
 
     void init()
