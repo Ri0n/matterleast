@@ -69,11 +69,11 @@ public:
                                  .arg(QString::fromUtf8(id))},
                             {QStringLiteral("EnablePermalinkPreviews"), QStringLiteral("true")}
                         }).toJson(QJsonDocument::Compact);
-                    } else if (requestLine.startsWith("GET /api/v4/posts/shared-post ")) {
+                    } else if (requestLine.startsWith("GET /api/v4/posts/abcdefghijklmnopqrstuvwxyz ")) {
                         ++postLookupRequests;
                         postLookupCookies.append(cookie);
                         body = QJsonDocument(QJsonObject {
-                            {QStringLiteral("id"), QStringLiteral("shared-post")},
+                            {QStringLiteral("id"), QStringLiteral("abcdefghijklmnopqrstuvwxyz")},
                             {QStringLiteral("channel_id"),
                              QStringLiteral("channel-") + QString::fromUtf8(id)},
                             {QStringLiteral("user_id"), QString::fromUtf8(id)},
@@ -373,13 +373,13 @@ private slots:
         QString firstLinkError;
         QString secondLinkError;
         PostPermalinkService::instance(backendOne).resolve(
-            QStringLiteral("shared-post"), QStringLiteral("shared-team"), true,
+            QStringLiteral("abcdefghijklmnopqrstuvwxyz"), QStringLiteral("shared-team"), true,
             [&](const QString& url, const QString& error) {
                 firstPermalink = url;
                 firstLinkError = error;
             });
         PostPermalinkService::instance(backendTwo).resolve(
-            QStringLiteral("shared-post"), QStringLiteral("shared-team"), true,
+            QStringLiteral("abcdefghijklmnopqrstuvwxyz"), QStringLiteral("shared-team"), true,
             [&](const QString& url, const QString& error) {
                 secondPermalink = url;
                 secondLinkError = error;
@@ -399,8 +399,8 @@ private slots:
         // Neither server has the post's channel or team in Storage. Cold
         // navigation must first fetch the post, channel, and team through
         // the owning Backend; equal post IDs must not cross account boundaries.
-        AppNavigationService::instance(backendOne).openPost(QStringLiteral("shared-post"));
-        AppNavigationService::instance(backendTwo).openPost(QStringLiteral("shared-post"));
+        AppNavigationService::instance(backendOne).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
+        AppNavigationService::instance(backendTwo).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
         QTRY_VERIFY(backendOne.getStorage().getChannelById(
             QStringLiteral("channel-user-one")) != nullptr);
         QTRY_VERIFY(backendTwo.getStorage().getChannelById(
