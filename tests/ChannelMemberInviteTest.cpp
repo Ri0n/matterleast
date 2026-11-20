@@ -21,7 +21,6 @@
 #include <QUrl>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/WebSocketEventHandler.h"
 #include "backend/ServerUiService.h"
 #include "backend/Storage.h"
@@ -228,8 +227,11 @@ public:
     bool start()
     {
         if (!listen(QHostAddress::LocalHost)) return false;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(serverPort()));
         return true;
+    }
+    QString baseUrl() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1/").arg(serverPort());
     }
 };
 
@@ -278,7 +280,7 @@ private slots:
         server.permission = permission;
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         channel->type = type == "D" ? BackendChannel::directChannel
@@ -314,7 +316,7 @@ private slots:
         server.deletedRole = failure == 1;
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         if (failure == 2) channel->delete_at = 1;
         bool done = false;
@@ -333,7 +335,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
         auto* add = dialog.findChild<QPushButton*>("addChannelMembersButton");
@@ -357,7 +359,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
 
@@ -404,7 +406,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
 
@@ -451,7 +453,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         bool resolved = false;
@@ -473,7 +475,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
 
@@ -575,7 +577,7 @@ private slots:
         server.existingMembers.insert(QStringLiteral("person03"));
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel->members.isEmpty());
         QPointer<UserSearchDialog> picker = UserSearchDialog::showChannelMemberPicker(backend, *channel);
@@ -606,7 +608,7 @@ private slots:
         server.failUser = QStringLiteral("person03");
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QPointer<UserSearchDialog> picker = UserSearchDialog::showChannelMemberPicker(backend, *channel);
         QSignalSpy accepted(picker, &QDialog::accepted);
@@ -661,7 +663,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         makeChannel(backend);
         QPointer<UserSearchDialog> picker = UserSearchDialog::showConversationPicker(backend);
         auto* edit = picker->findChild<QLineEdit*>("filterLineEdit");
@@ -687,7 +689,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         ViewChannelMembersListDialog dialog(backend, *channel, nullptr);
         dialog.show();
@@ -717,7 +719,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         BackendChannel* channel = makeChannel(backend);
         QVERIFY(channel);
         BackendPost* original = channel->addPost(QJsonObject {
@@ -804,8 +806,6 @@ private slots:
     void rawEphemeralDispatchReportsRealConsumption()
     {
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         auto& ui = ServerUiService::instance(backend);
@@ -863,8 +863,6 @@ private slots:
     void ephemeralHandlerOwnersAreGuardedDuringDispatch()
     {
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
         auto& ui = ServerUiService::instance(backend);
         const QJsonObject post {
             {QStringLiteral("type"), QStringLiteral("system_ephemeral")},
@@ -929,7 +927,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         BackendChannel* channel = makeChannel(backend);
         QVERIFY(channel);
         BackendPost* original = channel->addPost(QJsonObject {
@@ -982,7 +980,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         BackendChannel* channel = makeChannel(backend);
         QVERIFY(channel);
         channel->membershipPolicyEnforced = true;
@@ -1032,7 +1030,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
 
@@ -1079,7 +1077,7 @@ private slots:
         QVERIFY(server.start());
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
 
@@ -1123,7 +1121,7 @@ private slots:
         server.malformedMember = true;
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(server.baseUrl());
         auto* channel = makeChannel(backend);
         bool done = false;
         backend.addChannelMember(*channel, "person00", [&](bool success, const QString& error) {

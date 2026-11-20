@@ -12,7 +12,6 @@
 #include <QUrlQuery>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/types/BackendChannel.h"
 #include "chat-area/ThreadPostSource.h"
 #include "widgets/LongListWidget.h"
@@ -195,12 +194,10 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 2;
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(),
             QJsonObject {{QStringLiteral("id"), QStringLiteral("channel")},
                          {QStringLiteral("type"), QStringLiteral("O")}});
@@ -234,10 +231,9 @@ private slots:
         QFETCH(int, target);
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -295,10 +291,9 @@ private slots:
         QFETCH(bool, transportError);
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -323,10 +318,9 @@ private slots:
     {
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -352,12 +346,10 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 669;
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
@@ -414,10 +406,9 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = replies;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
         root.insert("reply_count", replies);
@@ -473,10 +464,9 @@ private slots:
     {
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         channel.mergePostContext(QJsonArray {id(500)}, QJsonObject {{id(500), post(500)}});
@@ -522,10 +512,9 @@ private slots:
         QFETCH(int, target);
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         channel.mergePostContext(QJsonArray {id(target)}, QJsonObject {{id(target), post(target)}});
@@ -547,12 +536,10 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 5;
         server.deletedReplies.insert(3);
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(),
             QJsonObject {{"id", "channel"}, {"type", "O"}});
@@ -602,12 +589,10 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 3;
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(),
             QJsonObject {{"id", "channel"}, {"type", "O"}});
@@ -650,10 +635,9 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 500;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -671,12 +655,10 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 541;
         server.reportedReplyCount = 569; // 28 replies are not in /thread
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
@@ -733,12 +715,10 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 10;
         server.reportedReplyCount = 10;
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
@@ -773,12 +753,10 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 267;
         server.reportedReplyCount = 269; // two unavailable/phantom replies
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
@@ -854,12 +832,10 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 267;
         server.reportedReplyCount = 269;
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
 
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
@@ -926,10 +902,9 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.omitLastReplyAt = true;
         server.omitHasNext = missingHasNext;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
         if (missingTimestamp) root.remove("last_reply_at");
@@ -963,10 +938,9 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.emptyAtBoundary = true;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -1013,10 +987,9 @@ private slots:
         QFETCH(int, replyCount);
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -1062,10 +1035,9 @@ private slots:
         QFETCH(int, expectedReplies);
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -1097,10 +1069,9 @@ private slots:
     {
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -1126,8 +1097,6 @@ private slots:
     void evictionOwnsIdAcrossBodyDestruction()
     {
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         BackendPost* reply = channel.addPost(post(1));
@@ -1142,10 +1111,9 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 10000;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         QJsonObject root = post(0);
         root.insert("reply_count", 10000);
@@ -1177,10 +1145,9 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.replyCount = 10000;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         auto root = post(0);
         root.insert("reply_count", server.replyCount);
@@ -1216,10 +1183,9 @@ private slots:
     {
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));
@@ -1283,10 +1249,9 @@ private slots:
         ThreadServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         server.pageLimit = 13;
-        NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(backend.getStorage(), QJsonObject {{"id", "channel"}, {"type", "O"}});
         channel.addPost(post(0));
         ThreadPostSource source(backend, channel, id(0));

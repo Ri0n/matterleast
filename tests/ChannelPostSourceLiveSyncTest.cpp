@@ -9,7 +9,6 @@
 #include <QTcpSocket>
 #include <QUrlQuery>
 
-#include "backend/NetworkRequest.h"
 
 #include "backend/Backend.h"
 #include "backend/types/BackendChannel.h"
@@ -137,11 +136,10 @@ private slots:
     {
         ChannelServer server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        NetworkRequest::setHost(
-            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        // Use only the origin of this test's HTTP fixture.
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         BackendChannel channel(
             backend.getStorage(), channelJson(1, timestamp(1)));
         QVERIFY(channel.addPost(rootPost(1)));
@@ -174,8 +172,6 @@ private slots:
     void transientBackendEventExtendsSemanticTail()
     {
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(
             backend.getStorage(), channelJson(1, timestamp(1)));
         BackendPost* first = channel.addPost(rootPost(1));
@@ -218,8 +214,6 @@ private slots:
     void residentBackendEventIsNotAppendedTwice()
     {
         Backend backend;
-        // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
         BackendChannel channel(
             backend.getStorage(), channelJson(1, timestamp(1)));
         QVERIFY(channel.addPost(rootPost(1)));

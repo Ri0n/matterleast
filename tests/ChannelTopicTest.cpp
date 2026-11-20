@@ -12,7 +12,6 @@
 
 #include "backend/Backend.h"
 #include "backend/ChannelTopicPolicy.h"
-#include "backend/NetworkRequest.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/Storage.h"
 #include "chat-area/ChannelTopicEditDialog.h"
@@ -111,9 +110,6 @@ BackendChannel* makeChannel(Backend& backend)
 bool prepare(FakeChannelServer& server)
 {
     if (!server.listen(QHostAddress::LocalHost)) return false;
-    NetworkRequest::clearToken();
-    NetworkRequest::setHost(QStringLiteral("http://127.0.0.1:%1/")
-                             .arg(server.serverPort()));
     return true;
 }
 } // namespace
@@ -129,7 +125,8 @@ private slots:
         server.returnedHeader = QStringLiteral("New **Markdown** topic");
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         QSignalSpy changed(channel, &BackendChannel::onUpdated);
@@ -163,7 +160,8 @@ private slots:
         server.httpStatus = 403;
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         QSignalSpy changed(channel, &BackendChannel::onUpdated);
@@ -188,7 +186,8 @@ private slots:
         QVERIFY(prepare(server));
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         int responses = 0;
@@ -213,7 +212,8 @@ private slots:
         server.httpStatus = 403;
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         ChannelTopicEditDialog dialog(backend, *channel);
@@ -251,7 +251,8 @@ private slots:
         server.returnedHeader = QStringLiteral("Updated topic");
         Backend backend;
         // Tests without login explicitly supply this Backend's server origin.
-        backend.networkSession().setHost(NetworkRequest::host());
+        backend.networkSession().setHost(
+            QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
         auto* channel = makeChannel(backend);
         QVERIFY(channel);
         ChannelTopicEditDialog dialog(backend, *channel);
