@@ -192,6 +192,27 @@ void HTTPConnector::restartAllTransports ()
 	}
 }
 
+void HTTPConnector::resetSessionTransports(const NetworkSessionContext* session)
+{
+    if (!session) {
+        return;
+    }
+
+    // Resetting a connector may synchronously destroy other connectors via
+    // callbacks, so keep QPointer guards as in restartAllTransports().
+    QList<QPointer<HTTPConnector>> owned;
+    for (HTTPConnector* connector : connectors) {
+        if (connector->sessionContext == session) {
+            owned.append(QPointer<HTTPConnector>(connector));
+        }
+    }
+    for (const QPointer<HTTPConnector>& connector : owned) {
+        if (connector) {
+            connector->reset();
+        }
+    }
+}
+
 void HTTPConnector::restartTransport ()
 {
     // Unused account services have no network manager to restart.

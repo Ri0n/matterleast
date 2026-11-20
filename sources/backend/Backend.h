@@ -62,6 +62,7 @@ class Backend: public QObject
     Q_OBJECT
 public:
 	explicit Backend (QObject *parent = nullptr);
+    ~Backend() override;
 
 	bool autoLoginEnabled ();
     bool lastLoginFailureTransient() const { return _lastLoginFailureTransient; }
