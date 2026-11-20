@@ -23,6 +23,9 @@ public:
     const QString& token() const { return token_; }
     void clearToken();
     void updateSessionCookies(const QList<QNetworkCookie>& cookies);
+    // Ignore Set-Cookie from a redirect or response on another origin.
+    bool updateSessionCookiesFrom(const QUrl& responseUrl,
+                                  const QList<QNetworkCookie>& cookies);
 
     QNetworkRequest request(const QString& urlRoot, const QString& path,
                             bool useCache = false) const;
