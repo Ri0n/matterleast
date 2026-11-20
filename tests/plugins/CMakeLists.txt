@@ -91,6 +91,19 @@ target_link_libraries(calls-messagepack-test PRIVATE
 )
 add_test(NAME calls-messagepack-test COMMAND calls-messagepack-test)
 
+# RTCD's binary DataChannel media map identifies the sender of each
+# incoming video track; exercise its bounded parser without GStreamer.
+add_executable(calls-media-map-test
+    CallsMediaMapTest.cpp
+    "${CMAKE_SOURCE_DIR}/plugins/calls-gstreamer/CallsMediaMap.cpp"
+)
+target_include_directories(calls-media-map-test PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(calls-media-map-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Test
+)
+add_test(NAME calls-media-map-test COMMAND calls-media-map-test)
+
 # Actual native Calls plugin smoke test; enable only on distributions where
 # GStreamer WebRTC development/runtime modules are installed.
 if(MATTERLEAST_BUILD_CALLS_GSTREAMER)

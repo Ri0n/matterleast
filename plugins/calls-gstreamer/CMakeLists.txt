@@ -6,6 +6,8 @@ pkg_check_modules(MATTERLEAST_GST REQUIRED IMPORTED_TARGET
     gstreamer-webrtc-1.0>=1.24
     gstreamer-sdp-1.0>=1.24
     gstreamer-rtp-1.0>=1.24
+    gstreamer-video-1.0>=1.24
+    gstreamer-app-1.0>=1.24
     glib-2.0
 )
 
@@ -13,6 +15,7 @@ add_library(matterleast-calls-gstreamer MODULE
     CallsPlugin.cpp
     CallsWindow.cpp
     GstAudioEngine.cpp
+    CallsMediaMap.cpp
 )
 target_link_libraries(matterleast-calls-gstreamer PRIVATE
     matterleast-plugin-api

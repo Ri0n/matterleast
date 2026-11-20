@@ -4,6 +4,7 @@
 #include <functional>
 
 #include <QDialog>
+#include <QImage>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QString>
@@ -18,6 +19,7 @@ class QEvent;
 class QFrame;
 class QGridLayout;
 class QLabel;
+class QMenu;
 class QPushButton;
 class QScrollArea;
 class QToolButton;
@@ -30,6 +32,7 @@ class CallsWindow final : public QDialog
 public:
     using MuteHandler = std::function<bool(bool muted)>;
     using EndHandler = std::function<void()>;
+    using CameraHandler = std::function<bool(bool enabled)>;
     using DeviceSelectionHandler = std::function<void(const QString& id)>;
     using RefreshDevicesHandler = std::function<void()>;
 
@@ -43,6 +46,14 @@ public:
                                      RefreshDevicesHandler refresh);
     void setMicrophoneDevices(const QList<CallsMediaDevice>& available,
                               const QString& selectedId);
+    void setCameraHandlers(CameraHandler toggle,
+                           DeviceSelectionHandler choose);
+    void setCameraAvailable(bool available);
+    void setCameraState(bool enabled);
+    void setCameraDevices(const QList<CallsMediaDevice>& available,
+                          const QString& selectedId);
+    void setParticipantCameraState(const QString& sessionId, bool enabled);
+    void setParticipantVideo(const QString& sessionId, const QImage& image);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -55,6 +66,7 @@ private:
         QLabel* avatar = nullptr;
         QLabel* title = nullptr;
         QLabel* microphone = nullptr;
+        QLabel* video = nullptr;
     };
 
     void updateParticipants(const QList<MatterLeast::PluginApi::CallsParticipant>& participants);
@@ -63,12 +75,23 @@ private:
     void updateControls();
     void updateMicrophoneIcon();
     void rebuildMicrophoneDeviceMenu();
+    void rebuildCameraDeviceMenu();
+    void updateCameraIcon();
+    void refreshParticipantVideo(const QString& sessionId);
     void updateAppearance();
     void updateTimerLabel();
     static QString participantLabel(const QString& userId);
 
     MuteHandler mute_;
     EndHandler end_;
+    CameraHandler toggleCamera_;
+    DeviceSelectionHandler chooseCamera_;
+    QList<CallsMediaDevice> availableCameras_;
+    QString selectedCameraId_;
+    QHash<QString, QImage> participantVideo_;
+    QHash<QString, bool> participantVideoEnabled_;
+    bool cameraAvailable_ = false;
+    bool cameraEnabled_ = false;
     DeviceSelectionHandler chooseMicrophone_;
     RefreshDevicesHandler refreshDevices_;
     QList<CallsMediaDevice> availableMicrophones_;
@@ -87,6 +110,8 @@ private:
     QLabel* participantCount_ = nullptr;
     QToolButton* microphone_ = nullptr;
     QToolButton* microphoneDevices_ = nullptr;
+    QToolButton* cameraButton_ = nullptr;
+    QToolButton* cameraDevices_ = nullptr;
     QPushButton* endButton_ = nullptr;
     QTimer elapsedTick_;
     QElapsedTimer elapsedTime_;

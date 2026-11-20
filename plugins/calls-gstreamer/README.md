@@ -96,3 +96,31 @@ local SDP offer as proof of ICE, DTLS, RTP exchange with a server.
 Present scope is audio. TURN configuration, WebSocket reconnection behavior,
 glare handling, device selection, remote track attribution to users, video,
 screen sharing and a full-featured call UI need further validation and work.
+
+## Media controls and signaling (work in progress)
+
+The microphone status follows the official Calls `user_muted` and
+`user_unmuted` WebSocket events and the host's forced-mute request.
+Unmuting on initial connection is announced to the server. The sender
+uses an RTP gate to stop publishing Opus while muted.
+
+Input-device selection is handled by the optional GStreamer module:
+microphones and cameras are enumerated through `GstDeviceMonitor`, with
+Qt-only device descriptions passed to the call window. Selecting an input
+replaces only the live capture source in the existing media pipeline;
+it does not restart the entire WebRTC connection.
+
+When the server advertises `EnableVideo` and all optional video codecs are
+present, camera controls are enabled after the local WebRTC stream ID has
+been established. A VP8 transceiver is negotiated once, with an RTP gate
+that stays closed while the camera is off. The camera is only opened after
+the user enables it and is closed on disable. The outgoing video
+`msid` matches the server-side `video_on` signal. Incoming VP8 frames
+use the SFU's `calls-dc` MediaMap to associate the RTP MID with the
+correct participant session. The camera UI does not appear when the
+server or the local GStreamer runtime lacks video support.
+
+**The expanded camera path needs live Mattermost Calls E2E testing**
+(including repeated toggles, late joins and device hot-plug) before
+production release. Video is a separate capability from the already
+validated audio implementation.

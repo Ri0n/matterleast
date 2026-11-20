@@ -133,6 +133,71 @@ private slots:
         QVERIFY(!select->isEnabled());
     }
 
+    void cameraControlsAndParticipantVideo()
+    {
+        QList<bool> cameraActions;
+        QString selected;
+        CallsWindow window([](bool) { return true; }, [] {});
+        window.setCameraHandlers(
+            [&](bool enabled) { cameraActions.append(enabled); return true; },
+            [&](const QString& id) { selected = id; });
+        window.setCameraDevices({
+            {QStringLiteral("camera-one"), QStringLiteral("USB camera"),
+             CallsDeviceKind::Camera}
+        }, QStringLiteral("camera-one"));
+        CallsSnapshot state;
+        state.state = CallsState::Connected;
+        state.channelId = QStringLiteral("dm-video");
+        state.participants = {
+            CallsParticipant{QStringLiteral("alice"), QStringLiteral("alice-session"), false},
+            CallsParticipant{QStringLiteral("bob"), QStringLiteral("bob-session"), false}
+        };
+        window.showForCall(state, QStringLiteral("Video test"));
+        auto* camera = window.findChild<QToolButton*>(QStringLiteral("callsCamera"));
+        auto* selector = window.findChild<QToolButton*>(
+            QStringLiteral("callsCameraDevices"));
+        QVERIFY(camera);
+        QVERIFY(selector);
+        QVERIFY(!camera->isVisible());
+        window.setCameraAvailable(true);
+        QVERIFY(camera->isVisible());
+        QVERIFY(camera->isEnabled());
+        QVERIFY(!camera->icon().isNull());
+        QTest::mouseClick(camera, Qt::LeftButton);
+        QCOMPARE(cameraActions, QList<bool>{true});
+        window.setCameraState(true);
+        QVERIFY(camera->isChecked());
+        QVERIFY(selector->menu());
+        emit selector->menu()->aboutToShow();
+        QCOMPARE(selector->menu()->actions().size(), 3);
+        QVERIFY(selector->menu()->actions().at(2)->isChecked());
+        selector->menu()->actions().first()->trigger();
+        QCOMPARE(selected, QString());
+
+        window.setParticipantCameraState(QStringLiteral("bob-session"), true);
+        auto* tile = [&]() -> QFrame* {
+            for (auto* candidate : window.findChildren<QFrame*>(
+                     QStringLiteral("callsParticipantTile"))) {
+                if (candidate->property("sessionId").toString()
+                    == QLatin1String("bob-session")) return candidate;
+            }
+            return nullptr;
+        }();
+        QVERIFY(tile);
+        auto* video = tile->findChild<QLabel*>(
+            QStringLiteral("callsParticipantVideo"));
+        QVERIFY(video);
+        QVERIFY(video->isVisible());
+        QImage frame(320, 180, QImage::Format_RGB888);
+        frame.fill(Qt::green);
+        window.setParticipantVideo(QStringLiteral("bob-session"), frame);
+        QVERIFY(!video->pixmap().isNull());
+        window.setParticipantCameraState(QStringLiteral("bob-session"), false);
+        QVERIFY(!video->isVisible());
+        window.setCameraState(false);
+        QVERIFY(!camera->isChecked());
+    }
+
     void responsiveStageAndFailureClose()
     {
         int ends = 0;

@@ -43,7 +43,8 @@ public:
         QTimer::singleShot(0, context, [this, callback, valid] {
             ++configReplies;
             callback(valid ? configStatus : 404,
-                     {{QStringLiteral("ICEServersConfigs"), QJsonArray()}});
+                     {{QStringLiteral("ICEServersConfigs"), QJsonArray()},
+                      {QStringLiteral("EnableVideo"), true}});
         });
     }
 
@@ -151,7 +152,9 @@ private slots:
         const QString sdp = calls.offers.first()
                             .value(QStringLiteral("sdp")).toString();
         QVERIFY(sdp.contains(QStringLiteral("m=audio")));
+        QVERIFY(sdp.contains(QStringLiteral("m=video")));
         QVERIFY(sdp.contains(QStringLiteral("m=application")));
+        QVERIFY(sdp.contains(QStringLiteral("matterleast-video-")));
         QVERIFY(sdp.contains(QStringLiteral("opus/48000/2")));
 
         // Official Calls sends a full state snapshot after join. A late

@@ -2,6 +2,8 @@
 #include <utility>
 
 #include <QDebug>
+#include <QHash>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QObject>
@@ -182,6 +184,9 @@ public:
                 return;
             }
             iceUrls_ = iceServerUrls(response);
+            videoAvailable_ = response.value(QStringLiteral("EnableVideo")).toBool()
+                && GstAudioEngine::checkVideoRuntime().isEmpty();
+            if (window_) window_->setCameraAvailable(false);
             if (!host_->sendAction(QLatin1String(CallsPrefix) + QStringLiteral("join"),
                                    {{QStringLiteral("channelID"), snapshot_.channelId}})) {
                 fail(QStringLiteral("Could not send Mattermost Calls join request"));
@@ -204,6 +209,14 @@ public:
         engine_.reset(); // Blocks until the GLib thread and all RTP pads stop.
         snapshot_ = {};
         iceUrls_.clear();
+        videoAvailable_ = false;
+        cameraEnabled_ = false;
+        videoStreamId_.clear();
+        videoMidToSession_.clear();
+        if (window_) {
+            window_->setCameraState(false);
+            window_->setCameraAvailable(false);
+        }
         originalConnectionId_.clear();
         changed();
         return true;
@@ -327,6 +340,16 @@ public:
             snapshot_.callId = id;
             snapshot_.participants = std::move(participants);
             changed();
+            if (window_) {
+                for (const auto& entry : sessions.toArray()) {
+                    const QJsonObject session = entry.toObject();
+                    const QString sessionId = session.value(QStringLiteral("session_id")).toString();
+                    if (!sessionId.isEmpty()) {
+                        window_->setParticipantCameraState(
+                            sessionId, session.value(QStringLiteral("video")).toBool());
+                    }
+                }
+            }
             return;
         }
 
@@ -344,6 +367,22 @@ public:
                     engine_->setMicrophoneMuted(true);
                     snapshot_.microphoneMuted = true;
                     changed();
+                }
+            }
+            return;
+        }
+
+        const bool videoOnEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_video_on");
+        const bool videoOffEvent =
+            name == QLatin1String("custom_com.mattermost.calls_user_video_off");
+        if (videoOnEvent || videoOffEvent) {
+            const QString userId = data.value(QStringLiteral("userID")).toString();
+            for (const auto& participant : snapshot_.participants) {
+                if (participant.sessionId == sessionId
+                    && (userId.isEmpty() || participant.userId == userId)) {
+                    if (window_) window_->setParticipantCameraState(sessionId, videoOnEvent);
+                    break;
                 }
             }
             return;
@@ -468,6 +507,18 @@ private:
                 [this] {
                     if (engine_) engine_->requestDevices();
                 });
+            window_->setCameraHandlers(
+                [this](bool enabled) {
+                    if (!engine_ || !videoAvailable_ || videoStreamId_.isEmpty()
+                        || snapshot_.state != MatterLeast::PluginApi::CallsState::Connected) {
+                        return false;
+                    }
+                    engine_->setCameraEnabled(enabled);
+                    return true;
+                },
+                [this](const QString& id) {
+                    if (engine_) engine_->setVideoInputDevice(id);
+                });
         }
         QString title;
         if (conversationHost_) {
@@ -513,13 +564,59 @@ private:
             },
             iceUrls_,
             [this](const QList<CallsMediaDevice>& devices,
-                   const QString& selectedMicrophone) {
+                   const QString& selectedMicrophone, const QString& selectedCamera) {
                 if (window_) {
                     window_->setMicrophoneDevices(devices, selectedMicrophone);
+                    window_->setCameraDevices(devices, selectedCamera);
                 }
-            });
+            },
+            [this](bool enabled, const QString& error) {
+                if (!error.isEmpty()) {
+                    qWarning() << "MatterLeast Calls camera:" << error;
+                }
+                if (enabled) {
+                    if (videoStreamId_.isEmpty() || !videoAvailable_
+                        || !host_->sendAction(
+                            QLatin1String(CallsPrefix) + QStringLiteral("video_on"),
+                            {{QStringLiteral("data"),
+                              QString::fromUtf8(QJsonDocument(QJsonObject{
+                                  {QStringLiteral("videoStreamID"), videoStreamId_}
+                              }).toJson(QJsonDocument::Compact))}})) {
+                        if (engine_) engine_->setCameraEnabled(false);
+                        return;
+                    }
+                    cameraEnabled_ = true;
+                    if (engine_) engine_->setCameraPublishing(true);
+                } else if (cameraEnabled_) {
+                    cameraEnabled_ = false;
+                    host_->sendAction(QLatin1String(CallsPrefix)
+                                      + QStringLiteral("video_off"), {});
+                }
+                if (window_) {
+                    window_->setCameraState(cameraEnabled_);
+                    window_->setParticipantCameraState(originalConnectionId_,
+                                                        cameraEnabled_);
+                }
+            },
+            [this](const QString& mid, const QImage& frame) {
+                if (!window_) return;
+                const QString sessionId = mid == QLatin1String("#local")
+                    ? originalConnectionId_ : videoMidToSession_.value(mid);
+                if (!sessionId.isEmpty()) window_->setParticipantVideo(sessionId, frame);
+            },
+            [this](const QHash<QString, QString>& mapping) {
+                for (auto it = mapping.cbegin(); it != mapping.cend(); ++it) {
+                    videoMidToSession_.insert(it.key(), it.value());
+                }
+            },
+            [this](const QString& id) {
+                videoStreamId_ = id;
+                if (window_) window_->setCameraAvailable(videoAvailable_ && !id.isEmpty());
+            },
+            videoAvailable_);
         engine_->start();
         engine_->requestDevices();
+        if (window_) window_->setCameraAvailable(false);
     }
 
     void fail(const QString& error)
@@ -542,6 +639,10 @@ private:
     std::unique_ptr<CallsWindow> window_;
     std::unique_ptr<GstAudioEngine> engine_;
     QStringList iceUrls_;
+    QString videoStreamId_;
+    QHash<QString, QString> videoMidToSession_;
+    bool videoAvailable_ = false;
+    bool cameraEnabled_ = false;
     QString originalConnectionId_;
     QString previousConnectionId_;
     quint64 generation_ = 0;
