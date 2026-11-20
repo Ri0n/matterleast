@@ -273,14 +273,26 @@ struct GstAudioEngine::Impl
             return;
         }
         GstPad* src = gst_element_get_static_pad(capsFilter, "src");
-        GstPad* sink = gst_element_request_pad_simple(webrtc_, "sink_%u");
-        const bool linked = src && sink && gst_pad_link(src, sink) == GST_PAD_LINK_OK;
-        if (src) gst_object_unref(src);
-        if (sink) gst_object_unref(sink);
-        if (!linked) {
-            notifyError(QStringLiteral("Could not attach RTP sender to webrtcbin"));
+        if (!src) {
+            notifyError(QStringLiteral("GStreamer RTP caps filter has no source pad"));
             return;
         }
+        GstPad* sink = gst_element_request_pad_simple(webrtc_, "sink_%u");
+        if (!sink) {
+            gst_object_unref(src);
+            notifyError(QStringLiteral("webrtcbin could not create an RTP sink pad"));
+            return;
+        }
+        const GstPadLinkReturn linked = gst_pad_link(src, sink);
+        gst_object_unref(src);
+        if (linked != GST_PAD_LINK_OK) {
+            gst_element_release_request_pad(webrtc_, sink);
+            gst_object_unref(sink);
+            notifyError(QStringLiteral("Could not link Opus RTP to webrtcbin: %1")
+                            .arg(QString::fromLatin1(gst_pad_link_get_name(linked))));
+            return;
+        }
+        gst_object_unref(sink);
 
         GstBus* bus = gst_element_get_bus(pipeline_);
         gst_bus_set_sync_handler(bus, onBus, this, nullptr);
@@ -546,8 +558,11 @@ QString GstAudioEngine::checkRuntime()
         return reason;
     }
     static const char* required[] = {
-        "webrtcbin", "autoaudiosrc", "autoaudiosink", "audiotestsrc",
-        "audiomixer", "audioconvert", "audioresample", "volume",
+        // webrtcbin can be installed without the factories it needs to
+        // request an RTP sink pad or create the Calls data channel.
+        "webrtcbin", "nicesrc", "nicesink", "dtlsenc", "dtlsdec", "sctpenc", "sctpdec",
+        "autoaudiosrc", "autoaudiosink", "audiotestsrc", "audiomixer",
+        "audioconvert", "audioresample", "volume",
         "opusenc", "rtpopuspay", "rtpopusdepay", "opusdec",
         "capsfilter", "queue"
     };

@@ -82,6 +82,10 @@ from C++, with pipeline operations on an explicit GLib context and results
 delivered to Qt through queued events. The public Calls plugin ABI uses Qt
 types.
 
+Before joining a call, the provider checks the ICE, DTLS and SCTP elements
+that `webrtcbin` needs at runtime. On Gentoo, `media-plugins/gst-plugins-libnice`
+supplies the `nicesrc` and `nicesink` elements required to create an RTP sink pad.
+
 A Mattermost call uses one local `webrtcbin` peer connection connected to
 RTCD's SFU and independently identified inbound tracks for each remote
 participant. The validated isolated PoC with **three peers and a late third
