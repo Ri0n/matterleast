@@ -101,6 +101,12 @@ AiThreadMcpServer& AiThreadMcpServer::instance(Backend& backend)
 AiThreadMcpServer::AiThreadMcpServer(Backend& backend)
     : QObject(&backend), _backend(backend)
 {
+    // A local MCP token must not become valid again after the same user logs
+    // back in on the same server. Revoke it at the account session boundary.
+    connect(&_backend, &Backend::sessionEnding, this, [this] {
+        _sessions.clear();
+        stopListening();
+    });
     // Never listen as a side effect of constructing the UI. The endpoint is
     // created lazily, only after explicit user opt-in and opening an AI chat.
     _server.setSocketOptions(QLocalServer::UserAccessOption);
