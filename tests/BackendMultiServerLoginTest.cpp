@@ -486,6 +486,49 @@ private slots:
         checkCookies(serverTwo.profileCookies, "token-two", "token-one");
     }
 
+    void duplicateSessionRegistrationCannotReplaceAnExistingAccount()
+    {
+        FakeMattermostServer server(QByteArrayLiteral("same-user"));
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+
+        AccountSessionManager sessions;
+        Backend& first = sessions.createLoginBackend();
+        Backend& duplicate = sessions.createLoginBackend();
+        bool firstReady = false;
+        bool duplicateReady = false;
+        first.login(credentials(server, QStringLiteral("one-token")),
+                    [&](const QString& token) {
+            firstReady = !token.isEmpty();
+        });
+        duplicate.login(credentials(server, QStringLiteral("two-token")),
+                        [&](const QString& token) {
+            duplicateReady = !token.isEmpty();
+        });
+        QTRY_VERIFY(firstReady && duplicateReady);
+
+        QVERIFY(sessions.registerAuthenticated(first));
+        QVERIFY(!sessions.registerAuthenticated(duplicate));
+        QCOMPARE(sessions.registeredCount(), 1);
+        QCOMPARE(sessions.activeBackend(), &first);
+        QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
+                 &first);
+        QVERIFY(!sessions.activate(duplicate));
+
+        // Releasing the first authenticated session makes its identity
+        // available to the other Backend without recreating it or leaking
+        // the first account's view/transport into the second.
+        first.reset();
+        QCOMPARE(sessions.registeredCount(), 0);
+        QCOMPARE(sessions.activeBackend(), nullptr);
+        QVERIFY(sessions.registerAuthenticated(duplicate));
+        QCOMPARE(sessions.activeBackend(), &duplicate);
+        QCOMPARE(sessions.registeredCount(), 1);
+        QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
+                 &duplicate);
+        QVERIFY(sessions.removeBackend(first));
+        QCOMPARE(sessions.backendCount(), 1);
+    }
+
     void cancellationOfOneLoginDoesNotCancelTheOther()
     {
         FakeMattermostServer stalled(QByteArrayLiteral("stalled-user"));
