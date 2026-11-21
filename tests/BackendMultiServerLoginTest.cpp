@@ -172,12 +172,6 @@ public:
                         requestLine.startsWith("GET /api/v4/files/legacy-file ")
                             ? QByteArrayLiteral("Cache-Control: private, max-age=3600\r\n")
                             : QByteArray();
-                    // Preserve the account-isolated attachment cache test's
-                    // cacheability when this fixture delays user-page replies.
-                    const QByteArray cacheControl =
-                        requestLine.startsWith("GET /api/v4/files/legacy-file ")
-                            ? QByteArrayLiteral("Cache-Control: private, max-age=3600\r\n")
-                            : QByteArray();
                     const QByteArray response = QByteArrayLiteral("HTTP/1.1 ")
                         + status
                         + QByteArrayLiteral("\r\nContent-Type: application/json\r\n")
