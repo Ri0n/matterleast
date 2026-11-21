@@ -57,8 +57,6 @@ private:
         QString key;
         QMetaObject::Connection endingConnection;
     };
-    static QString identityKey(const QString& serverBaseUrl,
-                               const QString& serverUserId);
     void changeActiveBackend(Backend* backend);
     Backend* firstRegisteredBackend() const;
 

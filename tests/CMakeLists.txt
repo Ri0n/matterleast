@@ -446,7 +446,8 @@ add_test(NAME navigation-request-gate-test COMMAND navigation-request-gate-test)
 # Workspace layout is independent of UI/transport and supports overlapping views.
 add_executable(workspace-layout-test
     WorkspaceLayoutTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/workspaces/WorkspaceLayout.cpp")
+    "${CMAKE_SOURCE_DIR}/sources/workspaces/WorkspaceLayout.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/AccountIdentity.cpp")
 target_include_directories(workspace-layout-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)

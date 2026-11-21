@@ -15,8 +15,18 @@ class WorkspaceLayout final
 {
 public:
     struct Account {
-        QString id;
-        QString name;
+        QString id;             // Stable local identity across restarts.
+        QString name;           // Display label, not a network identity.
+        QString serverBaseUrl = {};  // Non-secret origin including installation path.
+        QString serverUserId = {};   // Server-assigned account ID.
+        QString loginName = {};      // Username/email for keyring lookup.
+
+        // Imported v1 accounts have no connection metadata yet.
+        bool hasConnectionIdentity() const
+        {
+            return !serverBaseUrl.isEmpty() && !serverUserId.isEmpty()
+                && !loginName.isEmpty();
+        }
     };
     struct Profile {
         QString id;
@@ -51,7 +61,8 @@ public:
     // Select the desired view only; does not start/stop any connection.
     bool selectView(const QString& viewId);
 
-    // Versioned JSON without tokens or passwords.
+    // Version 2 adds non-secret remote identity; version 1 remains readable.
+    // Tokens and passwords never enter the layout.
     QByteArray toJson() const;
     static std::optional<WorkspaceLayout> fromJson(const QByteArray& json,
                                                     QString* error = nullptr);

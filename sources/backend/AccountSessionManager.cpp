@@ -1,7 +1,7 @@
 #include "AccountSessionManager.h"
+#include "AccountIdentity.h"
 
 #include <QChildEvent>
-#include <QUrl>
 
 #include "Backend.h"
 #include "types/BackendUser.h"
@@ -27,37 +27,6 @@ Backend* AccountSessionManager::createLoginBackend()
     return backend;
 }
 
-QString AccountSessionManager::identityKey(const QString& serverBaseUrl,
-                                            const QString& serverUserId)
-{
-    if (serverUserId.isEmpty() || serverUserId.contains(QChar(0x1f)))
-        return {};
-
-    QUrl url(serverBaseUrl);
-    const QString scheme = url.scheme().toLower();
-    if (!url.isValid() || url.host().isEmpty()
-        || (scheme != QLatin1String("https")
-            && scheme != QLatin1String("http"))
-        || !url.userInfo().isEmpty()) {
-        return {};
-    }
-
-    // Preserve the Mattermost installation path: two installations on the
-    // same hostname may be different accounts. Canonicalize only URL spelling.
-    url.setQuery(QString());
-    url.setFragment(QString());
-    if ((scheme == QLatin1String("https") && url.port() == 443)
-        || (scheme == QLatin1String("http") && url.port() == 80)) {
-        url.setPort(-1);
-    }
-    QString path = url.path();
-    if (path.isEmpty() || !path.endsWith(QLatin1Char('/')))
-        path.append(QLatin1Char('/'));
-    url.setPath(path);
-
-    return url.toString(QUrl::FullyEncoded) + QChar(0x1f) + serverUserId;
-}
-
 bool AccountSessionManager::registerAuthenticated(Backend* backend)
 {
     if (!_sessions.contains(backend) || !backend->loggedIn()
@@ -65,7 +34,7 @@ bool AccountSessionManager::registerAuthenticated(Backend* backend)
         return false;
     }
 
-    const QString key = identityKey(backend->networkSession().host(),
+    const QString key = accountIdentityKey(backend->networkSession().host(),
                                     backend->getStorage().loginUser->id);
     if (key.isEmpty())
         return false;
@@ -116,7 +85,7 @@ bool AccountSessionManager::unregisterAccount(Backend* backend)
 Backend* AccountSessionManager::findAccount(const QString& serverBaseUrl,
                                             const QString& serverUserId) const
 {
-    const QString key = identityKey(serverBaseUrl, serverUserId);
+    const QString key = accountIdentityKey(serverBaseUrl, serverUserId);
     return key.isEmpty() ? nullptr : _registered.value(key, nullptr);
 }
 
