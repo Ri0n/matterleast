@@ -129,18 +129,28 @@ private slots:
         settings->setValue<QString>(QStringLiteral("token"), QStringLiteral("secret"));
         MigrationManager::Result result = MigrationManager::Result::Complete;
         migrations.run([&](MigrationManager::Result next) { result = next; });
-        QCOMPARE(result, MigrationManager::Result::ManualSignInRequired);
+        QVERIFY(result == MigrationManager::Result::ManualSignInRequired);
         QCOMPARE(settings->value<int>(QStringLiteral("migrations/version")), 0);
         QCOMPARE(settings->value<QString>(QStringLiteral("token")),
                  QStringLiteral("secret"));
 
+        // With no legacy source, migration completes immediately and the
+        // stored version advances; restarting doesn't mutate it.
+        settings->setValue<QString>(QStringLiteral("token"), {});
+        settings->setValue<int>(QStringLiteral("migrations/version"), 0);
+        migrations.run([&](MigrationManager::Result next) { result = next; });
+        QVERIFY(result == MigrationManager::Result::Complete);
+        QCOMPARE(settings->value<int>(QStringLiteral("migrations/version")), 1);
+        migrations.run([&](MigrationManager::Result next) { result = next; });
+        QVERIFY(result == MigrationManager::Result::Complete);
+        QCOMPARE(settings->value<int>(QStringLiteral("migrations/version")), 1);
+
         // Newer settings must never be downgraded or rewritten.
         settings->setValue<int>(QStringLiteral("migrations/version"), 999);
         migrations.run([&](MigrationManager::Result next) { result = next; });
-        QCOMPARE(result, MigrationManager::Result::UnsupportedVersion);
+        QVERIFY(result == MigrationManager::Result::UnsupportedVersion);
         QCOMPARE(settings->value<int>(QStringLiteral("migrations/version")), 999);
-        QCOMPARE(settings->value<QString>(QStringLiteral("token")),
-                 QStringLiteral("secret"));
+        QVERIFY(settings->value<QString>(QStringLiteral("token")).isEmpty());
 
         for (int i = 0; i < keys.size(); ++i)
             settings->setValue<QString>(keys[i], previous[i]);
