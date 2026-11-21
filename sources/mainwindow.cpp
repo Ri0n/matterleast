@@ -1455,7 +1455,11 @@ void MainWindow::saveState()
 	NavigationUiController::instance(*this).saveSession();
 	LOG_DEBUG("MainWindow saveState");
 	auto* options = MLOptions::instance();
-	options->setValue(QStringLiteral("geometry"), saveGeometry());
+    // Embedded account views have no independent top-level geometry. The
+    // AccountWorkspaceStack shell persists the single application window.
+    if (isWindow()) {
+        options->setValue(QStringLiteral("geometry"), saveGeometry());
+    }
 	if (sidebarSplitter) {
 		options->setValue(
 			QStringLiteral("sidebar_splitter_state"), sidebarSplitter->saveState());
