@@ -64,6 +64,9 @@ signals:
     void accountUnregistered(Backend* backend);
     void activeBackendChanged(Backend* backend);
     void accountConnected(Account* account, Backend* backend);
+    // Emitted only after a verified account's token is safely stored in
+    // platform keychain. The migration layer may then drop old plaintext.
+    void credentialsStored(const QString& server, const QString& loginName);
 
 private:
     Account* ensureAccount(const QString& id);

@@ -241,8 +241,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
                 (bool success) {
                 if (!success || !itemGuard)
                     return;
-                MLOptions::instance()->setValue<QString>(
-                    QStringLiteral("token"), QString());
+                emit credentialsStored(acceptedServer, loginName);
                 if (!previousLogin.isEmpty()
                     && (previousServer != acceptedServer
                         || previousLogin != loginName))
