@@ -455,8 +455,6 @@ Backend::Backend(QObject *parent)
             }));
     });
 
-	attachmentsCache.setCacheDirectory (QDir (QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("attachments"));
-	attachmentsCache.setMaximumCacheSize (300 * 1024 * 1024);
     // Keep the backend-scoped lazy custom resolver connected before
     // login/post loading so registry misses can never be lost.
     (void)CustomEmojiService::instance(*this);
