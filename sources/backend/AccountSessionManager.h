@@ -1,8 +1,5 @@
 #pragma once
 
-#include <memory>
-#include <vector>
-
 #include <QHash>
 #include <QObject>
 #include <QString>
@@ -50,15 +47,20 @@ signals:
     void activeBackendChanged(Backend* backend);
 
 private:
-    struct Session;
+    struct Registration {
+        QString key;
+        QMetaObject::Connection endingConnection;
+    };
     static QString identityKey(const QString& serverBaseUrl,
                                const QString& serverUserId);
-    Session* sessionFor(const Backend* backend) const;
     void changeActiveBackend(Backend* backend);
     Backend* firstRegisteredBackend() const;
 
-    std::vector<std::unique_ptr<Session>> _sessions;
-    QHash<QString, Session*> _registered;
+    // Backend QObjects are children of this manager. These containers only
+    // index them; none owns their lifetime independently of QObject.
+    QVector<Backend*> _sessions;
+    QHash<QString, Backend*> _registered;
+    QHash<Backend*, Registration> _registrations;
     Backend* _activeBackend = nullptr;
 };
 
