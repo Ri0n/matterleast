@@ -236,7 +236,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
             const QString acceptedServer = backend->networkSession().host();
             SessionTokenStore::write(item, acceptedServer, loginName,
                                      authenticatedToken,
-                [itemGuard = QPointer<Account>(item),
+                [this, itemGuard = QPointer<Account>(item),
                  previousServer, previousLogin, acceptedServer, loginName]
                 (bool success) {
                 if (!success || !itemGuard)
