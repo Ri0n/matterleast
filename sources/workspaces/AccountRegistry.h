@@ -27,6 +27,11 @@ public:
                                   const QString& loginName,
                                   const QString& displayName);
     bool selectAccount(const QString& id);
+    // Attach server identity to an unresolved v1 record in place, retaining
+    // its local ID, profile/view memberships, tabs and saved UI state.
+    bool resolveUnconfigured(const QString& id, const QString& serverBaseUrl,
+                             const QString& serverUserId,
+                             const QString& loginName);
 
 private:
     WorkspaceLayout _layout;

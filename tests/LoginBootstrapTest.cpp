@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QJsonDocument>
+#include <QCheckBox>
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
@@ -149,6 +150,37 @@ private slots:
         settings->setValue(QStringLiteral("domain"), oldDomain);
         settings->setValue(QStringLiteral("username"), oldUsername);
         settings->setValue(QStringLiteral("token"), oldToken);
+    }
+
+    void reauthenticationEditorIsBoundToSavedAccount()
+    {
+        auto* settings = MLOptions::instance();
+        const QString oldDomain = settings->value<QString>(QStringLiteral("domain"));
+        const QString oldUser = settings->value<QString>(QStringLiteral("username"));
+        Backend backend;
+        LoginDialog editor(nullptr, backend, false,
+                           QStringLiteral("https://work.example.org/"),
+                           QStringLiteral("alice@example.org"));
+        auto* domain = editor.findChild<QLineEdit*>(QStringLiteral("domain_lineEdit"));
+        auto* user = editor.findChild<QLineEdit*>(QStringLiteral("username_lineEdit"));
+        auto* password = editor.findChild<QLineEdit*>(QStringLiteral("password_lineEdit"));
+        auto* tokenMode = editor.findChild<QCheckBox*>(
+            QStringLiteral("personalAccessTokenCheck"));
+        QVERIFY(domain);
+        QVERIFY(user);
+        QVERIFY(password);
+        QVERIFY(tokenMode);
+        QCOMPARE(domain->text(), QStringLiteral("https://work.example.org/"));
+        QCOMPARE(user->text(), QStringLiteral("alice@example.org"));
+        QVERIFY(domain->isReadOnly());
+        QVERIFY(user->isReadOnly());
+        QVERIFY(!tokenMode->isChecked());
+        tokenMode->setChecked(true);
+        QCOMPARE(password->placeholderText(), QStringLiteral("Personal access token"));
+        QVERIFY(password->echoMode() == QLineEdit::Password);
+        QCOMPARE(settings->value<QString>(QStringLiteral("domain")), oldDomain);
+        QCOMPARE(settings->value<QString>(QStringLiteral("username")), oldUser);
+        QVERIFY(!backend.loggedIn());
     }
 
     void canCancelInFlightSavedSessionAndConnectToAnotherServer()

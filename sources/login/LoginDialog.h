@@ -21,6 +21,8 @@
 
 #include <QDialog>
 #include <QTimer>
+
+class QCheckBox;
 #include "backend/types/BackendLoginData.h"
 
 namespace Ui {
@@ -37,7 +39,10 @@ public:
     // Additional accounts require explicit login; never auto-restore the
     // last-used account into a second Backend.
     LoginDialog(QWidget* parent, Backend& backend,
-                bool allowSavedSessionRestore = true);
+                bool allowSavedSessionRestore = true,
+                const QString& fixedServer = {},
+                const QString& fixedLogin = {});
+    QString authenticatedLoginName() const { return _authenticatedLoginName; }
 	~LoginDialog ();
 private slots:
 	void on_login_pushButton_clicked();
@@ -53,6 +58,9 @@ private:
 	Backend&			backend;
 	Ui::LoginDialog*	ui;
     QTimer _autoLoginRetryTimer;
+    QCheckBox* _tokenMode = nullptr;
+    QString _authenticatedLoginName;
+    bool _saveLegacyOptions = false;
     BackendLoginData _savedLoginData;
     bool _autoLoginEnabled = false;
     bool _attemptInProgress = false;
