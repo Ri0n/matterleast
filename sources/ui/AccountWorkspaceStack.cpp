@@ -15,16 +15,17 @@ AccountWorkspaceStack::AccountWorkspaceStack(QWidget* parent)
     layout->setSpacing(0);
     layout->addWidget(_stack);
     connect(_stack, &QStackedWidget::currentChanged, this,
-            [this](int) { emit activeWorkspaceChanged(activeBackend()); });
+            [this](int) { emit activeWorkspaceChanged(activeAccountId()); });
 }
 
-bool AccountWorkspaceStack::addWorkspace(Backend& backend, QWidget* view)
+bool AccountWorkspaceStack::addWorkspace(const QString& accountId, QWidget* view)
 {
-    if (!view || _workspaces.contains(&backend) || _owners.contains(view))
+    if (accountId.isEmpty() || !view || _workspaces.contains(accountId)
+        || _owners.contains(view))
         return false;
 
-    _workspaces.insert(&backend, view);
-    _owners.insert(view, &backend);
+    _workspaces.insert(accountId, view);
+    _owners.insert(view, accountId);
     _stack->addWidget(view);
     return true;
 }
@@ -43,14 +44,14 @@ void AccountWorkspaceStack::showOverview()
         _stack->setCurrentWidget(_overviewPage);
 }
 
-QWidget* AccountWorkspaceStack::workspace(const Backend& backend) const
+QWidget* AccountWorkspaceStack::workspace(const QString& accountId) const
 {
-    return _workspaces.value(&backend).data();
+    return _workspaces.value(accountId).data();
 }
 
-bool AccountWorkspaceStack::activateWorkspace(Backend& backend)
+bool AccountWorkspaceStack::activateWorkspace(const QString& accountId)
 {
-    QWidget* view = workspace(backend);
+    QWidget* view = workspace(accountId);
     if (!view)
         return false;
     if (_stack->currentWidget() != view)
@@ -58,18 +59,18 @@ bool AccountWorkspaceStack::activateWorkspace(Backend& backend)
     return true;
 }
 
-Backend* AccountWorkspaceStack::activeBackend() const
+QString AccountWorkspaceStack::activeAccountId() const
 {
-    return _owners.value(_stack->currentWidget(), nullptr);
+    return _owners.value(_stack->currentWidget());
 }
 
-QWidget* AccountWorkspaceStack::takeWorkspace(Backend& backend)
+QWidget* AccountWorkspaceStack::takeWorkspace(const QString& accountId)
 {
-    QWidget* view = workspace(backend);
+    QWidget* view = workspace(accountId);
     if (!view)
         return nullptr;
 
-    _workspaces.remove(&backend);
+    _workspaces.remove(accountId);
     _owners.remove(view);
     _stack->removeWidget(view);
     // QStackedWidget::removeWidget() does not release QObject ownership.

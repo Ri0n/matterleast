@@ -1,28 +1,23 @@
 #pragma once
 
-#include <QVector>
 #include <QWidget>
 
-class QListWidget;
+class QListView;
 class QPushButton;
 class QLabel;
 
 namespace Mattermost {
 
-// Presents already-configured accounts even when no Backend exists.
+class AccountListModel;
+
+// Qt Widgets rendering of the QtCore account projection. Future QML screens
+// can bind to the same model without depending on this widget at all.
 class AccountOverviewPage final : public QWidget
 {
     Q_OBJECT
 public:
-    struct Entry {
-        QString id;
-        QString display;
-        QString server;
-        QString status;
-    };
-
-    explicit AccountOverviewPage(QWidget* parent = nullptr);
-    void setEntries(const QVector<Entry>& entries, const QString& selectedId);
+    explicit AccountOverviewPage(AccountListModel& model,
+                                 QWidget* parent = nullptr);
     void setError(const QString& message);
 
 signals:
@@ -33,8 +28,11 @@ signals:
 
 private:
     QString selectedAccountId() const;
+    void syncSelection();
+    void syncButtons();
 
-    QListWidget* _accounts = nullptr;
+    AccountListModel& _model;
+    QListView* _accounts = nullptr;
     QLabel* _errorLabel = nullptr;
     QPushButton* _retry = nullptr;
     QPushButton* _signIn = nullptr;
