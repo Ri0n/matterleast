@@ -52,6 +52,9 @@
 #include "mainwindow.h"
 #include "backend/Backend.h"
 #include "backend/AccountSessionManager.h"
+#include "backend/AccountIdentity.h"
+#include "backend/SessionTokenStore.h"
+#include "backend/types/BackendLoginData.h"
 #include "backend/UserActivityMonitor.h"
 #include "backend/CustomEmojiService.h"
 #include "options/MLOptions.h"
@@ -62,6 +65,8 @@
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/TrayWindowController.h"
 #include "ui/AccountWorkspaceStack.h"
+#include "ui/AccountOverviewPage.h"
+#include "workspaces/AccountRegistry.h"
 #include "ui/AccountTrayBadgeModel.h"
 
 namespace Mattermost {
@@ -71,30 +76,48 @@ public:
     MattermostApplication(int& argc, char* argv[]);
     ~MattermostApplication() override;
 
-    void openLoginWindow();
+    void start();
+    void openLoginWindow(const QString& recoveryAccountId = {});
     void showWindow();
     void toggleShowWindow();
-    void beginLogout(Backend& backend);
+    void beginLogout(Backend& backend, bool authenticationExpired = false);
 private:
+    enum class ConnectionStatus {
+        Disconnected, Connecting, Connected, Unavailable, AuthenticationRequired
+    };
+
     void ensureWorkspaceShell();
-    void addAccountWorkspace(Backend& backend);
+    void addAccountWorkspace(Backend& backend, bool activate);
     void populateAccountMenu(QMenu& menu);
     void updateWindowTitle();
     void updateTrayIcon();
     void discardFinishedAccount(Backend* backend);
+    void saveAccounts();
+    void refreshOverview();
+    void selectAccount(const QString& accountId, bool presentWindow = false);
+    void restoreAccount(const QString& accountId);
+    void cancelPendingRestore(const QString& accountId, ConnectionStatus status);
+    QString idForBackend(const Backend* backend) const;
 
-    // Members are destroyed in reverse order. AccountSessionManager owns
-    // Backends until after every workspace (and each plugin overlay) is gone.
+    // AccountRegistry owns durable account records; AccountSessionManager owns
+    // only optional live Backend QObjects. Neither owns the other's lifetime.
     AccountSessionManager accounts;
     UserActivityMonitor _activityMonitor;
+    AccountRegistry accountRegistry;
     std::unique_ptr<QMenu> trayIconMenu;
     std::unique_ptr<QSystemTrayIcon> trayIcon;
     AccountTrayBadgeModel trayBadges;
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
+    AccountOverviewPage* overviewPage = nullptr; // QWidget child of workspaceShell
     QHash<Backend*, MainWindow*> accountViews;
+    QHash<QString, QPointer<Backend>> liveByAccountId;
+    QHash<QString, QPointer<Backend>> pendingByAccountId;
+    QHash<QString, ConnectionStatus> connectionStatuses;
     QSet<Backend*> closingAccounts;
     QPointer<LoginDialog> loginDialog;
     TrayWindowController trayWindow;
+    QString selectedAccountId;
+    bool invalidAccountCatalog = false;
     bool suppressNextAutomaticLogin = false;
 };
 
@@ -187,6 +210,51 @@ MattermostApplication::~MattermostApplication()
     delete loginDialog.data();
 }
 
+void MattermostApplication::start()
+{
+    QString error;
+    const QByteArray saved = MLOptions::instance()->value<QByteArray>(
+        QStringLiteral("workspaces/layout"));
+    if (!accountRegistry.load(saved, &error)) {
+        invalidAccountCatalog = true;
+        qWarning() << "Cannot load saved account catalog:" << error;
+        ensureWorkspaceShell();
+        overviewPage->setError(tr("Saved account settings could not be read. "
+                                  "The original configuration has been preserved."));
+        refreshOverview();
+        workspaceShell->show();
+        trayWindow.setWindow(workspaceShell.get());
+        return;
+    }
+
+    if (accountRegistry.empty()) {
+        // Legacy single-server/keyring restoration remains available once,
+        // until an authenticated account is durably added to the registry.
+        openLoginWindow();
+        return;
+    }
+
+    for (const auto& view : accountRegistry.layout().views) {
+        if (view.id == accountRegistry.layout().activeViewId
+            && !view.accountIds.isEmpty()) {
+            selectedAccountId = view.accountIds.first();
+            break;
+        }
+    }
+    ensureWorkspaceShell();
+    refreshOverview();
+    workspaceShell->showOverview();
+    trayWindow.setWindow(workspaceShell.get());
+    workspaceShell->show();
+    // Keyring reads are independent: one unavailable server never holds up
+    // presentation or the other accounts' connection attempts.
+    QTimer::singleShot(0, this, [this] {
+        for (const auto& record : accountRegistry.layout().accounts)
+            if (record.hasConnectionIdentity())
+                restoreAccount(record.id);
+    });
+}
+
 void MattermostApplication::ensureWorkspaceShell()
 {
     if (workspaceShell)
@@ -202,6 +270,17 @@ void MattermostApplication::ensureWorkspaceShell()
     else
         workspaceShell->resize(1200, 800);
 
+    overviewPage = new AccountOverviewPage(workspaceShell.get());
+    workspaceShell->setOverviewPage(overviewPage);
+    connect(overviewPage, &AccountOverviewPage::accountSelected, this,
+            [this](const QString& id) { selectAccount(id); });
+    connect(overviewPage, &AccountOverviewPage::retryRequested, this,
+            &MattermostApplication::restoreAccount);
+    connect(overviewPage, &AccountOverviewPage::signInRequested, this,
+            [this](const QString& id) { openLoginWindow(id); });
+    connect(overviewPage, &AccountOverviewPage::addServerRequested, this,
+            [this] { openLoginWindow(); });
+
     connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
             [this] {
         if (workspaceShell) {
@@ -215,36 +294,104 @@ void MattermostApplication::ensureWorkspaceShell()
             accounts.activate(backend);
         updateWindowTitle();
     });
-    // The account manager is the source of truth for user-initiated server
-    // changes, including switching through the sidebar/tray menu and logout.
     connect(&accounts, &AccountSessionManager::activeBackendChanged,
             workspaceShell.get(), [this](Backend* backend) {
-        if (backend && workspaceShell)
+        if (backend && workspaceShell
+            && selectedAccountId == idForBackend(backend))
             workspaceShell->activateWorkspace(*backend);
         updateWindowTitle();
     });
 }
 
+QString MattermostApplication::idForBackend(const Backend* backend) const
+{
+    for (auto it = liveByAccountId.cbegin(); it != liveByAccountId.cend(); ++it) {
+        if (it.value().data() == backend)
+            return it.key();
+    }
+    return {};
+}
+
+void MattermostApplication::saveAccounts()
+{
+    if (invalidAccountCatalog || accountRegistry.empty())
+        return;
+    const QByteArray layout = accountRegistry.toJson();
+    if (!layout.isEmpty())
+        MLOptions::instance()->setValue<QByteArray>(
+            QStringLiteral("workspaces/layout"), layout);
+}
+
+void MattermostApplication::refreshOverview()
+{
+    if (!overviewPage)
+        return;
+    QVector<AccountOverviewPage::Entry> entries;
+    entries.reserve(accountRegistry.layout().accounts.size());
+    for (const auto& record : accountRegistry.layout().accounts) {
+        const ConnectionStatus status =
+            connectionStatuses.value(record.id, ConnectionStatus::Disconnected);
+        QString state;
+        switch (status) {
+        case ConnectionStatus::Connecting: state = tr("Connecting…"); break;
+        case ConnectionStatus::Connected: state = tr("Connected"); break;
+        case ConnectionStatus::Unavailable: state = tr("Unavailable — retry"); break;
+        case ConnectionStatus::AuthenticationRequired:
+            state = tr("Sign-in required"); break;
+        case ConnectionStatus::Disconnected: state = tr("Disconnected"); break;
+        }
+        if (!record.hasConnectionIdentity())
+            state = tr("Account setup required");
+        entries.append({record.id, record.name,
+                        QUrl(record.serverBaseUrl).host(), state});
+    }
+    overviewPage->setEntries(entries, selectedAccountId);
+}
+
+void MattermostApplication::selectAccount(const QString& accountId,
+                                           bool presentWindow)
+{
+    if (!accountRegistry.selectAccount(accountId))
+        return;
+    selectedAccountId = accountId;
+    saveAccounts();
+    if (workspaceShell) {
+        if (Backend* active = liveByAccountId.value(accountId).data()) {
+            if (!closingAccounts.contains(active)) {
+                accounts.activate(active);
+                workspaceShell->activateWorkspace(*active);
+            } else {
+                workspaceShell->showOverview();
+            }
+        } else {
+            workspaceShell->showOverview();
+        }
+        trayWindow.setWindow(workspaceShell.get());
+    }
+    refreshOverview();
+    updateWindowTitle();
+    if (presentWindow)
+        trayWindow.showWindow();
+}
+
 void MattermostApplication::populateAccountMenu(QMenu& menu)
 {
     menu.clear();
-    Backend* current = accounts.activeBackend();
-    const auto backends = accounts.registeredBackends();
-    for (Backend* account : backends) {
-        const QString host = QUrl(account->serverDomain()).host();
-        const QString display = account->getLoginUser().username;
-        auto* action = menu.addAction(
-            QStringLiteral("%1 — %2").arg(host, display));
+    for (const auto& record : accountRegistry.layout().accounts) {
+        const auto phase = connectionStatuses.value(
+            record.id, ConnectionStatus::Disconnected);
+        const QString marker = phase == ConnectionStatus::Connected
+            ? QString() : QStringLiteral(" (") +
+              (phase == ConnectionStatus::Connecting ? tr("connecting")
+               : phase == ConnectionStatus::AuthenticationRequired
+                   ? tr("sign-in required") : tr("offline")) + QLatin1Char(')');
+        QAction* action = menu.addAction(record.name + marker);
         action->setCheckable(true);
-        action->setChecked(account == current);
-        // Account is the connection context: a menu left open while this
-        // session ends cannot invoke a lambda capturing a deleted Backend.
-        connect(action, &QAction::triggered, account, [this, account] {
-            if (!closingAccounts.contains(account))
-                accounts.activate(account);
-        });
+        action->setChecked(record.id == selectedAccountId);
+        connect(action, &QAction::triggered, this,
+                [this, id = record.id] { selectAccount(id, true); });
     }
-    if (!backends.isEmpty())
+    if (!accountRegistry.empty())
         menu.addSeparator();
     menu.addAction(tr("Add server…"), this,
                    [this] { openLoginWindow(); });
@@ -254,8 +401,7 @@ void MattermostApplication::updateWindowTitle()
 {
     if (!workspaceShell)
         return;
-
-    Backend* selected = accounts.activeBackend();
+    Backend* selected = liveByAccountId.value(selectedAccountId).data();
     MainWindow* page = accountViews.value(selected, nullptr);
     if (!selected || !page) {
         workspaceShell->setWindowTitle(applicationDisplayName());
@@ -273,7 +419,7 @@ void MattermostApplication::updateTrayIcon()
         combined.attentionCount, combined.hasUnreadChannel));
 }
 
-void MattermostApplication::addAccountWorkspace(Backend& backend)
+void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
 {
     ensureWorkspaceShell();
 
@@ -304,19 +450,24 @@ void MattermostApplication::addAccountWorkspace(Backend& backend)
             [this, account = &backend] { beginLogout(*account); });
     connect(page, &MainWindow::presentAccountRequested, this,
             [this, account = &backend] {
-        if (accounts.activate(account) && workspaceShell)
-            trayWindow.setWindow(workspaceShell.get());
+        const QString id = idForBackend(account);
+        if (!id.isEmpty())
+            selectAccount(id);
     });
     connect(&backend, &Backend::authenticationExpired, this,
-            [this, account = &backend] { beginLogout(*account); });
+            [this, account = &backend] { beginLogout(*account, true); });
 
     page->installRealtimeUiSync();
-    accounts.activate(&backend);
-    workspaceShell->activateWorkspace(backend);
+    if (activate) {
+        accounts.activate(&backend);
+        workspaceShell->activateWorkspace(backend);
+    }
     trayWindow.setWindow(workspaceShell.get());
+    refreshOverview();
     updateWindowTitle();
     updateTrayIcon();
-    workspaceShell->show();
+    if (activate)
+        workspaceShell->show();
 }
 
 void MattermostApplication::openLoginWindow()
