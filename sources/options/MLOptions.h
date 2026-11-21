@@ -74,6 +74,7 @@ public:
     }
 
     bool contains(const QString& name) const;
+    QSettings::Status persistenceStatus() const { return settings.status(); }
 
     MLOptionObject* optionObject(const QString& name,
                                  const QVariant& defaultValue);

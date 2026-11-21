@@ -97,15 +97,25 @@ void MigrationManager::executeStep(int version)
     }
 }
 
-void MigrationManager::completeLegacyMigration()
+bool MigrationManager::completeLegacyMigration()
 {
-    // The imported layout and keychain entry have already been persisted.
-    // Wipe the old plaintext secret *before* recording the completed version:
-    // a crash in between is safe to replay.
+    // The imported layout and keychain entry must already be durable.
+    // A failed QSettings sync must never cause the only available login
+    // coordinates to be erased, even when the in-memory Account is alive.
+    if (_options->persistenceStatus() != QSettings::NoError)
+        return false;
+
+    // Wipe plaintext *before* recording the version. A crash during the
+    // intermediate writes is safe to replay from the persisted Account.
     _options->setValue<QString>(kLegacyToken, {});
+    if (_options->persistenceStatus() != QSettings::NoError)
+        return false;
     _options->setValue<QString>(kLegacyDomain, {});
     _options->setValue<QString>(kLegacyUsername, {});
+    if (_options->persistenceStatus() != QSettings::NoError)
+        return false;
     _options->setValue<int>(kVersionKey, 1);
+    return _options->persistenceStatus() == QSettings::NoError;
 }
 
 void MigrationManager::run(Completion callback)
@@ -135,18 +145,18 @@ void MigrationManager::migrateLegacyLogin()
     // configured multi-account catalog. Preserve unmigrated secrets for a
     // deliberate recovery instead of silently losing them.
     if (!_accounts.empty()) {
-        if (_options->value<QString>(kLegacyToken).isEmpty())
-            completeLegacyMigration();
-        finish(_options->value<QString>(kLegacyToken).isEmpty()
-            ? Result::Complete : Result::ManualSignInRequired);
+        const bool noLegacySecret = _options->value<QString>(kLegacyToken).isEmpty();
+        finish(noLegacySecret
+            ? (completeLegacyMigration() ? Result::Complete : Result::Unavailable)
+            : Result::ManualSignInRequired);
         return;
     }
     const QString server = legacyServerHint();
     const QString login = legacyLoginHint();
     const QString plaintext = _options->value<QString>(kLegacyToken);
     if (server.isEmpty() && login.isEmpty() && plaintext.isEmpty()) {
-        completeLegacyMigration();
-        finish(Result::Complete);
+        finish(completeLegacyMigration()
+            ? Result::Complete : Result::Unavailable);
         return;
     }
     if (server.isEmpty() || login.isEmpty()) {
@@ -211,8 +221,8 @@ void MigrationManager::authenticateLegacy(
                 finish(Result::ManualSignInRequired);
                 return;
             }
-            completeLegacyMigration();
-            finish(Result::Complete);
+            finish(completeLegacyMigration()
+                ? Result::Complete : Result::Unavailable);
         };
 
         if (alreadyInKeychain) {

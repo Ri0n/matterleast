@@ -38,7 +38,7 @@ private:
     void migrateLegacyLogin();
     void authenticateLegacy(const QString& server, const QString& login,
                             const QString& token, bool alreadyInKeychain);
-    void completeLegacyMigration();
+    bool completeLegacyMigration();
     void finish(Result result);
 
     AccountManager& _accounts;
