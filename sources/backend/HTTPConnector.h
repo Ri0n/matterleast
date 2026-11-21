@@ -62,6 +62,9 @@ public:
 	void reset ();
 	void restartTransport ();
 	static void restartAllTransports ();
+    // A single server's WebSocket reconnect must not abort uploads, downloads
+    // or active requests belonging to other authenticated accounts.
+    static void restartSessionTransports(const NetworkSessionContext* session);
     // Invalidate every HTTP connector belonging to exactly one session.
     // Do not abort requests on unrelated accounts or create an implicit
     // current-account singleton.
