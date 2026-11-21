@@ -32,11 +32,16 @@ public:
     Backend* activeBackend() const;
     int workspaceCount() const;
 
+    // Offline account chooser is a permanent page, not a temporary Backend.
+    void setOverviewPage(QWidget* page);
+    void showOverview();
+
 signals:
     void activeWorkspaceChanged(Backend* backend);
 
 private:
     QStackedWidget* _stack;
+    QWidget* _overviewPage = nullptr;
     QHash<const Backend*, QPointer<QWidget>> _workspaces;
     QHash<QWidget*, Backend*> _owners;
 };

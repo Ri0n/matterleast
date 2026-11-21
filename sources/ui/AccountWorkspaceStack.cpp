@@ -29,6 +29,20 @@ bool AccountWorkspaceStack::addWorkspace(Backend& backend, QWidget* view)
     return true;
 }
 
+void AccountWorkspaceStack::setOverviewPage(QWidget* page)
+{
+    if (!page || _overviewPage)
+        return;
+    _overviewPage = page;
+    _stack->insertWidget(0, page);
+}
+
+void AccountWorkspaceStack::showOverview()
+{
+    if (_overviewPage && _stack->currentWidget() != _overviewPage)
+        _stack->setCurrentWidget(_overviewPage);
+}
+
 QWidget* AccountWorkspaceStack::workspace(const Backend& backend) const
 {
     return _workspaces.value(&backend).data();
