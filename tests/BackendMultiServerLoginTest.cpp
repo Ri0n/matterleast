@@ -40,7 +40,8 @@ void traceSegfault(int signo)
     void* frames[64];
     const int count = backtrace(frames, 64);
     static const char label[] = "\n--- backend-multi-server native backtrace ---\n";
-    (void)write(STDERR_FILENO, label, sizeof(label) - 1);
+    const ssize_t written = write(STDERR_FILENO, label, sizeof(label) - 1);
+    (void)written;
     backtrace_symbols_fd(frames, count, STDERR_FILENO);
     _exit(128 + signo);
 }
