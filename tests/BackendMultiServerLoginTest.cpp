@@ -536,8 +536,11 @@ private slots:
         bool sawOne = false;
         bool sawTwo = false;
         for (const QByteArray& cookie : server.preferenceCookies) {
-            sawOne = sawOne || cookie.contains("MMAUTHTOKEN=token-one");
-            sawTwo = sawTwo || cookie.contains("MMAUTHTOKEN=token-two");
+            const bool one = cookie.contains("MMAUTHTOKEN=token-one");
+            const bool two = cookie.contains("MMAUTHTOKEN=token-two");
+            QVERIFY(one != two);
+            sawOne = sawOne || one;
+            sawTwo = sawTwo || two;
         }
         QVERIFY(sawOne && sawTwo);
     }
@@ -575,7 +578,7 @@ private slots:
         // the first account's view/transport into the second.
         first.reset();
         QCOMPARE(sessions.registeredCount(), 0);
-        QCOMPARE(sessions.activeBackend(), nullptr);
+        QVERIFY(sessions.activeBackend() == nullptr);
         QVERIFY(sessions.registerAuthenticated(duplicate));
         QCOMPARE(sessions.activeBackend(), &duplicate);
         QCOMPARE(sessions.registeredCount(), 1);
