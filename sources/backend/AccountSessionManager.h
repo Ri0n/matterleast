@@ -1,12 +1,11 @@
 #pragma once
 
-#include <memory>
-#include <vector>
-
 #include <QHash>
 #include <QObject>
 #include <QString>
 #include <QVector>
+
+class QChildEvent;
 
 namespace Mattermost {
 
@@ -27,38 +26,47 @@ public:
 
     // Creates a non-authenticated Backend. Register it only after a successful
     // login, once its session origin and server user identity are known.
-    Backend& createLoginBackend();
-    bool registerAuthenticated(Backend& backend);
-    bool unregisterAccount(Backend& backend);
+    Backend* createLoginBackend();
+    bool registerAuthenticated(Backend* backend);
+    bool unregisterAccount(Backend* backend);
 
     Backend* findAccount(const QString& serverBaseUrl,
                          const QString& serverUserId) const;
     Backend* activeBackend() const { return _activeBackend; }
     // Stable registration order; excludes uncommitted login attempts.
     QVector<Backend*> registeredBackends() const;
-    bool activate(Backend& backend);
+    bool activate(Backend* backend);
     int registeredCount() const { return static_cast<int>(_registered.size()); }
     int backendCount() const { return static_cast<int>(_sessions.size()); }
 
     // Caller must release all UI referencing the Backend and log out (or
     // cancel its pending login) before removing it.
-    bool removeBackend(Backend& backend);
+    bool removeBackend(Backend* backend);
 
 signals:
     void accountRegistered(Backend* backend);
     void accountUnregistered(Backend* backend);
     void activeBackendChanged(Backend* backend);
 
+protected:
+    void childEvent(QChildEvent* event) override;
+
 private:
-    struct Session;
+    void forgetBackend(Backend* backend);
+    struct Registration {
+        QString key;
+        QMetaObject::Connection endingConnection;
+    };
     static QString identityKey(const QString& serverBaseUrl,
                                const QString& serverUserId);
-    Session* sessionFor(const Backend* backend) const;
     void changeActiveBackend(Backend* backend);
     Backend* firstRegisteredBackend() const;
 
-    std::vector<std::unique_ptr<Session>> _sessions;
-    QHash<QString, Session*> _registered;
+    // Backend QObjects are children of this manager. These containers only
+    // index them; none owns their lifetime independently of QObject.
+    QVector<Backend*> _sessions;
+    QHash<QString, Backend*> _registered;
+    QHash<Backend*, Registration> _registrations;
     Backend* _activeBackend = nullptr;
 };
 

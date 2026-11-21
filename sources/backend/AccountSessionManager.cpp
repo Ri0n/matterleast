@@ -1,25 +1,12 @@
 #include "AccountSessionManager.h"
 
-#include <algorithm>
-
+#include <QChildEvent>
 #include <QUrl>
 
 #include "Backend.h"
 #include "types/BackendUser.h"
 
 namespace Mattermost {
-
-struct AccountSessionManager::Session
-{
-    explicit Session(AccountSessionManager* owner)
-        : backend(std::make_unique<Backend>(owner))
-    {
-    }
-
-    std::unique_ptr<Backend> backend;
-    QString key;
-    QMetaObject::Connection endingConnection;
-};
 
 AccountSessionManager::AccountSessionManager(QObject* parent)
     : QObject(parent)
@@ -28,11 +15,15 @@ AccountSessionManager::AccountSessionManager(QObject* parent)
 
 AccountSessionManager::~AccountSessionManager() = default;
 
-Backend& AccountSessionManager::createLoginBackend()
+Backend* AccountSessionManager::createLoginBackend()
 {
-    auto session = std::make_unique<Session>(this);
-    Backend& backend = *session->backend;
-    _sessions.push_back(std::move(session));
+    auto* backend = new Backend(this);
+    _sessions.append(backend);
+    // The direct observer covers ordinary QObject destruction. Backend::reset()
+    // disconnects all Backend signals, so childEvent() also handles the case
+    // where this observer has been disconnected before destruction.
+    connect(backend, &QObject::destroyed, this,
+            [this, backend] { forgetBackend(backend); });
     return backend;
 }
 
@@ -67,66 +58,57 @@ QString AccountSessionManager::identityKey(const QString& serverBaseUrl,
     return url.toString(QUrl::FullyEncoded) + QChar(0x1f) + serverUserId;
 }
 
-AccountSessionManager::Session* AccountSessionManager::sessionFor(
-    const Backend* backend) const
+bool AccountSessionManager::registerAuthenticated(Backend* backend)
 {
-    for (const auto& entry : _sessions) {
-        if (entry->backend.get() == backend)
-            return entry.get();
-    }
-    return nullptr;
-}
-
-bool AccountSessionManager::registerAuthenticated(Backend& backend)
-{
-    Session* entry = sessionFor(&backend);
-    if (!entry || !backend.loggedIn() || !backend.getStorage().loginUser)
+    if (!_sessions.contains(backend) || !backend->loggedIn()
+        || !backend->getStorage().loginUser) {
         return false;
+    }
 
-    const QString key = identityKey(backend.networkSession().host(),
-                                    backend.getStorage().loginUser->id);
+    const QString key = identityKey(backend->networkSession().host(),
+                                    backend->getStorage().loginUser->id);
     if (key.isEmpty())
         return false;
 
-    Session* existing = _registered.value(key, nullptr);
-    if (existing && existing != entry)
+    Backend* existing = _registered.value(key, nullptr);
+    if (existing && existing != backend)
         return false;
 
-    if (entry->key == key)
+    auto it = _registrations.find(backend);
+    if (it != _registrations.end() && it->key == key)
         return true;
 
-    if (!entry->key.isEmpty())
+    if (it != _registrations.end())
         unregisterAccount(backend);
 
-    entry->key = key;
-    _registered.insert(key, entry);
+    Registration registration;
+    registration.key = key;
+    // Backend::reset() disconnects all its signals. Reinstall this session
+    // observer after successful reauthentication.
+    registration.endingConnection = connect(
+        backend, &Backend::sessionEnding, this,
+        [this, backend] { unregisterAccount(backend); });
+    _registrations.insert(backend, registration);
+    _registered.insert(key, backend);
 
-    // Backend::reset() disconnects all signals. Reinstall the lifecycle
-    // observer on each successful registration, including reauthentication.
-    QObject::disconnect(entry->endingConnection);
-    entry->endingConnection = connect(
-        &backend, &Backend::sessionEnding, this,
-        [this, &backend] { unregisterAccount(backend); });
-
-    emit accountRegistered(&backend);
+    emit accountRegistered(backend);
     if (!_activeBackend)
-        changeActiveBackend(&backend);
+        changeActiveBackend(backend);
     return true;
 }
 
-bool AccountSessionManager::unregisterAccount(Backend& backend)
+bool AccountSessionManager::unregisterAccount(Backend* backend)
 {
-    Session* entry = sessionFor(&backend);
-    if (!entry || entry->key.isEmpty())
+    auto it = _registrations.find(backend);
+    if (it == _registrations.end())
         return false;
 
-    _registered.remove(entry->key);
-    entry->key.clear();
-    QObject::disconnect(entry->endingConnection);
-    entry->endingConnection = {};
-    emit accountUnregistered(&backend);
+    _registered.remove(it->key);
+    QObject::disconnect(it->endingConnection);
+    _registrations.erase(it);
+    emit accountUnregistered(backend);
 
-    if (_activeBackend == &backend)
+    if (_activeBackend == backend)
         changeActiveBackend(firstRegisteredBackend());
     return true;
 }
@@ -135,26 +117,25 @@ Backend* AccountSessionManager::findAccount(const QString& serverBaseUrl,
                                             const QString& serverUserId) const
 {
     const QString key = identityKey(serverBaseUrl, serverUserId);
-    Session* session = key.isEmpty() ? nullptr : _registered.value(key, nullptr);
-    return session ? session->backend.get() : nullptr;
+    return key.isEmpty() ? nullptr : _registered.value(key, nullptr);
 }
 
 QVector<Backend*> AccountSessionManager::registeredBackends() const
 {
     QVector<Backend*> result;
-    result.reserve(static_cast<int>(_registered.size()));
-    for (const auto& session : _sessions) {
-        if (!session->key.isEmpty())
-            result.append(session->backend.get());
+    result.reserve(_registered.size());
+    for (Backend* backend : _sessions) {
+        if (_registrations.contains(backend))
+            result.append(backend);
     }
     return result;
 }
 
 Backend* AccountSessionManager::firstRegisteredBackend() const
 {
-    for (const auto& session : _sessions) {
-        if (!session->key.isEmpty())
-            return session->backend.get();
+    for (Backend* backend : _sessions) {
+        if (_registrations.contains(backend))
+            return backend;
     }
     return nullptr;
 }
@@ -167,31 +148,64 @@ void AccountSessionManager::changeActiveBackend(Backend* backend)
     emit activeBackendChanged(backend);
 }
 
-bool AccountSessionManager::activate(Backend& backend)
+bool AccountSessionManager::activate(Backend* backend)
 {
-    Session* entry = sessionFor(&backend);
-    if (!entry || entry->key.isEmpty() || !backend.loggedIn())
+    if (!_registrations.contains(backend) || !backend->loggedIn())
         return false;
-    changeActiveBackend(&backend);
+    changeActiveBackend(backend);
     return true;
 }
 
-bool AccountSessionManager::removeBackend(Backend& backend)
+void AccountSessionManager::forgetBackend(Backend* backend)
 {
-    Session* entry = sessionFor(&backend);
-    if (!entry || backend.loggedIn() || !entry->key.isEmpty())
-        return false;
+    if (!_sessions.removeAll(backend))
+        return;
 
-    const auto it = std::find_if(_sessions.begin(), _sessions.end(),
-        [entry](const std::unique_ptr<Session>& session) {
-            return session.get() == entry;
-        });
-    if (it == _sessions.end())
-        return false;
-
-    if (_activeBackend == &backend)
+    auto it = _registrations.find(backend);
+    if (it != _registrations.end()) {
+        _registered.remove(it->key);
+        QObject::disconnect(it->endingConnection);
+        _registrations.erase(it);
+        // The Backend may already be inside QObject destruction. Do not
+        // publish its now-invalid pointer through accountUnregistered().
+        // Normal logout sends accountUnregistered() before destruction.
+    }
+    if (_activeBackend == backend)
         changeActiveBackend(firstRegisteredBackend());
-    _sessions.erase(it);
+}
+
+void AccountSessionManager::childEvent(QChildEvent* event)
+{
+    if (event->removed()) {
+        // Backend::reset() can disconnect the destroyed observer. ChildRemoved
+        // is delivered synchronously by QObject on deletion or reparenting.
+        // Only compare pointer identity: the derived Backend may already have
+        // finished its destructor, so qobject_cast/dereference is unsafe.
+        Backend* removed = nullptr;
+        for (Backend* backend : _sessions) {
+            if (static_cast<QObject*>(backend) == event->child()) {
+                removed = backend;
+                break;
+            }
+        }
+        if (removed)
+            forgetBackend(removed);
+    }
+    QObject::childEvent(event);
+}
+
+bool AccountSessionManager::removeBackend(Backend* backend)
+{
+    if (!_sessions.contains(backend) || backend->loggedIn()
+        || _registrations.contains(backend)) {
+        return false;
+    }
+
+    // The UI must already have released all references to this Backend.
+    // Detach before deletion; the destroyed/ChildRemoved observers also
+    // cover destruction initiated outside the manager.
+    forgetBackend(backend);
+    delete backend;
     return true;
 }
 
