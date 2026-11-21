@@ -205,6 +205,8 @@ void MattermostApplication::openLoginWindow()
         mainWindow->installRealtimeUiSync();
         connect(mainWindow.get(), &MainWindow::logoutRequested,
                 this, &MattermostApplication::beginLogout);
+        connect(&backend, &Backend::authenticationExpired, this,
+                [this] { beginLogout(); });
         trayWindow.setWindow(mainWindow.get());
         mainWindow->show();
     });

@@ -75,9 +75,6 @@ public:
     // Cancel an unfinished startup login without affecting stored credentials.
     void cancelPendingLogin();
 
-	//login retry - after a HTTP error
-	void loginRetry ();
-
     // Stop old-session realtime and HTTP work while UI objects are still
     // alive; the owner then destroys them before logout() resets Storage.
     void prepareForLogout();
@@ -389,6 +386,8 @@ signals:
     void onOwnCustomStatusChanged();
     void onNetworkError (uint32_t errorNumber, const QString& errorText);
     void onHttpError (uint32_t errorNumber, const QString& errorText);
+    // Raised only after this account's /users/me rejects its own token.
+    void authenticationExpired();
 
     void onWebSocketConnect ();
     /** Socket reconnection warrants bounded recovery for materialized thread timelines. */
@@ -436,6 +435,8 @@ private:
     bool							isLoggedIn;
     bool							autoLoginEnabledFlag;
     bool _lastLoginFailureTransient = false;
+    bool _authVerificationInFlight = false;
+    bool _authExpiryNotified = false;
     uint32_t						nonFilledTeams;
     uint64_t						lastStartTime;
     QAtomicInteger<unsigned>				avatarsLoaded;

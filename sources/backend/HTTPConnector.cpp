@@ -597,6 +597,9 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 			}
 
 			const int statusCode = currentReply->error();
+            const int httpStatus = currentReply->attribute(
+                QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const QString httpErrorText = currentReply->errorString();
 			auto data = currentReply->readAll();
 
             QList<QNetworkCookie> responseCookies;
@@ -644,6 +647,16 @@ void HTTPConnector::setProcessReply (QNetworkReply* reply,
 			if (requestGeneration != connector->generation) {
 				return;
 			}
+
+            // HTTP 401 is an account authentication signal, not a Qt network
+            // error number. Deliver it only after the response callback, and
+            // preserve the existing generation guards for reentrant resets.
+            if (httpStatus == 401) {
+                emit connector->onHttpError(401, httpErrorText);
+                connector = connectorGuard.data();
+                if (!connector || requestGeneration != connector->generation)
+                    return;
+            }
 
 			if (connector->activeRequests > 0) {
 				--connector->activeRequests;
