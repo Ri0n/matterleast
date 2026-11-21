@@ -198,6 +198,8 @@ jobs:
   debian13:
     name: Debian 13 — DEB — Qt 6.8.2
     runs-on: ubuntu-24.04
+    env:
+      CCACHE_COMPILERCHECK: content
     container:
       image: debian:13
     timeout-minutes: 60
@@ -208,11 +210,17 @@ jobs:
           set -euo pipefail
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates git cmake ninja-build build-essential dpkg-dev fakeroot file \
+            ca-certificates git cmake ninja-build ccache build-essential dpkg-dev fakeroot file \
             qt6-base-dev qt6-svg-dev qt6-multimedia-dev qt6-websockets-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins qtkeychain-qt6-dev libqca-qt6-dev libqca-qt6-plugins libxss-dev libhunspell-dev pkg-config
 
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: debian13-qt6.8.2
+          max-size: 2G
 
       - name: Prepare version
         uses: ./.github/actions/prepare-version
@@ -229,6 +237,7 @@ jobs:
             exit 1
           }
           cmake -S . -B build -G Ninja \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON -DBUILD_MULTIMEDIA=ON \
             -DMATTERLEAST_USE_KEYCHAIN=ON \
