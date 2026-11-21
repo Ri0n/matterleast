@@ -47,6 +47,7 @@
 #include "login/LoginDialog.h"
 #include "mainwindow.h"
 #include "backend/Backend.h"
+#include "backend/AccountSessionManager.h"
 #include "backend/UserActivityMonitor.h"
 #include "backend/CustomEmojiService.h"
 #include "config/Config.h"
@@ -71,7 +72,8 @@ private:
 	// Members are destroyed in reverse declaration order. Keep Backend alive
 	// until every window and tray object that can reference it is gone, and keep
 	// the tray menu alive until after QSystemTrayIcon releases its menu pointer.
-	Backend								backend;
+    AccountSessionManager                accounts;
+    Backend&                              backend;
     UserActivityMonitor                   _activityMonitor;
 	std::unique_ptr<QMenu>				trayIconMenu;
 	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
@@ -83,6 +85,8 @@ private:
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
+,accounts(this)
+,backend(accounts.createLoginBackend())
 ,_activityMonitor(backend, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
@@ -191,6 +195,12 @@ void MattermostApplication::openLoginWindow()
 
     connect(dialog, &QDialog::accepted, this, [this] {
         loginDialog = nullptr;
+        // Register only authenticated sessions; a failed or cancelled login
+        // must never occupy a server/account identity.
+        if (!accounts.registerAuthenticated(backend)) {
+            qCritical("Authenticated Backend has no unique account identity");
+            return;
+        }
         mainWindow = std::make_unique<MainWindow>(nullptr, *trayIcon, backend);
         mainWindow->installRealtimeUiSync();
         connect(mainWindow.get(), &MainWindow::logoutRequested,
