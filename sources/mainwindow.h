@@ -62,6 +62,8 @@ public:
     Backend& backendInstance() const { return backend; }
 	void initializationComplete ();
     void installRealtimeUiSync();
+    // Menu is built lazily from the authenticated account registry.
+    void installAccountSwitcher(QMenu* menu);
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
@@ -88,6 +90,8 @@ signals:
     // Every server reports its badge state to the app-level tray aggregator;
     // hidden workspaces must not overwrite other accounts' unread counters.
     void trayBadgeStateChanged(uint32_t attentionCount, bool hasUnreadChannel);
+    // Notification activation must first select this account's workspace.
+    void presentAccountRequested();
 
 private slots:
     void on_usericon_label_clicked();
@@ -118,7 +122,7 @@ private:
 private:
 	std::unique_ptr<Ui::MainWindow>		ui;
 	QSystemTrayIcon&					trayIcon;
-	std::unique_ptr<NotificationManager>	notificationManager;
+	NotificationManager*                    notificationManager;
 	ChooseEmojiDialogWrapper			chooseEmojiDialog;
 	Backend&							backend;
 	QSplitter*							sidebarSplitter = nullptr;

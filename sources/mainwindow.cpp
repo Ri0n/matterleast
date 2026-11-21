@@ -25,6 +25,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QCheckBox>
+#include <QHBoxLayout>
 #include <QDateTime>
 #include <QKeySequence>
 #include <QDialogButtonBox>
@@ -119,7 +120,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     : QMainWindow(parent)
     , ui(std::make_unique<Ui::MainWindow>())
     , trayIcon(trayIcon)
-    , notificationManager(std::make_unique<NotificationManager>(trayIcon))
+    , notificationManager(new NotificationManager(trayIcon, this))
     , chooseEmojiDialog(this, _backend)
     , backend(_backend)
     , currentTeamRestoredFromSettings(false)
@@ -341,6 +342,26 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 }
 
 MainWindow::~MainWindow() = default;
+
+void MainWindow::installAccountSwitcher(QMenu* menu)
+{
+    auto* header = findChild<QWidget*>(QStringLiteral("lefttop_frame"));
+    auto* layout = header
+        ? header->findChild<QHBoxLayout*>(QStringLiteral("horizontalLayout"))
+        : nullptr;
+    if (!layout || !menu)
+        return;
+    auto* button = new QToolButton(header);
+    button->setObjectName(QStringLiteral("accountSwitcherButton"));
+    button->setToolTip(tr("Switch server or add an account"));
+    button->setAccessibleName(tr("Accounts"));
+    button->setAutoRaise(true);
+    button->setIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
+    button->setIconSize(QSize(18, 18));
+    button->setPopupMode(QToolButton::InstantPopup);
+    button->setMenu(menu);
+    layout->insertWidget(0, button);
+}
 
 static QString infoText()
 {

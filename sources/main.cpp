@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <QApplication>
+#include <QAction>
 #include <QMenu>
 #include <QSystemTrayIcon>
 #include <QCryptographicHash>
@@ -31,6 +32,9 @@
 #include <QSaveFile>
 #include <QFileInfo>
 #include <QPointer>
+#include <QHash>
+#include <QSet>
+#include <QUrl>
 
 #if defined(Q_OS_WIN) && QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
 #include <QOperatingSystemVersion>
@@ -64,34 +68,39 @@ namespace Mattermost {
 
 class MattermostApplication: public QApplication {
 public:
-	MattermostApplication (int& argc, char *argv[]);
+    MattermostApplication(int& argc, char* argv[]);
+    ~MattermostApplication() override;
 
-	void openLoginWindow ();
-	void showWindow ();
-	void toggleShowWindow ();
-    void beginLogout();
-	void reopen ();
+    void openLoginWindow();
+    void showWindow();
+    void toggleShowWindow();
+    void beginLogout(Backend& backend);
 private:
-	// Members are destroyed in reverse declaration order. Keep Backend alive
-	// until every window and tray object that can reference it is gone, and keep
-	// the tray menu alive until after QSystemTrayIcon releases its menu pointer.
-    AccountSessionManager                accounts;
-    Backend*                              backend;
-    UserActivityMonitor                   _activityMonitor;
-	std::unique_ptr<QMenu>				trayIconMenu;
-	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
-    std::unique_ptr<AccountWorkspaceStack>       workspaceShell;
-    AccountTrayBadgeModel                  trayBadges;
-    MainWindow*                                  mainWindow = nullptr;
-    QPointer<LoginDialog>                 loginDialog;
-    TrayWindowController                 trayWindow;
-    bool                                 logoutInProgress_ = false;
+    void ensureWorkspaceShell();
+    void addAccountWorkspace(Backend& backend);
+    void populateAccountMenu(QMenu& menu);
+    void updateWindowTitle();
+    void updateTrayIcon();
+    void discardFinishedAccount(Backend* backend);
+
+    // Members are destroyed in reverse order. AccountSessionManager owns
+    // Backends until after every workspace (and each plugin overlay) is gone.
+    AccountSessionManager accounts;
+    UserActivityMonitor _activityMonitor;
+    std::unique_ptr<QMenu> trayIconMenu;
+    std::unique_ptr<QSystemTrayIcon> trayIcon;
+    AccountTrayBadgeModel trayBadges;
+    std::unique_ptr<AccountWorkspaceStack> workspaceShell;
+    QHash<Backend*, MainWindow*> accountViews;
+    QSet<Backend*> closingAccounts;
+    QPointer<LoginDialog> loginDialog;
+    TrayWindowController trayWindow;
+    bool suppressNextAutomaticLogin = false;
 };
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
 ,accounts(this)
-,backend(accounts.createLoginBackend())
 ,_activityMonitor(accounts, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
@@ -103,7 +112,6 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     QGuiApplication::setWindowIcon(IconUtils::applicationIcon());
 
     OverlayScrollBarManager::install(*this);
-    (void)CustomEmojiService::instance(*backend);
 
     Config::init ();
 	trayIcon->setToolTip(applicationDisplayName());
@@ -165,161 +173,280 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
                               QSystemTrayIcon::Warning, 10000);
     });
 #endif
+    QMenu* servers = trayIconMenu->addMenu(tr("Servers"));
+    connect(servers, &QMenu::aboutToShow, this,
+            [this, servers] { populateAccountMenu(*servers); });
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
 
-void MattermostApplication::openLoginWindow()
+MattermostApplication::~MattermostApplication()
 {
-    if (logoutInProgress_) {
+    // A top-level login dialog can outlive its last accepted/rejected signal;
+    // close it while AccountSessionManager still owns its pending Backend.
+    delete loginDialog.data();
+}
+
+void MattermostApplication::ensureWorkspaceShell()
+{
+    if (workspaceShell)
+        return;
+
+    workspaceShell = std::make_unique<AccountWorkspaceStack>();
+    workspaceShell->setWindowIcon(IconUtils::applicationIcon());
+    workspaceShell->setWindowTitle(applicationDisplayName());
+    const QByteArray geometry = MLOptions::instance()->value<QByteArray>(
+        QStringLiteral("geometry"));
+    if (!geometry.isEmpty())
+        workspaceShell->restoreGeometry(geometry);
+    else
+        workspaceShell->resize(1200, 800);
+
+    connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
+            [this] {
+        if (workspaceShell) {
+            MLOptions::instance()->setValue(
+                QStringLiteral("geometry"), workspaceShell->saveGeometry());
+        }
+    });
+    connect(workspaceShell.get(), &AccountWorkspaceStack::activeWorkspaceChanged,
+            this, [this](Backend* backend) {
+        if (backend && accounts.activeBackend() != backend)
+            accounts.activate(backend);
+        updateWindowTitle();
+    });
+    // The account manager is the source of truth for user-initiated server
+    // changes, including switching through the sidebar/tray menu and logout.
+    connect(&accounts, &AccountSessionManager::activeBackendChanged,
+            workspaceShell.get(), [this](Backend* backend) {
+        if (backend && workspaceShell)
+            workspaceShell->activateWorkspace(*backend);
+        updateWindowTitle();
+    });
+}
+
+void MattermostApplication::populateAccountMenu(QMenu& menu)
+{
+    menu.clear();
+    Backend* current = accounts.activeBackend();
+    const auto backends = accounts.registeredBackends();
+    for (Backend* account : backends) {
+        const QString host = QUrl(account->serverDomain()).host();
+        const QString display = account->getLoginUser().username;
+        auto* action = menu.addAction(
+            QStringLiteral("%1 — %2").arg(host, display));
+        action->setCheckable(true);
+        action->setChecked(account == current);
+        // Account is the connection context: a menu left open while this
+        // session ends cannot invoke a lambda capturing a deleted Backend.
+        connect(action, &QAction::triggered, account, [this, account] {
+            if (!closingAccounts.contains(account))
+                accounts.activate(account);
+        });
+    }
+    if (!backends.isEmpty())
+        menu.addSeparator();
+    menu.addAction(tr("Add server…"), this,
+                   [this] { openLoginWindow(); });
+}
+
+void MattermostApplication::updateWindowTitle()
+{
+    if (!workspaceShell)
+        return;
+
+    Backend* selected = accounts.activeBackend();
+    MainWindow* page = accountViews.value(selected, nullptr);
+    if (!selected || !page) {
+        workspaceShell->setWindowTitle(applicationDisplayName());
         return;
     }
-    // Reuse the login dialog if it is still alive, rather than creating
-    // multiple simultaneous auto-login attempts from repeated tray clicks.
+    const QString host = QUrl(selected->serverDomain()).host();
+    workspaceShell->setWindowTitle(page->windowTitle()
+                                   + QStringLiteral(" — ") + host);
+}
+
+void MattermostApplication::updateTrayIcon()
+{
+    const auto combined = trayBadges.aggregate();
+    trayIcon->setIcon(IconUtils::applicationIcon(
+        combined.attentionCount, combined.hasUnreadChannel));
+}
+
+void MattermostApplication::addAccountWorkspace(Backend& backend)
+{
+    ensureWorkspaceShell();
+
+    auto* page = new MainWindow(nullptr, *trayIcon, backend);
+    if (!workspaceShell->addWorkspace(backend, page)) {
+        delete page;
+        qCritical("Unable to install account workspace");
+        return;
+    }
+    accountViews.insert(&backend, page);
+    trayBadges.update(&backend, 0, false);
+
+    auto* menu = new QMenu(page);
+    connect(menu, &QMenu::aboutToShow, this,
+            [this, menu] { populateAccountMenu(*menu); });
+    page->installAccountSwitcher(menu);
+    connect(page, &MainWindow::trayBadgeStateChanged, this,
+            [this, account = &backend](uint32_t count, bool hasUnreadChannel) {
+        trayBadges.update(account, count, hasUnreadChannel);
+        updateTrayIcon();
+    });
+    connect(page, &QWidget::windowTitleChanged, this,
+            [this, account = &backend](const QString&) {
+        if (accounts.activeBackend() == account)
+            updateWindowTitle();
+    });
+    connect(page, &MainWindow::logoutRequested, this,
+            [this, account = &backend] { beginLogout(*account); });
+    connect(page, &MainWindow::presentAccountRequested, this,
+            [this, account = &backend] {
+        if (accounts.activate(account) && workspaceShell)
+            trayWindow.setWindow(workspaceShell.get());
+    });
+    connect(&backend, &Backend::authenticationExpired, this,
+            [this, account = &backend] { beginLogout(*account); });
+
+    page->installRealtimeUiSync();
+    accounts.activate(&backend);
+    workspaceShell->activateWorkspace(backend);
+    trayWindow.setWindow(workspaceShell.get());
+    updateWindowTitle();
+    updateTrayIcon();
+    workspaceShell->show();
+}
+
+void MattermostApplication::openLoginWindow()
+{
+    if (!workspaceShell && !closingAccounts.isEmpty())
+        return;
     if (loginDialog) {
         trayWindow.setWindow(loginDialog);
         trayWindow.showWindow();
         return;
     }
 
-    auto* dialog = new LoginDialog(nullptr, *backend);
+    // A pending login has its own Backend. It is never registered in the
+    // account list and cannot send notifications or update other views.
+    Backend* candidate = accounts.createLoginBackend();
+    const bool firstAccount = accounts.registeredCount() == 0;
+    const bool allowRestore = firstAccount && !suppressNextAutomaticLogin;
+    suppressNextAutomaticLogin = false;
+    auto* dialog = new LoginDialog(nullptr, *candidate, allowRestore);
     loginDialog = dialog;
     trayWindow.setWindow(dialog);
 
-    // LoginDialog sets WA_DeleteOnClose. Once it is rejected, never keep it
-    // as the tray target, even before Qt destroys it. QPointer additionally
-    // handles destruction through any other code path.
-    connect(dialog, &QDialog::rejected, this, [this, dialog] {
-        if (trayWindow.window() == dialog) {
-            trayWindow.setWindow(nullptr);
+    // Keep the candidate alive through the dialog's asynchronous keyring
+    // callbacks. On rejection, drop it only after WA_DeleteOnClose destroys
+    // the dialog; success transfers ownership to AccountSessionManager.
+    auto adopted = std::make_shared<bool>(false);
+    connect(dialog, &QObject::destroyed, this, [this, candidate, adopted] {
+        if (!*adopted) {
+            candidate->cancelPendingLogin();
+            accounts.removeBackend(candidate);
         }
-        if (loginDialog == dialog) {
+    });
+    connect(dialog, &QDialog::rejected, this, [this, dialog, candidate] {
+        candidate->cancelPendingLogin();
+        if (loginDialog == dialog)
             loginDialog = nullptr;
-        }
+        if (trayWindow.window() == dialog)
+            trayWindow.setWindow(workspaceShell.get());
     });
 
-    connect(dialog, &QDialog::accepted, this, [this] {
+    connect(dialog, &QDialog::accepted, this,
+            [this, candidate, adopted] {
         loginDialog = nullptr;
-        // Register only authenticated sessions; a failed or cancelled login
-        // must never occupy a server/account identity.
-        if (!accounts.registerAuthenticated(backend)) {
-            qCritical("Authenticated Backend has no unique account identity");
-            return;
-        }
-        if (!workspaceShell) {
-            workspaceShell = std::make_unique<AccountWorkspaceStack>();
-            workspaceShell->setWindowIcon(IconUtils::applicationIcon());
-            workspaceShell->setWindowTitle(applicationDisplayName());
-            auto* options = MLOptions::instance();
-            const QByteArray geometry = options->value<QByteArray>(
-                QStringLiteral("geometry"));
-            if (!geometry.isEmpty())
-                workspaceShell->restoreGeometry(geometry);
-            else
-                workspaceShell->resize(1200, 800);
-            connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
-                    [this] {
+        if (!accounts.registerAuthenticated(candidate)) {
+            // Same server/user is already connected: activate that account
+            // instead of creating duplicate Storage, tabs and notifications.
+            Backend* existing = accounts.findAccount(
+                candidate->networkSession().host(),
+                candidate->getLoginUser().id);
+            candidate->reset();
+            if (existing) {
+                accounts.activate(existing);
                 if (workspaceShell)
-                    MLOptions::instance()->setValue(
-                        QStringLiteral("geometry"), workspaceShell->saveGeometry());
-            });
-        }
-        // The workspace, not an independently exposed MainWindow, owns the
-        // account's entire navigation widget tree. The later multi-account
-        // login path adds further pages to this same shell.
-        auto* page = new MainWindow(nullptr, *trayIcon, *backend);
-        if (!workspaceShell->addWorkspace(*backend, page)) {
-            delete page;
-            qCritical("Unable to install account workspace");
+                    trayWindow.setWindow(workspaceShell.get());
+            } else {
+                qWarning("Authenticated account could not be registered");
+                trayWindow.setWindow(workspaceShell.get());
+            }
             return;
         }
-        mainWindow = page;
-        trayBadges.update(backend, 0, false);
-        connect(page, &MainWindow::trayBadgeStateChanged, this,
-                [this](uint32_t count, bool hasUnreadChannel) {
-            trayBadges.update(backend, count, hasUnreadChannel);
-            const auto combined = trayBadges.aggregate();
-            trayIcon->setIcon(IconUtils::applicationIcon(
-                combined.attentionCount, combined.hasUnreadChannel));
-        });
-        page->installRealtimeUiSync();
-        connect(page, &MainWindow::logoutRequested,
-                this, &MattermostApplication::beginLogout);
-        // Session expiry is scoped to the selected Backend, not the process.
-        connect(backend, &Backend::authenticationExpired, this,
-                [this] { beginLogout(); });
-        trayWindow.setWindow(workspaceShell.get());
-        workspaceShell->show();
+        *adopted = true;
+        addAccountWorkspace(*candidate);
     });
-
     dialog->open();
 }
 
-void MattermostApplication::beginLogout()
+void MattermostApplication::beginLogout(Backend& backend)
 {
-    if (logoutInProgress_ || !mainWindow) {
+    if (closingAccounts.contains(&backend) || !accountViews.contains(&backend))
+        return;
+    closingAccounts.insert(&backend);
+
+    // sessionEnding() removes only this registration. AccountSessionManager
+    // selects another active account while its view remains intact.
+    backend.prepareForLogout();
+    if (MainWindow* page = accountViews.value(&backend, nullptr))
+        page->prepareForLogout();
+
+    // The signal originates inside an QAction owned by the page. Destroy the
+    // page only after that callback returns, while Backend Storage is valid.
+    QMetaObject::invokeMethod(this, [this, account = &backend] {
+        QWidget* view = workspaceShell
+            ? workspaceShell->takeWorkspace(*account) : nullptr;
+        accountViews.remove(account);
+        delete view;
+        trayBadges.remove(account);
+        updateTrayIcon();
+
+        account->logout([this, account] {
+            // Avoid destroying the Backend in its own HTTP/timer callback.
+            QMetaObject::invokeMethod(this, [this, account] {
+                discardFinishedAccount(account);
+            }, Qt::QueuedConnection);
+        });
+    }, Qt::QueuedConnection);
+}
+
+void MattermostApplication::discardFinishedAccount(Backend* backend)
+{
+    closingAccounts.remove(backend);
+    accounts.removeBackend(backend);
+    if (accounts.registeredCount() != 0) {
+        updateWindowTitle();
         return;
     }
-    logoutInProgress_ = true;
-    trayWindow.setWindow(nullptr);
 
-    // Cancel old session requests before removing the UI. Their callbacks
-    // may capture MainWindow / chat widget pointers without a QObject context.
-    // HTTPConnector's generation check suppresses completion on old replies.
-    backend->prepareForLogout();
-
-    // The old window holds BackendPost references and channel/user pointers.
-    // Close and persist its UI state while Storage is still populated.
-    mainWindow->prepareForLogout();
-
-    // This signal came from a QAction owned by MainWindow. Delete it only
-    // after the QAction invocation has unwound, but BEFORE Backend::logout()
-    // clears Storage. A reconnect cannot then show stale post widgets.
-    QTimer::singleShot(0, this, [this] {
-        // QWidget views must be destroyed while Backend Storage still holds
-        // their referenced channels/posts. Do not let a hidden account view
-        // survive a reset of its server's data.
-        QWidget* page = workspaceShell
-            ? workspaceShell->takeWorkspace(*backend) : nullptr;
-        delete page;
-        mainWindow = nullptr;
-        if (workspaceShell) {
-            MLOptions::instance()->setValue(
-                QStringLiteral("geometry"), workspaceShell->saveGeometry());
-            workspaceShell.reset();
-        }
-        trayBadges.remove(backend);
-        const auto combined = trayBadges.aggregate();
-        trayIcon->setIcon(IconUtils::applicationIcon(
-            combined.attentionCount, combined.hasUnreadChannel));
-        backend->logout([this] {
-            logoutInProgress_ = false;
-            openLoginWindow();
-        });
-    });
+    if (workspaceShell) {
+        MLOptions::instance()->setValue(
+            QStringLiteral("geometry"), workspaceShell->saveGeometry());
+        trayWindow.setWindow(nullptr);
+        workspaceShell.reset();
+    }
+    updateTrayIcon();
+    // User explicitly logged out (or /users/me rejected the saved token).
+    // Creating a fresh Backend must not immediately restore that same token.
+    suppressNextAutomaticLogin = true;
+    openLoginWindow();
 }
 
 inline void MattermostApplication::showWindow()
 {
-    if (logoutInProgress_) {
-        return; // Never resurrect the old session during logout.
-    }
-    if (!trayWindow.window()) {
-        // The login dialog may have been closed before authentication.
-        // The app deliberately remains running in the tray.
+    if (!trayWindow.window())
         openLoginWindow();
-    }
     trayWindow.showWindow();
 }
 
 inline void MattermostApplication::toggleShowWindow()
 {
-    if (logoutInProgress_) {
-        return;
-    }
-    if (!trayWindow.toggleWindow()) {
+    if (!trayWindow.toggleWindow())
         openLoginWindow();
-    }
 }
 
 } /* namespace Mattermost */

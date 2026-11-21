@@ -34,7 +34,10 @@ class Backend;
 class LoginDialog: public QDialog {
 	Q_OBJECT
 public:
-	LoginDialog (QWidget *parent, Backend& backend);
+    // Additional accounts require explicit login; never auto-restore the
+    // last-used account into a second Backend.
+    LoginDialog(QWidget* parent, Backend& backend,
+                bool allowSavedSessionRestore = true);
 	~LoginDialog ();
 private slots:
 	void on_login_pushButton_clicked();
