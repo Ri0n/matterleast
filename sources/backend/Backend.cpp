@@ -948,13 +948,15 @@ void Backend::retrieveAllUsers ()
 {
 	const uint32_t usersPerPage = 200;
 
-	uint32_t totalPages = storage.totalUsersCount / usersPerPage + 1;
-	static uint32_t obtainedPages;
+	const uint32_t totalPages = storage.totalUsersCount / usersPerPage + 1;
+    // A request's completion count must never be shared with another Backend
+    // (or an overlapping retrieval on the same Backend).
+    const auto obtainedPages = QSharedPointer<uint32_t>::create(0u);
 
 	for (uint32_t page = 0; page < totalPages; ++page) {
 		NetworkRequest request (_networkSession, "users?per_page=" + QString::number(usersPerPage) + "&active=true&page=" + QString::number(page));
 
-		httpConnector.get (request, HttpResponseCallback ([this, page, totalPages, usersPerPage] (const QJsonDocument& doc) {
+		httpConnector.get (request, HttpResponseCallback ([this, page, totalPages, usersPerPage, obtainedPages] (const QJsonDocument& doc) {
 
 			LOG_DEBUG ("retrieveAllUsers reply");
 
@@ -974,7 +976,7 @@ void Backend::retrieveAllUsers ()
 			// retrieveMultipleUsersStatus (userIds, [] {
 			// });
 
-			LOG_DEBUG ("Page " << page << " (" << obtainedPages << " of " << totalPages
+			LOG_DEBUG ("Page " << page << " (" << *obtainedPages << " of " << totalPages
 			           << "): users count: " << doc.array().size()
 			           << " (total: " << storage.users.size() << ")");
 		#if 0
@@ -987,11 +989,10 @@ void Backend::retrieveAllUsers ()
 			}
 		#endif
 
-			++obtainedPages;
-			if (obtainedPages == totalPages) {
+			++*obtainedPages;
+			if (*obtainedPages == totalPages) {
 				emit onAllUsers ();
 				LOG_DEBUG ("Get Users: Done ");
-				obtainedPages = 0;
 				auto it = storage.users.begin(), end = storage.users.end();
 				//intersect active and known user sets, just to show correct total number,
 				//save deleted known users, to load their info and avatars later

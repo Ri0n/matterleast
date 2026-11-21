@@ -2,6 +2,8 @@
 
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonArray>
+#include <QPointer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -126,6 +128,18 @@ public:
                             {QStringLiteral("id"), QString::fromUtf8(id) + QStringLiteral("-channel")},
                             {QStringLiteral("display_name"), QString::fromUtf8(id) + QStringLiteral(" Channel")}
                         }).toJson(QJsonDocument::Compact);
+                    } else if (requestLine.startsWith("GET /api/v4/users?per_page=200&active=true&page=")) {
+                        const bool secondPage = requestLine.contains("page=1 ");
+                        ++userPageRequests;
+                        const QString pageId = QString::fromUtf8(id)
+                            + (secondPage ? QStringLiteral("-page-one")
+                                          : QStringLiteral("-page-zero"));
+                        body = QJsonDocument(QJsonArray {QJsonObject {
+                            {QStringLiteral("id"), pageId},
+                            {QStringLiteral("username"), pageId},
+                        }}).toJson(QJsonDocument::Compact);
+                        if (!secondPage)
+                            ++pageZeroResponses;
                     } else if (requestLine.startsWith("GET /api/v4/users/")
                                && requestLine.contains("/preferences ")) {
                         ++preferencesRequests;
@@ -158,13 +172,20 @@ public:
                         requestLine.startsWith("GET /api/v4/files/legacy-file ")
                             ? QByteArrayLiteral("Cache-Control: private, max-age=3600\r\n")
                             : QByteArray();
-                    socket->write(QByteArrayLiteral("HTTP/1.1 ") + status
+                    const QByteArray response = QByteArrayLiteral("HTTP/1.1 ")
+                        + status
                         + QByteArrayLiteral("\r\nContent-Type: application/json\r\n")
-                        + setCookie + cacheControl
+                        + setCookie
                         + QByteArrayLiteral("Connection: close"
                                             "\r\nContent-Length: ")
                         + QByteArray::number(body.size())
-                        + QByteArrayLiteral("\r\n\r\n") + body);
+                        + QByteArrayLiteral("\r\n\r\n") + body;
+                    if (holdSecondUserPage
+                        && requestLine.startsWith("GET /api/v4/users?per_page=200&active=true&page=1 ")) {
+                        heldSecondPages.append(qMakePair(QPointer<QTcpSocket>(socket), response));
+                        return;
+                    }
+                    socket->write(response);
                     socket->disconnectFromHost();
                 });
             }
@@ -176,9 +197,26 @@ public:
         return QStringLiteral("http://127.0.0.1:%1/").arg(serverPort());
     }
 
+    void releaseSecondUserPages()
+    {
+        holdSecondUserPage = false;
+        const auto held = std::move(heldSecondPages);
+        heldSecondPages.clear();
+        for (const auto& item : held) {
+            if (!item.first)
+                continue;
+            item.first->write(item.second);
+            item.first->disconnectFromHost();
+        }
+    }
+
     QByteArray id;
     bool holdIdentity = false;
     bool separateIdentitiesByToken = false;
+    bool holdSecondUserPage = false;
+    int userPageRequests = 0;
+    int pageZeroResponses = 0;
+    QVector<QPair<QPointer<QTcpSocket>, QByteArray>> heldSecondPages;
     int identityRequests = 0;
     int preferencesRequests = 0;
     int profileRequests = 0;
@@ -529,6 +567,59 @@ private slots:
         });
         QTRY_COMPARE(profileAfterOtherReset, QStringLiteral("user-two-profile"));
         checkCookies(serverTwo.profileCookies, "token-two", "token-one");
+    }
+
+    void userPageCompletionIsIndependentAcrossTwoServers()
+    {
+        FakeMattermostServer firstServer(QByteArrayLiteral("paged-one"));
+        FakeMattermostServer secondServer(QByteArrayLiteral("paged-two"));
+        firstServer.holdSecondUserPage = true;
+        secondServer.holdSecondUserPage = true;
+        QVERIFY(firstServer.listen(QHostAddress::LocalHost));
+        QVERIFY(secondServer.listen(QHostAddress::LocalHost));
+
+        Backend first;
+        Backend second;
+        bool firstReady = false;
+        bool secondReady = false;
+        first.login(credentials(firstServer, QStringLiteral("first-token")),
+                    [&](const QString& token) { firstReady = !token.isEmpty(); });
+        second.login(credentials(secondServer, QStringLiteral("second-token")),
+                     [&](const QString& token) { secondReady = !token.isEmpty(); });
+        QTRY_VERIFY(firstReady && secondReady);
+        first.getStorage().totalUsersCount = 200;
+        second.getStorage().totalUsersCount = 200;
+        QSignalSpy firstDone(&first, &Backend::onAllUsers);
+        QSignalSpy secondDone(&second, &Backend::onAllUsers);
+        QVERIFY(firstDone.isValid());
+        QVERIFY(secondDone.isValid());
+
+        first.retrieveAllUsers();
+        second.retrieveAllUsers();
+        // Wait for both first-page callbacks to execute before allowing
+        // either server's second page. The old static counter would report
+        // completion after the two first pages, regardless of account.
+        QTRY_VERIFY(first.getStorage().getUserById(
+            QStringLiteral("paged-one-page-zero")) != nullptr);
+        QTRY_VERIFY(second.getStorage().getUserById(
+            QStringLiteral("paged-two-page-zero")) != nullptr);
+        QTRY_COMPARE(firstServer.heldSecondPages.size(), 1);
+        QTRY_COMPARE(secondServer.heldSecondPages.size(), 1);
+        QCOMPARE(firstDone.count(), 0);
+        QCOMPARE(secondDone.count(), 0);
+
+        firstServer.releaseSecondUserPages();
+        secondServer.releaseSecondUserPages();
+        QTRY_COMPARE(firstDone.count(), 1);
+        QTRY_COMPARE(secondDone.count(), 1);
+        QVERIFY(first.getStorage().getUserById(
+            QStringLiteral("paged-one-page-one")) != nullptr);
+        QVERIFY(second.getStorage().getUserById(
+            QStringLiteral("paged-two-page-one")) != nullptr);
+        QVERIFY(!first.getStorage().getUserById(
+            QStringLiteral("paged-two-page-one")));
+        QVERIFY(!second.getStorage().getUserById(
+            QStringLiteral("paged-one-page-one")));
     }
 
     void twoUsersOnSameServerHaveSeparateBackendIdentities()
