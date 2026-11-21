@@ -10,6 +10,7 @@
 #include <QTcpSocket>
 
 #include "backend/Backend.h"
+#include "backend/AccountSessionManager.h"
 #include "backend/AttachmentService.h"
 #include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
@@ -230,8 +231,12 @@ private slots:
         QVERIFY(serverOne.listen(QHostAddress::LocalHost));
         QVERIFY(serverTwo.listen(QHostAddress::LocalHost));
 
-        Backend backendOne;
-        Backend backendTwo;
+        AccountSessionManager sessions;
+        Backend& backendOne = sessions.createLoginBackend();
+        Backend& backendTwo = sessions.createLoginBackend();
+        QCOMPARE(sessions.backendCount(), 2);
+        QCOMPARE(sessions.registeredCount(), 0);
+        QVERIFY(!sessions.activate(backendOne));
         const BackendLoginData loginOne =
             credentials(serverOne, QStringLiteral("token-one"));
         const BackendLoginData loginTwo =
@@ -262,6 +267,23 @@ private slots:
         QCOMPARE(backendTwo.getStorage().loginUser->id,
                  QStringLiteral("user-two"));
 
+        QVERIFY(sessions.registerAuthenticated(backendOne));
+        QVERIFY(sessions.registerAuthenticated(backendTwo));
+        QVERIFY(sessions.registerAuthenticated(backendOne)); // Idempotent.
+        QCOMPARE(sessions.registeredCount(), 2);
+        QCOMPARE(sessions.activeBackend(), &backendOne);
+        QCOMPARE(sessions.findAccount(serverOne.origin(), QStringLiteral("user-one")),
+                 &backendOne);
+        QCOMPARE(sessions.findAccount(serverTwo.origin(), QStringLiteral("user-two")),
+                 &backendTwo);
+        QCOMPARE(sessions.findAccount(serverOne.origin().chopped(1),
+                                      QStringLiteral("user-one")), &backendOne);
+        QVERIFY(!sessions.findAccount(serverTwo.origin(), QStringLiteral("user-one")));
+        QVERIFY(sessions.activate(backendTwo));
+        QCOMPARE(sessions.activeBackend(), &backendTwo);
+        QVERIFY(sessions.activate(backendOne));
+        QCOMPARE(sessions.activeBackend(), &backendOne);
+
         // Each Backend's preferences request must use its own server host
         // and authentication, without any ambient global HTTP identity.
         QTRY_COMPARE(serverOne.preferencesRequests, 1);
@@ -280,9 +302,8 @@ private slots:
         checkCookies(serverOne.preferenceCookies, "token-one", "token-two");
         checkCookies(serverTwo.preferenceCookies, "token-two", "token-one");
 
-        // Both accounts perform normal Backend API operations even while
-        // the unrelated legacy host remains unchanged. They must retrieve
-        // different server-local profiles, not just use different headers.
+        // Both accounts perform normal Backend API operations. They must
+        // retrieve different server-local profiles, not just use different headers.
         QString firstProfile;
         QString secondProfile;
         backendOne.retrieveUser(QStringLiteral("shared-profile-id"),
@@ -448,6 +469,14 @@ private slots:
         backendOne.reset();
         QVERIFY(!backendOne.loggedIn());
         QVERIFY(backendTwo.loggedIn());
+        // Session-ending invalidates only this registration. The second
+        // account stays selected and retains all its Storage and transports.
+        QCOMPARE(sessions.registeredCount(), 1);
+        QCOMPARE(sessions.activeBackend(), &backendTwo);
+        QVERIFY(!sessions.findAccount(serverOne.origin(), QStringLiteral("user-one")));
+        QCOMPARE(sessions.findAccount(serverTwo.origin(), QStringLiteral("user-two")),
+                 &backendTwo);
+        QVERIFY(!sessions.registerAuthenticated(backendOne));
         QString profileAfterOtherReset;
         backendTwo.retrieveUser(QStringLiteral("after-other-backend-reset"),
                                 [&](const BackendUser& user) {
@@ -464,8 +493,9 @@ private slots:
         stalled.holdIdentity = true;
         QVERIFY(stalled.listen(QHostAddress::LocalHost));
         QVERIFY(healthy.listen(QHostAddress::LocalHost));
-        Backend waitingBackend;
-        Backend activeBackend;
+        AccountSessionManager sessions;
+        Backend& waitingBackend = sessions.createLoginBackend();
+        Backend& activeBackend = sessions.createLoginBackend();
 
         bool staleCallback = false;
         waitingBackend.login(credentials(stalled, QStringLiteral("stalled-token")),
@@ -485,6 +515,12 @@ private slots:
         QVERIFY(!staleCallback);
         QVERIFY(!waitingBackend.loggedIn());
         QVERIFY(activeBackend.loggedIn());
+        QVERIFY(!sessions.registerAuthenticated(waitingBackend));
+        QVERIFY(sessions.registerAuthenticated(activeBackend));
+        QCOMPARE(sessions.activeBackend(), &activeBackend);
+        QVERIFY(sessions.removeBackend(waitingBackend));
+        QCOMPARE(sessions.backendCount(), 1);
+        QCOMPARE(sessions.registeredCount(), 1);
 
         activeBackend.retrieveUserPreferences();
         QTRY_COMPARE(healthy.preferencesRequests, 2);
