@@ -50,12 +50,14 @@
 #include "backend/AccountSessionManager.h"
 #include "backend/UserActivityMonitor.h"
 #include "backend/CustomEmojiService.h"
+#include "options/MLOptions.h"
 #include "config/Config.h"
 #include "diagnostics/LoggingConfiguration.h"
 #include "ui/IconUtils.h"
 #include "ui/ApplicationFont.h"
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/TrayWindowController.h"
+#include "ui/AccountWorkspaceStack.h"
 
 namespace Mattermost {
 
@@ -77,7 +79,8 @@ private:
     UserActivityMonitor                   _activityMonitor;
 	std::unique_ptr<QMenu>				trayIconMenu;
 	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
-	std::unique_ptr<MainWindow>			mainWindow;
+    std::unique_ptr<AccountWorkspaceStack>       workspaceShell;
+    MainWindow*                                  mainWindow = nullptr;
     QPointer<LoginDialog>                 loginDialog;
     TrayWindowController                 trayWindow;
     bool                                 logoutInProgress_ = false;
@@ -201,14 +204,42 @@ void MattermostApplication::openLoginWindow()
             qCritical("Authenticated Backend has no unique account identity");
             return;
         }
-        mainWindow = std::make_unique<MainWindow>(nullptr, *trayIcon, backend);
-        mainWindow->installRealtimeUiSync();
-        connect(mainWindow.get(), &MainWindow::logoutRequested,
+        if (!workspaceShell) {
+            workspaceShell = std::make_unique<AccountWorkspaceStack>();
+            workspaceShell->setWindowIcon(IconUtils::applicationIcon());
+            workspaceShell->setWindowTitle(applicationDisplayName());
+            auto* options = MLOptions::instance();
+            const QByteArray geometry = options->value<QByteArray>(
+                QStringLiteral("geometry"));
+            if (!geometry.isEmpty())
+                workspaceShell->restoreGeometry(geometry);
+            else
+                workspaceShell->resize(1200, 800);
+            connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
+                    [this] {
+                if (workspaceShell)
+                    MLOptions::instance()->setValue(
+                        QStringLiteral("geometry"), workspaceShell->saveGeometry());
+            });
+        }
+        // The workspace, not an independently exposed MainWindow, owns the
+        // account's entire navigation widget tree. The later multi-account
+        // login path adds further pages to this same shell.
+        auto* page = new MainWindow(nullptr, *trayIcon, backend);
+        if (!workspaceShell->addWorkspace(backend, page)) {
+            delete page;
+            qCritical("Unable to install account workspace");
+            return;
+        }
+        mainWindow = page;
+        page->installRealtimeUiSync();
+        connect(page, &MainWindow::logoutRequested,
                 this, &MattermostApplication::beginLogout);
+        // 401 on this Backend must recover through the same safe logout flow.
         connect(&backend, &Backend::authenticationExpired, this,
                 [this] { beginLogout(); });
-        trayWindow.setWindow(mainWindow.get());
-        mainWindow->show();
+        trayWindow.setWindow(workspaceShell.get());
+        workspaceShell->show();
     });
 
     dialog->open();
@@ -235,7 +266,19 @@ void MattermostApplication::beginLogout()
     // after the QAction invocation has unwound, but BEFORE Backend::logout()
     // clears Storage. A reconnect cannot then show stale post widgets.
     QTimer::singleShot(0, this, [this] {
-        mainWindow.reset();
+        // QWidget views must be destroyed while Backend Storage still holds
+        // their referenced channels/posts. Do not let a hidden account view
+        // survive a reset of its server's data.
+        QWidget* page = workspaceShell
+            ? workspaceShell->takeWorkspace(backend) : nullptr;
+        delete page;
+        mainWindow = nullptr;
+        if (workspaceShell) {
+            MLOptions::instance()->setValue(
+                QStringLiteral("geometry"), workspaceShell->saveGeometry());
+            workspaceShell.reset();
+        }
+        trayIcon->setIcon(IconUtils::applicationIcon());
         backend.logout([this] {
             logoutInProgress_ = false;
             openLoginWindow();
