@@ -542,17 +542,13 @@ QString replyHeadersForUploadTrace(const QNetworkReply& reply)
 
 void Backend::login (const BackendLoginData& credentials, std::function<void(const QString&)> callback)
 {
-    qInfo() << "Backend.login: entered";
     const bool restartingAfterFailure = _lastLoginFailureTransient;
     _lastLoginFailureTransient = false;
     _authVerificationInFlight = false;
     _authExpiryNotified = false;
     loginData = credentials;
-    qInfo() << "Backend.login: credentials assigned";
     _networkSession.setHost(credentials.domain);
-    qInfo() << "Backend.login: host set";
     httpConnector.configureAccountCache(credentials.username);
-    qInfo() << "Backend.login: cache configured";
     if (restartingAfterFailure) {
         // There is no WebSocket yet to signal a route change during offline
         // startup. Force fresh HTTP connections for each automatic retry.
@@ -562,16 +558,11 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 	if (!credentials.token.isEmpty()) {
 
 		_networkSession.setToken(credentials.token);
-        qInfo() << "Backend.login: token set";
 		NetworkRequest request(_networkSession, "users/me");
-        qInfo() << "Backend.login: request constructed";
 
-        qInfo() << "Backend.login: before GET";
 		httpConnector.get (request, HttpResponseCallback ([this, callback](const QJsonDocument& data, const QNetworkReply& reply) {
-            qInfo() << "Backend.login: GET callback";
 			loginSuccess (data, reply, callback);
 		}));
-        qInfo() << "Backend.login: after GET";
 
 
 #if 0

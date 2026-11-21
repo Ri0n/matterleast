@@ -1,5 +1,6 @@
 #include "SessionTokenStore.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QTimer>
@@ -20,6 +21,17 @@
 namespace Mattermost {
 namespace {
 constexpr auto KeychainService = "io.github.Ri0n.MatterLeast";
+#ifdef MATTERLEAST_HAVE_KEYCHAIN
+// libsecret/QtKeychain can still deliver the completion after the requesting
+// Account has been destroyed. A job must not be owned by that short-lived
+// context: QtKeychain holds it until finished() and auto-deletes the job.
+// The QObject connection's *receiver* remains the original context, so no
+// callbacks are invoked for a destroyed account.
+QObject* keychainJobParent()
+{
+    return QCoreApplication::instance();
+}
+#endif
 }
 
 QString SessionTokenStore::keyFor(const QString& server,
@@ -51,7 +63,7 @@ void SessionTokenStore::read(QObject* context, const QString& server,
     }
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
     auto* job = new QKeychain::ReadPasswordJob(QString::fromLatin1(KeychainService),
-                                               context);
+                                               keychainJobParent());
     job->setKey(keyFor(server, username));
     job->setInsecureFallback(false);
     QObject::connect(job, &QKeychain::Job::finished, context,
@@ -92,7 +104,7 @@ void SessionTokenStore::write(QObject* context, const QString& server,
     }
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
     auto* job = new QKeychain::WritePasswordJob(QString::fromLatin1(KeychainService),
-                                                context);
+                                                keychainJobParent());
     job->setKey(keyFor(server, username));
     job->setTextData(token);
     job->setInsecureFallback(false);
@@ -119,7 +131,7 @@ void SessionTokenStore::remove(QObject* context, const QString& server,
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
     if (!context || server.isEmpty() || username.isEmpty()) return;
     auto* job = new QKeychain::DeletePasswordJob(QString::fromLatin1(KeychainService),
-                                                 context);
+                                                 keychainJobParent());
     job->setKey(keyFor(server, username));
     job->setInsecureFallback(false);
     job->start();

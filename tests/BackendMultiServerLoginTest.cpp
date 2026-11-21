@@ -1,11 +1,6 @@
 #include <QtTest>
 
 #include <QEvent>
-#if defined(Q_OS_LINUX)
-#include <execinfo.h>
-#include <signal.h>
-#include <unistd.h>
-#endif
 #include <QFile>
 #include <QHostAddress>
 #include <QJsonArray>
@@ -31,21 +26,6 @@
 using namespace Mattermost;
 
 namespace {
-
-#if defined(Q_OS_LINUX)
-// Temporary crash diagnostic restricted to the localhost integration test.
-// QtTest's fatal-signal summary lacks a native stack on CI.
-void traceSegfault(int signo)
-{
-    void* frames[64];
-    const int count = backtrace(frames, 64);
-    static const char label[] = "\n--- backend-multi-server native backtrace ---\n";
-    const ssize_t written = write(STDERR_FILENO, label, sizeof(label) - 1);
-    (void)written;
-    backtrace_symbols_fd(frames, count, STDERR_FILENO);
-    _exit(128 + signo);
-}
-#endif
 
 // Two independent local Mattermost API endpoints. This is a Backend-level
 // integration fixture: no Docker, external network or credentials are needed.
@@ -762,44 +742,25 @@ private slots:
 
     void duplicateSessionRegistrationCannotReplaceAnExistingAccount()
     {
-#if defined(Q_OS_LINUX)
-        struct sigaction action = {};
-        struct sigaction previous = {};
-        action.sa_handler = &traceSegfault;
-        sigemptyset(&action.sa_mask);
-        sigaction(SIGSEGV, &action, &previous);
-#endif
-        qInfo() << "duplicate-account: start";
         FakeMattermostServer server(QByteArrayLiteral("same-user"));
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        qInfo() << "duplicate-account: listening";
         AccountManager sessions;
-        qInfo() << "duplicate-account: manager constructed";
         Backend* first = sessions.createLoginBackend();
-        qInfo() << "duplicate-account: first candidate";
         Backend* duplicate = sessions.createLoginBackend();
-        qInfo() << "duplicate-account: second candidate";
         bool firstReady = false;
         bool secondReady = false;
-        qInfo() << "duplicate-account: before first login";
         first->login(credentials(server, QStringLiteral("one-token")),
                      [&](const QString& token) { firstReady = !token.isEmpty(); });
-        qInfo() << "duplicate-account: after first login";
         duplicate->login(credentials(server, QStringLiteral("two-token")),
                          [&](const QString& token) { secondReady = !token.isEmpty(); });
-        qInfo() << "duplicate-account: after second login";
         QTRY_VERIFY(firstReady && secondReady);
-        qInfo() << "duplicate-account: both logged in";
 
         Account* persistent = sessions.adoptAuthenticated(
             first, QStringLiteral("first"), QStringLiteral("Office"));
         QVERIFY(persistent);
-        qInfo() << "duplicate-account: first adopted";
         const QString id = persistent->id();
-        qInfo() << "duplicate-account: before duplicate adopt";
         QVERIFY(!sessions.adoptAuthenticated(
             duplicate, QStringLiteral("second"), QStringLiteral("Office")));
-        qInfo() << "duplicate-account: rejected duplicate";
         QCOMPARE(sessions.registeredBackends().size(), 1);
         QCOMPARE(sessions.activeBackend(), first);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
@@ -807,43 +768,29 @@ private slots:
 
         // A new Backend may reuse the exact same persistent account ID.
         QPointer<Backend> firstGuard = first;
-        qInfo() << "duplicate-account: before prepareStop";
         sessions.prepareStop(persistent, true);
-        qInfo() << "duplicate-account: before finishStop";
         sessions.finishStop(persistent, true);
         QTRY_VERIFY(!persistent->backend());
         QTRY_VERIFY(firstGuard.isNull());
-        qInfo() << "duplicate-account: first destroyed";
         QVERIFY(sessions.activeBackend() == nullptr);
 
-        qInfo() << "duplicate-account: before reconnect";
         Account* reconnected = sessions.adoptAuthenticated(
             duplicate, QStringLiteral("second"), QStringLiteral("Office"));
         QCOMPARE(reconnected, persistent);
-        qInfo() << "duplicate-account: reconnected";
         QCOMPARE(persistent->id(), id);
         QCOMPARE(sessions.activeBackend(), duplicate);
-        qInfo() << "duplicate-account: rejected duplicate";
         QCOMPARE(sessions.registeredBackends().size(), 1);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
                  duplicate);
         QCOMPARE(sessions.allAccounts().size(), 1);
-        qInfo() << "duplicate-account: second active";
 
         QPointer<Backend> duplicateGuard = duplicate;
-        qInfo() << "duplicate-account: before prepareStop";
         sessions.prepareStop(persistent, true);
-        qInfo() << "duplicate-account: before finishStop";
         sessions.finishStop(persistent, true);
         QTRY_VERIFY(!persistent->backend());
         QTRY_VERIFY(duplicateGuard.isNull());
-        qInfo() << "duplicate-account: second destroyed";
         QCOMPARE(sessions.registeredBackends().size(), 0);
         QCOMPARE(sessions.allAccounts().size(), 1);
-        qInfo() << "duplicate-account: second active";
-#if defined(Q_OS_LINUX)
-        sigaction(SIGSEGV, &previous, nullptr);
-#endif
     }
 
     void savedAttachmentPathsDoNotSurviveAccountSwitch()
