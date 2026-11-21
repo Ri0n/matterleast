@@ -7,14 +7,14 @@ namespace Mattermost {
 
 Account::Account(const QString& id, AccountManager* manager)
     : QObject(manager)
-    , _id(id)
+    , _accountId(id)
     , _manager(manager)
 {
 }
 
 const WorkspaceLayout::Account* Account::record() const
 {
-    return _manager->layout().account(_id);
+    return _manager->layout().account(_accountId);
 }
 
 void Account::setState(AccountConnectionState state)
