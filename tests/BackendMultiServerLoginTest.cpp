@@ -294,8 +294,8 @@ private slots:
         QVERIFY(serverTwo.listen(QHostAddress::LocalHost));
 
         AccountSessionManager sessions;
-        Backend& backendOne = sessions.createLoginBackend();
-        Backend& backendTwo = sessions.createLoginBackend();
+        Backend* backendOne = sessions.createLoginBackend();
+        Backend* backendTwo = sessions.createLoginBackend();
         QCOMPARE(sessions.backendCount(), 2);
         QCOMPARE(sessions.registeredCount(), 0);
         QVERIFY(!sessions.activate(backendOne));
@@ -308,11 +308,11 @@ private slots:
         bool secondComplete = false;
         QString tokenOne;
         QString tokenTwo;
-        backendOne.login(loginOne, [&](const QString& token) {
+        backendOne->login(loginOne, [&](const QString& token) {
             tokenOne = token;
             firstComplete = true;
         });
-        backendTwo.login(loginTwo, [&](const QString& token) {
+        backendTwo->login(loginTwo, [&](const QString& token) {
             tokenTwo = token;
             secondComplete = true;
         });
@@ -320,13 +320,13 @@ private slots:
         QTRY_VERIFY(firstComplete && secondComplete);
         QCOMPARE(tokenOne, loginOne.token);
         QCOMPARE(tokenTwo, loginTwo.token);
-        QVERIFY(backendOne.loggedIn());
-        QVERIFY(backendTwo.loggedIn());
-        QVERIFY(backendOne.getStorage().loginUser);
-        QVERIFY(backendTwo.getStorage().loginUser);
-        QCOMPARE(backendOne.getStorage().loginUser->id,
+        QVERIFY(backendOne->loggedIn());
+        QVERIFY(backendTwo->loggedIn());
+        QVERIFY(backendOne->getStorage().loginUser);
+        QVERIFY(backendTwo->getStorage().loginUser);
+        QCOMPARE(backendOne->getStorage().loginUser->id,
                  QStringLiteral("user-one"));
-        QCOMPARE(backendTwo.getStorage().loginUser->id,
+        QCOMPARE(backendTwo->getStorage().loginUser->id,
                  QStringLiteral("user-two"));
 
         QVERIFY(sessions.registerAuthenticated(backendOne));
@@ -335,20 +335,20 @@ private slots:
         QCOMPARE(sessions.registeredCount(), 2);
         const auto registered = sessions.registeredBackends();
         QCOMPARE(registered.size(), 2);
-        QCOMPARE(registered.at(0), &backendOne);
-        QCOMPARE(registered.at(1), &backendTwo);
-        QCOMPARE(sessions.activeBackend(), &backendOne);
+        QCOMPARE(registered.at(0), backendOne);
+        QCOMPARE(registered.at(1), backendTwo);
+        QCOMPARE(sessions.activeBackend(), backendOne);
         QCOMPARE(sessions.findAccount(serverOne.origin(), QStringLiteral("user-one")),
-                 &backendOne);
+                 backendOne);
         QCOMPARE(sessions.findAccount(serverTwo.origin(), QStringLiteral("user-two")),
-                 &backendTwo);
+                 backendTwo);
         QCOMPARE(sessions.findAccount(serverOne.origin().chopped(1),
-                                      QStringLiteral("user-one")), &backendOne);
+                                      QStringLiteral("user-one")), backendOne);
         QVERIFY(!sessions.findAccount(serverTwo.origin(), QStringLiteral("user-one")));
         QVERIFY(sessions.activate(backendTwo));
-        QCOMPARE(sessions.activeBackend(), &backendTwo);
+        QCOMPARE(sessions.activeBackend(), backendTwo);
         QVERIFY(sessions.activate(backendOne));
-        QCOMPARE(sessions.activeBackend(), &backendOne);
+        QCOMPARE(sessions.activeBackend(), backendOne);
 
         // Each Backend's preferences request must use its own server host
         // and authentication, without any ambient global HTTP identity.
@@ -361,8 +361,8 @@ private slots:
         checkCookies(serverOne.preferenceCookies, "token-one", "token-two");
         checkCookies(serverTwo.preferenceCookies, "token-two", "token-one");
 
-        backendOne.retrieveUserPreferences();
-        backendTwo.retrieveUserPreferences();
+        backendOne->retrieveUserPreferences();
+        backendTwo->retrieveUserPreferences();
         QTRY_COMPARE(serverOne.preferencesRequests, 2);
         QTRY_COMPARE(serverTwo.preferencesRequests, 2);
         checkCookies(serverOne.preferenceCookies, "token-one", "token-two");
@@ -372,11 +372,11 @@ private slots:
         // retrieve different server-local profiles, not just use different headers.
         QString firstProfile;
         QString secondProfile;
-        backendOne.retrieveUser(QStringLiteral("shared-profile-id"),
+        backendOne->retrieveUser(QStringLiteral("shared-profile-id"),
                                 [&](const BackendUser& user) {
             firstProfile = user.id;
         });
-        backendTwo.retrieveUser(QStringLiteral("shared-profile-id"),
+        backendTwo->retrieveUser(QStringLiteral("shared-profile-id"),
                                 [&](const BackendUser& user) {
             secondProfile = user.id;
         });
@@ -392,10 +392,10 @@ private slots:
         // retains an error-local connector for expected 404 misses.
         QByteArray firstFile;
         QByteArray secondFile;
-        AttachmentService::instance(backendOne).retrieveFile(
+        AttachmentService::instance(*backendOne).retrieveFile(
             QStringLiteral("shared-file"),
             [&](const QByteArray& data) { firstFile = data; });
-        AttachmentService::instance(backendTwo).retrieveFile(
+        AttachmentService::instance(*backendTwo).retrieveFile(
             QStringLiteral("shared-file"),
             [&](const QByteArray& data) { secondFile = data; });
         QTRY_COMPARE(firstFile, QByteArrayLiteral("bytes-user-one"));
@@ -416,13 +416,13 @@ private slots:
             bool secondSaved = false;
             QString firstError;
             QString secondError;
-            QVERIFY(AttachmentService::instance(backendOne).downloadToFile(
+            QVERIFY(AttachmentService::instance(*backendOne).downloadToFile(
                 QStringLiteral("shared-file"), firstPath, {},
                 [&](const QString& error) {
                     firstError = error;
                     firstSaved = true;
                 }));
-            QVERIFY(AttachmentService::instance(backendTwo).downloadToFile(
+            QVERIFY(AttachmentService::instance(*backendTwo).downloadToFile(
                 QStringLiteral("shared-file"), secondPath, {},
                 [&](const QString& error) {
                     secondError = error;
@@ -453,9 +453,9 @@ private slots:
         // A distinct path avoids prewarming this check in the earlier downloads.
         QByteArray firstLegacyFile;
         QByteArray secondLegacyFile;
-        backendOne.retrieveFile(QStringLiteral("legacy-file"),
+        backendOne->retrieveFile(QStringLiteral("legacy-file"),
             [&](const QByteArray& data) { firstLegacyFile = data; });
-        backendTwo.retrieveFile(QStringLiteral("legacy-file"),
+        backendTwo->retrieveFile(QStringLiteral("legacy-file"),
             [&](const QByteArray& data) { secondLegacyFile = data; });
         QTRY_COMPARE(firstLegacyFile, QByteArrayLiteral("bytes-user-one"));
         QTRY_COMPARE(secondLegacyFile, QByteArrayLiteral("bytes-user-two"));
@@ -466,9 +466,9 @@ private slots:
         // than a shared last-writer entry or another network fetch.
         QByteArray firstCachedFile;
         QByteArray secondCachedFile;
-        backendOne.retrieveFile(QStringLiteral("legacy-file"),
+        backendOne->retrieveFile(QStringLiteral("legacy-file"),
             [&](const QByteArray& data) { firstCachedFile = data; });
-        backendTwo.retrieveFile(QStringLiteral("legacy-file"),
+        backendTwo->retrieveFile(QStringLiteral("legacy-file"),
             [&](const QByteArray& data) { secondCachedFile = data; });
         QTRY_COMPARE(firstCachedFile, QByteArrayLiteral("bytes-user-one"));
         QTRY_COMPARE(secondCachedFile, QByteArrayLiteral("bytes-user-two"));
@@ -477,10 +477,10 @@ private slots:
 
         QString firstChannel;
         QString secondChannel;
-        ChannelReferenceService::instance(backendOne).resolve(
+        ChannelReferenceService::instance(*backendOne).resolve(
             QStringLiteral("shared-team"), QStringLiteral("shared-channel"),
             [&](const QString& name) { firstChannel = name; });
-        ChannelReferenceService::instance(backendTwo).resolve(
+        ChannelReferenceService::instance(*backendTwo).resolve(
             QStringLiteral("shared-team"), QStringLiteral("shared-channel"),
             [&](const QString& name) { secondChannel = name; });
         QTRY_COMPARE(firstChannel, QStringLiteral("user-one Channel"));
@@ -500,13 +500,13 @@ private slots:
         QString secondPermalink;
         QString firstLinkError;
         QString secondLinkError;
-        PostPermalinkService::instance(backendOne).resolve(
+        PostPermalinkService::instance(*backendOne).resolve(
             QStringLiteral("abcdefghijklmnopqrstuvwxyz"), QStringLiteral("shared-team"), true,
             [&](const QString& url, const QString& error) {
                 firstPermalink = url;
                 firstLinkError = error;
             });
-        PostPermalinkService::instance(backendTwo).resolve(
+        PostPermalinkService::instance(*backendTwo).resolve(
             QStringLiteral("abcdefghijklmnopqrstuvwxyz"), QStringLiteral("shared-team"), true,
             [&](const QString& url, const QString& error) {
                 secondPermalink = url;
@@ -527,15 +527,15 @@ private slots:
         // Neither server has the post's channel or team in Storage. Cold
         // navigation must first fetch the post, channel, and team through
         // the owning Backend; equal post IDs must not cross account boundaries.
-        AppNavigationService::instance(backendOne).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
-        AppNavigationService::instance(backendTwo).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
-        QTRY_VERIFY(backendOne.getStorage().getChannelById(
+        AppNavigationService::instance(*backendOne).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
+        AppNavigationService::instance(*backendTwo).openPost(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
+        QTRY_VERIFY(backendOne->getStorage().getChannelById(
             QStringLiteral("channel-user-one")) != nullptr);
-        QTRY_VERIFY(backendTwo.getStorage().getChannelById(
+        QTRY_VERIFY(backendTwo->getStorage().getChannelById(
             QStringLiteral("channel-user-two")) != nullptr);
-        QVERIFY(!backendOne.getStorage().getChannelById(
+        QVERIFY(!backendOne->getStorage().getChannelById(
             QStringLiteral("channel-user-two")));
-        QVERIFY(!backendTwo.getStorage().getChannelById(
+        QVERIFY(!backendTwo->getStorage().getChannelById(
             QStringLiteral("channel-user-one")));
         // Cold navigation first resolves the missing post; the forced
         // around-post context subsequently validates that same post via
@@ -560,21 +560,21 @@ private slots:
         // Resetting one Backend must leave the other account able to make
         // fresh, authenticated requests. Do not assert a preferences count:
         // other services can independently refresh preferences in the background.
-        backendOne.reset();
-        QVERIFY(!backendOne.loggedIn());
-        QVERIFY(backendTwo.loggedIn());
+        backendOne->reset();
+        QVERIFY(!backendOne->loggedIn());
+        QVERIFY(backendTwo->loggedIn());
         // Session-ending invalidates only this registration. The second
         // account stays selected and retains all its Storage and transports.
         QCOMPARE(sessions.registeredCount(), 1);
         QCOMPARE(sessions.registeredBackends().size(), 1);
-        QCOMPARE(sessions.registeredBackends().first(), &backendTwo);
-        QCOMPARE(sessions.activeBackend(), &backendTwo);
+        QCOMPARE(sessions.registeredBackends().first(), backendTwo);
+        QCOMPARE(sessions.activeBackend(), backendTwo);
         QVERIFY(!sessions.findAccount(serverOne.origin(), QStringLiteral("user-one")));
         QCOMPARE(sessions.findAccount(serverTwo.origin(), QStringLiteral("user-two")),
-                 &backendTwo);
+                 backendTwo);
         QVERIFY(!sessions.registerAuthenticated(backendOne));
         QString profileAfterOtherReset;
-        backendTwo.retrieveUser(QStringLiteral("after-other-backend-reset"),
+        backendTwo->retrieveUser(QStringLiteral("after-other-backend-reset"),
                                 [&](const BackendUser& user) {
             profileAfterOtherReset = user.id;
         });
@@ -642,37 +642,37 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
 
         AccountSessionManager sessions;
-        Backend& first = sessions.createLoginBackend();
-        Backend& second = sessions.createLoginBackend();
+        Backend* first = sessions.createLoginBackend();
+        Backend* second = sessions.createLoginBackend();
         bool firstReady = false;
         bool secondReady = false;
-        first.login(credentials(server, QStringLiteral("token-one")),
+        first->login(credentials(server, QStringLiteral("token-one")),
                     [&](const QString& token) { firstReady = !token.isEmpty(); });
-        second.login(credentials(server, QStringLiteral("token-two")),
+        second->login(credentials(server, QStringLiteral("token-two")),
                      [&](const QString& token) { secondReady = !token.isEmpty(); });
         QTRY_VERIFY(firstReady && secondReady);
         QVERIFY(sessions.registerAuthenticated(first));
         QVERIFY(sessions.registerAuthenticated(second));
         QCOMPARE(sessions.registeredCount(), 2);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("shared-server-one")),
-                 &first);
+                 first);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("shared-server-two")),
-                 &second);
+                 second);
 
         QVERIFY(sessions.activate(second));
-        QCOMPARE(sessions.activeBackend(), &second);
+        QCOMPARE(sessions.activeBackend(), second);
         QVERIFY(sessions.activate(first));
-        QCOMPARE(sessions.activeBackend(), &first);
+        QCOMPARE(sessions.activeBackend(), first);
 
         // The first account's logout must not drop the second account's
         // authentication, HTTP connection state or registration.
-        first.reset();
+        first->reset();
         QCOMPARE(sessions.registeredCount(), 1);
-        QCOMPARE(sessions.activeBackend(), &second);
-        QVERIFY(second.loggedIn());
+        QCOMPARE(sessions.activeBackend(), second);
+        QVERIFY(second->loggedIn());
         QVERIFY(!sessions.findAccount(server.origin(),
                                      QStringLiteral("shared-server-one")));
-        second.retrieveUserPreferences();
+        second->retrieveUserPreferences();
         QTRY_VERIFY(server.preferencesRequests >= 3);
         // The per-request cookie lists must include both independent tokens,
         // not a single shared last-login token.
@@ -685,6 +685,16 @@ private slots:
             sawOne = sawOne || one;
             sawTwo = sawTwo || two;
         }
+        // reset() disconnects Backend::destroyed observers. QObject's
+        // ChildRemoved event must still prune the manager synchronously.
+        QPointer<Backend> firstGuard = first;
+        delete first;
+        QVERIFY(firstGuard.isNull());
+        QCOMPARE(sessions.backendCount(), 1);
+        QCOMPARE(sessions.registeredCount(), 1);
+        QCOMPARE(sessions.activeBackend(), second);
+        QCOMPARE(sessions.registeredBackends().first(), second);
+        QVERIFY(second->loggedIn());
         QVERIFY(sawOne && sawTwo);
     }
 
@@ -694,18 +704,18 @@ private slots:
         QPointer<Backend> secondGuard;
         {
             AccountSessionManager accounts;
-            Backend& first = accounts.createLoginBackend();
-            Backend& second = accounts.createLoginBackend();
-            firstGuard = &first;
-            secondGuard = &second;
-            QCOMPARE(first.parent(), static_cast<QObject*>(&accounts));
-            QCOMPARE(second.parent(), static_cast<QObject*>(&accounts));
+            Backend* first = accounts.createLoginBackend();
+            Backend* second = accounts.createLoginBackend();
+            firstGuard = first;
+            secondGuard = second;
+            QCOMPARE(first->parent(), static_cast<QObject*>(&accounts));
+            QCOMPARE(second->parent(), static_cast<QObject*>(&accounts));
             QCOMPARE(accounts.backendCount(), 2);
 
-            QSignalSpy firstDestroyed(&first, &QObject::destroyed);
+            QSignalSpy firstDestroyed(first, &QObject::destroyed);
             QVERIFY(firstDestroyed.isValid());
             bool deliveredAfterDeletion = false;
-            QTimer::singleShot(0, &first,
+            QTimer::singleShot(0, first,
                                [&] { deliveredAfterDeletion = true; });
             QVERIFY(accounts.removeBackend(first));
             QCoreApplication::processEvents();
@@ -727,15 +737,15 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
 
         AccountSessionManager sessions;
-        Backend& first = sessions.createLoginBackend();
-        Backend& duplicate = sessions.createLoginBackend();
+        Backend* first = sessions.createLoginBackend();
+        Backend* duplicate = sessions.createLoginBackend();
         bool firstReady = false;
         bool duplicateReady = false;
-        first.login(credentials(server, QStringLiteral("one-token")),
+        first->login(credentials(server, QStringLiteral("one-token")),
                     [&](const QString& token) {
             firstReady = !token.isEmpty();
         });
-        duplicate.login(credentials(server, QStringLiteral("two-token")),
+        duplicate->login(credentials(server, QStringLiteral("two-token")),
                         [&](const QString& token) {
             duplicateReady = !token.isEmpty();
         });
@@ -744,24 +754,33 @@ private slots:
         QVERIFY(sessions.registerAuthenticated(first));
         QVERIFY(!sessions.registerAuthenticated(duplicate));
         QCOMPARE(sessions.registeredCount(), 1);
-        QCOMPARE(sessions.activeBackend(), &first);
+        QCOMPARE(sessions.activeBackend(), first);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
-                 &first);
+                 first);
         QVERIFY(!sessions.activate(duplicate));
 
         // Releasing the first authenticated session makes its identity
         // available to the other Backend without recreating it or leaking
         // the first account's view/transport into the second.
-        first.reset();
+        first->reset();
         QCOMPARE(sessions.registeredCount(), 0);
         QVERIFY(sessions.activeBackend() == nullptr);
         QVERIFY(sessions.registerAuthenticated(duplicate));
-        QCOMPARE(sessions.activeBackend(), &duplicate);
+        QCOMPARE(sessions.activeBackend(), duplicate);
         QCOMPARE(sessions.registeredCount(), 1);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
-                 &duplicate);
+                 duplicate);
         QVERIFY(sessions.removeBackend(first));
         QCOMPARE(sessions.backendCount(), 1);
+        // Directly destroying an authenticated Backend must invalidate all
+        // registration indexes and the active pointer without event-loop work.
+        QPointer<Backend> duplicateGuard = duplicate;
+        delete duplicate;
+        QVERIFY(duplicateGuard.isNull());
+        QCOMPARE(sessions.registeredCount(), 0);
+        QCOMPARE(sessions.backendCount(), 0);
+        QVERIFY(sessions.activeBackend() == nullptr);
+        QVERIFY(!sessions.findAccount(server.origin(), QStringLiteral("same-user")));
     }
 
     void savedAttachmentPathsDoNotSurviveAccountSwitch()
@@ -868,35 +887,35 @@ private slots:
         QVERIFY(stalled.listen(QHostAddress::LocalHost));
         QVERIFY(healthy.listen(QHostAddress::LocalHost));
         AccountSessionManager sessions;
-        Backend& waitingBackend = sessions.createLoginBackend();
-        Backend& activeBackend = sessions.createLoginBackend();
+        Backend* waitingBackend = sessions.createLoginBackend();
+        Backend* activeBackend = sessions.createLoginBackend();
 
         bool staleCallback = false;
-        waitingBackend.login(credentials(stalled, QStringLiteral("stalled-token")),
+        waitingBackend->login(credentials(stalled, QStringLiteral("stalled-token")),
                              [&](const QString&) { staleCallback = true; });
 
         QString activeToken;
         bool activeComplete = false;
-        activeBackend.login(credentials(healthy, QStringLiteral("active-token")),
+        activeBackend->login(credentials(healthy, QStringLiteral("active-token")),
                             [&](const QString& token) {
                                 activeToken = token;
                                 activeComplete = true;
                             });
         QTRY_COMPARE(stalled.identityRequests, 1);
-        waitingBackend.cancelPendingLogin();
+        waitingBackend->cancelPendingLogin();
         QTRY_VERIFY(activeComplete);
         QCOMPARE(activeToken, QStringLiteral("active-token"));
         QVERIFY(!staleCallback);
-        QVERIFY(!waitingBackend.loggedIn());
-        QVERIFY(activeBackend.loggedIn());
+        QVERIFY(!waitingBackend->loggedIn());
+        QVERIFY(activeBackend->loggedIn());
         QVERIFY(!sessions.registerAuthenticated(waitingBackend));
         QVERIFY(sessions.registerAuthenticated(activeBackend));
-        QCOMPARE(sessions.activeBackend(), &activeBackend);
+        QCOMPARE(sessions.activeBackend(), activeBackend);
         QVERIFY(sessions.removeBackend(waitingBackend));
         QCOMPARE(sessions.backendCount(), 1);
         QCOMPARE(sessions.registeredCount(), 1);
 
-        activeBackend.retrieveUserPreferences();
+        activeBackend->retrieveUserPreferences();
         QTRY_COMPARE(healthy.preferencesRequests, 2);
         checkCookies(healthy.preferenceCookies, "active-token", "stalled-token");
     }
