@@ -1,6 +1,11 @@
 #include <QtTest>
 
 #include <QEvent>
+#if defined(Q_OS_LINUX)
+#include <execinfo.h>
+#include <signal.h>
+#include <unistd.h>
+#endif
 #include <QFile>
 #include <QHostAddress>
 #include <QJsonArray>
@@ -26,6 +31,20 @@
 using namespace Mattermost;
 
 namespace {
+
+#if defined(Q_OS_LINUX)
+// Temporary crash diagnostic restricted to the localhost integration test.
+// QtTest's fatal-signal summary lacks a native stack on CI.
+void traceSegfault(int signo)
+{
+    void* frames[64];
+    const int count = backtrace(frames, 64);
+    static const char label[] = "\n--- backend-multi-server native backtrace ---\n";
+    (void)write(STDERR_FILENO, label, sizeof(label) - 1);
+    backtrace_symbols_fd(frames, count, STDERR_FILENO);
+    _exit(128 + signo);
+}
+#endif
 
 // Two independent local Mattermost API endpoints. This is a Backend-level
 // integration fixture: no Docker, external network or credentials are needed.
@@ -742,6 +761,13 @@ private slots:
 
     void duplicateSessionRegistrationCannotReplaceAnExistingAccount()
     {
+#if defined(Q_OS_LINUX)
+        struct sigaction action = {};
+        struct sigaction previous = {};
+        action.sa_handler = &traceSegfault;
+        sigemptyset(&action.sa_mask);
+        sigaction(SIGSEGV, &action, &previous);
+#endif
         qInfo() << "duplicate-account: start";
         FakeMattermostServer server(QByteArrayLiteral("same-user"));
         QVERIFY(server.listen(QHostAddress::LocalHost));
@@ -814,6 +840,9 @@ private slots:
         QCOMPARE(sessions.registeredBackends().size(), 0);
         QCOMPARE(sessions.allAccounts().size(), 1);
         qInfo() << "duplicate-account: second active";
+#if defined(Q_OS_LINUX)
+        sigaction(SIGSEGV, &previous, nullptr);
+#endif
     }
 
     void savedAttachmentPathsDoNotSurviveAccountSwitch()
