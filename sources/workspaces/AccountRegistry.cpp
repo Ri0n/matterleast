@@ -2,6 +2,7 @@
 
 #include <QUrl>
 #include <QUuid>
+#include <utility>
 
 #include "backend/AccountIdentity.h"
 
@@ -66,8 +67,9 @@ QString AccountRegistry::registerAuthenticated(const QString& serverBaseUrl,
         record.loginName = loginName;
         if (!next.validate())
             return {};
+        const QString accountId = record.id;
         _layout = std::move(next);
-        return record.id;
+        return accountId;
     }
 
     WorkspaceLayout::Account record;
