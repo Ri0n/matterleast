@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QEvent>
 #include <QFile>
 #include <QHostAddress>
 #include <QJsonArray>
@@ -727,7 +728,11 @@ private slots:
             QSignalSpy destroyed(first, &QObject::destroyed);
             QVERIFY(destroyed.isValid());
             manager.discardCandidate(first);
-            QTRY_VERIFY(firstGuard.isNull());
+            // Drain only this candidate's deferred deletion, not unrelated
+            // WebSocket reconnect events left over from earlier test cases.
+            // The API contract is QObject ownership, not a retrying timer.
+            QCoreApplication::sendPostedEvents(first, QEvent::DeferredDelete);
+            QVERIFY(firstGuard.isNull());
             QCOMPARE(destroyed.count(), 1);
             QVERIFY(secondGuard);
             QCOMPARE(manager.findChildren<Backend*>().size(), 1);
