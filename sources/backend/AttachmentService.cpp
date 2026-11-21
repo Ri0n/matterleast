@@ -39,6 +39,31 @@ AttachmentService::AttachmentService(Backend& sourceBackend)
     downloadManager.setCookieJar(new NetworkSessionCookieJar(&downloadManager));
 }
 
+void AttachmentService::clearSessionState()
+{
+    localFiles.clear();
+    // HTTPConnector's reset invalidates these requests; drop their callbacks
+    // so they cannot later be delivered to a different account's widgets.
+    pendingCallbacks.clear();
+
+    // Streaming downloads use their own QNetworkAccessManager, not the
+    // HTTPConnector. Cancel them before destroying the old session UI, and
+    // suppress callbacks owned by this service during teardown.
+    QList<QPointer<QNetworkReply>> downloads;
+    for (QNetworkReply* reply :
+         downloadManager.findChildren<QNetworkReply*>(QString(),
+                                                       Qt::FindDirectChildrenOnly)) {
+        downloads.append(QPointer<QNetworkReply>(reply));
+    }
+    for (const QPointer<QNetworkReply>& reply : downloads) {
+        if (!reply)
+            continue;
+        QObject::disconnect(reply, nullptr, this, nullptr);
+        reply->abort();
+        reply->deleteLater();
+    }
+}
+
 void AttachmentService::rememberLocalFile(const QString& fileId, const QString& path)
 {
     const QFileInfo file(path);
