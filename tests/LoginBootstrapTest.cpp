@@ -11,6 +11,8 @@
 
 #include "backend/Backend.h"
 #include "login/LoginDialog.h"
+#include "backend/AccountManager.h"
+#include "migrations/MigrationManager.h"
 #include "backend/LoginResponsePolicy.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendLoginData.h"
@@ -98,26 +100,52 @@ private slots:
         QVERIFY(validateLoginResponse(QNetworkReply::NoError, 200, valid).accepted);
     }
 
-    void neverPersistsNewSessionSecretsInSettings()
+    void migrationVersionRegistryAndIncompleteLegacyPreservation()
     {
+        int count = 0;
+        const auto* steps = MigrationManager::steps(&count);
+        QCOMPARE(count, MigrationManager::LatestVersion);
+        QCOMPARE(steps[0].version, 1);
+        QCOMPARE(QString::fromLatin1(steps[0].introducedOn),
+                 QStringLiteral("2026-11-22"));
+        QCOMPARE(QString::fromLatin1(steps[0].name),
+                 QStringLiteral("legacy-single-account-login"));
+
         auto* settings = MLOptions::instance();
-        settings->setValue<QString>(QStringLiteral("token"), QString());
+        const QStringList keys {QStringLiteral("domain"),
+                                QStringLiteral("username"),
+                                QStringLiteral("token")};
+        QVector<QString> previous;
+        for (const QString& key : keys)
+            previous.append(settings->value<QString>(key));
+        const int previousVersion = settings->value<int>(
+            QStringLiteral("migrations/version"), 0);
 
-        BackendLoginData login;
-        login.domain = QStringLiteral("https://test.example.invalid/");
-        login.username = QStringLiteral("synthetic-user");
-        login.token = QStringLiteral("never-persist-this");
-        login.saveToOptions();
-        QVERIFY(settings->value<QString>(QStringLiteral("token")).isEmpty());
-
-        // Existing plaintext credentials must not be silently discarded
-        // before their asynchronous secure migration has succeeded.
-        settings->setValue<QString>(QStringLiteral("token"),
-                                    QStringLiteral("legacy-only"));
-        login.saveToOptions();
+        AccountManager accounts;
+        MigrationManager migrations(accounts);
+        settings->setValue<int>(QStringLiteral("migrations/version"), 0);
+        settings->setValue<QString>(QStringLiteral("domain"), QString());
+        settings->setValue<QString>(QStringLiteral("username"), QString());
+        settings->setValue<QString>(QStringLiteral("token"), QStringLiteral("secret"));
+        MigrationManager::Result result = MigrationManager::Result::Complete;
+        migrations.run([&](MigrationManager::Result next) { result = next; });
+        QCOMPARE(result, MigrationManager::Result::ManualSignInRequired);
+        QCOMPARE(settings->value<int>(QStringLiteral("migrations/version")), 0);
         QCOMPARE(settings->value<QString>(QStringLiteral("token")),
-                 QStringLiteral("legacy-only"));
-        settings->setValue<QString>(QStringLiteral("token"), QString());
+                 QStringLiteral("secret"));
+
+        // Newer settings must never be downgraded or rewritten.
+        settings->setValue<int>(QStringLiteral("migrations/version"), 999);
+        migrations.run([&](MigrationManager::Result next) { result = next; });
+        QCOMPARE(result, MigrationManager::Result::UnsupportedVersion);
+        QCOMPARE(settings->value<int>(QStringLiteral("migrations/version")), 999);
+        QCOMPARE(settings->value<QString>(QStringLiteral("token")),
+                 QStringLiteral("secret"));
+
+        for (int i = 0; i < keys.size(); ++i)
+            settings->setValue<QString>(keys[i], previous[i]);
+        settings->setValue<int>(QStringLiteral("migrations/version"),
+                                previousVersion);
     }
 
     void additionalAccountLoginNeverAutoRestoresLastUsedToken()
@@ -135,7 +163,7 @@ private slots:
 
         Backend second;
         {
-            LoginDialog addDialog(nullptr, second, false);
+            LoginDialog addDialog(nullptr, second);
             auto* host = addDialog.findChild<QLineEdit*>(
                 QStringLiteral("domain_lineEdit"));
             auto* progress = addDialog.findChild<QLabel*>(
@@ -158,9 +186,9 @@ private slots:
         const QString oldDomain = settings->value<QString>(QStringLiteral("domain"));
         const QString oldUser = settings->value<QString>(QStringLiteral("username"));
         Backend backend;
-        LoginDialog editor(nullptr, backend, false,
+        LoginDialog editor(nullptr, backend,
                            QStringLiteral("https://work.example.org/"),
-                           QStringLiteral("alice@example.org"));
+                           QStringLiteral("alice@example.org"), true);
         auto* domain = editor.findChild<QLineEdit*>(QStringLiteral("domain_lineEdit"));
         auto* user = editor.findChild<QLineEdit*>(QStringLiteral("username_lineEdit"));
         auto* password = editor.findChild<QLineEdit*>(QStringLiteral("password_lineEdit"));
