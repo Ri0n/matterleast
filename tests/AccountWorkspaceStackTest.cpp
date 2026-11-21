@@ -5,7 +5,6 @@
 #include <QVBoxLayout>
 
 #include "ui/AccountWorkspaceStack.h"
-#include "backend/Backend.h"
 
 using namespace Mattermost;
 
@@ -16,8 +15,8 @@ class AccountWorkspaceStackTest final : public QObject
 private slots:
     void switchPreservesIndependentLiveViews()
     {
-        Backend accountOne;
-        Backend accountTwo;
+        const QString accountOne = QStringLiteral("a");
+        const QString accountTwo = QStringLiteral("b");
         AccountWorkspaceStack stack;
 
         auto* first = new QWidget;
@@ -41,7 +40,7 @@ private slots:
         QVERIFY(stack.addWorkspace(accountOne, first));
         QVERIFY(stack.addWorkspace(accountTwo, second));
         QCOMPARE(stack.workspaceCount(), 2);
-        QCOMPARE(stack.activeBackend(), &accountOne);
+        QCOMPARE(stack.activeAccountId(), accountOne);
         QCOMPARE(stack.workspace(accountTwo), second);
         QVERIFY(!stack.addWorkspace(accountOne, new QWidget(&stack)));
         QVERIFY(!stack.addWorkspace(accountTwo, first));
@@ -63,8 +62,8 @@ private slots:
 
     void removalDoesNotDestroyOtherAccount()
     {
-        Backend accountOne;
-        Backend accountTwo;
+        const QString accountOne = QStringLiteral("a");
+        const QString accountTwo = QStringLiteral("b");
         AccountWorkspaceStack stack;
         auto* first = new QWidget;
         auto* second = new QWidget;
@@ -76,7 +75,7 @@ private slots:
         QWidget* removed = stack.takeWorkspace(accountTwo);
         QCOMPARE(removed, second);
         QCOMPARE(removed->parentWidget(), nullptr);
-        QCOMPARE(stack.activeBackend(), &accountOne);
+        QCOMPARE(stack.activeAccountId(), accountOne);
         QCOMPARE(stack.workspaceCount(), 1);
         QVERIFY(!stack.activateWorkspace(accountTwo));
         QVERIFY(secondGuard);
@@ -86,7 +85,7 @@ private slots:
         QCOMPARE(stack.takeWorkspace(accountOne), first);
         delete first;
         QCOMPARE(stack.workspaceCount(), 0);
-        QCOMPARE(stack.activeBackend(), nullptr);
+        QCOMPARE(stack.activeAccountId(), QString());
     }
 };
 

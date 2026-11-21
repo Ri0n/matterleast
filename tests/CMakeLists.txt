@@ -12,9 +12,19 @@ set_tests_properties(application-font-test PROPERTIES
 
 # Closing LoginDialog deletes it (WA_DeleteOnClose). The persistent tray
 # must never access the old QWidget pointer; it can target a new login window.
+add_executable(account-list-model-test
+    AccountListModelTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/workspaces/AccountListModel.cpp")
+target_include_directories(account-list-model-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(account-list-model-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME account-list-model-test COMMAND account-list-model-test)
+
 add_executable(account-overview-page-test
     AccountOverviewPageTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/ui/AccountOverviewPage.cpp")
+    "${CMAKE_SOURCE_DIR}/sources/ui/AccountOverviewPage.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/workspaces/AccountListModel.cpp")
 target_include_directories(account-overview-page-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(account-overview-page-test PRIVATE

@@ -1,17 +1,22 @@
 #include "AccountOverviewPage.h"
 
-#include <QHBoxLayout>
 #include <QFont>
+#include <QHBoxLayout>
+#include <QItemSelectionModel>
 #include <QLabel>
-#include <QListWidget>
+#include <QListView>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 
+#include "workspaces/AccountListModel.h"
+
 namespace Mattermost {
 
-AccountOverviewPage::AccountOverviewPage(QWidget* parent)
+AccountOverviewPage::AccountOverviewPage(AccountListModel& model,
+                                         QWidget* parent)
     : QWidget(parent)
+    , _model(model)
 {
     setObjectName(QStringLiteral("accountOverviewPage"));
     auto* layout = new QVBoxLayout(this);
@@ -35,13 +40,15 @@ AccountOverviewPage::AccountOverviewPage(QWidget* parent)
     _errorLabel->hide();
     layout->addWidget(_errorLabel);
 
-    _accounts = new QListWidget(this);
+    _accounts = new QListView(this);
     _accounts->setObjectName(QStringLiteral("configuredAccountsList"));
+    _accounts->setModel(&_model);
     layout->addWidget(_accounts, 1);
-    connect(_accounts, &QListWidget::itemClicked, this,
-            [this](QListWidgetItem* item) {
-        if (item)
-            emit accountSelected(item->data(Qt::UserRole).toString());
+    connect(_accounts, &QListView::clicked, this,
+            [this](const QModelIndex& index) {
+        const QString id = _model.idAt(index.row());
+        if (!id.isEmpty())
+            emit accountSelected(id);
     });
 
     auto* buttons = new QHBoxLayout;
@@ -66,37 +73,43 @@ AccountOverviewPage::AccountOverviewPage(QWidget* parent)
     });
     connect(add, &QPushButton::clicked, this,
             &AccountOverviewPage::addServerRequested);
+
+    connect(&_model, &AccountListModel::selectedAccountChanged, this,
+            [this](const QString&) { syncSelection(); });
+    connect(&_model, &QAbstractItemModel::rowsInserted, this,
+            [this](const QModelIndex&, int, int) {
+        syncSelection();
+        syncButtons();
+    });
+    connect(&_model, &QAbstractItemModel::rowsRemoved, this,
+            [this](const QModelIndex&, int, int) {
+        syncSelection();
+        syncButtons();
+    });
+    syncSelection();
+    syncButtons();
 }
 
 QString AccountOverviewPage::selectedAccountId() const
 {
-    const auto* item = _accounts->currentItem();
-    return item ? item->data(Qt::UserRole).toString() : QString();
+    return _model.idAt(_accounts->currentIndex().row());
 }
 
-void AccountOverviewPage::setEntries(const QVector<Entry>& entries,
-                                     const QString& selectedId)
+void AccountOverviewPage::syncSelection()
 {
-    const QSignalBlocker blocked(_accounts);
-    _accounts->clear();
-    int selection = -1;
-    for (const Entry& account : entries) {
-        auto* item = new QListWidgetItem(
-            QStringLiteral("%1\n%2 — %3")
-                .arg(account.display, account.server, account.status),
-            _accounts);
-        item->setData(Qt::UserRole, account.id);
-        if (account.id == selectedId)
-            selection = _accounts->count() - 1;
-    }
-    if (selection < 0 && !_accounts->count())
-        selection = -1;
-    else if (selection < 0)
-        selection = 0;
-    if (selection >= 0)
-        _accounts->setCurrentRow(selection);
-    _retry->setEnabled(_accounts->count() > 0);
-    _signIn->setEnabled(_accounts->count() > 0);
+    const int row = _model.rowForId(_model.selectedAccountId());
+    const QModelIndex target = row < 0 ? QModelIndex() : _model.index(row, 0);
+    if (_accounts->currentIndex() == target)
+        return;
+    const QSignalBlocker blocker(_accounts->selectionModel());
+    _accounts->setCurrentIndex(target);
+}
+
+void AccountOverviewPage::syncButtons()
+{
+    const bool hasAccounts = _model.rowCount() > 0;
+    _retry->setEnabled(hasAccounts);
+    _signIn->setEnabled(hasAccounts);
 }
 
 void AccountOverviewPage::setError(const QString& message)

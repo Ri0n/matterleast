@@ -94,6 +94,45 @@ may legitimately have different permissions, tokens and unread state.
   paths; ambiguous matching is not resolved by whichever account happens to be
   active. Presenting an external link does not disrupt the current view.
 
+## UI-independent models and multiple frontend technologies
+
+The business-level account and workspace data model must not depend on
+`QWidget`, `QApplication`, window lifetime, or Qt Quick. Desktop Widgets and
+future mobile QML are alternative presentations of the **same** model.
+
+- `WorkspaceLayout` remains the pure, versioned configuration topology:
+  stable account IDs, connection profiles, view memberships and current view.
+  It never starts a network client and cannot depend on the UI framework.
+- An eventual single `AccountManager` owns durable `Account` QObjects and
+  their optional Backend sessions, statuses and login/reconnect transitions.
+  Do not retain separate public account registration managers or parallel
+  account-status tables in the application. Sessions must be QObject-owned.
+- `AccountListModel` is a **read-only QtCore QAbstractListModel projection**
+  suitable for Qt Widgets and QML. Its stable roles include `accountId`,
+  `displayName`, `server`, `status` and `selected`. It does not duplicate
+  credentials or take ownership of a Backend; account data and connection
+  policy stay authoritative in the manager.
+- `AccountOverviewPage` (Widgets) binds to this model and emits selection,
+  connect and sign-in intents. It must not cache a second list of accounts,
+  decide when to reconnect, mutate account identities, or directly read
+  secrets. A QML view can consume the same model and trigger equivalent
+  manager commands through a frontend-agnostic action API.
+- `AccountWorkspaceStack` is only a **Widgets presentation container**.
+  Its mapping uses immutable local account IDs, not `Backend*`, so a future
+  transport restart or a replacement mobile UI does not redefine identity.
+- Use row-level `dataChanged`, insertion, removal and moves for small
+  state changes. Avoid unconditional `beginResetModel` and re-creating
+  entire widget trees on a connection-status update.
+- `MattermostApplication` owns application lifecycle and wiring only.
+  Connection retries, account lookup, persistence and cross-server routing
+  must migrate out of the Widgets/application orchestration and into
+  UI-independent account services.
+
+Delivery note: #382 introduces the QtCore presentation model and ID-keyed
+Widgets rendering as an intermediate step. #380/#381 still contain
+`AccountRegistry`, `AccountSessionManager` and application-owned status maps;
+**these must be consolidated before treating the model separation as complete**.
+
 ## Per-view UI state (essential invariant)
 
 **Each view has its own central tabs, active tab, Back/Forward stacks and sidebar

@@ -1,6 +1,8 @@
 #include <QtTest>
 
-#include <QListWidget>
+#include <QListView>
+
+#include "workspaces/AccountListModel.h"
 #include <QPushButton>
 
 #include "ui/AccountOverviewPage.h"
@@ -13,21 +15,22 @@ class AccountOverviewPageTest final : public QObject
 private slots:
     void offlineAccountsRemainSelectable()
     {
-        AccountOverviewPage page;
-        const QVector<AccountOverviewPage::Entry> entries {
+        AccountListModel model;
+        AccountOverviewPage page(model);
+        const QVector<AccountListModel::Entry> entries {
             {QStringLiteral("a"), QStringLiteral("Work"),
-             QStringLiteral("work.example.org"), QStringLiteral("Connected")},
+             QStringLiteral("work.example.org"), AccountConnectionState::Connected},
             {QStringLiteral("b"), QStringLiteral("Personal"),
-             QStringLiteral("home.example.org"), QStringLiteral("Sign-in required")}
+             QStringLiteral("home.example.org"), AccountConnectionState::AuthenticationRequired}
         };
-        page.setEntries(entries, QStringLiteral("b"));
-        auto* list = page.findChild<QListWidget*>(
+        model.setEntries(entries, QStringLiteral("b"));
+        auto* list = page.findChild<QListView*>(
             QStringLiteral("configuredAccountsList"));
         QVERIFY(list);
-        QCOMPARE(list->count(), 2);
-        QCOMPARE(list->currentItem()->data(Qt::UserRole).toString(),
-                 QStringLiteral("b"));
-        QVERIFY(list->item(1)->text().contains(QStringLiteral("Sign-in required")));
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.idAt(list->currentIndex().row()), QStringLiteral("b"));
+        QVERIFY(model.data(model.index(1, 0), AccountListModel::StatusRole)
+                    .toString().contains(QStringLiteral("Sign-in required")));
 
         QSignalSpy retry(&page, &AccountOverviewPage::retryRequested);
         QSignalSpy signIn(&page, &AccountOverviewPage::signInRequested);
