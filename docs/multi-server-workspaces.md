@@ -114,6 +114,20 @@ without requiring a second session registry. Keychain loading, token/user
 verification, connection states, retry actions and explicit logout are
 account-domain operations. Model role updates remain incremental.
 
+## Versioned settings migrations
+
+Before account restoration, `sources/migrations/MigrationManager` applies
+versioned, dated compatibility steps based on `migrations/version`. The initial
+`v1` step (implemented **2026-11-22**) handles pre-multi-account
+`domain`/`username`/`token` settings. Legacy authentication and keyring
+fallback no longer belong to `LoginDialog` or `BackendLoginData`.
+
+Migration results never overwrite future-version settings, never erase an
+unmigrated plaintext token after a temporary failure, and only advance the
+stored version after verified adoption and required secure storage. The step
+inventory and removal criteria live in
+`sources/migrations/README.md`.
+
 ## UI-independent models and multiple frontend technologies
 
 The business-level account and workspace data model must not depend on
