@@ -147,7 +147,7 @@ QByteArray NetworkSessionContext::csrfToken() const
     return {};
 }
 
-void NetworkSessionContext::applyDesktopProfile(QNetworkRequest& request) const
+void NetworkSessionContext::applyClientProfile(QNetworkRequest& request)
 {
     if (request.rawHeader("User-Agent").isEmpty())
         request.setRawHeader("User-Agent", desktopUserAgent());
@@ -161,19 +161,23 @@ void NetworkSessionContext::applyDesktopProfile(QNetworkRequest& request) const
             request.setRawHeader("Accept-Language", language.toUtf8());
     }
 
-    if (isMattermostOrigin(request.url())
-        && request.rawHeader("Cookie").isEmpty()) {
-        const QByteArray cookie = cookieHeaderValue();
-        if (!cookie.isEmpty())
-            request.setRawHeader("Cookie", cookie);
-    }
-
     request.setAttribute(QNetworkRequest::Http2AllowedAttribute, true);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
         static_cast<int>(QNetworkRequest::NoLessSafeRedirectPolicy));
     QSslConfiguration ssl = request.sslConfiguration();
     ssl.setProtocol(QSsl::TlsV1_2OrLater);
     request.setSslConfiguration(ssl);
+}
+
+void NetworkSessionContext::applyDesktopProfile(QNetworkRequest& request) const
+{
+    applyClientProfile(request);
+    if (isMattermostOrigin(request.url())
+        && request.rawHeader("Cookie").isEmpty()) {
+        const QByteArray cookie = cookieHeaderValue();
+        if (!cookie.isEmpty())
+            request.setRawHeader("Cookie", cookie);
+    }
 }
 
 void NetworkSessionContext::applyDesktopMutationProfile(QNetworkRequest& request) const

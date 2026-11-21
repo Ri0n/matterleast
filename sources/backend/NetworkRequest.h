@@ -24,8 +24,6 @@
 
 #pragma once
 
-#include <QList>
-#include <QNetworkCookie>
 #include <QNetworkRequest>
 #include <QString>
 
@@ -35,9 +33,6 @@ class NetworkSessionContext;
 
 class NetworkRequest: public QNetworkRequest {
 public:
-	NetworkRequest ();
-	NetworkRequest (const QString& url, bool useCache = false);
-	NetworkRequest (const QString& urlRoot, const QString& url, bool useCache = false);
     // Explicit HTTP identity for an independently authenticated session.
     NetworkRequest(const NetworkSessionContext& context, const QString& url,
                    bool useCache = false);
@@ -49,21 +44,6 @@ public:
 	//urls used
 	static const QString mattermostMain;
 	static const QString matterpoll;
-public:
-	static void setHost (const QString& host);
-	static void clearToken ();
-	static void setToken (const QString& token);
-	static const QString& getToken ();
-	static const QString& host ();
-
-    // Apply the HTTP/TLS profile used by the supported Mattermost Desktop
-    // reference client. Existing endpoint-specific headers are preserved.
-    static void applyDesktopProfile(QNetworkRequest& request);
-    static void applyDesktopMutationProfile(QNetworkRequest& request);
-
-    // Keep session cookies synchronized with Set-Cookie responses so the
-    // explicit Cookie/X-CSRF-Token pair follows browser client semantics.
-    static void updateSessionCookies(const QList<QNetworkCookie>& cookies);
 };
 
 } /* namespace Mattermost */

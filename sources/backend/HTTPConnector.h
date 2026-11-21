@@ -49,8 +49,8 @@ class LocalPostDeleteTracker;
 class HTTPConnector: public QObject {
 	Q_OBJECT
 public:
-    // Default constructor preserves the existing legacy single-server path.
-    // An explicit context must outlive this connector and all its requests.
+    // Null context is an anonymous, credential-free HTTP transport without
+    // shared disk caching. An explicit context must outlive every request.
     explicit HTTPConnector(NetworkSessionContext* session = nullptr,
                            LocalPostDeleteTracker* postDeleteTracker = nullptr);
 	virtual ~HTTPConnector ();
