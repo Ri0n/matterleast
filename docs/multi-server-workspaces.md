@@ -1,16 +1,19 @@
 # Multi-server workspaces
 
-Status: architecture decision and staged implementation. The initial implementation in this
-branch provides the pure workspace layout/transition model; runtime multi-session ownership
-and the sidebar are subsequent stages. Do not interpret the presence of this model as
-multiple live Backends being supported yet.
+Status: architectural direction and staged implementation. The pure layout model and
+account-scoped Backend foundation are implemented. Live account switching and per-account
+badge/menu work remain in the stacked PRs #373–#375. Persistent account profiles,
+authentication recovery and useful offline workspaces are **future stages**, not current
+behavior. The immediate live-switching UI is a stepping stone, not the final Servers tree.
 
 ## Goals and terminology
 
-A **server account** is one authenticated session (Mattermost origin and account identity);
-it has an immutable local ID. An endpoint URL is not an identity: two URLs can reach the
-same Mattermost database. Keep credential material out of workspace configuration and in
-the existing secure token store, keyed by the account identity at migration time.
+A **server account** is a durable local record with an immutable ID, server origin/base
+path, server-assigned user identity (once known), display metadata and configuration. It
+exists and is selectable even without an authenticated or constructed Backend. An endpoint
+URL is not sufficient identity: two URLs can reach the same Mattermost database. Keep
+credential material out of workspace configuration and in the existing secure token store,
+scoped to the correct account identity at migration time.
 
 A **connection profile** is an exclusive activation choice. Selecting a profile disconnects
 accounts belonging only to the previously active profile and connects those belonging
@@ -131,20 +134,21 @@ can remain process-local initially, but it may never be silently shared.
 
 ## Runtime ownership and lifecycle
 
-Currently `MattermostApplication` owns one `Backend` and one `MainWindow`; the
-backend owns Storage/HTTP/WebSocket and account-specific services. Introduce an
-account/session manager owning one Backend context per connected server account.
-Avoid swapping a single global Backend object between URLs: late callbacks,
-cache keys, requests, reaction/emoji registries and notification routing could
-otherwise attach to the wrong server.
+The account/session manager now owns distinct QObject-parented Backends (one per
+connection/login attempt), and the staged live-switching UI uses separate account
+workspaces. The durable account registry is **not yet implemented**. Do not equate
+registering a successfully authenticated Backend with creating the permanent account.
+Never swap one global Backend between URLs: late callbacks, cache keys, requests,
+reaction/emoji registries and notifications must remain scoped to their originating account.
 
-Keep a single MainWindow hosting a projection of all active view accounts.
-Transport and cache services continue to operate on account-scoped data even
-when their view is hidden. Any global singleton/service keyed by `Backend&`
-must be audited for lifetime and address reuse. Async completions must be
-fenced by account/session generation, not by current visible account.
-Connection deactivation must cancel pending work before destroying UI that
-references it, preserving the existing logout ordering.
+The current staged implementation uses one MainWindow per account under a persistent
+AccountWorkspaceStack; the eventual multiple-account view projection must preserve the
+per-view semantics above, without duplicate network clients or duplicate post caches.
+Transport and cache services operate on account-scoped data even when the view is hidden.
+Any singleton keyed by `Backend&` must be audited for lifetime/address reuse. Async
+completions must be fenced by stable account ID and session generation, never by whichever
+account happens to be visible. Explicit account removal/log-out must cancel pending work
+before destroying UI referencing the session, preserving the logout ordering.
 
 Server-origin event handling updates an owning account's state. Derive the UI
 projection from that state without resetting complete models when rows/roles
@@ -157,6 +161,80 @@ Authentication secrets never enter JSON workspace layouts, debug logs or UI
 session snapshots. Existing keyring entries must remain usable; avoid destructive
 migration of the legacy single-account options before a new layout has been
 validated and durably saved.
+
+## Durable accounts, offline workspaces and authentication recovery (next stage)
+
+The design follows the distinction between a persistent Psi account and its optional
+`XMPP::Client`: a saved MatterLeast account exists independently of its optional
+`Backend` network session. **The user selects an account or view, not a socket.**
+
+- **AccountRecord / registry**: small persistent, versioned metadata keyed by a stable
+  local account ID. Origin/base path, user ID, display name, desired connection policy,
+  and per-account settings survive restarts. An unconfigured login candidate must not
+  appear as a fully established account. Profile/view memberships reference these IDs.
+- **Account connection state**: an independently observable state per account, distinct
+  from visibility: `Disconnected`, `Connecting`, `Connected`, `Reconnecting`,
+  `AuthenticationRequired`, and `ConnectionError` (names may evolve). A transient
+  timeout, WebSocket disconnect, HTTP 5xx, or permission-specific 401 must not
+  automatically mean invalid credentials. Only a confirmed account-authentication
+  rejection triggers `AuthenticationRequired`.
+- **Backend**: created when attempting a connection and destroyed when appropriate,
+  with QObject parentage and account-scoped transport services. Never store secrets
+  or session identity in a process-global current-account setting. Do not destroy a
+  permanent account or its presentation merely because its Backend reset/logged out.
+  Keep distinct **disconnect/retry**, **reauthenticate**, **explicit log out**, and
+  **remove account** operations.
+- **Cache / offline projection**: show the saved account and available disk-backed
+  channels/contacts, post history, drafts, tabs and navigation even without network
+  connectivity. Do not invent complete data from incomplete cache snapshots or mark
+  cached posts read just because a view is opened offline. Clearly distinguish
+  unavailable server actions. Existing `Storage` currently belongs to `Backend` and
+  `Backend::reset()` clears it: introduce a durable cache-facing data boundary
+  incrementally, without duplicating resident models or holding invalid Storage pointers.
+- **Login experience**: opening MatterLeast with registered accounts displays the
+  normal workspace/Servers UI immediately, even if every connection fails. Restore
+  saved sessions independently and asynchronously; never show a modal LoginDialog
+  merely because one of several accounts needs attention. On first launch with no
+  configured accounts, offer Add account/login.
+- **Credential recovery**: a compact, accessible, non-modal sidebar-footer banner
+  identifies the affected server and user and opens a small account-specific
+  password/token editor. The saved origin/user are prefilled and should not be
+  silently replaced. A successful login returns to the same account/workspace and
+  preserves tabs, navigation and drafts. The credential editor must not own network
+  retries, keyring operations or Backend lifetime.
+- **Sidebar notices**: share a presentation container with the existing update banner,
+  not a proliferation of standalone fixed widgets. Multiple simultaneous account
+  failures must remain discoverable in the Servers list; the footer can show a concise
+  current/aggregate prompt without stealing focus or changing the selected view.
+- **Credential safety and migration**: the current `BackendLoginData::loadFromOptions()`
+  reads a process-global `domain` and `username`. Treat this as a **one-time legacy
+  import**, never as a restore source for every account. Continue using the secure
+  `SessionTokenStore`, with account-scoped keyring lookup and asynchronous read/write;
+  do not copy tokens into JSON/layout/cache or expose them in logs. Persist the
+  validated new registry before retiring the legacy settings.
+
+Ownership boundaries:
+
+```text
+AccountRegistry (durable account IDs, settings and profiles/views)
+  ├── Account A ── AccountData/Cache ── Workspace/View state
+  │     └── Backend* (optional, QObject-owned by session manager)
+  └── Account B ── AccountData/Cache ── Workspace/View state
+        └── Backend* (optional, QObject-owned by session manager)
+AccountSessionManager (runtime connection/session facade)
+```
+
+The registry should remain simple: move network retries into session-specific
+controllers and keep cache/storage work behind its own interface. Do not make the
+account manager depend on every per-account stateful service. Avoid full model
+resets/recreations when only state roles or a few affected rows change.
+
+Initial acceptance criteria: two stored accounts survive restart; one can fail
+401 without a modal dialog or affecting the other's traffic; offline data remains
+navigable; successful reauthentication restores the same account identity, tabs
+and drafts; explicit logout does not immediately auto-restore a rejected token;
+legacy single-account credentials migrate once with no plaintext token; rapid
+connect/disconnect and delayed callbacks cannot mutate another account.
 
 ## State, configuration and transitions
 
@@ -197,7 +275,21 @@ valid active profile.
 5. **Aggregated sidebar**: account-scoped tree and recency-merged DM/GM plus
    Unread/Attention projections, preserving incremental model updates.
 6. **Cross-view routes**: notifications, account-aware search, permalinks,
-   restored navigation, tray aggregation, offline and reconnect handling.
+   restored navigation and tray aggregation. Current #373–#375 work is a partial
+   implementation using one account per view.
+7. **Durable account registry and migration**: stable account IDs, versioned
+   metadata, one-time import from legacy options, independent restoration policy;
+   unit tests for corrupt settings, duplicate identity and cold startup.
+8. **Account-local connection state**: separate connection from account existence;
+   independent asynchronous session restoration, retry/backoff, confirmed 401
+   transitions, safe reconnect and backend destruction. Preserve healthy accounts.
+9. **Non-modal credential recovery**: refactor LoginDialog into an account-scoped
+   password/token editor; reuse a sidebar-footer notice surface; no startup login
+   dialog while at least one account is configured.
+10. **Offline account data and presentation**: cache-backed channels/contacts and
+    posts with truthful freshness/coverage, resilient views, drafts and histories.
+    Split the current Backend-owned Storage boundary incrementally; no premature
+    second copy of the full in-memory model.
 
 Regression matrix: one server, two views sharing one account, three concurrent
 servers with two disjoint views, overlapping memberships, profile switches with
