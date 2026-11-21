@@ -20,7 +20,6 @@
 #pragma once
 
 #include <QDialog>
-#include <QTimer>
 
 class QCheckBox;
 #include "backend/types/BackendLoginData.h"
@@ -36,12 +35,12 @@ class Backend;
 class LoginDialog: public QDialog {
 	Q_OBJECT
 public:
-    // Additional accounts require explicit login; never auto-restore the
-    // last-used account into a second Backend.
+    // This dialog is a credential editor only. No legacy settings, keyring
+    // restore or migration code belongs in Widgets.
     LoginDialog(QWidget* parent, Backend& backend,
-                bool allowSavedSessionRestore = true,
-                const QString& fixedServer = {},
-                const QString& fixedLogin = {});
+                const QString& server = {},
+                const QString& login = {},
+                bool lockIdentity = false);
     QString authenticatedLoginName() const { return _authenticatedLoginName; }
 	~LoginDialog ();
 private slots:
@@ -53,16 +52,11 @@ private slots:
 private:
 	void setError (const QString& errorStr);
 	void loginToServer (const BackendLoginData& loginData);
-    void cancelAutomaticLogin();
 
 	Backend&			backend;
 	Ui::LoginDialog*	ui;
-    QTimer _autoLoginRetryTimer;
     QCheckBox* _tokenMode = nullptr;
     QString _authenticatedLoginName;
-    bool _saveLegacyOptions = false;
-    BackendLoginData _savedLoginData;
-    bool _autoLoginEnabled = false;
     bool _attemptInProgress = false;
     quint64 _loginAttemptGeneration = 0;
 };
