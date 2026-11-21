@@ -453,6 +453,18 @@ target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME workspace-layout-test COMMAND workspace-layout-test)
 
+# Durable accounts are independent of Backend and do not carry credentials.
+add_executable(account-registry-test
+    AccountRegistryTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/workspaces/AccountRegistry.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/workspaces/WorkspaceLayout.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/AccountIdentity.cpp")
+target_include_directories(account-registry-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(account-registry-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME account-registry-test COMMAND account-registry-test)
+
 add_executable(navigation-tabs-model-test NavigationTabsModelTest.cpp)
 target_include_directories(navigation-tabs-model-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(navigation-tabs-model-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
