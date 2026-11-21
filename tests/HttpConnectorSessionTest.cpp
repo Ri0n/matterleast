@@ -276,6 +276,52 @@ private slots:
         QCOMPARE(secondCompletions, 0);
     }
 
+    void reconnectOfOneAccountDoesNotRestartOtherAccount()
+    {
+        CookieServer server;
+        server.holdResponses = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        const QString host = QStringLiteral("http://127.0.0.1:%1/")
+            .arg(server.serverPort());
+
+        NetworkSessionContext reconnecting;
+        NetworkSessionContext unaffected;
+        reconnecting.setHost(host);
+        unaffected.setHost(host);
+        reconnecting.setToken(QStringLiteral("first-token"));
+        unaffected.setToken(QStringLiteral("second-token"));
+        HTTPConnector first(&reconnecting);
+        HTTPConnector second(&unaffected);
+
+        int firstCompleted = 0;
+        int secondCompleted = 0;
+        NetworkRequest firstRequest(reconnecting, QStringLiteral("probe/restart-one"));
+        NetworkRequest secondRequest(unaffected, QStringLiteral("probe/keep-two"));
+        first.get(firstRequest, HttpResponseCallback(
+            [&](QByteArray) { ++firstCompleted; }));
+        second.get(secondRequest, HttpResponseCallback(
+            [&](QByteArray) { ++secondCompleted; }));
+        QTRY_COMPARE(server.received.size(), 2);
+
+        HTTPConnector::restartSessionTransports(&reconnecting);
+        server.holdResponses = false;
+        server.releaseHeldResponses();
+        QTRY_COMPARE(firstCompleted, 1);
+        QTRY_COMPARE(secondCompleted, 1);
+
+        int peerRequests = 0;
+        for (const CookieServer::Received& request : server.received) {
+            if (request.path == QByteArrayLiteral("/api/v4/probe/keep-two")) {
+                ++peerRequests;
+                QVERIFY(request.cookie.contains("MMAUTHTOKEN=second-token"));
+                QVERIFY(!request.cookie.contains("first-token"));
+            }
+        }
+        // A global restart would replay the unrelated account's GET and
+        // produce a second request to /probe/keep-two.
+        QCOMPARE(peerRequests, 1);
+    }
+
     void redirectedOriginCannotModifyContextCookies()
     {
         NetworkSessionContext context;
