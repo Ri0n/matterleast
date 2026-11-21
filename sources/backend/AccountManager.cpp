@@ -16,6 +16,7 @@ namespace Mattermost {
 
 AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
+    , _treeModel(_layout, _listModel, this)
 {
 }
 
@@ -43,6 +44,7 @@ bool AccountManager::load(const QByteArray& json, QString* error)
         }
     }
     rebuildModel();
+    _treeModel.refreshTopology();
     if (error)
         error->clear();
     return true;
@@ -114,6 +116,7 @@ bool AccountManager::selectAccount(const QString& id)
 {
     if (!account(id) || !_layout.selectAccount(id))
         return false;
+    _treeModel.syncActiveView();
     if (_selectedId == id)
         return true;
     _selectedId = id;
@@ -226,6 +229,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     if (firstAccount)
         _selectedId = id;
     rebuildModel();
+    _treeModel.refreshTopology();
     persist();
     if (persistToken) {
         // Only after the verified remote identity has been adopted may a
