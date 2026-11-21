@@ -12,7 +12,7 @@ class QEvent;
 namespace Mattermost {
 
 class Backend;
-class AccountSessionManager;
+class AccountManager;
 
 /** Reports actual system/user input to the Mattermost WebSocket presence API.
  *
@@ -25,7 +25,7 @@ class UserActivityMonitor final : public QObject
 {
     Q_OBJECT
 public:
-    explicit UserActivityMonitor(AccountSessionManager& accounts,
+    explicit UserActivityMonitor(AccountManager& accounts,
                                  QObject* parent = nullptr);
     ~UserActivityMonitor() override;
 
@@ -36,7 +36,7 @@ private:
     void sample();
     qint64 systemIdleTimeMs() const;
 
-    AccountSessionManager& _accounts;
+    AccountManager& _accounts;
     QHash<Backend*, PresenceActivityPolicy> _accountPolicies;
     QTimer _sampleTimer;
     QElapsedTimer _clock;

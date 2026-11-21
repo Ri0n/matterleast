@@ -23,49 +23,37 @@
 #include "ui_LoginDialog.h"
 
 #include "backend/Backend.h"
-#include "backend/SessionTokenStore.h"
-#include "options/MLOptions.h"
 #include "log.h"
 #include <QPointer>
-#include <QTimer>
 #include "ui/IconUtils.h"
 
 namespace Mattermost {
 
 LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
-                         bool allowSavedSessionRestore,
-                         const QString& fixedServer,
-                         const QString& fixedLogin)
-:QDialog(parent)
-,backend (backend)
-,ui(new Ui::LoginDialog)
+                         const QString& server,
+                         const QString& login,
+                         bool lockIdentity)
+    : QDialog(parent)
+    , backend(backend)
+    , ui(new Ui::LoginDialog)
 {
     setAttribute(Qt::WA_DeleteOnClose);
-    _saveLegacyOptions = allowSavedSessionRestore;
-    BackendLoginData loginData;
-    if (allowSavedSessionRestore)
-        loginData.loadFromOptions();
-    else {
-        loginData.domain = fixedServer;
-        loginData.username = fixedLogin;
-    }
+    ui->setupUi(this);
 
-	ui->setupUi(this);
+    connect(&backend, &Backend::onNetworkError,
+            this, &LoginDialog::onNetworkError);
+    connect(&backend, &Backend::onHttpError,
+            this, &LoginDialog::onHttpError);
 
-	connect (&backend, &Backend::onNetworkError, this, &LoginDialog::onNetworkError);
-	connect (&backend, &Backend::onHttpError, this, &LoginDialog::onHttpError);
-
-	if (loginData.domain.isEmpty()) {
-		loginData.domain = "https://";
-	}
-
-	ui->domain_lineEdit->setText (loginData.domain);
-	ui->username_lineEdit->setText (loginData.username);
-    if (!fixedServer.isEmpty() && !fixedLogin.isEmpty()) {
+    ui->domain_lineEdit->setText(server.isEmpty()
+        ? QStringLiteral("https://") : server);
+    ui->username_lineEdit->setText(login);
+    if (lockIdentity) {
         ui->domain_lineEdit->setReadOnly(true);
         ui->username_lineEdit->setReadOnly(true);
         ui->titleLabel->setText(tr("Sign in to this account"));
     }
+
     _tokenMode = new QCheckBox(tr("Use personal access token"), this);
     _tokenMode->setObjectName(QStringLiteral("personalAccessTokenCheck"));
     ui->verticalLayout->insertWidget(3, _tokenMode);
@@ -76,64 +64,8 @@ LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
         ui->password_lineEdit->clear();
     });
 
-	ui->icon->setPixmap (IconUtils::applicationIcon().pixmap (QSize (64, 64)));
-	ui->loginInProgressLabel->hide();
-
-    _autoLoginRetryTimer.setSingleShot(true);
-    connect(&_autoLoginRetryTimer, &QTimer::timeout, this, [this] {
-        if (_autoLoginEnabled && !_attemptInProgress) {
-            loginToServer(_savedLoginData);
-        }
-    });
-
-    // Keyring access can unlock the desktop wallet. Never block the UI or
-    // attempt password login while an asynchronous read is pending.
-    if (allowSavedSessionRestore && backend.autoLoginEnabled()
-        && !loginData.domain.isEmpty()
-        && !loginData.username.isEmpty()) {
-        _autoLoginEnabled = true;
-        // Keep cancellation available even while the keyring is being read.
-        ui->domain_lineEdit->setEnabled(false);
-        ui->username_lineEdit->setEnabled(false);
-        ui->password_lineEdit->setEnabled(false);
-        ui->login_pushButton->setText(tr("&Cancel"));
-        ui->loginInProgressLabel->setText(tr("Restoring saved session…"));
-        ui->loginInProgressLabel->show();
-        QPointer<LoginDialog> guard(this);
-        SessionTokenStore::read(
-            this, loginData.domain, loginData.username,
-            [this, guard, loginData](SessionTokenStore::ReadStatus status,
-                                     const QString& secureToken) mutable {
-                if (!guard || !_autoLoginEnabled || _attemptInProgress) return;
-                if (status == SessionTokenStore::ReadStatus::Found) {
-                    loginData.token = secureToken;
-                    // A previous plaintext entry is obsolete once the same
-                    // account has a successfully retrieved keyring secret.
-                    MLOptions::instance()->setValue<QString>(
-                        QStringLiteral("token"), QString());
-                } else if (status == SessionTokenStore::ReadStatus::NotFound
-                           && !loginData.token.isEmpty()) {
-                    // One-time migration: authenticate with the old token.
-                    // Its settings copy is cleared only when saving to the
-                    // keyring succeeds after authentication.
-                } else {
-                    // Keyring unavailable is not "entry not found".
-                    // Preserve legacy settings on temporary keyring errors.
-                    _autoLoginEnabled = false;
-                    setError(QString());
-                    ui->loginInProgressLabel->hide();
-                    return;
-                }
-                if (!loginData.areAllFieldsFilled()) {
-                    _autoLoginEnabled = false;
-                    setError(QString());
-                    ui->loginInProgressLabel->hide();
-                    return;
-                }
-                _savedLoginData = loginData;
-                loginToServer(loginData);
-            });
-    }
+    ui->icon->setPixmap(IconUtils::applicationIcon().pixmap(QSize(64, 64)));
+    ui->loginInProgressLabel->hide();
 }
 
 LoginDialog::~LoginDialog()
@@ -143,130 +75,62 @@ LoginDialog::~LoginDialog()
 
 void LoginDialog::on_login_pushButton_clicked()
 {
-    if (_autoLoginEnabled) {
-        cancelAutomaticLogin();
+    if (_attemptInProgress)
         return;
-    }
-    _autoLoginRetryTimer.stop();
-    if (_attemptInProgress) return;
-	BackendLoginData loginData;
-
-	loginData.domain = ui->domain_lineEdit->text();
-	loginData.username = ui->username_lineEdit->text();
+    BackendLoginData credentials;
+    credentials.domain = ui->domain_lineEdit->text();
+    credentials.username = ui->username_lineEdit->text();
     if (_tokenMode->isChecked())
-        loginData.token = ui->password_lineEdit->text();
+        credentials.token = ui->password_lineEdit->text();
     else
-        loginData.password = ui->password_lineEdit->text();
-
-    // Only the legacy first-login import may write process-global defaults.
-    if (_saveLegacyOptions)
-        loginData.saveToOptions();
-    // Explicitly switching credentials invalidates a legacy settings token.
-    // Otherwise a crash before the new keyring write could bind the old
-    // plaintext session to the newly selected server/username.
-    MLOptions::instance()->setValue<QString>(QStringLiteral("token"), QString());
-    loginToServer(loginData);
+        credentials.password = ui->password_lineEdit->text();
+    loginToServer(credentials);
 }
 
-void LoginDialog::cancelAutomaticLogin()
+void LoginDialog::loginToServer(const BackendLoginData& credentials)
 {
-    _autoLoginEnabled = false;
-    _autoLoginRetryTimer.stop();
-    ++_loginAttemptGeneration;
-    // Also clear the old transport/token between scheduled retries or while
-    // the keyring read is pending, not only during an active HTTP request.
-    backend.cancelPendingLogin();
-    _attemptInProgress = false;
-    setError(QString());
-    ui->loginInProgressLabel->hide();
-    ui->domain_lineEdit->setFocus();
-    ui->domain_lineEdit->selectAll();
-}
-
-void LoginDialog::loginToServer (const BackendLoginData& loginData)
-{
-    if (_attemptInProgress) return;
+    if (_attemptInProgress)
+        return;
     _attemptInProgress = true;
-    const quint64 attemptGeneration = ++_loginAttemptGeneration;
+    const quint64 generation = ++_loginAttemptGeneration;
     ui->domain_lineEdit->setEnabled(false);
     ui->username_lineEdit->setEnabled(false);
     ui->password_lineEdit->setEnabled(false);
-    // During automatic restoration this button is Cancel, not Login.
-    ui->login_pushButton->setEnabled(_autoLoginEnabled);
+    ui->login_pushButton->setEnabled(false);
     ui->error_label->clear();
     ui->loginInProgressLabel->show();
 
-    LOG_DEBUG ("LoginDialog login");
     QPointer<LoginDialog> guard(this);
-    backend.login(loginData, [this, guard, loginData, attemptGeneration](const QString& token) mutable {
-        if (!guard || attemptGeneration != _loginAttemptGeneration) return;
+    backend.login(credentials,
+                  [this, guard, credentials, generation](const QString& token) {
+        if (!guard || generation != _loginAttemptGeneration)
+            return;
         _attemptInProgress = false;
         if (!token.isEmpty()) {
-            _authenticatedLoginName = loginData.username;
-            _autoLoginRetryTimer.stop();
-            _autoLoginEnabled = false;
-            // The backend outlives this login dialog. Save asynchronously
-            // there, so closing the dialog cannot cancel the keyring job.
-            // Never write a new token into plaintext application settings.
-            SessionTokenStore::write(
-                &backend, loginData.domain, loginData.username, token,
-                [](bool success) {
-                    if (success) {
-                        MLOptions::instance()->setValue<QString>(
-                            QStringLiteral("token"), QString());
-                    }
-                });
+            _authenticatedLoginName = credentials.username;
+            // Authentication / keyring persistence belongs to AccountManager.
+            // Versioned legacy fallback belongs to migrations/.
             accept();
-            return;
+        } else {
+            setError(tr("Login failed. Check your credentials or network connection."));
+            ui->loginInProgressLabel->hide();
         }
-
-        if (_autoLoginEnabled && backend.lastLoginFailureTransient()) {
-            // Auto-login is an offline-capable startup path: stay in the
-            // login dialog until /users/me returned a valid user identity.
-            // Never create a partially initialized MainWindow.
-            ui->loginInProgressLabel->setText(
-                tr("Server unavailable. Retrying…"));
-            _autoLoginRetryTimer.start(3000);
-            return;
-        }
-
-        _autoLoginEnabled = false;
-        _autoLoginRetryTimer.stop();
-        setError(loginData.token.isEmpty()
-            ? tr("Login failed. Check your credentials or network connection.")
-            : tr("Saved session rejected. Please sign in again."));
-        ui->loginInProgressLabel->hide();
     });
 }
 
-void LoginDialog::onNetworkError (uint32_t errorNumber, const QString& errorText)
+void LoginDialog::onNetworkError(uint32_t errorNumber,
+                                 const QString& errorText)
 {
-    qCritical() << "Net error: " << errorNumber << ": " << errorText;
-    if (_autoLoginEnabled) {
-        // Keep the manual form disabled until the saved-session attempt
-        // finishes; its callback owns the retry timer and error state.
-        ui->error_label->setText(tr("Network error: %1").arg(errorText));
-        return;
-    }
-    setError("Network Error: " + errorText);
+    qWarning() << "Net error:" << errorNumber << errorText;
+    setError(tr("Network error: %1").arg(errorText));
     ui->loginInProgressLabel->hide();
 }
 
-void LoginDialog::onHttpError (uint32_t errorNumber, const QString& errorText)
+void LoginDialog::onHttpError(uint32_t errorNumber,
+                              const QString& errorText)
 {
-    if (_autoLoginEnabled) {
-        // A server-side 5xx is still part of the cancellable saved-session
-        // recovery. Do not unlock the form or hide the Cancel button here.
-        ui->error_label->setText(
-            tr("HTTP error %1: %2").arg(errorNumber).arg(errorText));
-        return;
-    }
-	if (errorText.isEmpty() && !ui->error_label->text().isEmpty()) {
-		return;
-	} else {
-		setError ("HTTP Error " + QString::number(errorNumber) + ": "  + errorText);
-	}
-	ui->loginInProgressLabel->hide();
+    setError(tr("HTTP error %1: %2").arg(errorNumber).arg(errorText));
+    ui->loginInProgressLabel->hide();
 }
 
 void LoginDialog::setError (const QString& errorStr)

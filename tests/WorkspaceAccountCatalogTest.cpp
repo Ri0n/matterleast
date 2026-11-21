@@ -3,59 +3,59 @@
 #include <QJsonObject>
 #include <QJsonArray>
 
-#include "workspaces/AccountRegistry.h"
+#include "workspaces/WorkspaceLayout.h"
 
 using namespace Mattermost;
 
-class AccountRegistryTest final : public QObject
+class WorkspaceAccountCatalogTest final : public QObject
 {
     Q_OBJECT
 private slots:
     void storesTwoAccountsWithStableIds()
     {
-        AccountRegistry registry;
-        const QString a = registry.registerAuthenticated(
+        WorkspaceLayout registry;
+        const QString a = registry.upsertAuthenticatedAccount(
             QStringLiteral("https://chat-one.example.org/mm/"),
             QStringLiteral("user1"), QStringLiteral("alice"),
             QStringLiteral("chat-one — alice"));
-        const QString b = registry.registerAuthenticated(
+        const QString b = registry.upsertAuthenticatedAccount(
             QStringLiteral("https://chat-two.example.org/"),
             QStringLiteral("user2"), QStringLiteral("bob@example.org"),
             QStringLiteral("chat-two — bob"));
         QVERIFY(!a.isEmpty());
         QVERIFY(!b.isEmpty());
         QVERIFY(a != b);
-        QCOMPARE(registry.layout().accounts.size(), 2);
-        QCOMPARE(registry.layout().profiles.size(), 1);
-        QCOMPARE(registry.layout().views.size(), 2);
+        QCOMPARE(registry.accounts.size(), 2);
+        QCOMPARE(registry.profiles.size(), 1);
+        QCOMPARE(registry.views.size(), 2);
         const QByteArray saved = registry.toJson();
         QVERIFY(!saved.isEmpty());
         QVERIFY(!saved.contains("password"));
         QVERIFY(!saved.contains("token"));
 
-        AccountRegistry loaded;
-        QVERIFY(loaded.load(saved));
-        QCOMPARE(loaded.account(a)->loginName, QStringLiteral("alice"));
-        QCOMPARE(loaded.account(b)->serverUserId, QStringLiteral("user2"));
-        QCOMPARE(loaded.layout().activeViewId, registry.layout().activeViewId);
+        const auto loaded = WorkspaceLayout::fromJson(saved);
+        QVERIFY(loaded.has_value());
+        QCOMPARE(loaded->account(a)->loginName, QStringLiteral("alice"));
+        QCOMPARE(loaded->account(b)->serverUserId, QStringLiteral("user2"));
+        QCOMPARE(loaded->activeViewId, registry.activeViewId);
     }
 
     void reauthenticationDoesNotDuplicateAccountOrDiscardViews()
     {
-        AccountRegistry registry;
-        const QString accountId = registry.registerAuthenticated(
+        WorkspaceLayout registry;
+        const QString accountId = registry.upsertAuthenticatedAccount(
             QStringLiteral("https://chat.example.org/mm/"),
             QStringLiteral("user1"), QStringLiteral("alice"),
             QStringLiteral("Office"));
-        const QString originalView = registry.layout().activeViewId;
-        const QString again = registry.registerAuthenticated(
+        const QString originalView = registry.activeViewId;
+        const QString again = registry.upsertAuthenticatedAccount(
             QStringLiteral("https://CHAT.example.org:443/mm"),
             QStringLiteral("user1"), QStringLiteral("alice@example.org"),
             QStringLiteral("New display label"));
         QCOMPARE(again, accountId);
-        QCOMPARE(registry.layout().accounts.size(), 1);
-        QCOMPARE(registry.layout().views.size(), 1);
-        QCOMPARE(registry.layout().activeViewId, originalView);
+        QCOMPARE(registry.accounts.size(), 1);
+        QCOMPARE(registry.views.size(), 1);
+        QCOMPARE(registry.activeViewId, originalView);
         QCOMPARE(registry.account(accountId)->name, QStringLiteral("Office"));
         QCOMPARE(registry.account(accountId)->loginName,
                  QStringLiteral("alice@example.org"));
@@ -63,13 +63,14 @@ private slots:
 
     void preservesLastGoodLayoutOnInvalidImport()
     {
-        AccountRegistry registry;
-        const QString id = registry.registerAuthenticated(
+        WorkspaceLayout registry;
+        const QString id = registry.upsertAuthenticatedAccount(
             QStringLiteral("https://chat.example.org/"),
             QStringLiteral("user1"), QStringLiteral("alice"), QStringLiteral("Home"));
         const QByteArray original = registry.toJson();
         QString error;
-        QVERIFY(!registry.load(QByteArrayLiteral("{\"version\":999}"), &error));
+        QVERIFY(!WorkspaceLayout::fromJson(
+            QByteArrayLiteral("{\"version\":999}"), &error));
         QVERIFY(!error.isEmpty());
         QCOMPARE(registry.toJson(), original);
         QVERIFY(registry.account(id));
@@ -77,8 +78,8 @@ private slots:
 
     void resolvesLegacyAccountWithoutChangingItsNavigationIdentity()
     {
-        AccountRegistry registry;
-        const QString id = registry.registerAuthenticated(
+        WorkspaceLayout registry;
+        const QString id = registry.upsertAuthenticatedAccount(
             QStringLiteral("https://old.example.org/"),
             QStringLiteral("olduser"), QStringLiteral("alice"),
             QStringLiteral("Office"));
@@ -91,32 +92,34 @@ private slots:
         record.insert(QStringLiteral("loginName"), QString());
         records.replace(0, record);
         object.insert(QStringLiteral("accounts"), records);
-        QVERIFY(registry.load(QJsonDocument(object).toJson()));
+        const auto loaded = WorkspaceLayout::fromJson(QJsonDocument(object).toJson());
+        QVERIFY(loaded.has_value());
+        registry = *loaded;
         QVERIFY(!registry.account(id)->hasConnectionIdentity());
-        const QString viewId = registry.layout().activeViewId;
-        QVERIFY(registry.resolveUnconfigured(
+        const QString viewId = registry.activeViewId;
+        QVERIFY(registry.resolveUnconfiguredAccount(
             id, QStringLiteral("https://new.example.org/mm/"),
             QStringLiteral("person"), QStringLiteral("alice@example.org")));
         QVERIFY(registry.account(id)->hasConnectionIdentity());
-        QCOMPARE(registry.layout().activeViewId, viewId);
+        QCOMPARE(registry.activeViewId, viewId);
         QCOMPARE(registry.account(id)->name, QStringLiteral("Office"));
         QCOMPARE(registry.account(id)->loginName, QStringLiteral("alice@example.org"));
     }
 
     void rejectsMalformedIdentityWithoutChangingLayout()
     {
-        AccountRegistry registry;
-        QVERIFY(registry.registerAuthenticated(
+        WorkspaceLayout registry;
+        QVERIFY(registry.upsertAuthenticatedAccount(
             QStringLiteral("https://user:pass@chat.example.org"),
             QStringLiteral("user1"), QStringLiteral("alice"),
             QStringLiteral("Account")).isEmpty());
-        QVERIFY(registry.registerAuthenticated(
+        QVERIFY(registry.upsertAuthenticatedAccount(
             QStringLiteral("https://chat.example.org/?token=secret"),
             QStringLiteral("user1"), QStringLiteral("alice"),
             QStringLiteral("Account")).isEmpty());
-        QVERIFY(registry.empty());
+        QVERIFY(registry.accounts.isEmpty());
     }
 };
 
-QTEST_APPLESS_MAIN(AccountRegistryTest)
-#include "AccountRegistryTest.moc"
+QTEST_APPLESS_MAIN(WorkspaceAccountCatalogTest)
+#include "WorkspaceAccountCatalogTest.moc"

@@ -30,9 +30,6 @@ namespace Mattermost {
 
 class BackendLoginData {
 public:
-	void loadFromOptions ();
-	void saveToOptions ()	const;
-	bool areAllFieldsFilled () 					const;
 public:
 	QString 	domain;
 	QString 	username;

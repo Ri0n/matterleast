@@ -61,6 +61,19 @@ public:
     // Select the desired view only; does not start/stop any connection.
     bool selectView(const QString& viewId);
 
+    // Pure, transactional catalog operations. They create no network clients,
+    // widgets or account managers; the runtime AccountManager owns that state.
+    const Account* account(const QString& accountId) const;
+    QString upsertAuthenticatedAccount(const QString& serverBaseUrl,
+                                       const QString& serverUserId,
+                                       const QString& loginName,
+                                       const QString& displayName);
+    bool resolveUnconfiguredAccount(const QString& accountId,
+                                    const QString& serverBaseUrl,
+                                    const QString& serverUserId,
+                                    const QString& loginName);
+    bool selectAccount(const QString& accountId);
+
     // Version 2 adds non-secret remote identity; version 1 remains readable.
     // Tokens and passwords never enter the layout.
     QByteArray toJson() const;
