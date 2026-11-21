@@ -15,7 +15,6 @@
 #include <QTextLayout>
 
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendTeam.h"
 #include "chat-area/ChatArea.h"
@@ -170,8 +169,6 @@ void openThread(Thread& thread, const QString& secondMessage, bool secondHasImag
     thread.server->secondMessage = secondMessage;
     thread.server->secondHasImage = secondHasImage;
     QVERIFY(thread.server->listen(QHostAddress::LocalHost));
-    NetworkRequest::setHost(
-        QStringLiteral("http://127.0.0.1:%1/").arg(thread.server->serverPort()));
     thread.backend = std::make_unique<Backend>();
     thread.backend->networkSession().setHost(
         QStringLiteral("http://127.0.0.1:%1/").arg(thread.server->serverPort()));

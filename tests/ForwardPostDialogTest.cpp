@@ -17,7 +17,6 @@
 #include "Settings.h"
 #include "options/MLOptions.h"
 #include "backend/Backend.h"
-#include "backend/NetworkRequest.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
@@ -67,11 +66,6 @@ private:
     }
 
 private slots:
-    void initTestCase()
-    {
-        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
-    }
-
     void cleanup()
     {
         MLOptions::instance()->optionObject<bool>(
@@ -104,13 +98,10 @@ private slots:
         first.networkSession().setHost(QStringLiteral("https://server-one.example.test/"));
         second.networkSession().setHost(QStringLiteral("https://server-two.example.test/"));
 
-        // An unrelated legacy login must not change either account's links.
-        NetworkRequest::setHost(QStringLiteral("https://unrelated.example.test/"));
         QCOMPARE(PostPermalinkService::redirectPermalink(first, postId),
                  QStringLiteral("https://server-one.example.test/_redirect/pl/") + postId);
         QCOMPARE(PostPermalinkService::redirectPermalink(second, postId),
                  QStringLiteral("https://server-two.example.test/_redirect/pl/") + postId);
-        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
     }
 
     void publicOriginListsKnownDestinationsAndFilters()
@@ -217,7 +208,6 @@ private slots:
         QVERIFY(server.listen(QHostAddress::LocalHost));
         const QString connectionHost = QStringLiteral("http://127.0.0.1:%1/")
             .arg(server.serverPort());
-        NetworkRequest::setHost(connectionHost);
 
         QJsonObject sentPost;
         int configRequests = 0;
@@ -333,7 +323,6 @@ private slots:
         QVERIFY(!sentPost.value(QStringLiteral("message")).toString()
                     .contains(QStringLiteral("/_redirect/")));
         QTRY_VERIFY(error->isVisible());
-        NetworkRequest::setHost(QStringLiteral("https://mattermost.example.test/"));
     }
 
     void incomingForwardIndicatorIsIndependentOfOutgoingSetting_data()
