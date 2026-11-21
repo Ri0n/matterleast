@@ -578,7 +578,7 @@ private slots:
         // account stays selected and retains all its Storage and transports.
         QCOMPARE(sessions.registeredBackends().size(), 1);
         QCOMPARE(sessions.registeredBackends().first(), backendTwo);
-        QCOMPARE(sessions.activeBackend(), nullptr); // Offline selection remains.
+        QVERIFY(sessions.activeBackend() == nullptr); // Offline selection remains.
         QVERIFY(!sessions.findAccount(serverOne.origin(), QStringLiteral("user-one")));
         QCOMPARE(sessions.findAccount(serverTwo.origin(), QStringLiteral("user-two")),
                  backendTwo);
@@ -685,7 +685,7 @@ private slots:
         sessions.finishStop(firstAccount, true);
         QTRY_VERIFY(!firstAccount->backend());
         QCOMPARE(sessions.registeredBackends().size(), 1);
-        QCOMPARE(sessions.activeBackend(), nullptr);
+        QVERIFY(sessions.activeBackend() == nullptr);
         QVERIFY(second->loggedIn());
         QVERIFY(!sessions.findAccount(server.origin(),
                                      QStringLiteral("shared-server-one")));
@@ -705,7 +705,7 @@ private slots:
         // QObject parentage releases only the ended connection.
         QTRY_VERIFY(firstGuard.isNull());
         QCOMPARE(sessions.registeredBackends().size(), 1);
-        QCOMPARE(sessions.activeBackend(), nullptr);
+        QVERIFY(sessions.activeBackend() == nullptr);
         QCOMPARE(sessions.registeredBackends().first(), second);
         QVERIFY(second->loggedIn());
         QVERIFY(sawOne && sawTwo);
@@ -767,7 +767,7 @@ private slots:
         sessions.finishStop(persistent, true);
         QTRY_VERIFY(!persistent->backend());
         QTRY_VERIFY(firstGuard.isNull());
-        QCOMPARE(sessions.activeBackend(), nullptr);
+        QVERIFY(sessions.activeBackend() == nullptr);
 
         Account* reconnected = sessions.adoptAuthenticated(
             duplicate, QStringLiteral("second"), QStringLiteral("Office"));
