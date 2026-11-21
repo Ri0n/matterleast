@@ -169,9 +169,15 @@ void NotificationManager::show(const QString& title, const QString& body,
     // otherwise two server windows could navigate using stale targets.
     trayIcon.setProperty(LastTrayMessageOwnerProperty,
                          QVariant::fromValue(static_cast<QObject*>(this)));
-    trayIcon.showMessage(title, body, QSystemTrayIcon::Information,
-                         target.callId.isEmpty() ? notificationDisplayDurationMs(title, body)
-                                                 : IncomingCallDurationMs);
+    // Headless/offscreen Qt platforms do not implement system-tray popups.
+    // Keep the click routing state testable, but never call the native popup
+    // API if the platform has no system tray implementation.
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        trayIcon.showMessage(title, body, QSystemTrayIcon::Information,
+                             target.callId.isEmpty()
+                                 ? notificationDisplayDurationMs(title, body)
+                                 : IncomingCallDurationMs);
+    }
 }
 
 void NotificationManager::requestTaskbarAttention(QWidget& window)
