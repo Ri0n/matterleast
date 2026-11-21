@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
@@ -16,6 +17,8 @@ class QSystemTrayIcon;
 class QWidget;
 
 namespace Mattermost {
+
+class TrayFallbackOwner;
 
 struct NotificationTarget {
     QString channelId;
@@ -62,6 +65,7 @@ private:
 #endif
 
     QSystemTrayIcon& trayIcon;
+    QPointer<TrayFallbackOwner> fallbackOwner;
     NotificationTarget fallbackTarget;
 };
 
