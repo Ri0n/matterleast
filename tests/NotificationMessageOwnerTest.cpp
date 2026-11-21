@@ -1,8 +1,7 @@
 #include <QtTest>
+#include <QPointer>
 
-#include <QSystemTrayIcon>
-
-#include "notifications/NotificationManager.h"
+#include "notifications/TrayFallbackOwner.h"
 
 using namespace Mattermost;
 
@@ -12,53 +11,64 @@ class NotificationMessageOwnerTest final : public QObject
 private slots:
     void clickResolvesOnlyLatestServersPopup()
     {
-        QSystemTrayIcon tray;
-        NotificationManager serverOne(tray);
-        NotificationManager serverTwo(tray);
-        int oneClicks = 0;
-        int twoClicks = 0;
-        QString openedPost;
-        connect(&serverOne, &NotificationManager::activated,
-                &serverOne, [&](const NotificationTarget&) { ++oneClicks; });
-        connect(&serverTwo, &NotificationManager::activated,
-                &serverTwo, [&](const NotificationTarget& target) {
-            ++twoClicks;
-            openedPost = target.postId;
-        });
+        QObject tray;
+        TrayFallbackOwner owner(&tray);
+        QObject firstAccount;
+        QObject secondAccount;
 
-        serverOne.show(QStringLiteral("First"), QStringLiteral("Message"),
-                       {QStringLiteral("channel"), QStringLiteral("old-post"), {}});
-        serverTwo.show(QStringLiteral("Second"), QStringLiteral("Message"),
-                       {QStringLiteral("channel"), QStringLiteral("new-post"), {}});
-        QVERIFY(QMetaObject::invokeMethod(&tray, "messageClicked",
-                                          Qt::DirectConnection));
-        QCOMPARE(oneClicks, 0);
-        QCOMPARE(twoClicks, 1);
-        QCOMPARE(openedPost, QStringLiteral("new-post"));
-        QVERIFY(QMetaObject::invokeMethod(&tray, "messageClicked",
-                                          Qt::DirectConnection));
-        QCOMPARE(twoClicks, 1); // Consumed once.
+        owner.claim(&firstAccount);
+        QCOMPARE(owner.currentOwner(), &firstAccount);
+        owner.claim(&secondAccount);
+        QCOMPARE(owner.currentOwner(), &secondAccount);
+
+        // All live account handlers receive messageClicked(). Only the
+        // latest fallback popup owner is allowed to consume the click.
+        QVERIFY(!owner.consume(&firstAccount));
+        QVERIFY(owner.consume(&secondAccount));
+        QVERIFY(!owner.consume(&secondAccount));
+        QCOMPARE(owner.currentOwner(), nullptr);
     }
 
     void destroyingOldManagerNeverStealsCurrentPopup()
     {
-        QSystemTrayIcon tray;
-        auto* oldServer = new NotificationManager(tray);
-        NotificationManager liveServer(tray);
-        int delivered = 0;
-        connect(&liveServer, &NotificationManager::activated,
-                &liveServer, [&](const NotificationTarget&) { ++delivered; });
+        QObject tray;
+        TrayFallbackOwner owner(&tray);
+        auto* oldAccount = new QObject;
+        QObject liveAccount;
+        owner.claim(oldAccount);
+        owner.claim(&liveAccount);
+        delete oldAccount;
+        QCOMPARE(owner.currentOwner(), &liveAccount);
+        QVERIFY(owner.consume(&liveAccount));
+    }
 
-        oldServer->show(QStringLiteral("Old"), QStringLiteral("Message"),
-                        {QStringLiteral("channel"), QStringLiteral("old"), {}});
-        liveServer.show(QStringLiteral("Live"), QStringLiteral("Message"),
-                        {QStringLiteral("channel"), QStringLiteral("new"), {}});
-        delete oldServer;
-        QVERIFY(QMetaObject::invokeMethod(&tray, "messageClicked",
-                                          Qt::DirectConnection));
-        QCOMPARE(delivered, 1);
+    void destroyedLatestOwnerCannotLeaveDanglingTarget()
+    {
+        QObject tray;
+        TrayFallbackOwner owner(&tray);
+        auto* account = new QObject;
+        owner.claim(account);
+        delete account;
+        QCOMPARE(owner.currentOwner(), nullptr);
+        QObject replacement;
+        owner.claim(&replacement);
+        QVERIFY(owner.consume(&replacement));
+    }
+
+    void releaseDoesNotClearNewerPopup()
+    {
+        QObject tray;
+        TrayFallbackOwner owner(&tray);
+        QObject firstAccount;
+        QObject secondAccount;
+        owner.claim(&firstAccount);
+        owner.claim(&secondAccount);
+        owner.release(&firstAccount);
+        QCOMPARE(owner.currentOwner(), &secondAccount);
+        owner.release(&secondAccount);
+        QCOMPARE(owner.currentOwner(), nullptr);
     }
 };
 
-QTEST_MAIN(NotificationMessageOwnerTest)
+QTEST_GUILESS_MAIN(NotificationMessageOwnerTest)
 #include "NotificationMessageOwnerTest.moc"

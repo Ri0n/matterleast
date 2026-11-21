@@ -4,6 +4,7 @@
  */
 
 #include "NotificationManager.h"
+#include "TrayFallbackOwner.h"
 
 #include "TaskbarAttentionPolicy.h"
 
@@ -11,7 +12,6 @@
 
 #include <QApplication>
 #include <QStringList>
-#include <QVariant>
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include <QWidget>
@@ -29,7 +29,7 @@ namespace Mattermost {
 namespace {
 
 constexpr int IncomingCallDurationMs = 30000;
-constexpr char LastTrayMessageOwnerProperty[] = "_matterleast_last_tray_message_owner";
+constexpr char TrayFallbackOwnerName[] = "_matterleast_tray_fallback_owner";
 
 int notificationDisplayDurationMs(const QString& title, const QString& body)
 {
@@ -80,6 +80,18 @@ bool sendLauncherUrgency(bool urgent)
 }
 #endif
 
+TrayFallbackOwner* fallbackOwnerFor(QSystemTrayIcon& trayIcon)
+{
+    // Exactly one coordinator per tray icon, shared by all account managers.
+    for (QObject* child : trayIcon.children()) {
+        if (child->objectName() == QLatin1String(TrayFallbackOwnerName))
+            return static_cast<TrayFallbackOwner*>(child);
+    }
+    auto* owner = new TrayFallbackOwner(&trayIcon);
+    owner->setObjectName(QLatin1String(TrayFallbackOwnerName));
+    return owner;
+}
+
 } // namespace
 
 NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* parent)
@@ -88,6 +100,7 @@ NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* par
     , freedesktopActionsSupported(false)
 #endif
     , trayIcon(trayIcon)
+    , fallbackOwner(fallbackOwnerFor(trayIcon))
 {
     connect(&trayIcon, &QSystemTrayIcon::messageClicked,
             this, &NotificationManager::onFallbackMessageClicked);
@@ -142,8 +155,8 @@ NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* par
 
 NotificationManager::~NotificationManager()
 {
-    if (trayIcon.property(LastTrayMessageOwnerProperty).value<QObject*>() == this)
-        trayIcon.setProperty(LastTrayMessageOwnerProperty, QVariant());
+    if (fallbackOwner)
+        fallbackOwner->release(this);
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
     for (auto it = freedesktopTargets.cbegin(); it != freedesktopTargets.cend(); ++it) {
         if (!it->callId.isEmpty()) {
@@ -167,8 +180,8 @@ void NotificationManager::show(const QString& title, const QString& body,
     // QSystemTrayIcon::messageClicked carries no notification ID. Only the
     // manager that displayed the latest fallback popup may handle its click;
     // otherwise two server windows could navigate using stale targets.
-    trayIcon.setProperty(LastTrayMessageOwnerProperty,
-                         QVariant::fromValue(static_cast<QObject*>(this)));
+    if (fallbackOwner)
+        fallbackOwner->claim(this);
     // Headless/offscreen Qt platforms do not implement system-tray popups.
     // Keep the click routing state testable, but never call the native popup
     // API if the platform has no system tray implementation.
@@ -220,14 +233,12 @@ void NotificationManager::closeIncomingCall(const QString& callId)
 
 void NotificationManager::onFallbackMessageClicked()
 {
-    if (trayIcon.property(LastTrayMessageOwnerProperty).value<QObject*>() != this
-        || !fallbackTarget.isValid()) {
+    if (!fallbackTarget.isValid() || !fallbackOwner
+        || !fallbackOwner->consume(this))
         return;
-    }
 
     const NotificationTarget target = fallbackTarget;
     fallbackTarget = NotificationTarget {};
-    trayIcon.setProperty(LastTrayMessageOwnerProperty, QVariant());
     emit activated(target);
 }
 
