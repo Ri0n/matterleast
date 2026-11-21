@@ -42,6 +42,8 @@ jobs:
   debian13:
     name: Qt 6.8.2 / Debian 13 — DEB
     runs-on: ubuntu-24.04
+    env:
+      CCACHE_COMPILERCHECK: content
     container:
       # Match the release packaging workflow. ECR Public can reject anonymous
       # pulls with "toomanyrequests: Data limit exceeded" before CI starts.
@@ -53,11 +55,17 @@ jobs:
           set -euo pipefail
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            git ca-certificates cmake ninja-build build-essential dpkg-dev fakeroot file \
+            git ca-certificates cmake ninja-build ccache build-essential dpkg-dev fakeroot file \
             qt6-base-dev qt6-svg-dev qt6-multimedia-dev qt6-websockets-dev qtkeychain-qt6-dev libqt6sql6-sqlite libqt6svg6 qt6-svg-plugins libxss-dev libssl-dev libhunspell-dev pkg-config
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: debian13-qt6.8.2
+          max-size: 2G
 
       - name: Prepare version
         uses: ./.github/actions/prepare-version
@@ -70,6 +78,7 @@ jobs:
           set -euo pipefail
           test "$(qmake6 -query QT_VERSION)" = 6.8.2
           cmake -S . -B build -G Ninja \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQT_6=ON -DBUILD_TESTING=ON -DBUILD_MULTIMEDIA=ON \
             -DMATTERLEAST_REQUIRE_SYSTEM_KEYCHAIN=ON \
