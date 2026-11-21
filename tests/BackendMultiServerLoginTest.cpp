@@ -742,11 +742,16 @@ private slots:
 
     void duplicateSessionRegistrationCannotReplaceAnExistingAccount()
     {
+        qInfo() << "duplicate-account: start";
         FakeMattermostServer server(QByteArrayLiteral("same-user"));
         QVERIFY(server.listen(QHostAddress::LocalHost));
+        qInfo() << "duplicate-account: listening";
         AccountManager sessions;
+        qInfo() << "duplicate-account: manager constructed";
         Backend* first = sessions.createLoginBackend();
+        qInfo() << "duplicate-account: first candidate";
         Backend* duplicate = sessions.createLoginBackend();
+        qInfo() << "duplicate-account: second candidate";
         bool firstReady = false;
         bool secondReady = false;
         first->login(credentials(server, QStringLiteral("one-token")),
@@ -754,13 +759,17 @@ private slots:
         duplicate->login(credentials(server, QStringLiteral("two-token")),
                          [&](const QString& token) { secondReady = !token.isEmpty(); });
         QTRY_VERIFY(firstReady && secondReady);
+        qInfo() << "duplicate-account: both logged in";
 
         Account* persistent = sessions.adoptAuthenticated(
             first, QStringLiteral("first"), QStringLiteral("Office"));
         QVERIFY(persistent);
+        qInfo() << "duplicate-account: first adopted";
         const QString id = persistent->id();
+        qInfo() << "duplicate-account: before duplicate adopt";
         QVERIFY(!sessions.adoptAuthenticated(
             duplicate, QStringLiteral("second"), QStringLiteral("Office")));
+        qInfo() << "duplicate-account: rejected duplicate";
         QCOMPARE(sessions.registeredBackends().size(), 1);
         QCOMPARE(sessions.activeBackend(), first);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
@@ -768,29 +777,40 @@ private slots:
 
         // A new Backend may reuse the exact same persistent account ID.
         QPointer<Backend> firstGuard = first;
+        qInfo() << "duplicate-account: before prepareStop";
         sessions.prepareStop(persistent, true);
+        qInfo() << "duplicate-account: before finishStop";
         sessions.finishStop(persistent, true);
         QTRY_VERIFY(!persistent->backend());
         QTRY_VERIFY(firstGuard.isNull());
+        qInfo() << "duplicate-account: first destroyed";
         QVERIFY(sessions.activeBackend() == nullptr);
 
+        qInfo() << "duplicate-account: before reconnect";
         Account* reconnected = sessions.adoptAuthenticated(
             duplicate, QStringLiteral("second"), QStringLiteral("Office"));
         QCOMPARE(reconnected, persistent);
+        qInfo() << "duplicate-account: reconnected";
         QCOMPARE(persistent->id(), id);
         QCOMPARE(sessions.activeBackend(), duplicate);
+        qInfo() << "duplicate-account: rejected duplicate";
         QCOMPARE(sessions.registeredBackends().size(), 1);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("same-user")),
                  duplicate);
         QCOMPARE(sessions.allAccounts().size(), 1);
+        qInfo() << "duplicate-account: second active";
 
         QPointer<Backend> duplicateGuard = duplicate;
+        qInfo() << "duplicate-account: before prepareStop";
         sessions.prepareStop(persistent, true);
+        qInfo() << "duplicate-account: before finishStop";
         sessions.finishStop(persistent, true);
         QTRY_VERIFY(!persistent->backend());
         QTRY_VERIFY(duplicateGuard.isNull());
+        qInfo() << "duplicate-account: second destroyed";
         QCOMPARE(sessions.registeredBackends().size(), 0);
         QCOMPARE(sessions.allAccounts().size(), 1);
+        qInfo() << "duplicate-account: second active";
     }
 
     void savedAttachmentPathsDoNotSurviveAccountSwitch()
