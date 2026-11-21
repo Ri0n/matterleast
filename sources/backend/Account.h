@@ -21,7 +21,7 @@ class Account final : public QObject
 public:
     Account(const QString& id, AccountManager* manager);
 
-    QString id() const { return _id; }
+    QString id() const { return _accountId; }
     const WorkspaceLayout::Account* record() const;
     Backend* backend() const { return _backend.data(); }
     Backend* pendingBackend() const { return _pending.data(); }
@@ -39,7 +39,7 @@ private:
     bool adoptBackend(Backend* backend);
     void releaseBackend();
 
-    const QString _id;
+    const QString _accountId;
     AccountManager* const _manager;
     AccountConnectionState _state = AccountConnectionState::Disconnected;
     QPointer<Backend> _pending;
