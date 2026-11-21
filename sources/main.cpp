@@ -75,7 +75,7 @@ private:
 	// until every window and tray object that can reference it is gone, and keep
 	// the tray menu alive until after QSystemTrayIcon releases its menu pointer.
     AccountSessionManager                accounts;
-    Backend&                              backend;
+    Backend*                              backend;
     UserActivityMonitor                   _activityMonitor;
 	std::unique_ptr<QMenu>				trayIconMenu;
 	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
@@ -101,7 +101,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     QGuiApplication::setWindowIcon(IconUtils::applicationIcon());
 
     OverlayScrollBarManager::install(*this);
-    (void)CustomEmojiService::instance(backend);
+    (void)CustomEmojiService::instance(*backend);
 
     Config::init ();
 	trayIcon->setToolTip(applicationDisplayName());
@@ -180,7 +180,7 @@ void MattermostApplication::openLoginWindow()
         return;
     }
 
-    auto* dialog = new LoginDialog(nullptr, backend);
+    auto* dialog = new LoginDialog(nullptr, *backend);
     loginDialog = dialog;
     trayWindow.setWindow(dialog);
 
@@ -225,8 +225,8 @@ void MattermostApplication::openLoginWindow()
         // The workspace, not an independently exposed MainWindow, owns the
         // account's entire navigation widget tree. The later multi-account
         // login path adds further pages to this same shell.
-        auto* page = new MainWindow(nullptr, *trayIcon, backend);
-        if (!workspaceShell->addWorkspace(backend, page)) {
+        auto* page = new MainWindow(nullptr, *trayIcon, *backend);
+        if (!workspaceShell->addWorkspace(*backend, page)) {
             delete page;
             qCritical("Unable to install account workspace");
             return;
@@ -236,7 +236,7 @@ void MattermostApplication::openLoginWindow()
         connect(page, &MainWindow::logoutRequested,
                 this, &MattermostApplication::beginLogout);
         // 401 on this Backend must recover through the same safe logout flow.
-        connect(&backend, &Backend::authenticationExpired, this,
+        connect(backend, &Backend::authenticationExpired, this,
                 [this] { beginLogout(); });
         trayWindow.setWindow(workspaceShell.get());
         workspaceShell->show();
@@ -256,7 +256,7 @@ void MattermostApplication::beginLogout()
     // Cancel old session requests before removing the UI. Their callbacks
     // may capture MainWindow / chat widget pointers without a QObject context.
     // HTTPConnector's generation check suppresses completion on old replies.
-    backend.prepareForLogout();
+    backend->prepareForLogout();
 
     // The old window holds BackendPost references and channel/user pointers.
     // Close and persist its UI state while Storage is still populated.
@@ -270,7 +270,7 @@ void MattermostApplication::beginLogout()
         // their referenced channels/posts. Do not let a hidden account view
         // survive a reset of its server's data.
         QWidget* page = workspaceShell
-            ? workspaceShell->takeWorkspace(backend) : nullptr;
+            ? workspaceShell->takeWorkspace(*backend) : nullptr;
         delete page;
         mainWindow = nullptr;
         if (workspaceShell) {
@@ -279,7 +279,7 @@ void MattermostApplication::beginLogout()
             workspaceShell.reset();
         }
         trayIcon->setIcon(IconUtils::applicationIcon());
-        backend.logout([this] {
+        backend->logout([this] {
             logoutInProgress_ = false;
             openLoginWindow();
         });
