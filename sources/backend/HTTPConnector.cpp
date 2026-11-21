@@ -184,6 +184,24 @@ void HTTPConnector::restartAllTransports ()
 	}
 }
 
+void HTTPConnector::restartSessionTransports(const NetworkSessionContext* session)
+{
+    if (!session)
+        return;
+
+    // Scope recovery to this account. The snapshot guards against callbacks
+    // destroying connectors as their old replies are aborted and replayed.
+    QList<QPointer<HTTPConnector>> owned;
+    for (HTTPConnector* connector : connectors) {
+        if (connector->sessionContext == session)
+            owned.append(QPointer<HTTPConnector>(connector));
+    }
+    for (const QPointer<HTTPConnector>& connector : owned) {
+        if (connector)
+            connector->restartTransport();
+    }
+}
+
 void HTTPConnector::resetSessionTransports(const NetworkSessionContext* session)
 {
     if (!session) {
