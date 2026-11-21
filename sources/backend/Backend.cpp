@@ -362,12 +362,11 @@ Backend::Backend(QObject *parent)
 			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
 
 			/**
-			 * A route/interface change can leave QNetworkAccessManager requests
-			 * bound to the dead path even after a fresh WebSocket succeeds.
-			 * Replace the HTTP transport before notifying listeners so their
-			 * onWebSocketConnect retries are issued on the new network path.
+			 * Only this account's server connection is known to have recovered.
+			 * Refresh its HTTP transport before resuming its dependent services;
+			 * do not interrupt other servers' in-flight uploads/downloads.
 			 */
-			HTTPConnector::restartAllTransports();
+			HTTPConnector::restartSessionTransports(&_networkSession);
 		}
 
 		emit onWebSocketConnect();
