@@ -18,6 +18,7 @@
  */
 
 #include <iostream>
+#include <QCheckBox>
 #include "LoginDialog.h"
 #include "ui_LoginDialog.h"
 
@@ -32,14 +33,22 @@
 namespace Mattermost {
 
 LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
-                         bool allowSavedSessionRestore)
+                         bool allowSavedSessionRestore,
+                         const QString& fixedServer,
+                         const QString& fixedLogin)
 :QDialog(parent)
 ,backend (backend)
 ,ui(new Ui::LoginDialog)
 {
-	setAttribute (Qt::WA_DeleteOnClose);
-	BackendLoginData loginData;
-	loginData.loadFromOptions ();
+    setAttribute(Qt::WA_DeleteOnClose);
+    _saveLegacyOptions = allowSavedSessionRestore;
+    BackendLoginData loginData;
+    if (allowSavedSessionRestore)
+        loginData.loadFromOptions();
+    else {
+        loginData.domain = fixedServer;
+        loginData.username = fixedLogin;
+    }
 
 	ui->setupUi(this);
 
@@ -52,6 +61,20 @@ LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
 
 	ui->domain_lineEdit->setText (loginData.domain);
 	ui->username_lineEdit->setText (loginData.username);
+    if (!fixedServer.isEmpty() && !fixedLogin.isEmpty()) {
+        ui->domain_lineEdit->setReadOnly(true);
+        ui->username_lineEdit->setReadOnly(true);
+        ui->titleLabel->setText(tr("Sign in to this account"));
+    }
+    _tokenMode = new QCheckBox(tr("Use personal access token"), this);
+    _tokenMode->setObjectName(QStringLiteral("personalAccessTokenCheck"));
+    ui->verticalLayout->insertWidget(3, _tokenMode);
+    connect(_tokenMode, &QCheckBox::toggled, this, [this](bool enabled) {
+        ui->password_label->setText(enabled ? tr("Token") : tr("Password"));
+        ui->password_lineEdit->setPlaceholderText(
+            enabled ? tr("Personal access token") : tr("Password"));
+        ui->password_lineEdit->clear();
+    });
 
 	ui->icon->setPixmap (IconUtils::applicationIcon().pixmap (QSize (64, 64)));
 	ui->loginInProgressLabel->hide();
@@ -130,10 +153,14 @@ void LoginDialog::on_login_pushButton_clicked()
 
 	loginData.domain = ui->domain_lineEdit->text();
 	loginData.username = ui->username_lineEdit->text();
-	loginData.password = ui->password_lineEdit->text();
-	loginData.token = "";
+    if (_tokenMode->isChecked())
+        loginData.token = ui->password_lineEdit->text();
+    else
+        loginData.password = ui->password_lineEdit->text();
 
-    loginData.saveToOptions();
+    // Only the legacy first-login import may write process-global defaults.
+    if (_saveLegacyOptions)
+        loginData.saveToOptions();
     // Explicitly switching credentials invalidates a legacy settings token.
     // Otherwise a crash before the new keyring write could bind the old
     // plaintext session to the newly selected server/username.
@@ -175,6 +202,7 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
         if (!guard || attemptGeneration != _loginAttemptGeneration) return;
         _attemptInProgress = false;
         if (!token.isEmpty()) {
+            _authenticatedLoginName = loginData.username;
             _autoLoginRetryTimer.stop();
             _autoLoginEnabled = false;
             // The backend outlives this login dialog. Save asynchronously

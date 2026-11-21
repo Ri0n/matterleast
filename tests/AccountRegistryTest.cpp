@@ -1,4 +1,7 @@
 #include <QtTest>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "workspaces/AccountRegistry.h"
 
@@ -70,6 +73,34 @@ private slots:
         QVERIFY(!error.isEmpty());
         QCOMPARE(registry.toJson(), original);
         QVERIFY(registry.account(id));
+    }
+
+    void resolvesLegacyAccountWithoutChangingItsNavigationIdentity()
+    {
+        AccountRegistry registry;
+        const QString id = registry.registerAuthenticated(
+            QStringLiteral("https://old.example.org/"),
+            QStringLiteral("olduser"), QStringLiteral("alice"),
+            QStringLiteral("Office"));
+        QByteArray original = registry.toJson();
+        QJsonObject object = QJsonDocument::fromJson(original).object();
+        QJsonArray records = object.value(QStringLiteral("accounts")).toArray();
+        QJsonObject record = records[0].toObject();
+        record.insert(QStringLiteral("serverBaseUrl"), QString());
+        record.insert(QStringLiteral("serverUserId"), QString());
+        record.insert(QStringLiteral("loginName"), QString());
+        records.replace(0, record);
+        object.insert(QStringLiteral("accounts"), records);
+        QVERIFY(registry.load(QJsonDocument(object).toJson()));
+        QVERIFY(!registry.account(id)->hasConnectionIdentity());
+        const QString viewId = registry.layout().activeViewId;
+        QVERIFY(registry.resolveUnconfigured(
+            id, QStringLiteral("https://new.example.org/mm/"),
+            QStringLiteral("person"), QStringLiteral("alice@example.org")));
+        QVERIFY(registry.account(id)->hasConnectionIdentity());
+        QCOMPARE(registry.layout().activeViewId, viewId);
+        QCOMPARE(registry.account(id)->name, QStringLiteral("Office"));
+        QCOMPARE(registry.account(id)->loginName, QStringLiteral("alice@example.org"));
     }
 
     void rejectsMalformedIdentityWithoutChangingLayout()

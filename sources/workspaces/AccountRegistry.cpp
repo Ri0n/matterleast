@@ -127,6 +127,30 @@ QString AccountRegistry::registerAuthenticated(const QString& serverBaseUrl,
     return newAccountId;
 }
 
+bool AccountRegistry::resolveUnconfigured(const QString& id,
+                                          const QString& serverBaseUrl,
+                                          const QString& serverUserId,
+                                          const QString& loginName)
+{
+    if (loginName.trimmed().isEmpty())
+        return false;
+    WorkspaceLayout next = _layout;
+    for (auto& record : next.accounts) {
+        if (record.id != id)
+            continue;
+        if (record.hasConnectionIdentity())
+            return false;
+        record.serverBaseUrl = serverBaseUrl;
+        record.serverUserId = serverUserId;
+        record.loginName = loginName;
+        if (!next.validate())
+            return false;
+        _layout = std::move(next);
+        return true;
+    }
+    return false;
+}
+
 bool AccountRegistry::selectAccount(const QString& id)
 {
     if (!account(id))

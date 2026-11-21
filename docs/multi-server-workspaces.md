@@ -2,9 +2,9 @@
 
 Status: architectural direction and staged implementation. The pure layout model and
 account-scoped Backend foundation are implemented. Live account switching and per-account
-badge/menu work remain in the stacked PRs #373–#375. Persistent account profiles,
-authentication recovery and useful offline workspaces are **future stages**, not current
-behavior. The immediate live-switching UI is a stepping stone, not the final Servers tree.
+badge/menu work remain in the stacked PRs #373–#375. Persistent account records, independent startup restoration and a server overview
+are being implemented in #380–#381. Full cache-backed offline message browsing and
+non-modal sidebar authentication notices remain future stages. The immediate live-switching UI is a stepping stone, not the final Servers tree.
 
 ## Goals and terminology
 
@@ -162,7 +162,14 @@ session snapshots. Existing keyring entries must remain usable; avoid destructiv
 migration of the legacy single-account options before a new layout has been
 validated and durably saved.
 
-## Durable accounts, offline workspaces and authentication recovery (next stage)
+## Durable accounts, offline workspaces and authentication recovery
+
+The first runtime implementation (#380–#381) introduces a credential-free
+AccountRegistry, a persistent Servers overview, independent asynchronous keyring
+restoration, per-account startup error states and account-scoped password/token
+reauthentication. It intentionally does **not** retain Backend::Storage or loaded
+post widgets after a connection is closed. The full cache-first offline UI and
+sidebar footer notifications are separate remaining steps.
 
 The design follows the distinction between a persistent Psi account and its optional
 `XMPP::Client`: a saved MatterLeast account exists independently of its optional
