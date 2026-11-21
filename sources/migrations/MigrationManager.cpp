@@ -100,22 +100,22 @@ void MigrationManager::executeStep(int version)
 bool MigrationManager::completeLegacyMigration()
 {
     // The imported layout and keychain entry must already be durable.
-    // A failed QSettings sync must never cause the only available login
+    // A failed options sync must never cause the only available login
     // coordinates to be erased, even when the in-memory Account is alive.
-    if (_options->persistenceStatus() != QSettings::NoError)
+    if (!_options->persistenceHealthy())
         return false;
 
     // Wipe plaintext *before* recording the version. A crash during the
     // intermediate writes is safe to replay from the persisted Account.
     _options->setValue<QString>(kLegacyToken, {});
-    if (_options->persistenceStatus() != QSettings::NoError)
+    if (!_options->persistenceHealthy())
         return false;
     _options->setValue<QString>(kLegacyDomain, {});
     _options->setValue<QString>(kLegacyUsername, {});
-    if (_options->persistenceStatus() != QSettings::NoError)
+    if (!_options->persistenceHealthy())
         return false;
     _options->setValue<int>(kVersionKey, 1);
-    return _options->persistenceStatus() == QSettings::NoError;
+    return _options->persistenceHealthy();
 }
 
 void MigrationManager::run(Completion callback)
