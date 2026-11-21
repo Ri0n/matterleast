@@ -54,9 +54,6 @@
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
 #include "backend/Account.h"
-#include "backend/AccountIdentity.h"
-#include "backend/SessionTokenStore.h"
-#include "backend/types/BackendLoginData.h"
 #include "backend/UserActivityMonitor.h"
 #include "backend/CustomEmojiService.h"
 #include "options/MLOptions.h"
@@ -201,7 +198,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 MattermostApplication::~MattermostApplication()
 {
     // A top-level login dialog can outlive its last accepted/rejected signal;
-    // close it while AccountSessionManager still owns its pending Backend.
+    // close it while AccountManager still owns its pending Backend.
     delete loginDialog.data();
 }
 

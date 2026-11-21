@@ -94,6 +94,26 @@ may legitimately have different permissions, tokens and unread state.
   paths; ambiguous matching is not resolved by whichever account happens to be
   active. Presenting an external link does not disrupt the current view.
 
+## Single-owner account lifecycle after model separation
+
+The next implementation stage consolidates the former `AccountRegistry` and
+`AccountSessionManager` into one `AccountManager` with QObject-owned durable
+`Account` instances. Each `Account` survives disconnects and owns at most
+one live `Backend`; during restoration it may own a separate temporary pending
+`Backend`. New account candidates temporarily belong to the manager until a
+remote user identity is verified and adopted.
+
+`WorkspaceLayout` is the sole data/serialization topology for account identity
+and profile/view memberships. `AccountListModel` is a QtCore-only presentation
+projection with stable account IDs; neither it nor the Widgets stack owns
+credentials or network sessions. `MattermostApplication` now only connects
+Widgets/tray to account signals and orders view destruction before backend reset.
+
+`UserActivityMonitor` observes connected sessions from `AccountManager`
+without requiring a second session registry. Keychain loading, token/user
+verification, connection states, retry actions and explicit logout are
+account-domain operations. Model role updates remain incremental.
+
 ## UI-independent models and multiple frontend technologies
 
 The business-level account and workspace data model must not depend on
@@ -128,10 +148,8 @@ future mobile QML are alternative presentations of the **same** model.
   must migrate out of the Widgets/application orchestration and into
   UI-independent account services.
 
-Delivery note: #382 introduces the QtCore presentation model and ID-keyed
-Widgets rendering as an intermediate step. #380/#381 still contain
-`AccountRegistry`, `AccountSessionManager` and application-owned status maps;
-**these must be consolidated before treating the model separation as complete**.
+Delivery: #383 consolidates the account lifecycle into one manager; the QtCore
+list model and ID-keyed Widgets frontend were introduced in #382.
 
 ## Per-view UI state (essential invariant)
 
