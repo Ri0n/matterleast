@@ -46,7 +46,8 @@ public:
     void discardCandidate(Backend* candidate);
     Account* adoptAuthenticated(Backend* candidate, const QString& loginName,
                                 const QString& displayName,
-                                const QString& recoveryId = {});
+                                const QString& recoveryId = {},
+                                bool persistToken = true);
     Backend* findAccount(const QString& server, const QString& userId) const;
 
     void restoreAccount(const QString& id);

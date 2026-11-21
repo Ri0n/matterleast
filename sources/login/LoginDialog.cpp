@@ -23,7 +23,6 @@
 #include "ui_LoginDialog.h"
 
 #include "backend/Backend.h"
-#include "backend/SessionTokenStore.h"
 #include "options/MLOptions.h"
 #include "log.h"
 #include <QPointer>
@@ -205,17 +204,10 @@ void LoginDialog::loginToServer (const BackendLoginData& loginData)
             _authenticatedLoginName = loginData.username;
             _autoLoginRetryTimer.stop();
             _autoLoginEnabled = false;
-            // The backend outlives this login dialog. Save asynchronously
-            // there, so closing the dialog cannot cancel the keyring job.
-            // Never write a new token into plaintext application settings.
-            SessionTokenStore::write(
-                &backend, loginData.domain, loginData.username, token,
-                [](bool success) {
-                    if (success) {
-                        MLOptions::instance()->setValue<QString>(
-                            QStringLiteral("token"), QString());
-                    }
-                });
+            // The dialog only gathers credentials. The account domain will
+            // persist this token after confirming the expected remote user;
+            // otherwise reauthentication could overwrite another account's
+            // saved keyring entry before identity validation.
             accept();
             return;
         }

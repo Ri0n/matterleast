@@ -170,7 +170,8 @@ void AccountManager::discardCandidate(Backend* backend)
 Account* AccountManager::adoptAuthenticated(Backend* backend,
                                              const QString& loginName,
                                              const QString& displayName,
-                                             const QString& recoveryId)
+                                             const QString& recoveryId,
+                                             bool persistToken)
 {
     if (!backend || !backend->loggedIn()
         || !backend->getStorage().loginUser)
@@ -214,6 +215,9 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
                          && existing->pendingBackend() != backend)))
         return nullptr;
 
+    const auto* previous = _layout.account(id);
+    const QString previousServer = previous ? previous->serverBaseUrl : QString();
+    const QString previousLogin = previous ? previous->loginName : QString();
     _layout = std::move(updated);
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
@@ -223,6 +227,30 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
         _selectedId = id;
     rebuildModel();
     persist();
+    if (persistToken) {
+        // Only after the verified remote identity has been adopted may a
+        // credential be written to secure storage. Restoring an existing
+        // token does not write it again on every application startup.
+        const QString authenticatedToken = backend->networkSession().token();
+        if (!authenticatedToken.isEmpty()) {
+            const QString acceptedServer = backend->networkSession().host();
+            SessionTokenStore::write(item, acceptedServer, loginName,
+                                     authenticatedToken,
+                [itemGuard = QPointer<Account>(item),
+                 previousServer, previousLogin, acceptedServer, loginName]
+                (bool success) {
+                if (!success || !itemGuard)
+                    return;
+                MLOptions::instance()->setValue<QString>(
+                    QStringLiteral("token"), QString());
+                if (!previousLogin.isEmpty()
+                    && (previousServer != acceptedServer
+                        || previousLogin != loginName))
+                    SessionTokenStore::remove(itemGuard.data(),
+                                             previousServer, previousLogin);
+            });
+        }
+    }
     if (firstAccount)
         emit activeBackendChanged(backend);
     emit accountRegistered(backend);
@@ -319,7 +347,7 @@ void AccountManager::restoreAccount(const QString& id)
                 return;
             }
             if (!adoptAuthenticated(backend, record->loginName,
-                                    record->name, account->id())) {
+                                    record->name, account->id(), false)) {
                 account->cancelPending(AccountConnectionState::AuthenticationRequired);
             }
         });
