@@ -796,6 +796,16 @@ target_include_directories(post-unread-request-test PRIVATE "${CMAKE_SOURCE_DIR}
 target_link_libraries(post-unread-request-test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME post-unread-request-test COMMAND post-unread-request-test)
 
+# Aggregated tray attention must include hidden background account state.
+if(TARGET matterleast-core)
+    add_executable(account-tray-badge-model-test AccountTrayBadgeModelTest.cpp)
+    target_link_libraries(account-tray-badge-model-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME account-tray-badge-model-test COMMAND account-tray-badge-model-test)
+    set_tests_properties(account-tray-badge-model-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Account workspace switching must preserve the underlying views instead of
 # recreating pages, navigation models or draft widgets on every switch.
 if(TARGET matterleast-core)

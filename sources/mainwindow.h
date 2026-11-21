@@ -85,6 +85,9 @@ public:
 
 signals:
     void logoutRequested();
+    // Every server reports its badge state to the app-level tray aggregator;
+    // hidden workspaces must not overwrite other accounts' unread counters.
+    void trayBadgeStateChanged(uint32_t attentionCount, bool hasUnreadChannel);
 
 private slots:
     void on_usericon_label_clicked();

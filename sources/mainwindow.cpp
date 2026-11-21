@@ -314,8 +314,14 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 	auto* options = MLOptions::instance();
 	restoreGeometry(options->value<QByteArray>(QStringLiteral("geometry"), saveGeometry()));
-	const QByteArray splitterState = options->value<QByteArray>(
-		QStringLiteral("sidebar_splitter_state"));
+    const QString sidebarStateKey = QStringLiteral("workspace/%1/sidebar_splitter_state")
+        .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+    QByteArray splitterState = options->value<QByteArray>(sidebarStateKey);
+    if (splitterState.isEmpty()) {
+        // Migrate a single-account installation without losing layout.
+        splitterState = options->value<QByteArray>(
+            QStringLiteral("sidebar_splitter_state"));
+    }
 	if (sidebarSplitter && !splitterState.isEmpty()) {
 		sidebarSplitter->restoreState(splitterState);
 	} else if (sidebarSplitter) {
@@ -334,12 +340,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	LOG_DEBUG("MainWindow create finish");
 }
 
-MainWindow::~MainWindow()
-{
-    // QSystemTrayIcon survives the main window across account/logout cycles.
-    // Never leave a badge belonging to the previous session on its icon.
-    trayIcon.setIcon(IconUtils::applicationIcon());
-}
+MainWindow::~MainWindow() = default;
 
 static QString infoText()
 {
@@ -1446,8 +1447,13 @@ void MainWindow::refreshTrayIcon()
     _trayIconInitialized = true;
     _shownAttentionBadgeCount = _attentionBadgeCount;
     _shownChannelUnreadBadge = hasUnreadChannel;
-    trayIcon.setIcon(IconUtils::applicationIcon(_attentionBadgeCount,
-                                               hasUnreadChannel));
+    emit trayBadgeStateChanged(_attentionBadgeCount, hasUnreadChannel);
+    if (isWindow()) {
+        // Preserve the standalone MainWindow test/legacy behavior; embedded
+        // workspaces publish state for aggregation by their parent shell.
+        trayIcon.setIcon(IconUtils::applicationIcon(_attentionBadgeCount,
+                                                   hasUnreadChannel));
+    }
 }
 
 void MainWindow::saveState()
@@ -1460,10 +1466,16 @@ void MainWindow::saveState()
     if (isWindow()) {
         options->setValue(QStringLiteral("geometry"), saveGeometry());
     }
-	if (sidebarSplitter) {
-		options->setValue(
-			QStringLiteral("sidebar_splitter_state"), sidebarSplitter->saveState());
-	}
+    if (sidebarSplitter) {
+        const QByteArray state = sidebarSplitter->saveState();
+        const QString key = QStringLiteral("workspace/%1/sidebar_splitter_state")
+            .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+        options->setValue(key, state);
+        if (isWindow()) {
+            // Historical standalone MainWindow layout key is still readable.
+            options->setValue(QStringLiteral("sidebar_splitter_state"), state);
+        }
+    }
 }
 
 } /* namespace Mattermost */
