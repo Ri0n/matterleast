@@ -754,10 +754,13 @@ private slots:
         qInfo() << "duplicate-account: second candidate";
         bool firstReady = false;
         bool secondReady = false;
+        qInfo() << "duplicate-account: before first login";
         first->login(credentials(server, QStringLiteral("one-token")),
                      [&](const QString& token) { firstReady = !token.isEmpty(); });
+        qInfo() << "duplicate-account: after first login";
         duplicate->login(credentials(server, QStringLiteral("two-token")),
                          [&](const QString& token) { secondReady = !token.isEmpty(); });
+        qInfo() << "duplicate-account: after second login";
         QTRY_VERIFY(firstReady && secondReady);
         qInfo() << "duplicate-account: both logged in";
 
