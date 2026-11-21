@@ -58,6 +58,7 @@
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/TrayWindowController.h"
 #include "ui/AccountWorkspaceStack.h"
+#include "ui/AccountTrayBadgeModel.h"
 
 namespace Mattermost {
 
@@ -80,6 +81,7 @@ private:
 	std::unique_ptr<QMenu>				trayIconMenu;
 	std::unique_ptr<QSystemTrayIcon> 	trayIcon;
     std::unique_ptr<AccountWorkspaceStack>       workspaceShell;
+    AccountTrayBadgeModel                  trayBadges;
     MainWindow*                                  mainWindow = nullptr;
     QPointer<LoginDialog>                 loginDialog;
     TrayWindowController                 trayWindow;
@@ -232,10 +234,18 @@ void MattermostApplication::openLoginWindow()
             return;
         }
         mainWindow = page;
+        trayBadges.update(backend, 0, false);
+        connect(page, &MainWindow::trayBadgeStateChanged, this,
+                [this](uint32_t count, bool hasUnreadChannel) {
+            trayBadges.update(backend, count, hasUnreadChannel);
+            const auto combined = trayBadges.aggregate();
+            trayIcon->setIcon(IconUtils::applicationIcon(
+                combined.attentionCount, combined.hasUnreadChannel));
+        });
         page->installRealtimeUiSync();
         connect(page, &MainWindow::logoutRequested,
                 this, &MattermostApplication::beginLogout);
-        // 401 on this Backend must recover through the same safe logout flow.
+        // Session expiry is scoped to the selected Backend, not the process.
         connect(backend, &Backend::authenticationExpired, this,
                 [this] { beginLogout(); });
         trayWindow.setWindow(workspaceShell.get());
@@ -278,7 +288,10 @@ void MattermostApplication::beginLogout()
                 QStringLiteral("geometry"), workspaceShell->saveGeometry());
             workspaceShell.reset();
         }
-        trayIcon->setIcon(IconUtils::applicationIcon());
+        trayBadges.remove(backend);
+        const auto combined = trayBadges.aggregate();
+        trayIcon->setIcon(IconUtils::applicationIcon(
+            combined.attentionCount, combined.hasUnreadChannel));
         backend->logout([this] {
             logoutInProgress_ = false;
             openLoginWindow();
