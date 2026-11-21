@@ -5,7 +5,7 @@
 #include <QGuiApplication>
 
 #include "Backend.h"
-#include "AccountSessionManager.h"
+#include "AccountManager.h"
 #include "WebSocketConnector.h"
 
 #ifdef Q_OS_WIN
@@ -25,7 +25,7 @@
 
 namespace Mattermost {
 
-UserActivityMonitor::UserActivityMonitor(AccountSessionManager& accounts,
+UserActivityMonitor::UserActivityMonitor(AccountManager& accounts,
                                          QObject* parent)
     : QObject(parent)
     , _accounts(accounts)
@@ -36,7 +36,7 @@ UserActivityMonitor::UserActivityMonitor(AccountSessionManager& accounts,
     _sampleTimer.setInterval(1000);
     _sampleTimer.setTimerType(Qt::CoarseTimer);
     connect(&_sampleTimer, &QTimer::timeout, this, &UserActivityMonitor::sample);
-    connect(&_accounts, &AccountSessionManager::accountUnregistered, this,
+    connect(&_accounts, &AccountManager::accountUnregistered, this,
             [this](Backend* backend) { _accountPolicies.remove(backend); });
     _sampleTimer.start();
 }
