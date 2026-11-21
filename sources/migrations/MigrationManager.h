@@ -34,6 +34,7 @@ public:
     QString legacyLoginHint() const;
 
 private:
+    void executeStep(int version);
     void migrateLegacyLogin();
     void authenticateLegacy(const QString& server, const QString& login,
                             const QString& token, bool alreadyInKeychain);
@@ -44,6 +45,7 @@ private:
     MLOptions* const _options;
     Completion _completion;
     bool _running = false;
+    int _currentStep = 0;
 };
 
 } // namespace Mattermost

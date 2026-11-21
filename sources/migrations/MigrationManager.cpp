@@ -70,11 +70,31 @@ QString MigrationManager::legacyLoginHint() const
 
 void MigrationManager::finish(Result result)
 {
+    // Dispatch future steps one by one only after the previous version was
+    // durably recorded. A failed or deferred step must not advance the chain.
+    if (result == Result::Complete && _running
+        && _options->value<int>(kVersionKey, 0) >= _currentStep
+        && _currentStep < LatestVersion) {
+        executeStep(_currentStep + 1);
+        return;
+    }
     _running = false;
     auto callback = std::move(_completion);
     _completion = {};
     if (callback)
         callback(result);
+}
+
+void MigrationManager::executeStep(int version)
+{
+    _currentStep = version;
+    switch (version) {
+    case 1:
+        migrateLegacyLogin();
+        return;
+    default:
+        finish(Result::UnsupportedVersion);
+    }
 }
 
 void MigrationManager::completeLegacyMigration()
@@ -106,7 +126,7 @@ void MigrationManager::run(Completion callback)
         return;
     }
     _running = true;
-    migrateLegacyLogin();
+    executeStep(current + 1);
 }
 
 void MigrationManager::migrateLegacyLogin()
@@ -117,7 +137,8 @@ void MigrationManager::migrateLegacyLogin()
     if (!_accounts.empty()) {
         if (_options->value<QString>(kLegacyToken).isEmpty())
             completeLegacyMigration();
-        finish(Result::Complete);
+        finish(_options->value<QString>(kLegacyToken).isEmpty()
+            ? Result::Complete : Result::ManualSignInRequired);
         return;
     }
     const QString server = legacyServerHint();
@@ -172,9 +193,10 @@ void MigrationManager::authenticateLegacy(
             return;
         Backend* backend = guardedCandidate.data();
         if (verifiedToken.isEmpty()) {
+            const bool transient = backend->lastLoginFailureTransient();
             _accounts.discardCandidate(backend);
-            finish(backend->lastLoginFailureTransient()
-                   ? Result::Unavailable : Result::ManualSignInRequired);
+            finish(transient ? Result::Unavailable
+                             : Result::ManualSignInRequired);
             return;
         }
         const QString display = QUrl(backend->serverDomain()).host()
