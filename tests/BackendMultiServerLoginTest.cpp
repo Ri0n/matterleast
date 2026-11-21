@@ -708,7 +708,7 @@ private slots:
             QVERIFY(firstGuard.isNull());
             QVERIFY(!secondGuard.isNull());
             QCOMPARE(accounts.backendCount(), 1);
-            QCOMPARE(accounts.activeBackend(), nullptr);
+            QVERIFY(accounts.activeBackend() == nullptr);
         }
         // The surviving Backend has exactly one lifetime owner. QObject
         // deletes it with its AccountSessionManager, without any unique_ptr.
