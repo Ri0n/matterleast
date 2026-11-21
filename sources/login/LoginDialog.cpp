@@ -31,7 +31,8 @@
 
 namespace Mattermost {
 
-LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
+LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
+                         bool allowSavedSessionRestore)
 :QDialog(parent)
 ,backend (backend)
 ,ui(new Ui::LoginDialog)
@@ -64,7 +65,8 @@ LoginDialog::LoginDialog (QWidget *parent, Backend& backend)
 
     // Keyring access can unlock the desktop wallet. Never block the UI or
     // attempt password login while an asynchronous read is pending.
-    if (backend.autoLoginEnabled() && !loginData.domain.isEmpty()
+    if (allowSavedSessionRestore && backend.autoLoginEnabled()
+        && !loginData.domain.isEmpty()
         && !loginData.username.isEmpty()) {
         _autoLoginEnabled = true;
         // Keep cancellation available even while the keyring is being read.

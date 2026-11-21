@@ -2,11 +2,14 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
+#include <QLineEdit>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QStandardPaths>
 
 #include "backend/Backend.h"
+#include "login/LoginDialog.h"
 #include "backend/LoginResponsePolicy.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendLoginData.h"
@@ -114,6 +117,38 @@ private slots:
         QCOMPARE(settings->value<QString>(QStringLiteral("token")),
                  QStringLiteral("legacy-only"));
         settings->setValue<QString>(QStringLiteral("token"), QString());
+    }
+
+    void additionalAccountLoginNeverAutoRestoresLastUsedToken()
+    {
+        auto* settings = MLOptions::instance();
+        const QString oldDomain = settings->value<QString>(QStringLiteral("domain"));
+        const QString oldUsername = settings->value<QString>(QStringLiteral("username"));
+        const QString oldToken = settings->value<QString>(QStringLiteral("token"));
+        settings->setValue(QStringLiteral("domain"),
+                           QStringLiteral("https://other.example.test/"));
+        settings->setValue(QStringLiteral("username"),
+                           QStringLiteral("previous-account"));
+        settings->setValue(QStringLiteral("token"),
+                           QStringLiteral("old-saved-token"));
+
+        Backend second;
+        {
+            LoginDialog addDialog(nullptr, second, false);
+            auto* host = addDialog.findChild<QLineEdit*>(
+                QStringLiteral("domain_lineEdit"));
+            auto* progress = addDialog.findChild<QLabel*>(
+                QStringLiteral("loginInProgressLabel"));
+            QVERIFY(host);
+            QVERIFY(progress);
+            QVERIFY(host->isEnabled());
+            QVERIFY(progress->isHidden());
+            QVERIFY(!second.loggedIn());
+            QVERIFY(second.networkSession().host().isEmpty());
+        }
+        settings->setValue(QStringLiteral("domain"), oldDomain);
+        settings->setValue(QStringLiteral("username"), oldUsername);
+        settings->setValue(QStringLiteral("token"), oldToken);
     }
 
     void canCancelInFlightSavedSessionAndConnectToAnotherServer()

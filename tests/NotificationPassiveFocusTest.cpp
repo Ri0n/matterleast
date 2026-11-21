@@ -94,7 +94,7 @@ private slots:
         QVERIFY2(!source.isEmpty(), "Cannot read MainWindowRealtime source");
         const QString activation = functionSection(
             source,
-            QStringLiteral("connect(notificationManager.get(), &NotificationManager::activated,"),
+            QStringLiteral("connect(notificationManager, &NotificationManager::activated,"),
             QStringLiteral("// Server-originated ephemeral posts"));
         QVERIFY2(!activation.isEmpty(), "Cannot locate notification action handler");
         QVERIFY(activation.contains(QStringLiteral("raise();")));

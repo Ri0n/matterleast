@@ -92,19 +92,24 @@ void MainWindow::installRealtimeUiSync()
     // Notification post targets use the same semantic navigation service as
     // permalinks, Following and Attention. A reply can therefore load its root
     // and exact thread position before the concrete target widget is presented.
-    connect(notificationManager.get(), &NotificationManager::activated,
+    connect(notificationManager, &NotificationManager::activated,
             this, [this](const NotificationTarget& target) {
         if (!target.isValid()) {
             return;
         }
 
-        if (isMinimized()) {
-            showNormal();
+        // The current page can be hidden behind another server in the shared
+        // workspace stack. Select this Backend first, then raise only the
+        // real top-level shell. Never turn a child MainWindow into a window.
+        emit presentAccountRequested();
+        QWidget* topLevel = window();
+        if (topLevel->isMinimized()) {
+            topLevel->showNormal();
         } else {
-            show();
+            topLevel->show();
         }
-        raise();
-        activateWindow();
+        topLevel->raise();
+        topLevel->activateWindow();
 
         // Public/private channels have an intrinsic team. Make that team the
         // visible sidebar context before semantic navigation opens the target.
@@ -120,7 +125,7 @@ void MainWindow::installRealtimeUiSync()
     });
 
     auto& plugins = PluginManager::instance(backend);
-    connect(notificationManager.get(), &NotificationManager::incomingCallAnswered,
+    connect(notificationManager, &NotificationManager::incomingCallAnswered,
             &plugins, &PluginManager::answerIncomingCall);
     auto* ringTimer = new QTimer(this);
     ringTimer->setInterval(2600);
