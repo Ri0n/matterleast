@@ -3,6 +3,7 @@
 #include <functional>
 
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 namespace Mattermost {
@@ -30,6 +31,8 @@ public:
     MigrationManager(AccountManager& accounts, QObject* parent = nullptr);
 
     void run(Completion callback);
+    bool isRunning() const { return _running; }
+    void cancel(); // Explicit user login supersedes automatic migration.
     QString legacyServerHint() const;
     QString legacyLoginHint() const;
 
@@ -46,6 +49,7 @@ private:
     Completion _completion;
     bool _running = false;
     int _currentStep = 0;
+    QPointer<Backend> _candidate;
 };
 
 } // namespace Mattermost

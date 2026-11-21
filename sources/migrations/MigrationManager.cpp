@@ -68,6 +68,18 @@ QString MigrationManager::legacyLoginHint() const
     return _options->value<QString>(kLegacyUsername);
 }
 
+void MigrationManager::cancel()
+{
+    if (!_running)
+        return;
+    _running = false;
+    _completion = {};
+    QPointer<Backend> candidate = _candidate;
+    _candidate.clear();
+    if (candidate && candidate->parent() == &_accounts)
+        _accounts.discardCandidate(candidate.data());
+}
+
 void MigrationManager::finish(Result result)
 {
     // Dispatch future steps one by one only after the previous version was
@@ -79,6 +91,7 @@ void MigrationManager::finish(Result result)
         return;
     }
     _running = false;
+    _candidate.clear();
     auto callback = std::move(_completion);
     _completion = {};
     if (callback)
@@ -189,6 +202,7 @@ void MigrationManager::authenticateLegacy(
     const QString& token, bool alreadyInKeychain)
 {
     Backend* candidate = _accounts.createLoginBackend();
+    _candidate = candidate;
     QPointer<Backend> guardedCandidate(candidate);
     QPointer<MigrationManager> guard(this);
 

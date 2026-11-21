@@ -414,6 +414,10 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
                                             const QString& suggestedServer,
                                             const QString& suggestedLogin)
 {
+    // User-triggered login wins over any outstanding legacy keyring lookup,
+    // HTTP identity check or asynchronous migration attempt.
+    if (migrations.isRunning())
+        migrations.cancel();
     if (!workspaceShell && !closingAccounts.isEmpty())
         return;
     if (loginDialog) {
