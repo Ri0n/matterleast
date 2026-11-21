@@ -4,6 +4,7 @@
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QPointer>
+#include <QTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -703,7 +704,12 @@ private slots:
 
             QSignalSpy firstDestroyed(&first, &QObject::destroyed);
             QVERIFY(firstDestroyed.isValid());
+            bool deliveredAfterDeletion = false;
+            QTimer::singleShot(0, &first,
+                               [&] { deliveredAfterDeletion = true; });
             QVERIFY(accounts.removeBackend(first));
+            QCoreApplication::processEvents();
+            QVERIFY(!deliveredAfterDeletion);
             QCOMPARE(firstDestroyed.count(), 1);
             QVERIFY(firstGuard.isNull());
             QVERIFY(!secondGuard.isNull());
