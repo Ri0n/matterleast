@@ -11,6 +11,7 @@
 
 #include <QApplication>
 #include <QStringList>
+#include <QVariant>
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include <QWidget>
@@ -28,6 +29,7 @@ namespace Mattermost {
 namespace {
 
 constexpr int IncomingCallDurationMs = 30000;
+constexpr char LastTrayMessageOwnerProperty[] = "_matterleast_last_tray_message_owner";
 
 int notificationDisplayDurationMs(const QString& title, const QString& body)
 {
@@ -140,6 +142,8 @@ NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* par
 
 NotificationManager::~NotificationManager()
 {
+    if (trayIcon.property(LastTrayMessageOwnerProperty).value<QObject*>() == this)
+        trayIcon.setProperty(LastTrayMessageOwnerProperty, QVariant());
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
     for (auto it = freedesktopTargets.cbegin(); it != freedesktopTargets.cend(); ++it) {
         if (!it->callId.isEmpty()) {
@@ -160,6 +164,11 @@ void NotificationManager::show(const QString& title, const QString& body,
 #endif
 
     fallbackTarget = target;
+    // QSystemTrayIcon::messageClicked carries no notification ID. Only the
+    // manager that displayed the latest fallback popup may handle its click;
+    // otherwise two server windows could navigate using stale targets.
+    trayIcon.setProperty(LastTrayMessageOwnerProperty,
+                         QVariant::fromValue(static_cast<QObject*>(this)));
     trayIcon.showMessage(title, body, QSystemTrayIcon::Information,
                          target.callId.isEmpty() ? notificationDisplayDurationMs(title, body)
                                                  : IncomingCallDurationMs);
@@ -205,12 +214,14 @@ void NotificationManager::closeIncomingCall(const QString& callId)
 
 void NotificationManager::onFallbackMessageClicked()
 {
-    if (!fallbackTarget.isValid()) {
+    if (trayIcon.property(LastTrayMessageOwnerProperty).value<QObject*>() != this
+        || !fallbackTarget.isValid()) {
         return;
     }
 
     const NotificationTarget target = fallbackTarget;
     fallbackTarget = NotificationTarget {};
+    trayIcon.setProperty(LastTrayMessageOwnerProperty, QVariant());
     emit activated(target);
 }
 
