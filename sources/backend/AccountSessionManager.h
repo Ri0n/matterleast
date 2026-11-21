@@ -5,6 +5,8 @@
 #include <QString>
 #include <QVector>
 
+class QChildEvent;
+
 namespace Mattermost {
 
 class Backend;
@@ -24,29 +26,33 @@ public:
 
     // Creates a non-authenticated Backend. Register it only after a successful
     // login, once its session origin and server user identity are known.
-    Backend& createLoginBackend();
-    bool registerAuthenticated(Backend& backend);
-    bool unregisterAccount(Backend& backend);
+    Backend* createLoginBackend();
+    bool registerAuthenticated(Backend* backend);
+    bool unregisterAccount(Backend* backend);
 
     Backend* findAccount(const QString& serverBaseUrl,
                          const QString& serverUserId) const;
     Backend* activeBackend() const { return _activeBackend; }
     // Stable registration order; excludes uncommitted login attempts.
     QVector<Backend*> registeredBackends() const;
-    bool activate(Backend& backend);
+    bool activate(Backend* backend);
     int registeredCount() const { return static_cast<int>(_registered.size()); }
     int backendCount() const { return static_cast<int>(_sessions.size()); }
 
     // Caller must release all UI referencing the Backend and log out (or
     // cancel its pending login) before removing it.
-    bool removeBackend(Backend& backend);
+    bool removeBackend(Backend* backend);
 
 signals:
     void accountRegistered(Backend* backend);
     void accountUnregistered(Backend* backend);
     void activeBackendChanged(Backend* backend);
 
+protected:
+    void childEvent(QChildEvent* event) override;
+
 private:
+    void forgetBackend(Backend* backend);
     struct Registration {
         QString key;
         QMetaObject::Connection endingConnection;
