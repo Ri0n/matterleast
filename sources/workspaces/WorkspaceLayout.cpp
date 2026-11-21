@@ -1,4 +1,5 @@
 #include "WorkspaceLayout.h"
+#include "backend/AccountIdentity.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -6,6 +7,7 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QSet>
+#include <QUrl>
 
 namespace Mattermost {
 namespace {
@@ -49,6 +51,17 @@ bool hasString(const QJsonObject& object, const char* key)
     return object.value(QLatin1String(key)).isString();
 }
 
+QString remoteIdentityKey(const WorkspaceLayout::Account& account)
+{
+    if (!account.hasConnectionIdentity())
+        return {};
+    const QUrl url(account.serverBaseUrl);
+    // Configuration is a plain server base URL, not a navigable link.
+    if (!url.isValid() || url.hasQuery() || url.hasFragment())
+        return {};
+    return accountIdentityKey(account.serverBaseUrl, account.serverUserId);
+}
+
 } // namespace
 
 const WorkspaceLayout::Profile* WorkspaceLayout::findProfile(const QString& id) const
@@ -71,10 +84,21 @@ bool WorkspaceLayout::validate(QString* error) const
         return reject(error, QStringLiteral("Missing accounts, profiles or views"));
 
     QSet<QString> accountIds;
+    QSet<QString> identities;
     for (const Account& account : accounts) {
         if (account.id.isEmpty() || account.name.isEmpty()
             || accountIds.contains(account.id))
             return reject(error, QStringLiteral("Invalid or duplicate account"));
+        const bool anyIdentity = !account.serverBaseUrl.isEmpty()
+            || !account.serverUserId.isEmpty() || !account.loginName.isEmpty();
+        if (anyIdentity) {
+            if (!account.hasConnectionIdentity() || account.loginName.trimmed().isEmpty())
+                return reject(error, QStringLiteral("Incomplete account identity"));
+            const QString key = remoteIdentityKey(account);
+            if (key.isEmpty() || identities.contains(key))
+                return reject(error, QStringLiteral("Invalid or duplicate remote account"));
+            identities.insert(key);
+        }
         accountIds.insert(account.id);
     }
 
@@ -158,7 +182,10 @@ QByteArray WorkspaceLayout::toJson() const
     for (const Account& account : accounts)
         accountArray.append(QJsonObject{
             {QStringLiteral("id"), account.id},
-            {QStringLiteral("name"), account.name}});
+            {QStringLiteral("name"), account.name},
+            {QStringLiteral("serverBaseUrl"), account.serverBaseUrl},
+            {QStringLiteral("serverUserId"), account.serverUserId},
+            {QStringLiteral("loginName"), account.loginName}});
 
     QJsonArray profileArray;
     for (const Profile& profile : profiles)
@@ -176,7 +203,7 @@ QByteArray WorkspaceLayout::toJson() const
             {QStringLiteral("accountIds"), jsonIds(view.accountIds)}});
 
     return QJsonDocument(QJsonObject{
-        {QStringLiteral("version"), 1},
+        {QStringLiteral("version"), 2},
         {QStringLiteral("accounts"), accountArray},
         {QStringLiteral("profiles"), profileArray},
         {QStringLiteral("views"), viewArray},
@@ -194,7 +221,8 @@ WorkspaceLayout::fromJson(const QByteArray& json, QString* error)
         return std::nullopt;
     }
     const QJsonObject root = document.object();
-    if (root.value(QStringLiteral("version")).toInt(-1) != 1) {
+    const int version = root.value(QStringLiteral("version")).toInt(-1);
+    if (version != 1 && version != 2) {
         reject(error, QStringLiteral("Unsupported workspace version"));
         return std::nullopt;
     }
@@ -217,8 +245,21 @@ WorkspaceLayout::fromJson(const QByteArray& json, QString* error)
             return std::nullopt;
         }
         const QJsonObject object = item.toObject();
-        layout.accounts.append({object.value(QStringLiteral("id")).toString(),
-                                object.value(QStringLiteral("name")).toString()});
+        Account account;
+        account.id = object.value(QStringLiteral("id")).toString();
+        account.name = object.value(QStringLiteral("name")).toString();
+        if (version == 2) {
+            if (!hasString(object, "serverBaseUrl")
+                || !hasString(object, "serverUserId")
+                || !hasString(object, "loginName")) {
+                reject(error, QStringLiteral("Malformed account identity"));
+                return std::nullopt;
+            }
+            account.serverBaseUrl = object.value(QStringLiteral("serverBaseUrl")).toString();
+            account.serverUserId = object.value(QStringLiteral("serverUserId")).toString();
+            account.loginName = object.value(QStringLiteral("loginName")).toString();
+        }
+        layout.accounts.append(account);
     }
 
     for (const QJsonValue& item : profilesValue.toArray()) {

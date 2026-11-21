@@ -1,4 +1,7 @@
 #include <QtTest>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "workspaces/WorkspaceLayout.h"
 
@@ -117,6 +120,75 @@ private slots:
         QCOMPARE(restored->toJson(), encoded);
     }
 
+    void persistedAccountIdentityAndLegacyMigration()
+    {
+        WorkspaceLayout layout = sampleLayout();
+        auto& account = layout.accounts[0];
+        account.serverBaseUrl = QStringLiteral("https://chat.example.org/mm/");
+        account.serverUserId = QStringLiteral("user-42");
+        account.loginName = QStringLiteral("alice@example.org");
+        QVERIFY(layout.validate());
+        const QByteArray encoded = layout.toJson();
+        QCOMPARE(QJsonDocument::fromJson(encoded).object().value(QStringLiteral("version")).toInt(), 2);
+        QVERIFY(!encoded.contains("password"));
+        QVERIFY(!encoded.contains("token"));
+        auto restored = WorkspaceLayout::fromJson(encoded);
+        QVERIFY(restored.has_value());
+        QVERIFY(restored->accounts[0].hasConnectionIdentity());
+        QCOMPARE(restored->accounts[0].id, QStringLiteral("s1"));
+        QCOMPARE(restored->accounts[0].serverBaseUrl, account.serverBaseUrl);
+        QCOMPARE(restored->accounts[0].serverUserId, account.serverUserId);
+        QCOMPARE(restored->accounts[0].loginName, account.loginName);
+
+        // Pre-v2 topology contains only an account ID and display name.
+        QJsonObject legacy = QJsonDocument::fromJson(encoded).object();
+        legacy.insert(QStringLiteral("version"), 1);
+        QJsonArray records;
+        for (const QJsonValue& item : legacy.value(QStringLiteral("accounts")).toArray()) {
+            QJsonObject record = item.toObject();
+            record.remove(QStringLiteral("serverBaseUrl"));
+            record.remove(QStringLiteral("serverUserId"));
+            record.remove(QStringLiteral("loginName"));
+            records.append(record);
+        }
+        legacy.insert(QStringLiteral("accounts"), records);
+        auto old = WorkspaceLayout::fromJson(
+            QJsonDocument(legacy).toJson(QJsonDocument::Compact));
+        QVERIFY(old.has_value());
+        QCOMPARE(old->accounts[0].id, QStringLiteral("s1"));
+        QVERIFY(!old->accounts[0].hasConnectionIdentity());
+    }
+
+    void rejectsPartialDuplicateAndInvalidRemoteAccounts()
+    {
+        WorkspaceLayout layout = sampleLayout();
+        auto& first = layout.accounts[0];
+        first.serverBaseUrl = QStringLiteral("https://chat.example.org/mm");
+        QVERIFY(!layout.validate());
+        first.serverUserId = QStringLiteral("user-1");
+        first.loginName = QStringLiteral("alice");
+        QVERIFY(layout.validate());
+        first.serverBaseUrl = QStringLiteral("file:///tmp/");
+        QVERIFY(!layout.validate());
+        first.serverBaseUrl = QStringLiteral("https://chat.example.org/mm");
+        auto& second = layout.accounts[1];
+        second.serverBaseUrl = QStringLiteral("https://CHAT.example.org:443/mm/");
+        second.serverUserId = QStringLiteral("user-1");
+        second.loginName = QStringLiteral("alice");
+        QVERIFY(!layout.validate());
+        second.serverUserId = QStringLiteral("user-2");
+        QVERIFY(layout.validate());
+
+        QJsonObject malformed = QJsonDocument::fromJson(layout.toJson()).object();
+        QJsonArray records = malformed.value(QStringLiteral("accounts")).toArray();
+        QJsonObject record = records[0].toObject();
+        record.remove(QStringLiteral("serverUserId"));
+        records.replace(0, record);
+        malformed.insert(QStringLiteral("accounts"), records);
+        QVERIFY(!WorkspaceLayout::fromJson(
+            QJsonDocument(malformed).toJson(QJsonDocument::Compact)));
+    }
+
     void badMembershipIsRejectedWithoutPartialActivation()
     {
         WorkspaceLayout layout = sampleLayout();
@@ -159,7 +231,7 @@ private slots:
         QVERIFY(!error.isEmpty());
         const QByteArray encoded = sampleLayout().toJson();
         QByteArray future = encoded;
-        future.replace("\"version\":1", "\"version\":2");
+        future.replace("\"version\":2", "\"version\":3");
         QVERIFY(!WorkspaceLayout::fromJson(future, &error));
         QVERIFY(error.contains(QStringLiteral("version")));
         QByteArray badIds = encoded;
