@@ -687,6 +687,34 @@ private slots:
         QVERIFY(sawOne && sawTwo);
     }
 
+    void managerOwnsBackendsThroughQObjectParentage()
+    {
+        QPointer<Backend> firstGuard;
+        QPointer<Backend> secondGuard;
+        {
+            AccountSessionManager accounts;
+            Backend& first = accounts.createLoginBackend();
+            Backend& second = accounts.createLoginBackend();
+            firstGuard = &first;
+            secondGuard = &second;
+            QCOMPARE(first.parent(), static_cast<QObject*>(&accounts));
+            QCOMPARE(second.parent(), static_cast<QObject*>(&accounts));
+            QCOMPARE(accounts.backendCount(), 2);
+
+            QSignalSpy firstDestroyed(&first, &QObject::destroyed);
+            QVERIFY(firstDestroyed.isValid());
+            QVERIFY(accounts.removeBackend(first));
+            QCOMPARE(firstDestroyed.count(), 1);
+            QVERIFY(firstGuard.isNull());
+            QVERIFY(!secondGuard.isNull());
+            QCOMPARE(accounts.backendCount(), 1);
+            QCOMPARE(accounts.activeBackend(), nullptr);
+        }
+        // The surviving Backend has exactly one lifetime owner. QObject
+        // deletes it with its AccountSessionManager, without any unique_ptr.
+        QVERIFY(secondGuard.isNull());
+    }
+
     void duplicateSessionRegistrationCannotReplaceAnExistingAccount()
     {
         FakeMattermostServer server(QByteArrayLiteral("same-user"));
