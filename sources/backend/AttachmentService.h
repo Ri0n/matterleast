@@ -23,6 +23,9 @@ public:
     using DownloadCallback = std::function<void(const QByteArray&, const QString&)>;
 
     static AttachmentService& instance(Backend& backend);
+    // Logout invalidates session-local saved-file references and callbacks.
+    // The service itself remains Backend-owned for a subsequent login.
+    void clearSessionState();
 
     void retrieveFile(const QString& fileId, Callback callback);
     void downloadFile(const QString& fileId, DownloadCallback callback);

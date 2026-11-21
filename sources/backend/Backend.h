@@ -35,7 +35,6 @@
 #include <QPointer>
 #include <QList>
 #include <QSet>
-#include <QNetworkDiskCache>
 #include <QAtomicInteger>
 #include <QTimer>
 #include <QStringList>
@@ -423,7 +422,6 @@ private:
     WebSocketEventHandler			webSocketEventHandler;
     WebSocketConnector				webSocketConnector;
     BackendLoginData				loginData;
-    QNetworkDiskCache				attachmentsCache;
     RequestTracker					requestTracker;
     QPointer<BackendChannel>            currentChannel;
     QString                             currentTeamContextId;

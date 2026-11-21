@@ -113,7 +113,8 @@ public:
                             {QStringLiteral("name"), QStringLiteral("team-") + QString::fromUtf8(id)},
                             {QStringLiteral("display_name"), QStringLiteral("Distinct Team")}
                         }).toJson(QJsonDocument::Compact);
-                    } else if (requestLine.startsWith("GET /api/v4/files/shared-file ")) {
+                    } else if (requestLine.startsWith("GET /api/v4/files/shared-file ")
+                               || requestLine.startsWith("GET /api/v4/files/legacy-file ")) {
                         ++fileRequests;
                         fileCookies.append(cookie);
                         body = QByteArrayLiteral("bytes-") + id;
@@ -153,9 +154,13 @@ public:
                             ? QByteArrayLiteral("Set-Cookie: STREAMONLY=")
                                 + id + QByteArrayLiteral("\r\n")
                             : QByteArray();
+                    const QByteArray cacheControl =
+                        requestLine.startsWith("GET /api/v4/files/legacy-file ")
+                            ? QByteArrayLiteral("Cache-Control: private, max-age=3600\r\n")
+                            : QByteArray();
                     socket->write(QByteArrayLiteral("HTTP/1.1 ") + status
                         + QByteArrayLiteral("\r\nContent-Type: application/json\r\n")
-                        + setCookie
+                        + setCookie + cacheControl
                         + QByteArrayLiteral("Connection: close"
                                             "\r\nContent-Length: ")
                         + QByteArray::number(body.size())
@@ -391,6 +396,34 @@ private slots:
         for (const QByteArray& cookie : serverTwo.fileCookies)
             QVERIFY(!cookie.contains("STREAMONLY"));
 
+        // Backend::retrieveFile() previously kept a second, process-wide
+        // disk cache keyed only by file ID. It must now use the owning
+        // AttachmentService's HTTP cache and never mix equal IDs across origins.
+        // A distinct path avoids prewarming this check in the earlier downloads.
+        QByteArray firstLegacyFile;
+        QByteArray secondLegacyFile;
+        backendOne.retrieveFile(QStringLiteral("legacy-file"),
+            [&](const QByteArray& data) { firstLegacyFile = data; });
+        backendTwo.retrieveFile(QStringLiteral("legacy-file"),
+            [&](const QByteArray& data) { secondLegacyFile = data; });
+        QTRY_COMPARE(firstLegacyFile, QByteArrayLiteral("bytes-user-one"));
+        QTRY_COMPARE(secondLegacyFile, QByteArrayLiteral("bytes-user-two"));
+        QCOMPARE(serverOne.fileRequests, 4);
+        QCOMPARE(serverTwo.fileRequests, 4);
+
+        // A second read should use each account's own cached content rather
+        // than a shared last-writer entry or another network fetch.
+        QByteArray firstCachedFile;
+        QByteArray secondCachedFile;
+        backendOne.retrieveFile(QStringLiteral("legacy-file"),
+            [&](const QByteArray& data) { firstCachedFile = data; });
+        backendTwo.retrieveFile(QStringLiteral("legacy-file"),
+            [&](const QByteArray& data) { secondCachedFile = data; });
+        QTRY_COMPARE(firstCachedFile, QByteArrayLiteral("bytes-user-one"));
+        QTRY_COMPARE(secondCachedFile, QByteArrayLiteral("bytes-user-two"));
+        QCOMPARE(serverOne.fileRequests, 4);
+        QCOMPARE(serverTwo.fileRequests, 4);
+
         QString firstChannel;
         QString secondChannel;
         ChannelReferenceService::instance(backendOne).resolve(
@@ -592,6 +625,53 @@ private slots:
                  &duplicate);
         QVERIFY(sessions.removeBackend(first));
         QCOMPARE(sessions.backendCount(), 1);
+    }
+
+    void savedAttachmentPathsDoNotSurviveAccountSwitch()
+    {
+        FakeMattermostServer firstServer(QByteArrayLiteral("old-account"));
+        FakeMattermostServer secondServer(QByteArrayLiteral("new-account"));
+        QVERIFY(firstServer.listen(QHostAddress::LocalHost));
+        QVERIFY(secondServer.listen(QHostAddress::LocalHost));
+
+        Backend backend;
+        bool firstReady = false;
+        backend.login(credentials(firstServer, QStringLiteral("old-token")),
+                      [&](const QString& token) { firstReady = !token.isEmpty(); });
+        QTRY_VERIFY(firstReady);
+
+        QTemporaryDir local;
+        QVERIFY(local.isValid());
+        const QString savedPath = local.filePath(QStringLiteral("saved.bin"));
+        QFile saved(savedPath);
+        QVERIFY(saved.open(QIODevice::WriteOnly));
+        QCOMPARE(saved.write(QByteArrayLiteral("old-account-private-bytes")),
+                 qint64(QByteArrayLiteral("old-account-private-bytes").size()));
+        saved.close();
+
+        AttachmentService& attachments = AttachmentService::instance(backend);
+        attachments.rememberLocalFile(QStringLiteral("shared-file"), savedPath);
+        QCOMPARE(attachments.localFilePath(QStringLiteral("shared-file")),
+                 savedPath);
+
+        backend.reset();
+        QVERIFY(attachments.localFilePath(QStringLiteral("shared-file")).isEmpty());
+
+        bool secondReady = false;
+        backend.login(credentials(secondServer, QStringLiteral("new-token")),
+                      [&](const QString& token) { secondReady = !token.isEmpty(); });
+        QTRY_VERIFY(secondReady);
+        // Backend remains the same QObject across both authenticated sessions;
+        // a new server must not inherit previously saved local file paths.
+        QVERIFY(attachments.localFilePath(QStringLiteral("shared-file")).isEmpty());
+        QByteArray secondData;
+        backend.retrieveFile(QStringLiteral("shared-file"),
+                             [&](const QByteArray& data) { secondData = data; });
+        QTRY_COMPARE(secondData, QByteArrayLiteral("bytes-new-account"));
+        QCOMPARE(firstServer.fileRequests, 0);
+        QCOMPARE(secondServer.fileRequests, 1);
+        checkCookies(secondServer.fileCookies,
+                     "new-token", "old-token");
     }
 
     void cancellationOfOneLoginDoesNotCancelTheOther()

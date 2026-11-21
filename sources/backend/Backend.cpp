@@ -55,6 +55,7 @@
 #include <QList>
 
 #include "NetworkRequest.h"
+#include "AttachmentService.h"
 #include "ServerUiService.h"
 #include "CustomEmojiService.h"
 #include "UploadTrace.h"
@@ -431,8 +432,6 @@ Backend::Backend(QObject *parent)
 		}
 	});
 
-	attachmentsCache.setCacheDirectory (QDir (QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("attachments"));
-	attachmentsCache.setMaximumCacheSize (300 * 1024 * 1024);
     // Keep the backend-scoped lazy custom resolver connected before
     // login/post loading so registry misses can never be lost.
     (void)CustomEmojiService::instance(*this);
@@ -709,6 +708,10 @@ void Backend::reset ()
 	//reinit all network connectors
 	timeoutTimer.disconnect ();
     HTTPConnector::resetSessionTransports(&_networkSession);
+    if (auto* attachments = findChild<AttachmentService*>(
+            QString(), Qt::FindDirectChildrenOnly)) {
+        attachments->clearSessionState();
+    }
 	webSocketConnector.close ();
     // Session projections must not retain pointers into the old Storage after
     // logout. Previously currentChannel could still point to a deleted
@@ -737,6 +740,10 @@ void Backend::prepareForLogout()
     // handlers are suppressed instead of touching destroyed post widgets.
     webSocketConnector.close();
     HTTPConnector::resetSessionTransports(&_networkSession);
+    if (auto* attachments = findChild<AttachmentService*>(
+            QString(), Qt::FindDirectChildrenOnly)) {
+        attachments->clearSessionState();
+    }
 }
 
 void Backend::logout(std::function<void()> callback)
@@ -1036,39 +1043,13 @@ void Backend::retrieveUserAvatar (const QString & userID)
 	}));
 }
 
-void Backend::retrieveFile (const QString & fileID, std::function<void(const QByteArray&)> callback)
+void Backend::retrieveFile(const QString& fileID,
+                           std::function<void(const QByteArray&)> callback)
 {
-	NetworkRequest request (_networkSession, "files/" + fileID, true);
-
-	QIODevice* cachedFile = attachmentsCache.data (fileID);
-
-	if (cachedFile) {
-		//LOG_DEBUG ("Retrieve File " << fileID << " done (from custom cache). Attachment cache size: " << attachmentsCache.cacheSize());
-
-		/**
-		 * Do not call callback in the same stack frame
-		 * so that the same behavior is achieved like non-cached files.
-		 * The behavior may matter in cases like widget resize, when the file is received
-		 */
-		QTimer::singleShot(1, [callback, cachedFile] {
-			callback (cachedFile->readAll());
-			cachedFile->close();
-			delete cachedFile;
-		});
-		return;
-	}
-
-	QNetworkCacheMetaData metaData;
-	metaData.setUrl(fileID);
-	QIODevice* cacheIO = attachmentsCache.prepare(metaData);
-
-	request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
-	httpConnector.get (request, HttpResponseCallback ([this, fileID, callback, cacheIO](QVariant, QByteArray data) {
-		//LOG_DEBUG ("Retrieve File " << fileID << " done");
-		cacheIO->write (data);
-		attachmentsCache.insert (cacheIO);
-		callback (data);
-	}));
+    // AttachmentService already shares this Backend's isolated HTTP transport,
+    // account-partitioned disk cache and coalesced requests for the same file.
+    // A second cache keyed only by file ID could return another server's bytes.
+    AttachmentService::instance(*this).retrieveFile(fileID, std::move(callback));
 }
 
 /**
