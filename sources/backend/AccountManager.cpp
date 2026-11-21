@@ -96,7 +96,8 @@ QVector<Backend*> AccountManager::registeredBackends() const
 {
     QVector<Backend*> result;
     for (Account* item : allAccounts())
-        if (item->backend() && item->state() == AccountConnectionState::Connected)
+        if (item->backend() && item->backend()->loggedIn()
+            && item->state() == AccountConnectionState::Connected)
             result.append(item->backend());
     return result;
 }
@@ -104,7 +105,9 @@ QVector<Backend*> AccountManager::registeredBackends() const
 Backend* AccountManager::activeBackend() const
 {
     Account* item = account(_selectedId);
-    return item ? item->backend() : nullptr;
+    return item && item->state() == AccountConnectionState::Connected
+        && item->backend() && item->backend()->loggedIn()
+        ? item->backend() : nullptr;
 }
 
 bool AccountManager::selectAccount(const QString& id)
@@ -142,7 +145,8 @@ Backend* AccountManager::findAccount(const QString& server,
         if (record && record->hasConnectionIdentity()
             && key == accountIdentityKey(record->serverBaseUrl,
                                          record->serverUserId))
-            return item->backend();
+            return item->backend() && item->backend()->loggedIn()
+                ? item->backend() : nullptr;
     }
     return nullptr;
 }
@@ -203,6 +207,8 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
         return nullptr;
 
     Account* existing = account(id);
+    if (existing && existing->backend() == backend)
+        return existing; // Re-registering the same live session is harmless.
     if (existing && (existing->backend()
                      || (existing->pendingBackend()
                          && existing->pendingBackend() != backend)))
@@ -212,8 +218,13 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
         return nullptr;
+    const bool firstAccount = _selectedId.isEmpty();
+    if (firstAccount)
+        _selectedId = id;
     rebuildModel();
     persist();
+    if (firstAccount)
+        emit activeBackendChanged(backend);
     emit accountRegistered(backend);
     emit accountConnected(item, backend);
     return item;
@@ -325,6 +336,8 @@ void AccountManager::prepareStop(Account* item, bool authenticationExpired)
     if (const auto* record = item->record())
         SessionTokenStore::remove(this, record->serverBaseUrl, record->loginName);
     item->backend()->prepareForLogout();
+    if (_selectedId == item->id())
+        emit activeBackendChanged(nullptr);
 }
 
 void AccountManager::finishBackendRemoval(Account* item, Backend* backend)
