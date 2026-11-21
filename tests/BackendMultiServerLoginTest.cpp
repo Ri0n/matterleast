@@ -57,8 +57,13 @@ public:
                         ++identityRequests;
                         identityCookies.append(cookie);
                         if (holdIdentity) return;
+                        QString userId = QString::fromUtf8(id);
+                        if (separateIdentitiesByToken) {
+                            userId += cookie.contains("MMAUTHTOKEN=token-two")
+                                ? QStringLiteral("-two") : QStringLiteral("-one");
+                        }
                         body = QJsonDocument(QJsonObject{
-                            {QStringLiteral("id"), QString::fromUtf8(id)},
+                            {QStringLiteral("id"), userId},
                             {QStringLiteral("username"), QStringLiteral("fixture")}
                         }).toJson(QJsonDocument::Compact);
                     } else if (requestLine.startsWith("GET /api/v4/config/client?format=old ")) {
@@ -168,6 +173,7 @@ public:
 
     QByteArray id;
     bool holdIdentity = false;
+    bool separateIdentitiesByToken = false;
     int identityRequests = 0;
     int preferencesRequests = 0;
     int profileRequests = 0;
@@ -484,6 +490,56 @@ private slots:
         });
         QTRY_COMPARE(profileAfterOtherReset, QStringLiteral("user-two-profile"));
         checkCookies(serverTwo.profileCookies, "token-two", "token-one");
+    }
+
+    void twoUsersOnSameServerHaveSeparateBackendIdentities()
+    {
+        FakeMattermostServer server(QByteArrayLiteral("shared-server"));
+        server.separateIdentitiesByToken = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+
+        AccountSessionManager sessions;
+        Backend& first = sessions.createLoginBackend();
+        Backend& second = sessions.createLoginBackend();
+        bool firstReady = false;
+        bool secondReady = false;
+        first.login(credentials(server, QStringLiteral("token-one")),
+                    [&](const QString& token) { firstReady = !token.isEmpty(); });
+        second.login(credentials(server, QStringLiteral("token-two")),
+                     [&](const QString& token) { secondReady = !token.isEmpty(); });
+        QTRY_VERIFY(firstReady && secondReady);
+        QVERIFY(sessions.registerAuthenticated(first));
+        QVERIFY(sessions.registerAuthenticated(second));
+        QCOMPARE(sessions.registeredCount(), 2);
+        QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("shared-server-one")),
+                 &first);
+        QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("shared-server-two")),
+                 &second);
+
+        QVERIFY(sessions.activate(second));
+        QCOMPARE(sessions.activeBackend(), &second);
+        QVERIFY(sessions.activate(first));
+        QCOMPARE(sessions.activeBackend(), &first);
+
+        // The first account's logout must not drop the second account's
+        // authentication, HTTP connection state or registration.
+        first.reset();
+        QCOMPARE(sessions.registeredCount(), 1);
+        QCOMPARE(sessions.activeBackend(), &second);
+        QVERIFY(second.loggedIn());
+        QVERIFY(!sessions.findAccount(server.origin(),
+                                     QStringLiteral("shared-server-one")));
+        second.retrieveUserPreferences();
+        QTRY_VERIFY(server.preferencesRequests >= 3);
+        // The per-request cookie lists must include both independent tokens,
+        // not a single shared last-login token.
+        bool sawOne = false;
+        bool sawTwo = false;
+        for (const QByteArray& cookie : server.preferenceCookies) {
+            sawOne = sawOne || cookie.contains("MMAUTHTOKEN=token-one");
+            sawTwo = sawTwo || cookie.contains("MMAUTHTOKEN=token-two");
+        }
+        QVERIFY(sawOne && sawTwo);
     }
 
     void duplicateSessionRegistrationCannotReplaceAnExistingAccount()
