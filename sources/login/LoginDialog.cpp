@@ -23,6 +23,7 @@
 #include "ui_LoginDialog.h"
 
 #include "backend/Backend.h"
+#include "backend/SessionTokenStore.h"
 #include "options/MLOptions.h"
 #include "log.h"
 #include <QPointer>
