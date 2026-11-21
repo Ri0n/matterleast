@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 namespace Mattermost {
 
@@ -33,8 +34,10 @@ public:
     Backend* findAccount(const QString& serverBaseUrl,
                          const QString& serverUserId) const;
     Backend* activeBackend() const { return _activeBackend; }
+    // Stable registration order; excludes uncommitted login attempts.
+    QVector<Backend*> registeredBackends() const;
     bool activate(Backend& backend);
-    int registeredCount() const { return _registered.size(); }
+    int registeredCount() const { return static_cast<int>(_registered.size()); }
     int backendCount() const { return static_cast<int>(_sessions.size()); }
 
     // Caller must release all UI referencing the Backend and log out (or

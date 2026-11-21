@@ -87,7 +87,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
 ,accounts(this)
 ,backend(accounts.createLoginBackend())
-,_activityMonitor(backend, this)
+,_activityMonitor(accounts, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 {
