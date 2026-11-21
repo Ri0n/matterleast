@@ -8,6 +8,8 @@
 #include <QJsonValue>
 #include <QSet>
 #include <QUrl>
+#include <QUuid>
+#include <utility>
 
 namespace Mattermost {
 namespace {
@@ -63,6 +65,156 @@ QString remoteIdentityKey(const WorkspaceLayout::Account& account)
 }
 
 } // namespace
+
+namespace {
+
+QString newAccountId()
+{
+    return QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+
+QString accountIdentity(const WorkspaceLayout::Account& record)
+{
+    return record.hasConnectionIdentity()
+        ? accountIdentityKey(record.serverBaseUrl, record.serverUserId)
+        : QString();
+}
+
+} // namespace
+
+const WorkspaceLayout::Account* WorkspaceLayout::account(const QString& accountId) const
+{
+    for (const Account& record : accounts)
+        if (record.id == accountId)
+            return &record;
+    return nullptr;
+}
+
+QString WorkspaceLayout::upsertAuthenticatedAccount(
+    const QString& serverBaseUrl, const QString& serverUserId,
+    const QString& loginName, const QString& displayName)
+{
+    if (loginName.trimmed().isEmpty() || displayName.trimmed().isEmpty())
+        return {};
+    const QUrl url(serverBaseUrl);
+    if (!url.isValid() || url.hasQuery() || url.hasFragment())
+        return {};
+    const QString key = accountIdentityKey(serverBaseUrl, serverUserId);
+    if (key.isEmpty())
+        return {};
+
+    WorkspaceLayout next = *this;
+    for (Account& record : next.accounts) {
+        if (accountIdentity(record) != key)
+            continue;
+        record.loginName = loginName;
+        if (!next.validate())
+            return {};
+        const QString existingId = record.id;
+        *this = std::move(next);
+        return existingId;
+    }
+
+    Account record;
+    record.id = newAccountId();
+    record.name = displayName;
+    record.serverBaseUrl = serverBaseUrl;
+    record.serverUserId = serverUserId;
+    record.loginName = loginName;
+    const QString addedId = record.id;
+    next.accounts.append(record);
+
+    if (next.profiles.isEmpty()) {
+        Profile profile;
+        profile.id = newAccountId();
+        profile.name = QStringLiteral("Simultaneous");
+        profile.accountIds.append(addedId);
+        next.profiles.append(profile);
+    } else {
+        QString selectedProfile;
+        for (const View& view : next.views) {
+            if (view.id == next.activeViewId) {
+                selectedProfile = view.profileId;
+                break;
+            }
+        }
+        bool appended = false;
+        for (Profile& profile : next.profiles) {
+            if (selectedProfile.isEmpty() || profile.id == selectedProfile) {
+                profile.accountIds.append(addedId);
+                selectedProfile = profile.id;
+                appended = true;
+                break;
+            }
+        }
+        if (!appended)
+            return {};
+    }
+
+    View view;
+    view.id = newAccountId();
+    for (const Profile& profile : next.profiles) {
+        if (profile.accountIds.contains(addedId)) {
+            view.profileId = profile.id;
+            break;
+        }
+    }
+    view.name = displayName;
+    view.accountIds.append(addedId);
+    next.views.append(view);
+    next.activeViewId = view.id;
+    if (!next.validate())
+        return {};
+    *this = std::move(next);
+    return addedId;
+}
+
+bool WorkspaceLayout::resolveUnconfiguredAccount(
+    const QString& accountId, const QString& serverBaseUrl,
+    const QString& serverUserId, const QString& loginName)
+{
+    if (loginName.trimmed().isEmpty())
+        return false;
+    WorkspaceLayout next = *this;
+    for (Account& record : next.accounts) {
+        if (record.id != accountId)
+            continue;
+        if (record.hasConnectionIdentity())
+            return false;
+        record.serverBaseUrl = serverBaseUrl;
+        record.serverUserId = serverUserId;
+        record.loginName = loginName;
+        if (!next.validate())
+            return false;
+        *this = std::move(next);
+        return true;
+    }
+    return false;
+}
+
+bool WorkspaceLayout::selectAccount(const QString& accountId)
+{
+    if (!account(accountId))
+        return false;
+
+    for (const View& view : views) {
+        if (view.id == activeViewId && view.accountIds.contains(accountId))
+            return true;
+    }
+    QString preferredProfile;
+    for (const View& view : views)
+        if (view.id == activeViewId)
+            preferredProfile = view.profileId;
+
+    for (const View& view : views) {
+        if (view.profileId == preferredProfile && view.accountIds.contains(accountId))
+            return selectView(view.id);
+    }
+    for (const View& view : views)
+        if (view.accountIds.contains(accountId))
+            return selectView(view.id);
+    return false;
+}
 
 const WorkspaceLayout::Profile* WorkspaceLayout::findProfile(const QString& id) const
 {
