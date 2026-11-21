@@ -139,6 +139,17 @@ Backend* AccountSessionManager::findAccount(const QString& serverBaseUrl,
     return session ? session->backend.get() : nullptr;
 }
 
+QVector<Backend*> AccountSessionManager::registeredBackends() const
+{
+    QVector<Backend*> result;
+    result.reserve(static_cast<int>(_registered.size()));
+    for (const auto& session : _sessions) {
+        if (!session->key.isEmpty())
+            result.append(session->backend.get());
+    }
+    return result;
+}
+
 Backend* AccountSessionManager::firstRegisteredBackend() const
 {
     for (const auto& session : _sessions) {

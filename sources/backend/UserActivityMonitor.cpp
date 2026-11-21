@@ -5,6 +5,7 @@
 #include <QGuiApplication>
 
 #include "Backend.h"
+#include "AccountSessionManager.h"
 #include "WebSocketConnector.h"
 
 #ifdef Q_OS_WIN
@@ -24,9 +25,10 @@
 
 namespace Mattermost {
 
-UserActivityMonitor::UserActivityMonitor(Backend& backend, QObject* parent)
+UserActivityMonitor::UserActivityMonitor(AccountSessionManager& accounts,
+                                         QObject* parent)
     : QObject(parent)
-    , _backend(backend)
+    , _accounts(accounts)
 {
     _clock.start();
     if (auto* application = QCoreApplication::instance())
@@ -34,6 +36,8 @@ UserActivityMonitor::UserActivityMonitor(Backend& backend, QObject* parent)
     _sampleTimer.setInterval(1000);
     _sampleTimer.setTimerType(Qt::CoarseTimer);
     connect(&_sampleTimer, &QTimer::timeout, this, &UserActivityMonitor::sample);
+    connect(&_accounts, &AccountSessionManager::accountUnregistered, this,
+            [this](Backend* backend) { _accountPolicies.remove(backend); });
     _sampleTimer.start();
 }
 
@@ -101,8 +105,6 @@ qint64 UserActivityMonitor::systemIdleTimeMs() const
 void UserActivityMonitor::sample()
 {
     const qint64 now = _clock.elapsed();
-    const bool connected = _backend.webSocketConnectionState()
-        == WebSocketConnector::ConnectionState::Connected;
     qint64 idle = systemIdleTimeMs();
     if (idle < 0) {
         // Qt cannot query global Wayland/macOS idle time. Do not extrapolate
@@ -110,8 +112,16 @@ void UserActivityMonitor::sample()
         idle = _lastUiInputMs < 0
             ? -1 : now - _lastUiInputMs;
     }
-    if (_policy.shouldSendActive(now, idle, connected))
-        _backend.reportUserActivity(true);
+    // Query actual input/idle only once per process. Each session has its
+    // own 60-second WS heartbeat cadence and connection-recovery state;
+    // selecting a different workspace must not make a background account
+    // look idle or spam active-status frames.
+    for (Backend* backend : _accounts.registeredBackends()) {
+        const bool connected = backend->webSocketConnectionState()
+            == WebSocketConnector::ConnectionState::Connected;
+        if (_accountPolicies[backend].shouldSendActive(now, idle, connected))
+            backend->reportUserActivity(true);
+    }
 }
 
 } // namespace Mattermost

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QObject>
 #include <QTimer>
 
@@ -11,6 +12,7 @@ class QEvent;
 namespace Mattermost {
 
 class Backend;
+class AccountSessionManager;
 
 /** Reports actual system/user input to the Mattermost WebSocket presence API.
  *
@@ -23,7 +25,8 @@ class UserActivityMonitor final : public QObject
 {
     Q_OBJECT
 public:
-    explicit UserActivityMonitor(Backend& backend, QObject* parent = nullptr);
+    explicit UserActivityMonitor(AccountSessionManager& accounts,
+                                 QObject* parent = nullptr);
     ~UserActivityMonitor() override;
 
 protected:
@@ -33,7 +36,8 @@ private:
     void sample();
     qint64 systemIdleTimeMs() const;
 
-    Backend& _backend;
+    AccountSessionManager& _accounts;
+    QHash<Backend*, PresenceActivityPolicy> _accountPolicies;
     QTimer _sampleTimer;
     QElapsedTimer _clock;
     qint64 _lastUiInputMs = -1;

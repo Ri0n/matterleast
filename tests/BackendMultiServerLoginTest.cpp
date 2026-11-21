@@ -277,6 +277,10 @@ private slots:
         QVERIFY(sessions.registerAuthenticated(backendTwo));
         QVERIFY(sessions.registerAuthenticated(backendOne)); // Idempotent.
         QCOMPARE(sessions.registeredCount(), 2);
+        const auto registered = sessions.registeredBackends();
+        QCOMPARE(registered.size(), 2);
+        QCOMPARE(registered.at(0), &backendOne);
+        QCOMPARE(registered.at(1), &backendTwo);
         QCOMPARE(sessions.activeBackend(), &backendOne);
         QCOMPARE(sessions.findAccount(serverOne.origin(), QStringLiteral("user-one")),
                  &backendOne);
@@ -478,6 +482,8 @@ private slots:
         // Session-ending invalidates only this registration. The second
         // account stays selected and retains all its Storage and transports.
         QCOMPARE(sessions.registeredCount(), 1);
+        QCOMPARE(sessions.registeredBackends().size(), 1);
+        QCOMPARE(sessions.registeredBackends().first(), &backendTwo);
         QCOMPARE(sessions.activeBackend(), &backendTwo);
         QVERIFY(!sessions.findAccount(serverOne.origin(), QStringLiteral("user-one")));
         QCOMPARE(sessions.findAccount(serverTwo.origin(), QStringLiteral("user-two")),
