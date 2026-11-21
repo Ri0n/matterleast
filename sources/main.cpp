@@ -53,6 +53,7 @@
 #include "mainwindow.h"
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
+#include "migrations/MigrationManager.h"
 #include "backend/Account.h"
 #include "backend/UserActivityMonitor.h"
 #include "backend/CustomEmojiService.h"
@@ -75,7 +76,9 @@ public:
     ~MattermostApplication() override;
 
     void start();
-    void openLoginWindow(const QString& recoveryAccountId = {});
+    void openLoginWindow(const QString& recoveryAccountId = {},
+                         const QString& suggestedServer = {},
+                         const QString& suggestedLogin = {});
     void showWindow();
     void toggleShowWindow();
     void beginLogout(Backend& backend, bool authenticationExpired = false);
@@ -91,6 +94,7 @@ private:
     // One account domain; the application only owns its Widgets and tray.
     AccountManager accounts;
     UserActivityMonitor _activityMonitor;
+    MigrationManager migrations;
     std::unique_ptr<QMenu> trayIconMenu;
     std::unique_ptr<QSystemTrayIcon> trayIcon;
     AccountTrayBadgeModel trayBadges;
@@ -100,13 +104,13 @@ private:
     QSet<Backend*> closingAccounts;
     QPointer<LoginDialog> loginDialog;
     TrayWindowController trayWindow;
-    bool suppressNextAutomaticLogin = false;
 };
 
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
 ,accounts(this)
 ,_activityMonitor(accounts, this)
+,migrations(accounts, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 {
@@ -216,19 +220,35 @@ void MattermostApplication::start()
         return;
     }
 
-    if (accounts.empty()) {
-        // Only an installation without configured accounts gets the legacy
-        // first-login restoration screen.
-        openLoginWindow();
-        return;
-    }
-
+    // Show persistent accounts immediately. Migrations are asynchronous and
+    // must never hold the entire interface hostage to an offline server.
     ensureWorkspaceShell();
     workspaceShell->showOverview();
     trayWindow.setWindow(workspaceShell.get());
     workspaceShell->show();
-    // Independent per-account keyring reads; UI is already usable offline.
-    QTimer::singleShot(0, &accounts, [this] { accounts.restoreAll(); });
+
+    migrations.run([this](MigrationManager::Result result) {
+        if (result == MigrationManager::Result::UnsupportedVersion) {
+            overviewPage->setError(tr("Account settings were written by a newer "
+                "version of MatterLeast. No migration was attempted."));
+            return;
+        }
+        if (accounts.empty()) {
+            if (result == MigrationManager::Result::Unavailable)
+                overviewPage->setError(tr("The previous session could not be "
+                    "migrated. Original settings were preserved."));
+            openLoginWindow({}, migrations.legacyServerHint(),
+                            migrations.legacyLoginHint());
+            return;
+        }
+        if (accounts.activeBackend()) {
+            workspaceShell->activateWorkspace(accounts.selectedAccountId());
+        } else {
+            // An existing catalog may contain multiple servers. Each keyring
+            // read and reconnection is independent.
+            accounts.restoreAll();
+        }
+    });
 }
 
 void MattermostApplication::ensureWorkspaceShell()
@@ -390,7 +410,9 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
         workspaceShell->show();
 }
 
-void MattermostApplication::openLoginWindow(const QString& recoveryAccountId)
+void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
+                                            const QString& suggestedServer,
+                                            const QString& suggestedLogin)
 {
     if (!workspaceShell && !closingAccounts.isEmpty())
         return;
@@ -418,13 +440,12 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId)
     }
 
     Backend* candidate = accounts.createLoginBackend();
-    // A corrupt catalog remains untouched; manual login is still permitted,
-    // but it cannot overwrite the original saved settings.
-    const bool allowRestore = !accounts.invalidCatalog()
-        && accounts.empty() && !suppressNextAutomaticLogin;
-    suppressNextAutomaticLogin = false;
-    auto* dialog = new LoginDialog(nullptr, *candidate, allowRestore,
-                                   fixedServer, fixedLogin);
+    // Migrations may suggest old non-secret login coordinates. They never
+    // authenticate or access keychain from the Widgets credential editor.
+    const bool lockIdentity = !fixedServer.isEmpty() && !fixedLogin.isEmpty();
+    auto* dialog = new LoginDialog(nullptr, *candidate,
+        lockIdentity ? fixedServer : suggestedServer,
+        lockIdentity ? fixedLogin : suggestedLogin, lockIdentity);
     loginDialog = dialog;
     if (!workspaceShell)
         trayWindow.setWindow(dialog);
