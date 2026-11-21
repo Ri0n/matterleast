@@ -10,9 +10,8 @@ namespace Mattermost {
 // The HTTP identity of exactly one authenticated server session. No global
 // credentials, shared cookie jar, or implicit current-server lookup.
 //
-// Multiple Backends must use different instances. Callers can construct
-// requests explicitly against this context while the legacy NetworkRequest
-// static facade remains available for the existing single-server UI.
+// Multiple Backends must use different instances. Account requests must
+// explicitly bind to their owner's context; unbound transports are anonymous.
 class NetworkSessionContext final
 {
 public:
@@ -31,6 +30,9 @@ public:
 
     QNetworkRequest request(const QString& urlRoot, const QString& path,
                             bool useCache = false) const;
+    // Stateless transport policy for callers with no authenticated account.
+    // Never synthesizes Cookie, Authorization or CSRF credentials.
+    static void applyClientProfile(QNetworkRequest& request);
     void applyDesktopProfile(QNetworkRequest& request) const;
     void applyDesktopMutationProfile(QNetworkRequest& request) const;
 

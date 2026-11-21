@@ -24,31 +24,29 @@ and policy methods do not depend on global state. Two contexts can be used
 interleaved in one GUI thread without exchanging authentication headers;
 authentication headers are only added to the matching scheme, host and port.
 
-`NetworkRequest` offers constructors taking an explicit
-`NetworkSessionContext`. Its static `setHost()`, `setToken()`,
-`clearToken()`, `getToken()`, `host()`, cookie update and desktop-profile
-methods remain a **legacy compatibility facade** for standalone old callers
-and tests, **not** for the active Backend. No Backend login/retry/logout path
-publishes its origin or credentials to this facade. It must not be used as a
-current-account selector. The production UI still supports only one active
-full-featured Backend; removing the compatibility API and enabling multi-server
-presentation are separate subsequent steps.
+`NetworkRequest` has **only explicit** `NetworkSessionContext` constructors.
+The process-global `legacySession()` and its static host/token/cookie methods
+have been removed. There is no implicit current-account identity for any HTTP
+request. The production UI still supports only one active full-featured
+Backend; enabling multi-server presentation is a separate subsequent step.
 
-`HTTPConnector` can now be constructed with a non-owning
-`NetworkSessionContext*`. In that mode, it applies the owner's credentials
-at **enqueue** time, replacing any accidentally inherited `Cookie`,
-`X-CSRF-Token` or `Authorization` headers; this also prevents a stale
-legacy request from sending the global token. Returned cookies are admitted
-only when the actual response origin matches the session context. The old
-default constructor keeps its existing behavior.
+`HTTPConnector` accepts a non-owning `NetworkSessionContext*`. When bound,
+it applies the owner's credentials at **enqueue** time, replacing any
+caller-supplied `Cookie`, `X-CSRF-Token` or `Authorization` headers.
+Returned cookies are admitted only when the response origin matches that
+context. An unbound connector is **anonymous**: it applies only the stateless
+HTTP client/TLS profile, does not synthesize authentication or CSRF headers,
+and does not retain response cookies or access any shared disk cache. Both
+connector modes allocate their Qt network manager lazily on first use.
 
 An explicitly bound connector uses a distinct HTTP disk cache directory,
 derived from a SHA-256 digest of its configured server base URL and stable
 account identity (currently the login name). Raw server URLs, usernames and
 tokens never occur in cache directory names. On missing identity or filesystem
 failure, caching is disabled rather than falling back to another account's
-directory. The old single-account cache path remains supported by the legacy
-connector. Reset and network-route restart preserve the bound cache partition.
+directory. Reset and network-route restart preserve the bound cache partition.
+The formerly shared single-account cache path is not reused by anonymous
+connectors.
 The configured size limit is currently per account; the future session manager
 can divide an overall cache budget among connected accounts.
 This isolation does not authorize callers to reuse a wrong URL: independent
@@ -69,19 +67,15 @@ now gets an explicit `Backend::networkSession()` source for its URL and
 authorization. Async membership callbacks verify the same Backend session
 origin, not the most recent global login. Independent Backend integration
 tests assert that ordinary post-login profile fetches hit two different
-local Mattermost servers even when the global legacy URL points at only one.
+local Mattermost servers, with their own credentials and independent Storage.
 
 Backend login, retry, cancellation, session reset and HTTP authorization
-failures **never write to the legacy** `NetworkRequest` host/token. This closes
-the last explicit path by which an actual login copied a server token into a
-process-wide variable, where it could have been mistaken for another account's
-credentials by an old unbound HTTP client. Integration tests seed an unrelated
-legacy host/token and prove neither of two concurrently logged-in Backends
-changes it. All account-owned API calls remain authenticated correctly and
-never send the seeded legacy token. Standalone tests intentionally skipping
-login explicitly initialize their own `networkSession()` host.
-No new current-account global, connection manager or UI switch is
-introduced by this step.
+failures mutate only their own `NetworkSessionContext`. The previous ambient
+token/host fallback is no longer representable in `NetworkRequest`.
+Integration tests verify concurrent independent Backends and ensure reset or
+cancellation of one cannot affect another. Test Backends that intentionally
+skip login explicitly initialize their own `networkSession()` host.
+No current-account global, connection manager or UI switch is introduced.
 
 Before enabling production multi-session operation, route *all* API request constructors,
 response `Set-Cookie` handling, websocket login URLs and login/retry/logout
@@ -170,8 +164,8 @@ revoked upon `Backend::sessionEnding()` even when the same user later logs
 in again to the same origin. This prevents an AI window in one account from
 reusing another account's local MCP endpoint.
 
-These changes leave the old process-global facade available only for
-remaining unmigrated consumers, not as an implicit fallback in new UI code.
+There is no process-global current-account facade in the request or transport
+layers. New account-aware services must pass the owning Backend context.
 
 ## Per-account local post deletion
 

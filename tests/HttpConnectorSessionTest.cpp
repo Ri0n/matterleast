@@ -148,12 +148,13 @@ private slots:
         QVERIFY(nextTwo.contains("MMUSERID=two"));
         QVERIFY(!nextTwo.contains("MMUSERID=one"));
 
-        // A caller that accidentally constructed a legacy-global request
-        // cannot inject the global token into a bound connector.
-        NetworkRequest::setHost(host);
-        NetworkRequest::setToken(QStringLiteral("legacy-token"));
-        NetworkRequest legacyRequest(QStringLiteral("probe/legacy"));
-        first.get(legacyRequest, HttpResponseCallback(
+        // Even incorrect, caller-supplied credentials on a raw request
+        // must be discarded by the owning account's connector.
+        QNetworkRequest wrongHeaders(QUrl(host + QStringLiteral("api/v4/probe/legacy")));
+        wrongHeaders.setRawHeader("Cookie", "MMAUTHTOKEN=legacy-token");
+        wrongHeaders.setRawHeader("Authorization", "Bearer legacy-token");
+        wrongHeaders.setRawHeader("X-CSRF-Token", "legacy-csrf");
+        first.get(wrongHeaders, HttpResponseCallback(
             [&completed](QByteArray) { ++completed; }));
         QTRY_COMPARE(completed, 3);
         const QByteArray third = server.cookieFor("/api/v4/probe/legacy");
@@ -161,8 +162,29 @@ private slots:
                  qPrintable(QStringLiteral("Unexpected outgoing cookie: %1")
                      .arg(QString::fromLatin1(third))));
         QVERIFY2(!third.contains("legacy-token"),
-                 "A legacy-global token reached a bound session connector");
-        NetworkRequest::clearToken();
+                 "Wrong caller credentials reached the bound session connector");
+    }
+
+    void anonymousConnectorDoesNotReplayResponseCookies()
+    {
+        CookieServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        const QString host = QStringLiteral("http://127.0.0.1:%1/")
+            .arg(server.serverPort());
+        HTTPConnector anonymous;
+        int completed = 0;
+        QNetworkRequest first(QUrl(host + QStringLiteral("api/v4/probe/anonymous-first")));
+        anonymous.get(first, HttpResponseCallback(
+            [&](QByteArray) { ++completed; }));
+        QTRY_COMPARE(completed, 1);
+        // The server sets MMUSERID on every response; it must not be
+        // implicitly replayed by an unbound connector.
+        QNetworkRequest second(QUrl(host + QStringLiteral("api/v4/probe/anonymous-second")));
+        anonymous.get(second, HttpResponseCallback(
+            [&](QByteArray) { ++completed; }));
+        QTRY_COMPARE(completed, 2);
+        QVERIFY(server.cookieFor("/api/v4/probe/anonymous-first").isEmpty());
+        QVERIFY(server.cookieFor("/api/v4/probe/anonymous-second").isEmpty());
     }
 
     void postDeletionTrackingDoesNotCrossHttpConnectors()

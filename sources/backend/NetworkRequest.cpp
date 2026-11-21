@@ -27,34 +27,10 @@
 #include "NetworkSessionContext.h"
 
 namespace Mattermost {
-namespace {
-
-// Compatibility for existing single-server callers only. New multi-server
-// code must pass its explicit NetworkSessionContext.
-NetworkSessionContext& legacySession()
-{
-    static NetworkSessionContext session;
-    return session;
-}
-
-} // namespace
 
 const QString NetworkRequest::mattermostMain = QStringLiteral("api/v4/");
 const QString NetworkRequest::matterpoll =
     QStringLiteral("plugins/com.github.matterpoll.matterpoll/api/v1/");
-
-NetworkRequest::NetworkRequest() = default;
-
-NetworkRequest::NetworkRequest(const QString& url, bool useCache)
-    : NetworkRequest(legacySession(), mattermostMain, url, useCache)
-{
-}
-
-NetworkRequest::NetworkRequest(const QString& urlRoot, const QString& url,
-                               bool useCache)
-    : NetworkRequest(legacySession(), urlRoot, url, useCache)
-{
-}
 
 NetworkRequest::NetworkRequest(const NetworkSessionContext& context,
                                const QString& url, bool useCache)
@@ -70,45 +46,5 @@ NetworkRequest::NetworkRequest(const NetworkSessionContext& context,
 }
 
 NetworkRequest::~NetworkRequest() = default;
-
-void NetworkRequest::setHost(const QString& host)
-{
-    legacySession().setHost(host);
-}
-
-void NetworkRequest::clearToken()
-{
-    legacySession().clearToken();
-}
-
-void NetworkRequest::setToken(const QString& token)
-{
-    legacySession().setToken(token);
-}
-
-const QString& NetworkRequest::getToken()
-{
-    return legacySession().token();
-}
-
-const QString& NetworkRequest::host()
-{
-    return legacySession().host();
-}
-
-void NetworkRequest::updateSessionCookies(const QList<QNetworkCookie>& cookies)
-{
-    legacySession().updateSessionCookies(cookies);
-}
-
-void NetworkRequest::applyDesktopProfile(QNetworkRequest& request)
-{
-    legacySession().applyDesktopProfile(request);
-}
-
-void NetworkRequest::applyDesktopMutationProfile(QNetworkRequest& request)
-{
-    legacySession().applyDesktopMutationProfile(request);
-}
 
 } /* namespace Mattermost */
