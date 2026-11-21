@@ -57,15 +57,20 @@ public:
                         ++identityRequests;
                         identityCookies.append(cookie);
                         if (holdIdentity) return;
-                        QString userId = QString::fromUtf8(id);
-                        if (separateIdentitiesByToken) {
-                            userId += cookie.contains("MMAUTHTOKEN=token-two")
-                                ? QStringLiteral("-two") : QStringLiteral("-one");
+                        if (rejectIdentity) {
+                            status = QByteArrayLiteral("401 Unauthorized");
+                            body = QByteArrayLiteral(R"({"message":"invalid token"})");
+                        } else {
+                            QString userId = QString::fromUtf8(id);
+                            if (separateIdentitiesByToken) {
+                                userId += cookie.contains("MMAUTHTOKEN=token-two")
+                                    ? QStringLiteral("-two") : QStringLiteral("-one");
+                            }
+                            body = QJsonDocument(QJsonObject{
+                                {QStringLiteral("id"), userId},
+                                {QStringLiteral("username"), QStringLiteral("fixture")}
+                            }).toJson(QJsonDocument::Compact);
                         }
-                        body = QJsonDocument(QJsonObject{
-                            {QStringLiteral("id"), userId},
-                            {QStringLiteral("username"), QStringLiteral("fixture")}
-                        }).toJson(QJsonDocument::Compact);
                     } else if (requestLine.startsWith("GET /api/v4/config/client?format=old ")) {
                         ++clientConfigRequests;
                         clientConfigCookies.append(cookie);
@@ -130,7 +135,12 @@ public:
                                && requestLine.contains("/preferences ")) {
                         ++preferencesRequests;
                         preferenceCookies.append(cookie);
-                        body = QByteArrayLiteral("[]");
+                        if (rejectPreferences) {
+                            status = QByteArrayLiteral("401 Unauthorized");
+                            body = QByteArrayLiteral(R"({"message":"unauthorized"})");
+                        } else {
+                            body = QByteArrayLiteral("[]");
+                        }
                     } else if (requestLine.startsWith("GET /api/v4/users/")) {
                         ++profileRequests;
                         profileCookies.append(cookie);
@@ -178,6 +188,8 @@ public:
 
     QByteArray id;
     bool holdIdentity = false;
+    bool rejectIdentity = false;
+    bool rejectPreferences = false;
     bool separateIdentitiesByToken = false;
     int identityRequests = 0;
     int preferencesRequests = 0;
@@ -672,6 +684,55 @@ private slots:
         QCOMPARE(secondServer.fileRequests, 1);
         checkCookies(secondServer.fileCookies,
                      "new-token", "old-token");
+    }
+
+    void unauthorizedEndpointValidatesOnlyItsOwnAccount()
+    {
+        FakeMattermostServer firstServer(QByteArrayLiteral("first-user"));
+        FakeMattermostServer secondServer(QByteArrayLiteral("second-user"));
+        QVERIFY(firstServer.listen(QHostAddress::LocalHost));
+        QVERIFY(secondServer.listen(QHostAddress::LocalHost));
+
+        Backend first;
+        Backend second;
+        bool firstReady = false;
+        bool secondReady = false;
+        first.login(credentials(firstServer, QStringLiteral("first-token")),
+                    [&](const QString& token) { firstReady = !token.isEmpty(); });
+        second.login(credentials(secondServer, QStringLiteral("second-token")),
+                     [&](const QString& token) { secondReady = !token.isEmpty(); });
+        QTRY_VERIFY(firstReady && secondReady);
+        QSignalSpy firstExpired(&first, &Backend::authenticationExpired);
+        QSignalSpy secondExpired(&second, &Backend::authenticationExpired);
+        QVERIFY(firstExpired.isValid());
+        QVERIFY(secondExpired.isValid());
+
+        // An endpoint-specific 401 alone is insufficient to invalidate the
+        // session if /users/me still accepts this account's token.
+        firstServer.rejectPreferences = true;
+        first.retrieveUserPreferences();
+        QTRY_COMPARE(firstServer.identityRequests, 2);
+        QCOMPARE(firstExpired.count(), 0);
+        QVERIFY(first.loggedIn());
+        QVERIFY(second.loggedIn());
+
+        // The same server subsequently rejects /users/me as well. Emit just
+        // one account-local expiration notification; do not kill the process.
+        firstServer.rejectIdentity = true;
+        first.retrieveUserPreferences();
+        QTRY_COMPARE(firstExpired.count(), 1);
+        QCOMPARE(secondExpired.count(), 0);
+        QVERIFY(second.loggedIn());
+        const int previousSecondPreferences = secondServer.preferencesRequests;
+        second.retrieveUserPreferences();
+        QTRY_VERIFY(secondServer.preferencesRequests > previousSecondPreferences);
+        checkCookies(secondServer.preferenceCookies,
+                     "second-token", "first-token");
+
+        // Further simultaneous errors must not create multiple logout flows.
+        first.retrieveUserPreferences();
+        QTRY_VERIFY(firstServer.preferencesRequests >= 4);
+        QCOMPARE(firstExpired.count(), 1);
     }
 
     void cancellationOfOneLoginDoesNotCancelTheOther()

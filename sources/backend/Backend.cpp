@@ -413,25 +413,50 @@ Backend::Backend(QObject *parent)
     });
 	connect (&httpConnector, &HTTPConnector::onNetworkError, this, &Backend::onNetworkError);
 
-	connect (&httpConnector, &HTTPConnector::onHttpError, [this] (uint32_t errorNumber, const QString& errorText) {
+    connect(&httpConnector, &HTTPConnector::onHttpError, this,
+            [this](uint32_t errorNumber, const QString& errorText) {
+        emit onHttpError(errorNumber, errorText);
+        if (errorNumber != 401)
+            return;
 
-		emit onHttpError (errorNumber, errorText);
+        if (!isLoggedIn) {
+            // Saved-session login may have been rejected; never carry its
+            // cookie token into a following password-login attempt.
+            _networkSession.clearToken();
+            return;
+        }
+        if (_authVerificationInFlight || _authExpiryNotified)
+            return;
 
-		if (errorNumber == 401) {
-			if (isLoggedIn) { //invalid session, login again
-				QTimer::singleShot (1000, [this] {
-					httpConnector.reset ();
-					webSocketConnector.reset ();
-					loginRetry ();
-					exit (1);
-				});
-			} else {
-                // Failed unauthenticated requests may invalidate only this account.
-                _networkSession.clearToken();
-			}
-		}
-	});
+        // A 401 from one restricted endpoint is not sufficient evidence to
+        // destroy the whole account. Validate this Backend's existing token
+        // against /users/me before notifying its presentation owner.
+        _authVerificationInFlight = true;
+        NetworkRequest verification(_networkSession, QStringLiteral("users/me"));
+        httpConnector.get(verification, HttpResponseCallback(
+            [this](const QJsonDocument& doc, const QNetworkReply& reply) {
+                _authVerificationInFlight = false;
+                if (!isLoggedIn)
+                    return;
+                const int status = reply.attribute(
+                    QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                if (validateLoginResponse(reply.error(), status, doc).accepted)
+                    return;
+                if (status != 401)
+                    return; // Transient verification failure; preserve session.
 
+                _authExpiryNotified = true;
+                // Deliver outside the HTTP finished callback: the owner may
+                // synchronously begin logout and cancel its network manager.
+                QMetaObject::invokeMethod(this, [this] {
+                    if (_authExpiryNotified && isLoggedIn)
+                        emit authenticationExpired();
+                }, Qt::QueuedConnection);
+            }));
+    });
+
+	attachmentsCache.setCacheDirectory (QDir (QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("attachments"));
+	attachmentsCache.setMaximumCacheSize (300 * 1024 * 1024);
     // Keep the backend-scoped lazy custom resolver connected before
     // login/post loading so registry misses can never be lost.
     (void)CustomEmojiService::instance(*this);
@@ -521,6 +546,8 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 {
     const bool restartingAfterFailure = _lastLoginFailureTransient;
     _lastLoginFailureTransient = false;
+    _authVerificationInFlight = false;
+    _authExpiryNotified = false;
     loginData = credentials;
     _networkSession.setHost(credentials.domain);
     httpConnector.configureAccountCache(credentials.username);
@@ -587,28 +614,6 @@ void Backend::cancelPendingLogin()
     _lastLoginFailureTransient = false;
 }
 
-void Backend::loginRetry ()
-{
-	if (!loginData.token.isEmpty()) {
-
-		_networkSession.setToken(loginData.token);
-		NetworkRequest request(_networkSession, "users/me");
-
-		LOG_DEBUG("Retrying authenticated login request");
-
-		httpConnector.get (request, HttpResponseCallback ([this](QVariant, QByteArray, const QNetworkReply&) {
-			webSocketConnector.open (_networkSession.host() + "api/v4/", loginData.token);
-			isLoggedIn = true;
-			//loginSuccess (data, reply, [this] (const QString& token) {
-		//	});
-		}));
-
-		return;
-	}
-
-	LOG_DEBUG ("Login retry - no token");
-}
-
 void Backend::setCurrentChannel (BackendChannel& channel)
 {
 	currentChannel = &channel;
@@ -663,6 +668,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     }
 
 	webSocketConnector.open (_networkSession.host() + "api/v4/", _networkSession.token());
+    _authExpiryNotified = false;
 	isLoggedIn = true;
 	retrieveUserPreferences ();
 
@@ -686,6 +692,8 @@ void Backend::reset ()
         emit sessionEnding();
     }
 	isLoggedIn = false;
+    _authVerificationInFlight = false;
+    _authExpiryNotified = false;
     CustomEmojiService::instance(*this).resetSession();
     _emojiRegistry.clearCustomEmojis();
 
@@ -732,6 +740,8 @@ void Backend::prepareForLogout()
         emit sessionEnding();
     }
     isLoggedIn = false;
+    _authVerificationInFlight = false;
+    _authExpiryNotified = false;
     autoLoginEnabledFlag = false;
 
     // First stop the reconnect loop, then cancel outstanding HTTP work while
