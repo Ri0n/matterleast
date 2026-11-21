@@ -181,12 +181,15 @@ void AccountSessionManager::childEvent(QChildEvent* event)
         // is delivered synchronously by QObject on deletion or reparenting.
         // Only compare pointer identity: the derived Backend may already have
         // finished its destructor, so qobject_cast/dereference is unsafe.
+        Backend* removed = nullptr;
         for (Backend* backend : _sessions) {
             if (static_cast<QObject*>(backend) == event->child()) {
-                forgetBackend(backend);
+                removed = backend;
                 break;
             }
         }
+        if (removed)
+            forgetBackend(removed);
     }
     QObject::childEvent(event);
 }
