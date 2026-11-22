@@ -223,8 +223,14 @@ replacing or resetting the current item model. A future merged view must
 qualify the existing team/channel indexes and their navigation with account
 identity, separate ChatArea ownership from tree presentation, and retain the
 tested in-place reconciliation and interaction behavior. It is not yet a
-multi-account Channels UI. Shared Unread/Attention and per-view navigation
-remain subsequent work.
+multi-account Channels UI. The mixed DM/GM list has a view-local `directMessagesSorting` setting:
+`recent` (default) or `alpha`. The setting is persisted in the existing
+workspace catalog; older catalogs default to `recent`. Single-account views
+continue to use the server category's current sorting, while a merged view
+must apply its own setting to the combined entries **without modifying any
+server's category sorting**. A view-local manual order is intentionally not
+specified: server-side manual lists have no meaningful inter-server order.
+Shared Unread/Attention and per-view navigation remain subsequent work.
 
 ## Per-view UI state (essential invariant)
 
