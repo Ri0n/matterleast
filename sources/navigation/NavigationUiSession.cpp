@@ -189,7 +189,12 @@ void NavigationUiController::syncViewSession()
         state.tabs.append(std::move(entry));
     }
     state.activeTab = activeTabIndex;
-    state.current = semanticLocation(currentLocation);
+    // The view session owns the semantic current destination. A deferred
+    // Widgets channel activation must not roll it back during a Back/Forward
+    // replay or while the target is still being admitted asynchronously.
+    // Only initialize an empty view from a previously restored legacy UI.
+    if (!state.current.valid() && currentLocation.isValid())
+        state.current = semanticLocation(currentLocation);
 
     auto* dock = threadStack && !threadStack->isHidden()
         ? qobject_cast<ChatArea*>(threadStack->currentWidget()) : nullptr;
