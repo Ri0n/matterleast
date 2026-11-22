@@ -175,6 +175,10 @@ void AccountManager::ensureViewSessions()
     for (const auto& view : _layout.views) {
         if (!_viewSessions.contains(view.id))
             _viewSessions.insert(view.id, new ViewNavigationSession(view.id, this));
+        // Membership edits are domain-level security/identity changes, not
+        // merely a filtered sidebar. Retired destinations must disappear from
+        // the view's tabs, dock and Back/Forward before Widgets can rebind.
+        _viewSessions.value(view.id)->setAllowedAccounts(view.accountIds);
     }
 }
 
