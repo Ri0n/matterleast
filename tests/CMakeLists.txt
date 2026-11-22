@@ -495,6 +495,17 @@ target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME workspace-layout-test COMMAND workspace-layout-test)
 
+# Async saved-session verification retries transient transport failures a bounded
+# number of times. The test uses a synthetic checker (no network or wallet).
+add_executable(session-verification-retry-test
+    SessionVerificationRetryTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/SessionVerificationRetry.cpp")
+target_include_directories(session-verification-retry-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(session-verification-retry-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME session-verification-retry-test COMMAND session-verification-retry-test)
+
 # Canonical root-server URL must map to the same historical QtKeychain key.
 add_executable(session-token-store-key-test
     SessionTokenStoreKeyTest.cpp
