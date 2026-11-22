@@ -39,6 +39,17 @@ public:
                     || (channelId == other.channelId && rootId == other.rootId));
         }
     };
+    // UI-independent transfer contract. Widgets may exchange their semantic
+    // presentation state when switching views without transferring QWidgets.
+    // A snapshot contains no Backend, Storage, credential or QObject pointer.
+    struct Snapshot {
+        QVector<NavigationTabsModel::Entry> tabs;
+        int activeTab = -1;
+        Location current;
+        QVector<Location> back;
+        QVector<Location> forward;
+    };
+
     enum Role {
         AccountIdRole = Qt::UserRole + 1, ChannelIdRole,
         RootIdRole, PostIdRole, TitleRole, PinnedRole, ActiveRole
@@ -52,6 +63,10 @@ public:
     bool canGoForward() const { return !_forward.isEmpty(); }
     const Location& currentLocation() const { return _current; }
     const NavigationTabsModel& tabs() const { return _tabs; }
+    Snapshot snapshot() const;
+    // Reject malformed or ambiguous snapshots without changing state. The
+    // existing list model is updated incrementally, never reset/recreated.
+    bool restoreSnapshot(const Snapshot& snapshot);
 
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
