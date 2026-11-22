@@ -75,13 +75,11 @@ AccountManager::AccountManager(QObject* parent)
                    sizeof(address)) == 0) {
             _routeChangeSocket = fd;
             auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            // Since Qt 5.15 the public C++ signal has QSocketDescriptor,
+            // Type and the private signal tag; the legacy int overload is
+            // only present to moc and is not available for PMF connections.
             connect(notifier, &QSocketNotifier::activated,
                     this, [this, fd] {
-#else
-            connect(notifier, QOverload<int>::of(&QSocketNotifier::activated),
-                    this, [this, fd] {
-#endif
                 char buffer[8192];
                 bool routeChanged = false;
                 for (;;) {
