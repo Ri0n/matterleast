@@ -154,12 +154,34 @@ bool fromViewLocation(
 }
 }
 
+ViewNavigationSession* NavigationUiController::historySession() const
+{
+    return viewNavigationSession ? viewNavigationSession.data() : startupHistory;
+}
+
+ViewNavigationSession::Location NavigationUiController::semanticLocation(
+    const Location& source) const
+{
+    return toViewLocation(source, viewNavigationAccountId.isEmpty()
+        ? QStringLiteral("_startup") : viewNavigationAccountId);
+}
+
+bool NavigationUiController::presentationLocation(
+    const ViewNavigationSession::Location& source, Location& result) const
+{
+    return fromViewLocation(source, viewNavigationAccountId.isEmpty()
+        ? QStringLiteral("_startup") : viewNavigationAccountId, result);
+}
+
 void NavigationUiController::syncViewSession()
 {
     if (applyingViewSession || restoringSession || !sessionRestored
         || !viewNavigationSession || viewNavigationAccountId.isEmpty()) return;
 
-    ViewNavigationSession::Snapshot state;
+    // Back/Forward already belongs to the view session; this is strictly a
+    // reconciliation of visual tabs, the current bookmark and dock geometry.
+    auto state = viewNavigationSession->snapshot();
+    state.tabs.clear();
     state.tabs.reserve(tabModel.count());
     for (int i = 0; i < tabModel.count(); ++i) {
         auto entry = *tabModel.at(i);
@@ -167,13 +189,12 @@ void NavigationUiController::syncViewSession()
         state.tabs.append(std::move(entry));
     }
     state.activeTab = activeTabIndex;
-    state.current = toViewLocation(currentLocation, viewNavigationAccountId);
-    state.back.reserve(backStack.size());
-    for (const auto& location : backStack)
-        state.back.append(toViewLocation(location, viewNavigationAccountId));
-    state.forward.reserve(forwardStack.size());
-    for (const auto& location : forwardStack)
-        state.forward.append(toViewLocation(location, viewNavigationAccountId));
+    // The view session owns the semantic current destination. A deferred
+    // Widgets channel activation must not roll it back during a Back/Forward
+    // replay or while the target is still being admitted asynchronously.
+    // Only initialize an empty view from a previously restored legacy UI.
+    if (!state.current.valid() && currentLocation.isValid())
+        state.current = semanticLocation(currentLocation);
 
     auto* dock = threadStack && !threadStack->isHidden()
         ? qobject_cast<ChatArea*>(threadStack->currentWidget()) : nullptr;
@@ -261,7 +282,30 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
     const bool empty = state.tabs.isEmpty() && !state.current.valid()
         && state.back.isEmpty() && state.forward.isEmpty() && !state.dockVisible;
     if (empty && adoptExistingPresentation) {
-        syncViewSession(); // Legacy restart snapshot belongs to the initial view.
+        // Bootstrap uses the same model type, so no Widgets Back/Forward
+        // stacks are reconstructed just to transfer one initial view.
+        auto initial = viewNavigationSession->snapshot();
+        const auto bootstrap = startupHistory->snapshot();
+        for (auto location : bootstrap.back) {
+            location.accountId = viewNavigationAccountId;
+            initial.back.append(std::move(location));
+        }
+        for (auto location : bootstrap.forward) {
+            location.accountId = viewNavigationAccountId;
+            initial.forward.append(std::move(location));
+        }
+        // A legacy restart snapshot may select a different tab than the
+        // provisional channel displayed while the account was connecting.
+        // The completed Widgets restoration, not the bootstrap placeholder,
+        // determines the initial semantic current destination.
+        if (currentLocation.isValid())
+            initial.current = semanticLocation(currentLocation);
+        else if (bootstrap.current.valid()) {
+            initial.current = bootstrap.current;
+            initial.current.accountId = viewNavigationAccountId;
+        }
+        if (viewNavigationSession->restoreSnapshot(initial))
+            syncViewSession(); // Adopt the old per-account restart presentation.
         return;
     }
 
@@ -312,8 +356,6 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
         activeTabIndex = -1;
         activeArea = nullptr;
         currentLocation = {};
-        backStack.clear();
-        forwardStack.clear();
         for (const auto& entry : state.tabs) {
             Location location;
             ViewNavigationSession::Location semantic;
@@ -367,18 +409,6 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
         }
     }
 
-    backStack.clear();
-    for (const auto& entry : state.back) {
-        Location location;
-        if (fromViewLocation(entry, viewNavigationAccountId, location))
-            backStack.append(std::move(location));
-    }
-    forwardStack.clear();
-    for (const auto& entry : state.forward) {
-        Location location;
-        if (fromViewLocation(entry, viewNavigationAccountId, location))
-            forwardStack.append(std::move(location));
-    }
     if (fromViewLocation(state.current, viewNavigationAccountId, semanticCurrent))
         currentLocation = semanticCurrent;
 
@@ -689,8 +719,6 @@ void NavigationUiController::restoreSession()
     threadStack->setVisible(state.value("dock_visible").toBool() && threadStack->count() > 0);
     switchingTabs = wasSwitching;
     restoringSession = false;
-    backStack.clear();
-    forwardStack.clear();
     refreshTabBarVisibility();
     syncSplitterEdgeGutters();
     updateHistoryButtons();
