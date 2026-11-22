@@ -201,6 +201,11 @@ void NavigationUiController::syncViewSession()
     if (dock && dock->isThread) {
         state.dock = toViewLocation(captureLocation(dock), viewNavigationAccountId);
         state.dockVisible = state.dock.valid();
+    } else {
+        // A previously visible dock must not reappear when this view is
+        // activated again after the user explicitly closed the right pane.
+        state.dock = {};
+        state.dockVisible = false;
     }
     if (!viewNavigationSession->restoreSnapshot(state))
         qWarning("Unable to transfer Widgets navigation state into its view session");
