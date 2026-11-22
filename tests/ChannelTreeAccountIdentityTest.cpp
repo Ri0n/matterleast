@@ -98,6 +98,43 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+    void liveRowIndexesSurviveBindingAndScopeCollidingChannelIds()
+    {
+        ChannelTree tree;
+        auto* rowA = new QTreeWidgetItem(&tree);
+        rowA->setData(0, SidebarItem::KindRole, int(SidebarItem::Channel));
+        rowA->setData(0, SidebarItem::IdRole, QStringLiteral("same-channel"));
+        tree.addChannelToItem(QStringLiteral("same-channel"), rowA);
+        QVERIFY(tree.channelToItemMap.contains({QString(), QStringLiteral("same-channel")}));
+        auto* const original = rowA;
+        QVERIFY(tree.bindSingleAccount(QStringLiteral("account-a")));
+        QCOMPARE(rowA, original);
+        QVERIFY(!tree.channelToItemMap.contains({QString(), QStringLiteral("same-channel")}));
+        QVERIFY(tree.channelToItemMap.contains(
+            {QStringLiteral("account-a"), QStringLiteral("same-channel")}));
+
+        // Before the shared tree is enabled, verify that the same remote ID
+        // cannot alias another account's local index. This is the keying
+        // contract needed by subsequent multi-backend reconciliation.
+        auto* rowB = new QTreeWidgetItem(&tree);
+        rowB->setData(0, SidebarItem::KindRole, int(SidebarItem::Channel));
+        rowB->setData(0, SidebarItem::IdRole, QStringLiteral("same-channel"));
+        rowB->setData(0, SidebarItem::AccountIdRole, QStringLiteral("account-b"));
+        tree.addChannelToItem(QStringLiteral("same-channel"), rowB);
+        QCOMPARE(tree.channelToItemMap.size(), 2);
+        QCOMPARE(tree.channelToItemMap.value(
+            {QStringLiteral("account-a"), QStringLiteral("same-channel")}).first(), rowA);
+        QCOMPARE(tree.channelToItemMap.value(
+            {QStringLiteral("account-b"), QStringLiteral("same-channel")}).first(), rowB);
+
+        tree.removeChannelToItem(QStringLiteral("same-channel"), rowA);
+        QCOMPARE(tree.channelToItemMap.size(), 1);
+        QCOMPARE(tree.channelToItemMap.value(
+            {QStringLiteral("account-b"), QStringLiteral("same-channel")}).first(), rowB);
+        tree.removeChannelToItem(QStringLiteral("same-channel"), rowB);
+        QVERIFY(tree.channelToItemMap.isEmpty());
+    }
+
     void identicalRemoteIdsRemainDistinguishableAcrossExistingTrees()
     {
         ChannelTree alpha;

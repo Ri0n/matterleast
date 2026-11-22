@@ -46,6 +46,7 @@ class QPainter;
 class QStackedWidget;
 class QTreeWidgetItem;
 class QVariantAnimation;
+class ChannelTreeAccountIdentityTest;
 
 namespace Mattermost {
 
@@ -189,6 +190,7 @@ private:
         return {account.isEmpty() ? _boundAccountId : account, remoteId};
     }
     friend class ChannelTreeDragScrollTest;
+    friend class ::ChannelTreeAccountIdentityTest;
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
 	void showContextMenu (const QPoint& pos);
 	void handleChannelLeave();
