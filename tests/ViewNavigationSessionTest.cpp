@@ -124,6 +124,102 @@ private slots:
         QVERIFY(changed.count() >= 1);
     }
 
+    void stateTransferKeepsAccountsDistinctAndUsesIncrementalSignals()
+    {
+        ViewNavigationSession from(QStringLiteral("view-a"));
+        auto alpha = chat(QStringLiteral("a"), QStringLiteral("same"));
+        auto beta = chat(QStringLiteral("b"), QStringLiteral("same"));
+        auto other = chat(QStringLiteral("a"), QStringLiteral("other"));
+        auto gamma = chat(QStringLiteral("b"), QStringLiteral("third"));
+        QCOMPARE(from.openTab(alpha, QStringLiteral("Alpha"), true), 0);
+        QCOMPARE(from.openTab(beta, QStringLiteral("Beta")), 1);
+        QCOMPARE(from.openTab(gamma, QStringLiteral("Gamma")), 2);
+        QVERIFY(from.visit(other));
+        auto transfer = from.snapshot();
+        QCOMPARE(transfer.activeTab, -1);
+        QCOMPARE(transfer.tabs.size(), 3);
+        QCOMPARE(transfer.back.size(), 3);
+
+        ViewNavigationSession target(QStringLiteral("view-b"));
+        QCOMPARE(target.openTab(beta, QStringLiteral("Old")), 0);
+        QCOMPARE(target.openTab(other, QStringLiteral("Remove")), 1);
+        QCOMPARE(target.openTab(alpha, QStringLiteral("Old Alpha")), 2);
+        QSignalSpy reset(&target, &QAbstractItemModel::modelReset);
+        QSignalSpy moved(&target, &QAbstractItemModel::rowsMoved);
+        QSignalSpy inserted(&target, &QAbstractItemModel::rowsInserted);
+        QSignalSpy removed(&target, &QAbstractItemModel::rowsRemoved);
+        QVERIFY(target.restoreSnapshot(transfer));
+        QCOMPARE(target.viewId(), QStringLiteral("view-b"));
+        QCOMPARE(target.rowCount(), 3);
+        QCOMPARE(target.tabs().at(0)->accountId, QStringLiteral("a"));
+        QCOMPARE(target.tabs().at(0)->pinned, true);
+        QCOMPARE(target.tabs().at(1)->accountId, QStringLiteral("b"));
+        QCOMPARE(target.tabs().at(1)->title, QStringLiteral("Beta"));
+        QCOMPARE(target.currentLocation().channelId, QStringLiteral("other"));
+        QVERIFY(target.canGoBack());
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(moved.count(), 1);
+        QCOMPARE(inserted.count(), 1);
+        QCOMPARE(removed.count(), 1);
+        QCOMPARE(target.snapshot().back.size(), transfer.back.size());
+    }
+
+    void ordinaryNavigationReusesOnlyUnpinnedChannelTabs()
+    {
+        ViewNavigationSession session(QStringLiteral("combined"));
+        const auto a = chat(QStringLiteral("a"), QStringLiteral("same"));
+        const auto b = chat(QStringLiteral("b"), QStringLiteral("same"));
+        const auto c = chat(QStringLiteral("b"), QStringLiteral("other"));
+        QCOMPARE(session.openTab(a, QStringLiteral("Pinned"), true), 0);
+        QCOMPARE(session.reuseOrOpenChannelTab(b, QStringLiteral("Other account")), 1);
+        QCOMPARE(session.rowCount(), 2);
+        QCOMPARE(session.reuseOrOpenChannelTab(c, QStringLiteral("Reused")), 1);
+        QCOMPARE(session.rowCount(), 2);
+        QCOMPARE(session.tabs().at(0)->accountId, QStringLiteral("a"));
+        QCOMPARE(session.tabs().at(1)->channelId, QStringLiteral("other"));
+        QCOMPARE(session.openTab(b, QStringLiteral("Explicit new tab")), 2);
+        QCOMPARE(session.rowCount(), 3);
+        QCOMPARE(session.reuseOrOpenChannelTab(a), 0);
+        QCOMPARE(session.tabs().at(0)->pinned, true);
+    }
+
+    void tabReorderingKeepsActiveDestinationAndHistory()
+    {
+        ViewNavigationSession session(QStringLiteral("combined"));
+        const auto a = chat(QStringLiteral("a"), QStringLiteral("a"));
+        const auto b = chat(QStringLiteral("a"), QStringLiteral("b"));
+        const auto c = chat(QStringLiteral("b"), QStringLiteral("c"));
+        QCOMPARE(session.openTab(a), 0);
+        QCOMPARE(session.openTab(b), 1);
+        QCOMPARE(session.openTab(c), 2);
+        QSignalSpy moved(&session, &QAbstractItemModel::rowsMoved);
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        QVERIFY(session.moveTab(2, 0));
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(session.tabs().at(0)->channelId, QStringLiteral("c"));
+        QVERIFY(session.moveTab(2, 1));
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(session.currentLocation().channelId, QStringLiteral("c"));
+        QCOMPARE(moved.count(), 2);
+        QCOMPARE(reset.count(), 0);
+        QVERIFY(!session.moveTab(-1, 0));
+    }
+
+    void rejectedSnapshotIsAtomic()
+    {
+        ViewNavigationSession session(QStringLiteral("view"));
+        QCOMPARE(session.openTab(chat(QStringLiteral("a"), QStringLiteral("c"))), 0);
+        auto invalid = session.snapshot();
+        invalid.tabs.append(invalid.tabs.front());
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        QSignalSpy rows(&session, &QAbstractItemModel::rowsInserted);
+        QVERIFY(!session.restoreSnapshot(invalid));
+        QCOMPARE(session.rowCount(), 1);
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(rows.count(), 0);
+        QCOMPARE(reset.count(), 0);
+    }
+
     void historyIsBoundedWithoutEvictingActiveTab()
     {
         ViewNavigationSession session(QStringLiteral("all"));

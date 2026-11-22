@@ -123,6 +123,16 @@ public:
         return entries_.size() - 1;
     }
 
+    bool insert(int index, Entry entry)
+    {
+        if (index < 0 || index > entries_.size() || !entry.isValid()
+            || findDestination(entry.channelId, entry.rootId, entry.accountId) >= 0) {
+            return false;
+        }
+        entries_.insert(index, std::move(entry));
+        return true;
+    }
+
     bool replace(int index, Entry entry)
     {
         if (index < 0 || index >= entries_.size() || !entry.isValid()) {
