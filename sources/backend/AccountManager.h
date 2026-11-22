@@ -63,9 +63,11 @@ public:
     // manager until successfully reparented to their durable Account.
     Backend* createLoginBackend();
     void discardCandidate(Backend* candidate);
-    Account* adoptAuthenticated(Backend* candidate, const QString& loginName,
-                                const QString& displayName,
-                                const QString& recoveryId = {},
+    // Own all arguments before replacing _layout. Restoring existing accounts
+    // passes QStrings referring to the old layout's Account records.
+    Account* adoptAuthenticated(Backend* candidate, QString loginName,
+                                QString displayName,
+                                QString recoveryId = {},
                                 bool persistToken = true);
     Backend* findAccount(const QString& server, const QString& userId) const;
 

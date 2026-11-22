@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <type_traits>
 #include <QAbstractItemModel>
 #include <QPushButton>
 #include <QTreeView>
@@ -43,6 +44,17 @@ class AccountWorkspaceEditTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void adoptionTakesOwnershipOfCatalogStrings()
+    {
+        // restoreAccount() forwards strings from _layout. adoptAuthenticated
+        // replaces that layout, so const QString& parameters can become
+        // dangling when the verified session is adopted (crash regression).
+        using SafeAdoption = Account* (AccountManager::*)(
+            Backend*, QString, QString, QString, bool);
+        static_assert(std::is_same<decltype(&AccountManager::adoptAuthenticated),
+                                   SafeAdoption>::value,
+                      "adoptAuthenticated must own strings before replacing _layout");
+    }
     void accountAliasesAndViewOrderUpdateIncrementally()
     {
         AccountManager manager;

@@ -495,6 +495,15 @@ target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME workspace-layout-test COMMAND workspace-layout-test)
 
+# Canonical root-server URL must map to the same historical QtKeychain key.
+add_executable(session-token-store-key-test
+    SessionTokenStoreKeyTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/SessionTokenStore.cpp")
+target_include_directories(session-token-store-key-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(session-token-store-key-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME session-token-store-key-test COMMAND session-token-store-key-test)
+
 # Durable accounts are independent of Backend and do not carry credentials.
 add_executable(workspace-account-catalog-test
     WorkspaceAccountCatalogTest.cpp

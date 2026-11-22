@@ -222,6 +222,7 @@ MattermostApplication::~MattermostApplication()
 
 void MattermostApplication::start()
 {
+    qInfo("MatterLeast startup: loading saved account catalog and migration state");
     QString error;
     if (!accounts.loadFromOptions(&error)) {
         qWarning() << "Cannot load saved account catalog:" << error;
@@ -242,6 +243,9 @@ void MattermostApplication::start()
     workspaceShell->show();
 
     migrations.run([this](MigrationManager::Result result) {
+        qInfo() << "MatterLeast startup: migration callback result"
+                << static_cast<int>(result)
+                << "known-accounts" << accounts.allAccounts().size();
         if (result == MigrationManager::Result::UnsupportedVersion) {
             overviewPage->setError(tr("Account settings were written by a newer "
                 "version of MatterLeast. No migration was attempted."));
