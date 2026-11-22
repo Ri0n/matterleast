@@ -66,7 +66,9 @@ private slots:
         QVERIFY(merged.canGoBack());
         QVERIFY(!personal.canGoBack());
         QCOMPARE(merged.goBack()->accountId, QStringLiteral("office"));
+        QCOMPARE(merged.activeTab(), 0);
         QCOMPARE(merged.goForward()->accountId, QStringLiteral("home"));
+        QCOMPARE(merged.activeTab(), 1);
         QCOMPARE(merged.data(merged.index(0, 0),
                              ViewNavigationSession::PinnedRole).toBool(), true);
         QVERIFY(merged.setPinned(0, false));
