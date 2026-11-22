@@ -66,17 +66,17 @@ void WorkspaceTreeModel::refreshTopology()
                             {}, {}, {}, {}, pending.status});
     for (const auto& profile : _layout.profiles) {
         Desired p { ProfileNode, profile.id, profile.name,
-                    profile.id, {}, {}, {} };
+                    profile.id, {}, {}, {}, {} };
         for (const auto& view : _layout.views) {
             if (view.profileId != profile.id) continue;
             Desired v { ViewNode, view.id, view.name,
-                        profile.id, view.id, {}, {} };
+                        profile.id, view.id, {}, {}, {} };
             for (const QString& accountId : view.accountIds) {
                 const auto* account = _layout.account(accountId);
                 if (!account) continue;
                 v.children.push_back({ AccountNode,
                     view.id + QLatin1Char('/') + accountId,
-                    account->name, profile.id, view.id, accountId, {} });
+                    account->name, profile.id, view.id, accountId, {}, {} });
             }
             p.children.push_back(std::move(v));
         }
