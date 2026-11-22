@@ -15,6 +15,7 @@ namespace Mattermost {
 class Account;
 class Backend;
 class ViewNavigationSession;
+struct BackendLoginData;
 
 // Single owner of durable account QObjects and optional session Backends.
 // WorkspaceLayout remains pure serializable configuration; Widgets and QML
@@ -62,6 +63,9 @@ public:
     // Temporary candidates for user-entered credentials belong to this
     // manager until successfully reparented to their durable Account.
     Backend* createLoginBackend();
+    // Add-server dialog only gathers credentials; the network request and
+    // transient connecting row belong here, never to a modal QWidget.
+    void beginNewServerLogin(const BackendLoginData& credentials);
     void discardCandidate(Backend* candidate);
     Account* adoptAuthenticated(Backend* candidate, const QString& loginName,
                                 const QString& displayName,
@@ -112,6 +116,7 @@ private:
 
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
+    QHash<QString, QPointer<Backend>> _pendingNewServers;
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
     QHash<QString, ViewNavigationSession*> _viewSessions;
