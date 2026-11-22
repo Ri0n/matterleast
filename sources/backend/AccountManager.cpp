@@ -44,7 +44,24 @@ int retryDelayMs(int failures)
 AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
     , _treeModel(_layout, _listModel, this)
+    , _channelsModel(_layout, this)
 {
+    // The projection observes the manager; it never starts, resets or owns
+    // Backends. Remove each account's channels before releasing its Storage.
+    connect(this, &AccountManager::activeViewChanged, &_channelsModel,
+            &ViewChannelsModel::syncView);
+    connect(this, &AccountManager::layoutChanged, &_channelsModel,
+            &ViewChannelsModel::syncView);
+    connect(this, &AccountManager::accountConnected, &_channelsModel,
+            [this](Account* account, Backend* backend) {
+        if (account)
+            _channelsModel.setBackend(account->id(), backend);
+    });
+    connect(this, &AccountManager::accountUnregistered, &_channelsModel,
+            [this](Backend* backend) {
+        if (Account* account = accountForBackend(backend))
+            _channelsModel.setBackend(account->id(), nullptr);
+    });
     _retryClock.start();
     _retryTimer.setSingleShot(true);
     connect(&_retryTimer, &QTimer::timeout, this, [this] { processRetries(); });
@@ -231,6 +248,7 @@ bool AccountManager::load(const QByteArray& json, QString* error)
     }
     rebuildModel();
     _treeModel.refreshTopology();
+    _channelsModel.syncView();
     ensureViewSessions();
     qCInfo(accountRestoreLog) << "Account catalog loaded:"
                               << _layout.accounts.size() << "accounts,"

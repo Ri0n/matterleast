@@ -883,6 +883,17 @@ if(TARGET matterleast-core)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+# The active Channels projection must preserve the account component of
+# channel identity and reconcile only affected rows across Backend lifetimes.
+if(TARGET matterleast-core)
+    add_executable(view-channels-model-test ViewChannelsModelTest.cpp)
+    target_link_libraries(view-channels-model-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
+    add_test(NAME view-channels-model-test COMMAND view-channels-model-test)
+    set_tests_properties(view-channels-model-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Servers sidebar shares AccountManager's QtCore tree and must edit layout
 # atomically without resetting the unaffected view/account rows.
 if(TARGET matterleast-core)

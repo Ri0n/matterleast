@@ -209,9 +209,16 @@ finish asynchronously after the declarative plan was computed.
   View selection does not need a network connection.
 
 The existing account workspace stack still renders one account at a time.
-The fully merged multi-account Channels/Unread/Attention projections, view
-scoped tabs/history and Servers sidebar editor are later presentation steps;
-runtime profile activation does not imply they are already implemented.
+A QtCore `ViewChannelsModel` now projects the selected view as
+**account → team → category → channel**, sourced directly from each connected
+account's `SidebarService`. It publishes account-qualified channel IDs,
+unread/mention/muted state and the disconnected account rows without creating
+another Backend. Category/activity changes reconcile affected rows instead of
+resetting the view; the model is also consumable by a future QML frontend.
+It does **not** yet replace the Widgets Channels sidebar or provide a merged
+conversation surface. A multi-account presenter, combined Unread/Attention
+projections and account-qualified navigation are subsequent steps; runtime
+profile activation by itself does not imply they are already implemented.
 
 ## Per-view UI state (essential invariant)
 
