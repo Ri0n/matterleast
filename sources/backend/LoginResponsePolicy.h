@@ -45,10 +45,13 @@ inline LoginResponseValidation validateLoginResponse(
         && body.value(QStringLiteral("status_code")).toInt() == 401
         && body.value(QStringLiteral("id")).toString()
                .startsWith(QStringLiteral("api."));
-    const bool ambiguousGateway = savedToken
-        && (httpStatus == 403 || httpStatus == 404
-            || (httpStatus == 401 && !mattermostAuthError));
-    return {false, transientHttp || transportFailure || ambiguousGateway};
+    // Even a nominal HTTP 200 can be a gateway landing page with no valid
+    // Mattermost identity. While restoring an existing saved token, only a
+    // recognizable Mattermost authentication rejection is definitive.
+    // Everything else remains Unavailable until the VPN/route recovers.
+    if (savedToken)
+        return {false, !mattermostAuthError};
+    return {false, transientHttp || transportFailure};
 }
 
 } // namespace Mattermost
