@@ -18,7 +18,7 @@
 
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
-#include "backend/SessionVerificationRetry.h"
+#include "backend/TransientAccountReconnect.h"
 #include "backend/Account.h"
 #include "navigation/ViewNavigationSession.h"
 #include "navigation/NavigationUiController.h"
@@ -306,44 +306,12 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
     }
 
-    void savedTokenVerificationRecoversFromTransientHttpFailure()
+    void savedTokenVerificationRecoversFromGatewayAndServerOutages()
     {
-        FakeMattermostServer server(QByteArrayLiteral("recoverable-account"));
-        server.transientIdentityResponses = 1;
-        QVERIFY(server.listen(QHostAddress::LocalHost));
-
-        Backend backend;
-        auto* verifier = new SessionVerificationRetry(&backend);
-        const BackendLoginData saved = credentials(server, QStringLiteral("saved-token"));
-        int attempts = 0;
-        bool finished = false;
-        bool restored = false;
-        verifier->start(
-            [&](SessionVerificationRetry::CheckDone done) {
-                ++attempts;
-                backend.login(saved, [&, done = std::move(done)](const QString& token) {
-                    const bool success = !token.isEmpty();
-                    done(success, !success && backend.lastLoginFailureTransient());
-                });
-            },
-            [&](bool success, bool transient) {
-                restored = success;
-                finished = true;
-                QVERIFY(!transient);
-            });
-        QTRY_VERIFY_WITH_TIMEOUT(finished, 7000);
-        QVERIFY(restored);
-        QVERIFY(backend.loggedIn());
-        QCOMPARE(attempts, 2);
-        QCOMPARE(server.identityRequests, 2);
-        QVERIFY(backend.getStorage().loginUser);
-        QCOMPARE(backend.getStorage().loginUser->id,
-                 QStringLiteral("recoverable-account"));
-    }
-
-    void savedLoginSurvivesCorporateGateway403And404()
-    {
-        for (const QByteArray status : {QByteArrayLiteral("403 Forbidden"),
+        // Backend owns one verification attempt. The shared account reconnect
+        // scheduler, rather than a second verifier object, schedules the next.
+        for (const QByteArray status : {QByteArrayLiteral("503 Service Unavailable"),
+                                        QByteArrayLiteral("403 Forbidden"),
                                         QByteArrayLiteral("404 Not Found")}) {
             FakeMattermostServer server(QByteArrayLiteral("vpn-user"));
             server.transientIdentityStatus = status;
@@ -351,31 +319,37 @@ private slots:
             QVERIFY(server.listen(QHostAddress::LocalHost));
 
             Backend backend;
-            auto* verifier = new SessionVerificationRetry(&backend);
+            TransientAccountReconnect reconnect;
             const BackendLoginData saved = credentials(
                 server, QStringLiteral("saved-work-vpn-token"));
+            const QString accountId = QStringLiteral("vpn-account");
             bool completed = false;
             bool restored = false;
             int attempts = 0;
-            verifier->start(
-                [&](SessionVerificationRetry::CheckDone done) {
-                    ++attempts;
-                    backend.login(saved,
-                        [&, done = std::move(done)](const QString& token) {
-                        const bool success = !token.isEmpty();
-                        done(success, !success
-                            && backend.lastLoginFailureTransient());
-                    });
-                },
-                [&](bool authenticated, bool transient) {
-                    restored = authenticated;
-                    completed = true;
-                    QVERIFY(!transient);
+            std::function<void()> verify;
+            verify = [&] {
+                ++attempts;
+                backend.login(saved, [&](const QString& token) {
+                    restored = !token.isEmpty();
+                    if (restored || !backend.lastLoginFailureTransient()) {
+                        reconnect.cancel(accountId);
+                        completed = true;
+                    } else {
+                        reconnect.schedule(accountId);
+                    }
                 });
-            QTRY_VERIFY_WITH_TIMEOUT(completed, 7000);
+            };
+            connect(&reconnect, &TransientAccountReconnect::retryDue, &backend,
+                    [&](const QStringList& ids) {
+                if (ids.contains(accountId))
+                    verify();
+            });
+            verify();
+            QTRY_VERIFY_WITH_TIMEOUT(completed, 7500);
             QVERIFY(restored);
             QCOMPARE(attempts, 2);
             QCOMPARE(server.identityRequests, 2);
+            QVERIFY(backend.loggedIn());
             QCOMPARE(backend.getLoginUser().id, QStringLiteral("vpn-user"));
         }
     }
