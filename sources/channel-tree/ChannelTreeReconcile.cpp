@@ -195,6 +195,8 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
         ? previouslyCurrent->data(0, ItemKindRole).toInt() : UnknownItem;
     const QString previousId = previouslyCurrent
         ? previouslyCurrent->data(0, ItemIdRole).toString() : QString();
+    const QString previousAccountId = previouslyCurrent
+        ? previouslyCurrent->data(0, ItemAccountIdRole).toString() : QString();
     const QString previousTeamId = previouslyCurrent
         ? previouslyCurrent->data(0, ItemTeamIdRole).toString() : QString();
     const QString previousParentId = previouslyCurrent && previouslyCurrent->parent()
@@ -451,7 +453,9 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     QTreeWidgetItem* restored = currentItem();
     if (restored != previouslyCurrent
         || (restored && (restored->data(0, ItemKindRole).toInt() != previousKind
-                        || restored->data(0, ItemIdRole).toString() != previousId))) {
+                        || restored->data(0, ItemIdRole).toString() != previousId
+                        || restored->data(0, ItemAccountIdRole).toString()
+                           != previousAccountId))) {
         restored = nullptr;
     }
     QTreeWidgetItem* matchingParent = nullptr;
@@ -461,7 +465,9 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
         for (QTreeWidgetItemIterator it(this); *it; ++it) {
             QTreeWidgetItem* candidate = *it;
             if (candidate->data(0, ItemKindRole).toInt() != previousKind
-                || candidate->data(0, ItemIdRole).toString() != previousId) {
+                || candidate->data(0, ItemIdRole).toString() != previousId
+                || candidate->data(0, ItemAccountIdRole).toString()
+                   != previousAccountId) {
                 continue;
             }
             if (candidate == previouslyCurrent) {
@@ -492,15 +498,18 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
         if (ChatArea* page = getCurrentPage()) {
             const QString channelId = page->getChannel().id;
             const QString teamId = page->teamContextId();
-            for (QTreeWidgetItem* row : channelToItemMap.value(scopedId(channelId))) {
-                if (row->data(0, ItemTeamIdRole).toString() == teamId) {
+            const ScopedId pageKey {accountIdForBackend(&page->getBackend()), channelId};
+            for (QTreeWidgetItem* row : channelToItemMap.value(pageKey)) {
+                if (row->data(0, ItemTeamIdRole).toString() == teamId
+                    && backendForRow(row) == &page->getBackend()) {
                     restored = row;
                     break;
                 }
             }
             if (!restored) {
                 QTreeWidgetItem* personal = personalItemForTeam(teamId);
-                if (personal && personal->data(0, ItemChannelIdRole).toString() == channelId) {
+                if (personal && personal->data(0, ItemChannelIdRole).toString() == channelId
+                    && backendForRow(personal) == &page->getBackend()) {
                     restored = personal;
                 }
             }

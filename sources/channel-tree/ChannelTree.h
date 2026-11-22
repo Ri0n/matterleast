@@ -95,6 +95,12 @@ public:
     // it to a different account (that requires a separate presentation).
     bool bindSingleAccount(const QString& accountId);
     QString boundAccountId() const { return _boundAccountId; }
+    // The AccountManager owns Backend lifetimes; this tree only observes them.
+    bool registerAccountBackend(const QString& accountId, Backend& backend);
+    void unregisterAccountBackend(const QString& accountId, const Backend* expected = nullptr);
+    Backend* backendForAccount(const QString& accountId) const;
+    Backend* backendForRow(const QTreeWidgetItem* row) const;
+    QString accountIdForBackend(const Backend* backend) const;
 	bool isChannelActive (const BackendChannel& channel);
 	Backend* backendInstance() const;
 
@@ -194,6 +200,7 @@ private:
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
 	void showContextMenu (const QPoint& pos);
 	void handleChannelLeave();
+    void handleChannelLeaveForAccount(const QString& accountId, const QString& channelId);
     void handleChannelUpdated();
     void onDirectCustomStatusChanged();
     void bindDirectUser(BackendUser& user);
@@ -217,9 +224,11 @@ private:
                                   QTreeWidgetItem& parentItem);
     ChannelItem* createRecentMentionsItem(Backend& backend, TeamItem& teamItem,
                                           QTreeWidgetItem& parentItem);
-    QTreeWidgetItem* personalItemForTeam(const QString& teamId) const;
+    QTreeWidgetItem* personalItemForTeam(const QString& teamId,
+                                        const QString& accountId = {}) const;
     void refreshPersonalItems();
-    void activateConversation(const QString& channelId, const QString& teamId = {});
+    void activateConversation(const QString& channelId, const QString& teamId = {},
+                              const QString& accountId = {});
 	void activateChannelItem(QTreeWidgetItem* item);
     void activateVirtualDestination(QTreeWidgetItem* item);
 	void setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed);
@@ -283,6 +292,7 @@ private:
     QSet<QString>                        pendingChannelAdmissions;
 	Backend*							backendForSidebar;
     QString                             _boundAccountId;
+    QMap<QString, QPointer<Backend>>     _accountBackends;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
     // True during an internal sidebar mouse drag. Structural sidebar

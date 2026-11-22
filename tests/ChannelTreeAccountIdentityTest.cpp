@@ -3,6 +3,7 @@
 #include <QTreeWidgetItem>
 
 #include "channel-tree/ChannelTree.h"
+#include "backend/Backend.h"
 #include "channel-tree/SidebarItem.h"
 
 using namespace Mattermost;
@@ -32,6 +33,38 @@ class ChannelTreeAccountIdentityTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void backendBindingsAreAccountQualified()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        auto* firstRow = new QTreeWidgetItem(&tree);
+        auto* secondRow = new QTreeWidgetItem(&tree);
+        firstRow->setData(0, SidebarItem::AccountIdRole, QStringLiteral("a"));
+        secondRow->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        firstRow->setData(0, SidebarItem::IdRole, QStringLiteral("same-id"));
+        secondRow->setData(0, SidebarItem::IdRole, QStringLiteral("same-id"));
+
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(!tree.registerAccountBackend(QStringLiteral("a"), second));
+        QVERIFY(!tree.registerAccountBackend(QStringLiteral("c"), first));
+        QCOMPARE(tree.backendForRow(firstRow), &first);
+        QCOMPARE(tree.backendForRow(secondRow), &second);
+        QCOMPARE(tree.accountIdForBackend(&first), QStringLiteral("a"));
+        QCOMPARE(tree.accountIdForBackend(&second), QStringLiteral("b"));
+
+        // Removing an account binding cannot redirect its rows to the
+        // remaining server, even when the remote channel IDs are identical.
+        tree.unregisterAccountBackend(QStringLiteral("a"), &second);
+        QCOMPARE(tree.backendForRow(firstRow), &first);
+        tree.unregisterAccountBackend(QStringLiteral("a"), &first);
+        QVERIFY(tree.backendForRow(firstRow) == nullptr);
+        QCOMPARE(tree.backendForRow(secondRow), &second);
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+    }
+
     void bindsExistingRowsWithoutReplacingTheModel()
     {
         ChannelTree tree;
