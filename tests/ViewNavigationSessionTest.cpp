@@ -124,6 +124,58 @@ private slots:
         QVERIFY(changed.count() >= 1);
     }
 
+    void stateTransferKeepsAccountsDistinctAndUsesIncrementalSignals()
+    {
+        ViewNavigationSession from(QStringLiteral("view-a"));
+        auto alpha = chat(QStringLiteral("a"), QStringLiteral("same"));
+        auto beta = chat(QStringLiteral("b"), QStringLiteral("same"));
+        auto other = chat(QStringLiteral("a"), QStringLiteral("other"));
+        QCOMPARE(from.openTab(alpha, QStringLiteral("Alpha"), true), 0);
+        QCOMPARE(from.openTab(beta, QStringLiteral("Beta")), 1);
+        QVERIFY(from.visit(other));
+        auto transfer = from.snapshot();
+        QCOMPARE(transfer.activeTab, -1);
+        QCOMPARE(transfer.tabs.size(), 2);
+        QCOMPARE(transfer.back.size(), 2);
+
+        ViewNavigationSession target(QStringLiteral("view-b"));
+        QCOMPARE(target.openTab(beta, QStringLiteral("Old")), 0);
+        QCOMPARE(target.openTab(other, QStringLiteral("Remove")), 1);
+        QSignalSpy reset(&target, &QAbstractItemModel::modelReset);
+        QSignalSpy moved(&target, &QAbstractItemModel::rowsMoved);
+        QSignalSpy inserted(&target, &QAbstractItemModel::rowsInserted);
+        QSignalSpy removed(&target, &QAbstractItemModel::rowsRemoved);
+        QVERIFY(target.restoreSnapshot(transfer));
+        QCOMPARE(target.viewId(), QStringLiteral("view-b"));
+        QCOMPARE(target.rowCount(), 2);
+        QCOMPARE(target.tabs().at(0)->accountId, QStringLiteral("a"));
+        QCOMPARE(target.tabs().at(0)->pinned, true);
+        QCOMPARE(target.tabs().at(1)->accountId, QStringLiteral("b"));
+        QCOMPARE(target.tabs().at(1)->title, QStringLiteral("Beta"));
+        QCOMPARE(target.currentLocation().channelId, QStringLiteral("other"));
+        QVERIFY(target.canGoBack());
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(moved.count(), 1);
+        QCOMPARE(inserted.count(), 1);
+        QCOMPARE(removed.count(), 1);
+        QCOMPARE(target.snapshot().back.size(), transfer.back.size());
+    }
+
+    void rejectedSnapshotIsAtomic()
+    {
+        ViewNavigationSession session(QStringLiteral("view"));
+        QCOMPARE(session.openTab(chat(QStringLiteral("a"), QStringLiteral("c"))), 0);
+        auto invalid = session.snapshot();
+        invalid.tabs.append(invalid.tabs.front());
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        QSignalSpy rows(&session, &QAbstractItemModel::rowsInserted);
+        QVERIFY(!session.restoreSnapshot(invalid));
+        QCOMPARE(session.rowCount(), 1);
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(rows.count(), 0);
+        QCOMPARE(reset.count(), 0);
+    }
+
     void historyIsBoundedWithoutEvictingActiveTab()
     {
         ViewNavigationSession session(QStringLiteral("all"));
