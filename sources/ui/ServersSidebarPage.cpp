@@ -541,6 +541,10 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
     connect(editLayout, &QPushButton::clicked, this, &ServersSidebarPage::editLayout);
     connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::dataChanged,
             this, [this] { updateSelection(); });
+    connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::rowsInserted,
+            this, [this] { _tree->expandAll(); updateSelection(); });
+    connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::rowsRemoved,
+            this, [this] { updateSelection(); });
     connect(&_accounts, &AccountManager::layoutChanged, this, [this] {
         _tree->expandAll();
         updateSelection();
@@ -573,6 +577,13 @@ void ServersSidebarPage::updateSelection()
                      index.data(WorkspaceTreeModel::StatusRole).toString()));
             return;
         }
+    }
+    if (index.isValid() && kind == WorkspaceTreeModel::PendingNode) {
+        _details->setText(tr("Connecting to %1: %2")
+            .arg(index.data(WorkspaceTreeModel::NodeIdRole).toString().isEmpty()
+                     ? tr("server") : index.data(Qt::DisplayRole).toString(),
+                 index.data(WorkspaceTreeModel::StatusRole).toString()));
+        return;
     }
     if (view) {
         for (const auto& item : _accounts.layout().views)

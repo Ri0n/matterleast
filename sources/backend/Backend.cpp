@@ -353,47 +353,18 @@ Backend::Backend(QObject *parent)
     });
     connect(this, &Backend::onWebSocketDisconnect,
             this, &Backend::clearTypingActivity);
-	connect (&webSocketConnector, &WebSocketConnector::onConnect,
-	         [this] (bool isReconnect, bool needsHttpResync) {
-        if (!isLoggedIn) {
-            return; // Ignore an in-flight reconnect during logout.
-        }
+    connect(&webSocketConnector, &WebSocketConnector::onConnect, this,
+            [this](bool isReconnect, bool needsHttpResync) {
+        if (!isLoggedIn)
+            return;
+        // Tell the controller first. Unverified replay may synchronously
+        // terminate the session, so never announce it online prematurely.
+        emit realtimeStreamConfirmed(isReconnect, !needsHttpResync);
+        if (!isLoggedIn)
+            return;
         CustomEmojiService::instance(*this).resetSession();
-		if (isReconnect) {
-			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
-
-			/**
-			 * Only this account's server connection is known to have recovered.
-			 * Refresh its HTTP transport before resuming its dependent services;
-			 * do not interrupt other servers' in-flight uploads/downloads.
-			 */
-			HTTPConnector::restartSessionTransports(&_networkSession);
-		}
-
-		emit onWebSocketConnect();
-
-        // WebSocket replay alone does not refresh HTTP-backed projections.
-        // Sources reconcile their visible timelines and defer hidden ones.
-        if (isReconnect) {
-            emit onRealtimeRecovered();
-        }
-
-		// Reliable WebSocket replay covers normal reconnects. Only when the
-		// server explicitly started a new stream do we need a history fallback.
-		if (needsHttpResync && currentChannel) {
-			LOG_DEBUG("Reliable WebSocket resume failed - refreshing current channel");
-			retrieveChannelPosts(*currentChannel, 0, 25);
-		}
-	});
-
-	connect(&webSocketConnector, &WebSocketConnector::reliableResumeFailed,
-	        this, [this] {
-		LOG_DEBUG("Reliable WebSocket resume failed after authentication");
-        emit onRealtimeRecovered();
-		if (currentChannel) {
-			retrieveChannelPosts(*currentChannel, 0, 25);
-		}
-	});
+        emit onWebSocketConnect();
+    });
 
     connect(this, &Backend::onFlaggedPostChanged, this,
             [this](const QString& postId, bool flagged) {
@@ -559,7 +530,9 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 
 		_networkSession.setToken(credentials.token);
 		NetworkRequest request(_networkSession, "users/me");
-
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+        request.setTransferTimeout(15000);
+#endif
 		httpConnector.get (request, HttpResponseCallback ([this, callback](const QJsonDocument& data, const QNetworkReply& reply) {
 			loginSuccess (data, reply, callback);
 		}));
@@ -632,6 +605,22 @@ void Backend::retryWebSocketConnectionNow()
     webSocketConnector.reconnectNow();
 }
 
+void Backend::probeWebSocketConnection()
+{
+    webSocketConnector.probeNow();
+}
+
+void Backend::reconcileAfterReliableReplay()
+{
+    if (!isLoggedIn)
+        return;
+    HTTPConnector::restartSessionTransports(&_networkSession);
+    // Guaranteed event replay preserves Storage identity, but independent
+    // REST-backed projections (materialized threads, visible timelines, etc.)
+    // must still reconcile with the authoritative server.
+    emit onRealtimeRecovered();
+}
+
 bool Backend::autoLoginEnabled ()
 {
 	return autoLoginEnabledFlag;
@@ -641,7 +630,8 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
 {
     const LoginResponseValidation validation = validateLoginResponse(
         reply.error(),
-        reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), doc);
+        reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
+        doc, !loginData.token.isEmpty());
     _lastLoginFailureTransient = validation.retryable;
     if (!validation.accepted) {
         qWarning() << "Login identity fetch failed, retryable="

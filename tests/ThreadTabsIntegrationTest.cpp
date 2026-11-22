@@ -2159,6 +2159,75 @@ private slots:
         QTRY_VERIFY(channel->postIdToPost.contains(rootId(91)));
         QCOMPARE(server.threadLookups.size(), 0);
     }
+    // Run the two-window fixture after the independent single-window cases,
+    // so its process-global presentation state cannot affect scroll tests.
+    void embeddedMultiAccountNavigationReachesOnlyOwningBackend()
+    {
+        Server serverA;
+        Server serverB;
+        serverA.startupChannels = true;
+        serverB.startupChannels = true;
+        QVERIFY(serverA.listen(QHostAddress::LocalHost));
+        QVERIFY(serverB.listen(QHostAddress::LocalHost));
+
+        Backend backendA;
+        Backend backendB;
+        backendA.networkSession().setHost(serverBaseUrl(serverA));
+        backendB.networkSession().setHost(serverBaseUrl(serverB));
+        backendA.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester-a"}}, true);
+        backendB.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester-b"}}, true);
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(serverA)), QByteArray());
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(serverB)), QByteArray());
+
+        QSystemTrayIcon tray;
+        QStackedWidget accountStack;
+        auto* first = new MainWindow(nullptr, tray, backendA);
+        auto* second = new MainWindow(nullptr, tray, backendB);
+        accountStack.addWidget(first);
+        accountStack.addWidget(second);
+        accountStack.resize(1100, 700);
+        accountStack.show();
+        QVERIFY(!first->isWindow());
+        QVERIFY(!second->isWindow());
+        QTRY_VERIFY(backendA.getStorage().getChannelById(QStringLiteral("channel")));
+        QTRY_VERIFY(backendB.getStorage().getChannelById(QStringLiteral("channel")));
+        QTRY_VERIFY(SidebarService::instance(backendA).teamState(QStringLiteral("team"))
+            && SidebarService::instance(backendA).teamState(QStringLiteral("team"))
+                   ->category(QStringLiteral("dm")));
+        QTRY_VERIFY(SidebarService::instance(backendB).teamState(QStringLiteral("team"))
+            && SidebarService::instance(backendB).teamState(QStringLiteral("team"))
+                   ->category(QStringLiteral("dm")));
+
+        auto& navA = AppNavigationService::instance(backendA);
+        auto& uiA = NavigationUiController::instance(*first);
+        auto& uiB = NavigationUiController::instance(*second);
+        navA.openChannel(QStringLiteral("channel"));
+        auto* channelsA = first->findChild<ChannelTree*>(
+            QStringLiteral("channelList"));
+        QVERIFY(channelsA);
+        QTRY_VERIFY(channelsA->getCurrentPage()
+            && channelsA->getCurrentPage()->getChannel().id
+                   == QStringLiteral("channel"));
+
+        navA.openThread(QStringLiteral("channel"), rootId(901));
+        QTRY_VERIFY(uiA.findThread(QStringLiteral("channel"), rootId(901)));
+        QVERIFY(!uiB.findThread(QStringLiteral("channel"), rootId(901)));
+
+        navA.openThreadInTab(QStringLiteral("channel"), rootId(902));
+        QTRY_VERIFY(uiA.findThread(QStringLiteral("channel"), rootId(902)));
+        QVERIFY(uiA.findThread(QStringLiteral("channel"), rootId(902))
+                    ->property("threadTabbed").toBool());
+        QVERIFY(!uiB.findThread(QStringLiteral("channel"), rootId(902)));
+
+        accountStack.setCurrentWidget(second);
+        auto& navB = AppNavigationService::instance(backendB);
+        navB.openThreadInTab(QStringLiteral("channel"), rootId(903));
+        QTRY_VERIFY(uiB.findThread(QStringLiteral("channel"), rootId(903)));
+        QVERIFY(!uiA.findThread(QStringLiteral("channel"), rootId(903)));
+    }
+
 };
 
 int main(int argc, char** argv)

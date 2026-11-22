@@ -116,10 +116,29 @@ NavigationUiController::NavigationUiController(MainWindow& mainWindow)
 
 NavigationUiController::~NavigationUiController()
 {
-    if (qApp) {
+    // MainWindow::beginShutdown() must run before QObject recursively destroys
+    // the sidebar/thread stacks. Do not dereference Widget members here: they
+    // may already have been deleted by QObjectPrivate::deleteChildren().
+    if (qApp)
         qApp->removeEventFilter(this);
-    }
+}
+
+void NavigationUiController::beginShutdown()
+{
+    if (shuttingDown)
+        return;
+    // Saving navigation belongs to MainWindow::saveState (aboutToQuit or
+    // prepareForLogout), not QObject teardown. A detached ChatArea may have
+    // closed after an explicit snapshot was saved; rewriting that snapshot
+    // as its test fixture is destroyed would lose the user's last state.
+    // Stop observing children before QWidget teardown, but do not persist
+    // an incomplete or partially disposed presentation.
     persistThreadPaneWidth();
+    shuttingDown = true;
+    if (sessionSaveTimer)
+        sessionSaveTimer->stop();
+    if (qApp)
+        qApp->removeEventFilter(this);
 }
 
 void NavigationUiController::setupMainWindow()
@@ -354,6 +373,11 @@ void NavigationUiController::setupThreadPane()
     contentSplitter->show();
     navigationSurfaceStack->show();
     mainStack->show();
+
+    // This navigation controller replaces a QSplitter child after the
+    // MainWindow constructor's restoreState() has run. Reapply the saved
+    // left width now that the central widget hierarchy is final.
+    window.restoreSidebarWidth();
 
     // Restore the right-pane width only after the thread is visible.
     // Restoring QSplitter state here would use a hidden child with width zero.
@@ -2171,6 +2195,8 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
+    if (shuttingDown)
+        return QObject::eventFilter(watched, event);
     if (event && (event->type() == QEvent::Move || event->type() == QEvent::Resize)) {
         auto* area = qobject_cast<ChatArea*>(watched);
         if (area && area->property("sessionTracked").toBool()

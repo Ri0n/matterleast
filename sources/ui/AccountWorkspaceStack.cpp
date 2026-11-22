@@ -30,18 +30,18 @@ bool AccountWorkspaceStack::addWorkspace(const QString& accountId, QWidget* view
     return true;
 }
 
-void AccountWorkspaceStack::setOverviewPage(QWidget* page)
+void AccountWorkspaceStack::setServersPage(QWidget* page)
 {
-    if (!page || _overviewPage)
+    if (!page || _serversPage)
         return;
-    _overviewPage = page;
+    _serversPage = page;
     _stack->insertWidget(0, page);
 }
 
-void AccountWorkspaceStack::showOverview()
+void AccountWorkspaceStack::showServers()
 {
-    if (_overviewPage && _stack->currentWidget() != _overviewPage)
-        _stack->setCurrentWidget(_overviewPage);
+    if (_serversPage && _stack->currentWidget() != _serversPage)
+        _stack->setCurrentWidget(_serversPage);
 }
 
 QWidget* AccountWorkspaceStack::workspace(const QString& accountId) const

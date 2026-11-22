@@ -9,6 +9,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
+#include <QStackedWidget>
+#include <QSplitter>
+#include <QSystemTrayIcon>
 #include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -17,6 +20,9 @@
 #include "backend/AccountManager.h"
 #include "backend/Account.h"
 #include "navigation/ViewNavigationSession.h"
+#include "navigation/NavigationUiController.h"
+#include "mainwindow.h"
+#include "options/MLOptions.h"
 #include "backend/AttachmentService.h"
 #include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
@@ -66,7 +72,11 @@ public:
                         ++identityRequests;
                         identityCookies.append(cookie);
                         if (holdIdentity) return;
-                        if (rejectIdentity) {
+                        if (transientIdentityResponses > 0) {
+                            --transientIdentityResponses;
+                            status = transientIdentityStatus;
+                            body = QByteArrayLiteral(R"({"message":"temporary outage"})");
+                        } else if (rejectIdentity) {
                             status = QByteArrayLiteral("401 Unauthorized");
                             body = QByteArrayLiteral(R"({"message":"invalid token"})");
                         } else {
@@ -230,6 +240,8 @@ public:
     QByteArray id;
     bool holdIdentity = false;
     bool rejectIdentity = false;
+    int transientIdentityResponses = 0;
+    QByteArray transientIdentityStatus = QByteArrayLiteral("503 Service Unavailable");
     bool rejectPreferences = false;
     bool separateIdentitiesByToken = false;
     bool holdSecondUserPage = false;
@@ -291,6 +303,45 @@ private slots:
         QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
         QCoreApplication::setApplicationName(QStringLiteral("backend-multi-server-login-test"));
         QStandardPaths::setTestModeEnabled(true);
+    }
+
+    void savedTokenVerificationClassifiesGatewayAndServerOutages()
+    {
+        // Verify each Backend request is independent and transient gateway
+        // errors preserve credentials; the retry policy is owned by AccountManager.
+        for (const QByteArray& status : {QByteArrayLiteral("503 Service Unavailable"),
+                                        QByteArrayLiteral("403 Forbidden"),
+                                        QByteArrayLiteral("404 Not Found")}) {
+            FakeMattermostServer server(QByteArrayLiteral("vpn-user"));
+            server.transientIdentityStatus = status;
+            server.transientIdentityResponses = 1;
+            QVERIFY(server.listen(QHostAddress::LocalHost));
+
+            Backend backend;
+            const BackendLoginData saved = credentials(
+                server, QStringLiteral("saved-work-vpn-token"));
+            bool completed = false;
+            bool restored = false;
+            int attempts = 0;
+            std::function<void()> verify;
+            verify = [&] {
+                ++attempts;
+                backend.login(saved, [&](const QString& token) {
+                    restored = !token.isEmpty();
+                    if (restored || !backend.lastLoginFailureTransient())
+                        completed = true;
+                    else
+                        QTimer::singleShot(0, &backend, verify);
+                });
+            };
+            verify();
+            QTRY_VERIFY_WITH_TIMEOUT(completed, 7500);
+            QVERIFY(restored);
+            QCOMPARE(attempts, 2);
+            QCOMPARE(server.identityRequests, 2);
+            QVERIFY(backend.loggedIn());
+            QCOMPARE(backend.getLoginUser().id, QStringLiteral("vpn-user"));
+        }
     }
 
     void concurrentlyAuthenticatesTwoIndependentBackends()
@@ -1267,6 +1318,99 @@ private slots:
         activeBackend->retrieveUserPreferences();
         QTRY_COMPARE(healthy.preferencesRequests, 2);
         checkCookies(healthy.preferenceCookies, "active-token", "stalled-token");
+    }
+    void sidebarWidthSurvivesNavigationReparentAndHiddenShutdown()
+    {
+        FakeMattermostServer server(QByteArrayLiteral("sidebar-width-account"));
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        bool ready = false;
+        backend.login(credentials(server, QStringLiteral("sidebar-token")),
+                      [&](const QString& token) { ready = !token.isEmpty(); });
+        QTRY_VERIFY(ready);
+
+        const QString key = QStringLiteral("workspace/%1/sidebar_width")
+            .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+        auto* options = MLOptions::instance();
+        // Simulate a width previously saved by a real splitter drag. The
+        // navigation controller must preserve it when it reparents widgets.
+        options->setValue(key, 400);
+
+        QSystemTrayIcon tray;
+        // Production MainWindow is a child of the persistent account stack.
+        // Its saved width must be restored only after the stack shows it.
+        QStackedWidget shell;
+        shell.resize(1100, 720);
+        auto* window = new MainWindow(nullptr, tray, backend);
+        shell.addWidget(window);
+        shell.show();
+        NavigationUiController::instance(*window);
+        auto* sidebar = window->findChild<QSplitter*>(
+            QStringLiteral("sidebarSplitter"));
+        QVERIFY(sidebar);
+        QTRY_VERIFY(sidebar->width() > 800);
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 400) <= 35);
+
+        sidebar->setSizes({340, 750});
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 340) <= 35);
+        window->saveState();
+        const int saved = options->value<int>(key, 0);
+        QVERIFY(qAbs(saved - 340) <= 35);
+
+        // A hidden account page must not replace its real width with zero
+        // when QApplication quits or when another server was selected.
+        window->hide();
+        window->saveState();
+        QCOMPARE(options->value<int>(key, 0), saved);
+        delete window;
+
+        auto* restarted = new MainWindow(nullptr, tray, backend);
+        shell.addWidget(restarted);
+        shell.setCurrentWidget(restarted);
+        NavigationUiController::instance(*restarted);
+        auto* restoredSidebar = restarted->findChild<QSplitter*>(
+            QStringLiteral("sidebarSplitter"));
+        QVERIFY(restoredSidebar);
+        QTRY_VERIFY(restoredSidebar->width() > 800);
+        QTRY_VERIFY(qAbs(restoredSidebar->sizes().at(0) - saved) <= 35);
+        delete restarted;
+    }
+
+    void navigationControllerStopsObservingAreasBeforeWindowDestruction()
+    {
+        // Regression: during MainWindow's QObject child teardown, a ChatArea
+        // emits destroyed after its QStackedWidget has been deleted. The old
+        // navigation controller immediately synchronized using that dead widget.
+        FakeMattermostServer server(QByteArrayLiteral("exit-account"));
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        bool ready = false;
+        backend.login(credentials(server, QStringLiteral("saved-token")),
+                      [&](const QString& token) { ready = !token.isEmpty(); });
+        QTRY_VERIFY(ready);
+
+        QSystemTrayIcon tray;
+        auto* window = new MainWindow(nullptr, tray, backend);
+        auto& navigation = NavigationUiController::instance(*window);
+        ViewNavigationSession view(QStringLiteral("exit-view"));
+        view.setAllowedAccounts({QStringLiteral("exit-account-local")});
+        navigation.bindViewSession(&view, QStringLiteral("exit-account-local"));
+        navigation.restoreSession();
+
+        auto* threads = window->findChild<QStackedWidget*>(
+            QStringLiteral("threadStack"));
+        QVERIFY(threads);
+        // Model a tracked conversation whose destroyed signal is delivered
+        // synchronously during the recursive destruction of Qt Widgets.
+        auto* conversation = new QWidget;
+        threads->addWidget(conversation);
+        QPointer<QWidget> conversationGuard(conversation);
+        QPointer<NavigationUiController> navigationGuard(&navigation);
+        connect(conversation, &QObject::destroyed, &navigation,
+                [&navigation] { navigation.saveSession(); });
+        delete window;
+        QVERIFY(conversationGuard.isNull());
+        QVERIFY(navigationGuard.isNull());
     }
 };
 

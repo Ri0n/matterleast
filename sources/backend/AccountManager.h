@@ -1,10 +1,12 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QVector>
 
 #include "workspaces/AccountListModel.h"
@@ -15,6 +17,7 @@ namespace Mattermost {
 class Account;
 class Backend;
 class ViewNavigationSession;
+class BackendLoginData;
 
 // Single owner of durable account QObjects and optional session Backends.
 // WorkspaceLayout remains pure serializable configuration; Widgets and QML
@@ -27,6 +30,7 @@ class AccountManager final : public QObject
                NOTIFY activeViewSessionChanged)
 public:
     explicit AccountManager(QObject* parent = nullptr);
+    ~AccountManager() override;
 
     bool load(const QByteArray& json, QString* error = nullptr);
     bool loadFromOptions(QString* error = nullptr);
@@ -62,6 +66,8 @@ public:
     // Temporary candidates for user-entered credentials belong to this
     // manager until successfully reparented to their durable Account.
     Backend* createLoginBackend();
+    // Credential form closes before authentication; progress stays in the tree.
+    void beginNewServerLogin(const BackendLoginData& credentials);
     void discardCandidate(Backend* candidate);
     // Own all arguments before replacing _layout. Restoring existing accounts
     // passes QStrings referring to the old layout's Account records.
@@ -73,8 +79,8 @@ public:
 
     void restoreAccount(const QString& id);
     // Starts only accounts admitted by the active profile, including hidden
-    // accounts in its other views. Failed/auth-required restores need an
-    // explicit retry through restoreAccount().
+    // accounts in its other views. Unavailable sessions retry automatically
+    // via the shared scheduler; confirmed auth failures require user action.
     void restoreActiveProfile();
     void cancelPendingRestore(const QString& id, AccountConnectionState status);
 
@@ -107,13 +113,30 @@ private:
     Account* ensureAccount(const QString& id);
     void rebuildModel();
     void finishBackendRemoval(Account* account, Backend* backend);
+    enum class RetryKind { SavedSession, WebSocket };
+    struct PendingRetry { RetryKind kind; qint64 deadline; };
+    void scheduleRetry(const QString& id, RetryKind kind);
+    void cancelRetry(const QString& id, bool resetFailures = true);
+    void armRetryTimer();
+    void processRetries(bool force = false);
+    void onNetworkChanged();
+    void reloadSessionAfterReplayGap(const QString& id);
     bool applySelection(const QString& viewId, const QString& accountId);
     void reconcileActiveProfile();
     void ensureViewSessions();
     QStringList activeProfileAccountIds() const;
 
+    QElapsedTimer _retryClock;
+    QTimer _retryTimer;
+    QHash<QString, PendingRetry> _pendingRetries;
+    QHash<QString, int> _retryFailures;
+#ifdef Q_OS_LINUX
+    int _routeChangeSocket = -1;
+#endif
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
+    QHash<QString, QPointer<Backend>> _pendingNewServers;
+    QSet<QString> _failedNewServers;
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
     QHash<QString, ViewNavigationSession*> _viewSessions;

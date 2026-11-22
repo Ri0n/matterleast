@@ -4,6 +4,7 @@
 #include <functional>
 
 #include <QObject>
+#include <QPointer>
 #include <QStringList>
 #include <QUrl>
 
@@ -13,6 +14,7 @@ namespace Mattermost {
 
 class Backend;
 class BackendChannel;
+class MainWindow;
 
 /** Semantic application navigation. Post retrieval belongs to PostRepository. */
 class AppNavigationService final : public QObject
@@ -22,6 +24,8 @@ public:
     using NavigationCallback = std::function<void(bool)>;
 
     static AppNavigationService& instance(Backend& backend);
+    // An account's Widgets presentation may be embedded in AccountWorkspaceStack.
+    void bindMainWindow(MainWindow& window);
 
     void openUrl(const QUrl& url);
     void openUrlInTab(const QUrl& url);
@@ -60,7 +64,6 @@ private:
     explicit AppNavigationService(Backend& backend);
 
     quint64 beginNavigation();
-    void ensureMainWindowConnection();
     void openUrlImpl(const QUrl& url, bool inTab);
     void openPostImpl(const QString& postId, bool inTab);
     bool activateExistingDestination(const QString& channelId,
@@ -80,6 +83,7 @@ private:
                      bool inTab);
 
     Backend& backend;
+    QPointer<MainWindow> presentationWindow;
     NavigationRequestGate navigationRequests;
 };
 

@@ -42,17 +42,16 @@ target_link_libraries(account-list-model-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME account-list-model-test COMMAND account-list-model-test)
 
-add_executable(account-overview-page-test
-    AccountOverviewPageTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/ui/AccountOverviewPage.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/workspaces/AccountListModel.cpp")
-target_include_directories(account-overview-page-test PRIVATE
-    "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(account-overview-page-test PRIVATE
-    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
-add_test(NAME account-overview-page-test COMMAND account-overview-page-test)
-set_tests_properties(account-overview-page-test PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+# First run uses the real Servers tab and transient QtCore connection states.
+# All account/Widgets code is shared with the production object library.
+if(TARGET matterleast-core)
+    add_executable(servers-workspace-page-test ServersWorkspacePageTest.cpp)
+    target_link_libraries(servers-workspace-page-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME servers-workspace-page-test COMMAND servers-workspace-page-test)
+    set_tests_properties(servers-workspace-page-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
 
 add_executable(tray-window-controller-test TrayWindowControllerTest.cpp)
 target_include_directories(tray-window-controller-test PRIVATE
@@ -781,6 +780,14 @@ if(TARGET matterleast-core)
     target_link_libraries(websocket-posted-replay-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME websocket-posted-replay-test COMMAND websocket-posted-replay-test)
     set_tests_properties(websocket-posted-replay-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    add_executable(websocket-continuity-test WebSocketContinuityTest.cpp)
+    target_link_libraries(websocket-continuity-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::WebSockets)
+    add_test(NAME websocket-continuity-test COMMAND websocket-continuity-test)
+    set_tests_properties(websocket-continuity-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(thread-post-source-integration-test ThreadPostSourceIntegrationTest.cpp)
     target_link_libraries(thread-post-source-integration-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)

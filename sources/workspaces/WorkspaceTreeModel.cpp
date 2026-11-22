@@ -58,21 +58,25 @@ void WorkspaceTreeModel::refreshTopology()
         QString viewId;
         QString accountId;
         std::vector<Desired> children;
+        QString status;
     };
     std::vector<Desired> profiles;
+    for (const PendingServer& pending : _pendingServers)
+        profiles.push_back({PendingNode, pending.id, pending.server,
+                            {}, {}, {}, {}, pending.status});
     for (const auto& profile : _layout.profiles) {
         Desired p { ProfileNode, profile.id, profile.name,
-                    profile.id, {}, {}, {} };
+                    profile.id, {}, {}, {}, {} };
         for (const auto& view : _layout.views) {
             if (view.profileId != profile.id) continue;
             Desired v { ViewNode, view.id, view.name,
-                        profile.id, view.id, {}, {} };
+                        profile.id, view.id, {}, {}, {} };
             for (const QString& accountId : view.accountIds) {
                 const auto* account = _layout.account(accountId);
                 if (!account) continue;
                 v.children.push_back({ AccountNode,
                     view.id + QLatin1Char('/') + accountId,
-                    account->name, profile.id, view.id, accountId, {} });
+                    account->name, profile.id, view.id, accountId, {}, {} });
             }
             p.children.push_back(std::move(v));
         }
@@ -100,6 +104,14 @@ void WorkspaceTreeModel::refreshTopology()
                 auto node = std::make_unique<Node>();
                 node->kind = want.kind;
                 node->id = want.id;
+                // An inserted index must already expose its complete data
+                // at endInsertRows(). Emitting dataChanged for a newly added
+                // row is redundant and causes extra sidebar repaints.
+                node->name = want.name;
+                node->profileId = want.profileId;
+                node->viewId = want.viewId;
+                node->accountId = want.accountId;
+                node->status = want.status;
                 node->parent = owner;
                 node->row = int(row);
                 owner->children.insert(owner->children.begin() + row,
@@ -121,15 +133,16 @@ void WorkspaceTreeModel::refreshTopology()
             Node* node = owner->children[row].get();
             if (node->name != want.name || node->profileId != want.profileId
                 || node->viewId != want.viewId
-                || node->accountId != want.accountId) {
+                || node->accountId != want.accountId || node->status != want.status) {
                 node->name = want.name;
                 node->profileId = want.profileId;
                 node->viewId = want.viewId;
                 node->accountId = want.accountId;
+                node->status = want.status;
                 const QModelIndex idx = modelIndex(node);
                 emit dataChanged(idx, idx,
                                  {Qt::DisplayRole, ProfileIdRole,
-                                  ViewIdRole, AccountIdRole});
+                                  ViewIdRole, AccountIdRole, StatusRole});
             }
             reconcile(node, want.children);
         }
@@ -145,6 +158,7 @@ void WorkspaceTreeModel::refreshTopology()
     _views.clear();
     _accountOccurrences.clear();
     for (const auto& profile : _root.children) {
+        if (profile->kind != ProfileNode) continue;
         for (const auto& view : profile->children) {
             _views.insert(view->viewId, view.get());
             for (const auto& account : view->children)
@@ -163,6 +177,33 @@ void WorkspaceTreeModel::refreshTopology()
             emit dataChanged(idx, idx, {ActiveRole});
         }
         emit activeViewChanged(_activeViewId);
+    }
+}
+
+void WorkspaceTreeModel::setPendingServer(const QString& id,
+                                           const QString& server,
+                                           const QString& status)
+{
+    if (id.isEmpty()) return;
+    for (PendingServer& pending : _pendingServers) {
+        if (pending.id != id) continue;
+        if (pending.server == server && pending.status == status) return;
+        pending.server = server;
+        pending.status = status;
+        refreshTopology();
+        return;
+    }
+    _pendingServers.append({id, server, status});
+    refreshTopology();
+}
+
+void WorkspaceTreeModel::removePendingServer(const QString& id)
+{
+    for (int i = 0; i < _pendingServers.size(); ++i) {
+        if (_pendingServers[i].id != id) continue;
+        _pendingServers.removeAt(i);
+        refreshTopology();
+        return;
     }
 }
 
@@ -231,7 +272,10 @@ QVariant WorkspaceTreeModel::data(const QModelIndex& idx, int role) const
         return {};
     const auto* node = static_cast<const Node*>(idx.internalPointer());
     switch (role) {
-    case Qt::DisplayRole: return node->name;
+    case Qt::DisplayRole:
+        return node->kind == PendingNode
+            ? QStringLiteral("%1 — %2").arg(node->name, node->status)
+            : node->name;
     case NodeKindRole: return static_cast<int>(node->kind);
     case NodeIdRole: return node->id;
     case ProfileIdRole: return node->profileId;
@@ -241,6 +285,9 @@ QVariant WorkspaceTreeModel::data(const QModelIndex& idx, int role) const
                             && node->viewId == _activeViewId;
     case StatusRole:
     case ConnectionStateRole: {
+        if (node->kind == PendingNode)
+            return role == StatusRole ? QVariant(node->status)
+                                      : QVariant();
         if (node->kind != AccountNode)
             return {};
         const int row = _accounts.rowForId(node->accountId);

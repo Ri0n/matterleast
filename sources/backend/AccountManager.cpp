@@ -3,6 +3,22 @@
 #include <QLoggingCategory>
 #include <QTimer>
 #include <QUrl>
+#include <QUuid>
+#include <limits>
+
+#ifdef Q_OS_LINUX
+#include <QSocketNotifier>
+#include <cerrno>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+#include <QNetworkInformation>
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT) && !defined(Q_OS_LINUX)
+#include <QNetworkConfigurationManager>
+#endif
 #include <utility>
 
 #include "Account.h"
@@ -17,12 +33,177 @@
 namespace Mattermost {
 namespace {
 Q_LOGGING_CATEGORY(accountRestoreLog, "mattermost.account.restore")
+int retryDelayMs(int failures)
+{
+    if (failures == 1) return 1500;
+    if (failures == 2) return 4000;
+    return qMin(120000, 15000 * (1 << qBound(0, failures - 3, 3)));
+}
 }
 
 AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
     , _treeModel(_layout, _listModel, this)
 {
+    _retryClock.start();
+    _retryTimer.setSingleShot(true);
+    connect(&_retryTimer, &QTimer::timeout, this, [this] { processRetries(); });
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+    if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
+        if (auto* info = QNetworkInformation::instance()) {
+            connect(info, &QNetworkInformation::reachabilityChanged,
+                    this, [this] { onNetworkChanged(); });
+            connect(info, &QNetworkInformation::transportMediumChanged,
+                    this, [this] { onNetworkChanged(); });
+        }
+    }
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT) && !defined(Q_OS_LINUX)
+    auto* network = new QNetworkConfigurationManager(this);
+    connect(network, &QNetworkConfigurationManager::onlineStateChanged,
+            this, [this](bool) { onNetworkChanged(); });
+    connect(network, &QNetworkConfigurationManager::configurationChanged,
+            this, [this](const QNetworkConfiguration&) { onNetworkChanged(); });
+#endif
+#ifdef Q_OS_LINUX
+    // VPN changes may not affect global network reachability.
+    const int fd = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
+                            NETLINK_ROUTE);
+    if (fd >= 0) {
+        sockaddr_nl address {};
+        address.nl_family = AF_NETLINK;
+        address.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR
+            | RTMGRP_IPV6_IFADDR | RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE;
+        if (::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) {
+            _routeChangeSocket = fd;
+            auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
+            connect(notifier, &QSocketNotifier::activated, this, [this, fd] {
+                char buffer[8192];
+                bool changed = false;
+                for (;;) {
+                    const auto received = ::recv(fd, buffer, sizeof(buffer), MSG_DONTWAIT);
+                    if (received > 0) { changed = true; continue; }
+                    if (received < 0 && errno == EINTR) continue;
+                    break;
+                }
+                if (changed) onNetworkChanged();
+            });
+        } else {
+            ::close(fd);
+        }
+    }
+#endif
+}
+
+AccountManager::~AccountManager()
+{
+#ifdef Q_OS_LINUX
+    if (_routeChangeSocket >= 0)
+        ::close(_routeChangeSocket);
+#endif
+}
+
+void AccountManager::scheduleRetry(const QString& id, RetryKind kind)
+{
+    if (id.isEmpty() || _pendingRetries.contains(id))
+        return;
+    const int delay = retryDelayMs(++_retryFailures[id]);
+    _pendingRetries.insert(id, {kind, _retryClock.elapsed() + delay});
+    qCInfo(accountRestoreLog) << "Account retry" << id
+                              << "kind" << int(kind) << "in" << delay << "ms";
+    armRetryTimer();
+}
+
+void AccountManager::cancelRetry(const QString& id, bool resetFailures)
+{
+    _pendingRetries.remove(id);
+    if (resetFailures)
+        _retryFailures.remove(id);
+    armRetryTimer();
+}
+
+void AccountManager::armRetryTimer()
+{
+    _retryTimer.stop();
+    if (_pendingRetries.isEmpty())
+        return;
+    qint64 earliest = std::numeric_limits<qint64>::max();
+    for (auto it = _pendingRetries.cbegin(); it != _pendingRetries.cend(); ++it)
+        earliest = qMin(earliest, it.value().deadline);
+    _retryTimer.start(int(qMin(qMax(qint64(0), earliest - _retryClock.elapsed()),
+                               qint64(std::numeric_limits<int>::max()))));
+}
+
+void AccountManager::processRetries(bool force)
+{
+    const qint64 now = _retryClock.elapsed();
+    QVector<QPair<QString, RetryKind>> due;
+    for (auto it = _pendingRetries.begin(); it != _pendingRetries.end();) {
+        if (force || it.value().deadline <= now) {
+            due.append({it.key(), it.value().kind});
+            it = _pendingRetries.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    armRetryTimer();
+    if (_invalidCatalog)
+        return;
+    const QStringList admitted = activeProfileAccountIds();
+    for (const auto& entry : due) {
+        Account* item = account(entry.first);
+        if (!item || !admitted.contains(entry.first))
+            continue;
+        if (entry.second == RetryKind::SavedSession) {
+            if (item->backend() || item->pendingBackend()
+                || (item->state() != AccountConnectionState::Unavailable
+                    && item->state() != AccountConnectionState::Disconnected))
+                continue;
+            if (!_suspendingProfileAccounts.isEmpty())
+                scheduleRetry(entry.first, entry.second);
+            else
+                restoreAccount(entry.first);
+        } else {
+            Backend* backend = item->backend();
+            if (!backend || item->state() != AccountConnectionState::Connected
+                || backend->webSocketConnectionState()
+                    != WebSocketConnector::ConnectionState::WaitingForReconnect)
+                continue;
+            if (!_suspendingProfileAccounts.isEmpty())
+                scheduleRetry(entry.first, entry.second);
+            else
+                backend->retryWebSocketConnectionNow();
+        }
+    }
+}
+
+void AccountManager::onNetworkChanged()
+{
+    // Keep healthy uploads alive; only probe live sockets and refresh stale
+    // transports belonging to accounts already trying to reconnect.
+    for (Backend* backend : registeredBackends()) {
+        const auto state = backend->webSocketConnectionState();
+        if (state == WebSocketConnector::ConnectionState::Connected)
+            backend->probeWebSocketConnection();
+        else if (state == WebSocketConnector::ConnectionState::WaitingForReconnect)
+            HTTPConnector::restartSessionTransports(&backend->networkSession());
+    }
+    processRetries(true);
+}
+
+void AccountManager::reloadSessionAfterReplayGap(const QString& id)
+{
+    Account* item = account(id);
+    if (!item || !item->backend() || _suspendingProfileAccounts.contains(id))
+        return;
+    Backend* backend = item->backend();
+    qCWarning(accountRestoreLog) << "Unverified WebSocket replay; rebuilding session" << id;
+    cancelRetry(id);
+    _suspendingProfileAccounts.insert(id);
+    item->setState(AccountConnectionState::Disconnected);
+    backend->prepareForLogout();
+    // Keep keychain token; dispose widgets before destroying Storage.
+    emit profileSuspensionRequested(item, backend);
 }
 
 bool AccountManager::load(const QByteArray& json, QString* error)
@@ -319,6 +500,15 @@ void AccountManager::reconcileActiveProfile()
 {
     const QStringList admittedIds = activeProfileAccountIds();
     const QSet<QString> admitted(admittedIds.cbegin(), admittedIds.cend());
+    // An unavailable account outside the new profile must not keep retrying.
+    // Reset its state so a later profile activation can restore it afresh.
+    for (Account* item : allAccounts()) {
+        if (admitted.contains(item->id())) continue;
+        cancelRetry(item->id());
+        if (!item->backend() && !item->pendingBackend()
+            && item->state() == AccountConnectionState::Unavailable)
+            item->setState(AccountConnectionState::Disconnected);
+    }
     qCInfo(accountRestoreLog) << "Reconciling profile:"
                               << admittedIds.size() << "admitted accounts";
 
@@ -374,6 +564,7 @@ void AccountManager::finishProfileSuspension(Account* item, Backend* backend)
 
     // The application has already destroyed the dependent Widgets. Cancel
     // outstanding HTTP/WS work while the Backend still owns its Storage.
+    cancelRetry(item->id());
     backend->reset();
     emit accountUnregistered(backend);
     item->releaseBackend();
@@ -413,6 +604,66 @@ Backend* AccountManager::findAccount(const QString& server,
 Backend* AccountManager::createLoginBackend()
 {
     return new Backend(this);
+}
+
+void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
+{
+    if (_invalidCatalog || credentials.domain.isEmpty()
+        || credentials.username.isEmpty()
+        || (credentials.password.isEmpty() && credentials.token.isEmpty()))
+        return;
+    // Keep a failed attempt visible for the user, but never accumulate stale
+    // rows across repeated add-server attempts.
+    for (const QString& id : _failedNewServers)
+        _treeModel.removePendingServer(id);
+    _failedNewServers.clear();
+    const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString serverName = QUrl(credentials.domain).host();
+    if (serverName.isEmpty()) return;
+
+    Backend* candidate = createLoginBackend();
+    QPointer<Backend> guard(candidate);
+    _pendingNewServers.insert(requestId, candidate);
+    _treeModel.setPendingServer(requestId, serverName, tr("Connecting…"));
+
+    // No credentials are persisted until /users/me has returned a verified
+    // identity. The transient entry appears in Servers immediately, without
+    // constructing a dummy Account or a full MainWindow for this Backend.
+    const QString loginName = credentials.username;
+    candidate->login(credentials,
+        [this, guard, requestId, serverName, loginName](const QString& token) {
+        if (!guard || _pendingNewServers.value(requestId) != guard)
+            return;
+        _pendingNewServers.remove(requestId);
+        if (!token.isEmpty()) {
+            const QString display = QUrl(guard->serverDomain()).host()
+                + QStringLiteral(" — ") + guard->getLoginUser().username;
+            Account* connected = adoptAuthenticated(guard.data(), loginName, display);
+            if (connected) {
+                _treeModel.removePendingServer(requestId);
+                // Select the new account exactly as if the user activated it
+                // from the Servers tree; the workspace presents Channels.
+                selectAccount(connected->id());
+                return;
+            }
+            // An already authenticated account may have been added again.
+            Backend* existing = findAccount(guard->networkSession().host(),
+                                            guard->getLoginUser().id);
+            if (existing) {
+                if (Account* account = accountForBackend(existing)) {
+                    _treeModel.removePendingServer(requestId);
+                    selectAccount(account->id());
+                    discardCandidate(guard.data());
+                    return;
+                }
+            }
+            qWarning("New server authentication succeeded but account could not be adopted");
+        }
+        _failedNewServers.insert(requestId);
+        _treeModel.setPendingServer(requestId, serverName,
+                                    tr("Sign-in failed — add server to retry"));
+        discardCandidate(guard.data());
+    });
 }
 
 void AccountManager::discardCandidate(Backend* backend)
@@ -482,6 +733,39 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
         return nullptr;
+    // The saved-token verification has succeeded. Clear its retry cycle
+    // BEFORE observing the WebSocket state: a socket may already be offline,
+    // and clearing later would silently erase its newly scheduled retry.
+    cancelRetry(item->id());
+    const QString registeredId = item->id();
+    connect(backend, &Backend::onWebSocketConnectionStateChanged, this,
+            [this, registeredId, backend](WebSocketConnector::ConnectionState state) {
+        Account* item = account(registeredId);
+        if (!item || item->backend() != backend)
+            return;
+        if (state == WebSocketConnector::ConnectionState::WaitingForReconnect)
+            scheduleRetry(registeredId, RetryKind::WebSocket);
+        else if (state == WebSocketConnector::ConnectionState::Connecting)
+            cancelRetry(registeredId, false);
+        else if (state == WebSocketConnector::ConnectionState::Disconnected)
+            cancelRetry(registeredId);
+    });
+    connect(backend, &Backend::realtimeStreamConfirmed, this,
+            [this, registeredId, backend](bool isReconnect, bool continuityVerified) {
+        Account* item = account(registeredId);
+        if (!item || item->backend() != backend)
+            return;
+        cancelRetry(registeredId);
+        if (!isReconnect || !activeProfileAccountIds().contains(registeredId))
+            return;
+        if (continuityVerified)
+            backend->reconcileAfterReliableReplay();
+        else
+            reloadSessionAfterReplayGap(registeredId);
+    });
+    if (backend->webSocketConnectionState()
+        == WebSocketConnector::ConnectionState::WaitingForReconnect)
+        scheduleRetry(registeredId, RetryKind::WebSocket);
     const bool firstAccount = _selectedId.isEmpty();
     if (firstAccount)
         _selectedId = id;
@@ -542,6 +826,7 @@ void AccountManager::rebuildModel()
 void AccountManager::cancelPendingRestore(
     const QString& id, AccountConnectionState status)
 {
+    cancelRetry(id);
     if (Account* item = account(id))
         item->cancelPending(status);
 }
@@ -558,6 +843,7 @@ void AccountManager::restoreAccount(const QString& id)
         || item->backend() || item->pendingBackend())
         return;
 
+    cancelRetry(id, false);
     qCInfo(accountRestoreLog) << "Starting session restoration for account" << id;
     Backend* backend = item->createPendingBackend();
     if (!backend) {
@@ -582,10 +868,18 @@ void AccountManager::restoreAccount(const QString& id)
                                       : status == SessionTokenStore::ReadStatus::NotFound
                                           ? "not-found" : "unavailable");
         if (status != SessionTokenStore::ReadStatus::Found) {
-            account->cancelPending(
-                status == SessionTokenStore::ReadStatus::NotFound
-                    ? AccountConnectionState::AuthenticationRequired
-                    : AccountConnectionState::Unavailable);
+            const QString accountId = account->id();
+            const bool unavailable = status != SessionTokenStore::ReadStatus::NotFound;
+            account->cancelPending(unavailable
+                ? AccountConnectionState::Unavailable
+                : AccountConnectionState::AuthenticationRequired);
+            // A temporarily locked/unavailable secure store is not a missing
+            // credential; retry it through the shared connection policy.
+            if (unavailable && activeProfileAccountIds().contains(accountId)
+                && _suspendingProfileAccounts.isEmpty())
+                scheduleRetry(accountId, RetryKind::SavedSession);
+            else
+                cancelRetry(accountId);
             return;
         }
 
@@ -594,40 +888,56 @@ void AccountManager::restoreAccount(const QString& id)
         credentials.username = login;
         credentials.token = token;
         qCInfo(accountRestoreLog) << "Verifying saved session for account" << account->id();
-        backend->login(credentials, [this, accountGuard, backendGuard](
-                                            const QString& authenticatedToken) {
-            Account* account = accountGuard.data();
-            Backend* backend = backendGuard.data();
-            if (!account || !backend || account->pendingBackend() != backend)
-                return;
-            if (authenticatedToken.isEmpty()) {
-                const bool transient = backend->lastLoginFailureTransient();
-                qCWarning(accountRestoreLog) << "Session verification failed for account"
-                                             << account->id() << "transient" << transient;
-                account->cancelPending(
-                    transient ? AccountConnectionState::Unavailable
-                              : AccountConnectionState::AuthenticationRequired);
-                return;
-            }
-            const WorkspaceLayout::Account* record = account->record();
-            if (!record || accountIdentityKey(
-                    record->serverBaseUrl, record->serverUserId)
-                    != accountIdentityKey(backend->networkSession().host(),
-                                           backend->getLoginUser().id)) {
-                qCWarning(accountRestoreLog)
-                    << "Saved credentials resolved to a different remote identity for account"
-                    << account->id();
-                account->cancelPending(AccountConnectionState::AuthenticationRequired);
-                return;
-            }
-            if (!adoptAuthenticated(backend, record->loginName,
-                                    record->name, account->id(), false)) {
-                qCWarning(accountRestoreLog) << "Verified session could not be adopted for account"
-                                             << account->id();
-                account->cancelPending(AccountConnectionState::AuthenticationRequired);
-            } else {
-                qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
-            }
+        // Backend performs a single /users/me verification. AccountManager
+        // handles the outcome; the shared reconnect scheduler owns *all*
+        // future retry timing, including initial short delays and VPN changes.
+        backend->login(credentials,
+            [this, accountGuard, backendGuard](const QString& authenticatedToken) {
+                Account* account = accountGuard.data();
+                Backend* backend = backendGuard.data();
+                if (!account || !backend || account->pendingBackend() != backend)
+                    return;
+                if (authenticatedToken.isEmpty()) {
+                    const bool transient = backend->lastLoginFailureTransient();
+                    qCWarning(accountRestoreLog)
+                        << "Saved session verification did not succeed for account"
+                        << account->id() << "transient" << transient;
+                    const QString accountId = account->id();
+                    account->cancelPending(
+                        transient ? AccountConnectionState::Unavailable
+                                  : AccountConnectionState::AuthenticationRequired);
+                    // State observers may synchronously change the profile.
+                    if (transient && activeProfileAccountIds().contains(accountId)
+                        && _suspendingProfileAccounts.isEmpty())
+                        scheduleRetry(accountId, RetryKind::SavedSession);
+                    else
+                        cancelRetry(accountId);
+                    return;
+                }
+                const WorkspaceLayout::Account* record = account->record();
+                if (!record || accountIdentityKey(
+                        record->serverBaseUrl, record->serverUserId)
+                        != accountIdentityKey(backend->networkSession().host(),
+                                               backend->getLoginUser().id)) {
+                    qCWarning(accountRestoreLog)
+                        << "Saved credentials resolved to a different remote identity for account"
+                        << account->id();
+                    cancelRetry(account->id());
+                    account->cancelPending(AccountConnectionState::AuthenticationRequired);
+                    return;
+                }
+                if (!adoptAuthenticated(backend, record->loginName,
+                                        record->name, account->id(), false)) {
+                    qCWarning(accountRestoreLog)
+                        << "Verified session could not be adopted for account"
+                        << account->id();
+                    cancelRetry(account->id());
+                    account->cancelPending(AccountConnectionState::AuthenticationRequired);
+                } else {
+                    // adoptAuthenticated already completed the HTTP phase and
+                    // scheduled WebSocket recovery if it was disconnected.
+                    qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
+                }
         });
     });
 }
@@ -636,6 +946,7 @@ void AccountManager::prepareStop(Account* item, bool authenticationExpired)
 {
     if (!item || !item->backend())
         return;
+    cancelRetry(item->id());
     item->setState(authenticationExpired
         ? AccountConnectionState::AuthenticationRequired
         : AccountConnectionState::Disconnected);

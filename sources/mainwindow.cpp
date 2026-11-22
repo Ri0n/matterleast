@@ -63,6 +63,7 @@
 #include "backend/PendingPostService.h"
 #include "backend/FollowingModel.h"
 #include "navigation/NavigationUiController.h"
+#include "navigation/AppNavigationService.h"
 #include "backend/AccountManager.h"
 #include "ui/ServersSidebarPage.h"
 #include "navigation/ConversationReference.h"
@@ -315,27 +316,36 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 	LOG_DEBUG("MainWindow signal register finish");
 
-	auto* options = MLOptions::instance();
-	restoreGeometry(options->value<QByteArray>(QStringLiteral("geometry"), saveGeometry()));
-    const QString sidebarStateKey = QStringLiteral("workspace/%1/sidebar_splitter_state")
+    // Window geometry belongs exclusively to AccountWorkspaceStack.
+    // MainWindow is created as a temporary top-level widget but then embedded;
+    // restoring the shell geometry here would perturb the hidden splitter.
+    const QString sidebarWidthKey = QStringLiteral("workspace/%1/sidebar_width")
         .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
-    QByteArray splitterState = options->value<QByteArray>(sidebarStateKey);
-    if (splitterState.isEmpty()) {
-        // Migrate a single-account installation without losing layout.
-        splitterState = options->value<QByteArray>(
-            QStringLiteral("sidebar_splitter_state"));
-    }
-	if (sidebarSplitter && !splitterState.isEmpty()) {
-		sidebarSplitter->restoreState(splitterState);
-	} else if (sidebarSplitter) {
-		sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
-	}
+    // The splitter is not yet visible inside AccountWorkspaceStack.
+    // Applying restored sizes here lets the first real layout overwrite them.
+    // restoreSidebarWidth() runs after its workspace is shown instead.
 	if (sidebarSplitter) {
-		// Older saved QSplitter states include the previous 4 px handle width.
-		// Keep state-compatible pane sizes, but always restore the thin geometry.
+        // Keep usable initial proportions even before QStackedWidget shows an
+        // account. In particular, standalone test windows must not start with
+        // an unconstrained splitter that can reflow short thread timelines.
+        // The saved account width is applied after embedding and showing.
+        sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
 		sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+        // Persist user adjustment while the view is active; at application
+        // exit another server view may already be hidden in the stack.
+        connect(sidebarSplitter, &QSplitter::splitterMoved, this,
+                [this, sidebarWidthKey](int, int) {
+            if (!sidebarSplitter || !sidebarSplitter->isVisible())
+                return;
+            const QList<int> sizes = sidebarSplitter->sizes();
+            if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0)
+                MLOptions::instance()->setValue(sidebarWidthKey, sizes[0]);
+        });
 	}
 
+    // Register the Backend-owned navigation receiver once the complete
+    // channel/thread presentation exists, before plugins can navigate.
+    AppNavigationService::instance(backend).bindMainWindow(*this);
 	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
     // The main window is fully constructed before optional visual plugins
     // receive its QWidget surface. No MatterLeast UI class crosses the ABI.
@@ -343,7 +353,76 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	LOG_DEBUG("MainWindow create finish");
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // QObject destroys child widgets only after this destructor body returns.
+    // Finalize navigation now while every thread stack and ChatArea is valid;
+    // otherwise ChatArea::destroyed synchronously triggers session updates
+    // against partially destroyed QStackedWidgets (startup/exit SIGSEGV).
+    if (auto* navigation = findChild<NavigationUiController*>(
+            QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
+        navigation->beginShutdown();
+}
+
+void MainWindow::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    // Only embedded account views use the deferred splitter restoration.
+    // Standalone MainWindow (including existing widget tests) must not be
+    // resized asynchronously after their explicit window.resize()/show().
+    if (isWindow())
+        return;
+    // Restoring the splitter in the constructor happens while its workspace
+    // is hidden. Wait until QStackedWidget shows both panes and lays them out.
+    // This also handles account switches without additional polling timers.
+    QTimer::singleShot(0, this, [this] {
+        if (isVisible())
+            restoreSidebarWidth();
+    });
+}
+
+void MainWindow::restoreSidebarWidth()
+{
+    // Embedded workspaces own their geometry through AccountWorkspaceStack.
+    // A standalone top-level window follows the normal QSplitter layout.
+    if (isWindow() || !sidebarSplitter || !sidebarSplitter->isVisible()
+        || sidebarSplitter->count() < 2)
+        return;
+    const QString partition =
+        backend.networkSession().cachePartitionId(backend.getLoginUser().id);
+    auto* options = MLOptions::instance();
+    const QString widthKey = QStringLiteral("workspace/%1/sidebar_width")
+        .arg(partition);
+    const int savedWidth = options->value<int>(widthKey, 0);
+
+    const QList<int> sizes = sidebarSplitter->sizes();
+    if (sizes.size() < 2)
+        return;
+    const int total = sizes[0] + sizes[1];
+    if (total <= 0)
+        return;
+
+    if (savedWidth <= 0) {
+        // On upgrading a single-server installation there may be no pixel
+        // width key yet. Restore the historical QSplitter state only after
+        // layout, not in the constructor when it was still invisible.
+        QByteArray state = options->value<QByteArray>(
+            QStringLiteral("workspace/%1/sidebar_splitter_state")
+                .arg(partition));
+        if (state.isEmpty())
+            state = options->value<QByteArray>(
+                QStringLiteral("sidebar_splitter_state"));
+        if (!state.isEmpty() && sidebarSplitter->restoreState(state)) {
+            sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+            return;
+        }
+    }
+
+    const int requested = savedWidth > 0 ? savedWidth : 280;
+    const int left = std::min(requested, std::max(1, total - 1));
+    if (left != sizes[0])
+        sidebarSplitter->setSizes({left, total - left});
+}
 
 void MainWindow::bindViewNavigation(ViewNavigationSession* session,
                                     const QString& accountId)
@@ -1518,14 +1597,21 @@ void MainWindow::saveState()
     if (isWindow()) {
         options->setValue(QStringLiteral("geometry"), saveGeometry());
     }
-    if (sidebarSplitter) {
-        const QByteArray state = sidebarSplitter->saveState();
-        const QString key = QStringLiteral("workspace/%1/sidebar_splitter_state")
-            .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
-        options->setValue(key, state);
-        if (isWindow()) {
-            // Historical standalone MainWindow layout key is still readable.
-            options->setValue(QStringLiteral("sidebar_splitter_state"), state);
+    if (sidebarSplitter && sidebarSplitter->isVisible()) {
+        const QList<int> sizes = sidebarSplitter->sizes();
+        if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0) {
+            const QString partition =
+                backend.networkSession().cachePartitionId(backend.getLoginUser().id);
+            options->setValue(
+                QStringLiteral("workspace/%1/sidebar_width").arg(partition), sizes[0]);
+            const QByteArray state = sidebarSplitter->saveState();
+            options->setValue(
+                QStringLiteral("workspace/%1/sidebar_splitter_state").arg(partition),
+                state);
+            if (isWindow()) {
+                // Historical standalone MainWindow layout key is still readable.
+                options->setValue(QStringLiteral("sidebar_splitter_state"), state);
+            }
         }
     }
 }

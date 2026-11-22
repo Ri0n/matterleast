@@ -100,6 +100,42 @@ private slots:
         QVERIFY(validateLoginResponse(QNetworkReply::NoError, 200, valid).accepted);
     }
 
+    void corporateVpnGatewaysCannotInvalidateSavedTokens()
+    {
+        // Proxy filters may replace /users/me with arbitrary 403, 404, 302
+        // or even 200 HTML while the actual Mattermost token remains valid.
+        const QJsonDocument empty(QJsonObject{});
+        for (const int status : {200, 302, 403, 404, 407, 429, 503}) {
+            const auto result = validateLoginResponse(
+                QNetworkReply::ContentAccessDenied, status, empty, true);
+            QVERIFY(!result.accepted);
+            QVERIFY(result.retryable);
+        }
+        const auto gateway401 = validateLoginResponse(
+            QNetworkReply::AuthenticationRequiredError, 401, empty, true);
+        QVERIFY(!gateway401.accepted);
+        QVERIFY(gateway401.retryable);
+
+        const QJsonDocument confirmedMattermost401(QJsonObject {
+            {QStringLiteral("id"),
+             QStringLiteral("api.context.session_expired.app_error")},
+            {QStringLiteral("status_code"), 401},
+            {QStringLiteral("message"), QStringLiteral("session expired")}
+        });
+        const auto rejected = validateLoginResponse(
+            QNetworkReply::AuthenticationRequiredError, 401,
+            confirmedMattermost401, true);
+        QVERIFY(!rejected.accepted);
+        QVERIFY(!rejected.retryable);
+
+        // Password-login semantics must remain unchanged: 403/404 from the
+        // credential form do not create a background login retry loop.
+        QVERIFY(!validateLoginResponse(
+            QNetworkReply::ContentAccessDenied, 403, empty).retryable);
+        QVERIFY(!validateLoginResponse(
+            QNetworkReply::ContentNotFoundError, 404, empty).retryable);
+    }
+
     void migrationVersionRegistryAndIncompleteLegacyPreservation()
     {
         int count = 0;

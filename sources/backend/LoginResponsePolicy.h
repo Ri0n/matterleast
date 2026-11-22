@@ -17,7 +17,8 @@ struct LoginResponseValidation {
 inline LoginResponseValidation validateLoginResponse(
     QNetworkReply::NetworkError error,
     int httpStatus,
-    const QJsonDocument& document)
+    const QJsonDocument& document,
+    bool savedToken = false)
 {
     const bool validIdentity = document.isObject()
         && !document.object().value(QStringLiteral("id")).toString().isEmpty();
@@ -32,6 +33,24 @@ inline LoginResponseValidation validateLoginResponse(
         || httpStatus >= 500;
     const bool transportFailure = httpStatus == 0
         && error != QNetworkReply::NoError;
+
+    // Outside a corporate VPN the proxy/filter may generate 403/404 even
+    // though the saved session is valid. Those statuses cannot prove token
+    // expiry; keep retrying rather than replacing the login UI with a prompt.
+    // A 401 is authoritative only with a recognizable Mattermost API error,
+    // not an HTML login page or a generic JSON response from a gateway.
+    const QJsonObject body = document.isObject() ? document.object()
+                                                 : QJsonObject();
+    const bool mattermostAuthError = httpStatus == 401
+        && body.value(QStringLiteral("status_code")).toInt() == 401
+        && body.value(QStringLiteral("id")).toString()
+               .startsWith(QStringLiteral("api."));
+    // Even a nominal HTTP 200 can be a gateway landing page with no valid
+    // Mattermost identity. While restoring an existing saved token, only a
+    // recognizable Mattermost authentication rejection is definitive.
+    // Everything else remains Unavailable until the VPN/route recovers.
+    if (savedToken)
+        return {false, !mattermostAuthError};
     return {false, transientHttp || transportFailure};
 }
 

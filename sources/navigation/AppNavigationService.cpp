@@ -3,7 +3,6 @@
 #include <functional>
 #include <utility>
 
-#include <QApplication>
 #include <QDesktopServices>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -285,40 +284,46 @@ AppNavigationService::AppNavigationService(Backend& sourceBackend)
     , backend(sourceBackend)
 {
     setObjectName(QStringLiteral("appNavigationService"));
-    ensureMainWindowConnection();
+}
+
+void AppNavigationService::bindMainWindow(MainWindow& window)
+{
+    // A MainWindow can be a child of the account workspace rather than a
+    // top-level window. Bind the presentation to this exact Backend, never
+    // to an unrelated server's MainWindow.
+    if (&window.backendInstance() != &backend) {
+        qWarning("Cannot bind navigation to a MainWindow from another account");
+        return;
+    }
+    if (presentationWindow == &window)
+        return;
+
+    if (presentationWindow)
+        QObject::disconnect(this, nullptr, presentationWindow, nullptr);
+    presentationWindow = &window;
+    connect(this, &AppNavigationService::navigationStarted,
+            &window, &MainWindow::beginSemanticNavigation);
+    connect(this, &AppNavigationService::channelRequested,
+            &window, &MainWindow::openChannelPost);
+    // Binding must not instantiate the navigation controller while MainWindow
+    // is still being constructed. It reparents the central content splitter;
+    // doing so prematurely changes widget geometry and scroll anchoring.
+    // The tab slot is resolved lazily only when a tab is actually requested.
+    connect(this, &AppNavigationService::tabRequested, &window,
+            [&window](const QString& channelId, const QString& rootId,
+                      const QString& postId, const QStringList& contextPostIds,
+                      bool reachedOldest, bool reachedNewest) {
+        NavigationUiController::instance(window).openInTab(
+            channelId, rootId, postId, contextPostIds,
+            reachedOldest, reachedNewest);
+    });
 }
 
 quint64 AppNavigationService::beginNavigation()
 {
-    // The service may have been instantiated before MainWindow existed. Make
-    // sure the synchronous invalidation signal has a receiver before publishing
-    // the new generation.
-    ensureMainWindowConnection();
     const quint64 generation = navigationRequests.begin();
     emit navigationStarted();
     return generation;
-}
-
-void AppNavigationService::ensureMainWindowConnection()
-{
-    // The singleton can be instantiated by cached-link/sidebar code before the
-    // MainWindow exists. Re-discover it at the navigation boundary; the unique
-    // connection makes this cheap and idempotent and removes startup-order
-    // dependence from semantic navigation.
-    for (QWidget* widget : QApplication::topLevelWidgets()) {
-        if (auto* mainWindow = qobject_cast<MainWindow*>(widget)) {
-            connect(this, &AppNavigationService::navigationStarted,
-                    mainWindow, &MainWindow::beginSemanticNavigation,
-                    Qt::UniqueConnection);
-            connect(this, &AppNavigationService::channelRequested,
-                    mainWindow, &MainWindow::openChannelPost,
-                    Qt::UniqueConnection);
-            auto& navigationUi = NavigationUiController::instance(*mainWindow);
-            connect(this, &AppNavigationService::tabRequested,
-                    &navigationUi, &NavigationUiController::openInTab,
-                    Qt::UniqueConnection);
-        }
-    }
 }
 
 bool AppNavigationService::activateExistingDestination(
@@ -326,23 +331,10 @@ bool AppNavigationService::activateExistingDestination(
     const QString& rootId,
     bool restoreBookmark)
 {
-    if (channelId.isEmpty()) {
+    if (channelId.isEmpty() || !presentationWindow)
         return false;
-    }
-
-    ensureMainWindowConnection();
-    for (QWidget* widget : QApplication::topLevelWidgets()) {
-        auto* mainWindow = qobject_cast<MainWindow*>(widget);
-        if (!mainWindow) {
-            continue;
-        }
-
-        if (NavigationUiController::instance(*mainWindow).activateExistingTab(
-                channelId, rootId, restoreBookmark)) {
-            return true;
-        }
-    }
-    return false;
+    return NavigationUiController::instance(*presentationWindow).activateExistingTab(
+        channelId, rootId, restoreBookmark);
 }
 
 BackendChannel* AppNavigationService::findChannel(const QString& teamName,
@@ -389,7 +381,6 @@ void AppNavigationService::openChannel(const QString& channelId)
         return;
     }
 
-    ensureMainWindowConnection();
     emit channelRequested(channelId, QString(), QString(), QStringList(),
                           false, false, false);
 }
@@ -400,7 +391,6 @@ void AppNavigationService::openChannelInTab(const QString& channelId)
     if (channelId.isEmpty() || !backend.getStorage().getChannelById(channelId)) {
         return;
     }
-    ensureMainWindowConnection();
     emit tabRequested(channelId, QString(), QString(), QStringList(),
                       false, false);
 }
@@ -422,7 +412,6 @@ void AppNavigationService::openThread(const QString& channelId, const QString& r
         return;
     }
 
-    ensureMainWindowConnection();
     emit channelRequested(channelId, QString(), rootId, QStringList(),
                           false, true, true);
 }
@@ -435,7 +424,6 @@ void AppNavigationService::openThreadInTab(const QString& channelId,
         || !backend.getStorage().getChannelById(channelId)) {
         return;
     }
-    ensureMainWindowConnection();
     emit tabRequested(channelId, rootId, QString(), QStringList(),
                       false, false);
 }
@@ -667,7 +655,6 @@ void AppNavigationService::openThreadAtLastViewed(const QString& channelId,
                 targetPostId = fallbackPostId;
             }
 
-            guard->ensureMainWindowConnection();
             if (!targetPostId.isEmpty()) {
                 // Callers choose whether an already-open thread should preserve
                 // its viewport (Following) or jump/highlight again (Attention).
@@ -737,7 +724,6 @@ void AppNavigationService::presentPost(
     bool reachedNewest,
     bool inTab)
 {
-    ensureMainWindowConnection();
     if (inTab) {
         // Keep explicit target semantics separate from passive tab bookmarks.
         // The tab controller activates/creates the destination first and then
