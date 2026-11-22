@@ -91,6 +91,7 @@ private:
     void updateWindowTitle();
     void updateTrayIcon();
     void selectAccount(const QString& accountId, bool presentWindow = false);
+    void bindActiveNavigationView();
 
     // One account domain; the application only owns its Widgets and tray.
     AccountManager accounts;
@@ -200,6 +201,8 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
             [this](Account* account, Backend* backend) {
         suspendProfileConnection(account, backend);
     });
+    connect(&accounts, &AccountManager::activeViewChanged, this,
+            [this](const QString&) { bindActiveNavigationView(); });
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
@@ -312,6 +315,26 @@ void MattermostApplication::ensureWorkspaceShell()
     });
 }
 
+void MattermostApplication::bindActiveNavigationView()
+{
+    // The current Widgets shell still owns a MainWindow per Backend. Binding
+    // the same shared view session to two account windows would let either
+    // overwrite cross-account tabs with an incomplete single-account snapshot.
+    // A merged view must wait for its own multi-account presenter.
+    const QString id = accounts.activeViewId();
+    const auto& layout = accounts.layout();
+    for (const auto& view : layout.views) {
+        if (view.id != id || view.accountIds.size() != 1) continue;
+        const QString& accountId = view.accountIds.front();
+        Account* account = accounts.account(accountId);
+        MainWindow* page = account && account->backend()
+            ? accountViews.value(account->backend(), nullptr) : nullptr;
+        if (page && !closingAccounts.contains(account->backend()))
+            page->bindViewNavigation(accounts.viewSession(id), accountId);
+        return;
+    }
+}
+
 void MattermostApplication::selectAccount(const QString& id,
                                            bool presentWindow)
 {
@@ -415,6 +438,9 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
             [this, owner = &backend] { beginLogout(*owner, true); });
 
     page->installRealtimeUiSync();
+    // A backend arriving after view activation must adopt its retained view
+    // session before the startup channel snapshot is replayed.
+    bindActiveNavigationView();
     if (activate)
         workspaceShell->activateWorkspace(id);
     trayWindow.setWindow(workspaceShell.get());

@@ -205,6 +205,38 @@ private slots:
         QVERIFY(!session.moveTab(-1, 0));
     }
 
+    void unchangedSnapshotDoesNotToggleActiveTab()
+    {
+        ViewNavigationSession session(QStringLiteral("view"));
+        const auto location = chat(QStringLiteral("account"), QStringLiteral("channel"));
+        QCOMPARE(session.openTab(location, QStringLiteral("Channel")), 0);
+        QSignalSpy active(&session, &ViewNavigationSession::activeTabChanged);
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        for (int i = 0; i < 3; ++i)
+            QVERIFY(session.restoreSnapshot(session.snapshot()));
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(active.count(), 0);
+        QCOMPARE(reset.count(), 0);
+    }
+
+    void dockPresentationSurvivesViewSnapshotTransfer()
+    {
+        ViewNavigationSession source(QStringLiteral("one"));
+        auto state = source.snapshot();
+        state.dock = chat(QStringLiteral("a"), QStringLiteral("channel"),
+                          QStringLiteral("thread"));
+        state.dockVisible = true;
+        QVERIFY(source.restoreSnapshot(state));
+        ViewNavigationSession restored(QStringLiteral("two"));
+        QVERIFY(restored.restoreSnapshot(source.snapshot()));
+        QCOMPARE(restored.snapshot().dock.accountId, QStringLiteral("a"));
+        QCOMPARE(restored.snapshot().dock.rootId, QStringLiteral("thread"));
+        QVERIFY(restored.snapshot().dockVisible);
+        state.dock.rootId.clear();
+        QVERIFY(!restored.restoreSnapshot(state));
+        QVERIFY(restored.snapshot().dockVisible);
+    }
+
     void rejectedSnapshotIsAtomic()
     {
         ViewNavigationSession session(QStringLiteral("view"));

@@ -24,6 +24,7 @@ class ChatArea;
 class ChannelTree;
 class MainWindow;
 class PostCollectionView;
+class ViewNavigationSession;
 
 /**
  * Main-window presentation state that is orthogonal to Mattermost transport:
@@ -105,6 +106,9 @@ public:
                              bool restoreBookmark = true);
     void saveSession();
     void restoreSession();
+    // Called only for a view with one owning account while the desktop still
+    // uses account-specific MainWindow instances. The state remains QtCore.
+    void bindViewSession(ViewNavigationSession* session, const QString& accountId);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -113,6 +117,8 @@ private:
     void setupMainWindow();
     QString sessionSettingsKey() const;
     void scheduleSessionSave();
+    void syncViewSession();
+    void restoreBoundViewSession(bool adoptExistingPresentation);
     void trackSessionArea(ChatArea* area);
     void restoreSessionBookmark(
         ChatArea* area, const QString& postId,
@@ -203,6 +209,9 @@ private:
     QTimer* sessionSaveTimer = nullptr;
     bool sessionRestored = false;
     bool restoringSession = false;
+    bool applyingViewSession = false;
+    QPointer<ViewNavigationSession> viewNavigationSession;
+    QString viewNavigationAccountId;
 };
 
 } // namespace Mattermost

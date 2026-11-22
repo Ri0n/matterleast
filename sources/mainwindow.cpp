@@ -343,6 +343,12 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 MainWindow::~MainWindow() = default;
 
+void MainWindow::bindViewNavigation(ViewNavigationSession* session,
+                                    const QString& accountId)
+{
+    NavigationUiController::instance(*this).bindViewSession(session, accountId);
+}
+
 void MainWindow::installAccountSwitcher(QMenu* menu)
 {
     auto* header = findChild<QWidget*>(QStringLiteral("lefttop_frame"));

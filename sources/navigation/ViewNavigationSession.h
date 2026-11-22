@@ -48,6 +48,9 @@ public:
         Location current;
         QVector<Location> back;
         QVector<Location> forward;
+        // The independent right-hand thread is not a central tab.
+        Location dock;
+        bool dockVisible = false;
     };
 
     enum Role {
@@ -104,6 +107,8 @@ private:
     Location _current;
     QVector<Location> _back;
     QVector<Location> _forward;
+    Location _dock;
+    bool _dockVisible = false;
 };
 
 } // namespace Mattermost
