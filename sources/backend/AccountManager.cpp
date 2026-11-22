@@ -1,19 +1,6 @@
 #include "AccountManager.h"
 
 #include <QLoggingCategory>
-#if defined(Q_OS_LINUX)
-#include <QSocketNotifier>
-#include <cerrno>
-#include <linux/netlink.h>
-#include <linux/rtnetlink.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
-#include <QNetworkInformation>
-#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
-#include <QNetworkConfigurationManager>
-#endif
 #include <QTimer>
 #include <QUrl>
 #include <utility>
@@ -36,90 +23,39 @@ AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
     , _treeModel(_layout, _listModel, this)
 {
-    connect(&_offlineReconnect, &TransientAccountReconnect::retryDue,
+    connect(&_connections, &AccountConnectionController::savedSessionDue,
             this, &AccountManager::retryTemporarilyUnavailable);
-
-    // A saved account has no WebSocket until /users/me succeeds. Monitor
-    // network changes at the manager level rather than in each Backend.
-#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
-    if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
-        if (auto* info = QNetworkInformation::instance()) {
-            connect(info, &QNetworkInformation::reachabilityChanged,
-                    this, [this] { _offlineReconnect.resumeOnNetworkChange(); });
-            connect(info, &QNetworkInformation::transportMediumChanged,
-                    this, [this] { _offlineReconnect.resumeOnNetworkChange(); });
+    connect(&_connections, &AccountConnectionController::webSocketDue,
+            this, &AccountManager::retryWebSocketConnections);
+    connect(&_connections, &AccountConnectionController::networkChanged,
+            this, [this] {
+        const auto backends = registeredBackends();
+        if (backends.isEmpty())
+            return;
+        HTTPConnector::restartAllTransports();
+        for (Backend* backend : backends) {
+            if (backend->webSocketConnectionState()
+                == WebSocketConnector::ConnectionState::Connected)
+                backend->probeWebSocketConnection();
         }
-    }
-#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
-    auto* network = new QNetworkConfigurationManager(this);
-    connect(network, &QNetworkConfigurationManager::onlineStateChanged,
-            this, [this](bool) { _offlineReconnect.resumeOnNetworkChange(); });
-    connect(network, &QNetworkConfigurationManager::configurationChanged,
-            this, [this](const QNetworkConfiguration&) {
-                _offlineReconnect.resumeOnNetworkChange();
-            });
-#endif
-
-#if defined(Q_OS_LINUX)
-    // Reachability may remain Online while a corporate VPN adds an interface
-    // or a route. Linux rtnetlink reports these changes without polling, even
-    // if the VPN is not managed by NetworkManager.
-    const int fd = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
-                            NETLINK_ROUTE);
-    if (fd >= 0) {
-        sockaddr_nl address {};
-        address.nl_family = AF_NETLINK;
-        address.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR
-            | RTMGRP_IPV6_IFADDR | RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE;
-        if (::bind(fd, reinterpret_cast<sockaddr*>(&address),
-                   sizeof(address)) == 0) {
-            _routeChangeSocket = fd;
-            auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-            // Since Qt 5.15 the public C++ signal has QSocketDescriptor,
-            // Type and the private signal tag; the legacy int overload is
-            // only present to moc and is not available for PMF connections.
-            connect(notifier, &QSocketNotifier::activated,
-                    this, [this, fd] {
-                char buffer[8192];
-                bool routeChanged = false;
-                for (;;) {
-                    const auto received = ::recv(fd, buffer, sizeof(buffer),
-                                                 MSG_DONTWAIT);
-                    if (received > 0) {
-                        routeChanged = true;
-                        continue;
-                    }
-                    if (received < 0 && errno == EINTR)
-                        continue;
-                    break;
-                }
-                if (routeChanged) {
-                    _offlineReconnect.resumeOnNetworkChange();
-                    // Connected sessions already have their own WebSocket
-                    // backoff. A VPN route appearing should preempt a waiting
-                    // reconnect on Qt5 as well, without aborting an in-flight
-                    // handshake or forcibly closing a healthy live socket.
-                    for (Backend* backend : registeredBackends()) {
-                        if (backend->webSocketConnectionState()
-                            == WebSocketConnector::ConnectionState::WaitingForReconnect)
-                            backend->retryWebSocketConnectionNow();
-                    }
-                }
-            });
+    });
+    connect(&_connections, &AccountConnectionController::replayResolved,
+            this, [this](const QString& id, bool continuityVerified) {
+        Account* item = account(id);
+        if (!item || !item->backend() || !activeProfileAccountIds().contains(id))
+            return;
+        if (continuityVerified) {
+            // Storage identity is safe to preserve after lossless replay.
+            item->backend()->reconcileAfterReliableReplay();
         } else {
-            ::close(fd);
+            // In-place reloading of teams destroys QObject-backed channels,
+            // invalidating live widgets. Dispose UI before rebuilding.
+            reloadSessionAfterReplayGap(id);
         }
-    }
-#endif
+    });
 }
 
-AccountManager::~AccountManager()
-{
-#if defined(Q_OS_LINUX)
-    if (_routeChangeSocket >= 0)
-        ::close(_routeChangeSocket);
-#endif
-}
+AccountManager::~AccountManager() = default;
 
 void AccountManager::retryTemporarilyUnavailable(const QStringList& ids)
 {
@@ -133,7 +69,7 @@ void AccountManager::retryTemporarilyUnavailable(const QStringList& ids)
             Account* item = account(id);
             if (item && admitted.contains(id)
                 && item->state() == AccountConnectionState::Unavailable)
-                _offlineReconnect.schedule(id);
+                _connections.savedSessionFailed(id);
         }
         return;
     }
@@ -141,12 +77,46 @@ void AccountManager::retryTemporarilyUnavailable(const QStringList& ids)
         Account* item = account(id);
         if (!item || !admitted.contains(id) || item->backend()
             || item->pendingBackend()
-            || item->state() != AccountConnectionState::Unavailable)
+            || (item->state() != AccountConnectionState::Unavailable
+                && item->state() != AccountConnectionState::Disconnected))
             continue;
-        qCInfo(accountRestoreLog) << "Reconnecting saved account after network recovery"
-                                  << id;
-        restoreAccount(id);
+        qCInfo(accountRestoreLog) << "Connecting saved account" << id;
+        performAccountRestore(id);
     }
+}
+
+void AccountManager::retryWebSocketConnections(const QStringList& ids)
+{
+    if (!_suspendingProfileAccounts.isEmpty())
+        return;
+    const QStringList admitted = activeProfileAccountIds();
+    for (const QString& id : ids) {
+        Account* item = account(id);
+        if (!item || !admitted.contains(id)
+            || item->state() != AccountConnectionState::Connected)
+            continue;
+        Backend* backend = item->backend();
+        if (backend && backend->webSocketConnectionState()
+                == WebSocketConnector::ConnectionState::WaitingForReconnect)
+            backend->retryWebSocketConnectionNow();
+    }
+}
+
+void AccountManager::reloadSessionAfterReplayGap(const QString& id)
+{
+    Account* item = account(id);
+    if (!item || !item->backend() || _suspendingProfileAccounts.contains(id))
+        return;
+
+    Backend* backend = item->backend();
+    qCWarning(accountRestoreLog) << "Unverified WebSocket replay; rebuilding session" << id;
+    _connections.cancel(id);
+    _suspendingProfileAccounts.insert(id);
+    item->setState(AccountConnectionState::Disconnected);
+    backend->prepareForLogout();
+    // Presentation disposes all Storage-dependent widgets before its
+    // acknowledgment. Unlike logout, the keychain token is kept.
+    emit profileSuspensionRequested(item, backend);
 }
 
 bool AccountManager::load(const QByteArray& json, QString* error)
@@ -447,7 +417,7 @@ void AccountManager::reconcileActiveProfile()
     // Reset its state so a later profile activation can restore it afresh.
     for (Account* item : allAccounts()) {
         if (admitted.contains(item->id())) continue;
-        _offlineReconnect.cancel(item->id());
+        _connections.cancel(item->id());
         if (!item->backend() && !item->pendingBackend()
             && item->state() == AccountConnectionState::Unavailable)
             item->setState(AccountConnectionState::Disconnected);
@@ -507,6 +477,7 @@ void AccountManager::finishProfileSuspension(Account* item, Backend* backend)
 
     // The application has already destroyed the dependent Widgets. Cancel
     // outstanding HTTP/WS work while the Backend still owns its Storage.
+    _connections.cancel(item->id());
     backend->reset();
     emit accountUnregistered(backend);
     item->releaseBackend();
@@ -615,6 +586,33 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
         return nullptr;
+    const QString registeredId = item->id();
+    QPointer<Account> accountGuard(item);
+    QPointer<Backend> backendGuard(backend);
+    connect(backend, &Backend::onWebSocketConnectionStateChanged, this,
+            [this, registeredId, accountGuard, backendGuard](
+                WebSocketConnector::ConnectionState state) {
+        if (!accountGuard || !backendGuard
+            || accountGuard->backend() != backendGuard.data())
+            return;
+        if (state == WebSocketConnector::ConnectionState::WaitingForReconnect)
+            _connections.websocketUnavailable(registeredId);
+        else if (state == WebSocketConnector::ConnectionState::Connecting)
+            _connections.attemptStarted(registeredId);
+        else if (state == WebSocketConnector::ConnectionState::Disconnected)
+            _connections.cancel(registeredId);
+    });
+    connect(backend, &Backend::realtimeStreamConfirmed, this,
+            [this, registeredId, accountGuard, backendGuard](
+                bool isReconnect, bool continuityVerified) {
+        if (accountGuard && backendGuard
+            && accountGuard->backend() == backendGuard.data())
+            _connections.streamVerified(registeredId, isReconnect,
+                                        continuityVerified);
+    });
+    if (backend->webSocketConnectionState()
+        == WebSocketConnector::ConnectionState::WaitingForReconnect)
+        _connections.websocketUnavailable(registeredId);
     const bool firstAccount = _selectedId.isEmpty();
     if (firstAccount)
         _selectedId = id;
@@ -675,12 +673,22 @@ void AccountManager::rebuildModel()
 void AccountManager::cancelPendingRestore(
     const QString& id, AccountConnectionState status)
 {
-    _offlineReconnect.cancel(id);
+    _connections.cancel(id);
     if (Account* item = account(id))
         item->cancelPending(status);
 }
 
 void AccountManager::restoreAccount(const QString& id)
+{
+    Account* item = account(id);
+    if (!item || item->backend() || item->pendingBackend()
+        || !activeProfileAccountIds().contains(id)
+        || !_suspendingProfileAccounts.isEmpty())
+        return;
+    _connections.startSavedSession(id);
+}
+
+void AccountManager::performAccountRestore(const QString& id)
 {
     Account* item = account(id);
     const auto* record = item ? item->record() : nullptr;
@@ -692,7 +700,7 @@ void AccountManager::restoreAccount(const QString& id)
         || item->backend() || item->pendingBackend())
         return;
 
-    _offlineReconnect.attemptStarted(id);
+    _connections.attemptStarted(id);
     qCInfo(accountRestoreLog) << "Starting session restoration for account" << id;
     Backend* backend = item->createPendingBackend();
     if (!backend) {
@@ -717,7 +725,7 @@ void AccountManager::restoreAccount(const QString& id)
                                       : status == SessionTokenStore::ReadStatus::NotFound
                                           ? "not-found" : "unavailable");
         if (status != SessionTokenStore::ReadStatus::Found) {
-            _offlineReconnect.cancel(account->id());
+            _connections.cancel(account->id());
             account->cancelPending(
                 status == SessionTokenStore::ReadStatus::NotFound
                     ? AccountConnectionState::AuthenticationRequired
@@ -751,9 +759,9 @@ void AccountManager::restoreAccount(const QString& id)
                     // State observers may synchronously change the profile.
                     if (transient && activeProfileAccountIds().contains(accountId)
                         && _suspendingProfileAccounts.isEmpty())
-                        _offlineReconnect.schedule(accountId);
+                        _connections.savedSessionFailed(accountId);
                     else
-                        _offlineReconnect.cancel(accountId);
+                        _connections.cancel(accountId);
                     return;
                 }
                 const WorkspaceLayout::Account* record = account->record();
@@ -764,7 +772,7 @@ void AccountManager::restoreAccount(const QString& id)
                     qCWarning(accountRestoreLog)
                         << "Saved credentials resolved to a different remote identity for account"
                         << account->id();
-                    _offlineReconnect.cancel(account->id());
+                    _connections.cancel(account->id());
                     account->cancelPending(AccountConnectionState::AuthenticationRequired);
                     return;
                 }
@@ -773,10 +781,10 @@ void AccountManager::restoreAccount(const QString& id)
                     qCWarning(accountRestoreLog)
                         << "Verified session could not be adopted for account"
                         << account->id();
-                    _offlineReconnect.cancel(account->id());
+                    _connections.cancel(account->id());
                     account->cancelPending(AccountConnectionState::AuthenticationRequired);
                 } else {
-                    _offlineReconnect.cancel(account->id());
+                    _connections.cancel(account->id());
                     qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
                 }
         });
@@ -787,7 +795,7 @@ void AccountManager::prepareStop(Account* item, bool authenticationExpired)
 {
     if (!item || !item->backend())
         return;
-    _offlineReconnect.cancel(item->id());
+    _connections.cancel(item->id());
     item->setState(authenticationExpired
         ? AccountConnectionState::AuthenticationRequired
         : AccountConnectionState::Disconnected);
