@@ -134,11 +134,13 @@ private slots:
         QVERIFY(tree.bindSingleAccount(QStringLiteral("a")));
         QCOMPARE(tree.backendForAccount(QString()), &first);
         QCOMPARE(tree.backendForAccount(QStringLiteral("a")), &first);
+        QCOMPARE(tree.backendInstance(), &first);
 
         // Adding a server must not silently route an unqualified lookup to
         // the previously bound primary account, even if its ID is unchanged.
         QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
         QVERIFY(tree.backendForAccount(QString()) == nullptr);
+        QVERIFY(tree.backendInstance() == nullptr);
         QCOMPARE(tree.backendForAccount(QStringLiteral("a")), &first);
         QCOMPARE(tree.backendForAccount(QStringLiteral("b")), &second);
 
@@ -147,6 +149,7 @@ private slots:
         QSignalSpy resets(tree.model(), &QAbstractItemModel::modelReset);
         tree.unregisterAccountBackend(QStringLiteral("b"), &second);
         QCOMPARE(tree.backendForAccount(QString()), &first);
+        QCOMPARE(tree.backendInstance(), &first);
         QCOMPARE(resets.count(), 0);
     }
 
