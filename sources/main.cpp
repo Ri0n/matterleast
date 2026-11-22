@@ -67,7 +67,7 @@
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/TrayWindowController.h"
 #include "ui/AccountWorkspaceStack.h"
-#include "ui/AccountOverviewPage.h"
+#include "ui/ServersWorkspacePage.h"
 #include "ui/ServersSidebarPage.h"
 #include "ui/AccountTrayBadgeModel.h"
 
@@ -104,8 +104,7 @@ private:
     std::unique_ptr<QSystemTrayIcon> trayIcon;
     AccountTrayBadgeModel trayBadges;
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
-    AccountOverviewPage* overviewPage = nullptr;
-    QPointer<QDialog> offlineServersDialog;
+    ServersWorkspacePage* serversStartupPage = nullptr;
     QHash<Backend*, MainWindow*> accountViews; // Presentation only.
     QSet<Backend*> closingAccounts;
     QPointer<LoginDialog> loginDialog;
@@ -227,9 +226,9 @@ void MattermostApplication::start()
     if (!accounts.loadFromOptions(&error)) {
         qWarning() << "Cannot load saved account catalog:" << error;
         ensureWorkspaceShell();
-        overviewPage->setError(tr("Saved account settings could not be read. "
+        serversStartupPage->setError(tr("Saved account settings could not be read. "
                                   "The original configuration has been preserved."));
-        workspaceShell->showOverview();
+        workspaceShell->showServers();
         trayWindow.setWindow(workspaceShell.get());
         workspaceShell->show();
         return;
@@ -238,7 +237,7 @@ void MattermostApplication::start()
     // Show persistent accounts immediately. Migrations are asynchronous and
     // must never hold the entire interface hostage to an offline server.
     ensureWorkspaceShell();
-    workspaceShell->showOverview();
+    workspaceShell->showServers();
     trayWindow.setWindow(workspaceShell.get());
     workspaceShell->show();
 
@@ -247,16 +246,16 @@ void MattermostApplication::start()
                 << static_cast<int>(result)
                 << "known-accounts" << accounts.allAccounts().size();
         if (result == MigrationManager::Result::UnsupportedVersion) {
-            overviewPage->setError(tr("Account settings were written by a newer "
+            serversStartupPage->setError(tr("Account settings were written by a newer "
                 "version of MatterLeast. No migration was attempted."));
             return;
         }
         if (accounts.empty()) {
             if (result == MigrationManager::Result::Unavailable)
-                overviewPage->setError(tr("The previous session could not be "
+                serversStartupPage->setError(tr("The previous session could not be "
                     "migrated. Original settings were preserved."));
-            openLoginWindow({}, migrations.legacyServerHint(),
-                            migrations.legacyLoginHint());
+            // The Servers tab is usable without saved accounts. The user
+            // opens credentials explicitly via Add server, not at startup.
             return;
         }
         // Restore *every* account admitted by the selected profile, including
@@ -283,76 +282,43 @@ void MattermostApplication::ensureWorkspaceShell()
     else
         workspaceShell->resize(1200, 800);
 
-    overviewPage = new AccountOverviewPage(accounts.listModel(),
-                                            workspaceShell.get());
-    workspaceShell->setOverviewPage(overviewPage);
-    connect(overviewPage, &AccountOverviewPage::accountSelected, this,
-            [this](const QString& id) { selectAccount(id); });
-    connect(overviewPage, &AccountOverviewPage::retryRequested, this,
+    serversStartupPage = new ServersWorkspacePage(accounts, workspaceShell.get());
+    workspaceShell->setServersPage(serversStartupPage);
+    connect(serversStartupPage, &ServersWorkspacePage::accountSelected, this,
             [this](const QString& id) {
-        // Keyboard selection of an overview row need not have emitted clicked().
-        // Treat Connect as an explicit profile activation before retrying.
-        if (accounts.selectAccount(id))
-            accounts.restoreAccount(id);
-    });
-    connect(overviewPage, &AccountOverviewPage::signInRequested, this,
-            [this](const QString& id) {
-        // Even manual reauthentication must activate the owning profile.
-        // The overview's selected row is not itself a connection policy.
-        if (accounts.selectAccount(id))
-            openLoginWindow(id);
-    });
-    connect(overviewPage, &AccountOverviewPage::addServerRequested, this,
-            [this] { openLoginWindow(); });
-    connect(overviewPage, &AccountOverviewPage::manageServersRequested, this,
-            [this] {
-        if (offlineServersDialog) {
-            offlineServersDialog->show();
-            offlineServersDialog->raise();
-            offlineServersDialog->activateWindow();
-            return;
+        selectAccount(id);
+        Account* selected = accounts.account(id);
+        if (selected && selected->backend()) {
+            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
+                target->showChannelsSidebar();
         }
-        // The Servers sidebar is attached to a connected Backend's Widgets
-        // presentation. The very same QtCore-backed editor must also work
-        // while every account is offline, without constructing a fake Backend.
-        auto* dialog = new QDialog(workspaceShell.get());
-        offlineServersDialog = dialog;
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        dialog->setWindowTitle(tr("Manage servers and views"));
-        dialog->resize(470, 570);
-        auto* layout = new QVBoxLayout(dialog);
-        layout->setContentsMargins(0, 0, 0, 0);
-        auto* page = new ServersSidebarPage(accounts, dialog);
-        layout->addWidget(page);
-        connect(page, &ServersSidebarPage::accountOpenRequested, this,
-                [this, dialog](const QString& id) {
-            selectAccount(id);
-            dialog->close();
-        });
-        connect(page, &ServersSidebarPage::viewOpenRequested, this,
-                [this, dialog](const QString& id) {
-            if (accounts.activateView(id))
-                selectAccount(accounts.selectedAccountId());
-            dialog->close();
-        });
-        connect(page, &ServersSidebarPage::addServerRequested, this,
-                [this, dialog] {
-            dialog->close();
-            openLoginWindow();
-        });
-        connect(page, &ServersSidebarPage::signInRequested, this,
-                [this, dialog](const QString& id) {
-            if (accounts.selectAccount(id)) {
-                dialog->close();
-                openLoginWindow(id);
-            }
-        });
-        connect(page, &ServersSidebarPage::retryRequested, this,
-                [this](const QString& id) {
-            if (accounts.selectAccount(id)) accounts.restoreAccount(id);
-        });
-        dialog->show();
     });
+    connect(serversStartupPage, &ServersWorkspacePage::viewSelected, this,
+            [this](const QString& id) {
+        if (!accounts.activateView(id)) return;
+        const QString selectedId = accounts.selectedAccountId();
+        Account* selected = accounts.account(selectedId);
+        if (selected && selected->backend()
+            && !closingAccounts.contains(selected->backend())) {
+            workspaceShell->activateWorkspace(selectedId);
+            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
+                target->showChannelsSidebar();
+        } else {
+            workspaceShell->showServers();
+        }
+        bindActiveNavigationView();
+        updateWindowTitle();
+    });
+    connect(serversStartupPage, &ServersWorkspacePage::retryRequested, this,
+            [this](const QString& id) {
+        if (accounts.selectAccount(id)) accounts.restoreAccount(id);
+    });
+    connect(serversStartupPage, &ServersWorkspacePage::signInRequested, this,
+            [this](const QString& id) {
+        if (accounts.selectAccount(id)) openLoginWindow(id);
+    });
+    connect(serversStartupPage, &ServersWorkspacePage::addServerRequested, this,
+            [this] { openLoginWindow(); });
 
     connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
             [this] {
@@ -416,7 +382,7 @@ void MattermostApplication::selectAccount(const QString& id,
         if (item && item->backend() && !closingAccounts.contains(item->backend()))
             workspaceShell->activateWorkspace(id);
         else
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
         trayWindow.setWindow(workspaceShell.get());
     }
     updateWindowTitle();
@@ -507,7 +473,7 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
             if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
                 target->showChannelsSidebar();
         } else {
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
         }
         bindActiveNavigationView();
         updateWindowTitle();
@@ -568,6 +534,26 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         return;
     }
 
+    if (recoveryAccountId.isEmpty()) {
+        // First/additional server: the dialog only collects credentials. No
+        // network operation or artificial Backend belongs to the modal form.
+        // Once accepted it disappears and the Servers tree shows progress.
+        auto* dialog = new LoginDialog(workspaceShell.get(),
+                                       suggestedServer, suggestedLogin);
+        dialog->setWindowModality(Qt::WindowModal);
+        loginDialog = dialog;
+        connect(dialog, &QDialog::rejected, this, [this, dialog] {
+            if (loginDialog == dialog) loginDialog = nullptr;
+        });
+        connect(dialog, &QDialog::accepted, this, [this, dialog] {
+            const BackendLoginData credentials = dialog->submittedCredentials();
+            if (loginDialog == dialog) loginDialog = nullptr;
+            accounts.beginNewServerLogin(credentials);
+        });
+        dialog->open();
+        return;
+    }
+
     QString fixedServer;
     QString fixedLogin;
     if (!recoveryAccountId.isEmpty()) {
@@ -592,7 +578,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
     // Migrations may suggest old non-secret login coordinates. They never
     // authenticate or access keychain from the Widgets credential editor.
     const bool lockIdentity = !fixedServer.isEmpty() && !fixedLogin.isEmpty();
-    auto* dialog = new LoginDialog(nullptr, *candidate,
+    auto* dialog = new LoginDialog(workspaceShell.get(), *candidate,
         lockIdentity ? fixedServer : suggestedServer,
         lockIdentity ? fixedLogin : suggestedLogin, lockIdentity);
     loginDialog = dialog;
@@ -662,7 +648,7 @@ void MattermostApplication::suspendProfileConnection(Account* item,
     // account when an outgoing page happens to be current. Display the
     // neutral overview until the target view's account is ready.
     if (workspaceShell && workspaceShell->activeAccountId() == accountId)
-        workspaceShell->showOverview();
+        workspaceShell->showServers();
     if (MainWindow* page = accountViews.value(backend, nullptr))
         page->prepareForLogout();
 
@@ -681,7 +667,7 @@ void MattermostApplication::suspendProfileConnection(Account* item,
         }
         updateTrayIcon();
         if (workspaceShell && accounts.selectedAccountId() == accountId)
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
 
         if (itemGuard && backendGuard)
             accounts.finishProfileSuspension(itemGuard.data(),
@@ -717,7 +703,7 @@ void MattermostApplication::beginLogout(Backend& backend,
         trayBadges.remove(owner);
         updateTrayIcon();
         if (workspaceShell && accounts.selectedAccountId() == id)
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
         if (guard)
             accounts.finishStop(guard.data(), authenticationExpired);
         else

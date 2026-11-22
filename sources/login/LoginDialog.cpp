@@ -35,6 +35,20 @@ LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
                          const QString& server,
                          const QString& login,
                          bool lockIdentity)
+    : LoginDialog(parent, &backend, server, login, lockIdentity)
+{
+}
+
+LoginDialog::LoginDialog(QWidget* parent, const QString& server,
+                         const QString& login)
+    : LoginDialog(parent, nullptr, server, login, false)
+{
+}
+
+LoginDialog::LoginDialog(QWidget* parent, Backend* backend,
+                         const QString& server,
+                         const QString& login,
+                         bool lockIdentity)
     : QDialog(parent)
     , backend(backend)
     , ui(new Ui::LoginDialog)
@@ -45,10 +59,12 @@ LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
             this, &QDialog::reject);
     ui->loginInProgressLabel->setText(tr("Signing in…"));
 
-    connect(&backend, &Backend::onNetworkError,
-            this, &LoginDialog::onNetworkError);
-    connect(&backend, &Backend::onHttpError,
-            this, &LoginDialog::onHttpError);
+    if (backend) {
+        connect(backend, &Backend::onNetworkError,
+                this, &LoginDialog::onNetworkError);
+        connect(backend, &Backend::onHttpError,
+                this, &LoginDialog::onHttpError);
+    }
 
     ui->domain_lineEdit->setText(server.isEmpty()
         ? QStringLiteral("https://") : server);
@@ -101,6 +117,14 @@ void LoginDialog::on_login_pushButton_clicked()
         setError(tr("Enter your username and password or access token."));
         return;
     }
+    if (!backend) {
+        // New server setup: never perform a login while the modal form is
+        // open. AccountManager now owns connection progress and failures.
+        _submittedCredentials = credentials;
+        _authenticatedLoginName = credentials.username;
+        accept();
+        return;
+    }
     loginToServer(credentials);
 }
 
@@ -119,7 +143,7 @@ void LoginDialog::loginToServer(const BackendLoginData& credentials)
     ui->loginInProgressLabel->show();
 
     QPointer<LoginDialog> guard(this);
-    backend.login(credentials,
+    backend->login(credentials,
                   [this, guard, credentials, generation](const QString& token) {
         if (!guard || generation != _loginAttemptGeneration)
             return;

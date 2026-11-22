@@ -42,17 +42,16 @@ target_link_libraries(account-list-model-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME account-list-model-test COMMAND account-list-model-test)
 
-add_executable(account-overview-page-test
-    AccountOverviewPageTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/ui/AccountOverviewPage.cpp"
-    "${CMAKE_SOURCE_DIR}/sources/workspaces/AccountListModel.cpp")
-target_include_directories(account-overview-page-test PRIVATE
-    "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(account-overview-page-test PRIVATE
-    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
-add_test(NAME account-overview-page-test COMMAND account-overview-page-test)
-set_tests_properties(account-overview-page-test PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+# First run uses the real Servers tab and transient QtCore connection states.
+# All account/Widgets code is shared with the production object library.
+if(TARGET matterleast-core)
+    add_executable(servers-workspace-page-test ServersWorkspacePageTest.cpp)
+    target_link_libraries(servers-workspace-page-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME servers-workspace-page-test COMMAND servers-workspace-page-test)
+    set_tests_properties(servers-workspace-page-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
 
 add_executable(tray-window-controller-test TrayWindowControllerTest.cpp)
 target_include_directories(tray-window-controller-test PRIVATE

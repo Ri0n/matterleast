@@ -366,6 +366,18 @@ MainWindow::~MainWindow()
         navigation->beginShutdown();
 }
 
+void MainWindow::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    // Restoring the splitter in the constructor happens while its workspace
+    // is hidden. Wait until QStackedWidget shows both panes and lays them out.
+    // This also handles account switches without additional polling timers.
+    QTimer::singleShot(0, this, [this] {
+        if (isVisible())
+            restoreSidebarWidth();
+    });
+}
+
 void MainWindow::restoreSidebarWidth()
 {
     if (!sidebarSplitter || sidebarSplitter->count() < 2)

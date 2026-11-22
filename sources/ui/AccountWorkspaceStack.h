@@ -27,16 +27,16 @@ public:
     QString activeAccountId() const;
     int workspaceCount() const;
 
-    // Offline account chooser is a permanent page, not a temporary Backend.
-    void setOverviewPage(QWidget* page);
-    void showOverview();
+    // Backend-free Servers tab is a permanent page, not a temporary Backend.
+    void setServersPage(QWidget* page);
+    void showServers();
 
 signals:
     void activeWorkspaceChanged(const QString& accountId);
 
 private:
     QStackedWidget* _stack;
-    QWidget* _overviewPage = nullptr;
+    QWidget* _serversPage = nullptr;
     QHash<QString, QPointer<QWidget>> _workspaces;
     QHash<QWidget*, QString> _owners;
 };
