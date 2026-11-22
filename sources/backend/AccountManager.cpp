@@ -428,9 +428,9 @@ void AccountManager::discardCandidate(Backend* backend)
 }
 
 Account* AccountManager::adoptAuthenticated(Backend* backend,
-                                             const QString& loginName,
-                                             const QString& displayName,
-                                             const QString& recoveryId,
+                                             QString loginName,
+                                             QString displayName,
+                                             QString recoveryId,
                                              bool persistToken)
 {
     if (!backend || !backend->loggedIn()
