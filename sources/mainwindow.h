@@ -64,6 +64,7 @@ public:
 	void initializationComplete ();
     void installRealtimeUiSync();
     void bindViewNavigation(ViewNavigationSession* session, const QString& accountId);
+    void unbindViewNavigation();
     // Menu is built lazily from the authenticated account registry.
     void installAccountSwitcher(QMenu* menu);
     // Save and close while post widgets can still access valid Storage.
