@@ -579,7 +579,10 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
             fixedServer = record->serverBaseUrl;
             fixedLogin = record->loginName;
         }
-        if (item->pendingBackend()) {
+        if (!item->backend()) {
+            // An explicit Sign in action takes priority over any pending
+            // verification *or scheduled VPN reconnect*. Cancel both so the
+            // automatic path cannot race the credential dialog.
             accounts.cancelPendingRestore(
                 recoveryAccountId, AccountConnectionState::AuthenticationRequired);
         }
