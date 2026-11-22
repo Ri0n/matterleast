@@ -32,11 +32,14 @@ AccountManager::AccountManager(QObject* parent)
         const auto backends = registeredBackends();
         if (backends.isEmpty())
             return;
-        HTTPConnector::restartAllTransports();
         for (Backend* backend : backends) {
-            if (backend->webSocketConnectionState()
-                == WebSocketConnector::ConnectionState::Connected)
+            const auto state = backend->webSocketConnectionState();
+            if (state == WebSocketConnector::ConnectionState::Connected) {
+                // Do not abort healthy uploads on a route change.
                 backend->probeWebSocketConnection();
+            } else if (state == WebSocketConnector::ConnectionState::WaitingForReconnect) {
+                HTTPConnector::restartSessionTransports(&backend->networkSession());
+            }
         }
     });
     connect(&_connections, &AccountConnectionController::replayResolved,
