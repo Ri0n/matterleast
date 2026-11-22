@@ -10,9 +10,12 @@ Q_LOGGING_CATEGORY(reconnectLog, "mattermost.account.restore")
 
 int retryDelayMs(int failures)
 {
-    // One attempt cycle already includes the bounded immediate verification
-    // retries. Avoid hammering corporate gateway filters while VPN is down.
-    const int exponent = qBound(0, failures - 1, 3);
+    // A single retry policy covers both initial verification and prolonged
+    // VPN outages: no nested retry loops and no per-account timer/backend
+    // waiting in memory. Later attempts cap at two minutes.
+    if (failures == 1) return 1500;
+    if (failures == 2) return 4000;
+    const int exponent = qBound(0, failures - 3, 3);
     return qMin(120000, 15000 * (1 << exponent));
 }
 } // namespace
