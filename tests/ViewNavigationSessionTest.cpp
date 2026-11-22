@@ -89,9 +89,9 @@ private slots:
         QVERIFY(session.visit(office));
         QVERIFY(session.visit(saved));
         QVERIFY(session.visit(home));
-        QCOMPARE(session.goBack()->kind, ViewNavigationSession::Location::Kind::Saved);
+        QVERIFY(session.goBack()->kind == ViewNavigationSession::Location::Kind::Saved);
         QCOMPARE(session.goBack()->accountId, QStringLiteral("office"));
-        QCOMPARE(session.goForward()->kind, ViewNavigationSession::Location::Kind::Saved);
+        QVERIFY(session.goForward()->kind == ViewNavigationSession::Location::Kind::Saved);
         QVERIFY(session.visit(home));
         QVERIFY(!session.canGoForward());
         QVERIFY(!session.visit(ViewNavigationSession::Location{}));

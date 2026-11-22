@@ -387,6 +387,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     const auto* previous = _layout.account(id);
     const QString previousServer = previous ? previous->serverBaseUrl : QString();
     const QString previousLogin = previous ? previous->loginName : QString();
+    const QString previousViewId = _layout.activeViewId;
     _layout = std::move(updated);
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
@@ -398,6 +399,10 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     _treeModel.refreshTopology();
     ensureViewSessions();
     persist();
+    if (previousViewId != _layout.activeViewId) {
+        emit activeViewChanged(_layout.activeViewId);
+        emit activeViewSessionChanged();
+    }
     if (persistToken) {
         // Only after the verified remote identity has been adopted may a
         // credential be written to secure storage. Restoring an existing
