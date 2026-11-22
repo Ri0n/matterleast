@@ -740,6 +740,182 @@ private slots:
         QVERIFY(secondGuard.isNull());
     }
 
+    void profileTransitionsKeepSharedAccountAndWaitForWidgetsTeardown()
+    {
+        FakeMattermostServer firstServer(QByteArrayLiteral("profile-a"));
+        FakeMattermostServer sharedServer(QByteArrayLiteral("profile-shared"));
+        FakeMattermostServer thirdServer(QByteArrayLiteral("profile-c"));
+        QVERIFY(firstServer.listen(QHostAddress::LocalHost));
+        QVERIFY(sharedServer.listen(QHostAddress::LocalHost));
+        QVERIFY(thirdServer.listen(QHostAddress::LocalHost));
+
+        WorkspaceLayout layout;
+        layout.accounts = {
+            {QStringLiteral("a"), QStringLiteral("First"),
+             firstServer.origin(), QStringLiteral("profile-a"),
+             QStringLiteral("first-token")},
+            {QStringLiteral("shared"), QStringLiteral("Shared"),
+             sharedServer.origin(), QStringLiteral("profile-shared"),
+             QStringLiteral("shared-token")},
+            {QStringLiteral("c"), QStringLiteral("Third"),
+             thirdServer.origin(), QStringLiteral("profile-c"),
+             QStringLiteral("third-token")}
+        };
+        layout.profiles = {
+            {QStringLiteral("office"), QStringLiteral("Office"),
+             {QStringLiteral("a"), QStringLiteral("shared")}},
+            {QStringLiteral("away"), QStringLiteral("Away"),
+             {QStringLiteral("shared"), QStringLiteral("c")}}
+        };
+        layout.views = {
+            {QStringLiteral("office-all"), QStringLiteral("office"),
+             QStringLiteral("Office all"),
+             {QStringLiteral("a"), QStringLiteral("shared")}},
+            {QStringLiteral("office-shared"), QStringLiteral("office"),
+             QStringLiteral("Shared only"), {QStringLiteral("shared")}},
+            {QStringLiteral("away-all"), QStringLiteral("away"),
+             QStringLiteral("Away"), {QStringLiteral("shared"), QStringLiteral("c")}}
+        };
+        layout.activeViewId = QStringLiteral("office-all");
+        QVERIFY(layout.validate());
+
+        AccountManager manager;
+        QVERIFY(manager.load(layout.toJson()));
+        Account* firstAccount = manager.account(QStringLiteral("a"));
+        Account* sharedAccount = manager.account(QStringLiteral("shared"));
+        Account* thirdAccount = manager.account(QStringLiteral("c"));
+        QVERIFY(firstAccount && sharedAccount && thirdAccount);
+        QCOMPARE(manager.selectedAccountId(), QStringLiteral("a"));
+
+        Backend* first = manager.createLoginBackend();
+        Backend* shared = manager.createLoginBackend();
+        bool firstReady = false;
+        bool sharedReady = false;
+        first->login(credentials(firstServer, QStringLiteral("first-token")),
+                     [&](const QString& token) { firstReady = !token.isEmpty(); });
+        shared->login(credentials(sharedServer, QStringLiteral("shared-token")),
+                      [&](const QString& token) { sharedReady = !token.isEmpty(); });
+        QTRY_VERIFY(firstReady && sharedReady);
+        QCOMPARE(manager.adoptAuthenticated(first, QStringLiteral("first-token"),
+                                            QStringLiteral("First"), {}, false),
+                 firstAccount);
+        QCOMPARE(manager.adoptAuthenticated(shared, QStringLiteral("shared-token"),
+                                            QStringLiteral("Shared"), {}, false),
+                 sharedAccount);
+
+        QSignalSpy activeViewChanges(&manager, &AccountManager::activeViewChanged);
+        QSignalSpy modelResets(manager.workspaceTreeModel(),
+                              &QAbstractItemModel::modelReset);
+        QVector<QPair<Account*, Backend*>> suspensionRequests;
+        connect(&manager, &AccountManager::profileSuspensionRequested, this,
+                [&](Account* account, Backend* backend) {
+            suspensionRequests.append({account, backend});
+        });
+
+        // Another view of the same profile changes presentation selection,
+        // not account connections. Its hidden first account stays online.
+        QVERIFY(manager.activateView(QStringLiteral("office-shared")));
+        QCOMPARE(manager.selectedAccountId(), QStringLiteral("shared"));
+        QCOMPARE(manager.activeBackend(), shared);
+        QCOMPARE(manager.registeredBackends().size(), 2);
+        QVERIFY(first->loggedIn());
+        QVERIFY(suspensionRequests.isEmpty());
+        QCOMPARE(modelResets.count(), 0);
+        QVERIFY(manager.activateView(QStringLiteral("office-shared")));
+        QCOMPARE(activeViewChanges.count(), 1);
+
+        // The other exclusive profile shares an account. Preserve it and
+        // suspend First, but do not start Third until the Widgets are gone.
+        QVERIFY(manager.activateView(QStringLiteral("away-all")));
+        QCOMPARE(activeViewChanges.count(), 2);
+        QCOMPARE(suspensionRequests.size(), 1);
+        QCOMPARE(suspensionRequests.first().first, firstAccount);
+        QCOMPARE(suspensionRequests.first().second, first);
+        QCOMPARE(firstAccount->backend(), first);
+        QVERIFY(!first->loggedIn()); // Transports stopped, Storage still owned.
+        QCOMPARE(thirdAccount->pendingBackend(), static_cast<Backend*>(nullptr));
+        QCOMPARE(sharedAccount->backend(), shared);
+        QVERIFY(shared->loggedIn());
+        QCOMPARE(manager.activeBackend(), shared);
+
+        // A rapid user change before QWidget teardown must supersede the
+        // previous desired profile. Never restore Third behind the user.
+        QVERIFY(manager.activateView(QStringLiteral("office-all")));
+        QCOMPARE(suspensionRequests.size(), 1);
+        QCOMPARE(firstAccount->backend(), first);
+        QVERIFY(!thirdAccount->pendingBackend());
+        manager.finishProfileSuspension(firstAccount, first);
+        QVERIFY(!firstAccount->backend());
+        QVERIFY(firstAccount->pendingBackend());
+        QVERIFY(!thirdAccount->pendingBackend());
+        QCOMPARE(sharedAccount->backend(), shared);
+        QCOMPARE(modelResets.count(), 0);
+
+        // The reverse switch cancels the pending First restore and starts
+        // Third. The one shared authenticated session never changed pointer.
+        QVERIFY(manager.activateView(QStringLiteral("away-all")));
+        QVERIFY(!firstAccount->pendingBackend());
+        QVERIFY(thirdAccount->pendingBackend());
+        QCOMPARE(sharedAccount->backend(), shared);
+        QVERIFY(shared->loggedIn());
+        QCOMPARE(suspensionRequests.size(), 1);
+        QCOMPARE(manager.registeredBackends().size(), 1);
+
+        QVERIFY(!manager.activateView(QStringLiteral("no-such-view")));
+        QCOMPARE(manager.activeViewId(), QStringLiteral("away-all"));
+        QCOMPARE(modelResets.count(), 0);
+    }
+
+    void activeProfileRestoresHiddenAccountsButNotOtherProfiles()
+    {
+        WorkspaceLayout layout;
+        layout.accounts = {
+            {QStringLiteral("one"), QStringLiteral("One"),
+             QStringLiteral("https://one.example.org"), QStringLiteral("user-one"),
+             QStringLiteral("login-one")},
+            {QStringLiteral("hidden"), QStringLiteral("Hidden"),
+             QStringLiteral("https://hidden.example.org"), QStringLiteral("user-hidden"),
+             QStringLiteral("login-hidden")},
+            {QStringLiteral("other"), QStringLiteral("Other"),
+             QStringLiteral("https://other.example.org"), QStringLiteral("user-other"),
+             QStringLiteral("login-other")}
+        };
+        layout.profiles = {
+            {QStringLiteral("first"), QStringLiteral("First"),
+             {QStringLiteral("one"), QStringLiteral("hidden")}},
+            {QStringLiteral("second"), QStringLiteral("Second"),
+             {QStringLiteral("other")}}
+        };
+        layout.views = {
+            {QStringLiteral("shown"), QStringLiteral("first"),
+             QStringLiteral("Shown"), {QStringLiteral("one")}},
+            {QStringLiteral("hidden-view"), QStringLiteral("first"),
+             QStringLiteral("Hidden view"), {QStringLiteral("hidden")}},
+            {QStringLiteral("other-view"), QStringLiteral("second"),
+             QStringLiteral("Other view"), {QStringLiteral("other")}}
+        };
+        layout.activeViewId = QStringLiteral("shown");
+        QVERIFY(layout.validate());
+        AccountManager manager;
+        QVERIFY(manager.load(layout.toJson()));
+
+        manager.restoreActiveProfile();
+        QVERIFY(manager.account(QStringLiteral("one"))->pendingBackend());
+        QVERIFY(manager.account(QStringLiteral("hidden"))->pendingBackend());
+        QVERIFY(!manager.account(QStringLiteral("other"))->pendingBackend());
+
+        QVERIFY(manager.activateView(QStringLiteral("hidden-view")));
+        QVERIFY(manager.account(QStringLiteral("one"))->pendingBackend());
+        QVERIFY(manager.account(QStringLiteral("hidden"))->pendingBackend());
+        QVERIFY(!manager.account(QStringLiteral("other"))->pendingBackend());
+
+        QVERIFY(manager.activateView(QStringLiteral("other-view")));
+        QVERIFY(!manager.account(QStringLiteral("one"))->pendingBackend());
+        QVERIFY(!manager.account(QStringLiteral("hidden"))->pendingBackend());
+        QVERIFY(manager.account(QStringLiteral("other"))->pendingBackend());
+        QCOMPARE(manager.selectedAccountId(), QStringLiteral("other"));
+    }
+
     void duplicateSessionRegistrationCannotReplaceAnExistingAccount()
     {
         FakeMattermostServer server(QByteArrayLiteral("same-user"));
