@@ -1,6 +1,14 @@
 #include "AccountManager.h"
 
 #include <QLoggingCategory>
+#if defined(Q_OS_LINUX)
+#include <QSocketNotifier>
+#include <cerrno>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 #if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
 #include <QNetworkInformation>
 #elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
@@ -51,6 +59,52 @@ AccountManager::AccountManager(QObject* parent)
             this, [this](const QNetworkConfiguration&) {
                 _offlineReconnect.resumeOnNetworkChange();
             });
+#endif
+
+#if defined(Q_OS_LINUX)
+    // Reachability may remain Online while a corporate VPN adds an interface
+    // or a route. Linux rtnetlink reports these changes without polling, even
+    // if the VPN is not managed by NetworkManager.
+    const int fd = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
+                            NETLINK_ROUTE);
+    if (fd >= 0) {
+        sockaddr_nl address {};
+        address.nl_family = AF_NETLINK;
+        address.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR
+            | RTMGRP_IPV6_IFADDR | RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE;
+        if (::bind(fd, reinterpret_cast<sockaddr*>(&address),
+                   sizeof(address)) == 0) {
+            _routeChangeSocket = fd;
+            auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
+            connect(notifier, &QSocketNotifier::activated, this, [this, fd] {
+                char buffer[8192];
+                bool routeChanged = false;
+                for (;;) {
+                    const auto received = ::recv(fd, buffer, sizeof(buffer),
+                                                 MSG_DONTWAIT);
+                    if (received > 0) {
+                        routeChanged = true;
+                        continue;
+                    }
+                    if (received < 0 && errno == EINTR)
+                        continue;
+                    break;
+                }
+                if (routeChanged)
+                    _offlineReconnect.resumeOnNetworkChange();
+            });
+        } else {
+            ::close(fd);
+        }
+    }
+#endif
+}
+
+AccountManager::~AccountManager()
+{
+#if defined(Q_OS_LINUX)
+    if (_routeChangeSocket >= 0)
+        ::close(_routeChangeSocket);
 #endif
 }
 
@@ -681,7 +735,10 @@ void AccountManager::restoreAccount(const QString& id)
                     account->cancelPending(
                         transient ? AccountConnectionState::Unavailable
                                   : AccountConnectionState::AuthenticationRequired);
-                    if (transient)
+                    // State observers can synchronously switch the active
+                    // profile. Do not enqueue a retry for an excluded account.
+                    if (transient && activeProfileAccountIds().contains(accountId)
+                        && _suspendingProfileAccounts.isEmpty())
                         _offlineReconnect.schedule(accountId);
                     else
                         _offlineReconnect.cancel(accountId);
