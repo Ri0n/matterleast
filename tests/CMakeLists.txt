@@ -495,16 +495,17 @@ target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME workspace-layout-test COMMAND workspace-layout-test)
 
-# Shared account reconnects must resume promptly on VPN/network changes
+# Unified account connect, replay and retry policy responds promptly to VPN changes
 # and stay canceled when the corresponding profile is not active.
-add_executable(transient-account-reconnect-test
-    TransientAccountReconnectTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/backend/TransientAccountReconnect.cpp")
-target_include_directories(transient-account-reconnect-test PRIVATE
+add_executable(account-connection-controller-test
+    AccountConnectionControllerTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/AccountConnectionController.cpp")
+target_include_directories(account-connection-controller-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(transient-account-reconnect-test PRIVATE
-    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
-add_test(NAME transient-account-reconnect-test COMMAND transient-account-reconnect-test)
+target_link_libraries(account-connection-controller-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Network)
+add_test(NAME account-connection-controller-test COMMAND account-connection-controller-test)
 
 # Canonical root-server URL must map to the same historical QtKeychain key.
 add_executable(session-token-store-key-test
