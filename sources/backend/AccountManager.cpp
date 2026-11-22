@@ -589,6 +589,10 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
         return nullptr;
+    // The saved-token verification has succeeded. Clear its retry cycle
+    // BEFORE observing the WebSocket state: a socket may already be offline,
+    // and clearing later would silently erase its newly scheduled retry.
+    _connections.cancel(item->id());
     const QString registeredId = item->id();
     QPointer<Account> accountGuard(item);
     QPointer<Backend> backendGuard(backend);
@@ -794,7 +798,8 @@ void AccountManager::performAccountRestore(const QString& id)
                     _connections.cancel(account->id());
                     account->cancelPending(AccountConnectionState::AuthenticationRequired);
                 } else {
-                    _connections.cancel(account->id());
+                    // adoptAuthenticated already completed the HTTP phase and
+                    // scheduled WebSocket recovery if it was disconnected.
                     qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
                 }
         });
