@@ -332,6 +332,17 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 
 		LOG_DEBUG("WebSocket connection attempt timed out after "
 		          << ConnectionAttemptTimeoutMs << " ms");
+        if (d->hasReconnect && !d->helloReceived
+            && !d->replayEventReceived && !d->connectionId.isEmpty()) {
+            // An idle resumed stream can have no buffered events and no
+            // new hello. Do not retry the same unprovable resume forever:
+            // the next attempt starts a fresh stream, which will require
+            // full REST state recovery before preserving cached Storage.
+            LOG_DEBUG("Unverified idle WebSocket resume; requesting a fresh stream");
+            d->connectionId.clear();
+            d->serverSequence = 0;
+            d->resumeFailed = true;
+        }
 		if (d->webSocket.state() == QAbstractSocket::UnconnectedState) {
             d->hasReconnect = true;
             setConnectionState(ConnectionState::WaitingForReconnect);
