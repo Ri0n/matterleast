@@ -641,7 +641,8 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
 {
     const LoginResponseValidation validation = validateLoginResponse(
         reply.error(),
-        reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), doc);
+        reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
+        doc, !loginData.token.isEmpty());
     _lastLoginFailureTransient = validation.retryable;
     if (!validation.accepted) {
         qWarning() << "Login identity fetch failed, retryable="
