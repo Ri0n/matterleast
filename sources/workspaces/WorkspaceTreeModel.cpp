@@ -104,6 +104,14 @@ void WorkspaceTreeModel::refreshTopology()
                 auto node = std::make_unique<Node>();
                 node->kind = want.kind;
                 node->id = want.id;
+                // An inserted index must already expose its complete data
+                // at endInsertRows(). Emitting dataChanged for a newly added
+                // row is redundant and causes extra sidebar repaints.
+                node->name = want.name;
+                node->profileId = want.profileId;
+                node->viewId = want.viewId;
+                node->accountId = want.accountId;
+                node->status = want.status;
                 node->parent = owner;
                 node->row = int(row);
                 owner->children.insert(owner->children.begin() + row,
