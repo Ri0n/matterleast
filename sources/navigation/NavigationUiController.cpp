@@ -116,10 +116,27 @@ NavigationUiController::NavigationUiController(MainWindow& mainWindow)
 
 NavigationUiController::~NavigationUiController()
 {
-    if (qApp) {
+    // MainWindow::beginShutdown() must run before QObject recursively destroys
+    // the sidebar/thread stacks. Do not dereference Widget members here: they
+    // may already have been deleted by QObjectPrivate::deleteChildren().
+    if (qApp)
         qApp->removeEventFilter(this);
-    }
+}
+
+void NavigationUiController::beginShutdown()
+{
+    if (shuttingDown)
+        return;
+    // This is the last point where the MainWindow still owns an intact widget
+    // tree. Persist the visual bookmark before any ChatArea::destroyed signals
+    // start arriving during recursive QWidget destruction.
+    saveSession();
     persistThreadPaneWidth();
+    shuttingDown = true;
+    if (sessionSaveTimer)
+        sessionSaveTimer->stop();
+    if (qApp)
+        qApp->removeEventFilter(this);
 }
 
 void NavigationUiController::setupMainWindow()
@@ -2171,6 +2188,8 @@ void NavigationUiController::presentThread(ChatArea* area)
 
 bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
 {
+    if (shuttingDown)
+        return QObject::eventFilter(watched, event);
     if (event && (event->type() == QEvent::Move || event->type() == QEvent::Resize)) {
         auto* area = qobject_cast<ChatArea*>(watched);
         if (area && area->property("sessionTracked").toBool()
