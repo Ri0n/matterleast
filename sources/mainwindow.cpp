@@ -319,6 +319,8 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	restoreGeometry(options->value<QByteArray>(QStringLiteral("geometry"), saveGeometry()));
     const QString sidebarStateKey = QStringLiteral("workspace/%1/sidebar_splitter_state")
         .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+    const QString sidebarWidthKey = QStringLiteral("workspace/%1/sidebar_width")
+        .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
     QByteArray splitterState = options->value<QByteArray>(sidebarStateKey);
     if (splitterState.isEmpty()) {
         // Migrate a single-account installation without losing layout.
@@ -334,6 +336,16 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 		// Older saved QSplitter states include the previous 4 px handle width.
 		// Keep state-compatible pane sizes, but always restore the thin geometry.
 		sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+        // Persist user adjustment while the view is active; at application
+        // exit another server view may already be hidden in the stack.
+        connect(sidebarSplitter, &QSplitter::splitterMoved, this,
+                [this, sidebarWidthKey](int, int) {
+            if (!sidebarSplitter || !sidebarSplitter->isVisible())
+                return;
+            const QList<int> sizes = sidebarSplitter->sizes();
+            if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0)
+                MLOptions::instance()->setValue(sidebarWidthKey, sizes[0]);
+        });
 	}
 
 	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
@@ -352,6 +364,27 @@ MainWindow::~MainWindow()
     if (auto* navigation = findChild<NavigationUiController*>(
             QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
         navigation->beginShutdown();
+}
+
+void MainWindow::restoreSidebarWidth()
+{
+    if (!sidebarSplitter || sidebarSplitter->count() < 2)
+        return;
+    const QString key = QStringLiteral("workspace/%1/sidebar_width")
+        .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+    const int saved = MLOptions::instance()->value<int>(key, 0);
+    if (saved <= 0)
+        return;
+    const QList<int> sizes = sidebarSplitter->sizes();
+    if (sizes.size() < 2)
+        return;
+    const int total = sizes[0] + sizes[1];
+    // Must run after the central content has been reparented and shown.
+    if (total <= 0)
+        return;
+    const int left = std::min(saved, std::max(1, total - 1));
+    if (left != sizes[0])
+        sidebarSplitter->setSizes({left, total - left});
 }
 
 void MainWindow::bindViewNavigation(ViewNavigationSession* session,
@@ -1527,14 +1560,21 @@ void MainWindow::saveState()
     if (isWindow()) {
         options->setValue(QStringLiteral("geometry"), saveGeometry());
     }
-    if (sidebarSplitter) {
-        const QByteArray state = sidebarSplitter->saveState();
-        const QString key = QStringLiteral("workspace/%1/sidebar_splitter_state")
-            .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
-        options->setValue(key, state);
-        if (isWindow()) {
-            // Historical standalone MainWindow layout key is still readable.
-            options->setValue(QStringLiteral("sidebar_splitter_state"), state);
+    if (sidebarSplitter && sidebarSplitter->isVisible()) {
+        const QList<int> sizes = sidebarSplitter->sizes();
+        if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0) {
+            const QString partition =
+                backend.networkSession().cachePartitionId(backend.getLoginUser().id);
+            options->setValue(
+                QStringLiteral("workspace/%1/sidebar_width").arg(partition), sizes[0]);
+            const QByteArray state = sidebarSplitter->saveState();
+            options->setValue(
+                QStringLiteral("workspace/%1/sidebar_splitter_state").arg(partition),
+                state);
+            if (isWindow()) {
+                // Historical standalone MainWindow layout key is still readable.
+                options->setValue(QStringLiteral("sidebar_splitter_state"), state);
+            }
         }
     }
 }
