@@ -1,4 +1,5 @@
 #include "NavigationUiController.h"
+#include "ViewNavigationSession.h"
 
 #include <QApplication>
 #include <cmath>
@@ -11,6 +12,7 @@
 #include <QTabBar>
 #include <QTimer>
 #include <QVariant>
+#include <utility>
 
 #include "AppNavigationService.h"
 #include "backend/Backend.h"
@@ -89,9 +91,288 @@ QString NavigationUiController::sessionSettingsKey() const
         + QString::fromLatin1(QCryptographicHash::hash(account, QCryptographicHash::Sha256).toHex());
 }
 
+
+namespace {
+using Location = NavigationUiController::Location;
+ViewNavigationSession::Location toViewLocation(
+    const NavigationUiController::Location& source, const QString& accountId)
+{
+    ViewNavigationSession::Location result;
+    if (!source.isValid() || accountId.isEmpty()) return result;
+    switch (source.kind) {
+    case Location::Kind::Chat:
+        result.kind = ViewNavigationSession::Location::Kind::Chat;
+        break;
+    case Location::Kind::Saved:
+        result.kind = ViewNavigationSession::Location::Kind::Saved;
+        break;
+    case Location::Kind::Drafts:
+        result.kind = ViewNavigationSession::Location::Kind::Drafts;
+        break;
+    case Location::Kind::RecentMentions:
+        result.kind = ViewNavigationSession::Location::Kind::RecentMentions;
+        break;
+    case Location::Kind::Search:
+        result.kind = ViewNavigationSession::Location::Kind::Search;
+        break;
+    }
+    result.accountId = accountId;
+    result.channelId = source.channelId;
+    result.rootId = source.rootId;
+    result.postId = source.postId;
+    result.viewportAnchor = source.viewportAnchor;
+    return result;
+}
+bool fromViewLocation(
+    const ViewNavigationSession::Location& source, const QString& accountId,
+    Location& result)
+{
+    if (!source.valid() || source.accountId != accountId) return false;
+    switch (source.kind) {
+    case ViewNavigationSession::Location::Kind::Chat:
+        result.kind = Location::Kind::Chat;
+        break;
+    case ViewNavigationSession::Location::Kind::Saved:
+        result.kind = Location::Kind::Saved;
+        break;
+    case ViewNavigationSession::Location::Kind::Drafts:
+        result.kind = Location::Kind::Drafts;
+        break;
+    case ViewNavigationSession::Location::Kind::RecentMentions:
+        result.kind = Location::Kind::RecentMentions;
+        break;
+    case ViewNavigationSession::Location::Kind::Search:
+        result.kind = Location::Kind::Search;
+        break;
+    }
+    result.channelId = source.channelId;
+    result.rootId = source.rootId;
+    result.postId = source.postId;
+    result.viewportAnchor = source.viewportAnchor;
+    return true;
+}
+}
+
+void NavigationUiController::syncViewSession()
+{
+    if (applyingViewSession || restoringSession || !sessionRestored
+        || !viewNavigationSession || viewNavigationAccountId.isEmpty()) return;
+
+    ViewNavigationSession::Snapshot state;
+    state.tabs.reserve(tabModel.count());
+    for (int i = 0; i < tabModel.count(); ++i) {
+        auto entry = *tabModel.at(i);
+        entry.accountId = viewNavigationAccountId;
+        state.tabs.append(std::move(entry));
+    }
+    state.activeTab = activeTabIndex;
+    state.current = toViewLocation(currentLocation, viewNavigationAccountId);
+    state.back.reserve(backStack.size());
+    for (const auto& location : backStack)
+        state.back.append(toViewLocation(location, viewNavigationAccountId));
+    state.forward.reserve(forwardStack.size());
+    for (const auto& location : forwardStack)
+        state.forward.append(toViewLocation(location, viewNavigationAccountId));
+
+    auto* dock = threadStack && !threadStack->isHidden()
+        ? qobject_cast<ChatArea*>(threadStack->currentWidget()) : nullptr;
+    if (dock && dock->isThread) {
+        state.dock = toViewLocation(captureLocation(dock), viewNavigationAccountId);
+        state.dockVisible = state.dock.valid();
+    }
+    if (!viewNavigationSession->restoreSnapshot(state))
+        qWarning("Unable to transfer Widgets navigation state into its view session");
+}
+
+void NavigationUiController::bindViewSession(
+    ViewNavigationSession* session, const QString& accountId)
+{
+    if (!session || accountId.isEmpty()
+        || (viewNavigationSession == session && viewNavigationAccountId == accountId))
+        return;
+    const bool hadView = viewNavigationSession != nullptr;
+    const QString oldViewId = hadView ? viewNavigationSession->viewId() : QString();
+    if (hadView && sessionRestored) {
+        saveActiveTabLocation();
+        if (activeArea && currentLocation.isChat()) {
+            const Location latest = captureLocation(activeArea);
+            if (latest.isValid() && latest.sameDestination(currentLocation))
+                currentLocation = latest;
+        }
+        syncViewSession();
+    }
+
+    viewNavigationSession = session;
+    viewNavigationAccountId = accountId;
+
+    // Detached threads remain associated with their original view, rather
+    // than being silently reused by a different view of the same account.
+    // Only visibility changes here; the host retains QObject ownership.
+    if (Backend* owner = backend()) {
+        for (QWidget* widget : QApplication::allWidgets()) {
+            auto* thread = qobject_cast<ChatArea*>(widget);
+            if (!thread || !thread->isThread || &thread->getBackend() != owner
+                || !thread->property("threadDetached").toBool()) continue;
+            QString attachedView = thread->property("navigationViewId").toString();
+            if (attachedView.isEmpty()) {
+                attachedView = oldViewId.isEmpty() ? session->viewId() : oldViewId;
+                thread->setProperty("navigationViewId", attachedView);
+            }
+            if (attachedView == session->viewId()) thread->show();
+            else thread->hide();
+        }
+    }
+    // Hide outgoing detached threads *before* tab restoration; findThread()
+    // must never adopt another view's visible detached presentation.
+    if (sessionRestored)
+        restoreBoundViewSession(!hadView);
+}
+
+void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentation)
+{
+    if (!sessionRestored || !viewNavigationSession || !navigationTabs)
+        return;
+    const auto state = viewNavigationSession->snapshot();
+    auto sameAccount = [this](const ViewNavigationSession::Location& location) {
+        return !location.valid() || location.accountId == viewNavigationAccountId;
+    };
+    for (const auto& tab : state.tabs)
+        if (tab.accountId != viewNavigationAccountId) return;
+    if (!sameAccount(state.current) || !sameAccount(state.dock)) return;
+    for (const auto& location : state.back)
+        if (!sameAccount(location)) return;
+    for (const auto& location : state.forward)
+        if (!sameAccount(location)) return;
+
+    const bool empty = state.tabs.isEmpty() && !state.current.valid()
+        && state.back.isEmpty() && state.forward.isEmpty() && !state.dockVisible;
+    if (empty && adoptExistingPresentation) {
+        syncViewSession(); // Legacy restart snapshot belongs to the initial view.
+        return;
+    }
+
+    const bool oldRestoring = restoringSession;
+    const bool oldSwitching = switchingTabs;
+    const bool oldReplaying = replayingHistory;
+    applyingViewSession = true;
+    pendingHistoryThread.reset();
+    pendingContextualThread.reset();
+    restoringSession = true;
+    switchingTabs = true;
+    replayingHistory = true;
+
+    // Materialized thread tabs belong to the old presentation only. The
+    // target view retains its lightweight semantic bookmarks, never widgets.
+    if (navigationSurfaceStack && mainStack) {
+        navigationSurfaceStack->setCurrentWidget(mainStack);
+        for (int i = navigationSurfaceStack->count() - 1; i >= 0; --i) {
+            auto* thread = qobject_cast<ChatArea*>(navigationSurfaceStack->widget(i));
+            if (!thread || !thread->property("threadTabbed").toBool()) continue;
+            thread->onDeactivate();
+            thread->hide();
+            navigationSurfaceStack->removeWidget(thread);
+            thread->setProperty("threadTabbed", false);
+            if (activeArea == thread) activeArea = nullptr;
+            thread->close();
+        }
+    }
+    closeThreadDockIfDifferent({}, true);
+
+    {
+        QSignalBlocker blocker(navigationTabs);
+        while (navigationTabs->count()) navigationTabs->removeTab(0);
+        tabModel = NavigationTabsModel();
+        activeTabIndex = -1;
+        activeArea = nullptr;
+        currentLocation = {};
+        backStack.clear();
+        forwardStack.clear();
+        for (const auto& entry : state.tabs) {
+            Location location;
+            ViewNavigationSession::Location semantic;
+            semantic.accountId = entry.accountId;
+            semantic.channelId = entry.channelId;
+            semantic.rootId = entry.rootId;
+            semantic.postId = entry.postId;
+            semantic.viewportAnchor = entry.viewportAnchor;
+            if (!fromViewLocation(semantic, viewNavigationAccountId, location)) continue;
+            const int index = appendNavigationTab(location, true);
+            if (index >= 0)
+                tabModel.setPinned(index, entry.pinned);
+        }
+        if (tabModel.isEmpty()) {
+            // A newly created view starts with just the current channel, not
+            // the old view's pinned tabs or Back/Forward history.
+            auto* area = channelTree ? channelTree->getCurrentPage() : nullptr;
+            const auto initial = captureLocation(area);
+            if (initial.isValid() && !area->isThread)
+                appendNavigationTab(initial, true);
+        }
+    }
+
+    int target = state.activeTab;
+    if (target < 0 || target >= tabModel.count())
+        target = tabModel.isEmpty() ? -1 : 0;
+    if (target >= 0)
+        activateTab(target);
+
+    Location semanticCurrent;
+    if (fromViewLocation(state.current, viewNavigationAccountId, semanticCurrent)
+        && semanticCurrent.isValid()
+        && (!semanticCurrent.isChat()
+            || !currentLocation.sameDestination(semanticCurrent)))
+        navigateTo(semanticCurrent);
+
+    if (state.dockVisible && state.dock.rootId.size()) {
+        Location dock;
+        if (fromViewLocation(state.dock, viewNavigationAccountId, dock)) {
+            Backend* owner = backend();
+            BackendChannel* channel = owner
+                ? owner->getStorage().getChannelById(dock.channelId) : nullptr;
+            if (channel) {
+                ChatArea* area = findThread(dock.channelId, dock.rootId);
+                if (!area)
+                    area = new ChatArea(*owner, *channel, dock.rootId, nullptr);
+                attachThread(area);
+                if (!dock.postId.isEmpty())
+                    restoreSessionBookmark(area, dock.postId, dock.viewportAnchor);
+            }
+        }
+    }
+
+    backStack.clear();
+    for (const auto& entry : state.back) {
+        Location location;
+        if (fromViewLocation(entry, viewNavigationAccountId, location))
+            backStack.append(std::move(location));
+    }
+    forwardStack.clear();
+    for (const auto& entry : state.forward) {
+        Location location;
+        if (fromViewLocation(entry, viewNavigationAccountId, location))
+            forwardStack.append(std::move(location));
+    }
+    if (fromViewLocation(state.current, viewNavigationAccountId, semanticCurrent))
+        currentLocation = semanticCurrent;
+
+    replayingHistory = oldReplaying;
+    switchingTabs = oldSwitching;
+    restoringSession = oldRestoring;
+    applyingViewSession = false;
+    refreshTabBarVisibility();
+    if (state.current.valid()
+        && state.current.kind != ViewNavigationSession::Location::Kind::Chat)
+        navigationTabs->hide();
+    updateHistoryButtons();
+    syncViewSession();
+}
+
 void NavigationUiController::scheduleSessionSave()
 {
-    if (sessionRestored && !restoringSession && sessionSaveTimer) sessionSaveTimer->start();
+    if (sessionRestored && !restoringSession) {
+        syncViewSession();
+        if (sessionSaveTimer) sessionSaveTimer->start();
+    }
 }
 
 void NavigationUiController::trackSessionArea(ChatArea* area)
@@ -287,6 +568,7 @@ void NavigationUiController::saveSession()
                        {"focused_window", focused && focused->property("threadDetached").toBool()
                             ? encode(locationOf(focused)) : QJsonObject()}};
     MLOptions::instance()->setValue(key, QJsonDocument(state).toJson(QJsonDocument::Compact));
+    syncViewSession();
 }
 
 void NavigationUiController::restoreSession()
@@ -298,7 +580,10 @@ void NavigationUiController::restoreSession()
         MLOptions::instance()->value<QByteArray>(key)).object();
     sessionRestored = true;
     const int version = state.value("version").toInt();
-    if (version != 1 && version != 2) return;
+    if (version != 1 && version != 2) {
+        if (viewNavigationSession) restoreBoundViewSession(true);
+        return;
+    }
     const bool restoreAnchors = version >= 2;
     restoringSession = true;
     const bool wasSwitching = switchingTabs;
@@ -374,6 +659,8 @@ void NavigationUiController::restoreSession()
         area->raise();
         area->activateWindow();
     }
+    if (viewNavigationSession)
+        restoreBoundViewSession(true);
     scheduleSessionSave();
 }
 } // namespace Mattermost
