@@ -28,6 +28,7 @@ class AccountManager final : public QObject
                NOTIFY activeViewSessionChanged)
 public:
     explicit AccountManager(QObject* parent = nullptr);
+    ~AccountManager() override;
 
     bool load(const QByteArray& json, QString* error = nullptr);
     bool loadFromOptions(QString* error = nullptr);
@@ -115,6 +116,9 @@ private:
     QStringList activeProfileAccountIds() const;
 
     TransientAccountReconnect _offlineReconnect;
+#ifdef Q_OS_LINUX
+    int _routeChangeSocket = -1;
+#endif
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     AccountListModel _listModel;
