@@ -1,10 +1,12 @@
 # Multi-server workspaces
 
-Status: architectural direction and staged implementation. The pure layout model and
-account-scoped Backend foundation are implemented. Live account switching and per-account
-badge/menu work remain in the stacked PRs #373–#375. Persistent account records, independent startup restoration and a server overview
-are being implemented in #380–#381. Full cache-backed offline message browsing and
-non-modal sidebar authentication notices remain future stages. The immediate live-switching UI is a stepping stone, not the final Servers tree.
+Status: evolving multi-account implementation. The account-scoped Backend,
+persistent QObject AccountManager, asynchronous independent restoration,
+server overview and versioned credential migration have landed through #383.
+The QtCore workspace tree projection is introduced in the next PR; its
+Widgets/QML presentation and profile-aware connection transitions remain
+separate stages. Full cache-backed offline browsing and non-modal sidebar
+authentication notices are also future work.
 
 ## Goals and terminology
 
@@ -146,6 +148,15 @@ future mobile QML are alternative presentations of the **same** model.
   `displayName`, `server`, `status` and `selected`. It does not duplicate
   credentials or take ownership of a Backend; account data and connection
   policy stay authoritative in the manager.
+- `WorkspaceTreeModel` is the UI-independent `QAbstractItemModel` projection
+  of **profiles → views → account shortcuts**. A single account may appear in
+  several views but is never duplicated in `AccountManager`; its connection
+  state is read from `AccountListModel`. Selecting a view changes only the
+  affected `active` roles, and changing a connection updates all matching
+  account shortcuts without resetting the tree. Structural topology edits may
+  trigger an explicit reconstruction. The model is **read-only**: the
+  presentation dispatches user commands to `AccountManager` rather than
+  mutating Qt model indexes or reparenting nodes.
 - `AccountOverviewPage` (Widgets) binds to this model and emits selection,
   connect and sign-in intents. It must not cache a second list of accounts,
   decide when to reconnect, mutate account identities, or directly read
@@ -205,10 +216,11 @@ can remain process-local initially, but it may never be silently shared.
 
 ## Runtime ownership and lifecycle
 
-The account/session manager now owns distinct QObject-parented Backends (one per
-connection/login attempt), and the staged live-switching UI uses separate account
-workspaces. The durable account registry is **not yet implemented**. Do not equate
-registering a successfully authenticated Backend with creating the permanent account.
+The AccountManager owns durable Account QObjects, each with an optional
+QObject-parented Backend, and the staged live-switching UI retains separate
+per-account workspaces. Accounts persist across disconnects and have stable
+local IDs. Never confuse the lifetime of a Backend with the existence of its
+account record.
 Never swap one global Backend between URLs: late callbacks, cache keys, requests,
 reaction/emoji registries and notifications must remain scoped to their originating account.
 
@@ -235,12 +247,13 @@ validated and durably saved.
 
 ## Durable accounts, offline workspaces and authentication recovery
 
-The first runtime implementation (#380–#381) introduces a credential-free
-AccountRegistry, a persistent Servers overview, independent asynchronous keyring
-restoration, per-account startup error states and account-scoped password/token
-reauthentication. It intentionally does **not** retain Backend::Storage or loaded
-post widgets after a connection is closed. The full cache-first offline UI and
-sidebar footer notifications are separate remaining steps.
+The first runtime implementation (#380–#383) introduced durable
+credential-free Account records, a persistent Servers overview, independent
+asynchronous keyring restoration, per-account startup error states and
+account-scoped password/token reauthentication. It intentionally does **not**
+retain Backend::Storage or loaded post widgets after a connection is closed.
+The full cache-first offline UI and sidebar footer notifications are separate
+remaining steps.
 
 The design follows the distinction between a persistent Psi account and its optional
 `XMPP::Client`: a saved MatterLeast account exists independently of its optional

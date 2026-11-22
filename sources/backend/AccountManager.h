@@ -7,6 +7,7 @@
 #include <QVector>
 
 #include "workspaces/AccountListModel.h"
+#include "workspaces/WorkspaceTreeModel.h"
 #include "workspaces/WorkspaceLayout.h"
 
 namespace Mattermost {
@@ -19,6 +20,7 @@ class Backend;
 class AccountManager final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QAbstractItemModel* workspaceTreeModel READ workspaceTreeModel CONSTANT)
 public:
     explicit AccountManager(QObject* parent = nullptr);
 
@@ -29,6 +31,7 @@ public:
     const WorkspaceLayout& layout() const { return _layout; }
     AccountListModel& listModel() { return _listModel; }
     const AccountListModel& listModel() const { return _listModel; }
+    QAbstractItemModel* workspaceTreeModel() { return &_treeModel; }
 
     Account* account(const QString& id) const { return _byId.value(id, nullptr); }
     Account* accountForBackend(const Backend* backend) const;
@@ -76,6 +79,7 @@ private:
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     AccountListModel _listModel;
+    WorkspaceTreeModel _treeModel;
     QString _selectedId;
     bool _invalidCatalog = false;
 };
