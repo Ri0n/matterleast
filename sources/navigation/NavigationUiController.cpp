@@ -1259,7 +1259,8 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
     // Session restore may temporarily activate a channel before applying its
     // saved tab and history snapshot. Those QWidget events are presentation
     // activity, not new navigation; they must not rewrite the owning model.
-    if (restoringSession || applyingViewSession) {
+    if (restoringSession || applyingViewSession
+        || (viewNavigationSession && !sessionRestored)) {
         currentLocation = next;
         activeArea = area;
         return;
