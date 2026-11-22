@@ -123,6 +123,33 @@ private slots:
         QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
     }
 
+    void singleAccountFallbackBecomesAmbiguousWithSecondBackend()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        // The original widget still supports unqualified callers as long
+        // as exactly one Backend is represented.
+        tree.backendForSidebar = &first;
+        QVERIFY(tree.bindSingleAccount(QStringLiteral("a")));
+        QCOMPARE(tree.backendForAccount(QString()), &first);
+        QCOMPARE(tree.backendForAccount(QStringLiteral("a")), &first);
+
+        // Adding a server must not silently route an unqualified lookup to
+        // the previously bound primary account, even if its ID is unchanged.
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QVERIFY(tree.backendForAccount(QString()) == nullptr);
+        QCOMPARE(tree.backendForAccount(QStringLiteral("a")), &first);
+        QCOMPARE(tree.backendForAccount(QStringLiteral("b")), &second);
+
+        // Removing the second Backend restores the legacy single-server
+        // behavior without reconstructing or resetting the tree.
+        QSignalSpy resets(tree.model(), &QAbstractItemModel::modelReset);
+        tree.unregisterAccountBackend(QStringLiteral("b"), &second);
+        QCOMPARE(tree.backendForAccount(QString()), &first);
+        QCOMPARE(resets.count(), 0);
+    }
+
     void sidebarEventsAffectOnlyTheirOriginatingAccount()
     {
         Backend first;
