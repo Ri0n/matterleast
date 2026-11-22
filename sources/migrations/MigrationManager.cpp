@@ -1,5 +1,6 @@
 #include "MigrationManager.h"
 
+#include <QLoggingCategory>
 #include <QPointer>
 #include <QUrl>
 #include <utility>
@@ -14,6 +15,19 @@
 
 namespace Mattermost {
 namespace {
+
+Q_LOGGING_CATEGORY(migrationLog, "mattermost.migration")
+
+const char* migrationResultName(MigrationManager::Result result)
+{
+    switch (result) {
+    case MigrationManager::Result::Complete: return "complete";
+    case MigrationManager::Result::ManualSignInRequired: return "manual-sign-in-required";
+    case MigrationManager::Result::Unavailable: return "unavailable";
+    case MigrationManager::Result::UnsupportedVersion: return "unsupported-version";
+    }
+    return "unknown";
+}
 
 // Schema migrations are chronological and append-only. A step's implementation
 // date lets maintainers assess when old format support can be retired.
@@ -72,6 +86,7 @@ void MigrationManager::cancel()
 {
     if (!_running)
         return;
+    qCInfo(migrationLog) << "Migration cancelled by an explicit login; step" << _currentStep;
     _running = false;
     _completion = {};
     QPointer<Backend> candidate = _candidate;
@@ -90,6 +105,9 @@ void MigrationManager::finish(Result result)
         executeStep(_currentStep + 1);
         return;
     }
+    qCInfo(migrationLog) << "Migration finished" << migrationResultName(result)
+                         << "step" << _currentStep
+                         << "stored-version" << _options->value<int>(kVersionKey, 0);
     _running = false;
     _candidate.clear();
     auto callback = std::move(_completion);
@@ -101,6 +119,7 @@ void MigrationManager::finish(Result result)
 void MigrationManager::executeStep(int version)
 {
     _currentStep = version;
+    qCInfo(migrationLog) << "Running migration step" << version;
     switch (version) {
     case 1:
         migrateLegacyLogin();
@@ -115,8 +134,10 @@ bool MigrationManager::completeLegacyMigration()
     // The imported layout and keychain entry must already be durable.
     // A failed options sync must never cause the only available login
     // coordinates to be erased, even when the in-memory Account is alive.
-    if (!_options->persistenceHealthy())
+    if (!_options->persistenceHealthy()) {
+        qCWarning(migrationLog) << "Cannot complete migration: settings storage unavailable";
         return false;
+    }
 
     // Wipe plaintext *before* recording the version. A crash during the
     // intermediate writes is safe to replay from the persisted Account.
@@ -128,7 +149,10 @@ bool MigrationManager::completeLegacyMigration()
     if (!_options->persistenceHealthy())
         return false;
     _options->setValue<int>(kVersionKey, 1);
-    return _options->persistenceHealthy();
+    const bool saved = _options->persistenceHealthy();
+    if (!saved)
+        qCWarning(migrationLog) << "Migration version could not be persisted";
+    return saved;
 }
 
 void MigrationManager::run(Completion callback)
@@ -140,11 +164,15 @@ void MigrationManager::run(Completion callback)
     }
     _completion = std::move(callback);
     const int current = _options->value<int>(kVersionKey, 0);
+    qCInfo(migrationLog) << "Migration startup: stored-version" << current
+                         << "latest-version" << LatestVersion
+                         << "catalog-accounts" << _accounts.layout().accounts.size();
     if (current < 0 || current > LatestVersion) {
         finish(Result::UnsupportedVersion);
         return;
     }
     if (current == LatestVersion) {
+        qCInfo(migrationLog) << "No schema migration required";
         finish(Result::Complete);
         return;
     }
@@ -159,6 +187,10 @@ void MigrationManager::migrateLegacyLogin()
     // deliberate recovery instead of silently losing them.
     if (!_accounts.empty()) {
         const bool noLegacySecret = _options->value<QString>(kLegacyToken).isEmpty();
+        qCInfo(migrationLog) << "Catalog already exists, skipping legacy account import;"
+                             << "legacy-plaintext-present" << !noLegacySecret;
+        // Existing catalog alone is not evidence that its saved keyring entry
+        // can be read. AccountManager logs that check during restoration.
         finish(noLegacySecret
             ? (completeLegacyMigration() ? Result::Complete : Result::Unavailable)
             : Result::ManualSignInRequired);
@@ -167,6 +199,10 @@ void MigrationManager::migrateLegacyLogin()
     const QString server = legacyServerHint();
     const QString login = legacyLoginHint();
     const QString plaintext = _options->value<QString>(kLegacyToken);
+    qCInfo(migrationLog) << "Legacy settings discovery:"
+                         << "server-present" << !server.isEmpty()
+                         << "login-present" << !login.isEmpty()
+                         << "plaintext-present" << !plaintext.isEmpty();
     if (server.isEmpty() && login.isEmpty() && plaintext.isEmpty()) {
         finish(completeLegacyMigration()
             ? Result::Complete : Result::Unavailable);
@@ -183,6 +219,10 @@ void MigrationManager::migrateLegacyLogin()
             SessionTokenStore::ReadStatus status, const QString& secureToken) {
         if (!guard || !_running)
             return;
+        qCInfo(migrationLog) << "Legacy keyring read"
+                             << (status == SessionTokenStore::ReadStatus::Found ? "found"
+                                 : status == SessionTokenStore::ReadStatus::NotFound ? "not-found"
+                                 : "unavailable");
         if (status == SessionTokenStore::ReadStatus::Found) {
             authenticateLegacy(server, login, secureToken, true);
         } else if (status == SessionTokenStore::ReadStatus::NotFound
@@ -201,6 +241,8 @@ void MigrationManager::authenticateLegacy(
     const QString& server, const QString& login,
     const QString& token, bool alreadyInKeychain)
 {
+    qCInfo(migrationLog) << "Verifying legacy credentials;"
+                         << "source" << (alreadyInKeychain ? "keyring" : "legacy-settings");
     Backend* candidate = _accounts.createLoginBackend();
     _candidate = candidate;
     QPointer<Backend> guardedCandidate(candidate);
@@ -218,6 +260,8 @@ void MigrationManager::authenticateLegacy(
         Backend* backend = guardedCandidate.data();
         if (verifiedToken.isEmpty()) {
             const bool transient = backend->lastLoginFailureTransient();
+            qCWarning(migrationLog) << "Legacy credential verification failed;"
+                                    << "transient" << transient;
             _accounts.discardCandidate(backend);
             finish(transient ? Result::Unavailable
                              : Result::ManualSignInRequired);
@@ -231,10 +275,12 @@ void MigrationManager::authenticateLegacy(
                 return;
             if (!_accounts.adoptAuthenticated(
                     guardedCandidate.data(), login, display, {}, false)) {
+                qCWarning(migrationLog) << "Verified legacy session could not be registered";
                 _accounts.discardCandidate(guardedCandidate.data());
                 finish(Result::ManualSignInRequired);
                 return;
             }
+            qCInfo(migrationLog) << "Legacy account authenticated and adopted";
             finish(completeLegacyMigration()
                 ? Result::Complete : Result::Unavailable);
         };
@@ -250,6 +296,7 @@ void MigrationManager::authenticateLegacy(
                 if (!guard || !_running)
                     return;
                 if (!written) {
+                    qCWarning(migrationLog) << "Could not store verified legacy token in keyring";
                     if (guardedCandidate)
                         _accounts.discardCandidate(guardedCandidate.data());
                     finish(Result::Unavailable);
