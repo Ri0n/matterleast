@@ -1337,9 +1337,13 @@ private slots:
         options->setValue(key, 400);
 
         QSystemTrayIcon tray;
+        // Production MainWindow is a child of the persistent account stack.
+        // Its saved width must be restored only after the stack shows it.
+        QStackedWidget shell;
+        shell.resize(1100, 720);
         auto* window = new MainWindow(nullptr, tray, backend);
-        window->resize(1100, 720);
-        window->show();
+        shell.addWidget(window);
+        shell.show();
         NavigationUiController::instance(*window);
         auto* sidebar = window->findChild<QSplitter*>(
             QStringLiteral("sidebarSplitter"));
@@ -1361,8 +1365,8 @@ private slots:
         delete window;
 
         auto* restarted = new MainWindow(nullptr, tray, backend);
-        restarted->resize(1100, 720);
-        restarted->show();
+        shell.addWidget(restarted);
+        shell.setCurrentWidget(restarted);
         NavigationUiController::instance(*restarted);
         auto* restoredSidebar = restarted->findChild<QSplitter*>(
             QStringLiteral("sidebarSplitter"));
