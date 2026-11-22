@@ -42,9 +42,9 @@ void ChannelTree::openStoredChannel(QString channelID)
         return;
     }
 
-    auto existing = channelToItemMap.constFind(channelID);
+    auto existing = channelToItemMap.constFind(scopedId(channelID));
     if ((existing != channelToItemMap.cend() && !existing.value().isEmpty())
-        || channelPages.value(channelID)) {
+        || channelPages.value(scopedId(channelID))) {
         openChannel(std::move(channelID));
         return;
     }
@@ -68,7 +68,7 @@ void ChannelTree::openStoredChannel(QString channelID)
     if (channel->type == BackendChannel::directChannel
         || channel->type == BackendChannel::groupChannel) {
         admitStoredConversation(*channel);
-        existing = channelToItemMap.constFind(channelID);
+        existing = channelToItemMap.constFind(scopedId(channelID));
         if (existing != channelToItemMap.cend() && !existing.value().isEmpty()) {
             openChannel(std::move(channelID));
             return;
@@ -89,7 +89,7 @@ void ChannelTree::openStoredChannel(QString channelID)
 
     for (auto teamIt = teamToItemMap.cbegin(); teamIt != teamToItemMap.cend(); ++teamIt) {
         TeamItem* teamItem = teamIt.value();
-        const SidebarTeamState* state = sidebar.teamState(teamIt.key());
+        const SidebarTeamState* state = sidebar.teamState(teamIt.key().second);
         if (!teamItem || !state) {
             continue;
         }

@@ -35,7 +35,7 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
     // channel's updated last_post_at during the normal reconciliation below.
     for (auto teamIt = teamToItemMap.begin(); teamIt != teamToItemMap.end(); ++teamIt) {
         TeamItem* teamItem = teamIt.value();
-        SidebarTeamState* state = sidebar.teamState(teamIt.key());
+        SidebarTeamState* state = sidebar.teamState(teamIt.key().second);
         if (!teamItem || !state) {
             continue;
         }
@@ -61,7 +61,7 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
         }
 
         if (sidebarDragActive) {
-            pendingSidebarReconcileTeams.insert(teamIt.key());
+            pendingSidebarReconcileTeams.insert(teamIt.key().second);
             continue;
         }
 

@@ -107,7 +107,7 @@ void ChannelTree::verifySidebarTeam(const QString& teamId, quint64 mutation)
             }
             auto& sidebar = SidebarService::instance(*guard->backendForSidebar);
             sidebar.applyLocalTeamState(teamId, serverState);
-            if (TeamItem* teamItem = guard->teamToItemMap.value(teamId, nullptr)) {
+            if (TeamItem* teamItem = guard->teamToItemMap.value(guard->scopedId(teamId), nullptr)) {
                 guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, serverState);
             }
         },
@@ -135,7 +135,7 @@ void ChannelTree::flushDeferredSidebarReconciles()
 
     auto& sidebar = SidebarService::instance(*backendForSidebar);
     for (const QString& teamId : pendingReconciles) {
-        TeamItem* teamItem = teamToItemMap.value(teamId, nullptr);
+        TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr);
         const SidebarTeamState* state = sidebar.teamState(teamId);
         if (!teamItem || !state) {
             continue;
@@ -492,7 +492,7 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
         if (ChatArea* page = getCurrentPage()) {
             const QString channelId = page->getChannel().id;
             const QString teamId = page->teamContextId();
-            for (QTreeWidgetItem* row : channelToItemMap.value(channelId)) {
+            for (QTreeWidgetItem* row : channelToItemMap.value(scopedId(channelId))) {
                 if (row->data(0, ItemTeamIdRole).toString() == teamId) {
                     restored = row;
                     break;

@@ -25,6 +25,7 @@
 #pragma once
 
 #include <QMap>
+#include <QPair>
 #include <QPointer>
 #include <QPersistentModelIndex>
 #include <QSet>
@@ -135,7 +136,7 @@ public:
 	// actions and handlers stay identical to the Channels tab.
 	void showChannelContextMenu(const QString& channelID, const QPoint& globalPos)
 	{
-		auto it = channelToItemMap.constFind(channelID);
+		auto it = channelToItemMap.constFind(scopedId(channelID));
 		if (it == channelToItemMap.cend()) {
 			return;
 		}
@@ -174,6 +175,19 @@ protected:
 
 private:
     static void tagAccount(QTreeWidgetItem* item, const QString& accountId);
+    using ScopedId = QPair<QString, QString>;
+    // Keep the remote identifier local to its owning account. The row role
+    // takes priority for retained/moved items; before login it is unbound.
+    ScopedId scopedId(const QString& remoteId) const
+    {
+        return {_boundAccountId, remoteId};
+    }
+    ScopedId scopedId(const QString& remoteId, const QTreeWidgetItem* item) const
+    {
+        const QString account = item
+            ? item->data(0, ItemAccountIdRole).toString() : QString();
+        return {account.isEmpty() ? _boundAccountId : account, remoteId};
+    }
     friend class ChannelTreeDragScrollTest;
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
 	void showContextMenu (const QPoint& pos);
@@ -258,9 +272,9 @@ private:
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;
-    QMap<QString, QPointer<ChatArea>>    channelPages;
-	QMap<QString, QList<QTreeWidgetItem*>>	channelToItemMap;
-	QMap<QString, TeamItem*>			teamToItemMap;
+    QMap<ScopedId, QPointer<ChatArea>>  channelPages;
+    QMap<ScopedId, QList<QTreeWidgetItem*>> channelToItemMap;
+    QMap<ScopedId, TeamItem*>            teamToItemMap;
 	QSet<QString>						connectedSidebarUsers;
     bool                                customEmojiConnected_ = false;
     bool                                categorySyncConnected_ = false;

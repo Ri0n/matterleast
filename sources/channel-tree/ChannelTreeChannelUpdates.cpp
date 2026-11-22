@@ -26,7 +26,7 @@ void ChannelTree::handleChannelUpdated()
         return;
     }
 
-    const auto items = channelToItemMap.value(channel->id);
+    const auto items = channelToItemMap.value(scopedId(channel->id));
     for (QTreeWidgetItem* row : items) {
         if (!row || row->data(0, ItemKindRole).toInt() != ChannelItemKind) {
             continue;

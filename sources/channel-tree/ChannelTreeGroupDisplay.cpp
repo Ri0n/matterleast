@@ -30,7 +30,7 @@ void ChannelTree::ensureGroupChannelDisplayName(const QString& channelId)
                 return;
             }
 
-            const auto rows = treeGuard->channelToItemMap.value(channelId);
+            const auto rows = treeGuard->channelToItemMap.value(treeGuard->scopedId(channelId));
             for (QTreeWidgetItem* row : rows) {
                 if (!row
                     || row->data(0, SidebarItem::KindRole).toInt() != SidebarItem::Channel) {
