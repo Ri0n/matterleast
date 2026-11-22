@@ -15,6 +15,7 @@
 
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
+#include "backend/SessionVerificationRetry.h"
 #include "backend/Account.h"
 #include "navigation/ViewNavigationSession.h"
 #include "backend/AttachmentService.h"
@@ -66,7 +67,11 @@ public:
                         ++identityRequests;
                         identityCookies.append(cookie);
                         if (holdIdentity) return;
-                        if (rejectIdentity) {
+                        if (transientIdentityResponses > 0) {
+                            --transientIdentityResponses;
+                            status = QByteArrayLiteral("503 Service Unavailable");
+                            body = QByteArrayLiteral(R"({"message":"temporary outage"})");
+                        } else if (rejectIdentity) {
                             status = QByteArrayLiteral("401 Unauthorized");
                             body = QByteArrayLiteral(R"({"message":"invalid token"})");
                         } else {
@@ -230,6 +235,7 @@ public:
     QByteArray id;
     bool holdIdentity = false;
     bool rejectIdentity = false;
+    int transientIdentityResponses = 0;
     bool rejectPreferences = false;
     bool separateIdentitiesByToken = false;
     bool holdSecondUserPage = false;
@@ -291,6 +297,41 @@ private slots:
         QCoreApplication::setOrganizationName(QStringLiteral("matterleast-tests"));
         QCoreApplication::setApplicationName(QStringLiteral("backend-multi-server-login-test"));
         QStandardPaths::setTestModeEnabled(true);
+    }
+
+    void savedTokenVerificationRecoversFromTransientHttpFailure()
+    {
+        FakeMattermostServer server(QByteArrayLiteral("recoverable-account"));
+        server.transientIdentityResponses = 1;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+
+        Backend backend;
+        auto* verifier = new SessionVerificationRetry(&backend);
+        const BackendLoginData saved = credentials(server, QStringLiteral("saved-token"));
+        int attempts = 0;
+        bool finished = false;
+        bool restored = false;
+        verifier->start(
+            [&](SessionVerificationRetry::CheckDone done) {
+                ++attempts;
+                backend.login(saved, [&, done = std::move(done)](const QString& token) {
+                    const bool success = !token.isEmpty();
+                    done(success, !success && backend.lastLoginFailureTransient());
+                });
+            },
+            [&](bool success, bool transient) {
+                restored = success;
+                finished = true;
+                QVERIFY(!transient);
+            });
+        QTRY_VERIFY_WITH_TIMEOUT(finished, 7000);
+        QVERIFY(restored);
+        QVERIFY(backend.loggedIn());
+        QCOMPARE(attempts, 2);
+        QCOMPARE(server.identityRequests, 2);
+        QVERIFY(backend.getStorage().loginUser);
+        QCOMPARE(backend.getStorage().loginUser->id,
+                 QStringLiteral("recoverable-account"));
     }
 
     void concurrentlyAuthenticatesTwoIndependentBackends()
