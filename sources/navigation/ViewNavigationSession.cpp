@@ -1,4 +1,5 @@
 #include "ViewNavigationSession.h"
+#include <cmath>
 #include <utility>
 
 namespace Mattermost {
@@ -23,25 +24,31 @@ ViewNavigationSession::Snapshot ViewNavigationSession::snapshot() const
 
 bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
 {
+    auto validAnchor = [](const std::optional<NavigationTabsModel::ViewportAnchor>& value) {
+        return !value || (value->isValid()
+            && std::isfinite(static_cast<double>(value->fraction)));
+    };
     const auto& current = state.current;
     const bool emptyCurrent = current.kind == Location::Kind::Chat
         && current.accountId.isEmpty() && current.channelId.isEmpty()
         && current.rootId.isEmpty() && current.postId.isEmpty()
         && !current.viewportAnchor;
     if (state.activeTab < -1 || state.activeTab >= state.tabs.size()
-        || (!emptyCurrent && !current.valid()))
+        || (!emptyCurrent && !current.valid())
+        || !validAnchor(current.viewportAnchor))
         return false;
     for (int i = 0; i < state.tabs.size(); ++i) {
         const auto& entry = state.tabs.at(i);
-        if (!entry.isValid() || entry.accountId.isEmpty()) return false;
+        if (!entry.isValid() || entry.accountId.isEmpty()
+            || !validAnchor(entry.viewportAnchor)) return false;
         for (int j = 0; j < i; ++j) {
             if (entry.sameDestination(state.tabs.at(j))) return false;
         }
     }
     for (const auto& item : state.back)
-        if (!item.valid()) return false;
+        if (!item.valid() || !validAnchor(item.viewportAnchor)) return false;
     for (const auto& item : state.forward)
-        if (!item.valid()) return false;
+        if (!item.valid() || !validAnchor(item.viewportAnchor)) return false;
 
     // Preserve rows representing the same destination, including on reorders.
     // Transferring one view must not reset models consumed by another frontend.
