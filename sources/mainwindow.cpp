@@ -349,6 +349,11 @@ void MainWindow::bindViewNavigation(ViewNavigationSession* session,
     NavigationUiController::instance(*this).bindViewSession(session, accountId);
 }
 
+void MainWindow::unbindViewNavigation()
+{
+    NavigationUiController::instance(*this).unbindViewSession();
+}
+
 void MainWindow::installAccountSwitcher(QMenu* menu)
 {
     auto* header = findChild<QWidget*>(QStringLiteral("lefttop_frame"));
