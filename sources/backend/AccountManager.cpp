@@ -421,7 +421,11 @@ void AccountManager::restoreAccount(const QString& id)
 {
     Account* item = account(id);
     const auto* record = item ? item->record() : nullptr;
+    // A direct Retry action must not bypass exclusive profile policy.
+    // The caller first activates a view admitting the requested account.
     if (_invalidCatalog || !record || !record->hasConnectionIdentity()
+        || !activeProfileAccountIds().contains(id)
+        || _suspendingProfileAccounts.contains(id)
         || item->backend() || item->pendingBackend())
         return;
 

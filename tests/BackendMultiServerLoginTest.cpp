@@ -899,6 +899,11 @@ private slots:
         AccountManager manager;
         QVERIFY(manager.load(layout.toJson()));
 
+        // "Connect" for an account outside the active profile must not
+        // silently violate profile exclusivity.
+        manager.restoreAccount(QStringLiteral("other"));
+        QVERIFY(!manager.account(QStringLiteral("other"))->pendingBackend());
+
         manager.restoreActiveProfile();
         QVERIFY(manager.account(QStringLiteral("one"))->pendingBackend());
         QVERIFY(manager.account(QStringLiteral("hidden"))->pendingBackend());

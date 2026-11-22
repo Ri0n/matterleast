@@ -278,7 +278,12 @@ void MattermostApplication::ensureWorkspaceShell()
     connect(overviewPage, &AccountOverviewPage::retryRequested,
             &accounts, &AccountManager::restoreAccount);
     connect(overviewPage, &AccountOverviewPage::signInRequested, this,
-            [this](const QString& id) { openLoginWindow(id); });
+            [this](const QString& id) {
+        // Even manual reauthentication must activate the owning profile.
+        // The overview's selected row is not itself a connection policy.
+        if (accounts.selectAccount(id))
+            openLoginWindow(id);
+    });
     connect(overviewPage, &AccountOverviewPage::addServerRequested, this,
             [this] { openLoginWindow(); });
 
