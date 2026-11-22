@@ -99,6 +99,8 @@ void LegacyTokenRecovery::read(
 {
     auto candidates = lookupCandidates(record);
     if (candidates.isEmpty()) {
+        qCWarning(legacyTokenLog)
+            << "No saved-session key lookup candidates: catalog login coordinates missing";
         if (callback)
             callback(SessionTokenStore::ReadStatus::NotFound, {}, false);
         return;
