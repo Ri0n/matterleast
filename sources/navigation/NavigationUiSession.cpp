@@ -294,7 +294,13 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
             location.accountId = viewNavigationAccountId;
             initial.forward.append(std::move(location));
         }
-        if (bootstrap.current.valid()) {
+        // A legacy restart snapshot may select a different tab than the
+        // provisional channel displayed while the account was connecting.
+        // The completed Widgets restoration, not the bootstrap placeholder,
+        // determines the initial semantic current destination.
+        if (currentLocation.isValid())
+            initial.current = semanticLocation(currentLocation);
+        else if (bootstrap.current.valid()) {
             initial.current = bootstrap.current;
             initial.current.accountId = viewNavigationAccountId;
         }
