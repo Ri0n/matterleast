@@ -127,10 +127,12 @@ void NavigationUiController::beginShutdown()
 {
     if (shuttingDown)
         return;
-    // This is the last point where the MainWindow still owns an intact widget
-    // tree. Persist the visual bookmark before any ChatArea::destroyed signals
-    // start arriving during recursive QWidget destruction.
-    saveSession();
+    // Saving navigation belongs to MainWindow::saveState (aboutToQuit or
+    // prepareForLogout), not QObject teardown. A detached ChatArea may have
+    // closed after an explicit snapshot was saved; rewriting that snapshot
+    // as its test fixture is destroyed would lose the user's last state.
+    // Stop observing children before QWidget teardown, but do not persist
+    // an incomplete or partially disposed presentation.
     persistThreadPaneWidth();
     shuttingDown = true;
     if (sessionSaveTimer)
