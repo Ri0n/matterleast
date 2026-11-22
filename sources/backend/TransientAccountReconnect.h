@@ -19,6 +19,7 @@ public:
     explicit TransientAccountReconnect(QObject* parent = nullptr);
 
     void schedule(const QString& accountId);
+    void attemptStarted(const QString& accountId);
     void cancel(const QString& accountId);
     void resumeOnNetworkChange();
     bool isScheduled(const QString& accountId) const;
