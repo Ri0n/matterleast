@@ -76,7 +76,10 @@ AccountManager::AccountManager(QObject* parent)
                    sizeof(address)) == 0) {
             _routeChangeSocket = fd;
             auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-            connect(notifier, &QSocketNotifier::activated, this, [this, fd] {
+            connect(notifier,
+                    QOverload<QSocketDescriptor, QSocketNotifier::Type>::of(
+                        &QSocketNotifier::activated),
+                    this, [this, fd] {
                 char buffer[8192];
                 bool routeChanged = false;
                 for (;;) {
