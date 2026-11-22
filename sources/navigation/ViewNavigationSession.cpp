@@ -91,8 +91,11 @@ int ViewNavigationSession::openTab(
         if (!location.postId.isEmpty()) entry.postId = location.postId;
         if (!title.isEmpty()) entry.title = title;
         entry.pinned |= pinned;
-        if (location.viewportAnchor) entry.viewportAnchor = location.viewportAnchor;
         _tabs.replace(target, std::move(entry));
+        // NavigationTabsModel preserves an existing bookmark on same-channel
+        // replace; an explicitly supplied new bookmark must win afterwards.
+        if (location.viewportAnchor)
+            _tabs.setViewportAnchor(target, *location.viewportAnchor);
         emit dataChanged(index(target, 0), index(target, 0),
                          {TitleRole, PostIdRole, PinnedRole});
     } else {
@@ -164,8 +167,12 @@ bool ViewNavigationSession::updateBookmark(
     if (!entry || postId.isEmpty()) return false;
     auto updated = *entry;
     updated.postId = postId;
-    updated.viewportAnchor = anchor;
     if (!_tabs.replace(index, std::move(updated))) return false;
+    if (anchor) {
+        if (!_tabs.setViewportAnchor(index, *anchor)) return false;
+    } else {
+        _tabs.clearViewportAnchor(index);
+    }
     emit dataChanged(this->index(index, 0), this->index(index, 0), {PostIdRole});
     return true;
 }
