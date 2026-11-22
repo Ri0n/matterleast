@@ -837,6 +837,13 @@ void WebSocketConnector::onNewPacket (const QString& string)
         return;
     }
     notifyReadyIfVerified();
+    if (!d->authenticated && eventName != QLatin1String("hello")) {
+        // Events arriving before the authentication challenge is confirmed
+        // must not mutate live Storage. On reconnect an event was discarded,
+        // so the stream can no longer be certified lossless.
+        d->resumeFailed = true;
+        return;
+    }
 
 	auto it = eventHandlers.find (eventName);
 	if (it == eventHandlers.end()) {
