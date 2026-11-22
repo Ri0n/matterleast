@@ -16,6 +16,7 @@
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
 #include "backend/Account.h"
+#include "navigation/ViewNavigationSession.h"
 #include "backend/AttachmentService.h"
 #include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
@@ -742,6 +743,60 @@ private slots:
             QCOMPARE(manager.findChildren<Backend*>().size(), 1);
         }
         QVERIFY(secondGuard.isNull());
+    }
+
+    void perViewNavigationStateSurvivesProfileSelection()
+    {
+        WorkspaceLayout layout;
+        layout.accounts = {
+            {QStringLiteral("a"), QStringLiteral("First")},
+            {QStringLiteral("b"), QStringLiteral("Second")}
+        };
+        layout.profiles = {
+            {QStringLiteral("profile-a"), QStringLiteral("A"), {QStringLiteral("a")}},
+            {QStringLiteral("profile-b"), QStringLiteral("B"), {QStringLiteral("b")}}
+        };
+        layout.views = {
+            {QStringLiteral("view-a"), QStringLiteral("profile-a"),
+             QStringLiteral("A"), {QStringLiteral("a")}},
+            {QStringLiteral("view-b"), QStringLiteral("profile-b"),
+             QStringLiteral("B"), {QStringLiteral("b")}}
+        };
+        layout.activeViewId = QStringLiteral("view-a");
+        QVERIFY(layout.validate());
+
+        AccountManager manager;
+        QVERIFY(manager.load(layout.toJson()));
+        auto* first = manager.viewSession(QStringLiteral("view-a"));
+        auto* second = manager.viewSession(QStringLiteral("view-b"));
+        QVERIFY(first);
+        QVERIFY(second);
+        QVERIFY(first != second);
+        QCOMPARE(manager.activeViewTabs(), static_cast<QAbstractItemModel*>(first));
+
+        ViewNavigationSession::Location location;
+        location.accountId = QStringLiteral("a");
+        location.channelId = QStringLiteral("channel");
+        QCOMPARE(first->openTab(location, QStringLiteral("Pinned"), true), 0);
+        QSignalSpy firstReset(first, &QAbstractItemModel::modelReset);
+        QSignalSpy selected(&manager, &AccountManager::activeViewSessionChanged);
+
+        QVERIFY(manager.activateView(QStringLiteral("view-b")));
+        QCOMPARE(manager.activeViewTabs(), static_cast<QAbstractItemModel*>(second));
+        QCOMPARE(selected.count(), 1);
+        QCOMPARE(second->rowCount(), 0);
+        location.accountId = QStringLiteral("b");
+        QCOMPARE(second->openTab(location), 0);
+        QCOMPARE(second->data(second->index(0, 0),
+                              ViewNavigationSession::AccountIdRole).toString(),
+                 QStringLiteral("b"));
+        QVERIFY(manager.activateView(QStringLiteral("view-a")));
+        QCOMPARE(manager.viewSession(QStringLiteral("view-a")), first);
+        QCOMPARE(first->rowCount(), 1);
+        QCOMPARE(first->data(first->index(0, 0),
+                             ViewNavigationSession::PinnedRole).toBool(), true);
+        QCOMPARE(firstReset.count(), 0);
+        QCOMPARE(selected.count(), 2);
     }
 
     void profileTransitionsKeepSharedAccountAndWaitForWidgetsTeardown()
