@@ -171,11 +171,14 @@ bool AccountManager::applySelection(const QString& viewId, const QString& reques
     _lastSelectedByView.insert(viewId, selected);
     _treeModel.syncActiveView();
     rebuildModel();
-    persist();
+    // Only the active *view* is persisted. Remembering a different account
+    // inside the same view is process-local and requires no settings I/O.
+    if (viewChanged)
+        persist();
 
     if (viewChanged)
         emit activeViewChanged(viewId);
-    if (accountChanged || viewChanged)
+    if (accountChanged)
         emit activeBackendChanged(activeBackend());
 
     if (profileChanged)
