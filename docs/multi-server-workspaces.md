@@ -209,17 +209,22 @@ finish asynchronously after the declarative plan was computed.
   View selection does not need a network connection.
 
 The existing account workspace stack still renders one account at a time.
-A lazily created QtCore `ViewChannelsModel` projects the selected view
-as **account → team → category → channel**, sourced directly from each
-connected account's `SidebarService`. It is created on first frontend access,
-so normal single-server Widgets sessions do not allocate a second channel tree. It publishes account-qualified channel IDs,
-unread/mention/muted state and the disconnected account rows without creating
-another Backend. Category/activity changes reconcile affected rows instead of
-resetting the view; the model is also consumable by a future QML frontend.
-It does **not** yet replace the Widgets Channels sidebar or provide a merged
-conversation surface. A multi-account presenter, combined Unread/Attention
-projections and account-qualified navigation are subsequent steps; runtime
-profile activation by itself does not imply they are already implemented.
+**Do not construct a parallel Channels model:** the current `ChannelTree`
+already owns an extensively reconciled `QTreeWidget` model and retains
+individual `ChannelItem` rows through category moves. It also suppresses
+spurious navigation during reconciliation, defers structural updates during
+drag-and-drop, and keeps existing chat pages alive. Multi-account work must
+adapt that implementation incrementally rather than duplicate its category,
+unread, DM/GM and selection algorithms.
+
+The first account-scoping step marks existing `SidebarItem` rows with a
+stable local `AccountIdRole`, including rows populated asynchronously, without
+replacing or resetting the current item model. A future merged view must
+qualify the existing team/channel indexes and their navigation with account
+identity, separate ChatArea ownership from tree presentation, and retain the
+tested in-place reconciliation and interaction behavior. It is not yet a
+multi-account Channels UI. Shared Unread/Attention and per-view navigation
+remain subsequent work.
 
 ## Per-view UI state (essential invariant)
 

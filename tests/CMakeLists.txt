@@ -883,17 +883,6 @@ if(TARGET matterleast-core)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
-# The active Channels projection must preserve the account component of
-# channel identity and reconcile only affected rows across Backend lifetimes.
-if(TARGET matterleast-core)
-    add_executable(view-channels-model-test ViewChannelsModelTest.cpp)
-    target_link_libraries(view-channels-model-test PRIVATE
-        matterleast-core Qt${QT_VERSION_MAJOR}::Test)
-    add_test(NAME view-channels-model-test COMMAND view-channels-model-test)
-    set_tests_properties(view-channels-model-test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()
-
 # Servers sidebar shares AccountManager's QtCore tree and must edit layout
 # atomically without resetting the unaffected view/account rows.
 if(TARGET matterleast-core)
@@ -903,6 +892,19 @@ if(TARGET matterleast-core)
     add_test(NAME account-workspace-edit-test COMMAND account-workspace-edit-test)
     set_tests_properties(account-workspace-edit-test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+# The existing ChannelTree / QTreeWidget model is the sole Channels
+# presentation. Account identity must survive its in-place row reconciliation.
+if(TARGET matterleast-core)
+    add_executable(channel-tree-account-identity-test
+        ChannelTreeAccountIdentityTest.cpp)
+    target_link_libraries(channel-tree-account-identity-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME channel-tree-account-identity-test
+        COMMAND channel-tree-account-identity-test)
+    set_tests_properties(channel-tree-account-identity-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # Account workspace switching must preserve the underlying views instead of

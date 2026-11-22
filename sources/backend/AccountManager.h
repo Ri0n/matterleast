@@ -17,7 +17,6 @@ namespace Mattermost {
 class Account;
 class Backend;
 class ViewNavigationSession;
-class ViewChannelsModel;
 class BackendLoginData;
 
 // Single owner of durable account QObjects and optional session Backends.
@@ -29,7 +28,6 @@ class AccountManager final : public QObject
     Q_PROPERTY(QAbstractItemModel* workspaceTreeModel READ workspaceTreeModel CONSTANT)
     Q_PROPERTY(QAbstractItemModel* activeViewTabs READ activeViewTabs
                NOTIFY activeViewSessionChanged)
-    Q_PROPERTY(QAbstractItemModel* activeViewChannels READ activeViewChannels CONSTANT)
 public:
     explicit AccountManager(QObject* parent = nullptr);
     ~AccountManager() override;
@@ -42,11 +40,6 @@ public:
     AccountListModel& listModel() { return _listModel; }
     const AccountListModel& listModel() const { return _listModel; }
     QAbstractItemModel* workspaceTreeModel() { return &_treeModel; }
-    // Combined Channels projection for the selected view, with durable
-    // account-qualified identities and no ownership of chat widgets.
-    // Lazily materialize the shared QtCore projection. Existing single-server
-    // Widgets users need no second channel tree or extra SidebarService watchers.
-    QAbstractItemModel* activeViewChannels();
     // View session contains only semantic tab/history state, not duplicated
     // Backend or chat widgets. Views may share accounts freely.
     ViewNavigationSession* viewSession(const QString& viewId) const;
@@ -146,7 +139,6 @@ private:
     QSet<QString> _failedNewServers;
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
-    QPointer<ViewChannelsModel> _channelsModel;
     QHash<QString, ViewNavigationSession*> _viewSessions;
     QString _selectedId;
     QHash<QString, QString> _lastSelectedByView;

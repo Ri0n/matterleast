@@ -24,6 +24,7 @@
 
 #include "ChannelTree.h"
 
+#include <QAbstractItemModel>
 #include <QAction>
 #include <QApplication>
 #include <QCursor>
@@ -38,6 +39,7 @@
 #include <QPointer>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QTreeWidgetItemIterator>
 #include <QItemSelectionModel>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
@@ -179,6 +181,45 @@ ChannelTree::ChannelTree (QWidget* parent)
     setDropIndicatorShown(false);
     setDragDropMode(QAbstractItemView::DragDrop);
     setDefaultDropAction(Qt::MoveAction);
+
+    // New server categories, DMs and virtual destinations can arrive long
+    // after the MainWindow is bound to a durable account. Stamp inserted
+    // QTreeWidget rows in place; this does not change their identity within
+    // the existing tree or replace its Qt item model.
+    connect(model(), &QAbstractItemModel::rowsInserted, this,
+            [this](const QModelIndex& parent, int first, int last) {
+        if (_boundAccountId.isEmpty())
+            return;
+        for (int row = first; row <= last; ++row) {
+            QTreeWidgetItem* item = itemFromIndex(model()->index(row, 0, parent));
+            if (item)
+                tagAccount(item, _boundAccountId);
+        }
+    });
+}
+
+void ChannelTree::tagAccount(QTreeWidgetItem* item, const QString& accountId)
+{
+    if (item->data(0, ItemAccountIdRole).toString() != accountId)
+        item->setData(0, ItemAccountIdRole, accountId);
+    for (int i = 0; i < item->childCount(); ++i)
+        tagAccount(item->child(i), accountId);
+}
+
+bool ChannelTree::bindSingleAccount(const QString& accountId)
+{
+    if (accountId.isEmpty()
+        || (!_boundAccountId.isEmpty() && _boundAccountId != accountId))
+        return false;
+    if (_boundAccountId == accountId)
+        return true;
+
+    _boundAccountId = accountId;
+    // A login can finish after initial channel rows were materialized.
+    // Reuse them and their ChatArea/selection state; do not rebuild the tree.
+    for (int i = 0; i < topLevelItemCount(); ++i)
+        tagAccount(topLevelItem(i), _boundAccountId);
+    return true;
 }
 
 ChannelTree::~ChannelTree()

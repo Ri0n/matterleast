@@ -83,10 +83,16 @@ public:
     static constexpr ItemRole ItemChannelTypeRole = SidebarItem::ChannelTypeRole;
     static constexpr ItemRole ItemChannelIdRole = SidebarItem::ChannelIdRole;
     static constexpr ItemRole ItemDestinationRole = SidebarItem::DestinationRole;
+    static constexpr ItemRole ItemAccountIdRole = SidebarItem::AccountIdRole;
 
 	ChannelTree (QWidget* parent = nullptr);
 	virtual ~ChannelTree ();
 public:
+    // The existing QWidget tree belongs to one Backend. Stamp its existing
+    // model rows with that Backend's durable local account ID; never rebind
+    // it to a different account (that requires a separate presentation).
+    bool bindSingleAccount(const QString& accountId);
+    QString boundAccountId() const { return _boundAccountId; }
 	bool isChannelActive (const BackendChannel& channel);
 	Backend* backendInstance() const;
 
@@ -167,6 +173,7 @@ protected:
                       const QModelIndex& index) const override;
 
 private:
+    static void tagAccount(QTreeWidgetItem* item, const QString& accountId);
     friend class ChannelTreeDragScrollTest;
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
 	void showContextMenu (const QPoint& pos);
@@ -259,6 +266,7 @@ private:
     bool                                categorySyncConnected_ = false;
     QSet<QString>                        pendingChannelAdmissions;
 	Backend*							backendForSidebar;
+    QString                             _boundAccountId;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
     // True during an internal sidebar mouse drag. Structural sidebar
