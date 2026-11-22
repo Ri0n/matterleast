@@ -75,8 +75,8 @@ public:
 
     void restoreAccount(const QString& id);
     // Starts only accounts admitted by the active profile, including hidden
-    // accounts in its other views. Failed/auth-required restores need an
-    // explicit retry through restoreAccount().
+    // accounts in its other views. Unavailable sessions retry automatically
+    // via the shared scheduler; confirmed auth failures require user action.
     void restoreActiveProfile();
     void cancelPendingRestore(const QString& id, AccountConnectionState status);
 
