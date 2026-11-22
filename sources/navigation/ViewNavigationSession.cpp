@@ -9,6 +9,48 @@ ViewNavigationSession::ViewNavigationSession(QString viewId, QObject* parent)
 {
 }
 
+bool ViewNavigationSession::allowsAccount(const QString& accountId) const
+{
+    return !_membershipRestricted || _allowedAccounts.contains(accountId);
+}
+
+void ViewNavigationSession::setAllowedAccounts(const QStringList& accountIds)
+{
+    const QSet<QString> allowed(accountIds.cbegin(), accountIds.cend());
+    if (_membershipRestricted && _allowedAccounts == allowed) return;
+
+    auto state = snapshot();
+    QVector<NavigationTabsModel::Entry> kept;
+    kept.reserve(state.tabs.size());
+    int selected = -1;
+    for (int i = 0; i < state.tabs.size(); ++i) {
+        if (!allowed.contains(state.tabs[i].accountId)) continue;
+        if (i == state.activeTab) selected = kept.size();
+        kept.append(state.tabs.at(i));
+    }
+    state.tabs = std::move(kept);
+    state.activeTab = selected;
+    auto belongs = [&allowed](const Location& location) {
+        return allowed.contains(location.accountId);
+    };
+    if (state.current.valid() && !belongs(state.current)) state.current = {};
+    auto retainHistory = [&belongs](QVector<Location>& entries) {
+        for (int i = entries.size() - 1; i >= 0; --i)
+            if (!belongs(entries[i])) entries.removeAt(i);
+    };
+    retainHistory(state.back);
+    retainHistory(state.forward);
+    if (state.dock.valid() && !belongs(state.dock)) {
+        state.dock = {};
+        state.dockVisible = false;
+    }
+    _allowedAccounts = allowed;
+    _membershipRestricted = true;
+    // Snapshot is guaranteed valid after filtering account membership; never
+    // reconstruct the model or recreate dependent QWidget presentations.
+    restoreSnapshot(state);
+}
+
 ViewNavigationSession::Snapshot ViewNavigationSession::snapshot() const
 {
     Snapshot result;
@@ -37,22 +79,27 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
         && !current.viewportAnchor;
     if (state.activeTab < -1 || state.activeTab >= state.tabs.size()
         || (!emptyCurrent && !current.valid())
+        || (!emptyCurrent && !allowsAccount(current.accountId))
         || !validAnchor(current.viewportAnchor))
         return false;
     for (int i = 0; i < state.tabs.size(); ++i) {
         const auto& entry = state.tabs.at(i);
         if (!entry.isValid() || entry.accountId.isEmpty()
+            || !allowsAccount(entry.accountId)
             || !validAnchor(entry.viewportAnchor)) return false;
         for (int j = 0; j < i; ++j) {
             if (entry.sameDestination(state.tabs.at(j))) return false;
         }
     }
     for (const auto& item : state.back)
-        if (!item.valid() || !validAnchor(item.viewportAnchor)) return false;
+        if (!item.valid() || !allowsAccount(item.accountId)
+            || !validAnchor(item.viewportAnchor)) return false;
     for (const auto& item : state.forward)
-        if (!item.valid() || !validAnchor(item.viewportAnchor)) return false;
+        if (!item.valid() || !allowsAccount(item.accountId)
+            || !validAnchor(item.viewportAnchor)) return false;
     if (state.dockVisible
         && (!state.dock.valid()
+            || !allowsAccount(state.dock.accountId)
             || state.dock.kind != Location::Kind::Chat
             || state.dock.rootId.isEmpty()
             || !validAnchor(state.dock.viewportAnchor))) return false;
@@ -201,7 +248,8 @@ void ViewNavigationSession::chooseTab(int index)
 int ViewNavigationSession::openTab(
     const Location& location, const QString& title, bool pinned)
 {
-    if (!location.valid() || location.kind != Location::Kind::Chat)
+    if (!location.valid() || !allowsAccount(location.accountId)
+        || location.kind != Location::Kind::Chat)
         return -1;
     int target = _tabs.findDestination(
         location.channelId, location.rootId, location.accountId);
@@ -239,7 +287,8 @@ int ViewNavigationSession::openTab(
 int ViewNavigationSession::reuseOrOpenChannelTab(
     const Location& location, const QString& title)
 {
-    if (!location.valid() || location.kind != Location::Kind::Chat
+    if (!location.valid() || !allowsAccount(location.accountId)
+        || location.kind != Location::Kind::Chat
         || !location.rootId.isEmpty()) return -1;
     const int existing = _tabs.findDestination(
         location.channelId, location.rootId, location.accountId);
@@ -344,14 +393,15 @@ bool ViewNavigationSession::updateBookmark(
 
 bool ViewNavigationSession::recordVisit(const Location& location)
 {
-    if (!location.valid()) return false;
+    if (!location.valid() || !allowsAccount(location.accountId)) return false;
     recordLocation(location);
     return true;
 }
 
 bool ViewNavigationSession::updateCurrentBookmark(const Location& location)
 {
-    if (!location.valid() || (_current.valid()
+    if (!location.valid() || !allowsAccount(location.accountId)
+        || (_current.valid()
         && !_current.sameDestination(location))) return false;
     _current = location;
     return true;
@@ -359,7 +409,7 @@ bool ViewNavigationSession::updateCurrentBookmark(const Location& location)
 
 bool ViewNavigationSession::visit(const Location& location)
 {
-    if (!location.valid()) return false;
+    if (!location.valid() || !allowsAccount(location.accountId)) return false;
     recordLocation(location);
     const int target = location.kind == Location::Kind::Chat
         ? _tabs.findDestination(location.channelId, location.rootId,
