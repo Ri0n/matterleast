@@ -93,8 +93,18 @@ AccountManager::AccountManager(QObject* parent)
                         continue;
                     break;
                 }
-                if (routeChanged)
+                if (routeChanged) {
                     _offlineReconnect.resumeOnNetworkChange();
+                    // Connected sessions already have their own WebSocket
+                    // backoff. A VPN route appearing should preempt a waiting
+                    // reconnect on Qt5 as well, without aborting an in-flight
+                    // handshake or forcibly closing a healthy live socket.
+                    for (Backend* backend : registeredBackends()) {
+                        if (backend->webSocketConnectionState()
+                            == WebSocketConnector::ConnectionState::WaitingForReconnect)
+                            backend->retryWebSocketConnectionNow();
+                    }
+                }
             });
         } else {
             ::close(fd);
