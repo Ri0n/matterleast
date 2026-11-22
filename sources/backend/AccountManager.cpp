@@ -22,7 +22,6 @@
 #include "backend/AccountIdentity.h"
 #include "backend/Backend.h"
 #include "backend/SessionTokenStore.h"
-#include "backend/SessionVerificationRetry.h"
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
 #include "navigation/ViewNavigationSession.h"
@@ -76,10 +75,13 @@ AccountManager::AccountManager(QObject* parent)
                    sizeof(address)) == 0) {
             _routeChangeSocket = fd;
             auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-            connect(notifier,
-                    QOverload<QSocketDescriptor, QSocketNotifier::Type>::of(
-                        &QSocketNotifier::activated),
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            connect(notifier, &QSocketNotifier::activated,
                     this, [this, fd] {
+#else
+            connect(notifier, QOverload<int>::of(&QSocketNotifier::activated),
+                    this, [this, fd] {
+#endif
                 char buffer[8192];
                 bool routeChanged = false;
                 for (;;) {
@@ -730,28 +732,17 @@ void AccountManager::restoreAccount(const QString& id)
         credentials.username = login;
         credentials.token = token;
         qCInfo(accountRestoreLog) << "Verifying saved session for account" << account->id();
-        // The token is already in the keyring. A DNS failure or HTTP 5xx
-        // cannot invalidate it and must not force interactive sign-in.
-        // The verifier is owned by the pending Backend: cancelling a restore
-        // destroys its delayed retries together with that Backend.
-        auto* verifier = new SessionVerificationRetry(backend);
-        verifier->start(
-            [backendGuard, credentials](SessionVerificationRetry::CheckDone done) {
-                if (!backendGuard) return;
-                backendGuard->login(credentials,
-                    [backendGuard, done = std::move(done)](const QString& token) {
-                    if (!backendGuard) return;
-                    const bool authenticated = !token.isEmpty();
-                    done(authenticated, !authenticated
-                        && backendGuard->lastLoginFailureTransient());
-                });
-            },
-            [this, accountGuard, backendGuard](bool authenticated, bool transient) {
+        // Backend performs a single /users/me verification. AccountManager
+        // handles the outcome; the shared reconnect scheduler owns *all*
+        // future retry timing, including initial short delays and VPN changes.
+        backend->login(credentials,
+            [this, accountGuard, backendGuard](const QString& authenticatedToken) {
                 Account* account = accountGuard.data();
                 Backend* backend = backendGuard.data();
                 if (!account || !backend || account->pendingBackend() != backend)
                     return;
-                if (!authenticated) {
+                if (authenticatedToken.isEmpty()) {
+                    const bool transient = backend->lastLoginFailureTransient();
                     qCWarning(accountRestoreLog)
                         << "Saved session verification did not succeed for account"
                         << account->id() << "transient" << transient;
@@ -759,8 +750,7 @@ void AccountManager::restoreAccount(const QString& id)
                     account->cancelPending(
                         transient ? AccountConnectionState::Unavailable
                                   : AccountConnectionState::AuthenticationRequired);
-                    // State observers can synchronously switch the active
-                    // profile. Do not enqueue a retry for an excluded account.
+                    // State observers may synchronously change the profile.
                     if (transient && activeProfileAccountIds().contains(accountId)
                         && _suspendingProfileAccounts.isEmpty())
                         _offlineReconnect.schedule(accountId);
@@ -791,7 +781,7 @@ void AccountManager::restoreAccount(const QString& id)
                     _offlineReconnect.cancel(account->id());
                     qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
                 }
-            });
+        });
     });
 }
 
