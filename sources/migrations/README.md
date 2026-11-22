@@ -72,27 +72,16 @@ For a regression report capture these lines, including the initial
 Avoid deleting account settings or keyring secrets before diagnosing
 `not-found` versus `unavailable` versus a server-side rejection.
 
-## Legacy keychain login-name repair (2026-11-22)
+## Root URL keychain compatibility (2026-11-22)
 
-Some catalogs migrated during the multi-account development period retained
-a `loginName` different from the login identifier of an earlier successfully
-saved session. When the earlier login happened to equal the server's verified
-`username`, that identifier remains visible in the historical
-`<host> — <username>` account label. The saved token still exists but the
-new catalog keychain lookup returns `not-found`.
+The transition to per-Backend `NetworkSessionContext` automatically appended
+`/` to a root server URL. The prior QtKeychain key computation treated
+`https://server` and `https://server/` as different SHA-256 inputs, so normal
+startup looked for the wrong entry despite the original session remaining
+safely stored. The new `SessionTokenStore::keyFor` canonicalizes the root
+slash and keeps the established `login-token-v1-*` key format.
 
-`LegacyTokenRecovery` is a strictly scoped compatibility adapter. Only after
-the catalog's primary key returns `not-found`, it can derive a secondary
-login candidate from the historic server-generated display convention
-`<server-host> — <username>`. It never enumerates keychain entries, guesses
-arbitrary login names, scans other servers or changes credentials before
-authenticating. Normal restoration verifies that the resulting session has
-**exactly the same server origin and remote user ID** as the durable catalog
-record. Only then is the token written under the catalog's current key for
-future startups. The historical key is never removed in this step; if the
-promotion write fails, the original remains available for another attempt.
-
-This adapter should be removed once compatibility with affected
-pre-multi-account catalogs is no longer needed. Unlike a schema-number change,
-the repair may be retried when a user unlocks a previously unavailable wallet
-or reconnects after an offline period.
+The reader also accepts the root-slash variant written by intermediate
+multi-account builds. No password/token migration heuristics are necessary,
+and ordinary session restoration still verifies the remote user identity.
+Only an explicit account logout removes matching keychain entries.
