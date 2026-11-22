@@ -10,8 +10,8 @@ class Backend;
 /**
  * Keeps the active channel usable when WebSocket transport is unavailable.
  *
- * WebSocket remains the preferred realtime transport and continues its normal
- * reconnect/backoff loop. While it is disconnected, this service polls the
+ * WebSocket remains the preferred realtime transport; the account controller
+ * owns its reconnect/backoff. While it is disconnected, this service polls the
  * active channel over REST and feeds newly discovered posts through the same
  * live channel/backend signals used by realtime delivery.
  */
