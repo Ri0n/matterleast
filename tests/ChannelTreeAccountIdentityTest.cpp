@@ -72,6 +72,24 @@ private slots:
                                   QStringLiteral("same-category-id")}));
     }
 
+    void combinedSearchUpdatesEachBackendWithoutModelReset()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QSignalSpy resets(tree.model(), &QAbstractItemModel::modelReset);
+
+        tree.setConversationSearchTerm(QStringLiteral("engineering"));
+        QVERIFY(SidebarService::instance(first).conversationSearchActive());
+        QVERIFY(SidebarService::instance(second).conversationSearchActive());
+        tree.setConversationSearchTerm(QString());
+        QVERIFY(!SidebarService::instance(first).conversationSearchActive());
+        QVERIFY(!SidebarService::instance(second).conversationSearchActive());
+        QCOMPARE(resets.count(), 0);
+    }
+
     void backendBindingsAreAccountQualified()
     {
         Backend first;

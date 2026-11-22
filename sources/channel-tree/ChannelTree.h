@@ -116,6 +116,7 @@ public:
 	void populateSidebars(Backend& backend);
     /** Re-fetch read state, preferences and server categories after reconnect. */
     void refreshServerSnapshot();
+    void refreshServerSnapshotForAccount(const QString& accountId);
     // Reconcile a temporary, non-persistent view of older conversations while
     // the sidebar search field is populated.
     void setConversationSearchTerm(const QString& term);
@@ -299,7 +300,7 @@ private:
     QSet<ScopedId>                      connectedSidebarUsers;
     QSet<Backend*>                      profileSourcesConnected;
     QSet<ScopedId>                        pendingChannelAdmissions;
-	Backend*							backendForSidebar;
+    QPointer<Backend>                   backendForSidebar;
     QString                             _boundAccountId;
     QMap<QString, QPointer<Backend>>     _accountBackends;
 	bool							renderingSidebar;
