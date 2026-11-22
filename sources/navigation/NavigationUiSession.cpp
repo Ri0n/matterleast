@@ -207,7 +207,12 @@ void NavigationUiController::bindViewSession(
 
     // Detached threads remain associated with their original view, rather
     // than being silently reused by a different view of the same account.
-    // Only visibility changes here; the host retains QObject ownership.
+    // Suppress reentrant navigation/model updates from QWidget show/hide while
+    // the outgoing presentation is still installed in the central surface.
+    const bool previousApplying = applyingViewSession;
+    const bool previousSwitching = switchingTabs;
+    applyingViewSession = true;
+    switchingTabs = true;
     if (Backend* owner = backend()) {
         for (QWidget* widget : QApplication::allWidgets()) {
             auto* thread = qobject_cast<ChatArea*>(widget);
@@ -228,6 +233,8 @@ void NavigationUiController::bindViewSession(
             }
         }
     }
+    switchingTabs = previousSwitching;
+    applyingViewSession = previousApplying;
     // Hide outgoing detached threads *before* tab restoration; findThread()
     // must never adopt another view's visible detached presentation.
     if (sessionRestored)
