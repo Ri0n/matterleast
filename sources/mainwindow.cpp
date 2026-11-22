@@ -321,20 +321,10 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
         .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
     const QString sidebarWidthKey = QStringLiteral("workspace/%1/sidebar_width")
         .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
-    QByteArray splitterState = options->value<QByteArray>(sidebarStateKey);
-    if (splitterState.isEmpty()) {
-        // Migrate a single-account installation without losing layout.
-        splitterState = options->value<QByteArray>(
-            QStringLiteral("sidebar_splitter_state"));
-    }
-	if (sidebarSplitter && !splitterState.isEmpty()) {
-		sidebarSplitter->restoreState(splitterState);
-	} else if (sidebarSplitter) {
-		sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
-	}
+    // The splitter is not yet visible inside AccountWorkspaceStack.
+    // Applying restored sizes here lets the first real layout overwrite them.
+    // restoreSidebarWidth() runs after its workspace is shown instead.
 	if (sidebarSplitter) {
-		// Older saved QSplitter states include the previous 4 px handle width.
-		// Keep state-compatible pane sizes, but always restore the thin geometry.
 		sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
         // Persist user adjustment while the view is active; at application
         // exit another server view may already be hidden in the stack.
@@ -380,21 +370,41 @@ void MainWindow::showEvent(QShowEvent* event)
 
 void MainWindow::restoreSidebarWidth()
 {
-    if (!sidebarSplitter || sidebarSplitter->count() < 2)
+    if (!sidebarSplitter || !sidebarSplitter->isVisible()
+        || sidebarSplitter->count() < 2)
         return;
-    const QString key = QStringLiteral("workspace/%1/sidebar_width")
-        .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
-    const int saved = MLOptions::instance()->value<int>(key, 0);
-    if (saved <= 0)
-        return;
+    const QString partition =
+        backend.networkSession().cachePartitionId(backend.getLoginUser().id);
+    auto* options = MLOptions::instance();
+    const QString widthKey = QStringLiteral("workspace/%1/sidebar_width")
+        .arg(partition);
+    const int savedWidth = options->value<int>(widthKey, 0);
+
     const QList<int> sizes = sidebarSplitter->sizes();
     if (sizes.size() < 2)
         return;
     const int total = sizes[0] + sizes[1];
-    // Must run after the central content has been reparented and shown.
     if (total <= 0)
         return;
-    const int left = std::min(saved, std::max(1, total - 1));
+
+    if (savedWidth <= 0) {
+        // On upgrading a single-server installation there may be no pixel
+        // width key yet. Restore the historical QSplitter state only after
+        // layout, not in the constructor when it was still invisible.
+        QByteArray state = options->value<QByteArray>(
+            QStringLiteral("workspace/%1/sidebar_splitter_state")
+                .arg(partition));
+        if (state.isEmpty())
+            state = options->value<QByteArray>(
+                QStringLiteral("sidebar_splitter_state"));
+        if (!state.isEmpty() && sidebarSplitter->restoreState(state)) {
+            sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+            return;
+        }
+    }
+
+    const int requested = savedWidth > 0 ? savedWidth : 280;
+    const int left = std::min(requested, std::max(1, total - 1));
     if (left != sizes[0])
         sidebarSplitter->setSizes({left, total - left});
 }
