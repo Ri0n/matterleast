@@ -8,6 +8,92 @@ ViewNavigationSession::ViewNavigationSession(QString viewId, QObject* parent)
 {
 }
 
+ViewNavigationSession::Snapshot ViewNavigationSession::snapshot() const
+{
+    Snapshot result;
+    result.tabs.reserve(_tabs.count());
+    for (int i = 0; i < _tabs.count(); ++i)
+        result.tabs.append(*_tabs.at(i));
+    result.activeTab = _activeTab;
+    result.current = _current;
+    result.back = _back;
+    result.forward = _forward;
+    return result;
+}
+
+bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
+{
+    if (state.activeTab < -1 || state.activeTab >= state.tabs.size()
+        || (!state.current.accountId.isEmpty() && !state.current.valid()))
+        return false;
+    for (int i = 0; i < state.tabs.size(); ++i) {
+        const auto& entry = state.tabs.at(i);
+        if (!entry.isValid() || entry.accountId.isEmpty()) return false;
+        for (int j = 0; j < i; ++j) {
+            if (entry.sameDestination(state.tabs.at(j))) return false;
+        }
+    }
+    for (const auto& item : state.back)
+        if (!item.valid()) return false;
+    for (const auto& item : state.forward)
+        if (!item.valid()) return false;
+
+    // Preserve rows representing the same destination, including on reorders.
+    // Transferring one view must not reset models consumed by another frontend.
+    if (_activeTab >= 0) {
+        const int previous = _activeTab;
+        _activeTab = -1;
+        emit dataChanged(index(previous, 0), index(previous, 0), {ActiveRole});
+        emit activeTabChanged(-1);
+    }
+    for (int i = 0; i < state.tabs.size(); ++i) {
+        const auto& wanted = state.tabs.at(i);
+        int found = _tabs.findDestination(wanted.channelId, wanted.rootId,
+                                          wanted.accountId);
+        if (found < 0) {
+            beginInsertRows({}, i, i);
+            _tabs.insert(i, wanted);
+            endInsertRows();
+            continue;
+        }
+        if (found != i) {
+            beginMoveRows({}, found, found, {}, i);
+            _tabs.move(found, i);
+            endMoveRows();
+        }
+        const auto previous = *_tabs.at(i);
+        if (previous.postId != wanted.postId || previous.title != wanted.title
+            || previous.pinned != wanted.pinned) {
+            _tabs.replace(i, wanted);
+            // replace() normally preserves pinning on same-destination
+            // navigation; snapshot restoration must preserve the exact flag.
+            _tabs.setPinned(i, wanted.pinned);
+            emit dataChanged(index(i, 0), index(i, 0),
+                             {PostIdRole, TitleRole, PinnedRole});
+        }
+        if (wanted.viewportAnchor)
+            _tabs.setViewportAnchor(i, *wanted.viewportAnchor);
+        else
+            _tabs.clearViewportAnchor(i);
+    }
+    for (int i = _tabs.count() - 1; i >= state.tabs.size(); --i) {
+        beginRemoveRows({}, i, i);
+        _tabs.remove(i);
+        endRemoveRows();
+    }
+    _current = state.current;
+    _back = state.back;
+    _forward = state.forward;
+    constexpr int MaxHistory = 100;
+    if (_back.size() > MaxHistory)
+        _back.remove(0, _back.size() - MaxHistory);
+    if (_forward.size() > MaxHistory)
+        _forward.remove(0, _forward.size() - MaxHistory);
+    chooseTab(state.activeTab);
+    emit historyChanged();
+    return true;
+}
+
 int ViewNavigationSession::rowCount(const QModelIndex& parent) const
 {
     return parent.isValid() ? 0 : _tabs.count();
