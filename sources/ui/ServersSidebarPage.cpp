@@ -8,6 +8,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -25,6 +26,7 @@
 #include <QVBoxLayout>
 
 #include "backend/AccountManager.h"
+#include "backend/Account.h"
 #include "workspaces/WorkspaceLayout.h"
 #include "workspaces/WorkspaceTreeModel.h"
 
@@ -68,6 +70,14 @@ public:
         auto* removeProfile = new QToolButton(this);
         removeProfile->setText(QStringLiteral("−"));
         removeProfile->setToolTip(tr("Delete profile"));
+        auto* upProfile = new QToolButton(this);
+        upProfile->setText(QStringLiteral("↑"));
+        upProfile->setToolTip(tr("Move profile up"));
+        auto* downProfile = new QToolButton(this);
+        downProfile->setText(QStringLiteral("↓"));
+        downProfile->setToolTip(tr("Move profile down"));
+        profileRow->addWidget(upProfile);
+        profileRow->addWidget(downProfile);
         profileRow->addWidget(addProfile);
         profileRow->addWidget(editProfile);
         profileRow->addWidget(removeProfile);
@@ -84,6 +94,14 @@ public:
         auto* removeView = new QToolButton(this);
         removeView->setText(QStringLiteral("−"));
         removeView->setToolTip(tr("Delete view"));
+        auto* upView = new QToolButton(this);
+        upView->setText(QStringLiteral("↑"));
+        upView->setToolTip(tr("Move view up"));
+        auto* downView = new QToolButton(this);
+        downView->setText(QStringLiteral("↓"));
+        downView->setToolTip(tr("Move view down"));
+        viewRow->addWidget(upView);
+        viewRow->addWidget(downView);
         viewRow->addWidget(addView);
         viewRow->addWidget(removeView);
         outer->addLayout(viewRow);
@@ -138,6 +156,10 @@ public:
             }
         });
         connect(addView, &QToolButton::clicked, this, [this] { addNewView(); });
+        connect(upView, &QToolButton::clicked, this, [this] { moveView(-1); });
+        connect(downView, &QToolButton::clicked, this, [this] { moveView(1); });
+        connect(upProfile, &QToolButton::clicked, this, [this] { moveProfile(-1); });
+        connect(downProfile, &QToolButton::clicked, this, [this] { moveProfile(1); });
         connect(removeView, &QToolButton::clicked, this, [this] { deleteView(); });
         connect(addProfile, &QToolButton::clicked, this, [this] { addNewProfile(); });
         connect(editProfile, &QToolButton::clicked, this, [this] { editSelectedProfile(); });
@@ -145,7 +167,14 @@ public:
         connect(up, &QPushButton::clicked, this, [this] { moveMember(-1); });
         connect(down, &QPushButton::clicked, this, [this] { moveMember(1); });
 
-        rebuildProfiles();
+        QString activeProfile;
+        for (const auto& view : _draft.views)
+            if (view.id == _draft.activeViewId) {
+                activeProfile = view.profileId;
+                break;
+            }
+        rebuildProfiles(activeProfile);
+        rebuildViews(_draft.activeViewId);
     }
 
     void accept() override
@@ -362,6 +391,38 @@ private:
         }
         rebuildProfiles(profileId);
     }
+    void moveProfile(int offset)
+    {
+        auto* profile = selectedProfile();
+        if (!profile) return;
+        const QString id = profile->id;
+        int index = -1;
+        for (int i = 0; i < _draft.profiles.size(); ++i)
+            if (_draft.profiles[i].id == id) { index = i; break; }
+        const int next = index + offset;
+        if (index < 0 || next < 0 || next >= _draft.profiles.size()) return;
+        _draft.profiles.swapItemsAt(index, next);
+        rebuildProfiles(id);
+    }
+    void moveView(int offset)
+    {
+        auto* view = selectedView();
+        if (!view) return;
+        const QString id = view->id;
+        const QString profileId = view->profileId;
+        int index = -1;
+        for (int i = 0; i < _draft.views.size(); ++i)
+            if (_draft.views[i].id == id) { index = i; break; }
+        if (index < 0) return;
+        const int direction = offset < 0 ? -1 : 1;
+        int candidate = index + direction;
+        while (candidate >= 0 && candidate < _draft.views.size()
+               && _draft.views[candidate].profileId != profileId)
+            candidate += direction;
+        if (candidate < 0 || candidate >= _draft.views.size()) return;
+        _draft.views.swapItemsAt(index, candidate);
+        rebuildViews(id);
+    }
     void moveMember(int offset)
     {
         auto* view = selectedView();
@@ -478,6 +539,8 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
     });
     connect(add, &QPushButton::clicked, this, &ServersSidebarPage::addServerRequested);
     connect(editLayout, &QPushButton::clicked, this, &ServersSidebarPage::editLayout);
+    connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::dataChanged,
+            this, [this] { updateSelection(); });
     connect(&_accounts, &AccountManager::layoutChanged, this, [this] {
         _tree->expandAll();
         updateSelection();
@@ -496,13 +559,18 @@ void ServersSidebarPage::updateSelection()
     const bool view = index.isValid() && kind == WorkspaceTreeModel::ViewNode;
     _open->setEnabled(account || view);
     _edit->setEnabled(account);
-    _retry->setEnabled(account);
-    _signIn->setEnabled(account);
+    const auto state = static_cast<AccountConnectionState>(index.data(
+        WorkspaceTreeModel::ConnectionStateRole).toInt());
+    _retry->setEnabled(account && (state == AccountConnectionState::Disconnected
+                                 || state == AccountConnectionState::Unavailable));
+    _signIn->setEnabled(account && state != AccountConnectionState::Connected
+                               && state != AccountConnectionState::Connecting);
     if (account) {
         const auto* record = _accounts.layout().account(accountId);
         if (record) {
-            _details->setText(tr("%1\n%2").arg(record->serverBaseUrl,
-                                                 record->loginName));
+            _details->setText(tr("%1\n@%2\n%3")
+                .arg(record->serverBaseUrl, record->loginName,
+                     index.data(WorkspaceTreeModel::StatusRole).toString()));
             return;
         }
     }
@@ -564,6 +632,11 @@ void ServersSidebarPage::editSelectedAccount()
         QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
     auto* reauth = buttons->addButton(tr("Sign in again…"),
                                     QDialogButtonBox::ActionRole);
+    // A connected account already owns its authenticated Backend. A second
+    // candidate login for the same identity cannot be adopted concurrently.
+    if (auto* account = _accounts.account(id))
+        reauth->setEnabled(account->state() != AccountConnectionState::Connected
+                           && account->state() != AccountConnectionState::Connecting);
     connect(reauth, &QPushButton::clicked, &dialog, [this, id, &dialog] {
         dialog.reject();
         emit signInRequested(id);
