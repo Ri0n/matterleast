@@ -176,6 +176,43 @@ future mobile QML are alternative presentations of the **same** model.
 Delivery: #383 consolidates the account lifecycle into one manager; the QtCore
 list model and ID-keyed Widgets frontend were introduced in #382.
 
+## Profile activation and connection reconciliation
+
+`AccountManager::activateView(viewId)` (or account selection resolving to a
+different view) now makes a profile/view selection without giving Widgets
+ownership of the connection policy. `WorkspaceLayout::transitionTo()`
+validates the target profile and its desired memberships. The runtime
+`AccountManager` then reconciles **actual live/pending Backends** against
+that selected profile; this is intentional, because a remote login can
+finish asynchronously after the declarative plan was computed.
+
+- Moving between views **inside the same profile** changes only the view
+  projection and selected account. Every profile member, even a member hidden
+  by the selected view, remains connected and notification-eligible.
+- Switching exclusive profiles first cancels pending restores of accounts
+  not present in the new profile. For their live Backends,
+  `AccountManager` stops network transports and signals
+  `profileSuspensionRequested`. The Widgets application prepares and
+  destroys the associated account view **before** acknowledging with
+  `finishProfileSuspension`, which clears Storage and releases the Backend.
+- New profile members are restored **only after all outgoing Backends have
+  been released**. Accounts shared across old/new profiles retain their same
+  Backend, Storage, notifications and keyring identity. An interrupted or
+  rapidly reversed transition reconciles against the **latest** selected
+  profile, not an outdated queued connect list.
+- Profile suspension is not explicit logout: do **not** send
+  `/users/logout`, delete the saved keychain token or remove the durable
+  Account record. A later activation can reconnect normally. Accounts that
+  require credentials or have an unavailable keyring remain visible with
+  their error state, awaiting explicit retry.
+- Startup restores the entire active profile, **not** every saved account.
+  View selection does not need a network connection.
+
+The existing account workspace stack still renders one account at a time.
+The fully merged multi-account Channels/Unread/Attention projections, view
+scoped tabs/history and Servers sidebar editor are later presentation steps;
+runtime profile activation does not imply they are already implemented.
+
 ## Per-view UI state (essential invariant)
 
 **Each view has its own central tabs, active tab, Back/Forward stacks and sidebar
