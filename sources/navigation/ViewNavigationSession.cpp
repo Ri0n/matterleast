@@ -57,9 +57,21 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
             || state.dock.rootId.isEmpty()
             || !validAnchor(state.dock.viewportAnchor))) return false;
 
+    // Preserve the active row on routine bookmark/history synchronization.
+    // Toggling it off and back on for every snapshot generated redundant
+    // activeTabChanged signals to Widgets/QML even when no tab had changed.
+    bool sameLayout = _tabs.count() == state.tabs.size();
+    if (sameLayout) {
+        for (int i = 0; i < _tabs.count(); ++i) {
+            if (!_tabs.at(i)->sameDestination(state.tabs.at(i))) {
+                sameLayout = false;
+                break;
+            }
+        }
+    }
     // Preserve rows representing the same destination, including on reorders.
     // Transferring one view must not reset models consumed by another frontend.
-    if (_activeTab >= 0) {
+    if (!sameLayout && _activeTab >= 0) {
         const int previous = _activeTab;
         _activeTab = -1;
         emit dataChanged(index(previous, 0), index(previous, 0), {ActiveRole});
