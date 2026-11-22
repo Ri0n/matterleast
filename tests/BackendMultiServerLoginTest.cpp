@@ -873,6 +873,94 @@ private slots:
         QCOMPARE(modelResets.count(), 0);
     }
 
+    void incomingProfileWaitsForEveryOutgoingBackend()
+    {
+        FakeMattermostServer firstServer(QByteArrayLiteral("stop-a"));
+        FakeMattermostServer secondServer(QByteArrayLiteral("stop-b"));
+        FakeMattermostServer newServer(QByteArrayLiteral("start-c"));
+        QVERIFY(firstServer.listen(QHostAddress::LocalHost));
+        QVERIFY(secondServer.listen(QHostAddress::LocalHost));
+        QVERIFY(newServer.listen(QHostAddress::LocalHost));
+
+        WorkspaceLayout layout;
+        layout.accounts = {
+            {QStringLiteral("a"), QStringLiteral("First"),
+             firstServer.origin(), QStringLiteral("stop-a"),
+             QStringLiteral("token-a")},
+            {QStringLiteral("b"), QStringLiteral("Second"),
+             secondServer.origin(), QStringLiteral("stop-b"),
+             QStringLiteral("token-b")},
+            {QStringLiteral("c"), QStringLiteral("New"),
+             newServer.origin(), QStringLiteral("start-c"),
+             QStringLiteral("token-c")}
+        };
+        layout.profiles = {
+            {QStringLiteral("old"), QStringLiteral("Old"),
+             {QStringLiteral("a"), QStringLiteral("b")}},
+            {QStringLiteral("new"), QStringLiteral("New"),
+             {QStringLiteral("c")}}
+        };
+        layout.views = {
+            {QStringLiteral("old-view"), QStringLiteral("old"),
+             QStringLiteral("Old view"),
+             {QStringLiteral("a"), QStringLiteral("b")}},
+            {QStringLiteral("new-view"), QStringLiteral("new"),
+             QStringLiteral("New view"), {QStringLiteral("c")}}
+        };
+        layout.activeViewId = QStringLiteral("old-view");
+        AccountManager manager;
+        QVERIFY(manager.load(layout.toJson()));
+        Backend* first = manager.createLoginBackend();
+        Backend* second = manager.createLoginBackend();
+        bool firstReady = false;
+        bool secondReady = false;
+        first->login(credentials(firstServer, QStringLiteral("token-a")),
+                     [&](const QString& token) { firstReady = !token.isEmpty(); });
+        second->login(credentials(secondServer, QStringLiteral("token-b")),
+                      [&](const QString& token) { secondReady = !token.isEmpty(); });
+        QTRY_VERIFY(firstReady && secondReady);
+        QCOMPARE(manager.adoptAuthenticated(first, QStringLiteral("token-a"),
+                                            QStringLiteral("First"), {}, false),
+                 manager.account(QStringLiteral("a")));
+        QCOMPARE(manager.adoptAuthenticated(second, QStringLiteral("token-b"),
+                                            QStringLiteral("Second"), {}, false),
+                 manager.account(QStringLiteral("b")));
+        QVector<QPair<Account*, Backend*>> suspensions;
+        connect(&manager, &AccountManager::profileSuspensionRequested, this,
+                [&](Account* item, Backend* backend) {
+            suspensions.append({item, backend});
+        });
+
+        QVERIFY(manager.activateView(QStringLiteral("new-view")));
+        QCOMPARE(suspensions.size(), 2);
+        QCOMPARE(manager.selectedAccountId(), QStringLiteral("c"));
+        QVERIFY(!first->loggedIn());
+        QVERIFY(!second->loggedIn());
+        QVERIFY(!manager.account(QStringLiteral("c"))->pendingBackend());
+        QCOMPARE(firstServer.logoutRequests, 0);
+        QCOMPARE(secondServer.logoutRequests, 0);
+
+        manager.finishProfileSuspension(suspensions.first().first,
+                                         suspensions.first().second);
+        QCOMPARE(suspensions.size(), 2);
+        QVERIFY(!manager.account(QStringLiteral("c"))->pendingBackend());
+
+        manager.finishProfileSuspension(suspensions.last().first,
+                                         suspensions.last().second);
+        QVERIFY(manager.account(QStringLiteral("c"))->pendingBackend());
+        QVERIFY(!manager.account(QStringLiteral("a"))->backend());
+        QVERIFY(!manager.account(QStringLiteral("b"))->backend());
+        QCOMPARE(firstServer.logoutRequests, 0);
+        QCOMPARE(secondServer.logoutRequests, 0);
+
+        // The still-pending new login can be cancelled without waiting for
+        // wallet/network completion when the user returns to the old profile.
+        QVERIFY(manager.activateView(QStringLiteral("old-view")));
+        QVERIFY(!manager.account(QStringLiteral("c"))->pendingBackend());
+        QVERIFY(manager.account(QStringLiteral("a"))->pendingBackend());
+        QVERIFY(manager.account(QStringLiteral("b"))->pendingBackend());
+    }
+
     void activeProfileRestoresHiddenAccountsButNotOtherProfiles()
     {
         WorkspaceLayout layout;
