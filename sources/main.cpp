@@ -203,6 +203,8 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     });
     connect(&accounts, &AccountManager::activeViewChanged, this,
             [this](const QString&) { bindActiveNavigationView(); });
+    connect(&accounts, &AccountManager::layoutChanged, this,
+            [this] { bindActiveNavigationView(); });
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
@@ -321,18 +323,32 @@ void MattermostApplication::bindActiveNavigationView()
     // the same shared view session to two account windows would let either
     // overwrite cross-account tabs with an incomplete single-account snapshot.
     // A merged view must wait for its own multi-account presenter.
-    const QString id = accounts.activeViewId();
-    const auto& layout = accounts.layout();
-    for (const auto& view : layout.views) {
-        if (view.id != id || view.accountIds.size() != 1) continue;
-        const QString& accountId = view.accountIds.front();
-        Account* account = accounts.account(accountId);
-        MainWindow* page = account && account->backend()
-            ? accountViews.value(account->backend(), nullptr) : nullptr;
-        if (page && !closingAccounts.contains(account->backend()))
-            page->bindViewNavigation(accounts.viewSession(id), accountId);
-        return;
+    const QString viewId = accounts.activeViewId();
+    QString singleAccount;
+    for (const auto& view : accounts.layout().views) {
+        if (view.id == viewId && view.accountIds.size() == 1) {
+            singleAccount = view.accountIds.front();
+            break;
+        }
     }
+
+    MainWindow* target = nullptr;
+    if (!singleAccount.isEmpty()) {
+        Account* account = accounts.account(singleAccount);
+        if (account && account->backend()
+            && !closingAccounts.contains(account->backend()))
+            target = accountViews.value(account->backend(), nullptr);
+    }
+
+    // Unbind every inactive account page. In particular, editing a one-server
+    // view to contain two servers must never let its old MainWindow continue
+    // overwriting the merged view's account-qualified tab/history model.
+    for (MainWindow* page : accountViews) {
+        if (page && page != target)
+            page->unbindViewNavigation();
+    }
+    if (target)
+        target->bindViewNavigation(accounts.viewSession(viewId), singleAccount);
 }
 
 void MattermostApplication::selectAccount(const QString& id,
