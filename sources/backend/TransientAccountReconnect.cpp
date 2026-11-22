@@ -37,6 +37,12 @@ void TransientAccountReconnect::schedule(const QString& accountId)
     arm();
 }
 
+void TransientAccountReconnect::attemptStarted(const QString& accountId)
+{
+    _deadlines.remove(accountId);
+    arm();
+}
+
 void TransientAccountReconnect::cancel(const QString& accountId)
 {
     _deadlines.remove(accountId);
