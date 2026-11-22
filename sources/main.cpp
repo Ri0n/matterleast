@@ -527,6 +527,11 @@ void MattermostApplication::suspendProfileConnection(Account* item,
     const QString accountId = item->id();
     QPointer<Account> itemGuard(item);
     QPointer<Backend> backendGuard(backend);
+    // Do not let QStackedWidget::removeWidget() automatically select another
+    // account when an outgoing page happens to be current. Display the
+    // neutral overview until the target view's account is ready.
+    if (workspaceShell && workspaceShell->activeAccountId() == accountId)
+        workspaceShell->showOverview();
     if (MainWindow* page = accountViews.value(backend, nullptr))
         page->prepareForLogout();
 
