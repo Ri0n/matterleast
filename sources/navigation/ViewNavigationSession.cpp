@@ -241,17 +241,16 @@ bool ViewNavigationSession::moveTab(int from, int to)
 {
     if (from < 0 || from >= _tabs.count() || to < 0
         || to >= _tabs.count() || from == to) return false;
-    beginMoveRows({}, from, from, {}, to > from ? to + 1 : to);
-    _tabs.move(from, to);
-    endMoveRows();
     int selected = _activeTab;
     if (selected == from) selected = to;
     else if (from < selected && selected <= to) --selected;
     else if (to <= selected && selected < from) ++selected;
-    if (selected != _activeTab) {
-        _activeTab = selected;
-        emit activeTabChanged(selected);
-    }
+    const bool selectionMoved = selected != _activeTab;
+    beginMoveRows({}, from, from, {}, to > from ? to + 1 : to);
+    _tabs.move(from, to);
+    _activeTab = selected; // observers of rowsMoved see the final roles.
+    endMoveRows();
+    if (selectionMoved) emit activeTabChanged(selected);
     return true;
 }
 
