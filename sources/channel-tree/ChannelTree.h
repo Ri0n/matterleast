@@ -280,6 +280,8 @@ private:
 	void refreshSidebarTeam(const QString& teamId);
     void verifySidebarTeam(const QString& teamId, quint64 mutation);
     void flushDeferredSidebarReconciles();
+    Backend* backendForSidebarSignal() const;
+    void onSidebarCategoriesChanged(const QString& teamId);
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;
@@ -288,7 +290,6 @@ private:
     QMap<ScopedId, TeamItem*>            teamToItemMap;
 	QSet<QString>						connectedSidebarUsers;
     bool                                customEmojiConnected_ = false;
-    bool                                categorySyncConnected_ = false;
     QSet<QString>                        pendingChannelAdmissions;
 	Backend*							backendForSidebar;
     QString                             _boundAccountId;

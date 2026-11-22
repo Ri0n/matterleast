@@ -270,8 +270,12 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
 
 Backend* ChannelTree::backendForAccount(const QString& accountId) const
 {
-    if (accountId.isEmpty())
-        return backendForSidebar;
+    if (accountId.isEmpty()) {
+        // A merged view must never guess an account for an unqualified ID.
+        // The old unbound/single-account path remains valid.
+        return _boundAccountId.isEmpty() && !_accountBackends.isEmpty()
+            ? nullptr : backendForSidebar;
+    }
     const auto it = _accountBackends.constFind(accountId);
     if (it != _accountBackends.cend())
         return it.value();
@@ -286,7 +290,7 @@ Backend* ChannelTree::backendForRow(const QTreeWidgetItem* row) const
             return backendForAccount(id);
     }
     // Legacy/unbound single-account presentation before account adoption.
-    return backendForSidebar;
+    return backendForAccount({});
 }
 
 QString ChannelTree::accountIdForBackend(const Backend* backend) const
@@ -404,9 +408,37 @@ void ChannelTree::setConversationSearchTerm(const QString& term)
     }
 }
 
+Backend* ChannelTree::backendForSidebarSignal() const
+{
+    const QObject* source = sender();
+    if (!source)
+        return backendForSidebar;
+    for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
+        Backend* owner = it.value();
+        if (owner && &SidebarService::instance(*owner) == source)
+            return owner;
+    }
+    if (backendForSidebar
+        && &SidebarService::instance(*backendForSidebar) == source)
+        return backendForSidebar;
+    return nullptr;
+}
+
+void ChannelTree::onSidebarCategoriesChanged(const QString& teamId)
+{
+    Backend* owner = backendForSidebarSignal();
+    if (!owner)
+        return;
+    TeamItem* team = teamToItemMap.value({accountIdForBackend(owner), teamId}, nullptr);
+    const SidebarTeamState* state = SidebarService::instance(*owner).teamState(teamId);
+    if (team && state)
+        reconcileTeamSidebar(*owner, *team, *state);
+}
+
 void ChannelTree::populateSidebars(Backend& backend)
 {
-    backendForSidebar = &backend;
+    if (!backendForSidebar)
+        backendForSidebar = &backend;
     auto& sidebar = SidebarService::instance(backend);
     connect(&sidebar, &SidebarService::channelMutedChanged,
             this, &ChannelTree::setChannelMutedVisual, Qt::UniqueConnection);
@@ -417,25 +449,14 @@ void ChannelTree::populateSidebars(Backend& backend)
             Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::channelMentionedChanged,
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
-    if (!categorySyncConnected_) {
-        categorySyncConnected_ = true;
-        connect(&sidebar, &SidebarService::categoriesChanged, this,
-                [this](const QString& teamId) {
-            if (!backendForSidebar) {
-                return;
-            }
-            TeamItem* team = teamToItemMap.value(scopedId(teamId), nullptr);
-            const SidebarTeamState* state =
-                SidebarService::instance(*backendForSidebar).teamState(teamId);
-            if (team && state) {
-                reconcileTeamSidebar(*backendForSidebar, *team, *state);
-            }
-        });
-    }
+    connect(&sidebar, &SidebarService::categoriesChanged, this,
+            &ChannelTree::onSidebarCategoriesChanged, Qt::UniqueConnection);
 
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
-        if (BackendTeam* team = backend.getStorage().getTeamById(it.key().second)) {
-            refreshTeamSidebar(backend, *team);
+        // Multiple servers can legitimately use the same remote team ID.
+        if (it.value() && &it.value()->backend == &backend) {
+            if (BackendTeam* team = backend.getStorage().getTeamById(it.key().second))
+                refreshTeamSidebar(backend, *team);
         }
     }
 }
@@ -1275,7 +1296,10 @@ void ChannelTree::setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed)
 
 void ChannelTree::setChannelMutedVisual(const QString& channelId, bool muted)
 {
-    const auto items = channelToItemMap.value(scopedId(channelId));
+    Backend* owner = backendForSidebarSignal();
+    if (!owner)
+        return;
+    const auto items = channelToItemMap.value({accountIdForBackend(owner), channelId});
     for (QTreeWidgetItem* item : items) {
         if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             static_cast<ChannelItem*>(item)->setMuted(muted);
@@ -1285,31 +1309,31 @@ void ChannelTree::setChannelMutedVisual(const QString& channelId, bool muted)
 
 void ChannelTree::refreshChannelUnreadVisual(const QString& channelId)
 {
-    if (!backendForSidebar) {
+    Backend* owner = backendForSidebarSignal();
+    if (!owner)
         return;
-    }
-
-    BackendChannel* channel = backendForSidebar->getStorage().getChannelById(channelId);
+    BackendChannel* channel = owner->getStorage().getChannelById(channelId);
     if (!channel) {
         return;
     }
 
     setChannelUnreadVisual(
-        channelId, SidebarService::instance(*backendForSidebar).isChannelUnread(*channel));
+        channelId, SidebarService::instance(*owner).isChannelUnread(*channel));
 }
 
 void ChannelTree::refreshAllChannelActivityVisuals()
 {
-    if (!backendForSidebar) {
+    Backend* owner = backendForSidebarSignal();
+    if (!owner)
         return;
-    }
-
-    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    const QString accountId = accountIdForBackend(owner);
+    auto& sidebar = SidebarService::instance(*owner);
     const QList<ScopedId> channelIds = channelToItemMap.keys();
     for (const ScopedId& identity : channelIds) {
+        if (identity.first != accountId)
+            continue;
         const QString& channelId = identity.second;
-        BackendChannel* channel =
-            backendForSidebar->getStorage().getChannelById(channelId);
+        BackendChannel* channel = owner->getStorage().getChannelById(channelId);
         if (!channel) {
             continue;
         }
@@ -1323,7 +1347,10 @@ void ChannelTree::refreshAllChannelActivityVisuals()
 
 void ChannelTree::setChannelUnreadVisual(const QString& channelId, bool unread)
 {
-    const auto items = channelToItemMap.value(scopedId(channelId));
+    Backend* owner = backendForSidebarSignal();
+    if (!owner)
+        return;
+    const auto items = channelToItemMap.value({accountIdForBackend(owner), channelId});
     for (QTreeWidgetItem* item : items) {
         if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             static_cast<ChannelItem*>(item)->setUnread(unread);
@@ -1333,7 +1360,10 @@ void ChannelTree::setChannelUnreadVisual(const QString& channelId, bool unread)
 
 void ChannelTree::setChannelMentionedVisual(const QString& channelId, bool mentioned)
 {
-    const auto items = channelToItemMap.value(scopedId(channelId));
+    Backend* owner = backendForSidebarSignal();
+    if (!owner)
+        return;
+    const auto items = channelToItemMap.value({accountIdForBackend(owner), channelId});
     for (QTreeWidgetItem* item : items) {
         if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             static_cast<ChannelItem*>(item)->setMentioned(mentioned);

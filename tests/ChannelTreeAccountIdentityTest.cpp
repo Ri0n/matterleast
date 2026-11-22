@@ -4,6 +4,8 @@
 
 #include "channel-tree/ChannelTree.h"
 #include "backend/Backend.h"
+#include "backend/SidebarService.h"
+#include "channel-tree/channel-item/DirectChannelItem.h"
 #include "channel-tree/SidebarItem.h"
 
 using namespace Mattermost;
@@ -50,6 +52,7 @@ private slots:
         QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
         QVERIFY(!tree.registerAccountBackend(QStringLiteral("a"), second));
         QVERIFY(!tree.registerAccountBackend(QStringLiteral("c"), first));
+        QVERIFY(tree.backendForAccount(QString()) == nullptr);
         QCOMPARE(tree.backendForRow(firstRow), &first);
         QCOMPARE(tree.backendForRow(secondRow), &second);
         QCOMPARE(tree.accountIdForBackend(&first), QStringLiteral("a"));
@@ -63,6 +66,41 @@ private slots:
         QVERIFY(tree.backendForRow(firstRow) == nullptr);
         QCOMPARE(tree.backendForRow(secondRow), &second);
         QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+    }
+
+    void sidebarEventsAffectOnlyTheirOriginatingAccount()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        auto* a = new DirectChannelItem(first, nullptr);
+        auto* b = new DirectChannelItem(second, nullptr);
+        for (const auto& entry : {qMakePair(static_cast<QTreeWidgetItem*>(a), QStringLiteral("a")),
+                                  qMakePair(static_cast<QTreeWidgetItem*>(b), QStringLiteral("b"))}) {
+            entry.first->setData(0, SidebarItem::KindRole, int(SidebarItem::Channel));
+            entry.first->setData(0, SidebarItem::IdRole, QStringLiteral("shared-remote-id"));
+            entry.first->setData(0, SidebarItem::AccountIdRole, entry.second);
+            tree.addTopLevelItem(entry.first);
+            tree.addChannelToItem(QStringLiteral("shared-remote-id"), entry.first);
+        }
+
+        tree.populateSidebars(first);
+        tree.populateSidebars(second);
+        auto& firstSidebar = SidebarService::instance(first);
+        auto& secondSidebar = SidebarService::instance(second);
+        emit secondSidebar.channelMutedChanged(QStringLiteral("shared-remote-id"), true);
+        QVERIFY(!a->data(0, SidebarItem::MutedRole).toBool());
+        QVERIFY(b->data(0, SidebarItem::MutedRole).toBool());
+
+        emit firstSidebar.channelMentionedChanged(QStringLiteral("shared-remote-id"), true);
+        QVERIFY(a->data(0, SidebarItem::MentionedRole).toBool());
+        QVERIFY(!b->data(0, SidebarItem::MentionedRole).toBool());
+
+        emit secondSidebar.channelMutedChanged(QStringLiteral("shared-remote-id"), false);
+        QVERIFY(!a->data(0, SidebarItem::MutedRole).toBool());
+        QVERIFY(!b->data(0, SidebarItem::MutedRole).toBool());
     }
 
     void bindsExistingRowsWithoutReplacingTheModel()
