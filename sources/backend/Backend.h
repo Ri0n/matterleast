@@ -291,6 +291,10 @@ public:
 
     WebSocketConnector::ConnectionState webSocketConnectionState() const;
     void retryWebSocketConnectionNow();
+    void probeWebSocketConnection();
+    // Refresh HTTP-backed projections only after the connection controller has
+    // verified a lossless Mattermost event replay.
+    void reconcileAfterReliableReplay();
 
     // Register only visible, active chat surfaces; inactive tabs never accumulate typing.
     void setTypingViewVisible(QObject* view, const QString& channelId,
@@ -390,6 +394,10 @@ signals:
     void authenticationExpired();
 
     void onWebSocketConnect ();
+    // Transport reports authenticated hello + validated sequence continuity.
+    // The owning account connection controller decides whether to preserve or
+    // rebuild the session; no Backend is rebuilt by the protocol transport.
+    void realtimeStreamConfirmed(bool isReconnect, bool continuityVerified);
     /** Socket reconnection warrants bounded recovery for materialized thread timelines. */
     void onRealtimeRecovered();
     void onWebSocketDisconnect ();
