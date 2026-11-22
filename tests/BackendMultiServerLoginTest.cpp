@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 #include <QStackedWidget>
+#include <QSplitter>
 #include <QSystemTrayIcon>
 #include <QTemporaryDir>
 #include <QTcpServer>
@@ -22,6 +23,7 @@
 #include "navigation/ViewNavigationSession.h"
 #include "navigation/NavigationUiController.h"
 #include "mainwindow.h"
+#include "options/MLOptions.h"
 #include "backend/AttachmentService.h"
 #include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
@@ -1313,6 +1315,59 @@ private slots:
         QTRY_COMPARE(healthy.preferencesRequests, 2);
         checkCookies(healthy.preferenceCookies, "active-token", "stalled-token");
     }
+    void sidebarWidthSurvivesNavigationReparentAndHiddenShutdown()
+    {
+        FakeMattermostServer server(QByteArrayLiteral("sidebar-width-account"));
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        bool ready = false;
+        backend.login(credentials(server, QStringLiteral("sidebar-token")),
+                      [&](const QString& token) { ready = !token.isEmpty(); });
+        QTRY_VERIFY(ready);
+
+        const QString key = QStringLiteral("workspace/%1/sidebar_width")
+            .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+        auto* options = MLOptions::instance();
+        // Simulate a width previously saved by a real splitter drag. The
+        // navigation controller must preserve it when it reparents widgets.
+        options->setValue(key, 400);
+
+        QSystemTrayIcon tray;
+        auto* window = new MainWindow(nullptr, tray, backend);
+        window->resize(1100, 720);
+        window->show();
+        NavigationUiController::instance(*window);
+        auto* sidebar = window->findChild<QSplitter*>(
+            QStringLiteral("sidebarSplitter"));
+        QVERIFY(sidebar);
+        QTRY_VERIFY(sidebar->width() > 800);
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 400) <= 35);
+
+        sidebar->setSizes({340, 750});
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 340) <= 35);
+        window->saveState();
+        const int saved = options->value<int>(key, 0);
+        QVERIFY(qAbs(saved - 340) <= 35);
+
+        // A hidden account page must not replace its real width with zero
+        // when QApplication quits or when another server was selected.
+        window->hide();
+        window->saveState();
+        QCOMPARE(options->value<int>(key, 0), saved);
+        delete window;
+
+        auto* restarted = new MainWindow(nullptr, tray, backend);
+        restarted->resize(1100, 720);
+        restarted->show();
+        NavigationUiController::instance(*restarted);
+        auto* restoredSidebar = restarted->findChild<QSplitter*>(
+            QStringLiteral("sidebarSplitter"));
+        QVERIFY(restoredSidebar);
+        QTRY_VERIFY(restoredSidebar->width() > 800);
+        QTRY_VERIFY(qAbs(restoredSidebar->sizes().at(0) - saved) <= 35);
+        delete restarted;
+    }
+
     void navigationControllerStopsObservingAreasBeforeWindowDestruction()
     {
         // Regression: during MainWindow's QObject child teardown, a ChatArea
