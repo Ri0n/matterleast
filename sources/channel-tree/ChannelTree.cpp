@@ -189,22 +189,30 @@ ChannelTree::ChannelTree (QWidget* parent)
     // the existing tree or replace its Qt item model.
     connect(model(), &QAbstractItemModel::rowsInserted, this,
             [this](const QModelIndex& parent, int first, int last) {
-        if (_boundAccountId.isEmpty())
+        const QString accountId = parent.isValid()
+            ? parent.data(ItemAccountIdRole).toString() : _boundAccountId;
+        if (accountId.isEmpty())
             return;
         for (int row = first; row <= last; ++row) {
             QTreeWidgetItem* item = itemFromIndex(model()->index(row, 0, parent));
             if (item)
-                tagAccount(item, _boundAccountId);
+                tagAccount(item, accountId);
         }
     });
 }
 
 void ChannelTree::tagAccount(QTreeWidgetItem* item, const QString& accountId)
 {
-    if (item->data(0, ItemAccountIdRole).toString() != accountId)
-        item->setData(0, ItemAccountIdRole, accountId);
+    if (!item)
+        return;
+    // Retained rows may already be explicitly bound to another account.
+    QString actualId = item->data(0, ItemAccountIdRole).toString();
+    if (actualId.isEmpty()) {
+        actualId = accountId;
+        item->setData(0, ItemAccountIdRole, actualId);
+    }
     for (int i = 0; i < item->childCount(); ++i)
-        tagAccount(item->child(i), accountId);
+        tagAccount(item->child(i), actualId);
 }
 
 bool ChannelTree::bindSingleAccount(const QString& accountId)
@@ -325,7 +333,8 @@ bool ChannelTree::isChannelActive (const BackendChannel& channel)
 
 void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 {
-    backendForSidebar = &backend;
+    if (!backendForSidebar)
+        backendForSidebar = &backend;
     if (!customEmojiConnected_) {
         customEmojiConnected_ = true;
         connect(&UserProfileService::instance(backend),
@@ -357,22 +366,26 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
     teamList->setData(0, ItemKindRole, TeamItemKind);
     teamList->setData(0, ItemIdRole, team.id);
     teamList->setData(0, ItemTeamIdRole, team.id);
+    const QString accountId = accountIdForBackend(&backend);
+    if (!accountId.isEmpty())
+        teamList->setData(0, ItemAccountIdRole, accountId);
     teamList->setFlags(teamList->flags() & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
 
 	addTopLevelItem (teamList);
-    teamToItemMap.insert(scopedId(team.id), teamList);
+    teamToItemMap.insert({accountId, team.id}, teamList);
 	header()->setSectionResizeMode(0, QHeaderView::Stretch);
 
 	connect (&team, &BackendTeam::onNewChannel, this, [this, &backend, &team] (BackendChannel&) {
         refreshTeamSidebar(backend, team);
 	});
 
-    connect(&team, &BackendTeam::onLeave, this, [this, teamId = team.id] {
+    connect(&team, &BackendTeam::onLeave, this, [this, &backend, teamId = team.id] {
+        const ScopedId key {accountIdForBackend(&backend), teamId};
         if (sidebarDragActive) {
-            pendingSidebarRefreshTeams.insert(teamId);
+            pendingSidebarRefreshTeams.insert(key);
             return;
         }
-        removeTeamSidebar(teamId);
+        removeTeamSidebar(key);
     });
 
     // Populate only channels at startup. Team members are loaded on demand by
@@ -480,25 +493,23 @@ void ChannelTree::refreshServerSnapshot()
                     if (!guard) return;
                     // Preserve selection, ChatAreas and viewport bookmarks.
                     const QList<ScopedId> teamIds = guard->teamToItemMap.keys();
-                    for (const ScopedId& teamId : teamIds) {
-                        guard->refreshSidebarTeam(teamId.second);
-                    }
+                    for (const ScopedId& teamKey : teamIds)
+                        guard->refreshSidebarTeam(teamKey);
                 });
         });
     });
 }
 
-void ChannelTree::refreshSidebarTeam(const QString& teamId)
+void ChannelTree::refreshSidebarTeam(const ScopedId& teamKey)
 {
-    if (!backendForSidebar) {
+    Backend* owner = backendForAccount(teamKey.first);
+    if (!owner)
         return;
-    }
-    BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId);
-    if (team) {
-        refreshTeamSidebar(*backendForSidebar, *team);
-    } else {
-        removeTeamSidebar(teamId);
-    }
+    BackendTeam* team = owner->getStorage().getTeamById(teamKey.second);
+    if (team)
+        refreshTeamSidebar(*owner, *team);
+    else
+        removeTeamSidebar(teamKey);
 }
 
 void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
@@ -528,9 +539,9 @@ void ChannelTree::renderTeamSidebar(Backend& backend, TeamItem& teamItem,
     reconcileTeamSidebar(backend, teamItem, state);
 }
 
-void ChannelTree::removeTeamSidebar(const QString& teamId)
+void ChannelTree::removeTeamSidebar(const ScopedId& teamKey)
 {
-    TeamItem* teamItem = teamToItemMap.take(scopedId(teamId));
+    TeamItem* teamItem = teamToItemMap.take(teamKey);
     if (!teamItem) {
         return;
     }
@@ -538,7 +549,8 @@ void ChannelTree::removeTeamSidebar(const QString& teamId)
     const QSignalBlocker selectionGuard(this);
     const QScopedValueRollback<bool> renderingGuard(renderingSidebar, true);
     const bool removingCurrent = currentItem()
-        && currentItem()->data(0, ItemTeamIdRole).toString() == teamId;
+        && currentItem()->data(0, ItemTeamIdRole).toString() == teamKey.second
+        && currentItem()->data(0, ItemAccountIdRole).toString() == teamKey.first;
     while (teamItem->childCount() > 0) {
         QTreeWidgetItem* row = teamItem->takeChild(0);
         if (!row) {
@@ -839,7 +851,7 @@ void ChannelTree::handleChannelLeaveForAccount(const QString& accountId,
             }
             const QString teamId = category->data(0, ItemTeamIdRole).toString();
             if (!teamId.isEmpty()) {
-                pendingSidebarRefreshTeams.insert(teamId);
+                pendingSidebarRefreshTeams.insert({accountId, teamId});
             }
         }
         return;
@@ -990,16 +1002,18 @@ void ChannelTree::setChatAreaStackedWidget (QStackedWidget* stackedWidget)
 	chatAreaStackedWidget = stackedWidget;
 }
 
-void ChannelTree::openChannel (QString channelID)
+void ChannelTree::openChannel (QString channelID, const QString& accountId)
 {
-	auto it = channelToItemMap.find (scopedId(channelID));
+    const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelID};
+    Backend* owner = backendForAccount(key.first);
+    auto it = channelToItemMap.find(key);
     QTreeWidgetItem* item = nullptr;
 
     if (it != channelToItemMap.end() && !it.value().isEmpty()) {
         item = it.value().front();
-    } else if (backendForSidebar) {
-        BackendChannel* personal = backendForSidebar->getStorage().getDirectChannelByUserId(
-            backendForSidebar->getLoginUser().id);
+    } else if (owner) {
+        BackendChannel* personal = owner->getStorage().getDirectChannelByUserId(
+            owner->getLoginUser().id);
         if (personal && personal->id == channelID) {
             // Programmatic navigation (permalinks, Saved/Search results, etc.)
             // must resolve the self-DM even when its ordinary server row is
@@ -1010,24 +1024,27 @@ void ChannelTree::openChannel (QString channelID)
             while (teamItem && teamItem->parent()) {
                 teamItem = teamItem->parent();
             }
-            if (teamItem && teamItem->data(0, ItemKindRole).toInt() == TeamItemKind) {
-                item = personalItemForTeam(teamItem->data(0, ItemTeamIdRole).toString());
+            if (teamItem && teamItem->data(0, ItemKindRole).toInt() == TeamItemKind
+                && teamItem->data(0, ItemAccountIdRole).toString() == key.first) {
+                item = personalItemForTeam(
+                    teamItem->data(0, ItemTeamIdRole).toString(), key.first);
             }
             if (!item) {
                 for (auto teamIt = teamToItemMap.cbegin(); teamIt != teamToItemMap.cend(); ++teamIt) {
-                    item = personalItemForTeam(teamIt.key().second);
-                    if (item) {
+                    if (teamIt.key().first != key.first)
+                        continue;
+                    item = personalItemForTeam(teamIt.key().second, key.first);
+                    if (item)
                         break;
-                    }
                 }
             }
         }
     }
 
     if (!item) {
-        if (channelPages.value(scopedId(channelID))) {
+        if (channelPages.value(key)) {
             setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
-            activateConversation(channelID);
+            activateConversation(channelID, {}, key.first);
         } else {
             qDebug() << "openChannel " << channelID << ": channel not found";
         }
@@ -1074,7 +1091,8 @@ void ChannelTree::showContextMenu (const QPoint& pos)
         return;
     }
     if (item->data(0, ItemKindRole).toInt() == CategoryItemKind) {
-        showCategoryMenu(item->data(0, ItemTeamIdRole).toString(),
+        showCategoryMenu(item->data(0, ItemAccountIdRole).toString(),
+                         item->data(0, ItemTeamIdRole).toString(),
                          item->data(0, ItemIdRole).toString());
         return;
     }
@@ -1096,13 +1114,14 @@ ChatArea* ChannelTree::getCurrentPage ()
 	return qobject_cast<ChatArea*> (chatAreaStackedWidget->currentWidget());
 }
 
-void ChannelTree::showCategoryMenu(const QString& teamId,
+void ChannelTree::showCategoryMenu(const QString& accountId, const QString& teamId,
                                    const QString& categoryId)
 {
-    if (!backendForSidebar || teamId.isEmpty() || categoryId.isEmpty()) {
+    Backend* owner = backendForAccount(accountId);
+    if (!owner || teamId.isEmpty() || categoryId.isEmpty())
         return;
-    }
-    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    QPointer<Backend> ownerGuard(owner);
+    auto& sidebar = SidebarService::instance(*owner);
     const SidebarTeamState* state = sidebar.teamState(teamId);
     const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
     if (!category) {
@@ -1167,9 +1186,10 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
         tr("Create category"));
 
     QAction* chosen = menu.exec(QCursor::pos());
-    if (!chosen || !backendForSidebar) {
+    // Modal menus run a nested event loop: the owning account can disconnect
+    // while it is open. Never apply its choice to another server.
+    if (!chosen || !ownerGuard || backendForAccount(accountId) != ownerGuard.data())
         return;
-    }
 
     // The server may have delivered a new category snapshot while the menu's
     // modal event loop was running. Resolve again by stable category id.
@@ -1203,7 +1223,8 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
         update(std::move(changed));
     } else if (chosen == collapse) {
         QTreeWidgetItem* row = nullptr;
-        TeamItem* team = teamToItemMap.value(scopedId(teamId), nullptr);
+        TeamItem* team = teamToItemMap.value(
+            {accountId.isEmpty() ? _boundAccountId : accountId, teamId}, nullptr);
         for (int i = 0; team && i < team->childCount(); ++i) {
             QTreeWidgetItem* candidate = team->child(i);
             if (candidate->data(0, ItemIdRole).toString() == categoryId) {
@@ -1284,20 +1305,22 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
 
 void ChannelTree::setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed)
 {
-    if (!backendForSidebar || !item || item->data(0, ItemKindRole).toInt() != CategoryItemKind) {
+    if (!item || item->data(0, ItemKindRole).toInt() != CategoryItemKind)
         return;
-    }
+    Backend* owner = backendForRow(item);
+    if (!owner)
+        return;
 
     const QString teamId = item->data(0, ItemTeamIdRole).toString();
     const QString categoryId = item->data(0, ItemIdRole).toString();
-    SidebarTeamState* state = SidebarService::instance(*backendForSidebar).teamState(teamId);
+    SidebarTeamState* state = SidebarService::instance(*owner).teamState(teamId);
     SidebarCategory* category = state ? state->category(categoryId) : nullptr;
     if (!category || category->collapsed == collapsed) {
         return;
     }
 
     category->collapsed = collapsed;
-    SidebarService::instance(*backendForSidebar).updateCategory(*category);
+    SidebarService::instance(*owner).updateCategory(*category);
 }
 
 void ChannelTree::setChannelMutedVisual(const QString& channelId, bool muted)
@@ -1383,13 +1406,16 @@ void ChannelTree::moveChannel(ChannelItem* item,
                               bool afterTarget,
                               bool explicitPosition)
 {
-    if (!backendForSidebar || !item || !item->parent() || targetCategoryId.isEmpty()) {
+    if (!item || !item->parent() || targetCategoryId.isEmpty())
         return;
-    }
+    Backend* owner = backendForRow(item);
+    if (!owner)
+        return;
 
     QTreeWidgetItem* sourceCategoryItem = item->parent();
     const QString teamId = sourceCategoryItem->data(0, ItemTeamIdRole).toString();
-    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    const ScopedId teamKey = scopedId(teamId, item);
+    auto& sidebar = SidebarService::instance(*owner);
     SidebarTeamState* state = sidebar.teamState(teamId);
     if (!state) {
         return;
@@ -1441,34 +1467,34 @@ void ChannelTree::moveChannel(ChannelItem* item,
         return;
     }
 
-    const quint64 mutation = ++sidebarMutationGeneration[teamId];
+    const quint64 mutation = ++sidebarMutationGeneration[teamKey];
     sidebar.applyLocalTeamState(teamId, optimistic);
-    if (TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr)) {
-        if (const SidebarTeamState* local = sidebar.teamState(teamId)) {
-            reconcileTeamSidebar(*backendForSidebar, *teamItem, *local);
-        }
+    if (TeamItem* teamItem = teamToItemMap.value(teamKey, nullptr)) {
+        if (const SidebarTeamState* local = sidebar.teamState(teamId))
+            reconcileTeamSidebar(*owner, *teamItem, *local);
     }
 
     QPointer<ChannelTree> guard(this);
-    auto verify = [guard, teamId, mutation] {
-        if (!guard || guard->sidebarMutationGeneration.value(teamId) != mutation) {
+    QPointer<Backend> ownerGuard(owner);
+    auto verify = [guard, ownerGuard, teamKey, mutation] {
+        if (!guard || !ownerGuard
+            || guard->backendForAccount(teamKey.first) != ownerGuard.data()
+            || guard->sidebarMutationGeneration.value(teamKey) != mutation)
             return;
-        }
-        guard->verifySidebarTeam(teamId, mutation);
+        guard->verifySidebarTeam(teamKey, mutation);
     };
-    auto rollback = [guard, teamId, mutation, before] {
-        if (!guard || !guard->backendForSidebar
-            || guard->sidebarMutationGeneration.value(teamId) != mutation) {
+    auto rollback = [guard, ownerGuard, teamKey, mutation, before] {
+        if (!guard || !ownerGuard
+            || guard->backendForAccount(teamKey.first) != ownerGuard.data()
+            || guard->sidebarMutationGeneration.value(teamKey) != mutation)
             return;
-        }
-        auto& currentSidebar = SidebarService::instance(*guard->backendForSidebar);
-        currentSidebar.applyLocalTeamState(teamId, before);
-        if (TeamItem* teamItem = guard->teamToItemMap.value(guard->scopedId(teamId), nullptr)) {
-            guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, before);
-        }
-        // The rollback is immediate; the GET is only an authoritative check and
-        // is reconciled incrementally when it arrives.
-        guard->verifySidebarTeam(teamId, mutation);
+        auto& currentSidebar = SidebarService::instance(*ownerGuard.data());
+        currentSidebar.applyLocalTeamState(teamKey.second, before);
+        if (TeamItem* teamItem = guard->teamToItemMap.value(teamKey, nullptr))
+            guard->reconcileTeamSidebar(*ownerGuard.data(), *teamItem, before);
+        // The rollback is immediate; the GET is only an authoritative check
+        // and is reconciled incrementally when it arrives.
+        guard->verifySidebarTeam(teamKey, mutation);
     };
 
     if (sameCategory) {
@@ -1530,6 +1556,8 @@ bool ChannelTree::resolveChannelDropTarget(QTreeWidgetItem* source,
     QTreeWidgetItem* sourceTeamItem = sourceCategoryItem ? sourceCategoryItem->parent() : nullptr;
     return targetCategoryItem
         && targetCategoryItem->data(0, ItemKindRole).toInt() == CategoryItemKind
+        && backendForRow(targetCategoryItem) == backendForRow(source)
+        && backendForRow(source) != nullptr
         && sourceTeamItem
         && targetCategoryItem->parent() == sourceTeamItem;
 }
@@ -1538,14 +1566,17 @@ void ChannelTree::moveCategory(QTreeWidgetItem* item,
                                const QString& targetCategoryId,
                                bool afterTarget)
 {
-    if (!backendForSidebar || !item || targetCategoryId.isEmpty()
-        || item->data(0, ItemKindRole).toInt() != CategoryItemKind) {
+    if (!item || targetCategoryId.isEmpty()
+        || item->data(0, ItemKindRole).toInt() != CategoryItemKind)
         return;
-    }
+    Backend* owner = backendForRow(item);
+    if (!owner)
+        return;
 
     const QString teamId = item->data(0, ItemTeamIdRole).toString();
     const QString categoryId = item->data(0, ItemIdRole).toString();
-    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    const ScopedId teamKey = scopedId(teamId, item);
+    auto& sidebar = SidebarService::instance(*owner);
     SidebarTeamState* state = sidebar.teamState(teamId);
     if (!state || categoryId.isEmpty() || !state->category(categoryId)
         || !state->category(targetCategoryId)) {
@@ -1559,32 +1590,32 @@ void ChannelTree::moveCategory(QTreeWidgetItem* item,
         return;
     }
 
-    const quint64 mutation = ++sidebarMutationGeneration[teamId];
+    const quint64 mutation = ++sidebarMutationGeneration[teamKey];
     sidebar.applyLocalTeamState(teamId, optimistic);
-    if (TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr)) {
-        reconcileTeamSidebar(*backendForSidebar, *teamItem, optimistic);
-    }
+    if (TeamItem* teamItem = teamToItemMap.value(teamKey, nullptr))
+        reconcileTeamSidebar(*owner, *teamItem, optimistic);
 
     QPointer<ChannelTree> guard(this);
-    auto rollback = [guard, teamId, mutation, before] {
-        if (!guard || !guard->backendForSidebar
-            || guard->sidebarMutationGeneration.value(teamId) != mutation) {
+    QPointer<Backend> ownerGuard(owner);
+    auto rollback = [guard, ownerGuard, teamKey, mutation, before] {
+        if (!guard || !ownerGuard
+            || guard->backendForAccount(teamKey.first) != ownerGuard.data()
+            || guard->sidebarMutationGeneration.value(teamKey) != mutation)
             return;
-        }
-        auto& currentSidebar = SidebarService::instance(*guard->backendForSidebar);
-        currentSidebar.applyLocalTeamState(teamId, before);
-        if (TeamItem* teamItem = guard->teamToItemMap.value(guard->scopedId(teamId), nullptr)) {
-            guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, before);
-        }
-        guard->verifySidebarTeam(teamId, mutation);
+        auto& currentSidebar = SidebarService::instance(*ownerGuard.data());
+        currentSidebar.applyLocalTeamState(teamKey.second, before);
+        if (TeamItem* teamItem = guard->teamToItemMap.value(teamKey, nullptr))
+            guard->reconcileTeamSidebar(*ownerGuard.data(), *teamItem, before);
+        guard->verifySidebarTeam(teamKey, mutation);
     };
 
     sidebar.updateCategoryOrder(
         teamId, optimistic.order,
-        [guard, teamId, mutation] {
-            if (guard && guard->sidebarMutationGeneration.value(teamId) == mutation) {
-                guard->verifySidebarTeam(teamId, mutation);
-            }
+        [guard, ownerGuard, teamKey, mutation] {
+            if (guard && ownerGuard
+                && guard->backendForAccount(teamKey.first) == ownerGuard.data()
+                && guard->sidebarMutationGeneration.value(teamKey) == mutation)
+                guard->verifySidebarTeam(teamKey, mutation);
         },
         rollback,
         false);
@@ -1619,6 +1650,8 @@ bool ChannelTree::resolveCategoryDropTarget(QTreeWidgetItem* source,
     afterTarget = boundary->afterTarget;
     return targetCategoryItem
         && targetCategoryItem->data(0, ItemKindRole).toInt() == CategoryItemKind
+        && backendForRow(targetCategoryItem) == backendForRow(source)
+        && backendForRow(source) != nullptr
         && targetCategoryItem->parent() == source->parent();
 }
 

@@ -21,9 +21,9 @@ public:
                      const QModelIndex& index) override;
 
 signals:
-    void categoryActionRequested(const QString& teamId,
+    void categoryActionRequested(const QString& accountId, const QString& teamId,
                                  const QString& categoryId);
-    void categoryMenuRequested(const QString& teamId,
+    void categoryMenuRequested(const QString& accountId, const QString& teamId,
                                const QString& categoryId);
 
 protected:

@@ -125,11 +125,11 @@ public:
 	void setChatAreaStackedWidget (QStackedWidget* chatAreaStackedWidget);
 	ChatArea* getCurrentPage ();
 
-	void openChannel (QString channelID);
+	void openChannel (QString channelID, const QString& accountId = {});
 	// Programmatic navigation may target a valid channel that is currently
 	// outside the visible DM/GM sidebar limit. Materialize its server-category
 	// row first, then activate it through the same path as an ordinary click.
-	void openStoredChannel(QString channelID);
+	void openStoredChannel(QString channelID, const QString& accountId = {});
     // A realtime direct/group channel can reach Storage before the server-backed
     // sidebar category is refreshed. Admit it into every loaded Direct Messages
     // category without opening the conversation or issuing a category reload.
@@ -211,7 +211,7 @@ private:
     void reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                               const SidebarTeamState& state);
     void destroySidebarRow(QTreeWidgetItem* item);
-    void removeTeamSidebar(const QString& teamId);
+    void removeTeamSidebar(const ScopedId& teamKey);
 	QTreeWidgetItem* createCategoryItem(TeamItem& teamItem, const QString& categoryId,
 	                                    const QString& displayName, bool collapsed);
 	ChannelItem* createChannelItem(Backend& backend, TeamItem& teamItem,
@@ -232,7 +232,8 @@ private:
 	void activateChannelItem(QTreeWidgetItem* item);
     void activateVirtualDestination(QTreeWidgetItem* item);
 	void setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed);
-    void showCategoryMenu(const QString& teamId, const QString& categoryId);
+    void showCategoryMenu(const QString& accountId, const QString& teamId,
+                          const QString& categoryId);
 	void setChannelMutedVisual(const QString& channelId, bool muted);
     void refreshChannelUnreadVisual(const QString& channelId);
     void refreshAllChannelActivityVisuals();
@@ -277,8 +278,8 @@ private:
 	                 bool explicitPosition);
     void moveCategory(QTreeWidgetItem* item, const QString& targetCategoryId,
                       bool afterTarget);
-	void refreshSidebarTeam(const QString& teamId);
-    void verifySidebarTeam(const QString& teamId, quint64 mutation);
+	void refreshSidebarTeam(const ScopedId& teamKey);
+    void verifySidebarTeam(const ScopedId& teamKey, quint64 mutation);
     void flushDeferredSidebarReconciles();
     Backend* backendForSidebarSignal() const;
     void onSidebarCategoriesChanged(const QString& teamId);
@@ -290,7 +291,7 @@ private:
     QMap<ScopedId, TeamItem*>            teamToItemMap;
 	QSet<QString>						connectedSidebarUsers;
     bool                                customEmojiConnected_ = false;
-    QSet<QString>                        pendingChannelAdmissions;
+    QSet<ScopedId>                        pendingChannelAdmissions;
 	Backend*							backendForSidebar;
     QString                             _boundAccountId;
     QMap<QString, QPointer<Backend>>     _accountBackends;
@@ -322,10 +323,10 @@ private:
     int                                 dragViewportScrollPixels = 0;
     int                                 draggedBlockStartLogicalY = 0;
     QVector<CategoryDragBoundary>       categoryDragBoundaries;
-    QSet<QString>                       pendingSidebarReconcileTeams;
-    QSet<QString>                       pendingSidebarRefreshTeams;
-    QSet<QString>                       pendingStoredChannelOpens;
-    QMap<QString, quint64>              sidebarMutationGeneration;
+    QSet<ScopedId>                       pendingSidebarReconcileTeams;
+    QSet<ScopedId>                       pendingSidebarRefreshTeams;
+    QSet<ScopedId>                       pendingStoredChannelOpens;
+    QMap<ScopedId, quint64>              sidebarMutationGeneration;
 };
 
 } /* namespace Mattermost */

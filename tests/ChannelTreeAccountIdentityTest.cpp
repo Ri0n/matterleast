@@ -3,6 +3,7 @@
 #include <QTreeWidgetItem>
 
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree/ChannelItemDelegate.h"
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
 #include "channel-tree/channel-item/DirectChannelItem.h"
@@ -35,6 +36,42 @@ class ChannelTreeAccountIdentityTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void categoryDelegatePreservesAccountForMenuAndAction()
+    {
+        ChannelTree tree;
+        tree.resize(420, 180);
+        auto* category = new QTreeWidgetItem(&tree);
+        category->setText(0, QStringLiteral("Category"));
+        category->setData(0, SidebarItem::KindRole, int(SidebarItem::Category));
+        category->setData(0, SidebarItem::AccountIdRole, QStringLiteral("server-b"));
+        category->setData(0, SidebarItem::TeamIdRole, QStringLiteral("same-team-id"));
+        category->setData(0, SidebarItem::IdRole, QStringLiteral("same-category-id"));
+        category->setData(0, SidebarItem::CategoryActionRole, true);
+        category->setData(0, SidebarItem::CategoryMenuRole, true);
+        auto* delegate = qobject_cast<ChannelItemDelegate*>(tree.itemDelegate());
+        QVERIFY(delegate);
+        QSignalSpy menuSpy(delegate, &ChannelItemDelegate::categoryMenuRequested);
+        QSignalSpy actionSpy(delegate, &ChannelItemDelegate::categoryActionRequested);
+        tree.show();
+        QCoreApplication::processEvents();
+        const QRect rect = tree.visualItemRect(category);
+        QVERIFY(rect.isValid());
+        QTest::mouseClick(tree.viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(rect.right() - 45, rect.center().y()));
+        QCOMPARE(menuSpy.count(), 1);
+        QCOMPARE(menuSpy.takeFirst(),
+                 (QList<QVariant>{QStringLiteral("server-b"),
+                                  QStringLiteral("same-team-id"),
+                                  QStringLiteral("same-category-id")}));
+        QTest::mouseClick(tree.viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(rect.right() - 15, rect.center().y()));
+        QCOMPARE(actionSpy.count(), 1);
+        QCOMPARE(actionSpy.takeFirst(),
+                 (QList<QVariant>{QStringLiteral("server-b"),
+                                  QStringLiteral("same-team-id"),
+                                  QStringLiteral("same-category-id")}));
+    }
+
     void backendBindingsAreAccountQualified()
     {
         Backend first;

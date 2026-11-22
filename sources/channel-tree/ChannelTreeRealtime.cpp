@@ -19,13 +19,28 @@ namespace Mattermost {
 
 void ChannelTree::admitStoredConversation(BackendChannel& channel)
 {
-    if (!backendForSidebar
-        || (channel.type != BackendChannel::directChannel
-            && channel.type != BackendChannel::groupChannel)) {
+    if (channel.type != BackendChannel::directChannel
+        && channel.type != BackendChannel::groupChannel)
         return;
-    }
 
-    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    Backend* owner = nullptr;
+    QString accountId;
+    for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
+        if (it.value() && &it.value()->getStorage() == &channel.storage) {
+            owner = it.value();
+            accountId = it.key();
+            break;
+        }
+    }
+    if (!owner && backendForSidebar
+        && &backendForSidebar->getStorage() == &channel.storage) {
+        owner = backendForSidebar;
+        accountId = _boundAccountId;
+    }
+    if (!owner)
+        return;
+
+    auto& sidebar = SidebarService::instance(*owner);
 
     // Direct/group conversations are global Mattermost conversations. A
     // direct_added or posted event may refer to one that has fallen outside the
@@ -34,6 +49,8 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
     // admitted into Direct Messages locally. Recent sorting is driven by the
     // channel's updated last_post_at during the normal reconciliation below.
     for (auto teamIt = teamToItemMap.begin(); teamIt != teamToItemMap.end(); ++teamIt) {
+        if (teamIt.key().first != accountId)
+            continue;
         TeamItem* teamItem = teamIt.value();
         SidebarTeamState* state = sidebar.teamState(teamIt.key().second);
         if (!teamItem || !state) {
@@ -61,11 +78,11 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
         }
 
         if (sidebarDragActive) {
-            pendingSidebarReconcileTeams.insert(teamIt.key().second);
+            pendingSidebarReconcileTeams.insert(teamIt.key());
             continue;
         }
 
-        reconcileTeamSidebar(*backendForSidebar, *teamItem, *state);
+        reconcileTeamSidebar(*owner, *teamItem, *state);
     }
 }
 

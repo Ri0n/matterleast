@@ -35,26 +35,28 @@ bool containsChannel(const SidebarTeamState& state, const QString& channelId)
 
 } // namespace
 
-void ChannelTree::openStoredChannel(QString channelID)
+void ChannelTree::openStoredChannel(QString channelID, const QString& accountId)
 {
+    const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelID};
     if (sidebarDragActive) {
-        pendingStoredChannelOpens.insert(channelID);
+        pendingStoredChannelOpens.insert(key);
         return;
     }
 
-    auto existing = channelToItemMap.constFind(scopedId(channelID));
+    auto existing = channelToItemMap.constFind(key);
     if ((existing != channelToItemMap.cend() && !existing.value().isEmpty())
-        || channelPages.value(scopedId(channelID))) {
-        openChannel(std::move(channelID));
+        || channelPages.value(key)) {
+        openChannel(std::move(channelID), key.first);
         return;
     }
 
-    if (!backendForSidebar) {
+    Backend* owner = backendForAccount(key.first);
+    if (!owner) {
         emit storedChannelOpenFinished(channelID, false);
         return;
     }
 
-    BackendChannel* channel = backendForSidebar->getStorage().getChannelById(channelID);
+    BackendChannel* channel = owner->getStorage().getChannelById(channelID);
     if (!channel) {
         qDebug() << "openStoredChannel" << channelID << ": channel not found in storage";
         emit storedChannelOpenFinished(channelID, false);
@@ -68,14 +70,14 @@ void ChannelTree::openStoredChannel(QString channelID)
     if (channel->type == BackendChannel::directChannel
         || channel->type == BackendChannel::groupChannel) {
         admitStoredConversation(*channel);
-        existing = channelToItemMap.constFind(scopedId(channelID));
+        existing = channelToItemMap.constFind(key);
         if (existing != channelToItemMap.cend() && !existing.value().isEmpty()) {
-            openChannel(std::move(channelID));
+            openChannel(std::move(channelID), key.first);
             return;
         }
     }
 
-    auto& sidebar = SidebarService::instance(*backendForSidebar);
+    auto& sidebar = SidebarService::instance(*owner);
 
     // Prefer the Direct Messages category when a channel occurs in more than
     // one server category. A materialized current DM is retained by the sidebar
@@ -88,7 +90,11 @@ void ChannelTree::openStoredChannel(QString channelID)
     Candidate fallback;
 
     for (auto teamIt = teamToItemMap.cbegin(); teamIt != teamToItemMap.cend(); ++teamIt) {
+        if (teamIt.key().first != key.first)
+            continue;
         TeamItem* teamItem = teamIt.value();
+        if (!teamItem || &teamItem->backend != owner)
+            continue;
         const SidebarTeamState* state = sidebar.teamState(teamIt.key().second);
         if (!teamItem || !state) {
             continue;
@@ -139,34 +145,37 @@ void ChannelTree::openStoredChannel(QString channelID)
             emit storedChannelOpenFinished(channelID, false);
             return;
         }
-        if (pendingChannelAdmissions.contains(channelID)) {
+        if (pendingChannelAdmissions.contains(key)) {
             return;
         }
 
-        pendingChannelAdmissions.insert(channelID);
+        pendingChannelAdmissions.insert(key);
         const QString teamId = channel->team->id;
         QPointer<ChannelTree> guard(this);
+        QPointer<Backend> ownerGuard(owner);
         sidebar.retrieveCategories(*channel->team,
-            [guard, channelID, teamId](const SidebarTeamState& refreshedState) {
-                if (!guard || !guard->backendForSidebar) {
+            [guard, ownerGuard, channelID, teamId, key](
+                const SidebarTeamState& refreshedState) {
+                if (!guard || !ownerGuard
+                    || guard->backendForAccount(key.first) != ownerGuard.data())
                     return;
-                }
 
                 if (containsChannel(refreshedState, channelID)) {
-                    guard->pendingChannelAdmissions.remove(channelID);
-                    guard->openStoredChannel(channelID);
+                    guard->pendingChannelAdmissions.remove(key);
+                    guard->openStoredChannel(channelID, key.first);
                     QTreeWidgetItem* current = guard->currentItem();
                     const bool opened = current
                         && current->data(0, ItemKindRole).toInt() == ChannelItemKind
-                        && current->data(0, ItemIdRole).toString() == channelID;
+                        && current->data(0, ItemIdRole).toString() == channelID
+                        && current->data(0, ItemAccountIdRole).toString() == key.first;
                     emit guard->storedChannelOpenFinished(channelID, opened);
                     return;
                 }
 
                 BackendChannel* currentChannel =
-                    guard->backendForSidebar->getStorage().getChannelById(channelID);
+                    ownerGuard->getStorage().getChannelById(channelID);
                 if (!currentChannel || currentChannel->type != BackendChannel::publicChannel) {
-                    guard->pendingChannelAdmissions.remove(channelID);
+                    guard->pendingChannelAdmissions.remove(key);
                     qWarning() << "Channel is absent after sidebar refresh and cannot be auto-joined"
                                << channelID;
                     emit guard->storedChannelOpenFinished(channelID, false);
@@ -175,21 +184,22 @@ void ChannelTree::openStoredChannel(QString channelID)
 
                 // No one-shot network manager per click: the owning Backend
                 // already provides the account-scoped HTTP queue and error relay.
-                QPointer<Backend> account(guard->backendForSidebar);
-                NetworkRequest request(account->networkSession(), QStringLiteral("channels/") + channelID
-                                       + QStringLiteral("/members"));
+                NetworkRequest request(ownerGuard->networkSession(),
+                                       QStringLiteral("channels/") + channelID
+                                           + QStringLiteral("/members"));
                 const QJsonObject payload {
-                    {QStringLiteral("user_id"), guard->backendForSidebar->getLoginUser().id},
+                    {QStringLiteral("user_id"), ownerGuard->getLoginUser().id},
                 };
-                account->httpTransport().post(request, QByteArrayCreator(payload), HttpResponseCallback(
-                    [guard, account, channelID, teamId](
+                ownerGuard->httpTransport().post(request, QByteArrayCreator(payload),
+                    HttpResponseCallback(
+                    [guard, ownerGuard, channelID, teamId, key](
                         QVariant status, const QJsonDocument&) {
-                        if (!guard || !account || guard->backendForSidebar != account) {
+                        if (!guard || !ownerGuard
+                            || guard->backendForAccount(key.first) != ownerGuard.data())
                             return;
-                        }
 
                         if (status.toInt() != QNetworkReply::NoError) {
-                            guard->pendingChannelAdmissions.remove(channelID);
+                            guard->pendingChannelAdmissions.remove(key);
                             qWarning() << "Failed to auto-join public channel" << channelID
                                        << "network status" << status.toInt();
                             emit guard->storedChannelOpenFinished(channelID, false);
@@ -197,22 +207,23 @@ void ChannelTree::openStoredChannel(QString channelID)
                         }
 
                         BackendTeam* team =
-                            guard->backendForSidebar->getStorage().getTeamById(teamId);
+                            ownerGuard->getStorage().getTeamById(teamId);
                         if (!team) {
-                            guard->pendingChannelAdmissions.remove(channelID);
+                            guard->pendingChannelAdmissions.remove(key);
                             qWarning() << "Joined channel" << channelID
                                        << "but team disappeared" << teamId;
                             emit guard->storedChannelOpenFinished(channelID, false);
                             return;
                         }
 
-                        SidebarService::instance(*guard->backendForSidebar).retrieveCategories(
+                        SidebarService::instance(*ownerGuard.data()).retrieveCategories(
                             *team,
-                            [guard, channelID](const SidebarTeamState& joinedState) {
-                                if (!guard) {
+                            [guard, ownerGuard, channelID, key](
+                                const SidebarTeamState& joinedState) {
+                                if (!guard || !ownerGuard
+                                    || guard->backendForAccount(key.first) != ownerGuard.data())
                                     return;
-                                }
-                                guard->pendingChannelAdmissions.remove(channelID);
+                                guard->pendingChannelAdmissions.remove(key);
                                 if (!containsChannel(joinedState, channelID)) {
                                     qWarning() << "Joined channel" << channelID
                                                << "but it is still absent from sidebar categories";
@@ -220,11 +231,12 @@ void ChannelTree::openStoredChannel(QString channelID)
                                     return;
                                 }
 
-                                guard->openStoredChannel(channelID);
+                                guard->openStoredChannel(channelID, key.first);
                                 QTreeWidgetItem* current = guard->currentItem();
                                 const bool opened = current
                                     && current->data(0, ItemKindRole).toInt() == ChannelItemKind
-                                    && current->data(0, ItemIdRole).toString() == channelID;
+                                    && current->data(0, ItemIdRole).toString() == channelID
+                        && current->data(0, ItemAccountIdRole).toString() == key.first;
                                 emit guard->storedChannelOpenFinished(channelID, opened);
                             });
                     }));
@@ -232,7 +244,7 @@ void ChannelTree::openStoredChannel(QString channelID)
         return;
     }
 
-    ChannelItem* item = createChannelItem(*backendForSidebar,
+    ChannelItem* item = createChannelItem(*owner,
                                           *fallback.teamItem,
                                           *fallback.categoryItem,
                                           *channel);

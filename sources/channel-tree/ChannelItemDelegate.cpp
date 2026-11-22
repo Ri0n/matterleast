@@ -363,12 +363,14 @@ bool ChannelItemDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
             };
             if (showAdd && slotRect(0).contains(mouse->pos())) {
                 emit categoryActionRequested(
+                    index.data(SidebarItem::AccountIdRole).toString(),
                     index.data(SidebarItem::TeamIdRole).toString(),
                     index.data(SidebarItem::IdRole).toString());
                 return true;
             }
             if (slotRect(showAdd ? 1 : 0).contains(mouse->pos())) {
                 emit categoryMenuRequested(
+                    index.data(SidebarItem::AccountIdRole).toString(),
                     index.data(SidebarItem::TeamIdRole).toString(),
                     index.data(SidebarItem::IdRole).toString());
                 return true;

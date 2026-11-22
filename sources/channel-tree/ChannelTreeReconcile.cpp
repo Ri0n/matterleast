@@ -85,31 +85,29 @@ void moveChild(QTreeWidgetItem& parent, QTreeWidgetItem* child, int index)
 
 } // namespace
 
-void ChannelTree::verifySidebarTeam(const QString& teamId, quint64 mutation)
+void ChannelTree::verifySidebarTeam(const ScopedId& teamKey, quint64 mutation)
 {
-    if (!backendForSidebar
-        || sidebarMutationGeneration.value(teamId) != mutation) {
+    Backend* owner = backendForAccount(teamKey.first);
+    if (!owner || sidebarMutationGeneration.value(teamKey) != mutation)
         return;
-    }
 
-    BackendTeam* team = backendForSidebar->getStorage().getTeamById(teamId);
-    if (!team) {
+    BackendTeam* team = owner->getStorage().getTeamById(teamKey.second);
+    if (!team)
         return;
-    }
 
     QPointer<ChannelTree> guard(this);
-    SidebarService::instance(*backendForSidebar).retrieveCategories(
+    QPointer<Backend> ownerGuard(owner);
+    SidebarService::instance(*owner).retrieveCategories(
         *team,
-        [guard, teamId, mutation](const SidebarTeamState& serverState) {
-            if (!guard || !guard->backendForSidebar
-                || guard->sidebarMutationGeneration.value(teamId) != mutation) {
+        [guard, ownerGuard, teamKey, mutation](const SidebarTeamState& serverState) {
+            if (!guard || !ownerGuard
+                || guard->backendForAccount(teamKey.first) != ownerGuard.data()
+                || guard->sidebarMutationGeneration.value(teamKey) != mutation)
                 return;
-            }
-            auto& sidebar = SidebarService::instance(*guard->backendForSidebar);
-            sidebar.applyLocalTeamState(teamId, serverState);
-            if (TeamItem* teamItem = guard->teamToItemMap.value(guard->scopedId(teamId), nullptr)) {
-                guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, serverState);
-            }
+            auto& sidebar = SidebarService::instance(*ownerGuard.data());
+            sidebar.applyLocalTeamState(teamKey.second, serverState);
+            if (TeamItem* teamItem = guard->teamToItemMap.value(teamKey, nullptr))
+                guard->reconcileTeamSidebar(*ownerGuard.data(), *teamItem, serverState);
         },
         {},
         false);
@@ -117,7 +115,7 @@ void ChannelTree::verifySidebarTeam(const QString& teamId, quint64 mutation)
 
 void ChannelTree::flushDeferredSidebarReconciles()
 {
-    if (!backendForSidebar || sidebarDragActive) {
+    if (sidebarDragActive) {
         return;
     }
     if (pendingSidebarReconcileTeams.isEmpty()
@@ -126,34 +124,33 @@ void ChannelTree::flushDeferredSidebarReconciles()
         return;
     }
 
-    const QSet<QString> pendingReconciles = pendingSidebarReconcileTeams;
-    const QSet<QString> pendingRefreshes = pendingSidebarRefreshTeams;
-    const QSet<QString> pendingOpens = pendingStoredChannelOpens;
+    const QSet<ScopedId> pendingReconciles = pendingSidebarReconcileTeams;
+    const QSet<ScopedId> pendingRefreshes = pendingSidebarRefreshTeams;
+    const QSet<ScopedId> pendingOpens = pendingStoredChannelOpens;
     pendingSidebarReconcileTeams.clear();
     pendingSidebarRefreshTeams.clear();
     pendingStoredChannelOpens.clear();
 
-    auto& sidebar = SidebarService::instance(*backendForSidebar);
-    for (const QString& teamId : pendingReconciles) {
-        TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr);
-        const SidebarTeamState* state = sidebar.teamState(teamId);
-        if (!teamItem || !state) {
+    for (const ScopedId& teamKey : pendingReconciles) {
+        Backend* owner = backendForAccount(teamKey.first);
+        TeamItem* teamItem = teamToItemMap.value(teamKey, nullptr);
+        if (!owner || !teamItem)
             continue;
-        }
-        reconcileTeamSidebar(*backendForSidebar, *teamItem, *state);
+        const SidebarTeamState* state =
+            SidebarService::instance(*owner).teamState(teamKey.second);
+        if (state)
+            reconcileTeamSidebar(*owner, *teamItem, *state);
     }
 
     // Membership changes during a drag are applied after the drag releases
     // the affected rows.
-    for (const QString& teamId : pendingRefreshes) {
-        refreshSidebarTeam(teamId);
-    }
+    for (const ScopedId& teamKey : pendingRefreshes)
+        refreshSidebarTeam(teamKey);
 
     // Programmatic materialization can also create rows directly. Resume it
     // only after the drag-owned tree structure has been released.
-    for (const QString& channelId : pendingOpens) {
-        openStoredChannel(channelId);
-    }
+    for (const ScopedId& channelKey : pendingOpens)
+        openStoredChannel(channelKey.second, channelKey.first);
 }
 
 void ChannelTree::destroySidebarRow(QTreeWidgetItem* item)
@@ -179,7 +176,7 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     // SidebarService still receives network state normally; coalesce structural
     // updates per team and apply only the newest state once the drag finishes.
     if (sidebarDragActive) {
-        pendingSidebarReconcileTeams.insert(teamItem.teamId);
+        pendingSidebarReconcileTeams.insert({accountIdForBackend(&backend), teamItem.teamId});
         return;
     }
 
