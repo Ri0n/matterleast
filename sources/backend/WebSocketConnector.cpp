@@ -231,6 +231,7 @@ struct WebSocketConnector::Private {
 	bool resumeFailed = false;
 	bool helloReceived = false;
     bool authenticated = false;
+    bool unverifiedReplayWithoutHello = false;
 	bool connectNotified = false;
 	bool immediateReconnectPending = false;
 	bool suppressReconnect = false;
@@ -260,9 +261,10 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 
 	connect (&d->webSocket, &QWebSocket::connected, this, [this] {
 		LOG_DEBUG ("WebSocket connected");
-				d->responseSequence = 1;
+		d->responseSequence = 1;
 		d->helloReceived = false;
         d->authenticated = false;
+        d->unverifiedReplayWithoutHello = false;
 		d->connectNotified = false;
 		d->resumeFailed = false;
 		doHandshake ();
@@ -271,7 +273,7 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 
 	connect (&d->webSocket, &QWebSocket::disconnected, this, [this] {
 		stopHeartbeat ();
-		d->connectionAttemptTimer.stop();
+	d->connectionAttemptTimer.stop();
 		d->responseSequence = 1;
 
 		const bool reconnectSuppressed = d->suppressReconnect;
@@ -281,6 +283,7 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 		emit onDisconnect ();
 		d->helloReceived = false;
         d->authenticated = false;
+        d->unverifiedReplayWithoutHello = false;
 		d->connectNotified = false;
 
 		if (d->immediateReconnectPending && !reconnectSuppressed && !d->token.isEmpty()) {
@@ -313,7 +316,7 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 
 		LOG_DEBUG("Mattermost WebSocket ping received no response within "
 		          << HeartbeatReplyTimeoutMs << " ms. Reconnecting");
-		d->waitingForPong = false;
+	d->waitingForPong = false;
 		d->pendingPingSequence = 0;
 		if (d->webSocket.state() == QAbstractSocket::ConnectedState) {
 			d->webSocket.abort();
@@ -415,15 +418,16 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	d->serverSequence = 0;
 	d->pendingPingSequence = 0;
 	d->pendingAuthenticationSequence = 0;
-		d->waitingForPong = false;
+	d->waitingForPong = false;
 	d->hasReconnect = false;
 	d->resumeFailed = false;
 	d->helloReceived = false;
     d->authenticated = false;
+        d->unverifiedReplayWithoutHello = false;
 	d->connectNotified = false;
 	d->immediateReconnectPending = false;
 	d->suppressReconnect = false;
-		d->connectionAttemptTimer.stop();
+	d->connectionAttemptTimer.stop();
 	stopHeartbeat ();
     d->endpointUrl.clear();
     d->typingMessagesEnabled = true;
@@ -507,16 +511,20 @@ void WebSocketConnector::close ()
 
 void WebSocketConnector::notifyReadyIfVerified()
 {
-    // Authentication alone says nothing about events missed while offline.
-    // Only an authenticated hello and validated sequence prove readiness.
-    if (d->connectNotified || !d->authenticated || !d->helloReceived)
+    // Some servers resume directly with sequenced events without a new hello.
+    // Such a stream may authenticate, but is not evidence of lossless replay:
+    // force a full REST recovery instead of looping forever.
+    if (d->connectNotified || !d->authenticated
+        || (!d->helloReceived && !d->unverifiedReplayWithoutHello))
         return;
     d->connectNotified = true;
     d->connectionAttemptTimer.stop();
     const bool wasReconnect = d->hasReconnect;
-    const bool needsHttpResync = wasReconnect && d->resumeFailed;
+    const bool needsHttpResync = wasReconnect
+        && (d->resumeFailed || d->unverifiedReplayWithoutHello);
     d->hasReconnect = false;
     d->resumeFailed = false;
+    d->unverifiedReplayWithoutHello = false;
     setConnectionState(ConnectionState::Connected);
     emit onConnect(wasReconnect, needsHttpResync);
 }
@@ -700,16 +708,17 @@ void WebSocketConnector::sendPing ()
 void WebSocketConnector::reset ()
 {
 	++d->configGeneration;
-		d->connectionAttemptTimer.stop();
+	d->connectionAttemptTimer.stop();
 	stopHeartbeat ();
 	d->connectionId.clear ();
 	d->responseSequence = 1;
 	d->serverSequence = 0;
 	d->pendingAuthenticationSequence = 0;
-		d->hasReconnect = false;
+	d->hasReconnect = false;
 	d->resumeFailed = false;
 	d->helloReceived = false;
     d->authenticated = false;
+        d->unverifiedReplayWithoutHello = false;
 	d->connectNotified = false;
 	d->immediateReconnectPending = false;
     setConnectionState(ConnectionState::Disconnected);
@@ -738,7 +747,7 @@ void WebSocketConnector::onNewPacket (const QString& string)
 		const int replySequence = seqReply.toInt ();
 		if (d->waitingForPong && replySequence == d->pendingPingSequence) {
 			d->heartbeatReplyTimer.stop();
-			d->waitingForPong = false;
+		d->waitingForPong = false;
 			d->pendingPingSequence = 0;
 		}
 
@@ -810,7 +819,16 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	}
 
     if (!d->helloReceived) {
-        LOG_DEBUG("WebSocket event arrived before hello; refusing stream");
+        if (d->hasReconnect && !d->connectionId.isEmpty()
+            && !eventSequenceValue.isUndefined()) {
+            LOG_DEBUG("WebSocket resumed with sequenced event but no hello; "
+                      "full REST recovery required");
+            d->unverifiedReplayWithoutHello = true;
+            notifyReadyIfVerified();
+            // Do not apply unverified events to live Storage.
+            return;
+        }
+        LOG_DEBUG("WebSocket event arrived before hello on a fresh stream");
         d->resumeFailed = true;
         d->hasReconnect = true;
         d->connectionId.clear();
