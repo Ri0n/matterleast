@@ -71,3 +71,26 @@ For a regression report capture these lines, including the initial
 `MatterLeast startup:` marker and any `mattermost.account.restore` warnings.
 Avoid deleting account settings or keyring secrets before diagnosing
 `not-found` versus `unavailable` versus a server-side rejection.
+
+## Legacy keychain login-name repair (2026-11-22)
+
+Some catalogs migrated during the multi-account development period retained a
+different `loginName` than the server's verified `username` previously used
+to write a `login-token-v1-*` entry. The saved token still exists but the
+new catalog keychain lookup returns `not-found`.
+
+`LegacyTokenRecovery` is a strictly scoped compatibility adapter. Only after
+the catalog's primary key returns `not-found`, it can derive a secondary
+login candidate from the historic server-generated display convention
+`<server-host> — <username>`. It never enumerates keychain entries, guesses
+arbitrary login names, scans other servers or changes credentials before
+authenticating. Normal restoration verifies that the resulting session has
+**exactly the same server origin and remote user ID** as the durable catalog
+record. Only then is the token written under the catalog's current key for
+future startups. The historical key is never removed in this step; if the
+promotion write fails, the original remains available for another attempt.
+
+This adapter should be removed once compatibility with affected
+pre-multi-account catalogs is no longer needed. Unlike a schema-number change,
+the repair may be retried when a user unlocks a previously unavailable wallet
+or reconnects after an offline period.
