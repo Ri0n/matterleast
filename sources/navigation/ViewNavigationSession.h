@@ -89,6 +89,12 @@ public:
     bool updateBookmark(int index, const QString& postId,
                         std::optional<NavigationTabsModel::ViewportAnchor> anchor);
     bool visit(const Location& location);
+    // Record a semantic visit without changing the central tab selection.
+    // Docked threads share the same history while retaining the channel tab.
+    bool recordVisit(const Location& location);
+    // Update a passive viewport bookmark without creating a history step.
+    // Reject a different destination, which must go through recordVisit().
+    bool updateCurrentBookmark(const Location& location);
     std::optional<Location> goBack();
     std::optional<Location> goForward();
 
