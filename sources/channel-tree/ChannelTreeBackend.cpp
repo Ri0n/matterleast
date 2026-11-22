@@ -1,5 +1,7 @@
 #include "ChannelTree.h"
 
+#include "backend/Backend.h"
+
 #include "mainwindow.h"
 
 namespace Mattermost {
