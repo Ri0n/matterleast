@@ -20,6 +20,8 @@
 #include <memory>
 #include <utility>
 #include <QApplication>
+#include <QDialog>
+#include <QVBoxLayout>
 #include <QAction>
 #include <QMenu>
 #include <QSystemTrayIcon>
@@ -66,6 +68,7 @@
 #include "ui/TrayWindowController.h"
 #include "ui/AccountWorkspaceStack.h"
 #include "ui/AccountOverviewPage.h"
+#include "ui/ServersSidebarPage.h"
 #include "ui/AccountTrayBadgeModel.h"
 
 namespace Mattermost {
@@ -102,6 +105,7 @@ private:
     AccountTrayBadgeModel trayBadges;
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
     AccountOverviewPage* overviewPage = nullptr;
+    QPointer<QDialog> offlineServersDialog;
     QHash<Backend*, MainWindow*> accountViews; // Presentation only.
     QSet<Backend*> closingAccounts;
     QPointer<LoginDialog> loginDialog;
@@ -294,6 +298,55 @@ void MattermostApplication::ensureWorkspaceShell()
     });
     connect(overviewPage, &AccountOverviewPage::addServerRequested, this,
             [this] { openLoginWindow(); });
+    connect(overviewPage, &AccountOverviewPage::manageServersRequested, this,
+            [this] {
+        if (offlineServersDialog) {
+            offlineServersDialog->show();
+            offlineServersDialog->raise();
+            offlineServersDialog->activateWindow();
+            return;
+        }
+        // The Servers sidebar is attached to a connected Backend's Widgets
+        // presentation. The very same QtCore-backed editor must also work
+        // while every account is offline, without constructing a fake Backend.
+        auto* dialog = new QDialog(workspaceShell.get());
+        offlineServersDialog = dialog;
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setWindowTitle(tr("Manage servers and views"));
+        dialog->resize(470, 570);
+        auto* layout = new QVBoxLayout(dialog);
+        layout->setContentsMargins(0, 0, 0, 0);
+        auto* page = new ServersSidebarPage(accounts, dialog);
+        layout->addWidget(page);
+        connect(page, &ServersSidebarPage::accountOpenRequested, this,
+                [this, dialog](const QString& id) {
+            selectAccount(id);
+            dialog->close();
+        });
+        connect(page, &ServersSidebarPage::viewOpenRequested, this,
+                [this, dialog](const QString& id) {
+            if (accounts.activateView(id))
+                selectAccount(accounts.selectedAccountId());
+            dialog->close();
+        });
+        connect(page, &ServersSidebarPage::addServerRequested, this,
+                [this, dialog] {
+            dialog->close();
+            openLoginWindow();
+        });
+        connect(page, &ServersSidebarPage::signInRequested, this,
+                [this, dialog](const QString& id) {
+            if (accounts.selectAccount(id)) {
+                dialog->close();
+                openLoginWindow(id);
+            }
+        });
+        connect(page, &ServersSidebarPage::retryRequested, this,
+                [this](const QString& id) {
+            if (accounts.selectAccount(id)) accounts.restoreAccount(id);
+        });
+        dialog->show();
+    });
 
     connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
             [this] {
