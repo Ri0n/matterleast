@@ -76,7 +76,11 @@ public:
     // work, creates widgets or starts scrolling.
     int openTab(const Location& location, const QString& title = {},
                 bool pinned = false);
+    // Ordinary channel navigation reuses a non-pinned channel slot; explicit
+    // open-in-new-tab uses openTab() instead. Account identity is never lost.
+    int reuseOrOpenChannelTab(const Location& location, const QString& title = {});
     bool activateTab(int index);
+    bool moveTab(int from, int to);
     bool closeTab(int index);
     bool setPinned(int index, bool pinned);
     bool updateBookmark(int index, const QString& postId,
