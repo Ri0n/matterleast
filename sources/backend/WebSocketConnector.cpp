@@ -523,7 +523,8 @@ void WebSocketConnector::notifyReadyIfVerified()
     const bool needsHttpResync = wasReconnect && d->resumeFailed;
     d->hasReconnect = false;
     d->resumeFailed = false;
-    d->replayEventReceived = false;
+    // Keep replayEventReceived set until disconnect: subsequent buffered
+    // events also arrive without hello and must use the same verified stream.
     setConnectionState(ConnectionState::Connected);
     emit onConnect(wasReconnect, needsHttpResync);
 }
@@ -818,7 +819,8 @@ void WebSocketConnector::onNewPacket (const QString& string)
 	}
 
     if (!d->helloReceived) {
-        if (d->hasReconnect && !d->connectionId.isEmpty()
+        if ((d->hasReconnect || d->replayEventReceived)
+            && !d->connectionId.isEmpty()
             && !eventSequenceValue.isUndefined()) {
             // Mattermost may replay directly on the retained connection_id.
             // The sequence gap check above protects continuity.
