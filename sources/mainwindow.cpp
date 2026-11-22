@@ -362,6 +362,11 @@ MainWindow::~MainWindow()
 void MainWindow::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
+    // Only embedded account views use the deferred splitter restoration.
+    // Standalone MainWindow (including existing widget tests) must not be
+    // resized asynchronously after their explicit window.resize()/show().
+    if (isWindow())
+        return;
     // Restoring the splitter in the constructor happens while its workspace
     // is hidden. Wait until QStackedWidget shows both panes and lays them out.
     // This also handles account switches without additional polling timers.
@@ -373,7 +378,9 @@ void MainWindow::showEvent(QShowEvent* event)
 
 void MainWindow::restoreSidebarWidth()
 {
-    if (!sidebarSplitter || !sidebarSplitter->isVisible()
+    // Embedded workspaces own their geometry through AccountWorkspaceStack.
+    // A standalone top-level window follows the normal QSplitter layout.
+    if (isWindow() || !sidebarSplitter || !sidebarSplitter->isVisible()
         || sidebarSplitter->count() < 2)
         return;
     const QString partition =
