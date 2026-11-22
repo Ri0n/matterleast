@@ -22,7 +22,7 @@ class WorkspaceTreeModel final : public QAbstractItemModel
     Q_OBJECT
     Q_PROPERTY(QString activeViewId READ activeViewId NOTIFY activeViewChanged)
 public:
-    enum NodeKind { ProfileNode, ViewNode, AccountNode };
+    enum NodeKind { ProfileNode, ViewNode, AccountNode, PendingNode };
     Q_ENUM(NodeKind)
     enum Role {
         NodeKindRole = Qt::UserRole + 1,
@@ -55,6 +55,11 @@ public:
     void refreshTopology();
     // Synchronize highlighting after WorkspaceLayout::selectView/selectAccount.
     void syncActiveView();
+    // Transient unauthenticated attempts appear in the same Servers tree but
+    // are never written to WorkspaceLayout or treated as verified accounts.
+    void setPendingServer(const QString& id, const QString& server,
+                          const QString& status);
+    void removePendingServer(const QString& id);
 
 signals:
     void activeViewChanged(const QString& id);
@@ -67,6 +72,7 @@ private:
         QString profileId;
         QString viewId;
         QString accountId;
+        QString status;
         Node* parent = nullptr;
         int row = 0;
         std::vector<std::unique_ptr<Node>> children;
@@ -78,6 +84,8 @@ private:
     QModelIndex modelIndex(const Node* node) const;
     void notifyAccountStatus(const QString& accountId);
 
+    struct PendingServer { QString id; QString server; QString status; };
+    QVector<PendingServer> _pendingServers;
     const WorkspaceLayout& _layout;
     const AccountListModel& _accounts;
     Node _root;
