@@ -530,6 +530,26 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         return;
     }
 
+    if (recoveryAccountId.isEmpty()) {
+        // First/additional server: the dialog only collects credentials. No
+        // network operation or artificial Backend belongs to the modal form.
+        // Once accepted it disappears and the Servers tree shows progress.
+        auto* dialog = new LoginDialog(workspaceShell.get(),
+                                       suggestedServer, suggestedLogin);
+        dialog->setWindowModality(Qt::WindowModal);
+        loginDialog = dialog;
+        connect(dialog, &QDialog::rejected, this, [this, dialog] {
+            if (loginDialog == dialog) loginDialog = nullptr;
+        });
+        connect(dialog, &QDialog::accepted, this, [this, dialog] {
+            const BackendLoginData credentials = dialog->submittedCredentials();
+            if (loginDialog == dialog) loginDialog = nullptr;
+            accounts.beginNewServerLogin(credentials);
+        });
+        dialog->open();
+        return;
+    }
+
     QString fixedServer;
     QString fixedLogin;
     if (!recoveryAccountId.isEmpty()) {
@@ -551,7 +571,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
     // Migrations may suggest old non-secret login coordinates. They never
     // authenticate or access keychain from the Widgets credential editor.
     const bool lockIdentity = !fixedServer.isEmpty() && !fixedLogin.isEmpty();
-    auto* dialog = new LoginDialog(nullptr, *candidate,
+    auto* dialog = new LoginDialog(workspaceShell.get(), *candidate,
         lockIdentity ? fixedServer : suggestedServer,
         lockIdentity ? fixedLogin : suggestedLogin, lockIdentity);
     loginDialog = dialog;
