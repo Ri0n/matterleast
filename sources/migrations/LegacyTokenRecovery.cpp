@@ -50,7 +50,8 @@ QString LegacyTokenRecovery::candidateLoginName(
     if (!record.name.startsWith(prefix, Qt::CaseInsensitive))
         return {};
     const QString candidate = record.name.mid(prefix.size()).trimmed();
-    if (candidate.isEmpty() || candidate.contains(QLatin1Char('/')))
+    if (candidate.isEmpty() || candidate.contains(QLatin1Char('/'))
+        || candidate.contains(QLatin1Char('@')))
         return {};
     return candidate;
 }
