@@ -121,10 +121,11 @@ private slots:
         QWebSocket* first = sockets[0];
         QTRY_VERIFY(authenticationSequences.contains(first));
         hello(first, QStringLiteral("stream-a"), 0);
-        QTest::qWait(100);
-        QCOMPARE(connected.size(), 0); // hello alone is not authenticated
-        acceptAuth(first);
+        // Cookie-authenticated servers can emit hello without sending a
+        // separate authentication_challenge acknowledgement.
         QTRY_COMPARE(connected.size(), 1);
+        acceptAuth(first);
+        QCOMPARE(connected.size(), 1);
         QCOMPARE(connected.at(0).at(0).toBool(), false);
         QCOMPARE(connected.at(0).at(1).toBool(), false);
 
@@ -137,10 +138,9 @@ private slots:
         QTRY_VERIFY(authenticationSequences.contains(second));
         // The same stream and contiguous sequence permit lossless replay.
         hello(second, QStringLiteral("stream-a"), 1);
-        QTest::qWait(100);
-        QCOMPARE(connected.size(), 1);
-        acceptAuth(second);
         QTRY_COMPARE(connected.size(), 2);
+        acceptAuth(second);
+        QCOMPARE(connected.size(), 2);
         QCOMPARE(connected.at(1).at(0).toBool(), true);
         QCOMPARE(connected.at(1).at(1).toBool(), false);
 
@@ -185,18 +185,17 @@ private slots:
         QTRY_COMPARE(sockets.size(), 5);
         QWebSocket* fifth = sockets[4];
         QTRY_VERIFY(authenticationSequences.contains(fifth));
-        // A resumed stream without hello must not get stuck in retries nor be
-        // mistaken for a confirmed lossless replay.
+        // A resumed stream may deliver buffered events without hello or
+        // a challenge acknowledgement. Contiguous replay is trustworthy.
         fifth->sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{
             {QStringLiteral("event"), QStringLiteral("unknown_replay_event")},
             {QStringLiteral("seq"), 1}
         }).toJson(QJsonDocument::Compact)));
-        QTest::qWait(100);
-        QCOMPARE(connected.size(), 4);
-        acceptAuth(fifth);
         QTRY_COMPARE(connected.size(), 5);
         QCOMPARE(connected.at(4).at(0).toBool(), true);
-        QCOMPARE(connected.at(4).at(1).toBool(), true);
+        QCOMPARE(connected.at(4).at(1).toBool(), false);
+        acceptAuth(fifth);
+        QCOMPARE(connected.size(), 5);
 
         connector.close();
         for (QWebSocket* socket : sockets) {

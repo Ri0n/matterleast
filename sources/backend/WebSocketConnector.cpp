@@ -231,7 +231,7 @@ struct WebSocketConnector::Private {
 	bool resumeFailed = false;
 	bool helloReceived = false;
     bool authenticated = false;
-    bool unverifiedReplayWithoutHello = false;
+    bool replayEventReceived = false;
 	bool connectNotified = false;
 	bool immediateReconnectPending = false;
 	bool suppressReconnect = false;
@@ -264,7 +264,7 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 		d->responseSequence = 1;
 		d->helloReceived = false;
         d->authenticated = false;
-        d->unverifiedReplayWithoutHello = false;
+        d->replayEventReceived = false;
 		d->connectNotified = false;
 		d->resumeFailed = false;
 		doHandshake ();
@@ -283,7 +283,7 @@ WebSocketConnector::WebSocketConnector (WebSocketEventHandler& eventHandler)
 		emit onDisconnect ();
 		d->helloReceived = false;
         d->authenticated = false;
-        d->unverifiedReplayWithoutHello = false;
+        d->replayEventReceived = false;
 		d->connectNotified = false;
 
 		if (d->immediateReconnectPending && !reconnectSuppressed && !d->token.isEmpty()) {
@@ -423,7 +423,7 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	d->resumeFailed = false;
 	d->helloReceived = false;
     d->authenticated = false;
-        d->unverifiedReplayWithoutHello = false;
+        d->replayEventReceived = false;
 	d->connectNotified = false;
 	d->immediateReconnectPending = false;
 	d->suppressReconnect = false;
@@ -511,20 +511,19 @@ void WebSocketConnector::close ()
 
 void WebSocketConnector::notifyReadyIfVerified()
 {
-    // Some servers resume directly with sequenced events without a new hello.
-    // Such a stream may authenticate, but is not evidence of lossless replay:
-    // force a full REST recovery instead of looping forever.
+    // Cookie authentication can deliver hello before any challenge reply.
+    // Resumed connections may directly deliver buffered events without hello.
+    // Both prove server authentication; replay continuity is checked separately.
     if (d->connectNotified || !d->authenticated
-        || (!d->helloReceived && !d->unverifiedReplayWithoutHello))
+        || (!d->helloReceived && !d->replayEventReceived))
         return;
     d->connectNotified = true;
     d->connectionAttemptTimer.stop();
     const bool wasReconnect = d->hasReconnect;
-    const bool needsHttpResync = wasReconnect
-        && (d->resumeFailed || d->unverifiedReplayWithoutHello);
+    const bool needsHttpResync = wasReconnect && d->resumeFailed;
     d->hasReconnect = false;
     d->resumeFailed = false;
-    d->unverifiedReplayWithoutHello = false;
+    d->replayEventReceived = false;
     setConnectionState(ConnectionState::Connected);
     emit onConnect(wasReconnect, needsHttpResync);
 }
@@ -718,7 +717,7 @@ void WebSocketConnector::reset ()
 	d->resumeFailed = false;
 	d->helloReceived = false;
     d->authenticated = false;
-        d->unverifiedReplayWithoutHello = false;
+        d->replayEventReceived = false;
 	d->connectNotified = false;
 	d->immediateReconnectPending = false;
     setConnectionState(ConnectionState::Disconnected);
@@ -821,26 +820,26 @@ void WebSocketConnector::onNewPacket (const QString& string)
     if (!d->helloReceived) {
         if (d->hasReconnect && !d->connectionId.isEmpty()
             && !eventSequenceValue.isUndefined()) {
-            LOG_DEBUG("WebSocket resumed with sequenced event but no hello; "
-                      "full REST recovery required");
-            d->unverifiedReplayWithoutHello = true;
-            notifyReadyIfVerified();
-            // Do not apply unverified events to live Storage.
+            // Mattermost may replay directly on the retained connection_id.
+            // The sequence gap check above protects continuity.
+            d->replayEventReceived = true;
+            d->authenticated = true; // Server accepted the session cookie.
+        } else {
+            LOG_DEBUG("WebSocket event arrived before hello on a fresh stream");
+            d->resumeFailed = true;
+            d->hasReconnect = true;
+            d->connectionId.clear();
+            d->serverSequence = 0;
+            d->webSocket.abort();
             return;
         }
-        LOG_DEBUG("WebSocket event arrived before hello on a fresh stream");
-        d->resumeFailed = true;
-        d->hasReconnect = true;
-        d->connectionId.clear();
-        d->serverSequence = 0;
-        d->webSocket.abort();
-        return;
+    } else {
+        // Mattermost emits hello only after authenticating the connection,
+        // including cookie authentication at the HTTP upgrade.
+        d->authenticated = true;
     }
     notifyReadyIfVerified();
     if (!d->authenticated && eventName != QLatin1String("hello")) {
-        // Events arriving before the authentication challenge is confirmed
-        // must not mutate live Storage. On reconnect an event was discarded,
-        // so the stream can no longer be certified lossless.
         d->resumeFailed = true;
         return;
     }
