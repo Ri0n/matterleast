@@ -325,6 +325,11 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     // Applying restored sizes here lets the first real layout overwrite them.
     // restoreSidebarWidth() runs after its workspace is shown instead.
 	if (sidebarSplitter) {
+        // Keep usable initial proportions even before QStackedWidget shows an
+        // account. In particular, standalone test windows must not start with
+        // an unconstrained splitter that can reflow short thread timelines.
+        // The saved account width is applied after embedding and showing.
+        sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
 		sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
         // Persist user adjustment while the view is active; at application
         // exit another server view may already be hidden in the stack.
