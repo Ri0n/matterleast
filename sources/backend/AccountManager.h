@@ -15,7 +15,7 @@ namespace Mattermost {
 class Account;
 class Backend;
 class ViewNavigationSession;
-struct BackendLoginData;
+class BackendLoginData;
 
 // Single owner of durable account QObjects and optional session Backends.
 // WorkspaceLayout remains pure serializable configuration; Widgets and QML
@@ -117,6 +117,7 @@ private:
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     QHash<QString, QPointer<Backend>> _pendingNewServers;
+    QSet<QString> _failedNewServers;
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
     QHash<QString, ViewNavigationSession*> _viewSessions;
