@@ -48,7 +48,10 @@ void SessionVerificationRetry::attempt()
     ++_attempts;
     _inFlight = true;
     const QPointer<SessionVerificationRetry> guard(this);
-    _check([guard](bool authenticated, bool transient) {
+    // A test checker may complete synchronously. Keep the currently invoked
+    // callable alive if checked() clears _check on final completion.
+    const Check check = _check;
+    check([guard](bool authenticated, bool transient) {
         if (guard)
             guard->checked(authenticated, transient);
     });
