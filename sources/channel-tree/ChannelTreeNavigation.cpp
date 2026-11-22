@@ -35,7 +35,12 @@ bool containsChannel(const SidebarTeamState& state, const QString& channelId)
 
 } // namespace
 
-void ChannelTree::openStoredChannel(QString channelID, const QString& accountId)
+void ChannelTree::openStoredChannel(QString channelID)
+{
+    openStoredChannelForAccount(std::move(channelID), _boundAccountId);
+}
+
+void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& accountId)
 {
     const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelID};
     if (sidebarDragActive) {
@@ -46,7 +51,7 @@ void ChannelTree::openStoredChannel(QString channelID, const QString& accountId)
     auto existing = channelToItemMap.constFind(key);
     if ((existing != channelToItemMap.cend() && !existing.value().isEmpty())
         || channelPages.value(key)) {
-        openChannel(std::move(channelID), key.first);
+        openChannelForAccount(std::move(channelID), key.first);
         return;
     }
 
@@ -72,7 +77,7 @@ void ChannelTree::openStoredChannel(QString channelID, const QString& accountId)
         admitStoredConversation(*channel);
         existing = channelToItemMap.constFind(key);
         if (existing != channelToItemMap.cend() && !existing.value().isEmpty()) {
-            openChannel(std::move(channelID), key.first);
+            openChannelForAccount(std::move(channelID), key.first);
             return;
         }
     }
@@ -162,7 +167,7 @@ void ChannelTree::openStoredChannel(QString channelID, const QString& accountId)
 
                 if (containsChannel(refreshedState, channelID)) {
                     guard->pendingChannelAdmissions.remove(key);
-                    guard->openStoredChannel(channelID, key.first);
+                    guard->openStoredChannelForAccount(channelID, key.first);
                     QTreeWidgetItem* current = guard->currentItem();
                     const bool opened = current
                         && current->data(0, ItemKindRole).toInt() == ChannelItemKind
@@ -231,7 +236,7 @@ void ChannelTree::openStoredChannel(QString channelID, const QString& accountId)
                                     return;
                                 }
 
-                                guard->openStoredChannel(channelID, key.first);
+                                guard->openStoredChannelForAccount(channelID, key.first);
                                 QTreeWidgetItem* current = guard->currentItem();
                                 const bool opened = current
                                     && current->data(0, ItemKindRole).toInt() == ChannelItemKind

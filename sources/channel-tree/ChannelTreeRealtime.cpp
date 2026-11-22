@@ -23,22 +23,10 @@ void ChannelTree::admitStoredConversation(BackendChannel& channel)
         && channel.type != BackendChannel::groupChannel)
         return;
 
-    Backend* owner = nullptr;
-    QString accountId;
-    for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
-        if (it.value() && &it.value()->getStorage() == &channel.storage) {
-            owner = it.value();
-            accountId = it.key();
-            break;
-        }
-    }
-    if (!owner && backendForSidebar
-        && &backendForSidebar->getStorage() == &channel.storage) {
-        owner = backendForSidebar;
-        accountId = _boundAccountId;
-    }
+    Backend* owner = backendForStorage(channel.storage);
     if (!owner)
         return;
+    const QString accountId = accountIdForBackend(owner);
 
     auto& sidebar = SidebarService::instance(*owner);
 

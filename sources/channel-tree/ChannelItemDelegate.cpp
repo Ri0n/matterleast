@@ -236,13 +236,22 @@ void ChannelItemDelegate::paint(QPainter* painter,
 
     if (type == BackendChannel::groupChannel) {
         const QString channelId = index.data(SidebarItem::IdRole).toString();
-        if (!channelId.isEmpty() && !requestedGroupChannels.contains(channelId)) {
-            requestedGroupChannels.insert(channelId);
+        const QString accountId = index.data(SidebarItem::AccountIdRole).toString();
+        const auto key = qMakePair(accountId, channelId);
+        if (!channelId.isEmpty() && !requestedGroupChannels.contains(key)) {
+            requestedGroupChannels.insert(key);
             if (QObject* owner = parent()) {
-                // Alternative sidebar views share this delegate but do not
-                // implement the Channels-only lazy GM display-name loader.
+                // A shared sidebar must not resolve a group's title from a
+                // different server with an identical remote channel ID.
                 if (owner->metaObject()->indexOfMethod(
-                        "ensureGroupChannelDisplayName(QString)") >= 0) {
+                        "ensureGroupChannelDisplayName(QString,QString)") >= 0) {
+                    QMetaObject::invokeMethod(owner,
+                                              "ensureGroupChannelDisplayName",
+                                              Qt::QueuedConnection,
+                                              Q_ARG(QString, accountId),
+                                              Q_ARG(QString, channelId));
+                } else if (owner->metaObject()->indexOfMethod(
+                               "ensureGroupChannelDisplayName(QString)") >= 0) {
                     QMetaObject::invokeMethod(owner,
                                               "ensureGroupChannelDisplayName",
                                               Qt::QueuedConnection,

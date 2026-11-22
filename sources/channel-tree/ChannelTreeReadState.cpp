@@ -91,9 +91,10 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
     const QPoint eventPos = event->pos();
 #endif
 
-    if (!renderingSidebar && event->button() == Qt::MiddleButton && backendForSidebar) {
+    if (!renderingSidebar && event->button() == Qt::MiddleButton) {
         QTreeWidgetItem* clickedItem = itemAt(eventPos);
-        if (clickedItem) {
+        Backend* owner = backendForRow(clickedItem);
+        if (clickedItem && owner) {
             QString channelId;
             const int kind = clickedItem->data(0, ItemKindRole).toInt();
             if (kind == ChannelItemKind) {
@@ -104,16 +105,15 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
                 channelId = clickedItem->data(0, ItemChannelIdRole).toString();
                 if (channelId.isEmpty()) {
                     if (BackendChannel* personal =
-                            backendForSidebar->getStorage().getDirectChannelByUserId(
-                                backendForSidebar->getLoginUser().id)) {
+                            owner->getStorage().getDirectChannelByUserId(
+                                owner->getLoginUser().id)) {
                         channelId = personal->id;
                     }
                 }
             }
 
             if (!channelId.isEmpty()) {
-                AppNavigationService::instance(*backendForSidebar)
-                    .openChannelInTab(channelId);
+                AppNavigationService::instance(*owner).openChannelInTab(channelId);
                 event->accept();
                 return;
             }

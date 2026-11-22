@@ -26,16 +26,18 @@ void ChannelTree::handleChannelUpdated()
         return;
     }
 
-    const auto items = channelToItemMap.value(scopedId(channel->id));
+    Backend* owner = backendForStorage(channel->storage);
+    if (!owner)
+        return;
+    const auto items = channelToItemMap.value({accountIdForBackend(owner), channel->id});
     for (QTreeWidgetItem* row : items) {
         if (!row || row->data(0, ItemKindRole).toInt() != ChannelItemKind) {
             continue;
         }
         static_cast<ChannelItem*>(row)->setLabel(channel->display_name);
     }
-    if (channel->type == BackendChannel::directChannel && backendForSidebar) {
-        if (const BackendUser* user =
-                backendForSidebar->getStorage().getUserById(channel->name)) {
+    if (channel->type == BackendChannel::directChannel) {
+        if (const BackendUser* user = owner->getStorage().getUserById(channel->name)) {
             updateDirectCustomStatus(*user);
         }
     }

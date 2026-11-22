@@ -12,36 +12,39 @@ namespace Mattermost {
 
 void ChannelTree::ensureGroupChannelDisplayName(const QString& channelId)
 {
-    if (!backendForSidebar || channelId.isEmpty()) {
-        return;
-    }
+    ensureGroupChannelDisplayName(_boundAccountId, channelId);
+}
 
-    BackendChannel* channel = backendForSidebar->getStorage().getChannelById(channelId);
-    if (!channel || channel->type != BackendChannel::groupChannel) {
+void ChannelTree::ensureGroupChannelDisplayName(const QString& accountId,
+                                                const QString& channelId)
+{
+    const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelId};
+    Backend* owner = backendForAccount(key.first);
+    if (!owner || channelId.isEmpty())
         return;
-    }
+    BackendChannel* channel = owner->getStorage().getChannelById(channelId);
+    if (!channel || channel->type != BackendChannel::groupChannel)
+        return;
 
     QPointer<ChannelTree> treeGuard(this);
+    QPointer<Backend> ownerGuard(owner);
     QPointer<BackendChannel> channelGuard(channel);
-    UserProfileService::instance(*backendForSidebar).ensureGroupChannelMembers(
-        *channel,
-        [treeGuard, channelGuard, channelId] {
-            if (!treeGuard || !channelGuard) {
+    UserProfileService::instance(*owner).ensureGroupChannelMembers(
+        *channel, [treeGuard, ownerGuard, channelGuard, key] {
+            if (!treeGuard || !ownerGuard || !channelGuard
+                || treeGuard->backendForAccount(key.first) != ownerGuard.data())
                 return;
-            }
 
-            const auto rows = treeGuard->channelToItemMap.value(treeGuard->scopedId(channelId));
+            const auto rows = treeGuard->channelToItemMap.value(key);
             for (QTreeWidgetItem* row : rows) {
-                if (!row
-                    || row->data(0, SidebarItem::KindRole).toInt() != SidebarItem::Channel) {
+                if (!row || treeGuard->backendForRow(row) != ownerGuard.data()
+                    || row->data(0, SidebarItem::KindRole).toInt() != SidebarItem::Channel)
                     continue;
-                }
                 static_cast<ChannelItem*>(row)->setLabel(channelGuard->display_name);
             }
 
-            if (treeGuard->viewport()) {
+            if (treeGuard->viewport())
                 treeGuard->viewport()->update();
-            }
         });
 }
 

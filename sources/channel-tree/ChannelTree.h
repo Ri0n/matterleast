@@ -57,6 +57,7 @@ class BackendUser;
 class ChatArea;
 class TeamItem;
 class ChannelItem;
+class Storage;
 struct SidebarTeamState;
 
 class ChannelTree: public QTreeWidget {
@@ -108,6 +109,8 @@ public:
     // visible. Keeping the request on the tree side avoids backend/network work
     // inside paint() and keeps the delegate independently testable.
     Q_INVOKABLE void ensureGroupChannelDisplayName(const QString& channelId);
+    Q_INVOKABLE void ensureGroupChannelDisplayName(const QString& accountId,
+                                                 const QString& channelId);
 
 	void addTeam (Backend& backend, BackendTeam& team);
 	void populateSidebars(Backend& backend);
@@ -125,11 +128,13 @@ public:
 	void setChatAreaStackedWidget (QStackedWidget* chatAreaStackedWidget);
 	ChatArea* getCurrentPage ();
 
-	void openChannel (QString channelID, const QString& accountId = {});
+	void openChannel (QString channelID);
+    void openChannelForAccount(QString channelID, const QString& accountId);
 	// Programmatic navigation may target a valid channel that is currently
 	// outside the visible DM/GM sidebar limit. Materialize its server-category
 	// row first, then activate it through the same path as an ordinary click.
-	void openStoredChannel(QString channelID, const QString& accountId = {});
+	void openStoredChannel(QString channelID);
+    void openStoredChannelForAccount(QString channelID, const QString& accountId);
     // A realtime direct/group channel can reach Storage before the server-backed
     // sidebar category is refreshed. Admit it into every loaded Direct Messages
     // category without opening the conversation or issuing a category reload.
@@ -203,7 +208,7 @@ private:
     void handleChannelLeaveForAccount(const QString& accountId, const QString& channelId);
     void handleChannelUpdated();
     void onDirectCustomStatusChanged();
-    void bindDirectUser(BackendUser& user);
+    void bindDirectUser(Backend& backend, BackendUser& user);
     void updateDirectUserVisuals(const BackendUser& user);
 	void refreshTeamSidebar(Backend& backend, BackendTeam& team);
 	void renderTeamSidebar(Backend& backend, TeamItem& teamItem,
@@ -282,6 +287,8 @@ private:
     void verifySidebarTeam(const ScopedId& teamKey, quint64 mutation);
     void flushDeferredSidebarReconciles();
     Backend* backendForSidebarSignal() const;
+    Backend* backendForStorage(const Storage& storage) const;
+    Backend* backendForUser(const BackendUser& user) const;
     void onSidebarCategoriesChanged(const QString& teamId);
     void refreshPaletteDependentIcons();
 
@@ -289,8 +296,8 @@ private:
     QMap<ScopedId, QPointer<ChatArea>>  channelPages;
     QMap<ScopedId, QList<QTreeWidgetItem*>> channelToItemMap;
     QMap<ScopedId, TeamItem*>            teamToItemMap;
-	QSet<QString>						connectedSidebarUsers;
-    bool                                customEmojiConnected_ = false;
+    QSet<ScopedId>                      connectedSidebarUsers;
+    QSet<Backend*>                      profileSourcesConnected;
     QSet<ScopedId>                        pendingChannelAdmissions;
 	Backend*							backendForSidebar;
     QString                             _boundAccountId;

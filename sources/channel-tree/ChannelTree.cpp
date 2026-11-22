@@ -237,6 +237,10 @@ bool ChannelTree::bindSingleAccount(const QString& accountId)
     rekey(teamToItemMap);
     rekey(channelToItemMap);
     rekey(channelPages);
+    QSet<ScopedId> reboundUsers;
+    for (const ScopedId& entry : connectedSidebarUsers)
+        reboundUsers.insert({accountId, entry.second});
+    connectedSidebarUsers = std::move(reboundUsers);
     _boundAccountId = accountId;
     // A login can finish after initial channel rows were materialized.
     // Reuse them and their ChatArea/selection state; do not rebuild the tree.
@@ -271,6 +275,12 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
     if (it == _accountBackends.cend() || (expected && it.value() != expected))
         return;
     _accountBackends.remove(accountId);
+    for (auto it = connectedSidebarUsers.begin(); it != connectedSidebarUsers.end();) {
+        if (it->first == accountId)
+            it = connectedSidebarUsers.erase(it);
+        else
+            ++it;
+    }
     if (accountId == _boundAccountId
         && (!expected || expected == backendForSidebar))
         backendForSidebar = nullptr;
@@ -288,6 +298,29 @@ Backend* ChannelTree::backendForAccount(const QString& accountId) const
     if (it != _accountBackends.cend())
         return it.value();
     return accountId == _boundAccountId ? backendForSidebar : nullptr;
+}
+
+Backend* ChannelTree::backendForStorage(const Storage& storage) const
+{
+    for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
+        Backend* owner = it.value();
+        if (owner && &owner->getStorage() == &storage)
+            return owner;
+    }
+    return backendForSidebar && &backendForSidebar->getStorage() == &storage
+        ? backendForSidebar : nullptr;
+}
+
+Backend* ChannelTree::backendForUser(const BackendUser& user) const
+{
+    for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
+        Backend* owner = it.value();
+        if (owner && owner->getStorage().getUserById(user.id) == &user)
+            return owner;
+    }
+    return backendForSidebar
+        && backendForSidebar->getStorage().getUserById(user.id) == &user
+        ? backendForSidebar : nullptr;
 }
 
 Backend* ChannelTree::backendForRow(const QTreeWidgetItem* row) const
@@ -335,29 +368,40 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 {
     if (!backendForSidebar)
         backendForSidebar = &backend;
-    if (!customEmojiConnected_) {
-        customEmojiConnected_ = true;
+    if (!profileSourcesConnected.contains(&backend)) {
+        profileSourcesConnected.insert(&backend);
+        QPointer<Backend> ownerGuard(&backend);
+        connect(&backend, &QObject::destroyed, this, [this, source = &backend] {
+            profileSourcesConnected.remove(source);
+        });
         connect(&UserProfileService::instance(backend),
                 &UserProfileService::profileResolved, this,
-                [this](const QString& userId) {
-            if (!backendForSidebar) return;
-            auto& storage = backendForSidebar->getStorage();
+                [this, ownerGuard](const QString& userId) {
+            if (!ownerGuard)
+                return;
+            auto& storage = ownerGuard->getStorage();
             auto* user = storage.getUserById(userId);
             const auto* channel = storage.getDirectChannelByUserId(userId);
-            if (!user || !channel || !channelToItemMap.contains(scopedId(channel->id))) return;
-            bindDirectUser(*user);
+            const ScopedId key {accountIdForBackend(ownerGuard.data()),
+                                channel ? channel->id : QString()};
+            if (!user || !channel || !channelToItemMap.contains(key))
+                return;
+            bindDirectUser(*ownerGuard.data(), *user);
             updateDirectUserVisuals(*user);
             updateDirectCustomStatus(*user);
         });
         connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
-                this, [this](const QString& name) {
-            if (!backendForSidebar) return;
-            for (const QString& id : connectedSidebarUsers) {
+                this, [this, ownerGuard](const QString& name) {
+            if (!ownerGuard)
+                return;
+            const QString accountId = accountIdForBackend(ownerGuard.data());
+            for (const ScopedId& entry : connectedSidebarUsers) {
+                if (entry.first != accountId)
+                    continue;
                 const BackendUser* user =
-                    backendForSidebar->getStorage().getUserById(id);
-                if (user && UserStatusEmoji::name(*user) == name) {
+                    ownerGuard->getStorage().getUserById(entry.second);
+                if (user && UserStatusEmoji::name(*user) == name)
                     updateDirectCustomStatus(*user);
-                }
             }
         });
     }
@@ -733,7 +777,7 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     addChannelToItem(channel.id, item);
     if (channel.type == BackendChannel::directChannel) {
         if (auto* user = backend.getStorage().getUserById(channel.name)) {
-            bindDirectUser(*user);
+            bindDirectUser(backend, *user);
             item->setStatus(user->status);
             item->setIcon(QIcon(user->avatar));
             item->setData(0, SidebarItem::CustomStatusEmojiRole,
@@ -747,40 +791,42 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem
     return item;
 }
 
-void ChannelTree::bindDirectUser(BackendUser& user)
+void ChannelTree::bindDirectUser(Backend& owner, BackendUser& user)
 {
-    if (!connectedSidebarUsers.contains(user.id)) {
-        connectedSidebarUsers.insert(user.id);
-        connect(&user, &QObject::destroyed, this, [this, id = user.id] {
-            connectedSidebarUsers.remove(id);
-        });
-        connect(&user, &BackendUser::onCustomStatusChanged,
-                this, &ChannelTree::onDirectCustomStatusChanged);
-        connect(&user, &BackendUser::onStatusChanged, this, [this, &user] {
-            updateDirectUserVisuals(user);
-        });
-        connect(&user, &BackendUser::onAvatarChanged, this, [this, &user] {
-            updateDirectUserVisuals(user);
-        });
-        auto& profiles = UserProfileService::instance(*backendForSidebar);
-        profiles.ensureAvatar(user);
-        if (user.status.isEmpty() && backendForSidebar->loggedIn()) {
-            profiles.ensureStatuses({user.id});
-        }
-    }
+    const ScopedId key {accountIdForBackend(&owner), user.id};
+    if (connectedSidebarUsers.contains(key))
+        return;
+    connectedSidebarUsers.insert(key);
+    QPointer<Backend> ownerGuard(&owner);
+    connect(&user, &QObject::destroyed, this, [this, ownerGuard, id = user.id] {
+        if (ownerGuard)
+            connectedSidebarUsers.remove({accountIdForBackend(ownerGuard.data()), id});
+    });
+    connect(&user, &BackendUser::onCustomStatusChanged,
+            this, &ChannelTree::onDirectCustomStatusChanged);
+    connect(&user, &BackendUser::onStatusChanged, this, [this, &user] {
+        updateDirectUserVisuals(user);
+    });
+    connect(&user, &BackendUser::onAvatarChanged, this, [this, &user] {
+        updateDirectUserVisuals(user);
+    });
+    auto& profiles = UserProfileService::instance(owner);
+    profiles.ensureAvatar(user);
+    if (user.status.isEmpty() && owner.loggedIn())
+        profiles.ensureStatuses({user.id});
 }
 
 void ChannelTree::updateDirectUserVisuals(const BackendUser& user)
 {
-    if (!backendForSidebar) {
+    Backend* owner = backendForUser(user);
+    if (!owner)
         return;
-    }
-    const auto* channel = backendForSidebar->getStorage().getDirectChannelByUserId(user.id);
-    if (!channel) {
+    const auto* channel = owner->getStorage().getDirectChannelByUserId(user.id);
+    if (!channel)
         return;
-    }
     const QIcon avatar(user.avatar);
-    for (QTreeWidgetItem* row : channelToItemMap.value(scopedId(channel->id))) {
+    for (QTreeWidgetItem* row : channelToItemMap.value(
+             {accountIdForBackend(owner), channel->id})) {
         if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             auto* item = static_cast<ChannelItem*>(row);
             item->setStatus(user.status);
@@ -797,13 +843,16 @@ void ChannelTree::onDirectCustomStatusChanged()
 
 void ChannelTree::updateDirectCustomStatus(const BackendUser& user)
 {
-    if (!backendForSidebar) return;
-    const BackendChannel* channel =
-        backendForSidebar->getStorage().getDirectChannelByUserId(user.id);
-    if (!channel) return;
+    Backend* owner = backendForUser(user);
+    if (!owner)
+        return;
+    const BackendChannel* channel = owner->getStorage().getDirectChannelByUserId(user.id);
+    if (!channel)
+        return;
     const QPixmap image = UserStatusEmoji::pixmap(
-        backendForSidebar->emojiRegistry(), user, 18, font());
-    for (QTreeWidgetItem* row : channelToItemMap.value(scopedId(channel->id))) {
+        owner->emojiRegistry(), user, 18, font());
+    for (QTreeWidgetItem* row : channelToItemMap.value(
+             {accountIdForBackend(owner), channel->id})) {
         if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             row->setData(0, SidebarItem::CustomStatusEmojiRole, image);
         }
@@ -816,19 +865,9 @@ void ChannelTree::handleChannelLeave()
     if (!channel)
         return;
 
-    // The remote ID is not a global identity. Find the Backend that owns
-    // this concrete channel object; a channel on another server may have
-    // the same string ID.
-    for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
-        Backend* owner = it.value();
-        if (owner && &owner->getStorage() == &channel->storage) {
-            handleChannelLeaveForAccount(it.key(), channel->id);
-            return;
-        }
-    }
-    if (backendForSidebar
-        && &backendForSidebar->getStorage() == &channel->storage)
-        handleChannelLeaveForAccount(_boundAccountId, channel->id);
+    // Resolve the concrete Storage owner: remote channel IDs can collide.
+    if (Backend* owner = backendForStorage(channel->storage))
+        handleChannelLeaveForAccount(accountIdForBackend(owner), channel->id);
 }
 
 void ChannelTree::handleChannelLeaveForAccount(const QString& accountId,
@@ -1002,7 +1041,12 @@ void ChannelTree::setChatAreaStackedWidget (QStackedWidget* stackedWidget)
 	chatAreaStackedWidget = stackedWidget;
 }
 
-void ChannelTree::openChannel (QString channelID, const QString& accountId)
+void ChannelTree::openChannel(QString channelID)
+{
+    openChannelForAccount(std::move(channelID), _boundAccountId);
+}
+
+void ChannelTree::openChannelForAccount(QString channelID, const QString& accountId)
 {
     const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelID};
     Backend* owner = backendForAccount(key.first);

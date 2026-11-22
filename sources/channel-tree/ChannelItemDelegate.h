@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QSet>
+#include <QPair>
 #include <QStyledItemDelegate>
 
 namespace Mattermost {
@@ -31,7 +32,7 @@ protected:
                          const QModelIndex& index) const override;
 
 private:
-    mutable QSet<QString> requestedGroupChannels;
+    mutable QSet<QPair<QString, QString>> requestedGroupChannels;
 };
 
 } // namespace Mattermost

@@ -150,7 +150,7 @@ void ChannelTree::flushDeferredSidebarReconciles()
     // Programmatic materialization can also create rows directly. Resume it
     // only after the drag-owned tree structure has been released.
     for (const ScopedId& channelKey : pendingOpens)
-        openStoredChannel(channelKey.second, channelKey.first);
+        openStoredChannelForAccount(channelKey.second, channelKey.first);
 }
 
 void ChannelTree::destroySidebarRow(QTreeWidgetItem* item)

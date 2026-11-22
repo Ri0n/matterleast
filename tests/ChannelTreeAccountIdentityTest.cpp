@@ -203,6 +203,14 @@ private slots:
                  QStringLiteral("channel"));
         verifyBranch(moved, QStringLiteral("account-a"));
         verifyBranch(team, QStringLiteral("account-a"));
+
+        // A second account root, prepared off-tree, must never inherit the
+        // primary account when it is inserted into the same widget.
+        auto* foreign = new QTreeWidgetItem;
+        foreign->setData(0, SidebarItem::AccountIdRole, QStringLiteral("account-b"));
+        addRow(foreign, SidebarItem::Category, QStringLiteral("shared-category"));
+        tree.addTopLevelItem(foreign);
+        verifyBranch(foreign, QStringLiteral("account-b"));
         QCOMPARE(resets.count(), 0);
     }
 
