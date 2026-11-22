@@ -209,9 +209,10 @@ finish asynchronously after the declarative plan was computed.
   View selection does not need a network connection.
 
 The existing account workspace stack still renders one account at a time.
-A QtCore `ViewChannelsModel` now projects the selected view as
-**account → team → category → channel**, sourced directly from each connected
-account's `SidebarService`. It publishes account-qualified channel IDs,
+A lazily created QtCore `ViewChannelsModel` projects the selected view
+as **account → team → category → channel**, sourced directly from each
+connected account's `SidebarService`. It is created on first frontend access,
+so normal single-server Widgets sessions do not allocate a second channel tree. It publishes account-qualified channel IDs,
 unread/mention/muted state and the disconnected account rows without creating
 another Backend. Category/activity changes reconcile affected rows instead of
 resetting the view; the model is also consumable by a future QML frontend.

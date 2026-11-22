@@ -12,12 +12,12 @@
 #include "workspaces/AccountListModel.h"
 #include "workspaces/WorkspaceTreeModel.h"
 #include "workspaces/WorkspaceLayout.h"
-#include "workspaces/ViewChannelsModel.h"
 
 namespace Mattermost {
 class Account;
 class Backend;
 class ViewNavigationSession;
+class ViewChannelsModel;
 class BackendLoginData;
 
 // Single owner of durable account QObjects and optional session Backends.
@@ -44,7 +44,9 @@ public:
     QAbstractItemModel* workspaceTreeModel() { return &_treeModel; }
     // Combined Channels projection for the selected view, with durable
     // account-qualified identities and no ownership of chat widgets.
-    QAbstractItemModel* activeViewChannels() { return &_channelsModel; }
+    // Lazily materialize the shared QtCore projection. Existing single-server
+    // Widgets users need no second channel tree or extra SidebarService watchers.
+    QAbstractItemModel* activeViewChannels();
     // View session contains only semantic tab/history state, not duplicated
     // Backend or chat widgets. Views may share accounts freely.
     ViewNavigationSession* viewSession(const QString& viewId) const;
@@ -144,7 +146,7 @@ private:
     QSet<QString> _failedNewServers;
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
-    ViewChannelsModel _channelsModel;
+    QPointer<ViewChannelsModel> _channelsModel;
     QHash<QString, ViewNavigationSession*> _viewSessions;
     QString _selectedId;
     QHash<QString, QString> _lastSelectedByView;

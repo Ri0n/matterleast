@@ -28,6 +28,7 @@
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
 #include "navigation/ViewNavigationSession.h"
+#include "workspaces/ViewChannelsModel.h"
 #include "options/MLOptions.h"
 
 namespace Mattermost {
@@ -44,24 +45,7 @@ int retryDelayMs(int failures)
 AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
     , _treeModel(_layout, _listModel, this)
-    , _channelsModel(_layout, this)
 {
-    // The projection observes the manager; it never starts, resets or owns
-    // Backends. Remove each account's channels before releasing its Storage.
-    connect(this, &AccountManager::activeViewChanged, &_channelsModel,
-            &ViewChannelsModel::syncView);
-    connect(this, &AccountManager::layoutChanged, &_channelsModel,
-            &ViewChannelsModel::syncView);
-    connect(this, &AccountManager::accountConnected, &_channelsModel,
-            [this](Account* account, Backend* backend) {
-        if (account)
-            _channelsModel.setBackend(account->id(), backend);
-    });
-    connect(this, &AccountManager::accountUnregistered, &_channelsModel,
-            [this](Backend* backend) {
-        if (Account* account = accountForBackend(backend))
-            _channelsModel.setBackend(account->id(), nullptr);
-    });
     _retryClock.start();
     _retryTimer.setSingleShot(true);
     connect(&_retryTimer, &QTimer::timeout, this, [this] { processRetries(); });
@@ -110,6 +94,38 @@ AccountManager::AccountManager(QObject* parent)
         }
     }
 #endif
+}
+
+QAbstractItemModel* AccountManager::activeViewChannels()
+{
+    if (_channelsModel)
+        return _channelsModel.data();
+
+    // The model is a presentation projection, not a second owner of a
+    // Backend/Storage. Most single-account Widgets sessions never request it.
+    auto* model = new ViewChannelsModel(_layout, this);
+    _channelsModel = model;
+    connect(this, &AccountManager::activeViewChanged,
+            model, &ViewChannelsModel::syncView);
+    connect(this, &AccountManager::layoutChanged,
+            model, &ViewChannelsModel::syncView);
+    connect(this, &AccountManager::accountConnected, model,
+            [model](Account* account, Backend* backend) {
+        if (account)
+            model->setBackend(account->id(), backend);
+    });
+    connect(this, &AccountManager::accountUnregistered, model,
+            [this, model](Backend* backend) {
+        if (Account* account = accountForBackend(backend))
+            model->setBackend(account->id(), nullptr);
+    });
+    // UI may request the projection after sessions were already authenticated.
+    // Attach those without creating any new network sessions.
+    for (Account* account : allAccounts()) {
+        if (Backend* backend = account->backend())
+            model->setBackend(account->id(), backend);
+    }
+    return model;
 }
 
 AccountManager::~AccountManager()
@@ -248,7 +264,8 @@ bool AccountManager::load(const QByteArray& json, QString* error)
     }
     rebuildModel();
     _treeModel.refreshTopology();
-    _channelsModel.syncView();
+    if (_channelsModel)
+        _channelsModel->syncView();
     ensureViewSessions();
     qCInfo(accountRestoreLog) << "Account catalog loaded:"
                               << _layout.accounts.size() << "accounts,"

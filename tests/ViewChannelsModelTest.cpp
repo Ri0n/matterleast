@@ -60,7 +60,11 @@ BackendChannel* populate(Backend& backend, const QString& title)
     SidebarTeamState state;
     state.order = QStringList{category.id};
     state.categories.insert(category.id, category);
-    SidebarService::instance(backend).applyLocalTeamState(team->id, state);
+    auto& sidebar = SidebarService::instance(backend);
+    sidebar.applyLocalTeamState(team->id, state);
+    // setChannelMentioned() operates on an existing activity record, as it
+    // does for a real channel after the first membership/view event.
+    sidebar.applyServerChannelViewed(*channel, 0);
     return channel;
 }
 
@@ -237,8 +241,12 @@ private slots:
         AccountManager manager;
         WorkspaceLayout topology = layout();
         QVERIFY(manager.load(topology.toJson()));
+        // Ordinary single-account desktop startup need not allocate this
+        // parallel projection. It is created on first frontend access.
+        QVERIFY(!manager.findChild<ViewChannelsModel*>());
         auto* model = qobject_cast<ViewChannelsModel*>(manager.activeViewChannels());
         QVERIFY(model);
+        QCOMPARE(manager.activeViewChannels(), static_cast<QAbstractItemModel*>(model));
         QCOMPARE(model->rowCount(), 2);
         QSignalSpy resets(model, &QAbstractItemModel::modelReset);
         QSignalSpy selected(model, &ViewChannelsModel::activeViewChanged);
