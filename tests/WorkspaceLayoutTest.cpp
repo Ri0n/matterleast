@@ -103,6 +103,51 @@ private slots:
                  QStringList({QStringLiteral("s4")}));
     }
 
+    void mergedDmSortingBelongsToTheViewNotIndividualAccounts()
+    {
+        WorkspaceLayout layout = sampleLayout();
+        QCOMPARE(layout.views[0].directMessagesSorting, QStringLiteral("recent"));
+        layout.views[0].directMessagesSorting = QStringLiteral("alpha");
+        QVERIFY(layout.validate());
+        QCOMPARE(layout.views[1].directMessagesSorting, QStringLiteral("recent"));
+
+        const QByteArray encoded = layout.toJson();
+        QVERIFY(!encoded.isEmpty());
+        const auto restored = WorkspaceLayout::fromJson(encoded);
+        QVERIFY(restored.has_value());
+        QCOMPARE(restored->views[0].directMessagesSorting, QStringLiteral("alpha"));
+        QCOMPARE(restored->views[1].directMessagesSorting, QStringLiteral("recent"));
+        QCOMPARE(restored->toJson(), encoded);
+
+        // Older catalogs should not require a version bump or explicit
+        // migration merely because a new view presentation setting exists.
+        QJsonObject legacy = QJsonDocument::fromJson(encoded).object();
+        QJsonArray views = legacy.value(QStringLiteral("views")).toArray();
+        for (int i = 0; i < views.size(); ++i) {
+            QJsonObject view = views.at(i).toObject();
+            view.remove(QStringLiteral("directMessagesSorting"));
+            views.replace(i, view);
+        }
+        legacy.insert(QStringLiteral("views"), views);
+        const auto migrated = WorkspaceLayout::fromJson(
+            QJsonDocument(legacy).toJson(QJsonDocument::Compact));
+        QVERIFY(migrated.has_value());
+        QCOMPARE(migrated->views[0].directMessagesSorting, QStringLiteral("recent"));
+
+        layout.views[0].directMessagesSorting = QStringLiteral("manual");
+        QVERIFY(!layout.validate());
+        layout.views[0].directMessagesSorting.clear();
+        QVERIFY(!layout.validate());
+        QJsonObject malformed = QJsonDocument::fromJson(encoded).object();
+        QJsonArray badViews = malformed.value(QStringLiteral("views")).toArray();
+        QJsonObject badView = badViews.first().toObject();
+        badView.insert(QStringLiteral("directMessagesSorting"), 42);
+        badViews.replace(0, badView);
+        malformed.insert(QStringLiteral("views"), badViews);
+        QVERIFY(!WorkspaceLayout::fromJson(
+            QJsonDocument(malformed).toJson(QJsonDocument::Compact)));
+    }
+
     void stableIdsSurviveRenameAndRoundTrip()
     {
         WorkspaceLayout layout = sampleLayout();

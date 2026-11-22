@@ -894,6 +894,19 @@ if(TARGET matterleast-core)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+# The existing ChannelTree / QTreeWidget model is the sole Channels
+# presentation. Account identity must survive its in-place row reconciliation.
+if(TARGET matterleast-core)
+    add_executable(channel-tree-account-identity-test
+        ChannelTreeAccountIdentityTest.cpp)
+    target_link_libraries(channel-tree-account-identity-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME channel-tree-account-identity-test
+        COMMAND channel-tree-account-identity-test)
+    set_tests_properties(channel-tree-account-identity-test
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Account workspace switching must preserve the underlying views instead of
 # recreating pages, navigation models or draft widgets on every switch.
 if(TARGET matterleast-core)

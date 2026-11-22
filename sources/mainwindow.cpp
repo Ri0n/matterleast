@@ -65,6 +65,7 @@
 #include "navigation/NavigationUiController.h"
 #include "navigation/AppNavigationService.h"
 #include "backend/AccountManager.h"
+#include "backend/Account.h"
 #include "ui/ServersSidebarPage.h"
 #include "navigation/ConversationReference.h"
 #include "backend/SidebarService.h"
@@ -438,6 +439,8 @@ void MainWindow::unbindViewNavigation()
 void MainWindow::installServersSidebar(AccountManager& manager)
 {
     if (!channelTabs || serversPage) return;
+    if (const Account* owner = manager.accountForBackend(&backend))
+        ui->channelList->bindSingleAccount(owner->id());
     serversPage = new ServersSidebarPage(manager, channelTabs);
     // One icon, no caption, immediately before Channels. The server manager
     // is a navigation surface, not another button in the avatar header.

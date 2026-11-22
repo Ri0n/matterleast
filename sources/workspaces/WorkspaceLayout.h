@@ -38,6 +38,9 @@ public:
         QString profileId;
         QString name;
         QStringList accountIds; // Visible subset of profile accounts.
+        // Shared DM/GM sorting is view-local and never written to a server's
+        // Direct Messages category. A singleton view ignores this setting.
+        QString directMessagesSorting = QStringLiteral("recent");
     };
     struct Transition {
         QString targetProfileId;

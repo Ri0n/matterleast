@@ -209,9 +209,28 @@ finish asynchronously after the declarative plan was computed.
   View selection does not need a network connection.
 
 The existing account workspace stack still renders one account at a time.
-The fully merged multi-account Channels/Unread/Attention projections, view
-scoped tabs/history and Servers sidebar editor are later presentation steps;
-runtime profile activation does not imply they are already implemented.
+**Do not construct a parallel Channels model:** the current `ChannelTree`
+already owns an extensively reconciled `QTreeWidget` model and retains
+individual `ChannelItem` rows through category moves. It also suppresses
+spurious navigation during reconciliation, defers structural updates during
+drag-and-drop, and keeps existing chat pages alive. Multi-account work must
+adapt that implementation incrementally rather than duplicate its category,
+unread, DM/GM and selection algorithms.
+
+The first account-scoping step marks existing `SidebarItem` rows with a
+stable local `AccountIdRole`, including rows populated asynchronously, without
+replacing or resetting the current item model. A future merged view must
+qualify the existing team/channel indexes and their navigation with account
+identity, separate ChatArea ownership from tree presentation, and retain the
+tested in-place reconciliation and interaction behavior. It is not yet a
+multi-account Channels UI. The mixed DM/GM list has a view-local `directMessagesSorting` setting:
+`recent` (default) or `alpha`. The setting is persisted in the existing
+workspace catalog; older catalogs default to `recent`. Single-account views
+continue to use the server category's current sorting, while a merged view
+must apply its own setting to the combined entries **without modifying any
+server's category sorting**. A view-local manual order is intentionally not
+specified: server-side manual lists have no meaningful inter-server order.
+Shared Unread/Attention and per-view navigation remain subsequent work.
 
 ## Per-view UI state (essential invariant)
 

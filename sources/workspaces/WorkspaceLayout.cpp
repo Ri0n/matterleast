@@ -275,6 +275,9 @@ bool WorkspaceLayout::validate(QString* error) const
                                     profile->accountIds.cend());
         if (!uniqueExistingIds(view.accountIds, allowed))
             return reject(error, QStringLiteral("View is not a subset of its profile"));
+        if (view.directMessagesSorting != QLatin1String("recent")
+            && view.directMessagesSorting != QLatin1String("alpha"))
+            return reject(error, QStringLiteral("Unsupported view DM/GM sorting"));
         viewIds.insert(view.id);
         profilesWithViews.insert(view.profileId);
     }
@@ -352,7 +355,8 @@ QByteArray WorkspaceLayout::toJson() const
             {QStringLiteral("id"), view.id},
             {QStringLiteral("profileId"), view.profileId},
             {QStringLiteral("name"), view.name},
-            {QStringLiteral("accountIds"), jsonIds(view.accountIds)}});
+            {QStringLiteral("accountIds"), jsonIds(view.accountIds)},
+            {QStringLiteral("directMessagesSorting"), view.directMessagesSorting}});
 
     return QJsonDocument(QJsonObject{
         {QStringLiteral("version"), 2},
@@ -448,6 +452,17 @@ WorkspaceLayout::fromJson(const QByteArray& json, QString* error)
                       view.accountIds)) {
             reject(error, QStringLiteral("Malformed view account IDs"));
             return std::nullopt;
+        }
+        // v1/v2 catalogs written before merged sidebars had no local sorting
+        // preference. Missing means recent; malformed/unknown values must
+        // not silently override a user's persisted choice.
+        if (object.contains(QStringLiteral("directMessagesSorting"))) {
+            if (!hasString(object, "directMessagesSorting")) {
+                reject(error, QStringLiteral("Malformed view DM/GM sorting"));
+                return std::nullopt;
+            }
+            view.directMessagesSorting =
+                object.value(QStringLiteral("directMessagesSorting")).toString();
         }
         layout.views.append(view);
     }

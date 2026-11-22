@@ -82,6 +82,11 @@ enum Role {
 
     // Regular DM/GM rows can stay materialized outside the current search.
     ConversationSearchExcludedRole,
+
+    // Durable local account identity of a row. The same remote team/channel
+    // IDs may exist on different Mattermost servers. Append rather than
+    // renumber existing delegate/drag roles.
+    AccountIdRole,
 };
 
 } // namespace SidebarItem

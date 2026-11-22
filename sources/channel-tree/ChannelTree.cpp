@@ -24,6 +24,7 @@
 
 #include "ChannelTree.h"
 
+#include <QAbstractItemModel>
 #include <QAction>
 #include <QApplication>
 #include <QCursor>
@@ -38,6 +39,8 @@
 #include <QPointer>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QTreeWidgetItemIterator>
+#include <utility>
 #include <QItemSelectionModel>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
@@ -179,6 +182,56 @@ ChannelTree::ChannelTree (QWidget* parent)
     setDropIndicatorShown(false);
     setDragDropMode(QAbstractItemView::DragDrop);
     setDefaultDropAction(Qt::MoveAction);
+
+    // New server categories, DMs and virtual destinations can arrive long
+    // after the MainWindow is bound to a durable account. Stamp inserted
+    // QTreeWidget rows in place; this does not change their identity within
+    // the existing tree or replace its Qt item model.
+    connect(model(), &QAbstractItemModel::rowsInserted, this,
+            [this](const QModelIndex& parent, int first, int last) {
+        if (_boundAccountId.isEmpty())
+            return;
+        for (int row = first; row <= last; ++row) {
+            QTreeWidgetItem* item = itemFromIndex(model()->index(row, 0, parent));
+            if (item)
+                tagAccount(item, _boundAccountId);
+        }
+    });
+}
+
+void ChannelTree::tagAccount(QTreeWidgetItem* item, const QString& accountId)
+{
+    if (item->data(0, ItemAccountIdRole).toString() != accountId)
+        item->setData(0, ItemAccountIdRole, accountId);
+    for (int i = 0; i < item->childCount(); ++i)
+        tagAccount(item->child(i), accountId);
+}
+
+bool ChannelTree::bindSingleAccount(const QString& accountId)
+{
+    if (accountId.isEmpty()
+        || (!_boundAccountId.isEmpty() && _boundAccountId != accountId))
+        return false;
+    if (_boundAccountId == accountId)
+        return true;
+
+    // Login can bind an already populated sidebar. Re-key live objects in
+    // place; do not reconstruct rows, chat widgets or selection.
+    auto rekey = [&accountId](auto& map) {
+        auto old = std::move(map);
+        map.clear();
+        for (auto it = old.cbegin(); it != old.cend(); ++it)
+            map.insert({accountId, it.key().second}, it.value());
+    };
+    rekey(teamToItemMap);
+    rekey(channelToItemMap);
+    rekey(channelPages);
+    _boundAccountId = accountId;
+    // A login can finish after initial channel rows were materialized.
+    // Reuse them and their ChatArea/selection state; do not rebuild the tree.
+    for (int i = 0; i < topLevelItemCount(); ++i)
+        tagAccount(topLevelItem(i), _boundAccountId);
+    return true;
 }
 
 ChannelTree::~ChannelTree()
@@ -212,7 +265,7 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
             auto& storage = backendForSidebar->getStorage();
             auto* user = storage.getUserById(userId);
             const auto* channel = storage.getDirectChannelByUserId(userId);
-            if (!user || !channel || !channelToItemMap.contains(channel->id)) return;
+            if (!user || !channel || !channelToItemMap.contains(scopedId(channel->id))) return;
             bindDirectUser(*user);
             updateDirectUserVisuals(*user);
             updateDirectCustomStatus(*user);
@@ -237,7 +290,7 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
     teamList->setFlags(teamList->flags() & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
 
 	addTopLevelItem (teamList);
-    teamToItemMap.insert(team.id, teamList);
+    teamToItemMap.insert(scopedId(team.id), teamList);
 	header()->setSectionResizeMode(0, QHeaderView::Stretch);
 
 	connect (&team, &BackendTeam::onNewChannel, this, [this, &backend, &team] (BackendChannel&) {
@@ -278,7 +331,7 @@ void ChannelTree::setConversationSearchTerm(const QString& term)
 
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
         TeamItem* team = it.value();
-        const SidebarTeamState* state = sidebar.teamState(it.key());
+        const SidebarTeamState* state = sidebar.teamState(it.key().second);
         if (team && state) {
             reconcileTeamSidebar(*backendForSidebar, *team, *state);
         }
@@ -305,7 +358,7 @@ void ChannelTree::populateSidebars(Backend& backend)
             if (!backendForSidebar) {
                 return;
             }
-            TeamItem* team = teamToItemMap.value(teamId, nullptr);
+            TeamItem* team = teamToItemMap.value(scopedId(teamId), nullptr);
             const SidebarTeamState* state =
                 SidebarService::instance(*backendForSidebar).teamState(teamId);
             if (team && state) {
@@ -315,7 +368,7 @@ void ChannelTree::populateSidebars(Backend& backend)
     }
 
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
-        if (BackendTeam* team = backend.getStorage().getTeamById(it.key())) {
+        if (BackendTeam* team = backend.getStorage().getTeamById(it.key().second)) {
             refreshTeamSidebar(backend, *team);
         }
     }
@@ -339,9 +392,9 @@ void ChannelTree::refreshServerSnapshot()
                 .refreshKnownChannelSummaries([guard] {
                     if (!guard) return;
                     // Preserve selection, ChatAreas and viewport bookmarks.
-                    const QStringList teamIds = guard->teamToItemMap.keys();
-                    for (const QString& teamId : teamIds) {
-                        guard->refreshSidebarTeam(teamId);
+                    const QList<ScopedId> teamIds = guard->teamToItemMap.keys();
+                    for (const ScopedId& teamId : teamIds) {
+                        guard->refreshSidebarTeam(teamId.second);
                     }
                 });
         });
@@ -367,7 +420,7 @@ void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
     SidebarService::instance(backend).retrieveCategories(team,
         [this, &backend, teamId](const SidebarTeamState& state) {
             BackendTeam* currentTeam = backend.getStorage().getTeamById(teamId);
-            TeamItem* teamItem = teamToItemMap.value(teamId, nullptr);
+            TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr);
             if (!currentTeam || !teamItem) {
                 return;
             }
@@ -384,7 +437,7 @@ void ChannelTree::renderTeamSidebar(Backend& backend, TeamItem& teamItem,
 
 void ChannelTree::removeTeamSidebar(const QString& teamId)
 {
-    TeamItem* teamItem = teamToItemMap.take(teamId);
+    TeamItem* teamItem = teamToItemMap.take(scopedId(teamId));
     if (!teamItem) {
         return;
     }
@@ -503,7 +556,7 @@ ChannelItem* ChannelTree::createDraftsItem(Backend& backend, TeamItem& teamItem,
 
 QTreeWidgetItem* ChannelTree::personalItemForTeam(const QString& teamId) const
 {
-    TeamItem* teamItem = teamToItemMap.value(teamId, nullptr);
+    TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr);
     if (!teamItem) {
         return nullptr;
     }
@@ -530,7 +583,7 @@ void ChannelTree::refreshPersonalItems()
     BackendChannel* channel = backendForSidebar->getStorage().getDirectChannelByUserId(self.id);
 
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
-        QTreeWidgetItem* row = personalItemForTeam(it.key());
+        QTreeWidgetItem* row = personalItemForTeam(it.key().second);
         if (!row) {
             continue;
         }
@@ -623,7 +676,7 @@ void ChannelTree::updateDirectUserVisuals(const BackendUser& user)
         return;
     }
     const QIcon avatar(user.avatar);
-    for (QTreeWidgetItem* row : channelToItemMap.value(channel->id)) {
+    for (QTreeWidgetItem* row : channelToItemMap.value(scopedId(channel->id))) {
         if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             auto* item = static_cast<ChannelItem*>(row);
             item->setStatus(user.status);
@@ -646,7 +699,7 @@ void ChannelTree::updateDirectCustomStatus(const BackendUser& user)
     if (!channel) return;
     const QPixmap image = UserStatusEmoji::pixmap(
         backendForSidebar->emojiRegistry(), user, 18, font());
-    for (QTreeWidgetItem* row : channelToItemMap.value(channel->id)) {
+    for (QTreeWidgetItem* row : channelToItemMap.value(scopedId(channel->id))) {
         if (row && row->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             row->setData(0, SidebarItem::CustomStatusEmojiRole, image);
         }
@@ -663,12 +716,12 @@ void ChannelTree::handleChannelLeave()
     const QString channelId = channel->id;
     // Storage can destroy the channel immediately after onLeave(), including
     // while a drag defers removal of its rows.
-    if (ChatArea* page = channelPages.take(channelId)) {
+    if (ChatArea* page = channelPages.take(scopedId(channelId))) {
         chatAreaStackedWidget->removeWidget(page);
         delete page;
     }
 
-    const QList<QTreeWidgetItem*> items = channelToItemMap.value(channelId);
+    const QList<QTreeWidgetItem*> items = channelToItemMap.value(scopedId(channelId));
     if (sidebarDragActive) {
         for (QTreeWidgetItem* item : items) {
             QTreeWidgetItem* category = item ? item->parent() : nullptr;
@@ -702,13 +755,13 @@ void ChannelTree::activateConversation(const QString& channelId, const QString& 
     }
 
     ChatArea* currentPage = getCurrentPage();
-    ChatArea* page = channelPages.value(channelId);
+    ChatArea* page = channelPages.value(scopedId(channelId));
     if (!page) {
         const QString context = teamId.isEmpty() ? backendForSidebar->getCurrentTeamContextId()
                                                  : teamId;
         page = new ChatArea(*backendForSidebar, *channel, context,
                             chatAreaStackedWidget, false);
-        channelPages.insert(channelId, page);
+        channelPages.insert(scopedId(channelId), page);
         connect(channel, &BackendChannel::onLeave, this, &ChannelTree::handleChannelLeave,
                 Qt::UniqueConnection);
         chatAreaStackedWidget->addWidget(page);
@@ -827,7 +880,7 @@ void ChannelTree::setChatAreaStackedWidget (QStackedWidget* stackedWidget)
 
 void ChannelTree::openChannel (QString channelID)
 {
-	auto it = channelToItemMap.find (channelID);
+	auto it = channelToItemMap.find (scopedId(channelID));
     QTreeWidgetItem* item = nullptr;
 
     if (it != channelToItemMap.end() && !it.value().isEmpty()) {
@@ -850,7 +903,7 @@ void ChannelTree::openChannel (QString channelID)
             }
             if (!item) {
                 for (auto teamIt = teamToItemMap.cbegin(); teamIt != teamToItemMap.cend(); ++teamIt) {
-                    item = personalItemForTeam(teamIt.key());
+                    item = personalItemForTeam(teamIt.key().second);
                     if (item) {
                         break;
                     }
@@ -860,7 +913,7 @@ void ChannelTree::openChannel (QString channelID)
     }
 
     if (!item) {
-        if (channelPages.value(channelID)) {
+        if (channelPages.value(scopedId(channelID))) {
             setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
             activateConversation(channelID);
         } else {
@@ -878,7 +931,7 @@ void ChannelTree::openChannel (QString channelID)
 
 void ChannelTree::addChannelToItem (QString channelID, QTreeWidgetItem* item)
 {
-	auto& items = channelToItemMap[channelID];
+	auto& items = channelToItemMap[scopedId(channelID, item)];
 	if (!items.contains(item)) {
 		items.push_back(item);
 	}
@@ -886,7 +939,7 @@ void ChannelTree::addChannelToItem (QString channelID, QTreeWidgetItem* item)
 
 void ChannelTree::removeChannelToItem (QString channelID, QTreeWidgetItem* item)
 {
-	auto it = channelToItemMap.find(channelID);
+	auto it = channelToItemMap.find(scopedId(channelID, item));
 	if (it == channelToItemMap.end()) {
 		return;
 	}
@@ -1038,7 +1091,7 @@ void ChannelTree::showCategoryMenu(const QString& teamId,
         update(std::move(changed));
     } else if (chosen == collapse) {
         QTreeWidgetItem* row = nullptr;
-        TeamItem* team = teamToItemMap.value(teamId, nullptr);
+        TeamItem* team = teamToItemMap.value(scopedId(teamId), nullptr);
         for (int i = 0; team && i < team->childCount(); ++i) {
             QTreeWidgetItem* candidate = team->child(i);
             if (candidate->data(0, ItemIdRole).toString() == categoryId) {
@@ -1137,7 +1190,7 @@ void ChannelTree::setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed)
 
 void ChannelTree::setChannelMutedVisual(const QString& channelId, bool muted)
 {
-    const auto items = channelToItemMap.value(channelId);
+    const auto items = channelToItemMap.value(scopedId(channelId));
     for (QTreeWidgetItem* item : items) {
         if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             static_cast<ChannelItem*>(item)->setMuted(muted);
@@ -1167,8 +1220,9 @@ void ChannelTree::refreshAllChannelActivityVisuals()
     }
 
     auto& sidebar = SidebarService::instance(*backendForSidebar);
-    const QStringList channelIds = channelToItemMap.keys();
-    for (const QString& channelId : channelIds) {
+    const QList<ScopedId> channelIds = channelToItemMap.keys();
+    for (const ScopedId& identity : channelIds) {
+        const QString& channelId = identity.second;
         BackendChannel* channel =
             backendForSidebar->getStorage().getChannelById(channelId);
         if (!channel) {
@@ -1184,7 +1238,7 @@ void ChannelTree::refreshAllChannelActivityVisuals()
 
 void ChannelTree::setChannelUnreadVisual(const QString& channelId, bool unread)
 {
-    const auto items = channelToItemMap.value(channelId);
+    const auto items = channelToItemMap.value(scopedId(channelId));
     for (QTreeWidgetItem* item : items) {
         if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             static_cast<ChannelItem*>(item)->setUnread(unread);
@@ -1194,7 +1248,7 @@ void ChannelTree::setChannelUnreadVisual(const QString& channelId, bool unread)
 
 void ChannelTree::setChannelMentionedVisual(const QString& channelId, bool mentioned)
 {
-    const auto items = channelToItemMap.value(channelId);
+    const auto items = channelToItemMap.value(scopedId(channelId));
     for (QTreeWidgetItem* item : items) {
         if (item && item->data(0, ItemKindRole).toInt() == ChannelItemKind) {
             static_cast<ChannelItem*>(item)->setMentioned(mentioned);
@@ -1268,7 +1322,7 @@ void ChannelTree::moveChannel(ChannelItem* item,
 
     const quint64 mutation = ++sidebarMutationGeneration[teamId];
     sidebar.applyLocalTeamState(teamId, optimistic);
-    if (TeamItem* teamItem = teamToItemMap.value(teamId, nullptr)) {
+    if (TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr)) {
         if (const SidebarTeamState* local = sidebar.teamState(teamId)) {
             reconcileTeamSidebar(*backendForSidebar, *teamItem, *local);
         }
@@ -1288,7 +1342,7 @@ void ChannelTree::moveChannel(ChannelItem* item,
         }
         auto& currentSidebar = SidebarService::instance(*guard->backendForSidebar);
         currentSidebar.applyLocalTeamState(teamId, before);
-        if (TeamItem* teamItem = guard->teamToItemMap.value(teamId, nullptr)) {
+        if (TeamItem* teamItem = guard->teamToItemMap.value(guard->scopedId(teamId), nullptr)) {
             guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, before);
         }
         // The rollback is immediate; the GET is only an authoritative check and
@@ -1386,7 +1440,7 @@ void ChannelTree::moveCategory(QTreeWidgetItem* item,
 
     const quint64 mutation = ++sidebarMutationGeneration[teamId];
     sidebar.applyLocalTeamState(teamId, optimistic);
-    if (TeamItem* teamItem = teamToItemMap.value(teamId, nullptr)) {
+    if (TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr)) {
         reconcileTeamSidebar(*backendForSidebar, *teamItem, optimistic);
     }
 
@@ -1398,7 +1452,7 @@ void ChannelTree::moveCategory(QTreeWidgetItem* item,
         }
         auto& currentSidebar = SidebarService::instance(*guard->backendForSidebar);
         currentSidebar.applyLocalTeamState(teamId, before);
-        if (TeamItem* teamItem = guard->teamToItemMap.value(teamId, nullptr)) {
+        if (TeamItem* teamItem = guard->teamToItemMap.value(guard->scopedId(teamId), nullptr)) {
             guard->reconcileTeamSidebar(*guard->backendForSidebar, *teamItem, before);
         }
         guard->verifySidebarTeam(teamId, mutation);
