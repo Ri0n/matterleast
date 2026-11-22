@@ -18,7 +18,6 @@
 
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
-#include "backend/AccountConnectionController.h"
 #include "backend/Account.h"
 #include "navigation/ViewNavigationSession.h"
 #include "navigation/NavigationUiController.h"
@@ -306,10 +305,10 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
     }
 
-    void savedTokenVerificationRecoversFromGatewayAndServerOutages()
+    void savedTokenVerificationClassifiesGatewayAndServerOutages()
     {
-        // Backend owns one verification attempt. The shared account reconnect
-        // scheduler, rather than a second verifier object, schedules the next.
+        // Verify each Backend request is independent and transient gateway
+        // errors preserve credentials; the retry policy is owned by AccountManager.
         for (const QByteArray status : {QByteArrayLiteral("503 Service Unavailable"),
                                         QByteArrayLiteral("403 Forbidden"),
                                         QByteArrayLiteral("404 Not Found")}) {
@@ -319,29 +318,23 @@ private slots:
             QVERIFY(server.listen(QHostAddress::LocalHost));
 
             Backend backend;
-            AccountConnectionController connections;
             const BackendLoginData saved = credentials(
                 server, QStringLiteral("saved-work-vpn-token"));
-            const QString accountId = QStringLiteral("vpn-account");
             bool completed = false;
             bool restored = false;
             int attempts = 0;
-            connect(&connections, &AccountConnectionController::savedSessionDue,
-                    &backend, [&](const QStringList& ids) {
-                if (!ids.contains(accountId))
-                    return;
+            std::function<void()> verify;
+            verify = [&] {
                 ++attempts;
                 backend.login(saved, [&](const QString& token) {
                     restored = !token.isEmpty();
-                    if (restored || !backend.lastLoginFailureTransient()) {
-                        connections.cancel(accountId);
+                    if (restored || !backend.lastLoginFailureTransient())
                         completed = true;
-                    } else {
-                        connections.savedSessionFailed(accountId);
-                    }
+                    else
+                        QTimer::singleShot(0, &backend, verify);
                 });
-            });
-            connections.startSavedSession(accountId);
+            };
+            verify();
             QTRY_VERIFY_WITH_TIMEOUT(completed, 7500);
             QVERIFY(restored);
             QCOMPARE(attempts, 2);

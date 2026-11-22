@@ -1,16 +1,17 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QVector>
 
 #include "workspaces/AccountListModel.h"
 #include "workspaces/WorkspaceTreeModel.h"
 #include "workspaces/WorkspaceLayout.h"
-#include "backend/AccountConnectionController.h"
 
 namespace Mattermost {
 class Account;
@@ -109,16 +110,26 @@ private:
     Account* ensureAccount(const QString& id);
     void rebuildModel();
     void finishBackendRemoval(Account* account, Backend* backend);
-    void retryTemporarilyUnavailable(const QStringList& ids);
-    void retryWebSocketConnections(const QStringList& ids);
-    void performAccountRestore(const QString& id);
+    enum class RetryKind { SavedSession, WebSocket };
+    struct PendingRetry { RetryKind kind; qint64 deadline; };
+    void scheduleRetry(const QString& id, RetryKind kind);
+    void cancelRetry(const QString& id, bool resetFailures = true);
+    void armRetryTimer();
+    void processRetries(bool force = false);
+    void onNetworkChanged();
     void reloadSessionAfterReplayGap(const QString& id);
     bool applySelection(const QString& viewId, const QString& accountId);
     void reconcileActiveProfile();
     void ensureViewSessions();
     QStringList activeProfileAccountIds() const;
 
-    AccountConnectionController _connections;
+    QElapsedTimer _retryClock;
+    QTimer _retryTimer;
+    QHash<QString, PendingRetry> _pendingRetries;
+    QHash<QString, int> _retryFailures;
+#ifdef Q_OS_LINUX
+    int _routeChangeSocket = -1;
+#endif
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     AccountListModel _listModel;

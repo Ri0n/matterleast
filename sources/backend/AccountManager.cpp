@@ -3,6 +3,21 @@
 #include <QLoggingCategory>
 #include <QTimer>
 #include <QUrl>
+#include <limits>
+
+#ifdef Q_OS_LINUX
+#include <QSocketNotifier>
+#include <cerrno>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+#include <QNetworkInformation>
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT) && !defined(Q_OS_LINUX)
+#include <QNetworkConfigurationManager>
+#endif
 #include <utility>
 
 #include "Account.h"
@@ -17,102 +32,162 @@
 namespace Mattermost {
 namespace {
 Q_LOGGING_CATEGORY(accountRestoreLog, "mattermost.account.restore")
+int retryDelayMs(int failures)
+{
+    if (failures == 1) return 1500;
+    if (failures == 2) return 4000;
+    return qMin(120000, 15000 * (1 << qBound(0, failures - 3, 3)));
+}
 }
 
 AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
     , _treeModel(_layout, _listModel, this)
 {
-    connect(&_connections, &AccountConnectionController::savedSessionDue,
-            this, &AccountManager::retryTemporarilyUnavailable);
-    connect(&_connections, &AccountConnectionController::webSocketDue,
-            this, &AccountManager::retryWebSocketConnections);
-    connect(&_connections, &AccountConnectionController::networkChanged,
-            this, [this] {
-        const auto backends = registeredBackends();
-        if (backends.isEmpty())
-            return;
-        for (Backend* backend : backends) {
-            const auto state = backend->webSocketConnectionState();
-            if (state == WebSocketConnector::ConnectionState::Connected) {
-                // Do not abort healthy uploads on a route change.
-                backend->probeWebSocketConnection();
-            } else if (state == WebSocketConnector::ConnectionState::WaitingForReconnect) {
-                HTTPConnector::restartSessionTransports(&backend->networkSession());
-            }
+    _retryClock.start();
+    _retryTimer.setSingleShot(true);
+    connect(&_retryTimer, &QTimer::timeout, this, [this] { processRetries(); });
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+    if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
+        if (auto* info = QNetworkInformation::instance()) {
+            connect(info, &QNetworkInformation::reachabilityChanged,
+                    this, [this] { onNetworkChanged(); });
+            connect(info, &QNetworkInformation::transportMediumChanged,
+                    this, [this] { onNetworkChanged(); });
         }
-    });
-    connect(&_connections, &AccountConnectionController::replayResolved,
-            this, [this](const QString& id, bool continuityVerified) {
-        Account* item = account(id);
-        if (!item || !item->backend() || !activeProfileAccountIds().contains(id))
-            return;
-        if (continuityVerified) {
-            // Storage identity is safe to preserve after lossless replay.
-            item->backend()->reconcileAfterReliableReplay();
+    }
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT) && !defined(Q_OS_LINUX)
+    auto* network = new QNetworkConfigurationManager(this);
+    connect(network, &QNetworkConfigurationManager::onlineStateChanged,
+            this, [this](bool) { onNetworkChanged(); });
+    connect(network, &QNetworkConfigurationManager::configurationChanged,
+            this, [this](const QNetworkConfiguration&) { onNetworkChanged(); });
+#endif
+#ifdef Q_OS_LINUX
+    // VPN changes may not affect global network reachability.
+    const int fd = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
+                            NETLINK_ROUTE);
+    if (fd >= 0) {
+        sockaddr_nl address {};
+        address.nl_family = AF_NETLINK;
+        address.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR
+            | RTMGRP_IPV6_IFADDR | RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE;
+        if (::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) {
+            _routeChangeSocket = fd;
+            auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
+            connect(notifier, &QSocketNotifier::activated, this, [this, fd] {
+                char buffer[8192];
+                bool changed = false;
+                for (;;) {
+                    const auto received = ::recv(fd, buffer, sizeof(buffer), MSG_DONTWAIT);
+                    if (received > 0) { changed = true; continue; }
+                    if (received < 0 && errno == EINTR) continue;
+                    break;
+                }
+                if (changed) onNetworkChanged();
+            });
         } else {
-            // In-place reloading of teams destroys QObject-backed channels,
-            // invalidating live widgets. Dispose UI before rebuilding.
-            reloadSessionAfterReplayGap(id);
+            ::close(fd);
         }
-    });
+    }
+#endif
 }
 
-AccountManager::~AccountManager() = default;
-
-void AccountManager::retryTemporarilyUnavailable(const QStringList& ids)
+AccountManager::~AccountManager()
 {
+#ifdef Q_OS_LINUX
+    if (_routeChangeSocket >= 0)
+        ::close(_routeChangeSocket);
+#endif
+}
+
+void AccountManager::scheduleRetry(const QString& id, RetryKind kind)
+{
+    if (id.isEmpty() || _pendingRetries.contains(id))
+        return;
+    const int delay = retryDelayMs(++_retryFailures[id]);
+    _pendingRetries.insert(id, {kind, _retryClock.elapsed() + delay});
+    qCInfo(accountRestoreLog) << "Account retry" << id
+                              << "kind" << int(kind) << "in" << delay << "ms";
+    armRetryTimer();
+}
+
+void AccountManager::cancelRetry(const QString& id, bool resetFailures)
+{
+    _pendingRetries.remove(id);
+    if (resetFailures)
+        _retryFailures.remove(id);
+    armRetryTimer();
+}
+
+void AccountManager::armRetryTimer()
+{
+    _retryTimer.stop();
+    if (_pendingRetries.isEmpty())
+        return;
+    qint64 earliest = std::numeric_limits<qint64>::max();
+    for (auto it = _pendingRetries.cbegin(); it != _pendingRetries.cend(); ++it)
+        earliest = qMin(earliest, it.value().deadline);
+    _retryTimer.start(int(qMin(qMax(qint64(0), earliest - _retryClock.elapsed()),
+                               qint64(std::numeric_limits<int>::max()))));
+}
+
+void AccountManager::processRetries(bool force)
+{
+    const qint64 now = _retryClock.elapsed();
+    QVector<QPair<QString, RetryKind>> due;
+    for (auto it = _pendingRetries.begin(); it != _pendingRetries.end();) {
+        if (force || it.value().deadline <= now) {
+            due.append({it.key(), it.value().kind});
+            it = _pendingRetries.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    armRetryTimer();
     if (_invalidCatalog)
         return;
     const QStringList admitted = activeProfileAccountIds();
-    if (!_suspendingProfileAccounts.isEmpty()) {
-        // Do not lose a due retry during the asynchronous release of a
-        // different profile's Backend-dependent Widgets.
-        for (const QString& id : ids) {
-            Account* item = account(id);
-            if (item && admitted.contains(id)
-                && item->state() == AccountConnectionState::Unavailable)
-                _connections.savedSessionFailed(id);
-        }
-        return;
-    }
-    for (const QString& id : ids) {
-        Account* item = account(id);
-        if (!item || !admitted.contains(id) || item->backend()
-            || item->pendingBackend()
-            || (item->state() != AccountConnectionState::Unavailable
-                && item->state() != AccountConnectionState::Disconnected))
+    for (const auto& entry : due) {
+        Account* item = account(entry.first);
+        if (!item || !admitted.contains(entry.first))
             continue;
-        qCInfo(accountRestoreLog) << "Connecting saved account" << id;
-        performAccountRestore(id);
+        if (entry.second == RetryKind::SavedSession) {
+            if (item->backend() || item->pendingBackend()
+                || (item->state() != AccountConnectionState::Unavailable
+                    && item->state() != AccountConnectionState::Disconnected))
+                continue;
+            if (!_suspendingProfileAccounts.isEmpty())
+                scheduleRetry(entry.first, entry.second);
+            else
+                restoreAccount(entry.first);
+        } else {
+            Backend* backend = item->backend();
+            if (!backend || item->state() != AccountConnectionState::Connected
+                || backend->webSocketConnectionState()
+                    != WebSocketConnector::ConnectionState::WaitingForReconnect)
+                continue;
+            if (!_suspendingProfileAccounts.isEmpty())
+                scheduleRetry(entry.first, entry.second);
+            else
+                backend->retryWebSocketConnectionNow();
+        }
     }
 }
 
-void AccountManager::retryWebSocketConnections(const QStringList& ids)
+void AccountManager::onNetworkChanged()
 {
-    const QStringList admitted = activeProfileAccountIds();
-    if (!_suspendingProfileAccounts.isEmpty()) {
-        // Profile suspension may be asynchronous. Never consume a due retry
-        // without either starting it or preserving its schedule.
-        for (const QString& id : ids) {
-            Account* item = account(id);
-            if (item && admitted.contains(id) && item->backend()
-                && item->backend()->webSocketConnectionState()
-                    == WebSocketConnector::ConnectionState::WaitingForReconnect)
-                _connections.websocketUnavailable(id);
-        }
-        return;
+    // Keep healthy uploads alive; only probe live sockets and refresh stale
+    // transports belonging to accounts already trying to reconnect.
+    for (Backend* backend : registeredBackends()) {
+        const auto state = backend->webSocketConnectionState();
+        if (state == WebSocketConnector::ConnectionState::Connected)
+            backend->probeWebSocketConnection();
+        else if (state == WebSocketConnector::ConnectionState::WaitingForReconnect)
+            HTTPConnector::restartSessionTransports(&backend->networkSession());
     }
-    for (const QString& id : ids) {
-        Account* item = account(id);
-        if (!item || !admitted.contains(id)
-            || item->state() != AccountConnectionState::Connected)
-            continue;
-        Backend* backend = item->backend();
-        if (backend && backend->webSocketConnectionState()
-                == WebSocketConnector::ConnectionState::WaitingForReconnect)
-            backend->retryWebSocketConnectionNow();
-    }
+    processRetries(true);
 }
 
 void AccountManager::reloadSessionAfterReplayGap(const QString& id)
@@ -120,15 +195,13 @@ void AccountManager::reloadSessionAfterReplayGap(const QString& id)
     Account* item = account(id);
     if (!item || !item->backend() || _suspendingProfileAccounts.contains(id))
         return;
-
     Backend* backend = item->backend();
     qCWarning(accountRestoreLog) << "Unverified WebSocket replay; rebuilding session" << id;
-    _connections.cancel(id);
+    cancelRetry(id);
     _suspendingProfileAccounts.insert(id);
     item->setState(AccountConnectionState::Disconnected);
     backend->prepareForLogout();
-    // Presentation disposes all Storage-dependent widgets before its
-    // acknowledgment. Unlike logout, the keychain token is kept.
+    // Keep keychain token; dispose widgets before destroying Storage.
     emit profileSuspensionRequested(item, backend);
 }
 
@@ -430,7 +503,7 @@ void AccountManager::reconcileActiveProfile()
     // Reset its state so a later profile activation can restore it afresh.
     for (Account* item : allAccounts()) {
         if (admitted.contains(item->id())) continue;
-        _connections.cancel(item->id());
+        cancelRetry(item->id());
         if (!item->backend() && !item->pendingBackend()
             && item->state() == AccountConnectionState::Unavailable)
             item->setState(AccountConnectionState::Disconnected);
@@ -490,7 +563,7 @@ void AccountManager::finishProfileSuspension(Account* item, Backend* backend)
 
     // The application has already destroyed the dependent Widgets. Cancel
     // outstanding HTTP/WS work while the Backend still owns its Storage.
-    _connections.cancel(item->id());
+    cancelRetry(item->id());
     backend->reset();
     emit accountUnregistered(backend);
     item->releaseBackend();
@@ -602,34 +675,36 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     // The saved-token verification has succeeded. Clear its retry cycle
     // BEFORE observing the WebSocket state: a socket may already be offline,
     // and clearing later would silently erase its newly scheduled retry.
-    _connections.cancel(item->id());
+    cancelRetry(item->id());
     const QString registeredId = item->id();
-    QPointer<Account> accountGuard(item);
-    QPointer<Backend> backendGuard(backend);
     connect(backend, &Backend::onWebSocketConnectionStateChanged, this,
-            [this, registeredId, accountGuard, backendGuard](
-                WebSocketConnector::ConnectionState state) {
-        if (!accountGuard || !backendGuard
-            || accountGuard->backend() != backendGuard.data())
+            [this, registeredId, backend](WebSocketConnector::ConnectionState state) {
+        Account* item = account(registeredId);
+        if (!item || item->backend() != backend)
             return;
         if (state == WebSocketConnector::ConnectionState::WaitingForReconnect)
-            _connections.websocketUnavailable(registeredId);
+            scheduleRetry(registeredId, RetryKind::WebSocket);
         else if (state == WebSocketConnector::ConnectionState::Connecting)
-            _connections.attemptStarted(registeredId);
+            cancelRetry(registeredId, false);
         else if (state == WebSocketConnector::ConnectionState::Disconnected)
-            _connections.cancel(registeredId);
+            cancelRetry(registeredId);
     });
     connect(backend, &Backend::realtimeStreamConfirmed, this,
-            [this, registeredId, accountGuard, backendGuard](
-                bool isReconnect, bool continuityVerified) {
-        if (accountGuard && backendGuard
-            && accountGuard->backend() == backendGuard.data())
-            _connections.streamVerified(registeredId, isReconnect,
-                                        continuityVerified);
+            [this, registeredId, backend](bool isReconnect, bool continuityVerified) {
+        Account* item = account(registeredId);
+        if (!item || item->backend() != backend)
+            return;
+        cancelRetry(registeredId);
+        if (!isReconnect || !activeProfileAccountIds().contains(registeredId))
+            return;
+        if (continuityVerified)
+            backend->reconcileAfterReliableReplay();
+        else
+            reloadSessionAfterReplayGap(registeredId);
     });
     if (backend->webSocketConnectionState()
         == WebSocketConnector::ConnectionState::WaitingForReconnect)
-        _connections.websocketUnavailable(registeredId);
+        scheduleRetry(registeredId, RetryKind::WebSocket);
     const bool firstAccount = _selectedId.isEmpty();
     if (firstAccount)
         _selectedId = id;
@@ -690,22 +765,12 @@ void AccountManager::rebuildModel()
 void AccountManager::cancelPendingRestore(
     const QString& id, AccountConnectionState status)
 {
-    _connections.cancel(id);
+    cancelRetry(id);
     if (Account* item = account(id))
         item->cancelPending(status);
 }
 
 void AccountManager::restoreAccount(const QString& id)
-{
-    Account* item = account(id);
-    if (!item || item->backend() || item->pendingBackend()
-        || !activeProfileAccountIds().contains(id)
-        || !_suspendingProfileAccounts.isEmpty())
-        return;
-    _connections.startSavedSession(id);
-}
-
-void AccountManager::performAccountRestore(const QString& id)
 {
     Account* item = account(id);
     const auto* record = item ? item->record() : nullptr;
@@ -717,7 +782,7 @@ void AccountManager::performAccountRestore(const QString& id)
         || item->backend() || item->pendingBackend())
         return;
 
-    _connections.attemptStarted(id);
+    cancelRetry(id, false);
     qCInfo(accountRestoreLog) << "Starting session restoration for account" << id;
     Backend* backend = item->createPendingBackend();
     if (!backend) {
@@ -751,9 +816,9 @@ void AccountManager::performAccountRestore(const QString& id)
             // credential; retry it through the shared connection policy.
             if (unavailable && activeProfileAccountIds().contains(accountId)
                 && _suspendingProfileAccounts.isEmpty())
-                _connections.savedSessionFailed(accountId);
+                scheduleRetry(accountId, RetryKind::SavedSession);
             else
-                _connections.cancel(accountId);
+                cancelRetry(accountId);
             return;
         }
 
@@ -783,9 +848,9 @@ void AccountManager::performAccountRestore(const QString& id)
                     // State observers may synchronously change the profile.
                     if (transient && activeProfileAccountIds().contains(accountId)
                         && _suspendingProfileAccounts.isEmpty())
-                        _connections.savedSessionFailed(accountId);
+                        scheduleRetry(accountId, RetryKind::SavedSession);
                     else
-                        _connections.cancel(accountId);
+                        cancelRetry(accountId);
                     return;
                 }
                 const WorkspaceLayout::Account* record = account->record();
@@ -796,7 +861,7 @@ void AccountManager::performAccountRestore(const QString& id)
                     qCWarning(accountRestoreLog)
                         << "Saved credentials resolved to a different remote identity for account"
                         << account->id();
-                    _connections.cancel(account->id());
+                    cancelRetry(account->id());
                     account->cancelPending(AccountConnectionState::AuthenticationRequired);
                     return;
                 }
@@ -805,7 +870,7 @@ void AccountManager::performAccountRestore(const QString& id)
                     qCWarning(accountRestoreLog)
                         << "Verified session could not be adopted for account"
                         << account->id();
-                    _connections.cancel(account->id());
+                    cancelRetry(account->id());
                     account->cancelPending(AccountConnectionState::AuthenticationRequired);
                 } else {
                     // adoptAuthenticated already completed the HTTP phase and
@@ -820,7 +885,7 @@ void AccountManager::prepareStop(Account* item, bool authenticationExpired)
 {
     if (!item || !item->backend())
         return;
-    _connections.cancel(item->id());
+    cancelRetry(item->id());
     item->setState(authenticationExpired
         ? AccountConnectionState::AuthenticationRequired
         : AccountConnectionState::Disconnected);
