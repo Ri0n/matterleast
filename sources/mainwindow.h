@@ -69,6 +69,7 @@ public:
     // Shared account/profile model rendered as an icon-only tab before Channels.
     void installServersSidebar(AccountManager& manager);
     void showServersSidebar();
+    void showChannelsSidebar();
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
