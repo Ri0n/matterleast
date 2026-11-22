@@ -3,6 +3,7 @@
 #include <QTreeWidgetItem>
 
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree/ChannelTreeItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
@@ -12,6 +13,16 @@
 using namespace Mattermost;
 
 namespace {
+
+class RecordingMenuItem final : public ChannelTreeItem
+{
+public:
+    explicit RecordingMenuItem(int& calls) : calls_(calls) {}
+    void showContextMenu(const QPoint&) override { ++calls_; }
+
+private:
+    int& calls_;
+};
 
 QTreeWidgetItem* addRow(QTreeWidgetItem* parent, SidebarItem::Kind kind,
                          const QString& remoteId)
@@ -151,6 +162,43 @@ private slots:
         QCOMPARE(tree.backendForAccount(QString()), &first);
         QCOMPARE(tree.backendInstance(), &first);
         QCOMPARE(resets.count(), 0);
+    }
+
+    void contextMenusUseOwningAccountWithCollidingIds()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        tree.backendForSidebar = &first;
+        QVERIFY(tree.bindSingleAccount(QStringLiteral("a")));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+
+        int firstCalls = 0;
+        int secondCalls = 0;
+        auto* a = new RecordingMenuItem(firstCalls);
+        auto* b = new RecordingMenuItem(secondCalls);
+        a->setData(0, SidebarItem::KindRole, int(SidebarItem::Channel));
+        b->setData(0, SidebarItem::KindRole, int(SidebarItem::Channel));
+        a->setData(0, SidebarItem::AccountIdRole, QStringLiteral("a"));
+        b->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        tree.addTopLevelItem(a);
+        tree.addTopLevelItem(b);
+        tree.addChannelToItem(QStringLiteral("shared-channel"), a);
+        tree.addChannelToItem(QStringLiteral("shared-channel"), b);
+
+        tree.showChannelContextMenuForAccount(QStringLiteral("shared-channel"),
+                                              QStringLiteral("b"), {});
+        QCOMPARE(firstCalls, 0);
+        QCOMPARE(secondCalls, 1);
+        tree.showChannelContextMenuForAccount(QStringLiteral("shared-channel"),
+                                              QStringLiteral("a"), {});
+        QCOMPARE(firstCalls, 1);
+        QCOMPARE(secondCalls, 1);
+
+        tree.unregisterAccountBackend(QStringLiteral("b"), &second);
+        tree.showChannelContextMenuForAccount(QStringLiteral("shared-channel"),
+                                              QStringLiteral("b"), {});
+        QCOMPARE(secondCalls, 1);
     }
 
     void sidebarEventsAffectOnlyTheirOriginatingAccount()
