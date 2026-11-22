@@ -410,6 +410,11 @@ void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
         || credentials.username.isEmpty()
         || (credentials.password.isEmpty() && credentials.token.isEmpty()))
         return;
+    // Keep a failed attempt visible for the user, but never accumulate stale
+    // rows across repeated add-server attempts.
+    for (const QString& id : _failedNewServers)
+        _treeModel.removePendingServer(id);
+    _failedNewServers.clear();
     const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QString serverName = QUrl(credentials.domain).host();
     if (serverName.isEmpty()) return;
@@ -452,6 +457,7 @@ void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
             }
             qWarning("New server authentication succeeded but account could not be adopted");
         }
+        _failedNewServers.insert(requestId);
         _treeModel.setPendingServer(requestId, serverName,
                                     tr("Sign-in failed — add server to retry"));
         discardCandidate(guard.data());
