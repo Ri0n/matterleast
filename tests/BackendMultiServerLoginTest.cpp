@@ -309,7 +309,7 @@ private slots:
     {
         // Verify each Backend request is independent and transient gateway
         // errors preserve credentials; the retry policy is owned by AccountManager.
-        for (const QByteArray status : {QByteArrayLiteral("503 Service Unavailable"),
+        for (const QByteArray& status : {QByteArrayLiteral("503 Service Unavailable"),
                                         QByteArrayLiteral("403 Forbidden"),
                                         QByteArrayLiteral("404 Not Found")}) {
             FakeMattermostServer server(QByteArrayLiteral("vpn-user"));
