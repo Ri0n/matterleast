@@ -73,6 +73,80 @@ void AccountManager::persist() const
             QStringLiteral("workspaces/layout"), json);
 }
 
+bool AccountManager::applyLayoutEdits(const WorkspaceLayout& proposed,
+                                      QString* error)
+{
+    auto reject = [error](const QString& reason) {
+        if (error) *error = reason;
+        return false;
+    };
+    if (_invalidCatalog || _layout.accounts.isEmpty())
+        return reject(QStringLiteral("Workspace catalog is unavailable"));
+    if (!proposed.validate(error)) return false;
+    if (proposed.accounts.size() != _layout.accounts.size())
+        return reject(QStringLiteral("Adding or removing authenticated accounts requires the account lifecycle API"));
+    // Never change a verified remote identity from a layout editor. Tokens
+    // remain in the keyring; a different server/login must be added or
+    // authenticated explicitly through the credential workflow.
+    for (const auto& oldAccount : _layout.accounts) {
+        const auto* updated = proposed.account(oldAccount.id);
+        if (!updated || updated->serverBaseUrl != oldAccount.serverBaseUrl
+            || updated->serverUserId != oldAccount.serverUserId
+            || updated->loginName != oldAccount.loginName)
+            return reject(QStringLiteral("Server identity cannot be edited without authentication"));
+    }
+    const QString oldViewId = _layout.activeViewId;
+    const QString oldSelectedId = _selectedId;
+    const QStringList oldProfileAccounts = activeProfileAccountIds();
+    const QSet<QString> oldProfileIds(oldProfileAccounts.cbegin(),
+                                     oldProfileAccounts.cend());
+    _layout = proposed;
+    QStringList activeIds;
+    for (const auto& view : _layout.views)
+        if (view.id == _layout.activeViewId) {
+            activeIds = view.accountIds;
+            break;
+        }
+    if (!activeIds.contains(_selectedId))
+        _selectedId = activeIds.first();
+    _lastSelectedByView.insert(_layout.activeViewId, _selectedId);
+    for (auto it = _lastSelectedByView.begin(); it != _lastSelectedByView.end();) {
+        bool found = false;
+        for (const auto& view : _layout.views)
+            if (view.id == it.key()) { found = true; break; }
+        if (found) ++it;
+        else it = _lastSelectedByView.erase(it);
+    }
+    for (auto it = _viewSessions.begin(); it != _viewSessions.end();) {
+        bool found = false;
+        for (const auto& view : _layout.views)
+            if (view.id == it.key()) { found = true; break; }
+        if (found) ++it;
+        else {
+            it.value()->deleteLater();
+            it = _viewSessions.erase(it);
+        }
+    }
+    ensureViewSessions();
+    rebuildModel();
+    _treeModel.refreshTopology();
+    persist();
+    emit layoutChanged();
+    if (oldViewId != _layout.activeViewId) {
+        emit activeViewChanged(_layout.activeViewId);
+        emit activeViewSessionChanged();
+    }
+    if (oldSelectedId != _selectedId)
+        emit activeBackendChanged(activeBackend());
+    const QStringList nextProfileAccounts = activeProfileAccountIds();
+    const QSet<QString> newProfileIds(nextProfileAccounts.cbegin(),
+                                     nextProfileAccounts.cend());
+    if (oldProfileIds != newProfileIds)
+        reconcileActiveProfile();
+    if (error) error->clear();
+    return true;
+}
+
 Account* AccountManager::ensureAccount(const QString& id)
 {
     if (Account* existing = account(id))
