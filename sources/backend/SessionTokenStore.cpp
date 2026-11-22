@@ -64,8 +64,13 @@ void SessionTokenStore::read(QObject* context, const QString& server,
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
     auto* job = new QKeychain::ReadPasswordJob(QString::fromLatin1(KeychainService),
                                                keychainJobParent());
-    job->setKey(keyFor(server, username));
+    const QString entryKey = keyFor(server, username);
+    job->setKey(entryKey);
     job->setInsecureFallback(false);
+    // Only a short digest prefix is exposed; never log tokens, credentials,
+    // server URLs or the complete stable keychain entry identifier.
+    qInfo().noquote() << "MatterLeast keyring lookup: service" << KeychainService
+                      << "key-prefix" << entryKey.left(27);
     QObject::connect(job, &QKeychain::Job::finished, context,
                      [callback = std::move(callback)](QKeychain::Job* finished) {
         if (!callback) return;
