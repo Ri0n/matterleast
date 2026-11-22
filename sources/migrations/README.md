@@ -45,3 +45,29 @@ Append a monotonically increasing step to the dated descriptor array in
 upgrade paths, interruptions, future versions and repeated startups.
 Never repurpose an old version number or move compatibility logic into
 the account domain or the Widgets frontend.
+
+## Diagnosing upgrade and saved-session restoration
+
+Startup logs use two Qt categories:
+
+- `mattermost.migration`: stored/current migration schema version, step
+  execution, legacy keyring lookup result, authentication result and whether
+  migration completed, was deferred or requires manual sign-in
+- `mattermost.account.restore`: catalog load, active-profile restoration,
+  per-account keyring status (`found`, `not-found`, `unavailable`), identity
+  verification and adoption outcome
+
+These are informational messages by default. When running a desktop build from
+a shell, capture standard error alongside standard output. The log **must never
+print passwords, bearer tokens, credential hashes, or plaintext legacy
+settings**. A stable local account ID is logged only to correlate independent
+restorations; no username or full server URL is logged.
+
+The migration category is quiet after the schema is current except for an
+explicit `No schema migration required` message; this is not equivalent to a
+successful login. Normal session restoration is a separate phase.
+
+For a regression report capture these lines, including the initial
+`MatterLeast startup:` marker and any `mattermost.account.restore` warnings.
+Avoid deleting account settings or keyring secrets before diagnosing
+`not-found` versus `unavailable` versus a server-side rejection.
