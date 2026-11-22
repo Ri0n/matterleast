@@ -205,6 +205,44 @@ private slots:
         QVERIFY(!session.moveTab(-1, 0));
     }
 
+    void changingViewMembershipPrunesOnlyExcludedAccountState()
+    {
+        ViewNavigationSession view(QStringLiteral("combined"));
+        auto alpha = chat(QStringLiteral("alpha"), QStringLiteral("same"));
+        auto beta = chat(QStringLiteral("beta"), QStringLiteral("same"));
+        auto thread = chat(QStringLiteral("alpha"), QStringLiteral("same"),
+                           QStringLiteral("thread"));
+        view.setAllowedAccounts({QStringLiteral("alpha"), QStringLiteral("beta")});
+        QCOMPARE(view.openTab(alpha), 0);
+        QCOMPARE(view.openTab(beta), 1);
+        QVERIFY(view.recordVisit(thread));
+        auto state = view.snapshot();
+        state.dock = thread;
+        state.dockVisible = true;
+        QVERIFY(view.restoreSnapshot(state));
+
+        QSignalSpy reset(&view, &QAbstractItemModel::modelReset);
+        QSignalSpy removed(&view, &QAbstractItemModel::rowsRemoved);
+        view.setAllowedAccounts({QStringLiteral("beta")});
+        QCOMPARE(view.rowCount(), 1);
+        QCOMPARE(view.tabs().at(0)->accountId, QStringLiteral("beta"));
+        QVERIFY(!view.currentLocation().valid());
+        QVERIFY(view.snapshot().back.isEmpty());
+        QVERIFY(!view.snapshot().dockVisible);
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(removed.count(), 1);
+        QVERIFY(!view.recordVisit(alpha));
+        QVERIFY(!view.openTab(alpha));
+        // A stale widget cannot reintroduce another account through a bulk
+        // snapshot either, even if it had a valid bookmark before the edit.
+        auto stale = view.snapshot();
+        stale.tabs.append(NavigationTabsModel::Entry {
+            QStringLiteral("alpha"), QStringLiteral("other")});
+        QVERIFY(!view.restoreSnapshot(stale));
+        QCOMPARE(view.rowCount(), 1);
+        QCOMPARE(reset.count(), 0);
+    }
+
     void dockHistoryDoesNotChangeCentralTabAndBookmarksDoNotAddSteps()
     {
         ViewNavigationSession session(QStringLiteral("view"));
