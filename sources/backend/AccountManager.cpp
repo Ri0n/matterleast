@@ -9,6 +9,7 @@
 #include "backend/AccountIdentity.h"
 #include "backend/Backend.h"
 #include "backend/SessionTokenStore.h"
+#include "backend/SessionVerificationRetry.h"
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
 #include "navigation/ViewNavigationSession.h"
@@ -594,41 +595,57 @@ void AccountManager::restoreAccount(const QString& id)
         credentials.username = login;
         credentials.token = token;
         qCInfo(accountRestoreLog) << "Verifying saved session for account" << account->id();
-        backend->login(credentials, [this, accountGuard, backendGuard](
-                                            const QString& authenticatedToken) {
-            Account* account = accountGuard.data();
-            Backend* backend = backendGuard.data();
-            if (!account || !backend || account->pendingBackend() != backend)
-                return;
-            if (authenticatedToken.isEmpty()) {
-                const bool transient = backend->lastLoginFailureTransient();
-                qCWarning(accountRestoreLog) << "Session verification failed for account"
-                                             << account->id() << "transient" << transient;
-                account->cancelPending(
-                    transient ? AccountConnectionState::Unavailable
-                              : AccountConnectionState::AuthenticationRequired);
-                return;
-            }
-            const WorkspaceLayout::Account* record = account->record();
-            if (!record || accountIdentityKey(
-                    record->serverBaseUrl, record->serverUserId)
-                    != accountIdentityKey(backend->networkSession().host(),
-                                           backend->getLoginUser().id)) {
-                qCWarning(accountRestoreLog)
-                    << "Saved credentials resolved to a different remote identity for account"
-                    << account->id();
-                account->cancelPending(AccountConnectionState::AuthenticationRequired);
-                return;
-            }
-            if (!adoptAuthenticated(backend, record->loginName,
-                                    record->name, account->id(), false)) {
-                qCWarning(accountRestoreLog) << "Verified session could not be adopted for account"
-                                             << account->id();
-                account->cancelPending(AccountConnectionState::AuthenticationRequired);
-            } else {
-                qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
-            }
-        });
+        // The token is already in the keyring. A DNS failure or HTTP 5xx
+        // cannot invalidate it and must not force interactive sign-in.
+        // The verifier is owned by the pending Backend: cancelling a restore
+        // destroys its delayed retries together with that Backend.
+        auto* verifier = new SessionVerificationRetry(backend);
+        verifier->start(
+            [backendGuard, credentials](SessionVerificationRetry::CheckDone done) {
+                if (!backendGuard) return;
+                backendGuard->login(credentials,
+                    [backendGuard, done = std::move(done)](const QString& token) {
+                    if (!backendGuard) return;
+                    const bool authenticated = !token.isEmpty();
+                    done(authenticated, !authenticated
+                        && backendGuard->lastLoginFailureTransient());
+                });
+            },
+            [this, accountGuard, backendGuard](bool authenticated, bool transient) {
+                Account* account = accountGuard.data();
+                Backend* backend = backendGuard.data();
+                if (!account || !backend || account->pendingBackend() != backend)
+                    return;
+                if (!authenticated) {
+                    qCWarning(accountRestoreLog)
+                        << "Saved session verification did not succeed for account"
+                        << account->id() << "transient" << transient;
+                    account->cancelPending(
+                        transient ? AccountConnectionState::Unavailable
+                                  : AccountConnectionState::AuthenticationRequired);
+                    return;
+                }
+                const WorkspaceLayout::Account* record = account->record();
+                if (!record || accountIdentityKey(
+                        record->serverBaseUrl, record->serverUserId)
+                        != accountIdentityKey(backend->networkSession().host(),
+                                               backend->getLoginUser().id)) {
+                    qCWarning(accountRestoreLog)
+                        << "Saved credentials resolved to a different remote identity for account"
+                        << account->id();
+                    account->cancelPending(AccountConnectionState::AuthenticationRequired);
+                    return;
+                }
+                if (!adoptAuthenticated(backend, record->loginName,
+                                        record->name, account->id(), false)) {
+                    qCWarning(accountRestoreLog)
+                        << "Verified session could not be adopted for account"
+                        << account->id();
+                    account->cancelPending(AccountConnectionState::AuthenticationRequired);
+                } else {
+                    qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
+                }
+            });
     });
 }
 
