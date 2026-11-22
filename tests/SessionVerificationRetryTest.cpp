@@ -89,5 +89,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(SessionVerificationRetryTest)
+QTEST_GUILESS_MAIN(SessionVerificationRetryTest)
 #include "SessionVerificationRetryTest.moc"
