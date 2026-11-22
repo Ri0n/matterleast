@@ -109,6 +109,8 @@ public:
     // Called only for a view with one owning account while the desktop still
     // uses account-specific MainWindow instances. The state remains QtCore.
     void bindViewSession(ViewNavigationSession* session, const QString& accountId);
+    // Stop writing a single-account presentation into a merged or inactive view.
+    void unbindViewSession();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -216,6 +218,7 @@ private:
     bool applyingViewSession = false;
     QPointer<ViewNavigationSession> viewNavigationSession;
     QString viewNavigationAccountId;
+    bool everBoundView = false;
 };
 
 } // namespace Mattermost
