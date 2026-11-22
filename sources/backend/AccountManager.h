@@ -10,7 +10,7 @@
 #include "workspaces/AccountListModel.h"
 #include "workspaces/WorkspaceTreeModel.h"
 #include "workspaces/WorkspaceLayout.h"
-#include "backend/TransientAccountReconnect.h"
+#include "backend/AccountConnectionController.h"
 
 namespace Mattermost {
 class Account;
@@ -110,15 +110,15 @@ private:
     void rebuildModel();
     void finishBackendRemoval(Account* account, Backend* backend);
     void retryTemporarilyUnavailable(const QStringList& ids);
+    void retryWebSocketConnections(const QStringList& ids);
+    void performAccountRestore(const QString& id);
+    void reloadSessionAfterReplayGap(const QString& id);
     bool applySelection(const QString& viewId, const QString& accountId);
     void reconcileActiveProfile();
     void ensureViewSessions();
     QStringList activeProfileAccountIds() const;
 
-    TransientAccountReconnect _offlineReconnect;
-#ifdef Q_OS_LINUX
-    int _routeChangeSocket = -1;
-#endif
+    AccountConnectionController _connections;
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     AccountListModel _listModel;
