@@ -227,17 +227,20 @@ private slots:
         QCOMPARE(view.rowCount(), 1);
         QCOMPARE(view.tabs().at(0)->accountId, QStringLiteral("beta"));
         QVERIFY(!view.currentLocation().valid());
-        QVERIFY(view.snapshot().back.isEmpty());
+        QCOMPARE(view.snapshot().back.size(), 1);
+        QCOMPARE(view.snapshot().back.front().accountId, QStringLiteral("beta"));
         QVERIFY(!view.snapshot().dockVisible);
         QCOMPARE(reset.count(), 0);
         QCOMPARE(removed.count(), 1);
         QVERIFY(!view.recordVisit(alpha));
-        QVERIFY(!view.openTab(alpha));
+        QCOMPARE(view.openTab(alpha), -1);
         // A stale widget cannot reintroduce another account through a bulk
         // snapshot either, even if it had a valid bookmark before the edit.
         auto stale = view.snapshot();
-        stale.tabs.append(NavigationTabsModel::Entry {
-            QStringLiteral("alpha"), QStringLiteral("other")});
+        NavigationTabsModel::Entry excluded;
+        excluded.channelId = QStringLiteral("other");
+        excluded.accountId = QStringLiteral("alpha");
+        stale.tabs.append(excluded);
         QVERIFY(!view.restoreSnapshot(stale));
         QCOMPARE(view.rowCount(), 1);
         QCOMPARE(reset.count(), 0);
