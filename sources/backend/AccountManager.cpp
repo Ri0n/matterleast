@@ -90,9 +90,19 @@ void AccountManager::retryTemporarilyUnavailable(const QStringList& ids)
 
 void AccountManager::retryWebSocketConnections(const QStringList& ids)
 {
-    if (!_suspendingProfileAccounts.isEmpty())
-        return;
     const QStringList admitted = activeProfileAccountIds();
+    if (!_suspendingProfileAccounts.isEmpty()) {
+        // Profile suspension may be asynchronous. Never consume a due retry
+        // without either starting it or preserving its schedule.
+        for (const QString& id : ids) {
+            Account* item = account(id);
+            if (item && admitted.contains(id) && item->backend()
+                && item->backend()->webSocketConnectionState()
+                    == WebSocketConnector::ConnectionState::WaitingForReconnect)
+                _connections.websocketUnavailable(id);
+        }
+        return;
+    }
     for (const QString& id : ids) {
         Account* item = account(id);
         if (!item || !admitted.contains(id)
