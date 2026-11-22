@@ -148,20 +148,33 @@ public:
 	// Route their context-menu requests back through the real ChannelItem so all
 	// actions and handlers stay identical to the Channels tab.
 	void showChannelContextMenu(const QString& channelID, const QPoint& globalPos)
-	{
-		auto it = channelToItemMap.constFind(scopedId(channelID));
-		if (it == channelToItemMap.cend()) {
-			return;
-		}
-		for (QTreeWidgetItem* item : it.value()) {
-			if (!item || item->data(0, ItemKindRole).toInt() != ChannelItemKind) {
-				continue;
-			}
-			static_cast<ChannelTreeItem*>(item)->showContextMenu(globalPos);
-			return;
-		}
-	}
+    {
+        // Old Recent/Attention widgets belong to a single-account window.
+        showChannelContextMenuForAccount(channelID, _boundAccountId, globalPos);
+    }
 
+    // Merged projections must supply the originating account: remote
+    // channel IDs are not globally unique.
+    void showChannelContextMenuForAccount(const QString& channelID,
+                                          const QString& accountId,
+                                          const QPoint& globalPos)
+    {
+        const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId,
+                            channelID};
+        Backend* owner = backendForAccount(key.first);
+        if (!owner)
+            return;
+        const auto it = channelToItemMap.constFind(key);
+        if (it == channelToItemMap.cend())
+            return;
+        for (QTreeWidgetItem* item : it.value()) {
+            if (!item || item->data(0, ItemKindRole).toInt() != ChannelItemKind
+                || backendForRow(item) != owner)
+                continue;
+            static_cast<ChannelTreeItem*>(item)->showContextMenu(globalPos);
+            return;
+        }
+    }
 
 
 signals:
