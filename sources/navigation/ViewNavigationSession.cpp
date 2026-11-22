@@ -342,6 +342,21 @@ bool ViewNavigationSession::updateBookmark(
     return true;
 }
 
+bool ViewNavigationSession::recordVisit(const Location& location)
+{
+    if (!location.valid()) return false;
+    recordLocation(location);
+    return true;
+}
+
+bool ViewNavigationSession::updateCurrentBookmark(const Location& location)
+{
+    if (!location.valid() || (_current.valid()
+        && !_current.sameDestination(location))) return false;
+    _current = location;
+    return true;
+}
+
 bool ViewNavigationSession::visit(const Location& location)
 {
     if (!location.valid()) return false;
