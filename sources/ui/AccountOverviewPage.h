@@ -25,6 +25,7 @@ signals:
     void retryRequested(const QString& accountId);
     void signInRequested(const QString& accountId);
     void addServerRequested();
+    void manageServersRequested();
 
 private:
     QString selectedAccountId() const;

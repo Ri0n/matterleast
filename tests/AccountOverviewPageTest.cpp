@@ -34,12 +34,18 @@ private slots:
 
         QSignalSpy retry(&page, &AccountOverviewPage::retryRequested);
         QSignalSpy signIn(&page, &AccountOverviewPage::signInRequested);
+        QSignalSpy manage(&page, &AccountOverviewPage::manageServersRequested);
         for (QPushButton* button : page.findChildren<QPushButton*>()) {
             if (button->text() == QStringLiteral("Connect"))
                 button->click();
             if (button->text() == QStringLiteral("Sign in…"))
                 button->click();
         }
+        auto* manageButton = page.findChild<QPushButton*>(
+            QStringLiteral("overviewManageServers"));
+        QVERIFY(manageButton);
+        manageButton->click();
+        QCOMPARE(manage.count(), 1);
         QCOMPARE(retry.count(), 1);
         QCOMPARE(signIn.count(), 1);
         QCOMPARE(retry.first().first().toString(), QStringLiteral("b"));
