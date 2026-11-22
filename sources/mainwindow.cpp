@@ -343,7 +343,16 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	LOG_DEBUG("MainWindow create finish");
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // QObject destroys child widgets only after this destructor body returns.
+    // Finalize navigation now while every thread stack and ChatArea is valid;
+    // otherwise ChatArea::destroyed synchronously triggers session updates
+    // against partially destroyed QStackedWidgets (startup/exit SIGSEGV).
+    if (auto* navigation = findChild<NavigationUiController*>(
+            QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
+        navigation->beginShutdown();
+}
 
 void MainWindow::bindViewNavigation(ViewNavigationSession* session,
                                     const QString& accountId)
