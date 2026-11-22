@@ -14,7 +14,7 @@
 #endif
 #if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
 #include <QNetworkInformation>
-#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT) && !defined(Q_OS_LINUX)
 #include <QNetworkConfigurationManager>
 #endif
 
@@ -50,7 +50,7 @@ AccountConnectionController::AccountConnectionController(QObject* parent)
                     this, [this] { resumeOnNetworkChange(); });
         }
     }
-#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT) && !defined(Q_OS_LINUX)
     auto* network = new QNetworkConfigurationManager(this);
     connect(network, &QNetworkConfigurationManager::onlineStateChanged,
             this, [this](bool) { resumeOnNetworkChange(); });
