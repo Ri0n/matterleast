@@ -164,6 +164,47 @@ private slots:
         QCOMPARE(target.snapshot().back.size(), transfer.back.size());
     }
 
+    void ordinaryNavigationReusesOnlyUnpinnedChannelTabs()
+    {
+        ViewNavigationSession session(QStringLiteral("combined"));
+        const auto a = chat(QStringLiteral("a"), QStringLiteral("same"));
+        const auto b = chat(QStringLiteral("b"), QStringLiteral("same"));
+        const auto c = chat(QStringLiteral("b"), QStringLiteral("other"));
+        QCOMPARE(session.openTab(a, QStringLiteral("Pinned"), true), 0);
+        QCOMPARE(session.reuseOrOpenChannelTab(b, QStringLiteral("Other account")), 1);
+        QCOMPARE(session.rowCount(), 2);
+        QCOMPARE(session.reuseOrOpenChannelTab(c, QStringLiteral("Reused")), 1);
+        QCOMPARE(session.rowCount(), 2);
+        QCOMPARE(session.tabs().at(0)->accountId, QStringLiteral("a"));
+        QCOMPARE(session.tabs().at(1)->channelId, QStringLiteral("other"));
+        QCOMPARE(session.openTab(b, QStringLiteral("Explicit new tab")), 2);
+        QCOMPARE(session.rowCount(), 3);
+        QCOMPARE(session.reuseOrOpenChannelTab(a), 0);
+        QCOMPARE(session.tabs().at(0)->pinned, true);
+    }
+
+    void tabReorderingKeepsActiveDestinationAndHistory()
+    {
+        ViewNavigationSession session(QStringLiteral("combined"));
+        const auto a = chat(QStringLiteral("a"), QStringLiteral("a"));
+        const auto b = chat(QStringLiteral("a"), QStringLiteral("b"));
+        const auto c = chat(QStringLiteral("b"), QStringLiteral("c"));
+        QCOMPARE(session.openTab(a), 0);
+        QCOMPARE(session.openTab(b), 1);
+        QCOMPARE(session.openTab(c), 2);
+        QSignalSpy moved(&session, &QAbstractItemModel::rowsMoved);
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        QVERIFY(session.moveTab(2, 0));
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(session.tabs().at(0)->channelId, QStringLiteral("c"));
+        QVERIFY(session.moveTab(2, 1));
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(session.currentLocation().channelId, QStringLiteral("c"));
+        QCOMPARE(moved.count(), 2);
+        QCOMPARE(reset.count(), 0);
+        QVERIFY(!session.moveTab(-1, 0));
+    }
+
     void rejectedSnapshotIsAtomic()
     {
         ViewNavigationSession session(QStringLiteral("view"));
