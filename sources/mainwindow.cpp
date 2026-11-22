@@ -63,6 +63,8 @@
 #include "backend/PendingPostService.h"
 #include "backend/FollowingModel.h"
 #include "navigation/NavigationUiController.h"
+#include "backend/AccountManager.h"
+#include "ui/ServersSidebarPage.h"
 #include "navigation/ConversationReference.h"
 #include "backend/SidebarService.h"
 #include "backend/UserProfileService.h"
@@ -349,24 +351,36 @@ void MainWindow::bindViewNavigation(ViewNavigationSession* session,
     NavigationUiController::instance(*this).bindViewSession(session, accountId);
 }
 
-void MainWindow::installAccountSwitcher(QMenu* menu)
+void MainWindow::installServersSidebar(AccountManager& manager)
 {
-    auto* header = findChild<QWidget*>(QStringLiteral("lefttop_frame"));
-    auto* layout = header
-        ? header->findChild<QHBoxLayout*>(QStringLiteral("horizontalLayout"))
-        : nullptr;
-    if (!layout || !menu)
-        return;
-    auto* button = new QToolButton(header);
-    button->setObjectName(QStringLiteral("accountSwitcherButton"));
-    button->setToolTip(tr("Switch server or add an account"));
-    button->setAccessibleName(tr("Accounts"));
-    button->setAutoRaise(true);
-    button->setIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
-    button->setIconSize(QSize(18, 18));
-    button->setPopupMode(QToolButton::InstantPopup);
-    button->setMenu(menu);
-    layout->insertWidget(0, button);
+    if (!channelTabs || serversPage) return;
+    serversPage = new ServersSidebarPage(manager, channelTabs);
+    // One icon, no caption, immediately before Channels. The server manager
+    // is a navigation surface, not another button in the avatar header.
+    const int index = channelTabs->insertTab(0, serversPage,
+        style()->standardIcon(QStyle::SP_ComputerIcon), QString());
+    channelTabs->setTabToolTip(index, tr("Servers and views"));
+    channelTabs->setTabWhatsThis(index, tr("Edit server settings and workspace layout"));
+    connect(serversPage, &ServersSidebarPage::accountOpenRequested,
+            this, &MainWindow::serverOpenRequested);
+    connect(serversPage, &ServersSidebarPage::viewOpenRequested,
+            this, &MainWindow::viewOpenRequested);
+    connect(serversPage, &ServersSidebarPage::addServerRequested,
+            this, &MainWindow::addServerRequested);
+    connect(serversPage, &ServersSidebarPage::signInRequested,
+            this, &MainWindow::serverSignInRequested);
+    connect(serversPage, &ServersSidebarPage::retryRequested,
+            this, &MainWindow::serverConnectRequested);
+    connect(channelTabs, &QTabWidget::currentChanged, this, [this] {
+        if (sidebarFilterRow)
+            sidebarFilterRow->setVisible(channelTabs->currentWidget() != serversPage);
+    });
+}
+
+void MainWindow::showServersSidebar()
+{
+    if (channelTabs && serversPage)
+        channelTabs->setCurrentWidget(serversPage);
 }
 
 static QString infoText()
@@ -519,7 +533,7 @@ void MainWindow::setupChannelTabs()
 	leftLayout->setContentsMargins(0, 0, 0, 0);
 	leftLayout->setSpacing(0);
 	leftLayout->addWidget(ui->lefttop_frame);
-	auto* sidebarFilterRow = new QWidget(leftSidebar);
+	sidebarFilterRow = new QWidget(leftSidebar);
 	auto* sidebarFilterLayout = new QHBoxLayout(sidebarFilterRow);
 	sidebarFilterLayout->setContentsMargins(0, 0, 3, 0);
 	sidebarFilterLayout->setSpacing(3);
