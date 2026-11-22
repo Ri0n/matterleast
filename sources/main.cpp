@@ -227,7 +227,7 @@ void MattermostApplication::start()
         ensureWorkspaceShell();
         serversStartupPage->setError(tr("Saved account settings could not be read. "
                                   "The original configuration has been preserved."));
-        workspaceShell->showOverview();
+        workspaceShell->showServers();
         trayWindow.setWindow(workspaceShell.get());
         workspaceShell->show();
         return;
@@ -236,7 +236,7 @@ void MattermostApplication::start()
     // Show persistent accounts immediately. Migrations are asynchronous and
     // must never hold the entire interface hostage to an offline server.
     ensureWorkspaceShell();
-    workspaceShell->showOverview();
+    workspaceShell->showServers();
     trayWindow.setWindow(workspaceShell.get());
     workspaceShell->show();
 
@@ -279,7 +279,7 @@ void MattermostApplication::ensureWorkspaceShell()
         workspaceShell->resize(1200, 800);
 
     serversStartupPage = new ServersWorkspacePage(accounts, workspaceShell.get());
-    workspaceShell->setOverviewPage(serversStartupPage);
+    workspaceShell->setServersPage(serversStartupPage);
     connect(serversStartupPage, &ServersWorkspacePage::accountSelected, this,
             [this](const QString& id) {
         selectAccount(id);
@@ -300,7 +300,7 @@ void MattermostApplication::ensureWorkspaceShell()
             if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
                 target->showChannelsSidebar();
         } else {
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
         }
         bindActiveNavigationView();
         updateWindowTitle();
@@ -378,7 +378,7 @@ void MattermostApplication::selectAccount(const QString& id,
         if (item && item->backend() && !closingAccounts.contains(item->backend()))
             workspaceShell->activateWorkspace(id);
         else
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
         trayWindow.setWindow(workspaceShell.get());
     }
     updateWindowTitle();
@@ -469,7 +469,7 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
             if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
                 target->showChannelsSidebar();
         } else {
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
         }
         bindActiveNavigationView();
         updateWindowTitle();
@@ -641,7 +641,7 @@ void MattermostApplication::suspendProfileConnection(Account* item,
     // account when an outgoing page happens to be current. Display the
     // neutral overview until the target view's account is ready.
     if (workspaceShell && workspaceShell->activeAccountId() == accountId)
-        workspaceShell->showOverview();
+        workspaceShell->showServers();
     if (MainWindow* page = accountViews.value(backend, nullptr))
         page->prepareForLogout();
 
@@ -660,7 +660,7 @@ void MattermostApplication::suspendProfileConnection(Account* item,
         }
         updateTrayIcon();
         if (workspaceShell && accounts.selectedAccountId() == accountId)
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
 
         if (itemGuard && backendGuard)
             accounts.finishProfileSuspension(itemGuard.data(),
@@ -696,7 +696,7 @@ void MattermostApplication::beginLogout(Backend& backend,
         trayBadges.remove(owner);
         updateTrayIcon();
         if (workspaceShell && accounts.selectedAccountId() == id)
-            workspaceShell->showOverview();
+            workspaceShell->showServers();
         if (guard)
             accounts.finishStop(guard.data(), authenticationExpired);
         else
