@@ -75,7 +75,7 @@ public:
                         if (holdIdentity) return;
                         if (transientIdentityResponses > 0) {
                             --transientIdentityResponses;
-                            status = QByteArrayLiteral("503 Service Unavailable");
+                            status = transientIdentityStatus;
                             body = QByteArrayLiteral(R"({"message":"temporary outage"})");
                         } else if (rejectIdentity) {
                             status = QByteArrayLiteral("401 Unauthorized");
@@ -242,6 +242,7 @@ public:
     bool holdIdentity = false;
     bool rejectIdentity = false;
     int transientIdentityResponses = 0;
+    QByteArray transientIdentityStatus = QByteArrayLiteral("503 Service Unavailable");
     bool rejectPreferences = false;
     bool separateIdentitiesByToken = false;
     bool holdSecondUserPage = false;
@@ -338,6 +339,45 @@ private slots:
         QVERIFY(backend.getStorage().loginUser);
         QCOMPARE(backend.getStorage().loginUser->id,
                  QStringLiteral("recoverable-account"));
+    }
+
+    void savedLoginSurvivesCorporateGateway403And404()
+    {
+        for (const QByteArray status : {QByteArrayLiteral("403 Forbidden"),
+                                        QByteArrayLiteral("404 Not Found")}) {
+            FakeMattermostServer server(QByteArrayLiteral("vpn-user"));
+            server.transientIdentityStatus = status;
+            server.transientIdentityResponses = 1;
+            QVERIFY(server.listen(QHostAddress::LocalHost));
+
+            Backend backend;
+            auto* verifier = new SessionVerificationRetry(&backend);
+            const BackendLoginData saved = credentials(
+                server, QStringLiteral("saved-work-vpn-token"));
+            bool completed = false;
+            bool restored = false;
+            int attempts = 0;
+            verifier->start(
+                [&](SessionVerificationRetry::CheckDone done) {
+                    ++attempts;
+                    backend.login(saved,
+                        [&, done = std::move(done)](const QString& token) {
+                        const bool success = !token.isEmpty();
+                        done(success, !success
+                            && backend.lastLoginFailureTransient());
+                    });
+                },
+                [&](bool authenticated, bool transient) {
+                    restored = authenticated;
+                    completed = true;
+                    QVERIFY(!transient);
+                });
+            QTRY_VERIFY_WITH_TIMEOUT(completed, 7000);
+            QVERIFY(restored);
+            QCOMPARE(attempts, 2);
+            QCOMPARE(server.identityRequests, 2);
+            QCOMPARE(backend.getLoginUser().id, QStringLiteral("vpn-user"));
+        }
     }
 
     void concurrentlyAuthenticatesTwoIndependentBackends()
