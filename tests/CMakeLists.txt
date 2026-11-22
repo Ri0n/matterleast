@@ -794,6 +794,14 @@ if(TARGET matterleast-core)
     add_test(NAME websocket-posted-replay-test COMMAND websocket-posted-replay-test)
     set_tests_properties(websocket-posted-replay-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    add_executable(websocket-continuity-test WebSocketContinuityTest.cpp)
+    target_link_libraries(websocket-continuity-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::WebSockets)
+    add_test(NAME websocket-continuity-test COMMAND websocket-continuity-test)
+    set_tests_properties(websocket-continuity-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     add_executable(thread-post-source-integration-test ThreadPostSourceIntegrationTest.cpp)
     target_link_libraries(thread-post-source-integration-test PRIVATE matterleast-core Qt${QT_VERSION_MAJOR}::Test)
     add_test(NAME thread-post-source-integration-test COMMAND thread-post-source-integration-test)
