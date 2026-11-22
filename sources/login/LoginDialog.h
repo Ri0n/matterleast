@@ -41,6 +41,11 @@ public:
                 const QString& server = {},
                 const QString& login = {},
                 bool lockIdentity = false);
+    // New server: credentials only. Accept closes the form; AccountManager
+    // performs the asynchronous connection in the visible Servers tree.
+    LoginDialog(QWidget* parent, const QString& server,
+                const QString& login);
+    BackendLoginData submittedCredentials() const { return _submittedCredentials; }
     QString authenticatedLoginName() const { return _authenticatedLoginName; }
 	~LoginDialog ();
 private slots:
@@ -50,10 +55,13 @@ private slots:
 	void onHttpError (uint32_t errorNumber, const QString& errorText);
 
 private:
+    LoginDialog(QWidget* parent, Backend* backend,
+                const QString& server, const QString& login, bool lockIdentity);
 	void setError (const QString& errorStr);
 	void loginToServer (const BackendLoginData& loginData);
 
-	Backend&			backend;
+	Backend*			backend = nullptr;
+    BackendLoginData _submittedCredentials;
 	Ui::LoginDialog*	ui;
     QCheckBox* _tokenMode = nullptr;
     QString _authenticatedLoginName;
