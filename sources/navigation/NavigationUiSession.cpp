@@ -257,6 +257,19 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
         return;
     }
 
+    // Invalidate deferred post/channel admission from the outgoing view.
+    // Old asynchronous bookmark callbacks inspect these properties before
+    // applying viewport state to a reused channel ChatArea.
+    window.beginSemanticNavigation();
+    if (mainStack) {
+        for (int i = 0; i < mainStack->count(); ++i) {
+            auto* area = qobject_cast<ChatArea*>(mainStack->widget(i));
+            if (!area) continue;
+            area->setProperty("sessionBookmark", QString());
+            area->setProperty("sessionBookmarkAnchor", QVariant());
+        }
+    }
+
     const bool oldRestoring = restoringSession;
     const bool oldSwitching = switchingTabs;
     const bool oldReplaying = replayingHistory;
