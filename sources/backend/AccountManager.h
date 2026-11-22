@@ -10,6 +10,7 @@
 #include "workspaces/AccountListModel.h"
 #include "workspaces/WorkspaceTreeModel.h"
 #include "workspaces/WorkspaceLayout.h"
+#include "backend/TransientAccountReconnect.h"
 
 namespace Mattermost {
 class Account;
@@ -107,11 +108,13 @@ private:
     Account* ensureAccount(const QString& id);
     void rebuildModel();
     void finishBackendRemoval(Account* account, Backend* backend);
+    void retryTemporarilyUnavailable(const QStringList& ids);
     bool applySelection(const QString& viewId, const QString& accountId);
     void reconcileActiveProfile();
     void ensureViewSessions();
     QStringList activeProfileAccountIds() const;
 
+    TransientAccountReconnect _offlineReconnect;
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     AccountListModel _listModel;
