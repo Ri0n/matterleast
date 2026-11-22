@@ -17,6 +17,16 @@ const WorkspaceLayout::Account* Account::record() const
     return _manager->layout().account(_accountId);
 }
 
+Backend* Account::backend() const
+{
+    return _backend.data();
+}
+
+Backend* Account::pendingBackend() const
+{
+    return _pending.data();
+}
+
 void Account::setState(AccountConnectionState state)
 {
     if (_state == state)
