@@ -56,6 +56,7 @@ public:
     ConnectionState connectionState() const;
     QString connectionId() const;
     void reconnectNow();
+    void probeNow();
     // Official desktop presence request; manual is always false for activity.
     void reportUserActivity(bool active);
     bool sendUserTyping(const QString& channelId, const QString& parentId);
@@ -66,13 +67,12 @@ public:
     int typingMaximumMembers() const;
 signals:
 	void onConnect (bool isReconnect, bool needsHttpResync);
-	void reliableResumeFailed();
 	void onDisconnect ();
     void connectionStateChanged(ConnectionState state);
 private:
     void setConnectionState(ConnectionState state);
 	void onNewPacket (const QString& string);
-	void scheduleReconnect ();
+	void notifyReadyIfVerified ();
 	void openSocket ();
 	void startHeartbeat ();
 	void stopHeartbeat ();
