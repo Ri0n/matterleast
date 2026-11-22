@@ -110,6 +110,7 @@ private:
     void updateData(Node* node, const Desired& desired);
     void refreshChannelActivity(const QString& accountId,
                                 const QString& channelId);
+    void updateAggregateActivity(Node* parent);
     QModelIndex modelIndex(const Node* node) const;
 
     const WorkspaceLayout& _layout;

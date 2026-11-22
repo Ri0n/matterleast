@@ -1,6 +1,7 @@
 #include "ViewChannelsModel.h"
 
 #include <algorithm>
+#include <functional>
 #include <utility>
 
 #include "backend/Backend.h"
@@ -31,6 +32,8 @@ ViewChannelsModel::Desired ViewChannelsModel::describeCategory(
     result.accountId = accountId;
     result.teamId = teamId;
     result.categoryId = category.id;
+    result.connected = true;
+    result.muted = category.muted;
     result.collapsed = category.collapsed;
 
     // SidebarService is authoritative for per-server category ordering,
@@ -56,6 +59,8 @@ ViewChannelsModel::Desired ViewChannelsModel::describeCategory(
         item.mentioned = sidebar.hasUnreadMention(channelId);
         item.muted = sidebar.isChannelMuted(*channel);
         item.activityAt = sidebar.channelActivityTime(*channel);
+        result.unread = result.unread || item.unread;
+        result.mentioned = result.mentioned || item.mentioned;
         result.children.push_back(std::move(item));
     }
     return result;
@@ -93,11 +98,17 @@ ViewChannelsModel::describeAccount(const QString& accountId) const
             teamNode.children.reserve(size_t(state->order.size()));
             for (const QString& categoryId : state->order) {
                 const SidebarCategory* category = state->category(categoryId);
-                if (category)
-                    teamNode.children.push_back(describeCategory(
-                        accountId, team.id, *category, *backend, sidebar));
+                if (!category)
+                    continue;
+                Desired row = describeCategory(
+                    accountId, team.id, *category, *backend, sidebar);
+                teamNode.unread = teamNode.unread || row.unread;
+                teamNode.mentioned = teamNode.mentioned || row.mentioned;
+                teamNode.children.push_back(std::move(row));
             }
         }
+        account.unread = account.unread || teamNode.unread;
+        account.mentioned = account.mentioned || teamNode.mentioned;
         account.children.push_back(std::move(teamNode));
     }
     return account;
@@ -220,8 +231,23 @@ void ViewChannelsModel::syncView()
     for (const auto& node : _root.children)
         _accountNodes.insert(node->accountId, node.get());
 
-    if (changed)
+    if (changed) {
+        // NodeIdRole includes the view identity. Reused account indexes stay
+        // valid when views overlap, so notify their role without modelReset.
+        // One signal per sibling range avoids one signal per channel.
+        std::function<void(const Node*)> notifyScopedIds;
+        notifyScopedIds = [this, &notifyScopedIds](const Node* owner) {
+            if (owner->children.empty())
+                return;
+            emit dataChanged(modelIndex(owner->children.front().get()),
+                             modelIndex(owner->children.back().get()),
+                             {NodeIdRole});
+            for (const auto& child : owner->children)
+                notifyScopedIds(child.get());
+        };
+        notifyScopedIds(&_root);
         emit activeViewChanged(_activeViewId);
+    }
 }
 
 void ViewChannelsModel::refreshAccount(const QString& accountId)
@@ -232,6 +258,26 @@ void ViewChannelsModel::refreshAccount(const QString& accountId)
     const Desired description = describeAccount(accountId);
     updateData(node, description);
     reconcile(node, description.children);
+}
+
+void ViewChannelsModel::updateAggregateActivity(Node* parent)
+{
+    bool unread = false;
+    bool mentioned = false;
+    for (const auto& child : parent->children) {
+        unread = unread || child->unread;
+        mentioned = mentioned || child->mentioned;
+    }
+    QVector<int> roles;
+    if (parent->unread != unread)
+        roles.append(UnreadRole);
+    if (parent->mentioned != mentioned)
+        roles.append(MentionedRole);
+    if (roles.isEmpty())
+        return;
+    parent->unread = unread;
+    parent->mentioned = mentioned;
+    emit dataChanged(modelIndex(parent), modelIndex(parent), roles);
 }
 
 void ViewChannelsModel::refreshChannelActivity(
@@ -250,6 +296,7 @@ void ViewChannelsModel::refreshChannelActivity(
         const SidebarTeamState* state = sidebar.teamState(team->teamId);
         if (!state)
             continue;
+        bool touched = false;
         for (const auto& category : team->children) {
             const SidebarCategory* source = state->category(category->categoryId);
             if (!source || !source->channelIds.contains(channelId))
@@ -258,8 +305,12 @@ void ViewChannelsModel::refreshChannelActivity(
                 accountId, team->teamId, *source, *backend, sidebar);
             updateData(category.get(), next);
             reconcile(category.get(), next.children);
+            touched = true;
         }
+        if (touched)
+            updateAggregateActivity(team.get());
     }
+    updateAggregateActivity(account);
 }
 
 void ViewChannelsModel::setBackend(const QString& accountId, Backend* backend)
@@ -303,6 +354,13 @@ void ViewChannelsModel::setBackend(const QString& accountId, Backend* backend)
     connections.append(connect(backend, &Backend::onAddedToTeam,
                                this, [this, accountId](BackendTeam&) {
         refreshAccount(accountId);
+    }));
+    connections.append(connect(backend, &Backend::sessionEnding,
+                               this, [this, accountId, backend] {
+        // Backend::reset() clears Storage and disconnects every Backend
+        // signal. Drop our projection before either happens, not afterward.
+        if (_backends.value(accountId).data() == backend)
+            setBackend(accountId, nullptr);
     }));
     connections.append(connect(backend, &QObject::destroyed,
                                this, [this, accountId] {

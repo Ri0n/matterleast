@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include "backend/AccountManager.h"
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
 #include "backend/Storage.h"
@@ -55,9 +56,9 @@ BackendChannel* populate(Backend& backend, const QString& title)
     category.type = QStringLiteral("channels");
     category.displayName = QStringLiteral("Channels");
     category.sorting = QStringLiteral("manual");
-    category.channelIds = {QStringLiteral("collision")};
+    category.channelIds = QStringList{QStringLiteral("collision")};
     SidebarTeamState state;
-    state.order = {category.id};
+    state.order = QStringList{category.id};
     state.categories.insert(category.id, category);
     SidebarService::instance(backend).applyLocalTeamState(team->id, state);
     return channel;
@@ -148,10 +149,20 @@ private slots:
         QVERIFY(channelIndex(model, 0)
                     .data(ViewChannelsModel::MentionedRole).toBool());
         QVERIFY(!beta.data(ViewChannelsModel::MentionedRole).toBool());
-        QCOMPARE(updates.count(), 1);
-        const QVector<int> roles = updates.first().at(2).value<QVector<int>>();
-        QVERIFY(roles.contains(ViewChannelsModel::MentionedRole));
-        QVERIFY(!roles.contains(Qt::DisplayRole));
+        QVERIFY(updates.count() >= 1);
+        bool sawMentionUpdate = false;
+        for (const auto& change : updates) {
+            const QModelIndex changed = change.at(0).value<QModelIndex>();
+            QCOMPARE(changed.data(ViewChannelsModel::AccountIdRole).toString(),
+                     QStringLiteral("alpha"));
+            const QVector<int> roles = change.at(2).value<QVector<int>>();
+            sawMentionUpdate = sawMentionUpdate
+                || roles.contains(ViewChannelsModel::MentionedRole);
+            QVERIFY(!roles.contains(Qt::DisplayRole));
+        }
+        QVERIFY(sawMentionUpdate);
+        QVERIFY(model.index(0, 0).data(ViewChannelsModel::MentionedRole).toBool());
+        QVERIFY(!model.index(1, 0).data(ViewChannelsModel::MentionedRole).toBool());
 
         auto& storage = first.getStorage();
         BackendChannel* added = storage.addTeamChannel(
@@ -219,6 +230,51 @@ private slots:
         QCOMPARE(channelIndex(model, 1).data(Qt::DisplayRole).toString(),
                  QStringLiteral("Beta"));
         QCOMPARE(resets.count(), 0);
+    }
+
+    void managerSynchronizesVisibleMembershipAndLabels()
+    {
+        AccountManager manager;
+        WorkspaceLayout topology = layout();
+        QVERIFY(manager.load(topology.toJson()));
+        auto* model = qobject_cast<ViewChannelsModel*>(manager.activeViewChannels());
+        QVERIFY(model);
+        QCOMPARE(model->rowCount(), 2);
+        QSignalSpy resets(model, &QAbstractItemModel::modelReset);
+        QSignalSpy selected(model, &ViewChannelsModel::activeViewChanged);
+
+        QVERIFY(manager.activateView(QStringLiteral("beta-only")));
+        QCOMPARE(model->activeViewId(), QStringLiteral("beta-only"));
+        QCOMPARE(model->rowCount(), 1);
+        QCOMPARE(model->index(0, 0).data(ViewChannelsModel::AccountIdRole).toString(),
+                 QStringLiteral("beta"));
+
+        QVERIFY(manager.activateView(QStringLiteral("merged")));
+        QCOMPARE(model->rowCount(), 2);
+        QCOMPARE(selected.count(), 2);
+        WorkspaceLayout renamed = manager.layout();
+        renamed.accounts[0].name = QStringLiteral("Renamed Alpha");
+        QVERIFY(manager.applyLayoutEdits(renamed));
+        QCOMPARE(model->index(0, 0).data(Qt::DisplayRole).toString(),
+                 QStringLiteral("Renamed Alpha"));
+        QCOMPARE(resets.count(), 0);
+    }
+
+    void sessionEndingClearsProjectionBeforeStorageReset()
+    {
+        WorkspaceLayout topology = layout();
+        ViewChannelsModel model(topology);
+        Backend backend;
+        QVERIFY(populate(backend, QStringLiteral("Temporary")));
+        model.setBackend(QStringLiteral("alpha"), &backend);
+        QCOMPARE(model.rowCount(model.index(0, 0)), 1);
+        backend.sessionEnding();
+        QCOMPARE(model.rowCount(model.index(0, 0)), 0);
+        QVERIFY(!model.index(0, 0)
+                    .data(ViewChannelsModel::ConnectedRole).toBool());
+        // Reused Backend objects can be rebound after explicit recovery.
+        model.setBackend(QStringLiteral("alpha"), &backend);
+        QCOMPARE(model.rowCount(model.index(0, 0)), 1);
     }
 
     void destroyedBackendCannotLeaveStaleChannels()
