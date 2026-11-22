@@ -205,6 +205,32 @@ private slots:
         QVERIFY(!session.moveTab(-1, 0));
     }
 
+    void dockHistoryDoesNotChangeCentralTabAndBookmarksDoNotAddSteps()
+    {
+        ViewNavigationSession session(QStringLiteral("view"));
+        auto channel = chat(QStringLiteral("account"), QStringLiteral("channel"));
+        auto thread = chat(QStringLiteral("account"), QStringLiteral("channel"),
+                           QStringLiteral("thread"));
+        QCOMPARE(session.openTab(channel), 0);
+        QVERIFY(session.recordVisit(thread));
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(session.currentLocation().rootId, QStringLiteral("thread"));
+        QCOMPARE(session.snapshot().back.size(), 1);
+        thread.postId = QStringLiteral("last-read-post");
+        QVERIFY(session.updateCurrentBookmark(thread));
+        QCOMPARE(session.snapshot().back.size(), 1);
+        QCOMPARE(session.currentLocation().postId, QStringLiteral("last-read-post"));
+        auto unrelated = chat(QStringLiteral("account"), QStringLiteral("unrelated"));
+        QVERIFY(!session.updateCurrentBookmark(unrelated));
+        QCOMPARE(session.currentLocation().rootId, QStringLiteral("thread"));
+        const auto back = session.goBack();
+        QVERIFY(back.has_value());
+        QCOMPARE(back->rootId, QString());
+        QCOMPARE(session.snapshot().forward.size(), 1);
+        QCOMPARE(session.snapshot().forward.front().postId,
+                 QStringLiteral("last-read-post"));
+    }
+
     void unchangedSnapshotDoesNotToggleActiveTab()
     {
         ViewNavigationSession session(QStringLiteral("view"));
