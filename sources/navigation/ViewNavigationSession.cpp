@@ -19,6 +19,8 @@ ViewNavigationSession::Snapshot ViewNavigationSession::snapshot() const
     result.current = _current;
     result.back = _back;
     result.forward = _forward;
+    result.dock = _dock;
+    result.dockVisible = _dockVisible;
     return result;
 }
 
@@ -49,6 +51,11 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
         if (!item.valid() || !validAnchor(item.viewportAnchor)) return false;
     for (const auto& item : state.forward)
         if (!item.valid() || !validAnchor(item.viewportAnchor)) return false;
+    if (state.dockVisible
+        && (!state.dock.valid()
+            || state.dock.kind != Location::Kind::Chat
+            || state.dock.rootId.isEmpty()
+            || !validAnchor(state.dock.viewportAnchor))) return false;
 
     // Preserve rows representing the same destination, including on reorders.
     // Transferring one view must not reset models consumed by another frontend.
@@ -96,6 +103,8 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
     _current = state.current;
     _back = state.back;
     _forward = state.forward;
+    _dock = state.dock;
+    _dockVisible = state.dockVisible;
     constexpr int MaxHistory = 100;
     if (_back.size() > MaxHistory)
         _back.remove(0, _back.size() - MaxHistory);
