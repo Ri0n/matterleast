@@ -246,6 +246,12 @@ identical channel IDs without collisions. Sessions survive Backend teardown
 and switching away from the view; neither a `Backend` nor a `ChatArea` is
 duplicated for a second view. Widgets and QML can consume the same roles.
 
+`ViewNavigationSession::snapshot()/restoreSnapshot()` now provide a
+QtCore-only transfer boundary for a Widgets presenter. An incoming snapshot is
+validated before touching the model and reconciled with incremental row changes
+(including moves), without resetting listeners or allocating chat widgets.
+This is a transfer primitive, **not** an alternative long-lived owner of tabs.
+
 **Presentation integration is still pending.** The existing
 `NavigationUiController` currently manages a legacy window-local tab/history
 state, and must be migrated to use the active `ViewNavigationSession` before
