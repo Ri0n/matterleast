@@ -123,9 +123,20 @@ AccountManager::~AccountManager()
 
 void AccountManager::retryTemporarilyUnavailable(const QStringList& ids)
 {
-    if (_invalidCatalog || !_suspendingProfileAccounts.isEmpty())
+    if (_invalidCatalog)
         return;
     const QStringList admitted = activeProfileAccountIds();
+    if (!_suspendingProfileAccounts.isEmpty()) {
+        // Do not lose a due retry during the asynchronous release of a
+        // different profile's Backend-dependent Widgets.
+        for (const QString& id : ids) {
+            Account* item = account(id);
+            if (item && admitted.contains(id)
+                && item->state() == AccountConnectionState::Unavailable)
+                _offlineReconnect.schedule(id);
+        }
+        return;
+    }
     for (const QString& id : ids) {
         Account* item = account(id);
         if (!item || !admitted.contains(id) || item->backend()
