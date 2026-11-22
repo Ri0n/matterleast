@@ -205,6 +205,47 @@ private slots:
         QVERIFY(!session.moveTab(-1, 0));
     }
 
+    void changingViewMembershipPrunesOnlyExcludedAccountState()
+    {
+        ViewNavigationSession view(QStringLiteral("combined"));
+        auto alpha = chat(QStringLiteral("alpha"), QStringLiteral("same"));
+        auto beta = chat(QStringLiteral("beta"), QStringLiteral("same"));
+        auto thread = chat(QStringLiteral("alpha"), QStringLiteral("same"),
+                           QStringLiteral("thread"));
+        view.setAllowedAccounts({QStringLiteral("alpha"), QStringLiteral("beta")});
+        QCOMPARE(view.openTab(alpha), 0);
+        QCOMPARE(view.openTab(beta), 1);
+        QVERIFY(view.recordVisit(thread));
+        auto state = view.snapshot();
+        state.dock = thread;
+        state.dockVisible = true;
+        QVERIFY(view.restoreSnapshot(state));
+
+        QSignalSpy reset(&view, &QAbstractItemModel::modelReset);
+        QSignalSpy removed(&view, &QAbstractItemModel::rowsRemoved);
+        view.setAllowedAccounts({QStringLiteral("beta")});
+        QCOMPARE(view.rowCount(), 1);
+        QCOMPARE(view.tabs().at(0)->accountId, QStringLiteral("beta"));
+        QVERIFY(!view.currentLocation().valid());
+        QCOMPARE(view.snapshot().back.size(), 1);
+        QCOMPARE(view.snapshot().back.front().accountId, QStringLiteral("beta"));
+        QVERIFY(!view.snapshot().dockVisible);
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(removed.count(), 1);
+        QVERIFY(!view.recordVisit(alpha));
+        QCOMPARE(view.openTab(alpha), -1);
+        // A stale widget cannot reintroduce another account through a bulk
+        // snapshot either, even if it had a valid bookmark before the edit.
+        auto stale = view.snapshot();
+        NavigationTabsModel::Entry excluded;
+        excluded.channelId = QStringLiteral("other");
+        excluded.accountId = QStringLiteral("alpha");
+        stale.tabs.append(excluded);
+        QVERIFY(!view.restoreSnapshot(stale));
+        QCOMPARE(view.rowCount(), 1);
+        QCOMPARE(reset.count(), 0);
+    }
+
     void dockHistoryDoesNotChangeCentralTabAndBookmarksDoNotAddSteps()
     {
         ViewNavigationSession session(QStringLiteral("view"));

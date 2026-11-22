@@ -351,6 +351,11 @@ void MainWindow::bindViewNavigation(ViewNavigationSession* session,
     NavigationUiController::instance(*this).bindViewSession(session, accountId);
 }
 
+void MainWindow::unbindViewNavigation()
+{
+    NavigationUiController::instance(*this).unbindViewSession();
+}
+
 void MainWindow::installServersSidebar(AccountManager& manager)
 {
     if (!channelTabs || serversPage) return;

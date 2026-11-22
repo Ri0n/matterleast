@@ -2,6 +2,8 @@
 
 #include <optional>
 #include <QAbstractListModel>
+#include <QSet>
+#include <QStringList>
 #include <QString>
 #include <QVector>
 
@@ -70,6 +72,10 @@ public:
     // Reject malformed or ambiguous snapshots without changing state. The
     // existing list model is updated incrementally, never reset/recreated.
     bool restoreSnapshot(const Snapshot& snapshot);
+    // A view may only retain destinations from its visible account subset.
+    // The initial standalone model is unrestricted until AccountManager
+    // supplies membership; updates prune obsolete tabs/history incrementally.
+    void setAllowedAccounts(const QStringList& accountIds);
 
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
@@ -106,6 +112,7 @@ private:
     static void pushHistory(QVector<Location>& history, const Location& location);
     void recordLocation(const Location& location);
     void chooseTab(int index);
+    bool allowsAccount(const QString& accountId) const;
 
     QString _viewId;
     NavigationTabsModel _tabs;
@@ -115,6 +122,8 @@ private:
     QVector<Location> _forward;
     Location _dock;
     bool _dockVisible = false;
+    bool _membershipRestricted = false;
+    QSet<QString> _allowedAccounts;
 };
 
 } // namespace Mattermost

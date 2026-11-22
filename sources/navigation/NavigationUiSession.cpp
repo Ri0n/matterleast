@@ -201,9 +201,72 @@ void NavigationUiController::syncViewSession()
     if (dock && dock->isThread) {
         state.dock = toViewLocation(captureLocation(dock), viewNavigationAccountId);
         state.dockVisible = state.dock.valid();
+    } else {
+        // A previously visible dock must not reappear when this view is
+        // activated again after the user explicitly closed the right pane.
+        state.dock = {};
+        state.dockVisible = false;
     }
     if (!viewNavigationSession->restoreSnapshot(state))
         qWarning("Unable to transfer Widgets navigation state into its view session");
+}
+
+void NavigationUiController::unbindViewSession()
+{
+    if (!viewNavigationSession) return;
+    if (sessionRestored) {
+        saveActiveTabLocation();
+        syncViewSession();
+    }
+
+    // A MainWindow is still a per-Backend Widgets presenter. When its view
+    // becomes combined or inactive, keep the semantic history in the
+    // currently active QtCore session and switch local fallback navigation
+    // to an account-isolated (also QtCore) startup session.
+    auto local = viewNavigationSession->snapshot();
+    const QString outgoingView = viewNavigationSession->viewId();
+    for (auto& entry : local.tabs)
+        entry.accountId = QStringLiteral("_startup");
+    auto relabel = [](ViewNavigationSession::Location& location) {
+        if (location.valid())
+            location.accountId = QStringLiteral("_startup");
+    };
+    relabel(local.current);
+    relabel(local.dock);
+    for (auto& item : local.back) relabel(item);
+    for (auto& item : local.forward) relabel(item);
+    if (!startupHistory->restoreSnapshot(local))
+        qWarning("Unable to retain account-local navigation on view release");
+
+    viewNavigationSession.clear();
+    viewNavigationAccountId.clear();
+
+    // Detached threads remain owned by their original view, and cannot
+    // accidentally appear above a different server's active workspace.
+    const bool wasApplying = applyingViewSession;
+    const bool wasSwitching = switchingTabs;
+    applyingViewSession = true;
+    switchingTabs = true;
+    // The dock is a view-specific presentation. Its semantic bookmark has
+    // already been transferred, so retire only the live ChatArea and timeline.
+    closeThreadDockIfDifferent({}, true);
+    if (Backend* owner = backend()) {
+        for (QWidget* widget : QApplication::allWidgets()) {
+            auto* thread = qobject_cast<ChatArea*>(widget);
+            if (!thread || !thread->isThread || &thread->getBackend() != owner
+                || !thread->property("threadDetached").toBool()) continue;
+            const QString ownerView = thread->property("navigationViewId").toString();
+            if (ownerView.isEmpty()) {
+                thread->setProperty("navigationViewId", outgoingView);
+                thread->hide();
+            } else if (ownerView == outgoingView) {
+                thread->hide();
+            }
+        }
+    }
+    switchingTabs = wasSwitching;
+    applyingViewSession = wasApplying;
+    updateHistoryButtons();
 }
 
 void NavigationUiController::bindViewSession(
@@ -260,7 +323,8 @@ void NavigationUiController::bindViewSession(
     // Hide outgoing detached threads *before* tab restoration; findThread()
     // must never adopt another view's visible detached presentation.
     if (sessionRestored)
-        restoreBoundViewSession(!hadView);
+        restoreBoundViewSession(!hadView && !everBoundView);
+    everBoundView = true;
 }
 
 void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentation)
