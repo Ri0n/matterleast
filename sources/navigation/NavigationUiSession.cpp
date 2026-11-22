@@ -1,4 +1,5 @@
 #include "NavigationUiController.h"
+#include "mainwindow.h"
 #include "ViewNavigationSession.h"
 
 #include <QApplication>
