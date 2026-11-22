@@ -23,8 +23,8 @@ public:
 
     QString id() const { return _accountId; }
     const WorkspaceLayout::Account* record() const;
-    Backend* backend() const { return _backend.data(); }
-    Backend* pendingBackend() const { return _pending.data(); }
+    Backend* backend() const;
+    Backend* pendingBackend() const;
     AccountConnectionState state() const { return _state; }
     int connectionStateInt() const { return static_cast<int>(_state); }
 
