@@ -1,6 +1,11 @@
 #include "AccountManager.h"
 
 #include <QLoggingCategory>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+#include <QNetworkInformation>
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
+#include <QNetworkConfigurationManager>
+#endif
 #include <QTimer>
 #include <QUrl>
 #include <utility>
@@ -24,6 +29,46 @@ AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
     , _treeModel(_layout, _listModel, this)
 {
+    connect(&_offlineReconnect, &TransientAccountReconnect::retryDue,
+            this, &AccountManager::retryTemporarilyUnavailable);
+
+    // A saved account has no WebSocket until /users/me succeeds. Monitor
+    // network changes at the manager level rather than in each Backend.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
+    if (QNetworkInformation::instance() || QNetworkInformation::loadDefaultBackend()) {
+        if (auto* info = QNetworkInformation::instance()) {
+            connect(info, &QNetworkInformation::reachabilityChanged,
+                    this, [this] { _offlineReconnect.resumeOnNetworkChange(); });
+            connect(info, &QNetworkInformation::transportMediumChanged,
+                    this, [this] { _offlineReconnect.resumeOnNetworkChange(); });
+        }
+    }
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(QT_NO_BEARERMANAGEMENT)
+    auto* network = new QNetworkConfigurationManager(this);
+    connect(network, &QNetworkConfigurationManager::onlineStateChanged,
+            this, [this](bool) { _offlineReconnect.resumeOnNetworkChange(); });
+    connect(network, &QNetworkConfigurationManager::configurationChanged,
+            this, [this](const QNetworkConfiguration&) {
+                _offlineReconnect.resumeOnNetworkChange();
+            });
+#endif
+}
+
+void AccountManager::retryTemporarilyUnavailable(const QStringList& ids)
+{
+    if (_invalidCatalog || !_suspendingProfileAccounts.isEmpty())
+        return;
+    const QStringList admitted = activeProfileAccountIds();
+    for (const QString& id : ids) {
+        Account* item = account(id);
+        if (!item || !admitted.contains(id) || item->backend()
+            || item->pendingBackend()
+            || item->state() != AccountConnectionState::Unavailable)
+            continue;
+        qCInfo(accountRestoreLog) << "Reconnecting saved account after network recovery"
+                                  << id;
+        restoreAccount(id);
+    }
 }
 
 bool AccountManager::load(const QByteArray& json, QString* error)
@@ -320,6 +365,15 @@ void AccountManager::reconcileActiveProfile()
 {
     const QStringList admittedIds = activeProfileAccountIds();
     const QSet<QString> admitted(admittedIds.cbegin(), admittedIds.cend());
+    // An unavailable account outside the new profile must not keep retrying.
+    // Reset its state so a later profile activation can restore it afresh.
+    for (Account* item : allAccounts()) {
+        if (admitted.contains(item->id())) continue;
+        _offlineReconnect.cancel(item->id());
+        if (!item->backend() && !item->pendingBackend()
+            && item->state() == AccountConnectionState::Unavailable)
+            item->setState(AccountConnectionState::Disconnected);
+    }
     qCInfo(accountRestoreLog) << "Reconciling profile:"
                               << admittedIds.size() << "admitted accounts";
 
@@ -543,6 +597,7 @@ void AccountManager::rebuildModel()
 void AccountManager::cancelPendingRestore(
     const QString& id, AccountConnectionState status)
 {
+    _offlineReconnect.cancel(id);
     if (Account* item = account(id))
         item->cancelPending(status);
 }
@@ -559,6 +614,7 @@ void AccountManager::restoreAccount(const QString& id)
         || item->backend() || item->pendingBackend())
         return;
 
+    _offlineReconnect.attemptStarted(id);
     qCInfo(accountRestoreLog) << "Starting session restoration for account" << id;
     Backend* backend = item->createPendingBackend();
     if (!backend) {
@@ -583,6 +639,7 @@ void AccountManager::restoreAccount(const QString& id)
                                       : status == SessionTokenStore::ReadStatus::NotFound
                                           ? "not-found" : "unavailable");
         if (status != SessionTokenStore::ReadStatus::Found) {
+            _offlineReconnect.cancel(account->id());
             account->cancelPending(
                 status == SessionTokenStore::ReadStatus::NotFound
                     ? AccountConnectionState::AuthenticationRequired
@@ -620,9 +677,14 @@ void AccountManager::restoreAccount(const QString& id)
                     qCWarning(accountRestoreLog)
                         << "Saved session verification did not succeed for account"
                         << account->id() << "transient" << transient;
+                    const QString accountId = account->id();
                     account->cancelPending(
                         transient ? AccountConnectionState::Unavailable
                                   : AccountConnectionState::AuthenticationRequired);
+                    if (transient)
+                        _offlineReconnect.schedule(accountId);
+                    else
+                        _offlineReconnect.cancel(accountId);
                     return;
                 }
                 const WorkspaceLayout::Account* record = account->record();
@@ -633,6 +695,7 @@ void AccountManager::restoreAccount(const QString& id)
                     qCWarning(accountRestoreLog)
                         << "Saved credentials resolved to a different remote identity for account"
                         << account->id();
+                    _offlineReconnect.cancel(account->id());
                     account->cancelPending(AccountConnectionState::AuthenticationRequired);
                     return;
                 }
@@ -641,8 +704,10 @@ void AccountManager::restoreAccount(const QString& id)
                     qCWarning(accountRestoreLog)
                         << "Verified session could not be adopted for account"
                         << account->id();
+                    _offlineReconnect.cancel(account->id());
                     account->cancelPending(AccountConnectionState::AuthenticationRequired);
                 } else {
+                    _offlineReconnect.cancel(account->id());
                     qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
                 }
             });
@@ -653,6 +718,7 @@ void AccountManager::prepareStop(Account* item, bool authenticationExpired)
 {
     if (!item || !item->backend())
         return;
+    _offlineReconnect.cancel(item->id());
     item->setState(authenticationExpired
         ? AccountConnectionState::AuthenticationRequired
         : AccountConnectionState::Disconnected);
