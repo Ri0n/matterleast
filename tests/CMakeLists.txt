@@ -495,6 +495,17 @@ target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME workspace-layout-test COMMAND workspace-layout-test)
 
+# Pre-multi-account keyring display-name compatibility must remain bounded and
+# never guess arbitrary account identities from user-provided labels.
+add_executable(legacy-token-recovery-test
+    LegacyTokenRecoveryTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/migrations/LegacyTokenRecovery.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/backend/SessionTokenStore.cpp")
+target_include_directories(legacy-token-recovery-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(legacy-token-recovery-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME legacy-token-recovery-test COMMAND legacy-token-recovery-test)
+
 # Durable accounts are independent of Backend and do not carry credentials.
 add_executable(workspace-account-catalog-test
     WorkspaceAccountCatalogTest.cpp
