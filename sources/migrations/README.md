@@ -74,9 +74,11 @@ Avoid deleting account settings or keyring secrets before diagnosing
 
 ## Legacy keychain login-name repair (2026-11-22)
 
-Some catalogs migrated during the multi-account development period retained a
-different `loginName` than the server's verified `username` previously used
-to write a `login-token-v1-*` entry. The saved token still exists but the
+Some catalogs migrated during the multi-account development period retained
+a `loginName` different from the login identifier of an earlier successfully
+saved session. When the earlier login happened to equal the server's verified
+`username`, that identifier remains visible in the historical
+`<host> — <username>` account label. The saved token still exists but the
 new catalog keychain lookup returns `not-found`.
 
 `LegacyTokenRecovery` is a strictly scoped compatibility adapter. Only after
