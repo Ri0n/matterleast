@@ -315,10 +315,9 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 	LOG_DEBUG("MainWindow signal register finish");
 
-	auto* options = MLOptions::instance();
-	restoreGeometry(options->value<QByteArray>(QStringLiteral("geometry"), saveGeometry()));
-    const QString sidebarStateKey = QStringLiteral("workspace/%1/sidebar_splitter_state")
-        .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+    // Window geometry belongs exclusively to AccountWorkspaceStack.
+    // MainWindow is created as a temporary top-level widget but then embedded;
+    // restoring the shell geometry here would perturb the hidden splitter.
     const QString sidebarWidthKey = QStringLiteral("workspace/%1/sidebar_width")
         .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
     // The splitter is not yet visible inside AccountWorkspaceStack.
