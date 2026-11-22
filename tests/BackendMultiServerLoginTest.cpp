@@ -937,6 +937,10 @@ private slots:
         QVERIFY(!first->loggedIn());
         QVERIFY(!second->loggedIn());
         QVERIFY(!manager.account(QStringLiteral("c"))->pendingBackend());
+        // Even an explicit Connect button cannot start the new profile
+        // before its old session teardown has finished.
+        manager.restoreAccount(QStringLiteral("c"));
+        QVERIFY(!manager.account(QStringLiteral("c"))->pendingBackend());
         QCOMPARE(firstServer.logoutRequests, 0);
         QCOMPARE(secondServer.logoutRequests, 0);
 

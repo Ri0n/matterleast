@@ -428,7 +428,7 @@ void AccountManager::restoreAccount(const QString& id)
     // The caller first activates a view admitting the requested account.
     if (_invalidCatalog || !record || !record->hasConnectionIdentity()
         || !activeProfileAccountIds().contains(id)
-        || _suspendingProfileAccounts.contains(id)
+        || !_suspendingProfileAccounts.isEmpty()
         || item->backend() || item->pendingBackend())
         return;
 
