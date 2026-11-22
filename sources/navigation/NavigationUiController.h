@@ -106,6 +106,9 @@ public:
                              bool restoreBookmark = true);
     void saveSession();
     void restoreSession();
+    // Called from MainWindow's destructor while all Widget descendants are
+    // still valid. Flush once, then stop reacting to their destruction.
+    void beginShutdown();
     // Called only for a view with one owning account while the desktop still
     // uses account-specific MainWindow instances. The state remains QtCore.
     void bindViewSession(ViewNavigationSession* session, const QString& accountId);
@@ -214,6 +217,7 @@ private:
     QByteArray _legacyThreadSplitterState;
     QTimer* sessionSaveTimer = nullptr;
     bool sessionRestored = false;
+    bool shuttingDown = false;
     bool restoringSession = false;
     bool applyingViewSession = false;
     QPointer<ViewNavigationSession> viewNavigationSession;
