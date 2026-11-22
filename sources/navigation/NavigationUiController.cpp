@@ -40,6 +40,7 @@
 #include "mainwindow.h"
 #include "options/MLOptions.h"
 #include "navigation/AppNavigationService.h"
+#include "navigation/ViewNavigationSession.h"
 #include "navigation/ThreadPaneLayout.h"
 #include "navigation/ThreadSidebarContextPolicy.h"
 #include "Settings.h"
@@ -384,7 +385,6 @@ void NavigationUiController::setupThreadPane()
     connect(navigationTabs, &QTabBar::tabMoved, this,
             [this](int from, int to) {
         tabModel.move(from, to);
-        scheduleSessionSave();
         if (activeTabIndex == from) {
             activeTabIndex = to;
         } else if (from < activeTabIndex && activeTabIndex <= to) {
@@ -392,6 +392,7 @@ void NavigationUiController::setupThreadPane()
         } else if (to <= activeTabIndex && activeTabIndex < from) {
             ++activeTabIndex;
         }
+        scheduleSessionSave();
     });
     setupTabShortcuts();
 }
@@ -1313,6 +1314,7 @@ void NavigationUiController::updateHistoryButtons()
     if (forwardButton) {
         forwardButton->setEnabled(!forwardStack.isEmpty());
     }
+    syncViewSession();
 }
 
 void NavigationUiController::goBack()
@@ -1870,6 +1872,8 @@ void NavigationUiController::detachThread(ChatArea* area)
     area->setAttribute(Qt::WA_DeleteOnClose, true);
     area->setProperty("threadDetached", true);
     area->setProperty("threadTabbed", false);
+    if (viewNavigationSession)
+        area->setProperty("navigationViewId", viewNavigationSession->viewId());
     updateThreadButton(area);
 
     if (releasedTabIndex >= 0) {
