@@ -203,8 +203,9 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     });
     connect(&accounts, &AccountManager::activeViewChanged, this,
             [this](const QString&) { bindActiveNavigationView(); });
-    connect(&accounts, &AccountManager::layoutChanged, this,
-            [this] { bindActiveNavigationView(); });
+    // Once the Servers editor lands, bindActiveNavigationView() must also be
+    // called after edits to the active view's account membership. #390 adds
+    // that layout mutation signal; wire it after integrating both PRs.
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
