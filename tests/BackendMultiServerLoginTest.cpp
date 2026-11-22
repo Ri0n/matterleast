@@ -18,7 +18,7 @@
 
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
-#include "backend/TransientAccountReconnect.h"
+#include "backend/AccountConnectionController.h"
 #include "backend/Account.h"
 #include "navigation/ViewNavigationSession.h"
 #include "navigation/NavigationUiController.h"
@@ -319,32 +319,29 @@ private slots:
             QVERIFY(server.listen(QHostAddress::LocalHost));
 
             Backend backend;
-            TransientAccountReconnect reconnect;
+            AccountConnectionController connections;
             const BackendLoginData saved = credentials(
                 server, QStringLiteral("saved-work-vpn-token"));
             const QString accountId = QStringLiteral("vpn-account");
             bool completed = false;
             bool restored = false;
             int attempts = 0;
-            std::function<void()> verify;
-            verify = [&] {
+            connect(&connections, &AccountConnectionController::savedSessionDue,
+                    &backend, [&](const QStringList& ids) {
+                if (!ids.contains(accountId))
+                    return;
                 ++attempts;
                 backend.login(saved, [&](const QString& token) {
                     restored = !token.isEmpty();
                     if (restored || !backend.lastLoginFailureTransient()) {
-                        reconnect.cancel(accountId);
+                        connections.cancel(accountId);
                         completed = true;
                     } else {
-                        reconnect.schedule(accountId);
+                        connections.savedSessionFailed(accountId);
                     }
                 });
-            };
-            connect(&reconnect, &TransientAccountReconnect::retryDue, &backend,
-                    [&](const QStringList& ids) {
-                if (ids.contains(accountId))
-                    verify();
             });
-            verify();
+            connections.startSavedSession(accountId);
             QTRY_VERIFY_WITH_TIMEOUT(completed, 7500);
             QVERIFY(restored);
             QCOMPARE(attempts, 2);
