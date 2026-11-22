@@ -54,6 +54,10 @@ public:
     bool activateView(const QString& viewId);
     QString activeViewId() const { return _layout.activeViewId; }
     void persist() const;
+    // Commit edited profile/view topology atomically. Connection identity and
+    // credentials are immutable here; account labels may be changed. All
+    // network lifetime reconciliation remains owned by AccountManager.
+    bool applyLayoutEdits(const WorkspaceLayout& proposed, QString* error = nullptr);
 
     // Temporary candidates for user-entered credentials belong to this
     // manager until successfully reparented to their durable Account.
@@ -88,6 +92,7 @@ signals:
     void accountConnected(Account* account, Backend* backend);
     void activeViewChanged(const QString& viewId);
     void activeViewSessionChanged();
+    void layoutChanged();
     // Presentation must release Backend-dependent widgets first and then
     // acknowledge with finishProfileSuspension. Other profiles cannot connect
     // before all outgoing sessions are released.
