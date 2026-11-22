@@ -24,7 +24,8 @@ public:
     static void remove(QObject* context, const QString& server,
                        const QString& username);
 
-private:
+    // Deterministic opaque key identity. Root URLs with/without a trailing
+    // slash must resolve to the same stored session, on Qt5 and Qt6 alike.
     static QString keyFor(const QString& server, const QString& username);
 };
 
