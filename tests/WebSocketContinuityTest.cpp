@@ -197,6 +197,17 @@ private slots:
         acceptAuth(fifth);
         QCOMPARE(connected.size(), 5);
 
+        // The no-hello mode persists after the first buffered event: the
+        // next replayed event must not close a healthy socket.
+        fifth->sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{
+            {QStringLiteral("event"), QStringLiteral("unknown_replay_event")},
+            {QStringLiteral("seq"), 2}
+        }).toJson(QJsonDocument::Compact)));
+        QTest::qWait(100);
+        QCOMPARE(connector.connectionState(),
+                 WebSocketConnector::ConnectionState::Connected);
+        QCOMPARE(connected.size(), 5);
+
         connector.close();
         for (QWebSocket* socket : sockets) {
             socket->close();
