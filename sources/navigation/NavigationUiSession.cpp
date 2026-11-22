@@ -218,8 +218,14 @@ void NavigationUiController::bindViewSession(
                 attachedView = oldViewId.isEmpty() ? session->viewId() : oldViewId;
                 thread->setProperty("navigationViewId", attachedView);
             }
-            if (attachedView == session->viewId()) thread->show();
-            else thread->hide();
+            if (attachedView == session->viewId()) {
+                if (!thread->isVisible()) {
+                    thread->setAttribute(Qt::WA_ShowWithoutActivating, true);
+                    thread->show();
+                }
+            } else {
+                thread->hide();
+            }
         }
     }
     // Hide outgoing detached threads *before* tab restoration; findThread()
