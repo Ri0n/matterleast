@@ -86,6 +86,7 @@ public:
 private:
     void ensureWorkspaceShell();
     void addAccountWorkspace(Backend& backend, bool activate);
+    void suspendProfileConnection(Account* account, Backend* backend);
     void populateAccountMenu(QMenu& menu);
     void updateWindowTitle();
     void updateTrayIcon();
@@ -195,6 +196,10 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     });
     connect(&accounts, &AccountManager::accountUnregistered, this,
             [this](Backend* backend) { closingAccounts.remove(backend); });
+    connect(&accounts, &AccountManager::profileSuspensionRequested, this,
+            [this](Account* account, Backend* backend) {
+        suspendProfileConnection(account, backend);
+    });
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
@@ -241,13 +246,12 @@ void MattermostApplication::start()
                             migrations.legacyLoginHint());
             return;
         }
-        if (accounts.activeBackend()) {
+        // Restore *every* account admitted by the selected profile, including
+        // those hidden by its current view. Existing authenticated Backends
+        // are left untouched, e.g. after the v1 credential migration.
+        accounts.restoreActiveProfile();
+        if (accounts.activeBackend())
             workspaceShell->activateWorkspace(accounts.selectedAccountId());
-        } else {
-            // An existing catalog may contain multiple servers. Each keyring
-            // read and reconnection is independent.
-            accounts.restoreAll();
-        }
     });
 }
 
@@ -271,10 +275,20 @@ void MattermostApplication::ensureWorkspaceShell()
     workspaceShell->setOverviewPage(overviewPage);
     connect(overviewPage, &AccountOverviewPage::accountSelected, this,
             [this](const QString& id) { selectAccount(id); });
-    connect(overviewPage, &AccountOverviewPage::retryRequested,
-            &accounts, &AccountManager::restoreAccount);
+    connect(overviewPage, &AccountOverviewPage::retryRequested, this,
+            [this](const QString& id) {
+        // Keyboard selection of an overview row need not have emitted clicked().
+        // Treat Connect as an explicit profile activation before retrying.
+        if (accounts.selectAccount(id))
+            accounts.restoreAccount(id);
+    });
     connect(overviewPage, &AccountOverviewPage::signInRequested, this,
-            [this](const QString& id) { openLoginWindow(id); });
+            [this](const QString& id) {
+        // Even manual reauthentication must activate the owning profile.
+        // The overview's selected row is not itself a connection policy.
+        if (accounts.selectAccount(id))
+            openLoginWindow(id);
+    });
     connect(overviewPage, &AccountOverviewPage::addServerRequested, this,
             [this] { openLoginWindow(); });
 
@@ -497,6 +511,52 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         }
     });
     dialog->open();
+}
+
+void MattermostApplication::suspendProfileConnection(Account* item,
+                                                       Backend* backend)
+{
+    if (!item || !backend || item->backend() != backend)
+        return;
+    // Explicit logout/authentication expiry already owns teardown. When it
+    // completes, AccountManager reconciles the latest requested profile.
+    if (closingAccounts.contains(backend))
+        return;
+
+    closingAccounts.insert(backend);
+    const QString accountId = item->id();
+    QPointer<Account> itemGuard(item);
+    QPointer<Backend> backendGuard(backend);
+    // Do not let QStackedWidget::removeWidget() automatically select another
+    // account when an outgoing page happens to be current. Display the
+    // neutral overview until the target view's account is ready.
+    if (workspaceShell && workspaceShell->activeAccountId() == accountId)
+        workspaceShell->showOverview();
+    if (MainWindow* page = accountViews.value(backend, nullptr))
+        page->prepareForLogout();
+
+    // Crucially, a suspended profile is not a logout. The manager already
+    // stopped its transports, but must not clear Storage until this account's
+    // Widgets (including thread panes) have been released.
+    QMetaObject::invokeMethod(this,
+        [this, itemGuard, backendGuard, accountId] {
+        if (workspaceShell) {
+            QWidget* view = workspaceShell->takeWorkspace(accountId);
+            delete view;
+        }
+        if (backendGuard) {
+            accountViews.remove(backendGuard.data());
+            trayBadges.remove(backendGuard.data());
+        }
+        updateTrayIcon();
+        if (workspaceShell && accounts.selectedAccountId() == accountId)
+            workspaceShell->showOverview();
+
+        if (itemGuard && backendGuard)
+            accounts.finishProfileSuspension(itemGuard.data(),
+                                             backendGuard.data());
+        updateWindowTitle();
+    }, Qt::QueuedConnection);
 }
 
 void MattermostApplication::beginLogout(Backend& backend,

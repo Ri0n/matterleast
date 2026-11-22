@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QVector>
 
@@ -41,6 +42,10 @@ public:
     QString selectedAccountId() const { return _selectedId; }
     Backend* activeBackend() const;
     bool selectAccount(const QString& id);
+    // Activate a named view. Only a profile change can alter connection
+    // lifetimes: switching views within a profile leaves every session alive.
+    bool activateView(const QString& viewId);
+    QString activeViewId() const { return _layout.activeViewId; }
     void persist() const;
 
     // Temporary candidates for user-entered credentials belong to this
@@ -54,19 +59,31 @@ public:
     Backend* findAccount(const QString& server, const QString& userId) const;
 
     void restoreAccount(const QString& id);
-    void restoreAll();
+    // Starts only accounts admitted by the active profile, including hidden
+    // accounts in its other views. Failed/auth-required restores need an
+    // explicit retry through restoreAccount().
+    void restoreActiveProfile();
     void cancelPendingRestore(const QString& id, AccountConnectionState status);
 
     // UI releases its widget tree between prepareStop() and finishStop().
     // This ordering avoids dangling references to Backend-owned Storage.
     void prepareStop(Account* account, bool authenticationExpired);
     void finishStop(Account* account, bool authenticationExpired);
+    // Called after the presentation has disposed of every widget that
+    // references the old Backend's Storage. Profile suspension is NOT logout:
+    // no /users/logout request and no keychain deletion.
+    void finishProfileSuspension(Account* account, Backend* backend);
 
 signals:
     void accountRegistered(Backend* backend);
     void accountUnregistered(Backend* backend);
     void activeBackendChanged(Backend* backend);
     void accountConnected(Account* account, Backend* backend);
+    void activeViewChanged(const QString& viewId);
+    // Presentation must release Backend-dependent widgets first and then
+    // acknowledge with finishProfileSuspension. Other profiles cannot connect
+    // before all outgoing sessions are released.
+    void profileSuspensionRequested(Account* account, Backend* backend);
     // Emitted only after a verified account's token is safely stored in
     // platform keychain. The migration layer may then drop old plaintext.
     void credentialsStored(const QString& server, const QString& loginName);
@@ -75,12 +92,17 @@ private:
     Account* ensureAccount(const QString& id);
     void rebuildModel();
     void finishBackendRemoval(Account* account, Backend* backend);
+    bool applySelection(const QString& viewId, const QString& accountId);
+    void reconcileActiveProfile();
+    QStringList activeProfileAccountIds() const;
 
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
     QString _selectedId;
+    QHash<QString, QString> _lastSelectedByView;
+    QSet<QString> _suspendingProfileAccounts;
     bool _invalidCatalog = false;
 };
 

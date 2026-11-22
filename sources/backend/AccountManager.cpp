@@ -114,16 +114,160 @@ Backend* AccountManager::activeBackend() const
 
 bool AccountManager::selectAccount(const QString& id)
 {
-    if (!account(id) || !_layout.selectAccount(id))
+    if (!account(id))
         return false;
+    // Keep the existing preference rule: first look in the current view,
+    // then in another view of this profile, then in another profile.
+    WorkspaceLayout requested = _layout;
+    if (!requested.selectAccount(id))
+        return false;
+    return applySelection(requested.activeViewId, id);
+}
+
+bool AccountManager::activateView(const QString& viewId)
+{
+    return applySelection(viewId, {});
+}
+
+bool AccountManager::applySelection(const QString& viewId, const QString& requestedId)
+{
+    const auto transition = _layout.transitionTo(viewId);
+    if (!transition || transition->visibleAccountIds.isEmpty())
+        return false;
+
+    const bool viewChanged = _layout.activeViewId != viewId;
+    QString oldProfileId;
+    if (viewChanged) {
+        for (const auto& view : _layout.views) {
+            if (view.id == _layout.activeViewId) {
+                oldProfileId = view.profileId;
+                break;
+            }
+        }
+    }
+    const bool profileChanged = viewChanged
+        && oldProfileId != transition->targetProfileId;
+
+    QString selected = requestedId;
+    if (selected.isEmpty() || !transition->visibleAccountIds.contains(selected)) {
+        const QString previous = _lastSelectedByView.value(viewId);
+        if (!previous.isEmpty() && transition->visibleAccountIds.contains(previous))
+            selected = previous;
+        else if (transition->visibleAccountIds.contains(_selectedId))
+            selected = _selectedId;
+        else
+            selected = transition->visibleAccountIds.first();
+    }
+
+    if (!viewChanged && _selectedId == selected)
+        return true; // No UI, HTTP or model churn on repeated selection.
+
+    if (viewChanged && !_selectedId.isEmpty())
+        _lastSelectedByView.insert(_layout.activeViewId, _selectedId);
+    if (viewChanged && !_layout.selectView(viewId))
+        return false;
+    const bool accountChanged = _selectedId != selected;
+    _selectedId = selected;
+    _lastSelectedByView.insert(viewId, selected);
     _treeModel.syncActiveView();
-    if (_selectedId == id)
-        return true;
-    _selectedId = id;
     rebuildModel();
-    persist();
-    emit activeBackendChanged(activeBackend());
+    // Only the active *view* is persisted. Remembering a different account
+    // inside the same view is process-local and requires no settings I/O.
+    if (viewChanged)
+        persist();
+
+    if (viewChanged)
+        emit activeViewChanged(viewId);
+    if (accountChanged)
+        emit activeBackendChanged(activeBackend());
+
+    if (profileChanged)
+        reconcileActiveProfile();
     return true;
+}
+
+QStringList AccountManager::activeProfileAccountIds() const
+{
+    for (const auto& view : _layout.views) {
+        if (view.id != _layout.activeViewId)
+            continue;
+        for (const auto& profile : _layout.profiles) {
+            if (profile.id == view.profileId)
+                return profile.accountIds;
+        }
+        break;
+    }
+    return {};
+}
+
+void AccountManager::restoreActiveProfile()
+{
+    reconcileActiveProfile();
+}
+
+void AccountManager::reconcileActiveProfile()
+{
+    const QStringList admittedIds = activeProfileAccountIds();
+    const QSet<QString> admitted(admittedIds.cbegin(), admittedIds.cend());
+
+    // First mark EVERY outgoing connection for suspension, before emitting
+    // any signals: the presentation may synchronously acknowledge one of
+    // them. Otherwise a nested reconcile could start incoming accounts while
+    // a second outgoing Backend is still alive.
+    QVector<QPair<Account*, Backend*>> outgoing;
+    const auto accounts = allAccounts();
+    for (Account* item : accounts) {
+        if (admitted.contains(item->id()))
+            continue;
+        if (Backend* backend = item->backend()) {
+            if (_suspendingProfileAccounts.contains(item->id()))
+                continue;
+            _suspendingProfileAccounts.insert(item->id());
+            outgoing.append({item, backend});
+        }
+    }
+
+    // setState(), cancelPending() and prepareForLogout() can notify other
+    // objects synchronously. Every outgoing Backend is already fenced by
+    // _suspendingProfileAccounts before any of those callbacks are delivered.
+    for (Account* item : accounts) {
+        if (!admitted.contains(item->id()) && item->pendingBackend())
+            item->cancelPending(AccountConnectionState::Disconnected);
+    }
+    for (const auto& entry : outgoing) {
+        entry.first->setState(AccountConnectionState::Disconnected);
+        entry.second->prepareForLogout();
+    }
+    for (const auto& entry : outgoing)
+        emit profileSuspensionRequested(entry.first, entry.second);
+
+    // A profile is exclusive. Its new sessions may start only AFTER the
+    // outgoing backend-dependent Widgets have been destroyed and acknowledged.
+    if (!_suspendingProfileAccounts.isEmpty())
+        return;
+
+    for (const QString& id : admittedIds) {
+        Account* item = account(id);
+        if (item && item->state() == AccountConnectionState::Disconnected
+            && !item->backend() && !item->pendingBackend())
+            restoreAccount(id);
+    }
+}
+
+void AccountManager::finishProfileSuspension(Account* item, Backend* backend)
+{
+    if (!item || !backend || !_suspendingProfileAccounts.contains(item->id())
+        || item->backend() != backend)
+        return;
+
+    // The application has already destroyed the dependent Widgets. Cancel
+    // outstanding HTTP/WS work while the Backend still owns its Storage.
+    backend->reset();
+    emit accountUnregistered(backend);
+    item->releaseBackend();
+    _suspendingProfileAccounts.remove(item->id());
+    rebuildModel();
+    reconcileActiveProfile();
 }
 
 Account* AccountManager::accountForBackend(const Backend* backend) const
@@ -284,19 +428,15 @@ void AccountManager::cancelPendingRestore(
         item->cancelPending(status);
 }
 
-void AccountManager::restoreAll()
-{
-    for (Account* item : allAccounts()) {
-        if (item->record() && item->record()->hasConnectionIdentity())
-            restoreAccount(item->id());
-    }
-}
-
 void AccountManager::restoreAccount(const QString& id)
 {
     Account* item = account(id);
     const auto* record = item ? item->record() : nullptr;
+    // A direct Retry action must not bypass exclusive profile policy.
+    // The caller first activates a view admitting the requested account.
     if (_invalidCatalog || !record || !record->hasConnectionIdentity()
+        || !activeProfileAccountIds().contains(id)
+        || !_suspendingProfileAccounts.isEmpty()
         || item->backend() || item->pendingBackend())
         return;
 
@@ -380,6 +520,8 @@ void AccountManager::finishBackendRemoval(Account* item, Backend* backend)
     if (item->id() == _selectedId)
         emit activeBackendChanged(nullptr);
     rebuildModel();
+    if (_suspendingProfileAccounts.remove(item->id()))
+        reconcileActiveProfile();
 }
 
 void AccountManager::finishStop(Account* item, bool authenticationExpired)
