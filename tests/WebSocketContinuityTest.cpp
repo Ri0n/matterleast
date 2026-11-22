@@ -178,6 +178,26 @@ private slots:
         QCOMPARE(connected.at(3).at(0).toBool(), true);
         QCOMPARE(connected.at(3).at(1).toBool(), true);
 
+        fourth->close();
+        QTRY_VERIFY(connector.connectionState()
+                    == WebSocketConnector::ConnectionState::WaitingForReconnect);
+        connector.reconnectNow();
+        QTRY_COMPARE(sockets.size(), 5);
+        QWebSocket* fifth = sockets[4];
+        QTRY_VERIFY(authenticationSequences.contains(fifth));
+        // A resumed stream without hello must not get stuck in retries nor be
+        // mistaken for a confirmed lossless replay.
+        fifth->sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{
+            {QStringLiteral("event"), QStringLiteral("unknown_replay_event")},
+            {QStringLiteral("seq"), 1}
+        }).toJson(QJsonDocument::Compact)));
+        QTest::qWait(100);
+        QCOMPARE(connected.size(), 4);
+        acceptAuth(fifth);
+        QTRY_COMPARE(connected.size(), 5);
+        QCOMPARE(connected.at(4).at(0).toBool(), true);
+        QCOMPARE(connected.at(4).at(1).toBool(), true);
+
         connector.close();
         for (QWebSocket* socket : sockets) {
             socket->close();
