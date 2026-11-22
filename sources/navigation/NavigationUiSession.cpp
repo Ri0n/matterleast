@@ -382,8 +382,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
     if (state.current.valid()
         && state.current.kind != ViewNavigationSession::Location::Kind::Chat)
         navigationTabs->hide();
-    updateHistoryButtons();
-    syncViewSession();
+    updateHistoryButtons(); // Synchronizes the settled semantic snapshot.
 }
 
 void NavigationUiController::scheduleSessionSave()
