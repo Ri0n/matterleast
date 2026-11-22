@@ -58,7 +58,7 @@ private slots:
         QSignalSpy inserts(tree->model(), &QAbstractItemModel::rowsInserted);
         QSignalSpy changes(tree->model(), &QAbstractItemModel::dataChanged);
         QSignalSpy removes(tree->model(), &QAbstractItemModel::rowsRemoved);
-        auto* model = accounts.workspaceTreeModel();
+        auto* model = static_cast<WorkspaceTreeModel*>(accounts.workspaceTreeModel());
         model->setPendingServer(QStringLiteral("attempt-1"),
                                 QStringLiteral("chat.example.org"),
                                 QStringLiteral("Connecting…"));
