@@ -215,21 +215,29 @@ void AccountManager::reconcileActiveProfile()
     // them. Otherwise a nested reconcile could start incoming accounts while
     // a second outgoing Backend is still alive.
     QVector<QPair<Account*, Backend*>> outgoing;
-    for (Account* item : allAccounts()) {
+    const auto accounts = allAccounts();
+    for (Account* item : accounts) {
         if (admitted.contains(item->id()))
             continue;
-        if (item->pendingBackend())
-            item->cancelPending(AccountConnectionState::Disconnected);
         if (Backend* backend = item->backend()) {
             if (_suspendingProfileAccounts.contains(item->id()))
                 continue;
             _suspendingProfileAccounts.insert(item->id());
-            item->setState(AccountConnectionState::Disconnected);
-            backend->prepareForLogout();
             outgoing.append({item, backend});
         }
     }
 
+    // setState(), cancelPending() and prepareForLogout() can notify other
+    // objects synchronously. Every outgoing Backend is already fenced by
+    // _suspendingProfileAccounts before any of those callbacks are delivered.
+    for (Account* item : accounts) {
+        if (!admitted.contains(item->id()) && item->pendingBackend())
+            item->cancelPending(AccountConnectionState::Disconnected);
+    }
+    for (const auto& entry : outgoing) {
+        entry.first->setState(AccountConnectionState::Disconnected);
+        entry.second->prepareForLogout();
+    }
     for (const auto& entry : outgoing)
         emit profileSuspensionRequested(entry.first, entry.second);
 
