@@ -298,20 +298,25 @@ void AppNavigationService::bindMainWindow(MainWindow& window)
     if (presentationWindow == &window)
         return;
 
-    if (presentationWindow) {
+    if (presentationWindow)
         QObject::disconnect(this, nullptr, presentationWindow, nullptr);
-        QObject::disconnect(this, nullptr,
-                            &NavigationUiController::instance(*presentationWindow),
-                            nullptr);
-    }
     presentationWindow = &window;
     connect(this, &AppNavigationService::navigationStarted,
             &window, &MainWindow::beginSemanticNavigation);
     connect(this, &AppNavigationService::channelRequested,
             &window, &MainWindow::openChannelPost);
-    connect(this, &AppNavigationService::tabRequested,
-            &NavigationUiController::instance(window),
-            &NavigationUiController::openInTab);
+    // Binding must not instantiate the navigation controller while MainWindow
+    // is still being constructed. It reparents the central content splitter;
+    // doing so prematurely changes widget geometry and scroll anchoring.
+    // The tab slot is resolved lazily only when a tab is actually requested.
+    connect(this, &AppNavigationService::tabRequested, &window,
+            [&window](const QString& channelId, const QString& rootId,
+                      const QString& postId, const QStringList& contextPostIds,
+                      bool reachedOldest, bool reachedNewest) {
+        NavigationUiController::instance(window).openInTab(
+            channelId, rootId, postId, contextPostIds,
+            reachedOldest, reachedNewest);
+    });
 }
 
 quint64 AppNavigationService::beginNavigation()
