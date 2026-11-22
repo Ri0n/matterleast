@@ -19,6 +19,8 @@
 
 #include <iostream>
 #include <QCheckBox>
+#include <QPushButton>
+#include <QUrl>
 #include "LoginDialog.h"
 #include "ui_LoginDialog.h"
 
@@ -39,6 +41,9 @@ LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
 {
     setAttribute(Qt::WA_DeleteOnClose);
     ui->setupUi(this);
+    connect(ui->cancel_pushButton, &QPushButton::clicked,
+            this, &QDialog::reject);
+    ui->loginInProgressLabel->setText(tr("Signing in…"));
 
     connect(&backend, &Backend::onNetworkError,
             this, &LoginDialog::onNetworkError);
@@ -64,7 +69,7 @@ LoginDialog::LoginDialog(QWidget* parent, Backend& backend,
         ui->password_lineEdit->clear();
     });
 
-    ui->icon->setPixmap(IconUtils::applicationIcon().pixmap(QSize(64, 64)));
+    ui->icon->setPixmap(IconUtils::applicationIcon().pixmap(QSize(48, 48)));
     ui->loginInProgressLabel->hide();
 }
 
@@ -78,12 +83,24 @@ void LoginDialog::on_login_pushButton_clicked()
     if (_attemptInProgress)
         return;
     BackendLoginData credentials;
-    credentials.domain = ui->domain_lineEdit->text();
-    credentials.username = ui->username_lineEdit->text();
+    credentials.domain = ui->domain_lineEdit->text().trimmed();
+    credentials.username = ui->username_lineEdit->text().trimmed();
     if (_tokenMode->isChecked())
         credentials.token = ui->password_lineEdit->text();
     else
         credentials.password = ui->password_lineEdit->text();
+    const QUrl endpoint(credentials.domain);
+    if (!endpoint.isValid() || endpoint.host().isEmpty()
+        || (endpoint.scheme() != QLatin1String("https")
+            && endpoint.scheme() != QLatin1String("http"))) {
+        setError(tr("Enter a valid http:// or https:// server URL."));
+        return;
+    }
+    if (credentials.username.isEmpty()
+        || (credentials.password.isEmpty() && credentials.token.isEmpty())) {
+        setError(tr("Enter your username and password or access token."));
+        return;
+    }
     loginToServer(credentials);
 }
 
@@ -97,6 +114,7 @@ void LoginDialog::loginToServer(const BackendLoginData& credentials)
     ui->username_lineEdit->setEnabled(false);
     ui->password_lineEdit->setEnabled(false);
     ui->login_pushButton->setEnabled(false);
+    _tokenMode->setEnabled(false);
     ui->error_label->clear();
     ui->loginInProgressLabel->show();
 
@@ -139,7 +157,8 @@ void LoginDialog::setError (const QString& errorStr)
     ui->username_lineEdit->setEnabled(true);
     ui->password_lineEdit->setEnabled(true);
     ui->login_pushButton->setEnabled(true);
-    ui->login_pushButton->setText(tr("&Login"));
+    _tokenMode->setEnabled(true);
+    ui->login_pushButton->setText(tr("Sign in"));
 
     ui->error_label->setText (errorStr);
 }

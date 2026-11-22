@@ -6,12 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>400</width>
-    <height>329</height>
+    <width>440</width>
+    <height>290</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MatterLeast — Login</string>
+   <string>MatterLeast — Sign in to server</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
@@ -20,8 +20,8 @@
       <widget class="QLabel" name="icon">
        <property name="minimumSize">
         <size>
-         <width>64</width>
-         <height>64</height>
+         <width>48</width>
+         <height>48</height>
         </size>
        </property>
        <property name="maximumSize">
@@ -41,7 +41,7 @@
      <item>
       <widget class="QLabel" name="titleLabel">
        <property name="text">
-        <string>Login to Mattermost</string>
+        <string>Sign in to a Mattermost server</string>
        </property>
       </widget>
      </item>
@@ -58,7 +58,7 @@
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>48</height>
+       <height>12</height>
       </size>
      </property>
     </spacer>
@@ -94,7 +94,7 @@
         <string>The Mattermost server you are connecting to</string>
        </property>
        <property name="text">
-        <string>&amp;Domain</string>
+        <string>Server &amp;URL</string>
        </property>
        <property name="buddy">
         <cstring>domain_lineEdit</cstring>
@@ -136,7 +136,7 @@
         <number>512</number>
        </property>
        <property name="placeholderText">
-        <string>Domain</string>
+        <string>https://chat.example.com</string>
        </property>
       </widget>
      </item>
@@ -160,7 +160,7 @@
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>83</height>
+       <height>18</height>
       </size>
      </property>
     </spacer>
@@ -188,9 +188,16 @@
       </spacer>
      </item>
      <item>
+      <widget class="QPushButton" name="cancel_pushButton">
+       <property name="text">
+        <string>Cancel</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="login_pushButton">
        <property name="text">
-        <string>&amp;Login</string>
+        <string>Sign in</string>
        </property>
       </widget>
      </item>

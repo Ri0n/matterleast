@@ -53,6 +53,8 @@ class NotificationManager;
 class PostCollectionView;
 class SidebarUpdateBanner;
 class ViewNavigationSession;
+class AccountManager;
+class ServersSidebarPage;
 
 class MainWindow: public QMainWindow {
 	Q_OBJECT
@@ -64,8 +66,10 @@ public:
 	void initializationComplete ();
     void installRealtimeUiSync();
     void bindViewNavigation(ViewNavigationSession* session, const QString& accountId);
-    // Menu is built lazily from the authenticated account registry.
-    void installAccountSwitcher(QMenu* menu);
+    // Shared account/profile model rendered as an icon-only tab before Channels.
+    void installServersSidebar(AccountManager& manager);
+    void showServersSidebar();
+    void showChannelsSidebar();
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
@@ -94,6 +98,11 @@ signals:
     void trayBadgeStateChanged(uint32_t attentionCount, bool hasUnreadChannel);
     // Notification activation must first select this account's workspace.
     void presentAccountRequested();
+    void serverOpenRequested(const QString& accountId);
+    void viewOpenRequested(const QString& viewId);
+    void addServerRequested();
+    void serverSignInRequested(const QString& accountId);
+    void serverConnectRequested(const QString& accountId);
 
 private slots:
     void on_usericon_label_clicked();
@@ -130,6 +139,8 @@ private:
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;
+    ServersSidebarPage*                  serversPage = nullptr;
+    QWidget*                            sidebarFilterRow = nullptr;
     QWidget*                            _unreadPage = nullptr;
     QCheckBox*                          _unreadFollowingCheck = nullptr;
     QCheckBox*                          _unreadChannelsCheck = nullptr;

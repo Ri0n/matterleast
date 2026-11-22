@@ -157,17 +157,51 @@ private slots:
         QCOMPARE(updates.count(), 2);
     }
 
-    void topologyRefreshIsExplicit()
+    void topologyRefreshChangesOnlyAffectedNodes()
     {
         WorkspaceLayout layout = topology();
         AccountListModel list;
         WorkspaceTreeModel tree(layout, list);
         QSignalSpy resets(&tree, &QAbstractItemModel::modelReset);
+        QSignalSpy updates(&tree, &QAbstractItemModel::dataChanged);
+        QSignalSpy inserted(&tree, &QAbstractItemModel::rowsInserted);
+        QSignalSpy moved(&tree, &QAbstractItemModel::rowsMoved);
+        QSignalSpy removed(&tree, &QAbstractItemModel::rowsRemoved);
+        const QModelIndex work = tree.index(0, 0);
+        const QModelIndex all = tree.index(0, 0, work);
+        QPersistentModelIndex alpha = tree.index(0, 0, all);
         layout.views[1].name = QStringLiteral("Renamed");
         tree.refreshTopology();
-        QCOMPARE(resets.count(), 1);
-        QCOMPARE(tree.data(tree.index(1, 0, tree.index(0, 0)),
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(updates.count(), 1);
+        QCOMPARE(tree.data(tree.index(1, 0, work),
                            Qt::DisplayRole).toString(), QStringLiteral("Renamed"));
+        updates.clear();
+
+        layout.views[0].accountIds.swapItemsAt(0, 1);
+        tree.refreshTopology();
+        QCOMPARE(moved.count(), 1);
+        QCOMPARE(resets.count(), 0);
+        QVERIFY(alpha.isValid());
+        QCOMPARE(alpha.row(), 1);
+        QCOMPARE(alpha.data(WorkspaceTreeModel::AccountIdRole).toString(),
+                 QStringLiteral("a"));
+
+        layout.views.append({QStringLiteral("new-view"), QStringLiteral("work"),
+                             QStringLiteral("New"), {QStringLiteral("a")}});
+        tree.refreshTopology();
+        // The new view and its first account are two independent insertions.
+        QCOMPARE(inserted.count(), 2);
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(tree.rowCount(work), 3);
+
+        layout.views.removeLast();
+        tree.refreshTopology();
+        QCOMPARE(removed.count(), 1);
+        QCOMPARE(resets.count(), 0);
+        QVERIFY(alpha.isValid());
+        QCOMPARE(alpha.data(WorkspaceTreeModel::AccountIdRole).toString(),
+                 QStringLiteral("a"));
     }
 };
 

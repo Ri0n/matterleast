@@ -416,11 +416,42 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
     accountViews.insert(&backend, page);
     trayBadges.update(&backend, 0, false);
 
-    auto* menu = new QMenu(page);
-    connect(menu, &QMenu::aboutToShow, this,
-            [this, menu] { populateAccountMenu(*menu); });
-    page->installAccountSwitcher(menu);
-    connect(page, &MainWindow::trayBadgeStateChanged, this,
+    page->installServersSidebar(accounts);
+    connect(page, &MainWindow::serverOpenRequested, this,
+            [this](const QString& id) {
+        selectAccount(id);
+        Account* selected = accounts.account(id);
+        if (selected && selected->backend()) {
+            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
+                target->showChannelsSidebar();
+        }
+    });
+    connect(page, &MainWindow::viewOpenRequested, this,
+            [this](const QString& id) {
+        if (!accounts.activateView(id) || !workspaceShell) return;
+        Account* selected = accounts.account(accounts.selectedAccountId());
+        if (selected && selected->backend()
+            && !closingAccounts.contains(selected->backend())) {
+            workspaceShell->activateWorkspace(selected->id());
+            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
+                target->showChannelsSidebar();
+        } else {
+            workspaceShell->showOverview();
+        }
+        bindActiveNavigationView();
+        updateWindowTitle();
+    });
+    connect(page, &MainWindow::addServerRequested, this,
+            [this] { openLoginWindow(); });
+    connect(page, &MainWindow::serverSignInRequested, this,
+            [this](const QString& id) {
+        if (accounts.selectAccount(id)) openLoginWindow(id);
+    });
+    connect(page, &MainWindow::serverConnectRequested, this,
+            [this](const QString& id) {
+        if (accounts.selectAccount(id)) accounts.restoreAccount(id);
+    });
+        connect(page, &MainWindow::trayBadgeStateChanged, this,
             [this, owner = &backend](uint32_t count, bool hasUnreadChannel) {
         trayBadges.update(owner, count, hasUnreadChannel);
         updateTrayIcon();
