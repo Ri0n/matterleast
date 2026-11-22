@@ -495,6 +495,17 @@ target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME workspace-layout-test COMMAND workspace-layout-test)
 
+# Shared account reconnects must resume promptly on VPN/network changes
+# and stay canceled when the corresponding profile is not active.
+add_executable(transient-account-reconnect-test
+    TransientAccountReconnectTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/backend/TransientAccountReconnect.cpp")
+target_include_directories(transient-account-reconnect-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(transient-account-reconnect-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME transient-account-reconnect-test COMMAND transient-account-reconnect-test)
+
 # Async saved-session verification retries transient transport failures a bounded
 # number of times. The test uses a synthetic checker (no network or wallet).
 add_executable(session-verification-retry-test
