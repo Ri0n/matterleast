@@ -2,6 +2,7 @@
 
 #include <QTimer>
 #include <QUrl>
+#include <QUuid>
 #include <utility>
 
 #include "Account.h"
@@ -401,6 +402,60 @@ Backend* AccountManager::findAccount(const QString& server,
 Backend* AccountManager::createLoginBackend()
 {
     return new Backend(this);
+}
+
+void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
+{
+    if (_invalidCatalog || credentials.domain.isEmpty()
+        || credentials.username.isEmpty()
+        || (credentials.password.isEmpty() && credentials.token.isEmpty()))
+        return;
+    const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString serverName = QUrl(credentials.domain).host();
+    if (serverName.isEmpty()) return;
+
+    Backend* candidate = createLoginBackend();
+    QPointer<Backend> guard(candidate);
+    _pendingNewServers.insert(requestId, candidate);
+    _treeModel.setPendingServer(requestId, serverName, tr("Connecting…"));
+
+    // No credentials are persisted until /users/me has returned a verified
+    // identity. The transient entry appears in Servers immediately, without
+    // constructing a dummy Account or a full MainWindow for this Backend.
+    const QString loginName = credentials.username;
+    candidate->login(credentials,
+        [this, guard, requestId, serverName, loginName](const QString& token) {
+        if (!guard || _pendingNewServers.value(requestId) != guard)
+            return;
+        _pendingNewServers.remove(requestId);
+        if (!token.isEmpty()) {
+            const QString display = QUrl(guard->serverDomain()).host()
+                + QStringLiteral(" — ") + guard->getLoginUser().username;
+            Account* connected = adoptAuthenticated(guard.data(), loginName, display);
+            if (connected) {
+                _treeModel.removePendingServer(requestId);
+                // Select the new account exactly as if the user activated it
+                // from the Servers tree; the workspace presents Channels.
+                selectAccount(connected->id());
+                return;
+            }
+            // An already authenticated account may have been added again.
+            Backend* existing = findAccount(guard->networkSession().host(),
+                                            guard->getLoginUser().id);
+            if (existing) {
+                if (Account* account = accountForBackend(existing)) {
+                    _treeModel.removePendingServer(requestId);
+                    selectAccount(account->id());
+                    discardCandidate(guard.data());
+                    return;
+                }
+            }
+            qWarning("New server authentication succeeded but account could not be adopted");
+        }
+        _treeModel.setPendingServer(requestId, serverName,
+                                    tr("Sign-in failed — add server to retry"));
+        discardCandidate(guard.data());
+    });
 }
 
 void AccountManager::discardCandidate(Backend* backend)
