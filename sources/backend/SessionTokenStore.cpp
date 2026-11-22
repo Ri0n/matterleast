@@ -31,23 +31,74 @@ QObject* keychainJobParent()
 {
     return QCoreApplication::instance();
 }
-#endif
+
+void readKey(QObject* context, const QString& entryKey,
+             SessionTokenStore::ReadCallback callback)
+{
+    auto* job = new QKeychain::ReadPasswordJob(QString::fromLatin1(KeychainService),
+                                               keychainJobParent());
+    job->setKey(entryKey);
+    job->setInsecureFallback(false);
+    // Log only a short digest prefix, never token, login or server URL.
+    qInfo().noquote() << "MatterLeast keyring lookup: service" << KeychainService
+                      << "key-prefix" << entryKey.left(27);
+    QObject::connect(job, &QKeychain::Job::finished, context,
+                     [callback = std::move(callback)](QKeychain::Job* finished) {
+        if (!callback) return;
+        const auto* readJob = static_cast<QKeychain::ReadPasswordJob*>(finished);
+        if (finished->error() == QKeychain::NoError) {
+            const QString token = readJob->textData();
+            callback(token.isEmpty() ? SessionTokenStore::ReadStatus::NotFound
+                                     : SessionTokenStore::ReadStatus::Found, token);
+        } else if (finished->error() == QKeychain::EntryNotFound) {
+            callback(SessionTokenStore::ReadStatus::NotFound, {});
+        } else {
+            qWarning() << "Unable to read saved MatterLeast session from keyring:"
+                       << static_cast<int>(finished->error());
+            callback(SessionTokenStore::ReadStatus::Unavailable, {});
+        }
+    });
+    job->start();
 }
 
-QString SessionTokenStore::keyFor(const QString& server,
-                                  const QString& username)
+void removeKey(QObject* context, const QString& entryKey)
+{
+    auto* job = new QKeychain::DeletePasswordJob(QString::fromLatin1(KeychainService),
+                                                 keychainJobParent());
+    job->setKey(entryKey);
+    job->setInsecureFallback(false);
+    job->start();
+}
+#endif
+
+QString legacyKeyFor(const QString& server, const QString& username)
 {
     const QUrl url(server.trimmed());
-    const QString origin = url.adjusted(QUrl::RemoveQuery | QUrl::RemoveFragment
-                                        | QUrl::StripTrailingSlash)
-                               .toString(QUrl::FullyEncoded)
-                               .toLower();
-    QByteArray material = origin.toUtf8();
+    const QString oldOrigin = url.adjusted(QUrl::RemoveQuery | QUrl::RemoveFragment
+                                           | QUrl::StripTrailingSlash)
+                                    .toString(QUrl::FullyEncoded)
+                                    .toLower();
+    QByteArray material = oldOrigin.toUtf8();
     material.append(char(0));
     material.append(username.trimmed().toUtf8());
     return QStringLiteral("login-token-v1-")
         + QString::fromLatin1(
             QCryptographicHash::hash(material, QCryptographicHash::Sha256).toHex());
+}
+}
+
+QString SessionTokenStore::keyFor(const QString& server,
+                                  const QString& username)
+{
+    QUrl canonical(server.trimmed());
+    canonical = canonical.adjusted(QUrl::RemoveQuery | QUrl::RemoveFragment
+                                   | QUrl::StripTrailingSlash);
+    // QUrl::StripTrailingSlash does not consistently remove the single root
+    // slash. Our previous NetworkSessionContext always appended '/', changing
+    // the SHA256 key for the same saved account. Canonicalize root explicitly.
+    if (canonical.path() == QStringLiteral("/"))
+        canonical.setPath(QString());
+    return legacyKeyFor(canonical.toString(QUrl::FullyEncoded), username);
 }
 
 void SessionTokenStore::read(QObject* context, const QString& server,
@@ -62,32 +113,21 @@ void SessionTokenStore::read(QObject* context, const QString& server,
         return;
     }
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
-    auto* job = new QKeychain::ReadPasswordJob(QString::fromLatin1(KeychainService),
-                                               keychainJobParent());
-    const QString entryKey = keyFor(server, username);
-    job->setKey(entryKey);
-    job->setInsecureFallback(false);
-    // Only a short digest prefix is exposed; never log tokens, credentials,
-    // server URLs or the complete stable keychain entry identifier.
-    qInfo().noquote() << "MatterLeast keyring lookup: service" << KeychainService
-                      << "key-prefix" << entryKey.left(27);
-    QObject::connect(job, &QKeychain::Job::finished, context,
-                     [callback = std::move(callback)](QKeychain::Job* finished) {
-        if (!callback) return;
-        const auto* readJob = static_cast<QKeychain::ReadPasswordJob*>(finished);
-        if (finished->error() == QKeychain::NoError) {
-            const QString token = readJob->textData();
-            callback(token.isEmpty() ? ReadStatus::NotFound : ReadStatus::Found,
-                     token);
-        } else if (finished->error() == QKeychain::EntryNotFound) {
-            callback(ReadStatus::NotFound, {});
-        } else {
-            qWarning() << "Unable to read saved MatterLeast session from keyring:"
-                       << static_cast<int>(finished->error());
-            callback(ReadStatus::Unavailable, {});
+    const QString canonicalKey = keyFor(server, username);
+    const QString oldKey = legacyKeyFor(server, username);
+    readKey(context, canonicalKey,
+        [context, canonicalKey, oldKey, callback = std::move(callback)](
+            ReadStatus status, const QString& token) mutable {
+        if (status == ReadStatus::NotFound && oldKey != canonicalKey) {
+            // Compatibility with the transient broken root-slash format
+            // produced by early multi-account builds. Do not delete it here:
+            // only authenticated logout removes session credentials.
+            qInfo("Canonical key not found; trying pre-normalization root key");
+            readKey(context, oldKey, std::move(callback));
+            return;
         }
+        if (callback) callback(status, token);
     });
-    job->start();
 #else
     QTimer::singleShot(0, context, [callback = std::move(callback)] {
         if (callback) callback(ReadStatus::Unavailable, {});
@@ -135,11 +175,11 @@ void SessionTokenStore::remove(QObject* context, const QString& server,
 {
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
     if (!context || server.isEmpty() || username.isEmpty()) return;
-    auto* job = new QKeychain::DeletePasswordJob(QString::fromLatin1(KeychainService),
-                                                 keychainJobParent());
-    job->setKey(keyFor(server, username));
-    job->setInsecureFallback(false);
-    job->start();
+    const QString canonicalKey = keyFor(server, username);
+    removeKey(context, canonicalKey);
+    const QString oldKey = legacyKeyFor(server, username);
+    if (oldKey != canonicalKey)
+        removeKey(context, oldKey);
 #else
     Q_UNUSED(context)
     Q_UNUSED(server)
