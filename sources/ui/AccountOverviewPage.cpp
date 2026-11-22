@@ -55,9 +55,12 @@ AccountOverviewPage::AccountOverviewPage(AccountListModel& model,
     _retry = new QPushButton(tr("Connect"), this);
     _signIn = new QPushButton(tr("Sign in…"), this);
     auto* add = new QPushButton(tr("Add server…"), this);
+    auto* manage = new QPushButton(tr("Manage servers…"), this);
+    manage->setObjectName(QStringLiteral("overviewManageServers"));
     buttons->addWidget(_retry);
     buttons->addWidget(_signIn);
     buttons->addStretch(1);
+    buttons->addWidget(manage);
     buttons->addWidget(add);
     layout->addLayout(buttons);
 
@@ -73,6 +76,8 @@ AccountOverviewPage::AccountOverviewPage(AccountListModel& model,
     });
     connect(add, &QPushButton::clicked, this,
             &AccountOverviewPage::addServerRequested);
+    connect(manage, &QPushButton::clicked, this,
+            &AccountOverviewPage::manageServersRequested);
 
     connect(&_model, &AccountListModel::selectedAccountChanged, this,
             [this](const QString&) { syncSelection(); });
