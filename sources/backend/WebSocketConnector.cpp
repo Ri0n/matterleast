@@ -442,6 +442,9 @@ void WebSocketConnector::open (const QString& urlString, const QString& authToke
 	configUrl.setQuery(QStringLiteral("format=old"));
 
 	QNetworkRequest request(configUrl);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+    request.setTransferTimeout(10000);
+#endif
 	request.setRawHeader("User-Agent", BrowserUserAgent);
 	request.setRawHeader("X-Requested-With", "XMLHttpRequest");
 	if (!d->token.isEmpty()) {
