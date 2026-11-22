@@ -353,47 +353,17 @@ Backend::Backend(QObject *parent)
     });
     connect(this, &Backend::onWebSocketDisconnect,
             this, &Backend::clearTypingActivity);
-	connect (&webSocketConnector, &WebSocketConnector::onConnect,
-	         [this] (bool isReconnect, bool needsHttpResync) {
-        if (!isLoggedIn) {
-            return; // Ignore an in-flight reconnect during logout.
-        }
+    connect(&webSocketConnector, &WebSocketConnector::onConnect, this,
+            [this](bool isReconnect, bool needsHttpResync) {
+        if (!isLoggedIn)
+            return;
         CustomEmojiService::instance(*this).resetSession();
-		if (isReconnect) {
-			LOG_DEBUG("WebSocket reconnected - restarting HTTP transport");
-
-			/**
-			 * Only this account's server connection is known to have recovered.
-			 * Refresh its HTTP transport before resuming its dependent services;
-			 * do not interrupt other servers' in-flight uploads/downloads.
-			 */
-			HTTPConnector::restartSessionTransports(&_networkSession);
-		}
-
-		emit onWebSocketConnect();
-
-        // WebSocket replay alone does not refresh HTTP-backed projections.
-        // Sources reconcile their visible timelines and defer hidden ones.
-        if (isReconnect) {
-            emit onRealtimeRecovered();
-        }
-
-		// Reliable WebSocket replay covers normal reconnects. Only when the
-		// server explicitly started a new stream do we need a history fallback.
-		if (needsHttpResync && currentChannel) {
-			LOG_DEBUG("Reliable WebSocket resume failed - refreshing current channel");
-			retrieveChannelPosts(*currentChannel, 0, 25);
-		}
-	});
-
-	connect(&webSocketConnector, &WebSocketConnector::reliableResumeFailed,
-	        this, [this] {
-		LOG_DEBUG("Reliable WebSocket resume failed after authentication");
-        emit onRealtimeRecovered();
-		if (currentChannel) {
-			retrieveChannelPosts(*currentChannel, 0, 25);
-		}
-	});
+        emit onWebSocketConnect();
+        // The connection controller is the single owner of the consistency
+        // decision; even a fresh authenticated socket is not proof that old
+        // in-memory state can be reused if event replay failed.
+        emit realtimeStreamConfirmed(isReconnect, !needsHttpResync);
+    });
 
     connect(this, &Backend::onFlaggedPostChanged, this,
             [this](const QString& postId, bool flagged) {
@@ -630,6 +600,22 @@ WebSocketConnector::ConnectionState Backend::webSocketConnectionState() const
 void Backend::retryWebSocketConnectionNow()
 {
     webSocketConnector.reconnectNow();
+}
+
+void Backend::probeWebSocketConnection()
+{
+    webSocketConnector.probeNow();
+}
+
+void Backend::reconcileAfterReliableReplay()
+{
+    if (!isLoggedIn)
+        return;
+    HTTPConnector::restartSessionTransports(&_networkSession);
+    // Guaranteed event replay preserves Storage identity, but independent
+    // REST-backed projections (materialized threads, visible timelines, etc.)
+    // must still reconcile with the authoritative server.
+    emit onRealtimeRecovered();
 }
 
 bool Backend::autoLoginEnabled ()
