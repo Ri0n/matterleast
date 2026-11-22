@@ -205,6 +205,24 @@ private slots:
         QVERIFY(!session.moveTab(-1, 0));
     }
 
+    void dockPresentationSurvivesViewSnapshotTransfer()
+    {
+        ViewNavigationSession source(QStringLiteral("one"));
+        auto state = source.snapshot();
+        state.dock = chat(QStringLiteral("a"), QStringLiteral("channel"),
+                          QStringLiteral("thread"));
+        state.dockVisible = true;
+        QVERIFY(source.restoreSnapshot(state));
+        ViewNavigationSession restored(QStringLiteral("two"));
+        QVERIFY(restored.restoreSnapshot(source.snapshot()));
+        QCOMPARE(restored.snapshot().dock.accountId, QStringLiteral("a"));
+        QCOMPARE(restored.snapshot().dock.rootId, QStringLiteral("thread"));
+        QVERIFY(restored.snapshot().dockVisible);
+        state.dock.rootId.clear();
+        QVERIFY(!restored.restoreSnapshot(state));
+        QVERIFY(restored.snapshot().dockVisible);
+    }
+
     void rejectedSnapshotIsAtomic()
     {
         ViewNavigationSession session(QStringLiteral("view"));
