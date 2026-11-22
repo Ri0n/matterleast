@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 #include "backend/SessionTokenStore.h"
 #include "workspaces/WorkspaceLayout.h"
@@ -22,8 +23,13 @@ public:
         SessionTokenStore::ReadStatus status, const QString& token,
         bool fromLegacyDisplayName)>;
 
-    // Server-generated labels historically used "<host> — <username>".
-    // Do not interpret arbitrary user labels as remote account identities.
+    struct Coordinates {
+        QString server;
+        QString login;
+    };
+    // Candidate locations are bounded to the same origin and historical
+    // verified user label. The caller verifies the exact remote user ID.
+    static QVector<Coordinates> lookupCandidates(const WorkspaceLayout::Account& record);
     static QString candidateLoginName(const WorkspaceLayout::Account& record);
     static void read(QObject* context, const WorkspaceLayout::Account& record,
                      Callback callback);
