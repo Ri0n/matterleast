@@ -23,8 +23,13 @@ ViewNavigationSession::Snapshot ViewNavigationSession::snapshot() const
 
 bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
 {
+    const auto& current = state.current;
+    const bool emptyCurrent = current.kind == Location::Kind::Chat
+        && current.accountId.isEmpty() && current.channelId.isEmpty()
+        && current.rootId.isEmpty() && current.postId.isEmpty()
+        && !current.viewportAnchor;
     if (state.activeTab < -1 || state.activeTab >= state.tabs.size()
-        || (!state.current.accountId.isEmpty() && !state.current.valid()))
+        || (!emptyCurrent && !current.valid()))
         return false;
     for (int i = 0; i < state.tabs.size(); ++i) {
         const auto& entry = state.tabs.at(i);
