@@ -208,6 +208,53 @@ int ViewNavigationSession::openTab(
     return target;
 }
 
+int ViewNavigationSession::reuseOrOpenChannelTab(
+    const Location& location, const QString& title)
+{
+    if (!location.valid() || location.kind != Location::Kind::Chat
+        || !location.rootId.isEmpty()) return -1;
+    const int existing = _tabs.findDestination(
+        location.channelId, location.rootId, location.accountId);
+    if (existing >= 0)
+        return openTab(location, title);
+    const int reusable = _tabs.findReusableChannelTab(_activeTab);
+    if (reusable < 0)
+        return openTab(location, title);
+
+    NavigationTabsModel::Entry entry;
+    entry.accountId = location.accountId;
+    entry.channelId = location.channelId;
+    entry.rootId = location.rootId;
+    entry.postId = location.postId;
+    entry.viewportAnchor = location.viewportAnchor;
+    entry.title = title;
+    if (!_tabs.replace(reusable, std::move(entry))) return -1;
+    emit dataChanged(index(reusable, 0), index(reusable, 0),
+                     {AccountIdRole, ChannelIdRole, RootIdRole,
+                      PostIdRole, TitleRole, PinnedRole});
+    recordLocation(location);
+    chooseTab(reusable);
+    return reusable;
+}
+
+bool ViewNavigationSession::moveTab(int from, int to)
+{
+    if (from < 0 || from >= _tabs.count() || to < 0
+        || to >= _tabs.count() || from == to) return false;
+    beginMoveRows({}, from, from, {}, to > from ? to + 1 : to);
+    _tabs.move(from, to);
+    endMoveRows();
+    int selected = _activeTab;
+    if (selected == from) selected = to;
+    else if (from < selected && selected <= to) --selected;
+    else if (to <= selected && selected < from) ++selected;
+    if (selected != _activeTab) {
+        _activeTab = selected;
+        emit activeTabChanged(selected);
+    }
+    return true;
+}
+
 bool ViewNavigationSession::activateTab(int index)
 {
     const auto* entry = _tabs.at(index);
