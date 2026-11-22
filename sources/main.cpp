@@ -67,7 +67,7 @@
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/TrayWindowController.h"
 #include "ui/AccountWorkspaceStack.h"
-#include "ui/AccountOverviewPage.h"
+#include "ui/ServersWorkspacePage.h"
 #include "ui/ServersSidebarPage.h"
 #include "ui/AccountTrayBadgeModel.h"
 
@@ -104,8 +104,7 @@ private:
     std::unique_ptr<QSystemTrayIcon> trayIcon;
     AccountTrayBadgeModel trayBadges;
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
-    AccountOverviewPage* overviewPage = nullptr;
-    QPointer<QDialog> offlineServersDialog;
+    ServersWorkspacePage* serversStartupPage = nullptr;
     QHash<Backend*, MainWindow*> accountViews; // Presentation only.
     QSet<Backend*> closingAccounts;
     QPointer<LoginDialog> loginDialog;
@@ -226,7 +225,7 @@ void MattermostApplication::start()
     if (!accounts.loadFromOptions(&error)) {
         qWarning() << "Cannot load saved account catalog:" << error;
         ensureWorkspaceShell();
-        overviewPage->setError(tr("Saved account settings could not be read. "
+        serversStartupPage->setError(tr("Saved account settings could not be read. "
                                   "The original configuration has been preserved."));
         workspaceShell->showOverview();
         trayWindow.setWindow(workspaceShell.get());
@@ -243,13 +242,13 @@ void MattermostApplication::start()
 
     migrations.run([this](MigrationManager::Result result) {
         if (result == MigrationManager::Result::UnsupportedVersion) {
-            overviewPage->setError(tr("Account settings were written by a newer "
+            serversStartupPage->setError(tr("Account settings were written by a newer "
                 "version of MatterLeast. No migration was attempted."));
             return;
         }
         if (accounts.empty()) {
             if (result == MigrationManager::Result::Unavailable)
-                overviewPage->setError(tr("The previous session could not be "
+                serversStartupPage->setError(tr("The previous session could not be "
                     "migrated. Original settings were preserved."));
             openLoginWindow({}, migrations.legacyServerHint(),
                             migrations.legacyLoginHint());
@@ -279,76 +278,43 @@ void MattermostApplication::ensureWorkspaceShell()
     else
         workspaceShell->resize(1200, 800);
 
-    overviewPage = new AccountOverviewPage(accounts.listModel(),
-                                            workspaceShell.get());
-    workspaceShell->setOverviewPage(overviewPage);
-    connect(overviewPage, &AccountOverviewPage::accountSelected, this,
-            [this](const QString& id) { selectAccount(id); });
-    connect(overviewPage, &AccountOverviewPage::retryRequested, this,
+    serversStartupPage = new ServersWorkspacePage(accounts, workspaceShell.get());
+    workspaceShell->setOverviewPage(serversStartupPage);
+    connect(serversStartupPage, &ServersWorkspacePage::accountSelected, this,
             [this](const QString& id) {
-        // Keyboard selection of an overview row need not have emitted clicked().
-        // Treat Connect as an explicit profile activation before retrying.
-        if (accounts.selectAccount(id))
-            accounts.restoreAccount(id);
-    });
-    connect(overviewPage, &AccountOverviewPage::signInRequested, this,
-            [this](const QString& id) {
-        // Even manual reauthentication must activate the owning profile.
-        // The overview's selected row is not itself a connection policy.
-        if (accounts.selectAccount(id))
-            openLoginWindow(id);
-    });
-    connect(overviewPage, &AccountOverviewPage::addServerRequested, this,
-            [this] { openLoginWindow(); });
-    connect(overviewPage, &AccountOverviewPage::manageServersRequested, this,
-            [this] {
-        if (offlineServersDialog) {
-            offlineServersDialog->show();
-            offlineServersDialog->raise();
-            offlineServersDialog->activateWindow();
-            return;
+        selectAccount(id);
+        Account* selected = accounts.account(id);
+        if (selected && selected->backend()) {
+            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
+                target->showChannelsSidebar();
         }
-        // The Servers sidebar is attached to a connected Backend's Widgets
-        // presentation. The very same QtCore-backed editor must also work
-        // while every account is offline, without constructing a fake Backend.
-        auto* dialog = new QDialog(workspaceShell.get());
-        offlineServersDialog = dialog;
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        dialog->setWindowTitle(tr("Manage servers and views"));
-        dialog->resize(470, 570);
-        auto* layout = new QVBoxLayout(dialog);
-        layout->setContentsMargins(0, 0, 0, 0);
-        auto* page = new ServersSidebarPage(accounts, dialog);
-        layout->addWidget(page);
-        connect(page, &ServersSidebarPage::accountOpenRequested, this,
-                [this, dialog](const QString& id) {
-            selectAccount(id);
-            dialog->close();
-        });
-        connect(page, &ServersSidebarPage::viewOpenRequested, this,
-                [this, dialog](const QString& id) {
-            if (accounts.activateView(id))
-                selectAccount(accounts.selectedAccountId());
-            dialog->close();
-        });
-        connect(page, &ServersSidebarPage::addServerRequested, this,
-                [this, dialog] {
-            dialog->close();
-            openLoginWindow();
-        });
-        connect(page, &ServersSidebarPage::signInRequested, this,
-                [this, dialog](const QString& id) {
-            if (accounts.selectAccount(id)) {
-                dialog->close();
-                openLoginWindow(id);
-            }
-        });
-        connect(page, &ServersSidebarPage::retryRequested, this,
-                [this](const QString& id) {
-            if (accounts.selectAccount(id)) accounts.restoreAccount(id);
-        });
-        dialog->show();
     });
+    connect(serversStartupPage, &ServersWorkspacePage::viewSelected, this,
+            [this](const QString& id) {
+        if (!accounts.activateView(id)) return;
+        const QString selectedId = accounts.selectedAccountId();
+        Account* selected = accounts.account(selectedId);
+        if (selected && selected->backend()
+            && !closingAccounts.contains(selected->backend())) {
+            workspaceShell->activateWorkspace(selectedId);
+            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
+                target->showChannelsSidebar();
+        } else {
+            workspaceShell->showOverview();
+        }
+        bindActiveNavigationView();
+        updateWindowTitle();
+    });
+    connect(serversStartupPage, &ServersWorkspacePage::retryRequested, this,
+            [this](const QString& id) {
+        if (accounts.selectAccount(id)) accounts.restoreAccount(id);
+    });
+    connect(serversStartupPage, &ServersWorkspacePage::signInRequested, this,
+            [this](const QString& id) {
+        if (accounts.selectAccount(id)) openLoginWindow(id);
+    });
+    connect(serversStartupPage, &ServersWorkspacePage::addServerRequested, this,
+            [this] { openLoginWindow(); });
 
     connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
             [this] {
