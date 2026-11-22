@@ -9,6 +9,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
+#include <QStackedWidget>
+#include <QSystemTrayIcon>
 #include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -18,6 +20,8 @@
 #include "backend/SessionVerificationRetry.h"
 #include "backend/Account.h"
 #include "navigation/ViewNavigationSession.h"
+#include "navigation/NavigationUiController.h"
+#include "mainwindow.h"
 #include "backend/AttachmentService.h"
 #include "backend/ChannelReferenceService.h"
 #include "backend/Storage.h"
@@ -1308,6 +1312,42 @@ private slots:
         activeBackend->retrieveUserPreferences();
         QTRY_COMPARE(healthy.preferencesRequests, 2);
         checkCookies(healthy.preferenceCookies, "active-token", "stalled-token");
+    }
+    void navigationControllerStopsObservingAreasBeforeWindowDestruction()
+    {
+        // Regression: during MainWindow's QObject child teardown, a ChatArea
+        // emits destroyed after its QStackedWidget has been deleted. The old
+        // navigation controller immediately synchronized using that dead widget.
+        FakeMattermostServer server(QByteArrayLiteral("exit-account"));
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        bool ready = false;
+        backend.login(credentials(server, QStringLiteral("saved-token")),
+                      [&](const QString& token) { ready = !token.isEmpty(); });
+        QTRY_VERIFY(ready);
+
+        QSystemTrayIcon tray;
+        auto* window = new MainWindow(nullptr, tray, backend);
+        auto& navigation = NavigationUiController::instance(*window);
+        ViewNavigationSession view(QStringLiteral("exit-view"));
+        view.setAllowedAccounts({QStringLiteral("exit-account-local")});
+        navigation.bindViewSession(&view, QStringLiteral("exit-account-local"));
+        navigation.restoreSession();
+
+        auto* threads = window->findChild<QStackedWidget*>(
+            QStringLiteral("threadStack"));
+        QVERIFY(threads);
+        // Model a tracked conversation whose destroyed signal is delivered
+        // synchronously during the recursive destruction of Qt Widgets.
+        auto* conversation = new QWidget;
+        threads->addWidget(conversation);
+        QPointer<QWidget> conversationGuard(conversation);
+        QPointer<NavigationUiController> navigationGuard(&navigation);
+        connect(conversation, &QObject::destroyed, &navigation,
+                [&navigation] { navigation.saveSession(); });
+        delete window;
+        QVERIFY(conversationGuard.isNull());
+        QVERIFY(navigationGuard.isNull());
     }
 };
 
