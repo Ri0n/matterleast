@@ -495,16 +495,14 @@ target_link_libraries(workspace-layout-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME workspace-layout-test COMMAND workspace-layout-test)
 
-# Pre-multi-account keyring display-name compatibility must remain bounded and
-# never guess arbitrary account identities from user-provided labels.
-add_executable(legacy-token-recovery-test
-    LegacyTokenRecoveryTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/migrations/LegacyTokenRecovery.cpp"
+# Canonical root-server URL must map to the same historical QtKeychain key.
+add_executable(session-token-store-key-test
+    SessionTokenStoreKeyTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/backend/SessionTokenStore.cpp")
-target_include_directories(legacy-token-recovery-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
-target_link_libraries(legacy-token-recovery-test PRIVATE
+target_include_directories(session-token-store-key-test PRIVATE "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(session-token-store-key-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
-add_test(NAME legacy-token-recovery-test COMMAND legacy-token-recovery-test)
+add_test(NAME session-token-store-key-test COMMAND session-token-store-key-test)
 
 # Durable accounts are independent of Backend and do not carry credentials.
 add_executable(workspace-account-catalog-test
