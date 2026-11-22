@@ -252,10 +252,20 @@ validated before touching the model and reconciled with incremental row changes
 (including moves), without resetting listeners or allocating chat widgets.
 This is a transfer primitive, **not** an alternative long-lived owner of tabs.
 
-**Presentation integration is still pending.** The existing
-`NavigationUiController` currently manages a legacy window-local tab/history
-state, and must be migrated to use the active `ViewNavigationSession` before
-the Servers tab permits switching two views that share the same account.
+The Widgets `NavigationUiController` now transfers its semantic tabs,
+viewport anchors, bounded navigation history and visible docked-thread
+location to the `AccountManager`-owned session for **single-account views**.
+Switching between two such views of the same account preserves independent
+navigation state without duplicating a Backend or Storage; detached threads
+remain associated with their originating view while the Backend is live.
+The existing per-account restart snapshot is adopted into an initially empty
+view session. The common snapshot is not yet a persisted per-view restart
+format, so saving all views across process restarts is still pending.
+
+**Merged-view presentation is still pending.** The existing
+`NavigationUiController` currently renders within one Backend-specific
+MainWindow; it must be migrated to handle account-qualified tabs before
+the Servers tab permits switching merged views that contain several accounts.
 Do not simply update the view ID while retaining window-global tab contents.
 Continue to obey the tab/thread reparent and viewport-anchor invariants in
 [Central navigation tabs](navigation-tabs.md).
