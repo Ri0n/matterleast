@@ -181,6 +181,11 @@ bool ViewNavigationSession::visit(const Location& location)
 {
     if (!location.valid()) return false;
     recordLocation(location);
+    const int target = location.kind == Location::Kind::Chat
+        ? _tabs.findDestination(location.channelId, location.rootId,
+                                location.accountId)
+        : -1;
+    chooseTab(target);
     return true;
 }
 
@@ -189,6 +194,11 @@ std::optional<ViewNavigationSession::Location> ViewNavigationSession::goBack()
     if (_back.isEmpty()) return std::nullopt;
     pushHistory(_forward, _current);
     _current = _back.takeLast();
+    const int target = _current.kind == Location::Kind::Chat
+        ? _tabs.findDestination(_current.channelId, _current.rootId,
+                                _current.accountId)
+        : -1;
+    chooseTab(target);
     emit historyChanged();
     return _current;
 }
@@ -198,6 +208,11 @@ std::optional<ViewNavigationSession::Location> ViewNavigationSession::goForward(
     if (_forward.isEmpty()) return std::nullopt;
     pushHistory(_back, _current);
     _current = _forward.takeLast();
+    const int target = _current.kind == Location::Kind::Chat
+        ? _tabs.findDestination(_current.channelId, _current.rootId,
+                                _current.accountId)
+        : -1;
+    chooseTab(target);
     emit historyChanged();
     return _current;
 }
