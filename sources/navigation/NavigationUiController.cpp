@@ -51,15 +51,6 @@
 namespace Mattermost {
 namespace {
 
-constexpr int MaxNavigationHistory = 100;
-
-void trimHistory(QVector<NavigationUiController::Location>& history)
-{
-    if (history.size() > MaxNavigationHistory) {
-        history.remove(0, history.size() - MaxNavigationHistory);
-    }
-}
-
 QIcon threadPresentationIcon(const QPalette& palette)
 {
     QPixmap pixmap(16, 16);
@@ -111,6 +102,10 @@ NavigationUiController::NavigationUiController(MainWindow& mainWindow)
     , window(mainWindow)
 {
     setObjectName(QStringLiteral("navigationUiController"));
+    // Own one transient history during initial window construction. As soon as
+    // the account view is known, AccountManager's session takes over; neither
+    // path maintains a second Back/Forward stack in Widgets.
+    startupHistory = new ViewNavigationSession(QStringLiteral("startup"), this);
     sessionSaveTimer = new QTimer(this);
     sessionSaveTimer->setSingleShot(true);
     sessionSaveTimer->setInterval(500);
@@ -1260,47 +1255,53 @@ void NavigationUiController::recordCollection(PostCollectionView* page)
 
 void NavigationUiController::recordLocation(const Location& next, ChatArea* area)
 {
-    if (!next.isValid()) {
+    if (!next.isValid()) return;
+    // Session restore may temporarily activate a channel before applying its
+    // saved tab and history snapshot. Those QWidget events are presentation
+    // activity, not new navigation; they must not rewrite the owning model.
+    if (restoringSession || applyingViewSession
+        || (viewNavigationSession && !sessionRestored)) {
+        currentLocation = next;
+        activeArea = area;
         return;
     }
     if (pendingHistoryThread
         && (!next.isChat() || next.channelId != pendingHistoryThread->channelId)) {
-        // Sidebar selections and collection switches are not necessarily
-        // initiated through AppNavigationService. Invalidate any in-flight
-        // MainWindow retry before it can reopen the previous history target.
         window.beginSemanticNavigation();
         pendingHistoryThread.reset();
     }
 
+    auto* session = historySession();
     if (!currentLocation.isValid()) {
         currentLocation = next;
         activeArea = area;
+        if (!replayingHistory)
+            session->recordVisit(semanticLocation(next));
         updateHistoryButtons();
         return;
     }
-
     if (currentLocation.sameDestination(next)) {
         currentLocation = next;
         activeArea = area;
+        session->updateCurrentBookmark(semanticLocation(next));
         updateHistoryButtons();
         return;
     }
 
-    // The outgoing tab's view reference is cleared at its ownership
-    // transition; history keeps the already captured semantic bookmark.
+    // Record the outgoing semantic anchor while its ChatArea still exists.
+    // Only the session stores the Back/Forward stacks.
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
-        if (latest.isValid() && currentLocation.sameDestination(latest)) {
+        if (latest.isValid() && currentLocation.sameDestination(latest))
             currentLocation = latest;
-        }
     }
-
-    if (!replayingHistory && currentLocation.isValid()) {
-        backStack.push_back(currentLocation);
-        trimHistory(backStack);
-        forwardStack.clear();
+    if (!replayingHistory) {
+        session->updateCurrentBookmark(semanticLocation(currentLocation));
+        session->recordVisit(semanticLocation(next));
+    } else {
+        // A Back/Forward transition already updated the model history.
+        session->updateCurrentBookmark(semanticLocation(next));
     }
-
     currentLocation = next;
     activeArea = area;
     updateHistoryButtons();
@@ -1308,69 +1309,60 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
 
 void NavigationUiController::updateHistoryButtons()
 {
-    if (backButton) {
-        backButton->setEnabled(!backStack.isEmpty());
-    }
-    if (forwardButton) {
-        forwardButton->setEnabled(!forwardStack.isEmpty());
-    }
+    auto* session = historySession();
+    if (backButton) backButton->setEnabled(session->canGoBack());
+    if (forwardButton) forwardButton->setEnabled(session->canGoForward());
     syncViewSession();
 }
 
 void NavigationUiController::goBack()
 {
-    if (backStack.isEmpty()) {
-        return;
-    }
+    auto* session = historySession();
+    if (!session->canGoBack()) return;
     pendingHistoryThread.reset();
     pendingContextualThread.reset();
-    // Supersede any deferred MainWindow channel admission from an older
-    // history entry before starting this Back/Forward request.
     window.beginSemanticNavigation();
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
-        if (latest.isValid()) {
+        if (latest.isValid() && currentLocation.sameDestination(latest))
             currentLocation = latest;
-        }
     }
-    if (currentLocation.isValid()) {
-        forwardStack.push_back(currentLocation);
-        trimHistory(forwardStack);
-    }
+    if (currentLocation.isValid())
+        session->updateCurrentBookmark(semanticLocation(currentLocation));
 
-    const Location target = backStack.takeLast();
+    const auto target = session->goBack();
+    if (!target) return;
+    Location destination;
+    if (!presentationLocation(*target, destination)) return;
     replayingHistory = true;
-    navigateTo(target);
+    navigateTo(destination);
     replayingHistory = false;
     updateHistoryButtons();
 }
 
 void NavigationUiController::goForward()
 {
-    if (forwardStack.isEmpty()) {
-        return;
-    }
+    auto* session = historySession();
+    if (!session->canGoForward()) return;
     pendingHistoryThread.reset();
     pendingContextualThread.reset();
-    // Supersede any deferred MainWindow channel admission from an older
-    // history entry before starting this Back/Forward request.
     window.beginSemanticNavigation();
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
-        if (latest.isValid()) {
+        if (latest.isValid() && currentLocation.sameDestination(latest))
             currentLocation = latest;
-        }
     }
-    if (currentLocation.isValid()) {
-        backStack.push_back(currentLocation);
-        trimHistory(backStack);
-    }
+    if (currentLocation.isValid())
+        session->updateCurrentBookmark(semanticLocation(currentLocation));
 
-    const Location target = forwardStack.takeLast();
+    const auto target = session->goForward();
+    if (!target) return;
+    Location destination;
+    if (!presentationLocation(*target, destination)) return;
     replayingHistory = true;
-    navigateTo(target);
+    navigateTo(destination);
     replayingHistory = false;
     updateHistoryButtons();
 }
