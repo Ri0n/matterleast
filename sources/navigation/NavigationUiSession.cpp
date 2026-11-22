@@ -574,6 +574,19 @@ void NavigationUiController::saveSession()
 void NavigationUiController::restoreSession()
 {
     if (sessionRestored || !backend() || !navigationTabs) return;
+    if (viewNavigationSession) {
+        const auto existing = viewNavigationSession->snapshot();
+        if (!existing.tabs.isEmpty() || existing.current.valid()
+            || !existing.back.isEmpty() || !existing.forward.isEmpty()
+            || existing.dockVisible) {
+            // A Backend can be reconstructed after profile suspension. Its
+            // in-memory view session wins over the older account-wide disk
+            // snapshot; replaying the latter would resurrect wrong-view tabs.
+            sessionRestored = true;
+            restoreBoundViewSession(false);
+            return;
+        }
+    }
     const QString key = sessionSettingsKey();
     if (key.isEmpty()) return;
     const QJsonObject state = QJsonDocument::fromJson(
@@ -625,6 +638,8 @@ void NavigationUiController::restoreSession()
         ensureThreadButton(area);
         if (mode == "window") {
             area->setProperty("threadDetached", true);
+            if (viewNavigationSession)
+                area->setProperty("navigationViewId", viewNavigationSession->viewId());
             area->restoreGeometry(QByteArray::fromBase64(object.value("geometry").toString().toLatin1()));
             updateThreadButton(area);
             area->show();
