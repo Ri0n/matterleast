@@ -728,11 +728,18 @@ void AccountManager::performAccountRestore(const QString& id)
                                       : status == SessionTokenStore::ReadStatus::NotFound
                                           ? "not-found" : "unavailable");
         if (status != SessionTokenStore::ReadStatus::Found) {
-            _connections.cancel(account->id());
-            account->cancelPending(
-                status == SessionTokenStore::ReadStatus::NotFound
-                    ? AccountConnectionState::AuthenticationRequired
-                    : AccountConnectionState::Unavailable);
+            const QString accountId = account->id();
+            const bool unavailable = status != SessionTokenStore::ReadStatus::NotFound;
+            account->cancelPending(unavailable
+                ? AccountConnectionState::Unavailable
+                : AccountConnectionState::AuthenticationRequired);
+            // A temporarily locked/unavailable secure store is not a missing
+            // credential; retry it through the shared connection policy.
+            if (unavailable && activeProfileAccountIds().contains(accountId)
+                && _suspendingProfileAccounts.isEmpty())
+                _connections.savedSessionFailed(accountId);
+            else
+                _connections.cancel(accountId);
             return;
         }
 
