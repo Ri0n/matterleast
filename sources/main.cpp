@@ -275,8 +275,13 @@ void MattermostApplication::ensureWorkspaceShell()
     workspaceShell->setOverviewPage(overviewPage);
     connect(overviewPage, &AccountOverviewPage::accountSelected, this,
             [this](const QString& id) { selectAccount(id); });
-    connect(overviewPage, &AccountOverviewPage::retryRequested,
-            &accounts, &AccountManager::restoreAccount);
+    connect(overviewPage, &AccountOverviewPage::retryRequested, this,
+            [this](const QString& id) {
+        // Keyboard selection of an overview row need not have emitted clicked().
+        // Treat Connect as an explicit profile activation before retrying.
+        if (accounts.selectAccount(id))
+            accounts.restoreAccount(id);
+    });
     connect(overviewPage, &AccountOverviewPage::signInRequested, this,
             [this](const QString& id) {
         // Even manual reauthentication must activate the owning profile.
