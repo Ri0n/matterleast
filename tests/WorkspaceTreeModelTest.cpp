@@ -190,7 +190,8 @@ private slots:
         layout.views.append({QStringLiteral("new-view"), QStringLiteral("work"),
                              QStringLiteral("New"), {QStringLiteral("a")}});
         tree.refreshTopology();
-        QCOMPARE(inserted.count(), 1);
+        // The new view and its first account are two independent insertions.
+        QCOMPARE(inserted.count(), 2);
         QCOMPARE(resets.count(), 0);
         QCOMPARE(tree.rowCount(work), 3);
 
