@@ -4,6 +4,7 @@
 #include <QTreeView>
 
 #include "backend/AccountManager.h"
+#include "navigation/ViewNavigationSession.h"
 #include "ui/ServersSidebarPage.h"
 #include "workspaces/WorkspaceTreeModel.h"
 
@@ -68,6 +69,34 @@ private slots:
         const QModelIndex firstServer = manager.workspaceTreeModel()->index(0, 0, combined);
         QCOMPARE(firstServer.data(WorkspaceTreeModel::AccountIdRole).toString(),
                  QStringLiteral("b"));
+    }
+
+    void removingServerFromViewDiscardsOnlyItsNavigation()
+    {
+        AccountManager manager;
+        QVERIFY(manager.load(topology().toJson()));
+        auto* session = manager.viewSession(QStringLiteral("combined"));
+        QVERIFY(session);
+        ViewNavigationSession::Location alpha;
+        alpha.accountId = QStringLiteral("a");
+        alpha.channelId = QStringLiteral("channel");
+        ViewNavigationSession::Location beta = alpha;
+        beta.accountId = QStringLiteral("b");
+        QCOMPARE(session->openTab(alpha), 0);
+        QCOMPARE(session->openTab(beta), 1);
+        QSignalSpy reset(session, &QAbstractItemModel::modelReset);
+        QSignalSpy removed(session, &QAbstractItemModel::rowsRemoved);
+
+        auto edited = manager.layout();
+        edited.views[0].accountIds.removeAll(QStringLiteral("a"));
+        QString error;
+        QVERIFY2(manager.applyLayoutEdits(edited, &error), qPrintable(error));
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(removed.count(), 1);
+        QCOMPARE(session->rowCount(), 1);
+        QCOMPARE(session->tabs().at(0)->accountId, QStringLiteral("b"));
+        QCOMPARE(session->openTab(alpha), -1);
+        QCOMPARE(manager.viewSession(QStringLiteral("second"))->rowCount(), 0);
     }
 
     void verifiedRemoteAccountIdentityCannotBeEditedFromLayout()
