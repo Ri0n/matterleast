@@ -175,7 +175,7 @@ bool NavigationUiController::presentationLocation(
 
 void NavigationUiController::syncViewSession()
 {
-    if (applyingViewSession || restoringSession || !sessionRestored
+    if (shuttingDown || applyingViewSession || restoringSession || !sessionRestored
         || !viewNavigationSession || viewNavigationAccountId.isEmpty()) return;
 
     // Back/Forward already belongs to the view session; this is strictly a
@@ -489,7 +489,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
 
 void NavigationUiController::scheduleSessionSave()
 {
-    if (sessionRestored && !restoringSession) {
+    if (!shuttingDown && sessionRestored && !restoringSession) {
         syncViewSession();
         if (sessionSaveTimer) sessionSaveTimer->start();
     }
@@ -499,6 +499,8 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
 {
     if (!area || area->property("sessionTracked").toBool()) return;
     area->setProperty("sessionTracked", true);
+    // The area can be destroyed during the MainWindow QWidget teardown.
+    // beginShutdown() captures the final snapshot before that starts.
     connect(area, &QObject::destroyed, this, [this] { scheduleSessionSave(); });
     connect(area, &ChatArea::aboutToDeactivate, this, [this, area] {
         if (area->isThread || restoringSession || switchingTabs) return;
@@ -638,7 +640,7 @@ void NavigationUiController::restoreSessionBookmark(
 
 void NavigationUiController::saveSession()
 {
-    if (!sessionRestored || restoringSession) return;
+    if (shuttingDown || !sessionRestored || restoringSession) return;
     const QString key = sessionSettingsKey();
     if (key.isEmpty()) return;
 
