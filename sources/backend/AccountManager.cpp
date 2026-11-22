@@ -12,7 +12,6 @@
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
 #include "navigation/ViewNavigationSession.h"
-#include "migrations/LegacyTokenRecovery.h"
 #include "options/MLOptions.h"
 
 namespace Mattermost {
@@ -569,10 +568,10 @@ void AccountManager::restoreAccount(const QString& id)
     QPointer<Backend> backendGuard(backend);
     const QString server = record->serverBaseUrl;
     const QString login = record->loginName;
-    LegacyTokenRecovery::read(item, *record,
+    SessionTokenStore::read(item, server, login,
                             [this, accountGuard, backendGuard, server, login](
                                 SessionTokenStore::ReadStatus status,
-                                const QString& token, bool recoveredLegacyAlias) {
+                                const QString& token) {
         Account* account = accountGuard.data();
         Backend* backend = backendGuard.data();
         if (!account || !backend || account->pendingBackend() != backend)
@@ -595,8 +594,7 @@ void AccountManager::restoreAccount(const QString& id)
         credentials.username = login;
         credentials.token = token;
         qCInfo(accountRestoreLog) << "Verifying saved session for account" << account->id();
-        backend->login(credentials, [this, accountGuard, backendGuard,
-                                     recoveredLegacyAlias](
+        backend->login(credentials, [this, accountGuard, backendGuard](
                                             const QString& authenticatedToken) {
             Account* account = accountGuard.data();
             Backend* backend = backendGuard.data();
@@ -623,13 +621,12 @@ void AccountManager::restoreAccount(const QString& id)
                 return;
             }
             if (!adoptAuthenticated(backend, record->loginName,
-                                    record->name, account->id(), recoveredLegacyAlias)) {
+                                    record->name, account->id(), false)) {
                 qCWarning(accountRestoreLog) << "Verified session could not be adopted for account"
                                              << account->id();
                 account->cancelPending(AccountConnectionState::AuthenticationRequired);
             } else {
-                qCInfo(accountRestoreLog) << "Session restored for account" << account->id()
-                    << "legacy-key-recovery" << recoveredLegacyAlias;
+                qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
             }
         });
     });
