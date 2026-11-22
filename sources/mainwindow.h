@@ -52,6 +52,7 @@ class ChannelQuickList;
 class NotificationManager;
 class PostCollectionView;
 class SidebarUpdateBanner;
+class ViewNavigationSession;
 
 class MainWindow: public QMainWindow {
 	Q_OBJECT
@@ -62,6 +63,7 @@ public:
     Backend& backendInstance() const { return backend; }
 	void initializationComplete ();
     void installRealtimeUiSync();
+    void bindViewNavigation(ViewNavigationSession* session, const QString& accountId);
     // Menu is built lazily from the authenticated account registry.
     void installAccountSwitcher(QMenu* menu);
     // Save and close while post widgets can still access valid Storage.
