@@ -372,6 +372,11 @@ void NavigationUiController::setupThreadPane()
     navigationSurfaceStack->show();
     mainStack->show();
 
+    // This navigation controller replaces a QSplitter child after the
+    // MainWindow constructor's restoreState() has run. Reapply the saved
+    // left width now that the central widget hierarchy is final.
+    window.restoreSidebarWidth();
+
     // Restore the right-pane width only after the thread is visible.
     // Restoring QSplitter state here would use a hidden child with width zero.
     _preferredThreadPaneWidth = MLOptions::instance()->value<int>(
