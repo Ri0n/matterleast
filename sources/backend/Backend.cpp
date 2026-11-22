@@ -357,12 +357,13 @@ Backend::Backend(QObject *parent)
             [this](bool isReconnect, bool needsHttpResync) {
         if (!isLoggedIn)
             return;
+        // Tell the controller first. Unverified replay may synchronously
+        // terminate the session, so never announce it online prematurely.
+        emit realtimeStreamConfirmed(isReconnect, !needsHttpResync);
+        if (!isLoggedIn)
+            return;
         CustomEmojiService::instance(*this).resetSession();
         emit onWebSocketConnect();
-        // The connection controller is the single owner of the consistency
-        // decision; even a fresh authenticated socket is not proof that old
-        // in-memory state can be reused if event replay failed.
-        emit realtimeStreamConfirmed(isReconnect, !needsHttpResync);
     });
 
     connect(this, &Backend::onFlaggedPostChanged, this,
