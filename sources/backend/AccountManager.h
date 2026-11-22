@@ -14,6 +14,7 @@
 namespace Mattermost {
 class Account;
 class Backend;
+class ViewNavigationSession;
 
 // Single owner of durable account QObjects and optional session Backends.
 // WorkspaceLayout remains pure serializable configuration; Widgets and QML
@@ -22,6 +23,8 @@ class AccountManager final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QAbstractItemModel* workspaceTreeModel READ workspaceTreeModel CONSTANT)
+    Q_PROPERTY(QAbstractItemModel* activeViewTabs READ activeViewTabs
+               NOTIFY activeViewSessionChanged)
 public:
     explicit AccountManager(QObject* parent = nullptr);
 
@@ -33,6 +36,10 @@ public:
     AccountListModel& listModel() { return _listModel; }
     const AccountListModel& listModel() const { return _listModel; }
     QAbstractItemModel* workspaceTreeModel() { return &_treeModel; }
+    // View session contains only semantic tab/history state, not duplicated
+    // Backend or chat widgets. Views may share accounts freely.
+    ViewNavigationSession* viewSession(const QString& viewId) const;
+    QAbstractItemModel* activeViewTabs() const;
 
     Account* account(const QString& id) const { return _byId.value(id, nullptr); }
     Account* accountForBackend(const Backend* backend) const;
@@ -80,6 +87,7 @@ signals:
     void activeBackendChanged(Backend* backend);
     void accountConnected(Account* account, Backend* backend);
     void activeViewChanged(const QString& viewId);
+    void activeViewSessionChanged();
     // Presentation must release Backend-dependent widgets first and then
     // acknowledge with finishProfileSuspension. Other profiles cannot connect
     // before all outgoing sessions are released.
@@ -94,12 +102,14 @@ private:
     void finishBackendRemoval(Account* account, Backend* backend);
     bool applySelection(const QString& viewId, const QString& accountId);
     void reconcileActiveProfile();
+    void ensureViewSessions();
     QStringList activeProfileAccountIds() const;
 
     WorkspaceLayout _layout;
     QHash<QString, Account*> _byId;
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
+    QHash<QString, ViewNavigationSession*> _viewSessions;
     QString _selectedId;
     QHash<QString, QString> _lastSelectedByView;
     QSet<QString> _suspendingProfileAccounts;
