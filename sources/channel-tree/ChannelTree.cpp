@@ -290,10 +290,17 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
 Backend* ChannelTree::backendForAccount(const QString& accountId) const
 {
     if (accountId.isEmpty()) {
-        // A merged view must never guess an account for an unqualified ID.
-        // The old unbound/single-account path remains valid.
-        return _boundAccountId.isEmpty() && !_accountBackends.isEmpty()
-            ? nullptr : backendForSidebar.data();
+        // Legacy callers can omit the account only while exactly one Backend
+        // owns this presentation. A bound primary account does not make an
+        // unqualified lookup safe once another Backend is registered.
+        Backend* legacy = backendForSidebar.data();
+        if (!legacy)
+            return nullptr;
+        for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
+            if (it.value() && it.value() != legacy)
+                return nullptr;
+        }
+        return legacy;
     }
     const auto it = _accountBackends.constFind(accountId);
     if (it != _accountBackends.cend())
