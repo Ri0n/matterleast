@@ -61,7 +61,7 @@ void readKey(QObject* context, const QString& entryKey,
     job->start();
 }
 
-void removeKey(QObject* context, const QString& entryKey)
+void removeKey(const QString& entryKey)
 {
     auto* job = new QKeychain::DeletePasswordJob(QString::fromLatin1(KeychainService),
                                                  keychainJobParent());
@@ -176,10 +176,10 @@ void SessionTokenStore::remove(QObject* context, const QString& server,
 #ifdef MATTERLEAST_HAVE_KEYCHAIN
     if (!context || server.isEmpty() || username.isEmpty()) return;
     const QString canonicalKey = keyFor(server, username);
-    removeKey(context, canonicalKey);
+    removeKey(canonicalKey);
     const QString oldKey = legacyKeyFor(server, username);
     if (oldKey != canonicalKey)
-        removeKey(context, oldKey);
+        removeKey(oldKey);
 #else
     Q_UNUSED(context)
     Q_UNUSED(server)
