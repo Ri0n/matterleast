@@ -205,6 +205,20 @@ private slots:
         QVERIFY(!session.moveTab(-1, 0));
     }
 
+    void unchangedSnapshotDoesNotToggleActiveTab()
+    {
+        ViewNavigationSession session(QStringLiteral("view"));
+        const auto location = chat(QStringLiteral("account"), QStringLiteral("channel"));
+        QCOMPARE(session.openTab(location, QStringLiteral("Channel")), 0);
+        QSignalSpy active(&session, &ViewNavigationSession::activeTabChanged);
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        for (int i = 0; i < 3; ++i)
+            QVERIFY(session.restoreSnapshot(session.snapshot()));
+        QCOMPARE(session.activeTab(), 0);
+        QCOMPARE(active.count(), 0);
+        QCOMPARE(reset.count(), 0);
+    }
+
     void dockPresentationSurvivesViewSnapshotTransfer()
     {
         ViewNavigationSession source(QStringLiteral("one"));
