@@ -58,7 +58,10 @@ public:
 
                     QByteArray body;
                     QByteArray status = QByteArrayLiteral("200 OK");
-                    if (requestLine.startsWith("GET /api/v4/users/me ")) {
+                    if (requestLine.startsWith("POST /api/v4/users/logout ")) {
+                        ++logoutRequests;
+                        body = QByteArrayLiteral("{}");
+                    } else if (requestLine.startsWith("GET /api/v4/users/me ")) {
                         ++identityRequests;
                         identityCookies.append(cookie);
                         if (holdIdentity) return;
@@ -233,6 +236,7 @@ public:
     int pageZeroResponses = 0;
     QVector<QPair<QPointer<QTcpSocket>, QByteArray>> heldSecondPages;
     int identityRequests = 0;
+    int logoutRequests = 0;
     int preferencesRequests = 0;
     int profileRequests = 0;
     int clientConfigRequests = 0;
@@ -833,6 +837,7 @@ private slots:
         QCOMPARE(suspensionRequests.first().second, first);
         QCOMPARE(firstAccount->backend(), first);
         QVERIFY(!first->loggedIn()); // Transports stopped, Storage still owned.
+        QCOMPARE(firstServer.logoutRequests, 0); // Suspension is not logout.
         QCOMPARE(thirdAccount->pendingBackend(), static_cast<Backend*>(nullptr));
         QCOMPARE(sharedAccount->backend(), shared);
         QVERIFY(shared->loggedIn());
@@ -856,6 +861,8 @@ private slots:
         QVERIFY(manager.activateView(QStringLiteral("away-all")));
         QVERIFY(!firstAccount->pendingBackend());
         QVERIFY(thirdAccount->pendingBackend());
+        QCOMPARE(firstServer.logoutRequests, 0);
+        QCOMPARE(sharedServer.logoutRequests, 0);
         QCOMPARE(sharedAccount->backend(), shared);
         QVERIFY(shared->loggedIn());
         QCOMPARE(suspensionRequests.size(), 1);
