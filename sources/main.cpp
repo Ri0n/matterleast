@@ -246,13 +246,12 @@ void MattermostApplication::start()
                             migrations.legacyLoginHint());
             return;
         }
-        if (accounts.activeBackend()) {
+        // Restore *every* account admitted by the selected profile, including
+        // those hidden by its current view. Existing authenticated Backends
+        // are left untouched, e.g. after the v1 credential migration.
+        accounts.restoreActiveProfile();
+        if (accounts.activeBackend())
             workspaceShell->activateWorkspace(accounts.selectedAccountId());
-        } else {
-            // An existing catalog may contain multiple servers. Each keyring
-            // read and reconnection is independent.
-            accounts.restoreActiveProfile();
-        }
     });
 }
 
