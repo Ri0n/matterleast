@@ -1,5 +1,6 @@
 #include "AccountManager.h"
 
+#include <QLoggingCategory>
 #include <QTimer>
 #include <QUrl>
 #include <utility>
@@ -14,6 +15,9 @@
 #include "options/MLOptions.h"
 
 namespace Mattermost {
+namespace {
+Q_LOGGING_CATEGORY(accountRestoreLog, "mattermost.account.restore")
+}
 
 AccountManager::AccountManager(QObject* parent)
     : QObject(parent)
@@ -47,6 +51,10 @@ bool AccountManager::load(const QByteArray& json, QString* error)
     rebuildModel();
     _treeModel.refreshTopology();
     ensureViewSessions();
+    qCInfo(accountRestoreLog) << "Account catalog loaded:"
+                              << _layout.accounts.size() << "accounts,"
+                              << _layout.profiles.size() << "profiles,"
+                              << _layout.views.size() << "views";
     if (error)
         error->clear();
     return true;
@@ -57,6 +65,7 @@ bool AccountManager::loadFromOptions(QString* error)
     const QByteArray json = MLOptions::instance()->value<QByteArray>(
         QStringLiteral("workspaces/layout"));
     if (!load(json, error)) {
+        qCWarning(accountRestoreLog) << "Saved account catalog is invalid";
         _invalidCatalog = true;
         return false;
     }
@@ -302,6 +311,7 @@ QStringList AccountManager::activeProfileAccountIds() const
 
 void AccountManager::restoreActiveProfile()
 {
+    qCInfo(accountRestoreLog) << "Restoring active profile";
     reconcileActiveProfile();
 }
 
@@ -309,6 +319,8 @@ void AccountManager::reconcileActiveProfile()
 {
     const QStringList admittedIds = activeProfileAccountIds();
     const QSet<QString> admitted(admittedIds.cbegin(), admittedIds.cend());
+    qCInfo(accountRestoreLog) << "Reconciling profile:"
+                              << admittedIds.size() << "admitted accounts";
 
     // First mark EVERY outgoing connection for suspension, before emitting
     // any signals: the presentation may synchronously acknowledge one of
@@ -546,9 +558,12 @@ void AccountManager::restoreAccount(const QString& id)
         || item->backend() || item->pendingBackend())
         return;
 
+    qCInfo(accountRestoreLog) << "Starting session restoration for account" << id;
     Backend* backend = item->createPendingBackend();
-    if (!backend)
+    if (!backend) {
+        qCWarning(accountRestoreLog) << "Could not create pending backend for account" << id;
         return;
+    }
     QPointer<Account> accountGuard(item);
     QPointer<Backend> backendGuard(backend);
     const QString server = record->serverBaseUrl;
@@ -561,6 +576,11 @@ void AccountManager::restoreAccount(const QString& id)
         Backend* backend = backendGuard.data();
         if (!account || !backend || account->pendingBackend() != backend)
             return;
+        qCInfo(accountRestoreLog) << "Saved session keyring lookup for account"
+                                  << account->id()
+                                  << (status == SessionTokenStore::ReadStatus::Found ? "found"
+                                      : status == SessionTokenStore::ReadStatus::NotFound
+                                          ? "not-found" : "unavailable");
         if (status != SessionTokenStore::ReadStatus::Found) {
             account->cancelPending(
                 status == SessionTokenStore::ReadStatus::NotFound
@@ -573,6 +593,7 @@ void AccountManager::restoreAccount(const QString& id)
         credentials.domain = server;
         credentials.username = login;
         credentials.token = token;
+        qCInfo(accountRestoreLog) << "Verifying saved session for account" << account->id();
         backend->login(credentials, [this, accountGuard, backendGuard](
                                             const QString& authenticatedToken) {
             Account* account = accountGuard.data();
@@ -581,6 +602,8 @@ void AccountManager::restoreAccount(const QString& id)
                 return;
             if (authenticatedToken.isEmpty()) {
                 const bool transient = backend->lastLoginFailureTransient();
+                qCWarning(accountRestoreLog) << "Session verification failed for account"
+                                             << account->id() << "transient" << transient;
                 account->cancelPending(
                     transient ? AccountConnectionState::Unavailable
                               : AccountConnectionState::AuthenticationRequired);
@@ -591,13 +614,19 @@ void AccountManager::restoreAccount(const QString& id)
                     record->serverBaseUrl, record->serverUserId)
                     != accountIdentityKey(backend->networkSession().host(),
                                            backend->getLoginUser().id)) {
-                qWarning("Saved credentials resolved to a different account");
+                qCWarning(accountRestoreLog)
+                    << "Saved credentials resolved to a different remote identity for account"
+                    << account->id();
                 account->cancelPending(AccountConnectionState::AuthenticationRequired);
                 return;
             }
             if (!adoptAuthenticated(backend, record->loginName,
                                     record->name, account->id(), false)) {
+                qCWarning(accountRestoreLog) << "Verified session could not be adopted for account"
+                                             << account->id();
                 account->cancelPending(AccountConnectionState::AuthenticationRequired);
+            } else {
+                qCInfo(accountRestoreLog) << "Session restored for account" << account->id();
             }
         });
     });
