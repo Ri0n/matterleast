@@ -529,7 +529,9 @@ void Backend::login (const BackendLoginData& credentials, std::function<void(con
 
 		_networkSession.setToken(credentials.token);
 		NetworkRequest request(_networkSession, "users/me");
-
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+        request.setTransferTimeout(15000);
+#endif
 		httpConnector.get (request, HttpResponseCallback ([this, callback](const QJsonDocument& data, const QNetworkReply& reply) {
 			loginSuccess (data, reply, callback);
 		}));
