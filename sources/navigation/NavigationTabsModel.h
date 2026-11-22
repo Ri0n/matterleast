@@ -35,13 +35,16 @@ public:
         QString postId;
         QString title;
         bool pinned = false;
+        // Empty for legacy per-account controllers; set for view-scoped tabs.
+        QString accountId;
         // Runtime-only: excluded from the persisted session JSON.
         std::optional<ViewportAnchor> viewportAnchor;
 
         bool isValid() const { return !channelId.isEmpty(); }
         bool sameDestination(const Entry& other) const
         {
-            return channelId == other.channelId && rootId == other.rootId;
+            return accountId == other.accountId
+                && channelId == other.channelId && rootId == other.rootId;
         }
     };
 
@@ -64,10 +67,12 @@ public:
         return ((base + delta) % n + n) % n;
     }
 
-    int findDestination(const QString& channelId, const QString& rootId) const
+    int findDestination(const QString& channelId, const QString& rootId,
+                        const QString& accountId = {}) const
     {
         for (int i = 0; i < entries_.size(); ++i) {
-            if (entries_.at(i).channelId == channelId
+            if (entries_.at(i).accountId == accountId
+                && entries_.at(i).channelId == channelId
                 && entries_.at(i).rootId == rootId) {
                 return i;
             }
@@ -100,7 +105,7 @@ public:
             return -1;
         }
 
-        const int existing = findDestination(entry.channelId, entry.rootId);
+        const int existing = findDestination(entry.channelId, entry.rootId, entry.accountId);
         if (existing >= 0) {
             Entry merged = entries_.at(existing);
             if (!entry.postId.isEmpty()) {
@@ -129,7 +134,7 @@ public:
             return false;
         }
 
-        const int existing = findDestination(entry.channelId, entry.rootId);
+        const int existing = findDestination(entry.channelId, entry.rootId, entry.accountId);
         if (existing >= 0 && existing != index) {
             return false;
         }

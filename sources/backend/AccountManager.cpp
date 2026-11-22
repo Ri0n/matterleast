@@ -10,6 +10,7 @@
 #include "backend/SessionTokenStore.h"
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
+#include "navigation/ViewNavigationSession.h"
 #include "options/MLOptions.h"
 
 namespace Mattermost {
@@ -45,6 +46,7 @@ bool AccountManager::load(const QByteArray& json, QString* error)
     }
     rebuildModel();
     _treeModel.refreshTopology();
+    ensureViewSessions();
     if (error)
         error->clear();
     return true;
@@ -82,6 +84,24 @@ Account* AccountManager::ensureAccount(const QString& id)
     connect(added, &Account::stateChanged, this,
             [this] { rebuildModel(); });
     return added;
+}
+
+ViewNavigationSession* AccountManager::viewSession(const QString& viewId) const
+{
+    return _viewSessions.value(viewId, nullptr);
+}
+
+QAbstractItemModel* AccountManager::activeViewTabs() const
+{
+    return viewSession(_layout.activeViewId);
+}
+
+void AccountManager::ensureViewSessions()
+{
+    for (const auto& view : _layout.views) {
+        if (!_viewSessions.contains(view.id))
+            _viewSessions.insert(view.id, new ViewNavigationSession(view.id, this));
+    }
 }
 
 QVector<Account*> AccountManager::allAccounts() const
@@ -176,8 +196,10 @@ bool AccountManager::applySelection(const QString& viewId, const QString& reques
     if (viewChanged)
         persist();
 
-    if (viewChanged)
+    if (viewChanged) {
         emit activeViewChanged(viewId);
+        emit activeViewSessionChanged();
+    }
     if (accountChanged)
         emit activeBackendChanged(activeBackend());
 
@@ -365,6 +387,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     const auto* previous = _layout.account(id);
     const QString previousServer = previous ? previous->serverBaseUrl : QString();
     const QString previousLogin = previous ? previous->loginName : QString();
+    const QString previousViewId = _layout.activeViewId;
     _layout = std::move(updated);
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
@@ -374,7 +397,12 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
         _selectedId = id;
     rebuildModel();
     _treeModel.refreshTopology();
+    ensureViewSessions();
     persist();
+    if (previousViewId != _layout.activeViewId) {
+        emit activeViewChanged(_layout.activeViewId);
+        emit activeViewSessionChanged();
+    }
     if (persistToken) {
         // Only after the verified remote identity has been adopted may a
         // credential be written to secure storage. Restoring an existing

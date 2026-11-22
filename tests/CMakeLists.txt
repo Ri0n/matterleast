@@ -12,6 +12,15 @@ set_tests_properties(application-font-test PROPERTIES
 
 # Closing LoginDialog deletes it (WA_DeleteOnClose). The persistent tray
 # must never access the old QWidget pointer; it can target a new login window.
+add_executable(view-navigation-session-test
+    ViewNavigationSessionTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/navigation/ViewNavigationSession.cpp")
+target_include_directories(view-navigation-session-test PRIVATE
+    "${CMAKE_SOURCE_DIR}/sources")
+target_link_libraries(view-navigation-session-test PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+add_test(NAME view-navigation-session-test COMMAND view-navigation-session-test)
+
 add_executable(workspace-tree-model-test
     WorkspaceTreeModelTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/workspaces/WorkspaceTreeModel.cpp"

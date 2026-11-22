@@ -238,11 +238,19 @@ account. Detached thread windows need an explicit visibility policy when switchi
 views; initially they remain tied to their originating view and must not be
 mistaken for the active view.
 
-The current `NavigationUiController` has one `NavigationTabsModel` and one pair
-of process-local Back/Forward stacks. The migration must move these into a
-`ViewNavigationSession` owned by view ID. Keep per-view history separate even
-if the underlying account/channel IDs match. Use semantic identities such as
-`{accountId, channelId, threadRootId}`, never a bare `channelId` globally.
+A QtCore `ViewNavigationSession : QAbstractListModel` is now owned by
+`AccountManager` for each immutable view ID. It holds lightweight semantic
+tabs, pinned flags, bookmarks and bounded Back/Forward state. Its destination
+identity is `{accountId, channelId, threadRootId}`, so two servers may use
+identical channel IDs without collisions. Sessions survive Backend teardown
+and switching away from the view; neither a `Backend` nor a `ChatArea` is
+duplicated for a second view. Widgets and QML can consume the same roles.
+
+**Presentation integration is still pending.** The existing
+`NavigationUiController` currently manages a legacy window-local tab/history
+state, and must be migrated to use the active `ViewNavigationSession` before
+the Servers tab permits switching two views that share the same account.
+Do not simply update the view ID while retaining window-global tab contents.
 Continue to obey the tab/thread reparent and viewport-anchor invariants in
 [Central navigation tabs](navigation-tabs.md).
 
