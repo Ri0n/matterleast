@@ -383,6 +383,12 @@ void MainWindow::showServersSidebar()
         channelTabs->setCurrentWidget(serversPage);
 }
 
+void MainWindow::showChannelsSidebar()
+{
+    if (channelTabs && channelsPage)
+        channelTabs->setCurrentWidget(channelsPage);
+}
+
 static QString infoText()
 {
     QString description = QString("MatterLeast " PROJECT_VER "<br/>"
