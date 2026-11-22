@@ -19,6 +19,37 @@ private slots:
                  QStringLiteral("s.ilinykh"));
     }
 
+    void fallbackUsesSameServerOriginAndKnownLegacyUsername()
+    {
+        WorkspaceLayout::Account record;
+        record.serverBaseUrl = QStringLiteral("https://chat.example.org/mm/");
+        record.loginName = QStringLiteral("email@example.org");
+        record.name = QStringLiteral("chat.example.org — s.ilinykh");
+        const auto locations = LegacyTokenRecovery::lookupCandidates(record);
+        QCOMPARE(locations.size(), 4);
+        QCOMPARE(locations[0].server, record.serverBaseUrl);
+        QCOMPARE(locations[0].login, record.loginName);
+        QCOMPARE(locations[1].server, record.serverBaseUrl);
+        QCOMPARE(locations[1].login, QStringLiteral("s.ilinykh"));
+        QCOMPARE(locations[2].server, QStringLiteral("https://chat.example.org"));
+        QCOMPARE(locations[2].login, record.loginName);
+        QCOMPARE(locations[3].server, QStringLiteral("https://chat.example.org"));
+        QCOMPARE(locations[3].login, QStringLiteral("s.ilinykh"));
+    }
+
+    void sameLoginStillChecksHistoricalRootWhenCatalogUrlHasPath()
+    {
+        WorkspaceLayout::Account record;
+        record.serverBaseUrl = QStringLiteral("https://chat.example.org/mm/");
+        record.loginName = QStringLiteral("s.ilinykh");
+        record.name = QStringLiteral("chat.example.org — s.ilinykh");
+        const auto locations = LegacyTokenRecovery::lookupCandidates(record);
+        QCOMPARE(locations.size(), 2);
+        QCOMPARE(locations[0].server, record.serverBaseUrl);
+        QCOMPARE(locations[1].server, QStringLiteral("https://chat.example.org"));
+        QCOMPARE(locations[1].login, record.loginName);
+    }
+
     void matchingOrUserEditedLabelIsNotInterpretedAsLegacyIdentity()
     {
         WorkspaceLayout::Account record;
