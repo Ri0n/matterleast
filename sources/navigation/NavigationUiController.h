@@ -8,6 +8,7 @@
 #include <QVector>
 
 #include "NavigationTabsModel.h"
+#include "ViewNavigationSession.h"
 
 class QEvent;
 class QSplitter;
@@ -24,7 +25,6 @@ class ChatArea;
 class ChannelTree;
 class MainWindow;
 class PostCollectionView;
-class ViewNavigationSession;
 
 /**
  * Main-window presentation state that is orthogonal to Mattermost transport:
@@ -119,6 +119,10 @@ private:
     void scheduleSessionSave();
     void syncViewSession();
     void restoreBoundViewSession(bool adoptExistingPresentation);
+    ViewNavigationSession* historySession() const;
+    ViewNavigationSession::Location semanticLocation(const Location& location) const;
+    bool presentationLocation(const ViewNavigationSession::Location& source,
+                              Location& result) const;
     void trackSessionArea(ChatArea* area);
     void restoreSessionBookmark(
         ChatArea* area, const QString& postId,
@@ -191,8 +195,8 @@ private:
 
     QPointer<ChatArea> activeArea;
     Location currentLocation;
-    QVector<Location> backStack;
-    QVector<Location> forwardStack;
+    // The QtCore session owns Back/Forward; no second Widgets history stacks.
+    ViewNavigationSession* startupHistory = nullptr;
     NavigationTabsModel tabModel;
     int activeTabIndex = -1;
     bool switchingTabs = false;
