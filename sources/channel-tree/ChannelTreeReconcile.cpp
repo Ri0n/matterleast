@@ -507,7 +507,7 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                 }
             }
             if (!restored) {
-                QTreeWidgetItem* personal = personalItemForTeam(teamId);
+                QTreeWidgetItem* personal = personalItemForTeam(teamId, pageKey.first);
                 if (personal && personal->data(0, ItemChannelIdRole).toString() == channelId
                     && backendForRow(personal) == &page->getBackend()) {
                     restored = personal;

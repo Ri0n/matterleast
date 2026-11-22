@@ -504,15 +504,21 @@ void ChannelTree::refreshSidebarTeam(const QString& teamId)
 void ChannelTree::refreshTeamSidebar(Backend& backend, BackendTeam& team)
 {
     const QString teamId = team.id;
+    QPointer<ChannelTree> treeGuard(this);
+    QPointer<Backend> backendGuard(&backend);
     SidebarService::instance(backend).retrieveCategories(team,
-        [this, &backend, teamId](const SidebarTeamState& state) {
-            BackendTeam* currentTeam = backend.getStorage().getTeamById(teamId);
-            TeamItem* teamItem = teamToItemMap.value(scopedId(teamId), nullptr);
-            if (!currentTeam || !teamItem) {
+        [treeGuard, backendGuard, teamId](const SidebarTeamState& state) {
+            // A delayed server response must not resurrect a disposed sidebar
+            // or apply another Backend's matching remote team ID.
+            if (!treeGuard || !backendGuard)
                 return;
-            }
-            renderTeamSidebar(backend, *teamItem, state);
-            emit teamSidebarPopulated(teamId);
+            BackendTeam* liveTeam = backendGuard->getStorage().getTeamById(teamId);
+            const ScopedId key {treeGuard->accountIdForBackend(backendGuard.data()), teamId};
+            TeamItem* item = treeGuard->teamToItemMap.value(key, nullptr);
+            if (!liveTeam || !item || &item->backend != backendGuard.data())
+                return;
+            treeGuard->renderTeamSidebar(*backendGuard.data(), *item, state);
+            emit treeGuard->teamSidebarPopulated(teamId);
         });
 }
 
