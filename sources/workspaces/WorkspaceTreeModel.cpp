@@ -1,5 +1,8 @@
 #include "WorkspaceTreeModel.h"
 
+#include <functional>
+#include <utility>
+
 #include "AccountListModel.h"
 #include "WorkspaceLayout.h"
 
@@ -44,37 +47,123 @@ WorkspaceTreeModel::Node* WorkspaceTreeModel::append(
 
 void WorkspaceTreeModel::refreshTopology()
 {
-    beginResetModel();
-    _root.children.clear();
-    _views.clear();
-    _accountOccurrences.clear();
-
-    for (const WorkspaceLayout::Profile& profile : _layout.profiles) {
-        Node* profileNode = append(&_root, ProfileNode, profile.id, profile.name,
-                                   profile.id, {});
-        for (const WorkspaceLayout::View& view : _layout.views) {
-            if (view.profileId != profile.id)
-                continue;
-            Node* viewNode = append(profileNode, ViewNode, view.id, view.name,
-                                    profile.id, view.id);
-            _views.insert(view.id, viewNode);
+    // Reconcile stable nodes instead of resetting the entire tree. A server
+    // alias edit must emit only dataChanged; moving a server in one view must
+    // preserve indexes/expanded rows everywhere else.
+    struct Desired {
+        NodeKind kind;
+        QString id;
+        QString name;
+        QString profileId;
+        QString viewId;
+        QString accountId;
+        std::vector<Desired> children;
+    };
+    std::vector<Desired> profiles;
+    for (const auto& profile : _layout.profiles) {
+        Desired p { ProfileNode, profile.id, profile.name,
+                    profile.id, {}, {}, {} };
+        for (const auto& view : _layout.views) {
+            if (view.profileId != profile.id) continue;
+            Desired v { ViewNode, view.id, view.name,
+                        profile.id, view.id, {}, {} };
             for (const QString& accountId : view.accountIds) {
                 const auto* account = _layout.account(accountId);
-                if (!account)
-                    continue;
-                Node* accountNode = append(viewNode, AccountNode,
-                                           view.id + QLatin1Char('/') + accountId,
-                                           account->name, profile.id,
-                                           view.id, accountId);
-                _accountOccurrences[accountId].append(accountNode);
+                if (!account) continue;
+                v.children.push_back({ AccountNode,
+                    view.id + QLatin1Char('/') + accountId,
+                    account->name, profile.id, view.id, accountId, {} });
             }
+            p.children.push_back(std::move(v));
+        }
+        profiles.push_back(std::move(p));
+    }
+
+    const auto setRows = [](Node* owner, size_t start) {
+        for (size_t i = start; i < owner->children.size(); ++i)
+            owner->children[i]->row = int(i);
+    };
+    std::function<void(Node*, const std::vector<Desired>&)> reconcile;
+    reconcile = [this, &reconcile, &setRows](
+        Node* owner, const std::vector<Desired>& desired) {
+        const QModelIndex parentIndex = modelIndex(owner);
+        for (size_t row = 0; row < desired.size(); ++row) {
+            const Desired& want = desired[row];
+            size_t found = row;
+            while (found < owner->children.size()) {
+                const Node* node = owner->children[found].get();
+                if (node->kind == want.kind && node->id == want.id) break;
+                ++found;
+            }
+            if (found == owner->children.size()) {
+                beginInsertRows(parentIndex, int(row), int(row));
+                auto node = std::make_unique<Node>();
+                node->kind = want.kind;
+                node->id = want.id;
+                node->parent = owner;
+                node->row = int(row);
+                owner->children.insert(owner->children.begin() + row,
+                                       std::move(node));
+                setRows(owner, row);
+                endInsertRows();
+            } else if (found != row) {
+                // The processed prefix is already correct; only a move toward
+                // the beginning can occur, so destinationChild is row.
+                beginMoveRows(parentIndex, int(found), int(found),
+                              parentIndex, int(row));
+                auto node = std::move(owner->children[found]);
+                owner->children.erase(owner->children.begin() + found);
+                owner->children.insert(owner->children.begin() + row,
+                                       std::move(node));
+                setRows(owner, row);
+                endMoveRows();
+            }
+            Node* node = owner->children[row].get();
+            if (node->name != want.name || node->profileId != want.profileId
+                || node->viewId != want.viewId
+                || node->accountId != want.accountId) {
+                node->name = want.name;
+                node->profileId = want.profileId;
+                node->viewId = want.viewId;
+                node->accountId = want.accountId;
+                const QModelIndex idx = modelIndex(node);
+                emit dataChanged(idx, idx,
+                                 {Qt::DisplayRole, ProfileIdRole,
+                                  ViewIdRole, AccountIdRole});
+            }
+            reconcile(node, want.children);
+        }
+        while (owner->children.size() > desired.size()) {
+            const int last = int(owner->children.size() - 1);
+            beginRemoveRows(parentIndex, last, last);
+            owner->children.pop_back();
+            endRemoveRows();
+        }
+    };
+    reconcile(&_root, profiles);
+
+    _views.clear();
+    _accountOccurrences.clear();
+    for (const auto& profile : _root.children) {
+        for (const auto& view : profile->children) {
+            _views.insert(view->viewId, view.get());
+            for (const auto& account : view->children)
+                _accountOccurrences[account->accountId].append(account.get());
         }
     }
-    const bool changed = _activeViewId != _layout.activeViewId;
+    const QString previous = _activeViewId;
     _activeViewId = _layout.activeViewId;
-    endResetModel();
-    if (changed)
+    if (previous != _activeViewId) {
+        if (Node* oldView = _views.value(previous, nullptr)) {
+            const QModelIndex idx = modelIndex(oldView);
+            emit dataChanged(idx, idx, {ActiveRole});
+        }
+        if (Node* newView = _views.value(_activeViewId, nullptr)) {
+            const QModelIndex idx = modelIndex(newView);
+            emit dataChanged(idx, idx, {ActiveRole});
+        }
         emit activeViewChanged(_activeViewId);
+    }
 }
 
 void WorkspaceTreeModel::syncActiveView()
