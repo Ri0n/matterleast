@@ -12,8 +12,11 @@ void attemptRead(QObject* context,
                  QVector<LegacyTokenRecovery::Coordinates> candidates,
                  int index, LegacyTokenRecovery::Callback callback)
 {
-    const auto& candidate = candidates.at(index);
-    SessionTokenStore::read(context, candidate.server, candidate.login,
+    // Copy before moving the vector into the callback: function argument
+    // evaluation order must not invalidate references to its elements.
+    const QString server = candidates.at(index).server;
+    const QString login = candidates.at(index).login;
+    SessionTokenStore::read(context, server, login,
         [context, candidates = std::move(candidates), index,
          callback = std::move(callback)](
             SessionTokenStore::ReadStatus status, const QString& token) mutable {
