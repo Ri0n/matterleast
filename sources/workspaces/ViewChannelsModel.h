@@ -13,7 +13,7 @@
 namespace Mattermost {
 
 class Backend;
-class SidebarCategory;
+struct SidebarCategory;
 class SidebarService;
 class WorkspaceLayout;
 
