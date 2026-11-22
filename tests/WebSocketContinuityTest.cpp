@@ -158,6 +158,26 @@ private slots:
         QTRY_COMPARE(connected.size(), 3);
         QCOMPARE(connected.at(2).at(0).toBool(), true);
         QCOMPARE(connected.at(2).at(1).toBool(), true);
+
+        // A sequence discontinuity *after* handshake also invalidates replay.
+        // The next request must start a fresh stream, not loop forever at
+        // the previously acknowledged sequence number.
+        third->sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{
+            {QStringLiteral("event"), QStringLiteral("posted")},
+            {QStringLiteral("seq"), 7}
+        }).toJson(QJsonDocument::Compact)));
+        QTRY_VERIFY(connector.connectionState()
+                    == WebSocketConnector::ConnectionState::WaitingForReconnect);
+        connector.reconnectNow();
+        QTRY_COMPARE(sockets.size(), 4);
+        QWebSocket* fourth = sockets[3];
+        QTRY_VERIFY(authenticationSequences.contains(fourth));
+        hello(fourth, QStringLiteral("stream-c"), 0);
+        acceptAuth(fourth);
+        QTRY_COMPARE(connected.size(), 4);
+        QCOMPARE(connected.at(3).at(0).toBool(), true);
+        QCOMPARE(connected.at(3).at(1).toBool(), true);
+
         connector.close();
         for (QWebSocket* socket : sockets) {
             socket->close();
