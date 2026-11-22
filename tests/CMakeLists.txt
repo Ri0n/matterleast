@@ -867,6 +867,17 @@ if(TARGET matterleast-core)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
+# Servers sidebar shares AccountManager's QtCore tree and must edit layout
+# atomically without resetting the unaffected view/account rows.
+if(TARGET matterleast-core)
+    add_executable(account-workspace-edit-test AccountWorkspaceEditTest.cpp)
+    target_link_libraries(account-workspace-edit-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME account-workspace-edit-test COMMAND account-workspace-edit-test)
+    set_tests_properties(account-workspace-edit-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Account workspace switching must preserve the underlying views instead of
 # recreating pages, navigation models or draft widgets on every switch.
 if(TARGET matterleast-core)
