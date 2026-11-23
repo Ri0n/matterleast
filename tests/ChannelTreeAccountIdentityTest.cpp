@@ -198,8 +198,8 @@ private slots:
             dm.id = QStringLiteral("dm");
             dm.type = QStringLiteral("direct_messages");
             dm.sorting = QStringLiteral("manual");
-            dm.channelIds = {QStringLiteral("same-remote-id")};
-            state.order = {dm.id};
+            dm.channelIds = QStringList{QStringLiteral("same-remote-id")};
+            state.order = QStringList{dm.id};
             state.categories.insert(dm.id, dm);
             SidebarService::instance(owner).applyLocalTeamState(
                 QStringLiteral("team"), state);
