@@ -6,6 +6,8 @@
 #include <QWidget>
 
 class QStackedWidget;
+class QSplitter;
+class QVBoxLayout;
 
 namespace Mattermost {
 
@@ -30,12 +32,22 @@ public:
     // Backend-free Servers tab is a permanent page, not a temporary Backend.
     void setServersPage(QWidget* page);
     void showServers();
+    // Widget-only shell slot: callers supply the existing ChannelTree, not
+    // another data/model implementation. View owns retained sidebar Widgets.
+    void setSharedSidebarWidget(QWidget* sidebar);
+    QWidget* sharedSidebarWidget() const { return _sharedSidebar.data(); }
 
 signals:
+    void serversRequested();
     void activeWorkspaceChanged(const QString& accountId);
 
 private:
+    void refreshSharedSidebarVisibility();
     QStackedWidget* _stack;
+    QSplitter* _splitter = nullptr;
+    QWidget* _sidebarPane = nullptr;
+    QVBoxLayout* _sidebarLayout = nullptr;
+    QPointer<QWidget> _sharedSidebar;
     QWidget* _serversPage = nullptr;
     QHash<QString, QPointer<QWidget>> _workspaces;
     QHash<QWidget*, QString> _owners;
