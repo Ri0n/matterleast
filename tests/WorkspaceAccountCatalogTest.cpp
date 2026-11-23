@@ -58,7 +58,7 @@ private slots:
         WorkspaceLayout::Profile combined;
         combined.id = QStringLiteral("combined-profile");
         combined.name = QStringLiteral("Combined");
-        combined.accountIds = {a, b};
+        combined.accountIds = QStringList({a, b});
         registry.profiles.append(combined);
         WorkspaceLayout::View merged;
         merged.id = QStringLiteral("merged-view");
@@ -73,8 +73,8 @@ private slots:
             QStringLiteral("https://c.example.org/"), QStringLiteral("c"),
             QStringLiteral("c"), QStringLiteral("C"));
         QVERIFY(!c.isEmpty());
-        QCOMPARE(registry.findProfile(combined.id)->accountIds,
-                 QStringList({a, b}));
+        QCOMPARE(registry.profiles.at(2).id, combined.id);
+        QCOMPARE(registry.profiles.at(2).accountIds, QStringList({a, b}));
         QCOMPARE(registry.profiles.size(), 4);
         QCOMPARE(registry.profiles.last().accountIds, QStringList({c}));
         QCOMPARE(registry.views.last().accountIds, QStringList({c}));
