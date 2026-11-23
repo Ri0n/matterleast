@@ -2,14 +2,9 @@
 
 #include <QLineEdit>
 #include <QPointer>
-#include <QTreeView>
-#include <QToolButton>
 #include <QVBoxLayout>
 
-#include "backend/Backend.h"
 #include "ui/AccountWorkspaceStack.h"
-#include "workspaces/ViewConversationModel.h"
-#include "workspaces/ViewSidebarModel.h"
 
 using namespace Mattermost;
 
@@ -18,55 +13,6 @@ class AccountWorkspaceStackTest final : public QObject
     Q_OBJECT
 
 private slots:
-    void mergedSidebarIsViewScopedAndDoesNotReplaceAccountWidgets()
-    {
-        AccountWorkspaceStack stack;
-        auto* first = new QWidget;
-        auto* second = new QWidget;
-        QWidget* servers = new QWidget;
-        stack.setServersPage(servers);
-        QVERIFY(stack.addWorkspace(QStringLiteral("a"), first));
-        QVERIFY(stack.addWorkspace(QStringLiteral("b"), second));
-        QVERIFY(stack.activateWorkspace(QStringLiteral("a")));
-
-        ViewConversationModel conversations;
-        ViewSidebarModel sidebar;
-        sidebar.setSources({
-            {QStringLiteral("a"), QStringLiteral("Alpha"), nullptr},
-            {QStringLiteral("b"), QStringLiteral("Beta"), nullptr}
-        }, &conversations);
-        auto* tree = stack.findChild<QTreeView*>(
-            QStringLiteral("mergedViewSidebarTree"));
-        auto* button = stack.findChild<QToolButton*>(
-            QStringLiteral("mergedViewServersButton"));
-        QVERIFY(tree);
-        QVERIFY(button);
-        stack.setMergedSidebarModel(&sidebar);
-        QVERIFY(!tree->isHidden());
-        QCOMPARE(tree->model(), static_cast<QAbstractItemModel*>(&sidebar));
-        QCOMPARE(tree->model()->rowCount(), 3);
-        QSignalSpy selected(&stack, &AccountWorkspaceStack::accountRequested);
-        const QModelIndex root = sidebar.index(1, 0);
-        QCOMPARE(root.data(ViewSidebarModel::AccountIdRole).toString(),
-                 QStringLiteral("b"));
-        stack.resize(650, 450);
-        stack.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&stack));
-        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
-                          tree->visualRect(root).center());
-        QCOMPARE(selected.count(), 1);
-        QCOMPARE(selected.at(0).at(0).toString(), QStringLiteral("b"));
-        stack.showServers();
-        QVERIFY(!tree->isVisible());
-        QVERIFY(stack.activateWorkspace(QStringLiteral("b")));
-        QVERIFY(tree->isVisible());
-        QCOMPARE(stack.workspace(QStringLiteral("b")), second);
-        QCOMPARE(stack.workspace(QStringLiteral("a")), first);
-        stack.setMergedSidebarModel(nullptr);
-        QVERIFY(!tree->isVisible());
-        QCOMPARE(stack.activeAccountId(), QStringLiteral("b"));
-    }
-
     void switchPreservesIndependentLiveViews()
     {
         const QString accountOne = QStringLiteral("a");

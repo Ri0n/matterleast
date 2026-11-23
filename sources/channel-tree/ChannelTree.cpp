@@ -495,6 +495,18 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
 {
     if (!backendForSidebar)
         backendForSidebar = &backend;
+    const ScopedId key {accountIdForBackend(&backend), team.id};
+    // A reconnect or repeated team snapshot must retain the same sidebar
+    // items and their model indexes. Duplicating a team also duplicates its
+    // live channel rows and every visual/navigation connection.
+    if (TeamItem* existing = teamToItemMap.value(key, nullptr)) {
+        if (&existing->backend != &backend)
+            return;
+        if (existing->text(0) != team.display_name)
+            existing->setText(0, team.display_name);
+        attachTeamToAccountRoot(existing);
+        return;
+    }
     if (!profileSourcesConnected.contains(&backend)) {
         profileSourcesConnected.insert(&backend);
         QPointer<Backend> ownerGuard(&backend);
@@ -1059,11 +1071,17 @@ void ChannelTree::activateConversation(const QString& channelId, const QString& 
                                        const QString& accountId)
 {
     Backend* owner = backendForAccount(accountId);
-    if (!owner || !chatAreaStackedWidget)
+    if (!owner)
         return;
     const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelId};
     BackendChannel* channel = owner->getStorage().getChannelById(channelId);
     if (!channel) {
+        return;
+    }
+    if (!chatAreaStackedWidget) {
+        // A merged View uses the existing per-account ChatArea, rather than
+        // accidentally materializing a second copy under this tree.
+        emit conversationOpenRequested(key.first, channelId);
         return;
     }
 

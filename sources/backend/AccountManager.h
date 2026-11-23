@@ -18,7 +18,6 @@ class Account;
 class Backend;
 class ViewNavigationSession;
 class ViewConversationModel;
-class ViewSidebarModel;
 class BackendLoginData;
 
 // Single owner of durable account QObjects and optional session Backends.
@@ -32,8 +31,6 @@ class AccountManager final : public QObject
                NOTIFY activeViewSessionChanged)
     Q_PROPERTY(QAbstractItemModel* activeViewConversations
                READ activeViewConversations NOTIFY activeViewSessionChanged)
-    Q_PROPERTY(QAbstractItemModel* activeViewSidebar
-               READ activeViewSidebar NOTIFY activeViewSessionChanged)
 public:
     explicit AccountManager(QObject* parent = nullptr);
     ~AccountManager() override;
@@ -52,10 +49,6 @@ public:
     QAbstractItemModel* activeViewTabs() const;
     ViewConversationModel* viewConversations(const QString& viewId) const;
     QAbstractItemModel* activeViewConversations() const;
-    // Construct the merged sidebar only for Views requested by a presenter.
-    // Hidden Views keep their existing model, not copied Backend state.
-    ViewSidebarModel* viewSidebar(const QString& viewId);
-    QAbstractItemModel* activeViewSidebar();
 
     Account* account(const QString& id) const { return _byId.value(id, nullptr); }
     Account* accountForBackend(const Backend* backend) const;
@@ -157,7 +150,6 @@ private:
     WorkspaceTreeModel _treeModel;
     QHash<QString, ViewNavigationSession*> _viewSessions;
     QHash<QString, ViewConversationModel*> _viewConversations;
-    QHash<QString, ViewSidebarModel*> _viewSidebars;
     QString _selectedId;
     QHash<QString, QString> _lastSelectedByView;
     QSet<QString> _suspendingProfileAccounts;

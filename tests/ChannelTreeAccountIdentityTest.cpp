@@ -734,6 +734,85 @@ private slots:
         QVERIFY(tree.channelToItemMap.isEmpty());
     }
 
+
+    void mergedViewReusesOriginalTreeAndRoutesByAccount()
+    {
+        Backend first;
+        Backend second;
+        auto setup = [](Backend& backend, const QString& title) {
+            auto& storage = backend.getStorage();
+            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
+            auto* team = storage.addTeam({
+                {QStringLiteral("id"), QStringLiteral("shared-team")},
+                {QStringLiteral("display_name"), title}});
+            QVERIFY(team);
+            QVERIFY(storage.addOwnChannel({
+                {QStringLiteral("id"), QStringLiteral("same-channel")},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"), title + QStringLiteral(" DM")}}));
+        };
+        setup(first, QStringLiteral("Alpha"));
+        setup(second, QStringLiteral("Beta"));
+
+        ChannelTree tree;
+        QAbstractItemModel* const originalModel = tree.model();
+        QSignalSpy resets(originalModel, &QAbstractItemModel::modelReset);
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QVERIFY(tree.setVisibleAccountRoots(
+            {QStringLiteral("a"), QStringLiteral("b")}));
+
+        auto* firstTeam = first.getStorage().getTeamById(QStringLiteral("shared-team"));
+        auto* secondTeam = second.getStorage().getTeamById(QStringLiteral("shared-team"));
+        QVERIFY(firstTeam);
+        QVERIFY(secondTeam);
+        tree.addTeam(first, *firstTeam);
+        tree.addTeam(second, *secondTeam);
+        QCOMPARE(tree.topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(1)->childCount(), 1);
+        auto* firstRow = tree.topLevelItem(0)->child(0);
+        auto* secondRow = tree.topLevelItem(1)->child(0);
+        QVERIFY(firstRow != secondRow);
+
+        // A repeated team snapshot updates the existing node in place.
+        firstTeam->display_name = QStringLiteral("Renamed Alpha");
+        tree.addTeam(first, *firstTeam);
+        tree.addTeam(second, *secondTeam);
+        QCOMPARE(tree.topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(1)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(0)->child(0), firstRow);
+        QCOMPARE(tree.topLevelItem(1)->child(0), secondRow);
+        QCOMPARE(firstRow->text(0), QStringLiteral("Renamed Alpha"));
+
+        // The same remote channel ID must resolve through the account in
+        // the original ChannelTree, without creating another chat widget.
+        auto addChannelRow = [&tree](QTreeWidgetItem* parent, const QString& account) {
+            auto* row = addRow(parent, SidebarItem::Channel,
+                               QStringLiteral("same-channel"));
+            row->setData(0, SidebarItem::AccountIdRole, account);
+            tree.addChannelToItem(QStringLiteral("same-channel"), row);
+            return row;
+        };
+        auto* a = addChannelRow(firstRow, QStringLiteral("a"));
+        auto* b = addChannelRow(secondRow, QStringLiteral("b"));
+        QSignalSpy opened(&tree, &ChannelTree::conversationOpenRequested);
+        tree.openChannelForAccount(QStringLiteral("same-channel"), QStringLiteral("b"));
+        QCOMPARE(tree.currentItem(), b);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.takeFirst(),
+                 (QList<QVariant>{QStringLiteral("b"),
+                                  QStringLiteral("same-channel")}));
+        tree.openChannelForAccount(QStringLiteral("same-channel"), QStringLiteral("a"));
+        QCOMPARE(tree.currentItem(), a);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.takeFirst(),
+                 (QList<QVariant>{QStringLiteral("a"),
+                                  QStringLiteral("same-channel")}));
+        QCOMPARE(tree.model(), originalModel);
+        QCOMPARE(resets.count(), 0);
+    }
+
     void identicalRemoteIdsRemainDistinguishableAcrossExistingTrees()
     {
         ChannelTree alpha;

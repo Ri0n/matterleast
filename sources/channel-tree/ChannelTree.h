@@ -191,6 +191,9 @@ public:
 
 signals:
     void channelActivated();
+    // A View-level sidebar has no ChatArea stack of its own. Delegate
+    // navigation to the owning account workspace instead of cloning chats.
+    void conversationOpenRequested(const QString& accountId, const QString& channelId);
     void teamSidebarPopulated(const QString& teamId);
     void virtualDestinationRequested(int destination, const QString& teamId);
     /** Completion of a stored-channel open that required asynchronous admission/join. */

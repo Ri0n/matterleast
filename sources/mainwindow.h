@@ -74,9 +74,6 @@ public:
     void restoreSidebarWidth();
     void showServersSidebar();
     void showChannelsSidebar();
-    // The shared View sidebar replaces only the account's left presentation.
-    // Its chat widgets, tabs and transport remain alive across View switches.
-    void setMergedSidebarMode(bool enabled);
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
