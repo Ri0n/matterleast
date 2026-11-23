@@ -416,7 +416,8 @@ private:
                                std::function<void(bool)> callback);
     void scheduleTypingExpiration();
     void retrieveNewTeamChannels(BackendTeam& team,
-                                 std::function<void()> completed = {});
+                                 std::function<void()> completed = {},
+                                 bool notifyChanges = true);
     void retrieveLegacyOwnChannelMemberships();
     void clearTypingActivity();
     bool hasVisibleTypingView(const QString& channelId,

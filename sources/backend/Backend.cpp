@@ -1196,21 +1196,23 @@ void Backend::retrieveChannelsMemberCounts(
 }
 
 void Backend::retrieveNewTeamChannels(BackendTeam& team,
-                                      std::function<void()> completed)
+                                      std::function<void()> completed,
+                                      bool notifyChanges)
 {
     const QPointer<BackendTeam> teamGuard(&team);
     NetworkRequest request(_networkSession,
                            QStringLiteral("users/me/teams/") + team.id
                            + QStringLiteral("/channels"));
     httpConnector.get(request, HttpResponseCallback(
-        [this, teamGuard, completed = std::move(completed)](
+        [this, teamGuard, notifyChanges, completed = std::move(completed)](
             const QJsonDocument& doc, const QNetworkReply& reply) {
             if (!teamGuard || !isLoggedIn)
                 return;
             if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
-                QTimer::singleShot(5000, this, [this, teamGuard, completed] {
+                QTimer::singleShot(5000, this, [this, teamGuard, completed,
+                                                 notifyChanges] {
                     if (isLoggedIn && teamGuard)
-                        retrieveNewTeamChannels(*teamGuard, completed);
+                        retrieveNewTeamChannels(*teamGuard, completed, notifyChanges);
                 });
                 return;
             }
@@ -1221,7 +1223,7 @@ void Backend::retrieveNewTeamChannels(BackendTeam& team,
                     continue;
                 const bool alreadyKnown = storage.getChannelById(channelId) != nullptr;
                 BackendChannel* channel = storage.addOwnChannel(object);
-                if (!channel || alreadyKnown)
+                if (!channel || alreadyKnown || !notifyChanges)
                     continue;
                 if (channel->type == BackendChannel::directChannel)
                     emit storage.directChannels.onNewChannel(*channel);
@@ -1246,7 +1248,7 @@ void Backend::retrieveLegacyOwnChannelMemberships()
         retrieveNewTeamChannels(team.second, [this, remaining] {
             if (--*remaining == 0)
                 emit onAllTeamChannelsPopulated();
-        });
+        }, false);
     }
 }
 
