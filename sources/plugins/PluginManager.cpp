@@ -252,9 +252,8 @@ private:
     PluginManager& manager_;
 };
 
-PluginManager& PluginManager::instance(Backend& backend)
+PluginManager& PluginManager::instance()
 {
-    Q_UNUSED(backend)
     auto* app = QCoreApplication::instance();
     auto* manager = app ? app->findChild<PluginManager*>(
         ManagerObjectName, Qt::FindDirectChildrenOnly) : nullptr;

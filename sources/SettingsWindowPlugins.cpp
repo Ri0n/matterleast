@@ -55,7 +55,7 @@ void SettingsWindow::showEvent(QShowEvent* event)
     }
 
     pluginsPageAdded_ = true;
-    auto& manager = PluginManager::instance(mainWindow->backendInstance());
+    auto& manager = PluginManager::instance();
 
     auto* page = new QWidget(tabs);
     auto* layout = new QVBoxLayout(page);

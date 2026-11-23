@@ -47,7 +47,7 @@ class PluginManager final : public QObject
 {
     Q_OBJECT
 public:
-    static PluginManager& instance(Backend& backend);
+    static PluginManager& instance();
     static void restoreBackendConnections(Backend& backend);
     explicit PluginManager(AccountManager& accounts, QObject* parent = nullptr);
     ~PluginManager() override;

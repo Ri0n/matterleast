@@ -124,7 +124,7 @@ void MainWindow::installRealtimeUiSync()
         AppNavigationService::instance(backend).openPost(target.postId);
     });
 
-    auto& plugins = PluginManager::instance(backend);
+    auto& plugins = PluginManager::instance();
     connect(notificationManager, &NotificationManager::incomingCallAnswered,
             this, [this, &plugins](const QString& callId, bool accept) {
         plugins.answerIncomingCall(plugins.accountId(backend), callId, accept);

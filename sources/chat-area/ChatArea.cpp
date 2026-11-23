@@ -405,7 +405,7 @@ void ChatArea::setupHeaderUi()
     // capabilities, and never offer a call button in threads or channels yet.
     if (!isThread && (channel.type == BackendChannel::directChannel
                       || channel.type == BackendChannel::groupChannel)) {
-        auto& calls = PluginManager::instance(backend);
+        auto& calls = PluginManager::instance();
         chatCallButton = new QToolButton(this);
         chatCallButton->setObjectName(QStringLiteral("chatCallButton"));
         chatCallButton->setAutoRaise(true);
@@ -514,7 +514,7 @@ void ChatArea::refreshCallButton()
 {
     if (!chatCallButton) return;
 
-    auto& calls = PluginManager::instance(backend);
+    auto& calls = PluginManager::instance();
     const bool available = calls.callsAvailable();
     chatCallButton->setVisible(available);
     if (!available) return;

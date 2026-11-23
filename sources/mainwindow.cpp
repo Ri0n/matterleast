@@ -350,7 +350,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
     // The main window is fully constructed before optional visual plugins
     // receive its QWidget surface. No MatterLeast UI class crosses the ABI.
-    PluginManager::instance(backend).attachMainWindow(*this);
+    PluginManager::instance().attachMainWindow(*this);
 	LOG_DEBUG("MainWindow create finish");
 }
 
@@ -1430,7 +1430,7 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
     if (post.type == QLatin1String("custom_calls")
         && (channel.type == BackendChannel::directChannel
             || channel.type == BackendChannel::groupChannel)
-        && PluginManager::instance(backend).callsAvailable()) {
+        && PluginManager::instance().callsAvailable()) {
         return;  // Calls owns the live invitation notification.
     }
 	if (post.isOwnPost()) {
