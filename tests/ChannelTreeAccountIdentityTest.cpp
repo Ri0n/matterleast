@@ -334,6 +334,10 @@ private slots:
                                        QStringLiteral("Alpha"), 200);
         QVERIFY(first);
         QVERIFY(second);
+        // Simulate normal sidebar initialization; model source registration
+        // must not trigger the service's implicit HTTP startup requests.
+        SidebarService::instance(a);
+        SidebarService::instance(b);
         ViewConversationModel model;
         QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
         QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);

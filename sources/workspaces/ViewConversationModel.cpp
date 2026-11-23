@@ -74,27 +74,17 @@ void ViewConversationModel::setSources(const QVector<Source>& sources)
     for (const auto& connection : _connections)
         disconnect(connection);
     _connections.clear();
+    _observedSidebars.clear();
     _sources = sources;
     for (const Source& source : _sources) {
         Backend* backend = source.backend.data();
         if (!backend)
             continue;
-        auto& sidebar = SidebarService::instance(*backend);
-        _connections.push_back(connect(
-            &sidebar, &SidebarService::channelActivityChanged,
-            this, &ViewConversationModel::refresh));
-        _connections.push_back(connect(
-            &sidebar, &SidebarService::channelActivityReset,
-            this, &ViewConversationModel::refresh));
-        _connections.push_back(connect(
-            &sidebar, &SidebarService::categoriesChanged,
-            this, &ViewConversationModel::refresh));
         _connections.push_back(connect(
             backend, &Backend::onAllTeamChannelsPopulated,
             this, &ViewConversationModel::refresh));
-        _connections.push_back(connect(
-            backend, &Backend::onNewPost,
-            this, &ViewConversationModel::refresh));
+        // No eager SidebarService::instance() here: its constructor starts
+        // preference/config network requests, even for hidden Views.
         auto& storage = backend->getStorage();
         _connections.push_back(connect(
             &storage.directChannels, &BackendDirectChannelsTeam::onNewChannel,
@@ -130,15 +120,29 @@ void ViewConversationModel::refresh()
             Backend* backend = source.backend.data();
             if (!backend || source.accountId.isEmpty())
                 continue;
+            SidebarService* sidebar = SidebarService::existing(*backend);
+            if (!sidebar)
+                continue;
+            if (_observedSidebars.value(backend).data() != sidebar) {
+                _observedSidebars.insert(backend, sidebar);
+                _connections.push_back(connect(
+                    sidebar, &SidebarService::channelActivityChanged,
+                    this, &ViewConversationModel::refresh));
+                _connections.push_back(connect(
+                    sidebar, &SidebarService::channelActivityReset,
+                    this, &ViewConversationModel::refresh));
+                _connections.push_back(connect(
+                    sidebar, &SidebarService::categoriesChanged,
+                    this, &ViewConversationModel::refresh));
+            }
             auto& storage = backend->getStorage();
-            auto& sidebar = SidebarService::instance(*backend);
-            for (const QString& channelId : sidebar.visibleDirectConversationIds()) {
+            for (const QString& channelId : sidebar->visibleDirectConversationIds()) {
                 const BackendChannel* channel = storage.getChannelById(channelId);
                 if (!channel)
                     continue;
                 const quint64 activity = std::max<quint64>(
                     std::max<quint64>(channel->create_at, channel->last_post_at),
-                    sidebar.channelActivityTime(*channel));
+                    sidebar->channelActivityTime(*channel));
                 desired.push_back({source.accountId, channelId,
                                    channel->display_name, activity});
             }

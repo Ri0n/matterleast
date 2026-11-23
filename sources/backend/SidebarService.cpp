@@ -120,13 +120,24 @@ const SidebarCategory* SidebarTeamState::categoryByType(const QString& type) con
     return nullptr;
 }
 
-SidebarService& SidebarService::instance(Backend& backend)
+namespace {
+QMap<Backend*, QPointer<SidebarService>>& sidebarInstances()
 {
     static QMap<Backend*, QPointer<SidebarService>> instances;
-    auto& service = instances[&backend];
-    if (!service) {
+    return instances;
+}
+}
+
+SidebarService* SidebarService::existing(Backend& backend)
+{
+    return sidebarInstances().value(&backend).data();
+}
+
+SidebarService& SidebarService::instance(Backend& backend)
+{
+    auto& service = sidebarInstances()[&backend];
+    if (!service)
         service = new SidebarService(backend);
-    }
     return *service;
 }
 

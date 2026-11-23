@@ -1,12 +1,14 @@
 #pragma once
 #include <QAbstractListModel>
 #include <QMetaObject>
+#include <QHash>
 #include <QPointer>
 #include <QString>
 #include <QVector>
 
 namespace Mattermost {
 class Backend;
+class SidebarService;
 
 // The View's single QtCore model for shared DM/GM. It stores lightweight
 // account-qualified rows, never BackendChannel copies or QWidget state.
@@ -48,6 +50,7 @@ private:
     QVector<Source> _sources;
     QVector<Entry> _rows;
     QVector<QMetaObject::Connection> _connections;
+    QHash<Backend*, QPointer<SidebarService>> _observedSidebars;
     QString _sorting = QStringLiteral("recent");
 };
 

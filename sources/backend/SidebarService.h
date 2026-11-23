@@ -55,6 +55,8 @@ class SidebarService : public QObject {
     Q_OBJECT
 public:
     static SidebarService& instance(Backend& backend);
+    // Looking up an existing service must never trigger HTTP startup work.
+    static SidebarService* existing(Backend& backend);
 
     void clear();
 
