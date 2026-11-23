@@ -249,6 +249,97 @@ bool ChannelTree::bindSingleAccount(const QString& accountId)
     return true;
 }
 
+bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
+                                         const QHash<QString, QString>& labels)
+{
+    // An active drag owns the tree structure until drop/cancel.
+    if (sidebarDragActive)
+        return false;
+    QSet<QString> seen;
+    for (const QString& id : accountIds) {
+        if (id.isEmpty() || seen.contains(id))
+            return false;
+        seen.insert(id);
+    }
+    if (_visibleAccountRootIds == accountIds) {
+        _accountRootLabels = labels;
+        for (auto it = _accountRootItems.cbegin(); it != _accountRootItems.cend(); ++it) {
+            const QString name = labels.value(it.key(), it.key());
+            if (it.value()->text(0) != name)
+                it.value()->setText(0, name);
+        }
+        return true;
+    }
+
+    // Qt item ownership/parenting changes; channel, team, page and model
+    // addresses remain stable. Suppress temporary selection-as-navigation.
+    QTreeWidgetItem* const selected = currentItem();
+    const bool selectedBefore = selected && selected->isSelected();
+    const QSignalBlocker selectionBlock(this);
+    const QScopedValueRollback<bool> renderGuard(renderingSidebar, true);
+
+    for (QTreeWidgetItem* root : _accountRootItems) {
+        while (root->childCount())
+            addTopLevelItem(root->takeChild(0));
+        const int index = indexOfTopLevelItem(root);
+        if (index >= 0)
+            takeTopLevelItem(index);
+        delete root;
+    }
+    _accountRootItems.clear();
+    _visibleAccountRootIds = accountIds;
+    _accountRootLabels = labels;
+
+    if (accountIds.size() > 1) {
+        int index = 0;
+        for (const QString& accountId : accountIds) {
+            auto* root = new QTreeWidgetItem;
+            root->setData(0, ItemKindRole, AccountRootItemKind);
+            root->setData(0, ItemIdRole, accountId);
+            root->setData(0, ItemAccountIdRole, accountId);
+            root->setText(0, labels.value(accountId, accountId));
+            root->setFlags(root->flags()
+                           & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled
+                               | Qt::ItemIsEditable));
+            QFont font = root->font(0);
+            font.setBold(true);
+            root->setFont(0, font);
+            insertTopLevelItem(index++, root);
+            root->setExpanded(true);
+            _accountRootItems.insert(accountId, root);
+        }
+    }
+    for (int i = topLevelItemCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* row = topLevelItem(i);
+        if (row && row->data(0, ItemKindRole).toInt() == TeamItemKind)
+            attachTeamToAccountRoot(row);
+    }
+
+    if (selected && selected->treeWidget() == this)
+        setCurrentItem(selected, 0, selectedBefore
+            ? QItemSelectionModel::ClearAndSelect : QItemSelectionModel::NoUpdate);
+    return true;
+}
+
+void ChannelTree::attachTeamToAccountRoot(QTreeWidgetItem* team)
+{
+    if (!team || team->data(0, ItemKindRole).toInt() != TeamItemKind)
+        return;
+    const QString accountId = team->data(0, ItemAccountIdRole).toString();
+    const bool visible = _visibleAccountRootIds.isEmpty()
+        || _visibleAccountRootIds.contains(accountId);
+    if (QTreeWidgetItem* root = _accountRootItems.value(accountId, nullptr)) {
+        if (team->parent() != root) {
+            if (team->parent())
+                team->parent()->removeChild(team);
+            else if (const int index = indexOfTopLevelItem(team); index >= 0)
+                takeTopLevelItem(index);
+            root->addChild(team);
+        }
+    }
+    team->setHidden(!visible);
+}
+
 bool ChannelTree::registerAccountBackend(const QString& accountId, Backend& backend)
 {
     if (accountId.isEmpty())
@@ -424,6 +515,7 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
     teamList->setFlags(teamList->flags() & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
 
 	addTopLevelItem (teamList);
+    attachTeamToAccountRoot(teamList);
     teamToItemMap.insert({accountId, team.id}, teamList);
 	header()->setSectionResizeMode(0, QHeaderView::Stretch);
 
@@ -1098,7 +1190,8 @@ void ChannelTree::openChannelForAccount(QString channelID, const QString& accoun
             // team's Personal row, otherwise use the first available one.
             QTreeWidgetItem* current = currentItem();
             QTreeWidgetItem* teamItem = current;
-            while (teamItem && teamItem->parent()) {
+            while (teamItem && teamItem->data(0, ItemKindRole).toInt()
+                        != TeamItemKind) {
                 teamItem = teamItem->parent();
             }
             if (teamItem && teamItem->data(0, ItemKindRole).toInt() == TeamItemKind

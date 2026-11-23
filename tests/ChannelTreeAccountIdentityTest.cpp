@@ -164,6 +164,72 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+
+    void accountRootsPreserveLiveRowsAndSelection()
+    {
+        ChannelTree tree;
+        auto* first = new QTreeWidgetItem(&tree);
+        first->setData(0, SidebarItem::KindRole, int(SidebarItem::Team));
+        first->setData(0, SidebarItem::AccountIdRole, QStringLiteral("a"));
+        first->setData(0, SidebarItem::IdRole, QStringLiteral("shared-team"));
+        auto* category = addRow(first, SidebarItem::Category, QStringLiteral("category"));
+        auto* channel = addRow(category, SidebarItem::Channel, QStringLiteral("shared-id"));
+        auto* second = new QTreeWidgetItem(&tree);
+        second->setData(0, SidebarItem::KindRole, int(SidebarItem::Team));
+        second->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        second->setData(0, SidebarItem::IdRole, QStringLiteral("shared-team"));
+        auto* secondChannel = addRow(second, SidebarItem::Channel,
+                                     QStringLiteral("shared-id"));
+        tree.setCurrentItem(channel);
+        QAbstractItemModel* const oldModel = tree.model();
+        QSignalSpy resets(tree.model(), &QAbstractItemModel::modelReset);
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")},
+                                            {{QStringLiteral("a"), QStringLiteral("Alpha")},
+                                             {QStringLiteral("b"), QStringLiteral("Beta")}}));
+        QCOMPARE(tree.model(), oldModel);
+        QCOMPARE(tree.topLevelItemCount(), 2);
+        auto* aRoot = tree.topLevelItem(0);
+        auto* bRoot = tree.topLevelItem(1);
+        QCOMPARE(aRoot->data(0, SidebarItem::KindRole).toInt(),
+                 int(SidebarItem::AccountRoot));
+        QCOMPARE(aRoot->text(0), QStringLiteral("Alpha"));
+        QCOMPARE(bRoot->text(0), QStringLiteral("Beta"));
+        QCOMPARE(first->parent(), aRoot);
+        QCOMPARE(second->parent(), bRoot);
+        QCOMPARE(category->parent(), first);
+        QCOMPARE(channel->parent(), category);
+        QCOMPARE(secondChannel->parent(), second);
+        QCOMPARE(tree.currentItem(), channel);
+        QCOMPARE(resets.count(), 0);
+
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")},
+                                            {{QStringLiteral("a"), QStringLiteral("A")},
+                                             {QStringLiteral("b"), QStringLiteral("B")}}));
+        QCOMPARE(tree.topLevelItem(0), aRoot);
+        QCOMPARE(aRoot->text(0), QStringLiteral("A"));
+        QCOMPARE(tree.currentItem(), channel);
+        QCOMPARE(resets.count(), 0);
+
+        // A team materialized after the first snapshot goes under its server.
+        auto* late = new QTreeWidgetItem(&tree);
+        late->setData(0, SidebarItem::KindRole, int(SidebarItem::Team));
+        late->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        tree.attachTeamToAccountRoot(late);
+        QCOMPARE(late->parent(), bRoot);
+
+        // A singleton View restores the original team-root hierarchy.
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        QCOMPARE(tree.topLevelItemCount(), 3);
+        QVERIFY(first->parent() == nullptr);
+        QVERIFY(second->parent() == nullptr);
+        QVERIFY(late->parent() == nullptr);
+        QVERIFY(!first->isHidden());
+        QVERIFY(second->isHidden());
+        QVERIFY(late->isHidden());
+        QCOMPARE(tree.currentItem(), channel);
+        QCOMPARE(resets.count(), 0);
+    }
+
     void contextMenusUseOwningAccountWithCollidingIds()
     {
         Backend first;

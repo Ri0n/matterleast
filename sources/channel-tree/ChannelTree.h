@@ -24,11 +24,13 @@
 
 #pragma once
 
+#include <QHash>
 #include <QMap>
 #include <QPair>
 #include <QPointer>
 #include <QPersistentModelIndex>
 #include <QSet>
+#include <QStringList>
 #include <QTreeWidget>
 #include <QVector>
 
@@ -74,6 +76,7 @@ public:
     static constexpr ItemKind CategoryItemKind = SidebarItem::Category;
     static constexpr ItemKind ChannelItemKind = SidebarItem::Channel;
     static constexpr ItemKind VirtualDestinationItemKind = SidebarItem::VirtualDestination;
+    static constexpr ItemKind AccountRootItemKind = SidebarItem::AccountRoot;
 
     static constexpr ItemRole ItemKindRole = SidebarItem::KindRole;
     static constexpr ItemRole ItemIdRole = SidebarItem::IdRole;
@@ -96,6 +99,11 @@ public:
     // it to a different account (that requires a separate presentation).
     bool bindSingleAccount(const QString& accountId);
     QString boundAccountId() const { return _boundAccountId; }
+    // View-scoped account roots, without a replacement channel model.
+    // Singletons retain the exact original team hierarchy.
+    // Do not activate merged Views until their shared DM/GM section is ready.
+    bool setVisibleAccountRoots(const QStringList& accountIds,
+                                const QHash<QString, QString>& labels = {});
     // The AccountManager owns Backend lifetimes; this tree only observes them.
     bool registerAccountBackend(const QString& accountId, Backend& backend);
     void unregisterAccountBackend(const QString& accountId, const Backend* expected = nullptr);
@@ -201,6 +209,7 @@ protected:
 
 private:
     static void tagAccount(QTreeWidgetItem* item, const QString& accountId);
+    void attachTeamToAccountRoot(QTreeWidgetItem* team);
     using ScopedId = QPair<QString, QString>;
     // Keep the remote identifier local to its owning account. The row role
     // takes priority for retained/moved items; before login it is unbound.
@@ -316,6 +325,9 @@ private:
     QPointer<Backend>                   backendForSidebar;
     QString                             _boundAccountId;
     QMap<QString, QPointer<Backend>>     _accountBackends;
+    QStringList                         _visibleAccountRootIds;
+    QHash<QString, QString>             _accountRootLabels;
+    QHash<QString, QTreeWidgetItem*>    _accountRootItems;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
     // True during an internal sidebar mouse drag. Structural sidebar
