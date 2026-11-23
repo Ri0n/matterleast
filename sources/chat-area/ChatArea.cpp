@@ -416,11 +416,12 @@ void ChatArea::setupHeaderUi()
         connect(chatCallButton, &QToolButton::clicked, this, [this, &calls] {
             if (!calls.callsAvailable()) return;
             const auto state = calls.callsSnapshot();
+            const QString accountId = calls.accountId(backend);
             if (state.state == MatterLeast::PluginApi::CallsState::Idle) {
-                calls.startCall(channel.id);
-            } else if (state.channelId == channel.id
+                calls.startCall(accountId, channel.id);
+            } else if (state.accountId == accountId && state.channelId == channel.id
                        && state.state != MatterLeast::PluginApi::CallsState::Leaving) {
-                calls.leaveCall();
+                calls.leaveCall(accountId);
             }
         });
         connect(&calls, &PluginManager::callsAvailabilityChanged,
@@ -521,7 +522,8 @@ void ChatArea::refreshCallButton()
     const auto state = calls.callsSnapshot();
     using MatterLeast::PluginApi::CallsState;
     const bool active = state.state != CallsState::Idle;
-    const bool current = active && state.channelId == channel.id;
+    const bool current = active && state.accountId == calls.accountId(backend)
+        && state.channelId == channel.id;
     const bool otherCall = active && !current;
     const bool leaving = state.state == CallsState::Leaving;
     const bool failed = state.state == CallsState::Failed;

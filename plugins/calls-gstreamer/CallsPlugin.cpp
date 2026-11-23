@@ -126,12 +126,14 @@ public:
         return snapshot_;
     }
 
-    bool startCall(const QString& channelId) override { return joinCall(channelId); }
+    bool startCall(const QString& accountId, const QString& channelId) override
+    { return joinCall(accountId, channelId); }
 
-    bool joinCall(const QString& channelId) override
+    bool joinCall(const QString& accountId, const QString& channelId) override
     {
         using MatterLeast::PluginApi::CallsState;
-        if (!enabled_ || !host_->authenticated() || host_->connectionId().isEmpty()
+        if (!enabled_ || accountId.isEmpty() || !host_->authenticated(accountId)
+            || host_->connectionId(accountId).isEmpty()
             || channelId.isEmpty() || snapshot_.state != CallsState::Idle) {
             return false;
         }
@@ -144,6 +146,7 @@ public:
             qWarning() << "MatterLeast Calls unavailable:" << unavailable;
             snapshot_ = {};
             snapshot_.state = CallsState::Failed;
+            snapshot_.accountId = accountId;
             snapshot_.channelId = channelId;
             snapshot_.errorMessage = unavailable;
             changed();
@@ -154,16 +157,17 @@ public:
         const quint64 generation = ++generation_;
         snapshot_ = {};
         snapshot_.state = CallsState::Connecting;
+        snapshot_.accountId = accountId;
         snapshot_.channelId = channelId;
         videoAvailable_ = false;
         videoUnavailableReason_ = tr("Checking video support on the Calls server…");
-        originalConnectionId_ = host_->connectionId();
+        originalConnectionId_ = host_->connectionId(snapshot_.accountId);
         changed();
         showCallWindow();
 
         // Official Calls configuration is served at /plugins/..., not at
         // /api/v4/. Fetch it before joining so ICE servers are available.
-        host_->request(QStringLiteral("GET"),
+        host_->request(snapshot_.accountId, QStringLiteral("GET"),
                        QLatin1String(CallsHttpRoot) + QStringLiteral("config"),
                        {}, this,
                        [this, generation](int status, const QJsonObject& response) {
@@ -203,7 +207,7 @@ public:
             if (window_) {
                 window_->setCameraAvailable(false, videoUnavailableReason_);
             }
-            if (!host_->sendAction(QLatin1String(CallsPrefix) + QStringLiteral("join"),
+            if (!host_->sendAction(snapshot_.accountId, QLatin1String(CallsPrefix) + QStringLiteral("join"),
                                    {{QStringLiteral("channelID"), snapshot_.channelId}})) {
                 fail(QStringLiteral("Could not send Mattermost Calls join request"));
             }
@@ -221,7 +225,7 @@ public:
         changed();
         // The Calls WS protocol has no leave acknowledgement. Always clean
         // up locally, even when the backend connection is already offline.
-        host_->sendAction(QLatin1String(CallsPrefix) + QStringLiteral("leave"), {});
+        host_->sendAction(snapshot_.accountId, QLatin1String(CallsPrefix) + QStringLiteral("leave"), {});
         engine_.reset(); // Blocks until the GLib thread and all RTP pads stop.
         snapshot_ = {};
         iceUrls_.clear();
@@ -249,7 +253,7 @@ public:
         if (snapshot_.microphoneMuted == muted) return true;
         const QString action = muted ? QStringLiteral("mute")
                                      : QStringLiteral("unmute");
-        if (!host_->sendAction(QLatin1String(CallsPrefix) + action, {})) {
+        if (!host_->sendAction(snapshot_.accountId, QLatin1String(CallsPrefix) + action, {})) {
             return false;
         }
         engine_->setMicrophoneMuted(muted);
@@ -263,11 +267,13 @@ public:
         return true;
     }
 
-    void onServerEvent(const QString& name, const QJsonObject& data,
+    void onServerEvent(const QString& accountId, const QString& name,
+                       const QJsonObject& data,
                        const QJsonObject& broadcast) override
     {
         using MatterLeast::PluginApi::CallsState;
-        if (!enabled_ || snapshot_.state == CallsState::Idle
+        if (!enabled_ || snapshot_.accountId != accountId
+            || snapshot_.state == CallsState::Idle
             || !name.startsWith(QLatin1String(CallsPrefix))) {
             return;
         }
@@ -278,7 +284,7 @@ public:
             data.value(QStringLiteral("connID")).toString();
         const bool isOurSession = !eventConnection.isEmpty()
             && (eventConnection == originalConnectionId_
-                || eventConnection == host_->connectionId());
+                || eventConnection == host_->connectionId(snapshot_.accountId));
         const bool isOurChannel = channel == snapshot_.channelId
             || broadcastChannel == snapshot_.channelId
             || data.value(QStringLiteral("channel_id")).toString() == snapshot_.channelId;
@@ -348,6 +354,8 @@ public:
                 const QJsonObject session = entry.toObject();
                 MatterLeast::PluginApi::CallsParticipant participant;
                 participant.userId = session.value(QStringLiteral("user_id")).toString();
+                participant.displayName = host_->userDisplayName(snapshot_.accountId,
+                                                                 participant.userId);
                 participant.sessionId = session.value(QStringLiteral("session_id")).toString();
                 participant.microphoneMuted =
                     !session.value(QStringLiteral("unmuted")).toBool();
@@ -404,7 +412,7 @@ public:
         if (videoOnEvent || videoOffEvent) {
             const QString userId = data.value(QStringLiteral("userID")).toString();
             if (sessionId == originalConnectionId_
-                && userId == host_->localUserId()) {
+                && userId == host_->localUserId(snapshot_.accountId)) {
                 if (videoOnEvent && cameraEnabled_ && cameraPending_) {
                     // RTCD has processed video_on before the server echoes
                     // the event. Only now allow the first video RTP packet;
@@ -497,6 +505,7 @@ public:
             }
             MatterLeast::PluginApi::CallsParticipant participant;
             participant.userId = userId;
+            participant.displayName = host_->userDisplayName(snapshot_.accountId, userId);
             participant.sessionId = sessionId;
             snapshot_.participants.append(participant);
             changed();
@@ -510,20 +519,21 @@ public:
         }
     }
 
-    void onConnectionChanged(bool connected) override
+    void onConnectionChanged(const QString& accountId, bool connected) override
     {
         using MatterLeast::PluginApi::CallsState;
-        if (!enabled_ || snapshot_.state == CallsState::Idle) return;
+        if (!enabled_ || snapshot_.accountId != accountId
+            || snapshot_.state == CallsState::Idle) return;
         if (!connected) {
             // Preserve media/session state until the app's established
             // WebSocket attempts its normal reconnect.
-            previousConnectionId_ = host_->connectionId();
+            previousConnectionId_ = host_->connectionId(snapshot_.accountId);
             snapshot_.state = CallsState::Connecting;
             changed();
             return;
         }
         if (!originalConnectionId_.isEmpty()) {
-            if (!host_->sendAction(QLatin1String(CallsPrefix)
+            if (!host_->sendAction(snapshot_.accountId, QLatin1String(CallsPrefix)
                                   + QStringLiteral("reconnect"), {
                     {QStringLiteral("channelID"), snapshot_.channelId},
                     {QStringLiteral("originalConnID"), originalConnectionId_},
@@ -538,11 +548,14 @@ public:
         const QString& conversationId, const QString& threadRootId) const override
     {
         using MatterLeast::PluginApi::CallsState;
-        if (!enabled_ || !host_->authenticated() || !threadRootId.isEmpty()) {
+        const QString selectedAccountId = host_ ? host_->selectedAccountId() : QString();
+        if (!enabled_ || selectedAccountId.isEmpty()
+            || !host_->authenticated(selectedAccountId) || !threadRootId.isEmpty()) {
             return {};
         }
         const bool active = snapshot_.state != CallsState::Idle;
-        if (active && conversationId != snapshot_.channelId) return {};
+        if (active && (selectedAccountId != snapshot_.accountId
+                       || conversationId != snapshot_.channelId)) return {};
         return {{
             {QStringLiteral("id"), active ? QStringLiteral("calls.leave")
                                            : QStringLiteral("calls.join")},
@@ -557,8 +570,11 @@ public:
         const QString& actionId, const QString& conversationId,
         const QString&, bool) override
     {
-        if (actionId == QLatin1String("calls.join")) joinCall(conversationId);
-        if (actionId == QLatin1String("calls.leave")
+        if (actionId == QLatin1String("calls.join") && host_) {
+            joinCall(host_->selectedAccountId(), conversationId);
+        }
+        if (actionId == QLatin1String("calls.leave") && host_
+            && host_->selectedAccountId() == snapshot_.accountId
             && conversationId == snapshot_.channelId) {
             leaveCall();
         }
@@ -571,7 +587,7 @@ private:
             window_ = std::make_unique<CallsWindow>(
                 [this](bool muted) { return setMicrophoneMuted(muted); },
                 [this] { leaveCall(); },
-                host_ ? host_->localUserId() : QString());
+                host_ ? host_->localUserId(snapshot_.accountId) : QString());
             window_->setMicrophoneDeviceHandlers(
                 [this](const QString& id) {
                     if (engine_) engine_->setAudioInputDevice(id);
@@ -593,8 +609,9 @@ private:
                 });
         }
         QString title;
-        if (conversationHost_) {
-            title = conversationHost_->displayName(snapshot_.channelId);
+        if (host_) {
+            title = host_->conversationDisplayName(snapshot_.accountId,
+                                                    snapshot_.channelId);
         }
         window_->showForCall(snapshot_, title);
     }
@@ -606,7 +623,7 @@ private:
             [this](const QJsonObject& description) {
                 if (snapshot_.state == MatterLeast::PluginApi::CallsState::Connecting
                     || snapshot_.state == MatterLeast::PluginApi::CallsState::Connected) {
-                    if (!host_->sendSdp(description)) {
+                    if (!host_->sendSdp(snapshot_.accountId, description)) {
                         fail(QStringLiteral("Failed to send Calls SDP"));
                     }
                 }
@@ -614,7 +631,7 @@ private:
             [this](const QJsonObject& candidate) {
                 if (snapshot_.state == MatterLeast::PluginApi::CallsState::Connecting
                     || snapshot_.state == MatterLeast::PluginApi::CallsState::Connected) {
-                    host_->sendAction(QLatin1String(CallsPrefix) + QStringLiteral("ice"),
+                    host_->sendAction(snapshot_.accountId, QLatin1String(CallsPrefix) + QStringLiteral("ice"),
                         {{QStringLiteral("data"), QString::fromUtf8(
                             QJsonDocument(candidate).toJson(QJsonDocument::Compact))}});
                 }
@@ -628,7 +645,7 @@ private:
                     // starts active, so publish that initial state once media
                     // is actually connected to the SFU.
                     if (!snapshot_.microphoneMuted
-                        && !host_->sendAction(QLatin1String(CallsPrefix)
+                        && !host_->sendAction(snapshot_.accountId, QLatin1String(CallsPrefix)
                                               + QStringLiteral("unmute"), {})) {
                         fail(QStringLiteral("Failed to publish microphone state"));
                     }
@@ -648,7 +665,7 @@ private:
                 }
                 if (enabled) {
                     if (videoStreamId_.isEmpty() || !videoAvailable_
-                        || !host_->sendAction(
+                        || !host_->sendAction(snapshot_.accountId, 
                             QLatin1String(CallsPrefix) + QStringLiteral("video_on"),
                             {{QStringLiteral("data"),
                               QString::fromUtf8(QJsonDocument(QJsonObject{
@@ -662,7 +679,7 @@ private:
                 } else if (cameraEnabled_) {
                     cameraEnabled_ = false;
                     cameraPending_ = false;
-                    host_->sendAction(QLatin1String(CallsPrefix)
+                    host_->sendAction(snapshot_.accountId, QLatin1String(CallsPrefix)
                                       + QStringLiteral("video_off"), {});
                 }
                 if (window_) {
