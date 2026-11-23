@@ -677,6 +677,38 @@ private slots:
         checkCookies(serverTwo.profileCookies, "token-two", "token-one");
     }
 
+    void explicitDisconnectSuspendsSessionWithoutLogoutOrAutoReconnect()
+    {
+        FakeMattermostServer server(QByteArrayLiteral("manual-disconnect"));
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        AccountManager sessions;
+        Backend* backend = sessions.createLoginBackend();
+        bool ready = false;
+        backend->login(credentials(server, QStringLiteral("manual-token")),
+                       [&](const QString& token) { ready = !token.isEmpty(); });
+        QTRY_VERIFY(ready);
+        Account* account = sessions.adoptAuthenticated(
+            backend, QStringLiteral("user"), QStringLiteral("Office"));
+        QVERIFY(account);
+        QCOMPARE(sessions.registeredBackends().size(), 1);
+        QSignalSpy suspended(&sessions, &AccountManager::profileSuspensionRequested);
+        const int logoutBaseline = server.logoutRequests;
+        QVERIFY(sessions.disconnectAccount(account->id()));
+        QCOMPARE(suspended.count(), 1);
+        QCOMPARE(account->state(), AccountConnectionState::Disconnected);
+        QVERIFY(!sessions.disconnectAccount(account->id()));
+        QCOMPARE(server.logoutRequests, logoutBaseline);
+        sessions.finishProfileSuspension(account, backend);
+        QCOMPARE(sessions.registeredBackends().size(), 0);
+        QVERIFY(!account->backend());
+        sessions.restoreActiveProfile();
+        // A manual pause survives active-profile reconciliation, so no
+        // implicit background login or WebSocket retry can undo it.
+        QCOMPARE(account->state(), AccountConnectionState::Disconnected);
+        QVERIFY(!account->pendingBackend());
+        QCOMPARE(server.logoutRequests, logoutBaseline);
+    }
+
     void userPageCompletionIsIndependentAcrossTwoServers()
     {
         FakeMattermostServer firstServer(QByteArrayLiteral("paged-one"));
