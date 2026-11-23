@@ -16,6 +16,7 @@ enum class CallsState {
 
 struct CallsParticipant {
     QString userId;
+    QString displayName;
     QString sessionId;
     // The server starts each newly joined session muted.
     bool microphoneMuted = true;
@@ -23,6 +24,7 @@ struct CallsParticipant {
 
 struct CallsSnapshot {
     CallsState state = CallsState::Idle;
+    QString accountId;
     QString channelId;
     QString callId;
     bool microphoneMuted = false;

@@ -46,28 +46,40 @@ public:
 class FakeCallsHost final : public MatterLeast::PluginApi::CallsHostInterface
 {
 public:
-    bool authenticated() const override { return signedIn; }
-    QString localUserId() const override { return QStringLiteral("test-local-user"); }
-    QString connectionId() const override { return QStringLiteral("test-connection"); }
+    bool authenticated(const QString& accountId) const override
+    { return signedIn && accountId == QLatin1String("account-1"); }
+    QString localUserId(const QString&) const override
+    { return QStringLiteral("test-local-user"); }
+    QString selectedAccountId() const override
+    { return QStringLiteral("account-1"); }
+    QString conversationDisplayName(const QString&, const QString& channelId) const override
+    { return channelId; }
+    QString userDisplayName(const QString&, const QString& userId) const override
+    { return QStringLiteral("name:") + userId; }
+    QString connectionId(const QString&) const override
+    { return QStringLiteral("test-connection"); }
 
-    bool sendSdp(const QJsonObject& description) override
+    bool sendSdp(const QString& accountId, const QJsonObject& description) override
     {
+        lastAccountId = accountId;
         lastSdp = description;
         return true;
     }
 
-    bool sendAction(const QString& action, const QJsonObject& data) override
+    bool sendAction(const QString& accountId, const QString& action,
+                    const QJsonObject& data) override
     {
         if (!action.startsWith(QStringLiteral("custom_com.mattermost.calls_"))) {
             return false;
         }
+        lastAccountId = accountId;
         lastAction = action;
         lastActionChannelId = data.value(QStringLiteral("channelID")).toString();
         ++actions;
         return true;
     }
 
-    void request(const QString&, const QString&, const QJsonObject&,
+    void request(const QString&, const QString&, const QString&, const QJsonObject&,
                  QObject*, Reply callback) override
     {
         ++requests;
@@ -82,6 +94,7 @@ public:
     int requests = 0;
     int actions = 0;
     QString lastAction;
+    QString lastAccountId;
     QString lastActionChannelId;
 };
 
@@ -118,14 +131,16 @@ private slots:
         QVERIFY(provider);
         QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Idle);
         calls.signedIn = false;
-        QVERIFY(!provider->joinCall(QStringLiteral("channel-123")));
+        QVERIFY(!provider->joinCall(QStringLiteral("account-1"), QStringLiteral("channel-123")));
         QVERIFY(plugin.isEnabled()); // A missing login must not hide the plugin.
         calls.signedIn = true;
         QVERIFY(provider->joinCall(QStringLiteral("channel-123")));
         QCOMPARE(calls.actions, 1);
+        QCOMPARE(calls.lastAccountId, QStringLiteral("account-1"));
+        QCOMPARE(provider->snapshot().accountId, QStringLiteral("account-1"));
         QCOMPARE(calls.lastAction, QStringLiteral("custom_com.mattermost.calls_join"));
         QCOMPARE(calls.lastActionChannelId, QStringLiteral("channel-123"));
-        QVERIFY(!provider->startCall(QStringLiteral("other-channel")));
+        QVERIFY(!provider->startCall(QStringLiteral("account-2"), QStringLiteral("other-channel")));
         QCOMPARE(provider->snapshot().state,
                  MatterLeast::PluginApi::CallsState::Connected);
         QCOMPARE(provider->snapshot().channelId, QStringLiteral("channel-123"));
@@ -134,12 +149,21 @@ private slots:
         QVERIFY(calls.changes >= 2);
 
         provider->onServerEvent(
+            QStringLiteral("account-1"),
             QStringLiteral("custom_com.mattermost.calls_test"),
             QJsonObject{{QStringLiteral("user_id"), QStringLiteral("remote-user")}},
             QJsonObject());
         QCOMPARE(provider->snapshot().participants.size(), 1);
         QCOMPARE(provider->snapshot().participants.first().userId,
                  QStringLiteral("remote-user"));
+        QCOMPARE(provider->snapshot().participants.first().displayName,
+                 QStringLiteral("name:remote-user"));
+        provider->onServerEvent(QStringLiteral("account-2"),
+            QStringLiteral("custom_com.mattermost.calls_test"),
+            QJsonObject{{QStringLiteral("user_id"), QStringLiteral("wrong-server")}}, {});
+        QCOMPARE(provider->snapshot().participants.size(), 1);
+        provider->onConnectionChanged(QStringLiteral("account-2"), false);
+        QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Connected);
 
         // Critical: QPluginLoader may not unload code while a call is active.
         QVERIFY(!plugin.disableAndUnload());
@@ -156,8 +180,8 @@ private slots:
             plugin.instance());
         QVERIFY(provider);
         QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Idle);
-        QVERIFY(provider->startCall(QStringLiteral("another-channel")));
-        provider->onConnectionChanged(false);
+        QVERIFY(provider->startCall(QStringLiteral("account-1"), QStringLiteral("another-channel")));
+        provider->onConnectionChanged(QStringLiteral("account-1"), false);
         QCOMPARE(provider->snapshot().state, MatterLeast::PluginApi::CallsState::Failed);
         QVERIFY(!provider->snapshot().errorMessage.isEmpty());
         QVERIFY(provider->leaveCall());

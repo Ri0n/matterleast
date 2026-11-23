@@ -48,8 +48,10 @@ public:
         return snapshot_;
     }
 
-    bool startCall(const QString& channelId) override { return enter(channelId); }
-    bool joinCall(const QString& channelId) override { return enter(channelId); }
+    bool startCall(const QString& accountId, const QString& channelId) override
+    { return enter(accountId, channelId); }
+    bool joinCall(const QString& accountId, const QString& channelId) override
+    { return enter(accountId, channelId); }
 
     bool leaveCall() override
     {
@@ -71,14 +73,16 @@ public:
         return true;
     }
 
-    void onServerEvent(const QString& name, const QJsonObject& data,
-                       const QJsonObject&) override
+    void onServerEvent(const QString& accountId, const QString& name,
+                       const QJsonObject& data, const QJsonObject&) override
     {
-        if (!enabled_ || name != QLatin1String("custom_com.mattermost.calls_test")) {
+        if (!enabled_ || accountId != snapshot_.accountId
+            || name != QLatin1String("custom_com.mattermost.calls_test")) {
             return;
         }
         MatterLeast::PluginApi::CallsParticipant participant;
         participant.userId = data.value(QStringLiteral("user_id")).toString();
+        participant.displayName = host_->userDisplayName(accountId, participant.userId);
         if (participant.userId.isEmpty()) {
             return;
         }
@@ -86,9 +90,9 @@ public:
         host_->providerChanged();
     }
 
-    void onConnectionChanged(bool connected) override
+    void onConnectionChanged(const QString& accountId, bool connected) override
     {
-        if (enabled_ && !connected &&
+        if (enabled_ && accountId == snapshot_.accountId && !connected &&
             snapshot_.state == MatterLeast::PluginApi::CallsState::Connected) {
             snapshot_.state = MatterLeast::PluginApi::CallsState::Failed;
             snapshot_.errorMessage = QStringLiteral("Disconnected");
@@ -97,16 +101,18 @@ public:
     }
 
 private:
-    bool enter(const QString& channelId)
+    bool enter(const QString& accountId, const QString& channelId)
     {
-        if (!enabled_ || !host_->authenticated() || channelId.isEmpty() ||
+        if (!enabled_ || accountId.isEmpty() || !host_->authenticated(accountId)
+            || channelId.isEmpty() ||
             snapshot_.state != MatterLeast::PluginApi::CallsState::Idle) {
             return false;
         }
-        if (!host_->sendAction(QStringLiteral("custom_com.mattermost.calls_join"),
+        if (!host_->sendAction(accountId, QStringLiteral("custom_com.mattermost.calls_join"),
                                QJsonObject{{QStringLiteral("channelID"), channelId}})) {
             return false;
         }
+        snapshot_.accountId = accountId;
         snapshot_.channelId = channelId;
         snapshot_.callId = QStringLiteral("fake-call");
         snapshot_.state = MatterLeast::PluginApi::CallsState::Connected;

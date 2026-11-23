@@ -18,6 +18,6 @@ public:
 } // namespace MatterLeast::PluginApi
 
 #define MATTERLEAST_CALLS_HOST_ACCESSOR_IID \
-    "io.github.Ri0n.MatterLeast.CallsHostAccessor/1.0"
+    "io.github.Ri0n.MatterLeast.CallsHostAccessor/2.0"
 Q_DECLARE_INTERFACE(MatterLeast::PluginApi::CallsHostAccessor,
                     MATTERLEAST_CALLS_HOST_ACCESSOR_IID)
