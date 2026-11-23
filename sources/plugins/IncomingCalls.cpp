@@ -148,7 +148,7 @@ void PluginManager::answerIncomingCall(const QString& accountId,
     }
 
     auto invitation = std::find_if(incomingCalls_.begin(), incomingCalls_.end(),
-                                   [&callId](const IncomingInvitation& item) {
+                                   [&callId, &accountId](const IncomingInvitation& item) {
         return item.call.accountId == accountId && item.pending
             && item.announced && item.call.id == callId;
     });

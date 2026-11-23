@@ -441,6 +441,7 @@ PostWidget::PostWidget(Backend& backend,
     if (presentationMode_ == PresentationMode::Interactive
         && post.type == QLatin1String("custom_calls")) {
         auto& calls = PluginManager::instance(backend_);
+        const QString accountId = calls.accountId(backend_);
         auto* actions = new QWidget(this);
         auto* layout = new QHBoxLayout(actions);
         layout->setContentsMargins(0, 0, 0, 0);
@@ -452,8 +453,8 @@ PostWidget::PostWidget(Backend& backend,
         layout->addWidget(decline);
         layout->addStretch();
         ui->verticalLayout->insertWidget(messageIndex + 1, actions);
-        const auto refresh = [this, actions, &calls, id = post.id] {
-            const bool visible = !calls.incomingCallForPost(id).isEmpty();
+        const auto refresh = [this, actions, &calls, accountId, id = post.id] {
+            const bool visible = !calls.incomingCallForPost(accountId, id).isEmpty();
             if (visible != !actions->isHidden()) {
                 actions->setVisible(visible);
                 emit dimensionsChanged();
@@ -461,13 +462,15 @@ PostWidget::PostWidget(Backend& backend,
         };
         connect(&calls, &PluginManager::incomingCallStarted, this, refresh);
         connect(&calls, &PluginManager::incomingCallClosed, this, refresh);
-        connect(accept, &QPushButton::clicked, this, [&calls, id = post.id] {
-            calls.answerIncomingCall(calls.incomingCallForPost(id), true);
+        connect(accept, &QPushButton::clicked, this, [&calls, accountId, id = post.id] {
+            calls.answerIncomingCall(accountId,
+                calls.incomingCallForPost(accountId, id), true);
         });
-        connect(decline, &QPushButton::clicked, this, [&calls, id = post.id] {
-            calls.answerIncomingCall(calls.incomingCallForPost(id), false);
+        connect(decline, &QPushButton::clicked, this, [&calls, accountId, id = post.id] {
+            calls.answerIncomingCall(accountId,
+                calls.incomingCallForPost(accountId, id), false);
         });
-        actions->setVisible(!calls.incomingCallForPost(post.id).isEmpty());
+        actions->setVisible(!calls.incomingCallForPost(accountId, post.id).isEmpty());
     }
     refreshForwardedInfo();
 	refreshPermalinkPreviews();
