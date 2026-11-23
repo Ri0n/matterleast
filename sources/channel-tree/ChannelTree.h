@@ -35,7 +35,6 @@
 #include <QVector>
 
 #include "ChannelTreeItem.h"
-#include "backend/SharedConversationOrder.h"
 #include "SidebarItem.h"
 
 class QDragLeaveEvent;
@@ -105,10 +104,6 @@ public:
     // Do not activate merged Views until their shared DM/GM section is ready.
     bool setVisibleAccountRoots(const QStringList& accountIds,
                                 const QHash<QString, QString>& labels = {});
-    // Build the transient shared DM/GM projection from live per-account
-    // SidebarService state. Does not duplicate BackendChannel or model rows.
-    bool setSharedConversationSorting(const QString& sorting);
-    QVector<SharedConversationOrder::Entry> sharedConversationEntries() const;
     // The AccountManager owns Backend lifetimes; this tree only observes them.
     bool registerAccountBackend(const QString& accountId, Backend& backend);
     void unregisterAccountBackend(const QString& accountId, const Backend* expected = nullptr);
@@ -335,7 +330,6 @@ private:
     QString                             _boundAccountId;
     QMap<QString, QPointer<Backend>>     _accountBackends;
     QStringList                         _visibleAccountRootIds;
-    QString                             _sharedConversationSorting = QStringLiteral("recent");
     QHash<QString, QString>             _accountRootLabels;
     QHash<QString, QTreeWidgetItem*>    _accountRootItems;
 	bool							renderingSidebar;

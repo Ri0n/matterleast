@@ -47,7 +47,6 @@
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
-#include "backend/SharedConversationProjection.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
@@ -248,29 +247,6 @@ bool ChannelTree::bindSingleAccount(const QString& accountId)
     for (int i = 0; i < topLevelItemCount(); ++i)
         tagAccount(topLevelItem(i), _boundAccountId);
     return true;
-}
-
-bool ChannelTree::setSharedConversationSorting(const QString& sorting)
-{
-    if (sorting != QLatin1String("recent") && sorting != QLatin1String("alpha"))
-        return false;
-    _sharedConversationSorting = sorting;
-    return true;
-}
-
-QVector<SharedConversationOrder::Entry> ChannelTree::sharedConversationEntries() const
-{
-    if (_visibleAccountRootIds.size() < 2)
-        return {};
-
-    // One account Backend is one source. Teams and category snapshots are
-    // irrelevant to the identity or visibility of its direct conversations.
-    QVector<SharedConversationProjection::AccountSource> sources;
-    for (const QString& accountId : _visibleAccountRootIds) {
-        if (Backend* owner = backendForAccount(accountId))
-            sources.push_back({accountId, owner});
-    }
-    return SharedConversationProjection::collect(sources, _sharedConversationSorting);
 }
 
 bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,

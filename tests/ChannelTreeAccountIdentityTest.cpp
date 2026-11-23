@@ -3,8 +3,7 @@
 #include <QTreeWidgetItem>
 
 #include "channel-tree/ChannelTree.h"
-#include "backend/SharedConversationOrder.h"
-#include "backend/SharedConversationProjection.h"
+#include "workspaces/ViewConversationModel.h"
 #include "channel-tree/ChannelTreeItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "backend/Backend.h"
@@ -169,11 +168,10 @@ private slots:
     }
 
 
-    void sharedProjectionUsesAccountCatalogWithoutTeamOrCategoryWalks()
+    void viewConversationModelUsesAccountCatalogWithoutTeamWalks()
     {
         Backend first;
         Backend second;
-        ChannelTree tree;
         auto addServer = [](Backend& backend, const QString& name, int activity) {
             auto& storage = backend.getStorage();
             storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
@@ -185,7 +183,6 @@ private slots:
                 {QStringLiteral("last_post_at"), activity}});
             QVERIFY(channel);
             QCOMPARE(storage.groupChannels.channels.size(), size_t(1));
-            // Server category duplication must not affect the projection.
             QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-1")}}));
             QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-2")}}));
             SidebarTeamState state;
@@ -201,36 +198,33 @@ private slots:
             SidebarService::instance(backend).applyLocalTeamState(
                 QStringLiteral("team-2"), state);
         };
-        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
-        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
         addServer(first, QStringLiteral("Zebra"), 300);
         addServer(second, QStringLiteral("Alpha"), 100);
-        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
-        auto merged = tree.sharedConversationEntries();
-        QCOMPARE(merged.size(), 2);
-        QCOMPARE(merged.at(0).accountId, QStringLiteral("a"));
-        QCOMPARE(merged.at(1).accountId, QStringLiteral("b"));
-        QCOMPARE(merged.at(0).channelId, merged.at(1).channelId);
+        ViewConversationModel model;
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        model.setSources({{QStringLiteral("a"), &first},
+                          {QStringLiteral("b"), &second}});
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("a"));
+        QCOMPARE(model.entryAt(1).accountId, QStringLiteral("b"));
+        QCOMPARE(model.entryAt(0).channelId, model.entryAt(1).channelId);
+        QCOMPARE(model.rowFor(QStringLiteral("b"), QStringLiteral("same-remote-id")), 1);
 
-        const auto widgetFree = SharedConversationProjection::collect({
-            {QStringLiteral("a"), &first}, {QStringLiteral("b"), &second}},
-            QStringLiteral("recent"));
-        QCOMPARE(widgetFree.size(), merged.size());
-        QCOMPARE(widgetFree.at(0).accountId, merged.at(0).accountId);
-        QCOMPARE(widgetFree.at(1).accountId, merged.at(1).accountId);
-
-        QVERIFY(tree.setSharedConversationSorting(QStringLiteral("alpha")));
-        merged = tree.sharedConversationEntries();
-        QCOMPARE(merged.at(0).accountId, QStringLiteral("b"));
-        QCOMPARE(merged.at(1).accountId, QStringLiteral("a"));
-        QVERIFY(!tree.setSharedConversationSorting(QStringLiteral("invalid")));
-        QCOMPARE(tree.sharedConversationEntries().at(0).accountId,
-                 QStringLiteral("b"));
+        QSignalSpy moves(&model, &QAbstractItemModel::rowsMoved);
+        QVERIFY(model.setSorting(QStringLiteral("alpha")));
+        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("b"));
+        QCOMPARE(model.entryAt(1).accountId, QStringLiteral("a"));
+        QVERIFY(moves.count() > 0);
+        QVERIFY(!model.setSorting(QStringLiteral("invalid")));
+        QCOMPARE(model.sorting(), QStringLiteral("alpha"));
         QCOMPARE(SidebarService::instance(first).teamState(QStringLiteral("team-1"))
                      ->category(QStringLiteral("dm"))->sorting,
                  QStringLiteral("manual"));
-        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
-        QVERIFY(tree.sharedConversationEntries().isEmpty());
+        QCOMPARE(resets.count(), 0);
+        // Single-account views retain the original server-backed tree.
+        model.setSources({{QStringLiteral("a"), &first}});
+        QCOMPARE(model.rowCount(), 0);
+        QCOMPARE(resets.count(), 0);
     }
 
     void accountCatalogKeepsCanonicalChannelsAcrossTeams()
@@ -319,34 +313,51 @@ private slots:
         QCOMPARE(matches.first(), QStringLiteral("group-0"));
     }
 
-    void mergedConversationOrderIsViewLocalAndAccountQualified()
+    void sharedConversationsReconcileRowsWithoutReset()
     {
-        using Entry = SharedConversationOrder::Entry;
-        QVector<Entry> conversations {
-            {QStringLiteral("b"), QStringLiteral("same-id"),
-             QStringLiteral("zebra"), 300},
-            {QStringLiteral("a"), QStringLiteral("same-id"),
-             QStringLiteral("Alpha"), 100},
-            {QStringLiteral("c"), QStringLiteral("other-id"),
-             QStringLiteral("alpha"), 200},
+        Backend a;
+        Backend b;
+        auto setup = [](Backend& backend, const QString& id,
+                        const QString& title, int activity) {
+            auto& storage = backend.getStorage();
+            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
+            return storage.addOwnChannel({
+                {QStringLiteral("id"), id},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"), title},
+                {QStringLiteral("last_post_at"), activity}});
         };
-
-        SharedConversationOrder::sort(conversations, QStringLiteral("recent"));
-        QCOMPARE(conversations.at(0).accountId, QStringLiteral("b"));
-        QCOMPARE(conversations.at(1).accountId, QStringLiteral("c"));
-        QCOMPARE(conversations.at(2).accountId, QStringLiteral("a"));
-
-        SharedConversationOrder::sort(conversations, QStringLiteral("alpha"));
-        QCOMPARE(conversations.at(0).accountId, QStringLiteral("a"));
-        QCOMPARE(conversations.at(1).accountId, QStringLiteral("c"));
-        QCOMPARE(conversations.at(2).accountId, QStringLiteral("b"));
-
-        conversations[1].title = conversations[0].title;
-        conversations[1].accountId = conversations[0].accountId;
-        conversations[1].channelId = QStringLiteral("other-id");
-        SharedConversationOrder::sort(conversations, QStringLiteral("alpha"));
-        QCOMPARE(conversations.at(0).channelId, QStringLiteral("other-id"));
-        QCOMPARE(conversations.at(1).channelId, QStringLiteral("same-id"));
+        BackendChannel* first = setup(a, QStringLiteral("same"),
+                                      QStringLiteral("zebra"), 100);
+        BackendChannel* second = setup(b, QStringLiteral("same"),
+                                       QStringLiteral("Alpha"), 200);
+        QVERIFY(first);
+        QVERIFY(second);
+        ViewConversationModel model;
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
+        QSignalSpy moves(&model, &QAbstractItemModel::rowsMoved);
+        model.setSources({{QStringLiteral("a"), &a},
+                          {QStringLiteral("b"), &b}});
+        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("b"));
+        first->last_post_at = 300;
+        emit a.onAllTeamChannelsPopulated();
+        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("a"));
+        QVERIFY(moves.count() > 0);
+        first->display_name = QStringLiteral("New name");
+        emit a.onAllTeamChannelsPopulated();
+        QCOMPARE(model.entryAt(0).title, QStringLiteral("New name"));
+        QVERIFY(changes.count() > 0);
+        QVERIFY(model.setSorting(QStringLiteral("alpha")));
+        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("b"));
+        QCOMPARE(model.entryAt(1).accountId, QStringLiteral("a"));
+        QSignalSpy removed(&model, &QAbstractItemModel::rowsRemoved);
+        model.setSources({{QStringLiteral("a"), &a},
+                          {QStringLiteral("b"), nullptr}});
+        QCOMPARE(model.rowCount(), 1);
+        QVERIFY(removed.count() > 0);
+        QCOMPARE(resets.count(), 0);
     }
 
     void mergedViewRejectsUnqualifiedActionsWithOnlyOneBackendOnline()
