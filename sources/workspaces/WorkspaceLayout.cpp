@@ -139,7 +139,10 @@ QString WorkspaceLayout::upsertAuthenticatedAccount(
     view.name = displayName;
     view.accountIds.append(addedId);
     next.views.append(view);
-    next.activeViewId = view.id;
+    // Adding a server must not silently switch the current workspace.
+    // AccountManager's selected account and active View stay consistent.
+    if (next.activeViewId.isEmpty())
+        next.activeViewId = view.id;
     if (!next.validate())
         return {};
     *this = std::move(next);
