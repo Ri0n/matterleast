@@ -56,13 +56,13 @@ private slots:
         QCOMPARE(selected.count(), 1);
         QCOMPARE(selected.at(0).at(0).toString(), QStringLiteral("b"));
         stack.showServers();
-        QVERIFY(tree->isHidden());
+        QVERIFY(!tree->isVisible());
         QVERIFY(stack.activateWorkspace(QStringLiteral("b")));
-        QVERIFY(!tree->isHidden());
+        QVERIFY(tree->isVisible());
         QCOMPARE(stack.workspace(QStringLiteral("b")), second);
         QCOMPARE(stack.workspace(QStringLiteral("a")), first);
         stack.setMergedSidebarModel(nullptr);
-        QVERIFY(tree->isHidden());
+        QVERIFY(!tree->isVisible());
         QCOMPARE(stack.activeAccountId(), QStringLiteral("b"));
     }
 
