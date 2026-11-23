@@ -173,6 +173,37 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+    void inlineServerActionsHandleClicksWithoutOpeningServer()
+    {
+        AccountManager manager;
+        QVERIFY(manager.load(topology().toJson()));
+        ServersSidebarPage page(manager);
+        page.resize(350, 450);
+        page.show();
+        QCoreApplication::processEvents();
+        auto* tree = page.findChild<QTreeView*>(
+            QStringLiteral("serversWorkspaceTree"));
+        QVERIFY(tree);
+        const QModelIndex server = tree->model()->index(1, 0);
+        QVERIFY(server.isValid());
+        QCOMPARE(server.data(WorkspaceTreeModel::NodeKindRole).toInt(),
+                 int(WorkspaceTreeModel::AccountNode));
+        const QRect row = tree->visualRect(server);
+        QVERIFY(row.width() >= 60);
+        QVERIFY(row.height() > 0);
+        QSignalSpy settings(&page, &ServersSidebarPage::serverSettingsRequested);
+        QSignalSpy connectRequested(&page, &ServersSidebarPage::retryRequested);
+        QSignalSpy openRequested(&page, &ServersSidebarPage::accountOpenRequested);
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(row.right() - 15, row.center().y()));
+        QCOMPARE(settings.count(), 1);
+        QCOMPARE(openRequested.count(), 0);
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          QPoint(row.right() - 45, row.center().y()));
+        QCOMPARE(connectRequested.count(), 1);
+        QCOMPARE(openRequested.count(), 0);
+    }
+
     void serversPageUsesSharedTreeAndProvidesLayoutControls()
     {
         AccountManager manager;
