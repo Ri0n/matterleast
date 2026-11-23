@@ -310,8 +310,10 @@ QVariant WorkspaceTreeModel::data(const QModelIndex& idx, int role) const
     case ProfileIdRole: return node->profileId;
     case ViewIdRole: return node->viewId;
     case AccountIdRole: return node->accountId;
-    case ActiveRole: return node->kind == ViewNode
-                            && node->viewId == _activeViewId;
+    case ActiveRole:
+        return (node->kind == ViewNode
+                || (node->kind == AccountNode && node->parent == &_root))
+            && node->viewId == _activeViewId;
     case StatusRole:
     case ConnectionStateRole: {
         if (node->kind == PendingNode)
