@@ -161,49 +161,6 @@ void SidebarService::invalidateCachedReads()
     preferencesLoaded = false;
 }
 
-void SidebarService::refreshKnownChannelSummaries(std::function<void()> callback)
-{
-    // One request for the account, regardless of team count. Keep the live
-    // BackendChannel object when a cached summary is updated.
-    NetworkRequest request(backend.networkSession(), QStringLiteral("users/me/channels"));
-    QPointer<SidebarService> guard(this);
-    httpConnector.get(request, HttpResponseCallback(
-        [guard, callback = std::move(callback)](QVariant status, const QJsonDocument& doc) {
-            if (!guard)
-                return;
-            if (status.toInt() == QNetworkReply::NoError && doc.isArray()) {
-                Storage& storage = guard->backend.getStorage();
-                for (const QJsonValue& value : doc.array()) {
-                    const QJsonObject object = value.toObject();
-                    if (object.value(QStringLiteral("id")).toString().isEmpty()
-                        || !object.contains(QStringLiteral("total_msg_count")))
-                        continue;
-                    BackendChannel* channel = storage.addOwnChannel(object);
-                    if (!channel)
-                        continue;
-                    const uint64_t serverLastPost =
-                        object.value(QStringLiteral("last_post_at")).toVariant().toULongLong();
-                    if (serverLastPost < channel->last_post_at)
-                        continue; // A live event superseded the REST snapshot.
-                    channel->last_post_at = serverLastPost;
-                    channel->last_root_post_at = object.contains(QStringLiteral("last_root_post_at"))
-                        ? object.value(QStringLiteral("last_root_post_at")).toVariant().toULongLong()
-                        : serverLastPost;
-                    channel->total_msg_count =
-                        object.value(QStringLiteral("total_msg_count")).toInt();
-                    channel->has_total_msg_count_root =
-                        object.contains(QStringLiteral("total_msg_count_root"));
-                    channel->total_msg_count_root = channel->has_total_msg_count_root
-                        ? object.value(QStringLiteral("total_msg_count_root")).toInt()
-                        : channel->total_msg_count;
-                }
-            }
-            guard->synchronizeChannelActivity();
-            if (callback)
-                callback();
-        }));
-}
-
 void SidebarService::clear()
 {
     httpConnector.reset();

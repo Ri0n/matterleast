@@ -696,19 +696,15 @@ void ChannelTree::refreshServerSnapshotForAccount(const QString& accountId)
             if (!guard || !ownerGuard
                 || guard->backendForAccount(id) != ownerGuard.data())
                 return;
-            // Read cursors alone cannot update unread state. Refresh the
-            // originating server's channel summaries before its categories.
-            SidebarService::instance(*ownerGuard.data())
-                .refreshKnownChannelSummaries([guard, ownerGuard, id] {
-                    if (!guard || !ownerGuard
-                        || guard->backendForAccount(id) != ownerGuard.data())
-                        return;
-                    const QList<ScopedId> teamKeys = guard->teamToItemMap.keys();
-                    for (const ScopedId& key : teamKeys) {
-                        if (key.first == id)
-                            guard->refreshSidebarTeam(key);
-                    }
-                });
+            // The authenticated Backend owns the account channel catalog.
+            // Verified websocket replay guarantees it is still current; a
+            // sequence gap recreates the session and reloads the catalog.
+            // This view must never issue a second /users/me/channels request.
+            const QList<ScopedId> teamKeys = guard->teamToItemMap.keys();
+            for (const ScopedId& key : teamKeys) {
+                if (key.first == id)
+                    guard->refreshSidebarTeam(key);
+            }
         });
     });
 }

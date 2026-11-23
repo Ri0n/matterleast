@@ -332,6 +332,32 @@ private slots:
         QCOMPARE(channel->postIdToPost.value(root->id), root);
     }
 
+    void verifiedReplayUsesExistingAccountCatalog()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        backend.networkSession().setHost(serverBaseUrl(server));
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        QTRY_VERIFY(backend.getStorage().getChannelById(QStringLiteral("channel")));
+        QTRY_COMPARE(server.accountChannelLookups.size(), 1);
+
+        BackendChannel* cached = backend.getStorage().getChannelById(
+            QStringLiteral("channel"));
+        // A verified WebSocket replay may refresh read cursors, preferences,
+        // and categories, but it must not re-download the channel catalog.
+        emit backend.onRealtimeRecovered();
+        QTest::qWait(150);
+        QCOMPARE(server.accountChannelLookups.size(), 1);
+        QCOMPARE(backend.getStorage().getChannelById(QStringLiteral("channel")),
+                 cached);
+    }
+
     void lateAccountCatalogResponseDoesNotTouchReplacementTeam()
     {
         Server server;
