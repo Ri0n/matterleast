@@ -480,6 +480,19 @@ void MainWindow::showChannelsSidebar()
         channelTabs->setCurrentWidget(channelsPage);
 }
 
+void MainWindow::setMergedSidebarMode(bool enabled)
+{
+    if (!sidebarSplitter || sidebarSplitter->count() < 2) return;
+    QWidget* nativeSidebar = sidebarSplitter->widget(0);
+    if (!nativeSidebar || nativeSidebar->isHidden() == enabled) return;
+    nativeSidebar->setHidden(enabled);
+    if (!enabled) {
+        QTimer::singleShot(0, this, [this] {
+            if (isVisible()) restoreSidebarWidth();
+        });
+    }
+}
+
 static QString infoText()
 {
     QString description = QString("MatterLeast " PROJECT_VER "<br/>"

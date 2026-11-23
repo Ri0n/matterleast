@@ -89,6 +89,7 @@ public:
 
 private:
     void ensureWorkspaceShell();
+    void syncMergedViewPresentation();
     void addAccountWorkspace(Backend& backend, bool activate);
     void suspendProfileConnection(Account* account, Backend* backend);
     void populateAccountMenu(QMenu& menu);
@@ -331,6 +332,26 @@ void MattermostApplication::ensureWorkspaceShell()
             MLOptions::instance()->setValue(
                 QStringLiteral("geometry"), workspaceShell->saveGeometry());
     });
+    connect(workspaceShell.get(), &AccountWorkspaceStack::accountRequested,
+            this, [this](const QString& accountId) {
+        selectAccount(accountId);
+    });
+    connect(workspaceShell.get(), &AccountWorkspaceStack::conversationRequested,
+            this, [this](const QString& accountId, const QString& channelId) {
+        Account* account = accounts.account(accountId);
+        if (!account || !account->backend()
+            || account->state() != AccountConnectionState::Connected)
+            return;
+        MainWindow* page = accountViews.value(account->backend(), nullptr);
+        if (!page || !accounts.selectAccount(accountId)) return;
+        workspaceShell->activateWorkspace(accountId);
+        page->openChannelPost(channelId);
+    });
+    connect(&accounts, &AccountManager::activeViewChanged, workspaceShell.get(),
+            [this](const QString&) { syncMergedViewPresentation(); });
+    connect(&accounts, &AccountManager::layoutChanged, workspaceShell.get(),
+            [this] { syncMergedViewPresentation(); });
+
     connect(workspaceShell.get(), &AccountWorkspaceStack::activeWorkspaceChanged,
             this, [this](const QString& id) {
         if (!id.isEmpty() && id != accounts.selectedAccountId())
@@ -343,6 +364,24 @@ void MattermostApplication::ensureWorkspaceShell()
             workspaceShell->activateWorkspace(accounts.selectedAccountId());
         updateWindowTitle();
     });
+}
+
+void MattermostApplication::syncMergedViewPresentation()
+{
+    if (!workspaceShell) return;
+    QStringList visibleAccounts;
+    for (const auto& view : accounts.layout().views) {
+        if (view.id == accounts.activeViewId()) {
+            visibleAccounts = view.accountIds;
+            break;
+        }
+    }
+    const bool merged = visibleAccounts.size() > 1;
+    workspaceShell->setMergedSidebarModel(
+        merged ? accounts.viewSidebar(accounts.activeViewId()) : nullptr);
+    for (MainWindow* page : accountViews) {
+        if (page) page->setMergedSidebarMode(merged);
+    }
 }
 
 void MattermostApplication::bindActiveNavigationView()
@@ -390,6 +429,7 @@ void MattermostApplication::selectAccount(const QString& id,
             workspaceShell->showServers();
         trayWindow.setWindow(workspaceShell.get());
     }
+    syncMergedViewPresentation();
     updateWindowTitle();
     if (presentWindow)
         trayWindow.showWindow();
@@ -511,6 +551,7 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
             [this, owner = &backend] { beginLogout(*owner, true); });
 
     page->installRealtimeUiSync();
+    syncMergedViewPresentation();
     // A backend arriving after view activation must adopt its retained view
     // session before the startup channel snapshot is replayed.
     bindActiveNavigationView();
