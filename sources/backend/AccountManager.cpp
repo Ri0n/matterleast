@@ -106,7 +106,8 @@ AccountManager::~AccountManager()
 
 void AccountManager::scheduleRetry(const QString& id, RetryKind kind)
 {
-    if (id.isEmpty() || _pendingRetries.contains(id))
+    if (id.isEmpty() || _manuallyDisconnected.contains(id)
+        || _pendingRetries.contains(id))
         return;
     const int delay = retryDelayMs(++_retryFailures[id]);
     _pendingRetries.insert(id, {kind, _retryClock.elapsed() + delay});
@@ -153,7 +154,8 @@ void AccountManager::processRetries(bool force)
     const QStringList admitted = activeProfileAccountIds();
     for (const auto& entry : due) {
         Account* item = account(entry.first);
-        if (!item || !admitted.contains(entry.first))
+        if (!item || !admitted.contains(entry.first)
+            || _manuallyDisconnected.contains(entry.first))
             continue;
         if (entry.second == RetryKind::SavedSession) {
             if (item->backend() || item->pendingBackend()
@@ -582,6 +584,8 @@ void AccountManager::reconcileActiveProfile()
         return;
 
     for (const QString& id : admittedIds) {
+        if (_manuallyDisconnected.contains(id))
+            continue;
         Account* item = account(id);
         if (item && item->state() == AccountConnectionState::Disconnected
             && !item->backend() && !item->pendingBackend())
@@ -640,7 +644,8 @@ Backend* AccountManager::createLoginBackend()
     return new Backend(this);
 }
 
-void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
+void AccountManager::beginNewServerLogin(const BackendLoginData& credentials,
+                                         const QString& displayName)
 {
     if (_invalidCatalog || credentials.domain.isEmpty()
         || credentials.username.isEmpty()
@@ -665,13 +670,15 @@ void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
     // constructing a dummy Account or a full MainWindow for this Backend.
     const QString loginName = credentials.username;
     candidate->login(credentials,
-        [this, guard, requestId, serverName, loginName](const QString& token) {
+        [this, guard, requestId, serverName, loginName, displayName](const QString& token) {
         if (!guard || _pendingNewServers.value(requestId) != guard)
             return;
         _pendingNewServers.remove(requestId);
         if (!token.isEmpty()) {
-            const QString display = QUrl(guard->serverDomain()).host()
-                + QStringLiteral(" — ") + guard->getLoginUser().username;
+            const QString display = displayName.isEmpty()
+                ? QUrl(guard->serverDomain()).host()
+                    + QStringLiteral(" — ") + guard->getLoginUser().username
+                : displayName;
             Account* connected = adoptAuthenticated(guard.data(), loginName, display);
             if (connected) {
                 _treeModel.removePendingServer(requestId);
@@ -767,6 +774,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
         return nullptr;
+    _manuallyDisconnected.remove(id);
     // The saved-token verification has succeeded. Clear its retry cycle
     // BEFORE observing the WebSocket state: a socket may already be offline,
     // and clearing later would silently erase its newly scheduled retry.
@@ -865,6 +873,28 @@ void AccountManager::cancelPendingRestore(
         item->cancelPending(status);
 }
 
+bool AccountManager::disconnectAccount(const QString& id)
+{
+    Account* item = account(id);
+    if (!item || _suspendingProfileAccounts.contains(id))
+        return false;
+    Backend* backend = item->backend();
+    if (!backend || item->state() != AccountConnectionState::Connected)
+        return false;
+
+    // Mark the account before stopping the transport: WebSocket callbacks
+    // cannot schedule another retry while the Widgets are being retired.
+    _manuallyDisconnected.insert(id);
+    cancelRetry(id);
+    _suspendingProfileAccounts.insert(id);
+    item->setState(AccountConnectionState::Disconnected);
+    backend->prepareForLogout();
+    // The app destroys dependent widgets and acknowledges suspension, just
+    // as when switching an exclusive profile. No logout or keychain erase.
+    emit profileSuspensionRequested(item, backend);
+    return true;
+}
+
 void AccountManager::restoreAccount(const QString& id)
 {
     Account* item = account(id);
@@ -877,6 +907,7 @@ void AccountManager::restoreAccount(const QString& id)
         || item->backend() || item->pendingBackend())
         return;
 
+    _manuallyDisconnected.remove(id); // An explicit Connect overrides the pause.
     cancelRetry(id, false);
     qCInfo(accountRestoreLog) << "Starting session restoration for account" << id;
     Backend* backend = item->createPendingBackend();

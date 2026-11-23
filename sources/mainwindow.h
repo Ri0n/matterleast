@@ -106,7 +106,8 @@ signals:
     void serverOpenRequested(const QString& accountId);
     void viewOpenRequested(const QString& viewId);
     void addServerRequested();
-    void serverSignInRequested(const QString& accountId);
+    void serverSettingsRequested(const QString& accountId);
+    void serverDisconnectRequested(const QString& accountId);
     void serverConnectRequested(const QString& accountId);
 
 private slots:

@@ -454,13 +454,15 @@ void MainWindow::installServersSidebar(AccountManager& manager)
             this, &MainWindow::viewOpenRequested);
     connect(serversPage, &ServersSidebarPage::addServerRequested,
             this, &MainWindow::addServerRequested);
-    connect(serversPage, &ServersSidebarPage::signInRequested,
-            this, &MainWindow::serverSignInRequested);
+    connect(serversPage, &ServersSidebarPage::serverSettingsRequested,
+            this, &MainWindow::serverSettingsRequested);
+    connect(serversPage, &ServersSidebarPage::disconnectRequested,
+            this, &MainWindow::serverDisconnectRequested);
     connect(serversPage, &ServersSidebarPage::retryRequested,
             this, &MainWindow::serverConnectRequested);
     connect(channelTabs, &QTabWidget::currentChanged, this, [this] {
         if (sidebarFilterRow)
-            sidebarFilterRow->setVisible(channelTabs->currentWidget() != serversPage);
+            sidebarFilterRow->setEnabled(channelTabs->currentWidget() != serversPage);
     });
 }
 

@@ -65,6 +65,25 @@ void WorkspaceTreeModel::refreshTopology()
         profiles.push_back({PendingNode, pending.id, pending.server,
                             {}, {}, {}, {}, pending.status});
     for (const auto& profile : _layout.profiles) {
+        const WorkspaceLayout::View* soleView = nullptr;
+        int viewCount = 0;
+        for (const auto& view : _layout.views) {
+            if (view.profileId != profile.id)
+                continue;
+            ++viewCount;
+            soleView = &view;
+        }
+        // One server and one View do not need two wrapper rows. Keep the
+        // persisted profile and View identities for navigation and editing.
+        if (viewCount == 1 && soleView && profile.accountIds.size() == 1
+            && soleView->accountIds == profile.accountIds) {
+            const QString& accountId = profile.accountIds.front();
+            if (const auto* account = _layout.account(accountId)) {
+                profiles.push_back({AccountNode, accountId, account->name,
+                    profile.id, soleView->id, accountId, {}, {}});
+                continue;
+            }
+        }
         Desired p { ProfileNode, profile.id, profile.name,
                     profile.id, {}, {}, {}, {} };
         for (const auto& view : _layout.views) {
@@ -141,7 +160,7 @@ void WorkspaceTreeModel::refreshTopology()
                 node->status = want.status;
                 const QModelIndex idx = modelIndex(node);
                 emit dataChanged(idx, idx,
-                                 {Qt::DisplayRole, ProfileIdRole,
+                                 {Qt::DisplayRole, Qt::ToolTipRole, ProfileIdRole,
                                   ViewIdRole, AccountIdRole, StatusRole});
             }
             reconcile(node, want.children);
@@ -158,6 +177,11 @@ void WorkspaceTreeModel::refreshTopology()
     _views.clear();
     _accountOccurrences.clear();
     for (const auto& profile : _root.children) {
+        if (profile->kind == AccountNode) {
+            _views.insert(profile->viewId, profile.get());
+            _accountOccurrences[profile->accountId].append(profile.get());
+            continue;
+        }
         if (profile->kind != ProfileNode) continue;
         for (const auto& view : profile->children) {
             _views.insert(view->viewId, view.get());
@@ -273,16 +297,32 @@ QVariant WorkspaceTreeModel::data(const QModelIndex& idx, int role) const
     const auto* node = static_cast<const Node*>(idx.internalPointer());
     switch (role) {
     case Qt::DisplayRole:
-        return node->kind == PendingNode
-            ? QStringLiteral("%1 — %2").arg(node->name, node->status)
-            : node->name;
+        return node->name;
+    case Qt::ToolTipRole: {
+        if (node->kind != AccountNode && node->kind != PendingNode)
+            return {};
+        const QString status = data(idx, StatusRole).toString();
+        if (node->kind == PendingNode)
+            return status.isEmpty() ? QVariant(node->name)
+                : QVariant(QStringLiteral("%1 — %2").arg(node->name, status));
+        const auto* account = _layout.account(node->accountId);
+        if (!account) return {};
+        QStringList lines;
+        lines << account->name << status << account->serverBaseUrl
+              << account->loginName;
+        if (!account->serverUserId.isEmpty())
+            lines << tr("Server user ID: %1").arg(account->serverUserId);
+        return lines.join(QLatin1Char('\n'));
+    }
     case NodeKindRole: return static_cast<int>(node->kind);
     case NodeIdRole: return node->id;
     case ProfileIdRole: return node->profileId;
     case ViewIdRole: return node->viewId;
     case AccountIdRole: return node->accountId;
-    case ActiveRole: return node->kind == ViewNode
-                            && node->viewId == _activeViewId;
+    case ActiveRole:
+        return (node->kind == ViewNode
+                || (node->kind == AccountNode && node->parent == &_root))
+            && node->viewId == _activeViewId;
     case StatusRole:
     case ConnectionStateRole: {
         if (node->kind == PendingNode)
@@ -319,7 +359,8 @@ void WorkspaceTreeModel::notifyAccountStatus(const QString& accountId)
 {
     for (Node* node : _accountOccurrences.value(accountId)) {
         const QModelIndex idx = modelIndex(node);
-        emit dataChanged(idx, idx, {ConnectionStateRole, StatusRole});
+        emit dataChanged(idx, idx,
+                         {ConnectionStateRole, StatusRole, Qt::ToolTipRole});
     }
 }
 

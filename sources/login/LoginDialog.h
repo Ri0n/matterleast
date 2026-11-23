@@ -22,6 +22,8 @@
 #include <QDialog>
 
 class QCheckBox;
+class QLineEdit;
+class QLabel;
 #include "backend/types/BackendLoginData.h"
 
 namespace Ui {
@@ -46,6 +48,10 @@ public:
     LoginDialog(QWidget* parent, const QString& server,
                 const QString& login);
     BackendLoginData submittedCredentials() const { return _submittedCredentials; }
+    void configureExistingAccount(const QString& name, const QString& userId,
+                                  bool connected);
+    QString displayName() const;
+    bool submittedNewCredentials() const { return _credentialsSubmitted; }
     QString authenticatedLoginName() const { return _authenticatedLoginName; }
 	~LoginDialog ();
 private slots:
@@ -64,6 +70,11 @@ private:
     BackendLoginData _submittedCredentials;
 	Ui::LoginDialog*	ui;
     QCheckBox* _tokenMode = nullptr;
+    QLineEdit* _displayName = nullptr;
+    QLabel* _serverUserInfo = nullptr;
+    bool _editingExisting = false;
+    bool _editingConnected = false;
+    bool _credentialsSubmitted = false;
     QString _authenticatedLoginName;
     bool _attemptInProgress = false;
     quint64 _loginAttemptGeneration = 0;

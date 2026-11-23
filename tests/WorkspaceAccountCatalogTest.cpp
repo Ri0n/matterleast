@@ -26,8 +26,13 @@ private slots:
         QVERIFY(!b.isEmpty());
         QVERIFY(a != b);
         QCOMPARE(registry.accounts.size(), 2);
-        QCOMPARE(registry.profiles.size(), 1);
+        QCOMPARE(registry.profiles.size(), 2);
         QCOMPARE(registry.views.size(), 2);
+        QCOMPARE(registry.profiles[0].accountIds, QStringList{a});
+        QCOMPARE(registry.profiles[1].accountIds, QStringList{b});
+        QCOMPARE(registry.profiles[0].name, QStringLiteral("chat-one — alice"));
+        QCOMPARE(registry.profiles[1].name, QStringLiteral("chat-two — bob"));
+        QCOMPARE(registry.activeViewId, registry.views.first().id);
         const QByteArray saved = registry.toJson();
         QVERIFY(!saved.isEmpty());
         QVERIFY(!saved.contains("password"));
@@ -38,6 +43,44 @@ private slots:
         QCOMPARE(loaded->account(a)->loginName, QStringLiteral("alice"));
         QCOMPARE(loaded->account(b)->serverUserId, QStringLiteral("user2"));
         QCOMPARE(loaded->activeViewId, registry.activeViewId);
+    }
+
+    void newServerDoesNotImplicitlyJoinSelectedCombinedProfile()
+    {
+        WorkspaceLayout registry;
+        const QString a = registry.upsertAuthenticatedAccount(
+            QStringLiteral("https://a.example.org/"), QStringLiteral("a"),
+            QStringLiteral("a"), QStringLiteral("A"));
+        const QString b = registry.upsertAuthenticatedAccount(
+            QStringLiteral("https://b.example.org/"), QStringLiteral("b"),
+            QStringLiteral("b"), QStringLiteral("B"));
+        QVERIFY(!a.isEmpty());
+        QVERIFY(!b.isEmpty());
+        WorkspaceLayout::Profile combined;
+        combined.id = QStringLiteral("combined-profile");
+        combined.name = QStringLiteral("Combined");
+        combined.accountIds = QStringList({a, b});
+        registry.profiles.append(combined);
+        WorkspaceLayout::View merged;
+        merged.id = QStringLiteral("merged-view");
+        merged.profileId = combined.id;
+        merged.name = combined.name;
+        merged.accountIds = combined.accountIds;
+        registry.views.append(merged);
+        registry.activeViewId = merged.id;
+        QVERIFY(registry.validate());
+
+        const QString c = registry.upsertAuthenticatedAccount(
+            QStringLiteral("https://c.example.org/"), QStringLiteral("c"),
+            QStringLiteral("c"), QStringLiteral("C"));
+        QVERIFY(!c.isEmpty());
+        QCOMPARE(registry.profiles.at(2).id, combined.id);
+        QCOMPARE(registry.profiles.at(2).accountIds, QStringList({a, b}));
+        QCOMPARE(registry.profiles.size(), 4);
+        QCOMPARE(registry.profiles.last().accountIds, QStringList({c}));
+        QCOMPARE(registry.views.last().accountIds, QStringList({c}));
+        QCOMPARE(registry.activeViewId, merged.id);
+        QVERIFY(registry.validate());
     }
 
     void reauthenticationDoesNotDuplicateAccountOrDiscardViews()

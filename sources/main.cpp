@@ -313,10 +313,10 @@ void MattermostApplication::ensureWorkspaceShell()
             [this](const QString& id) {
         if (accounts.selectAccount(id)) accounts.restoreAccount(id);
     });
-    connect(serversStartupPage, &ServersWorkspacePage::signInRequested, this,
-            [this](const QString& id) {
-        if (accounts.selectAccount(id)) openLoginWindow(id);
-    });
+    connect(serversStartupPage, &ServersWorkspacePage::serverSettingsRequested,
+            this, [this](const QString& id) { openLoginWindow(id); });
+    connect(serversStartupPage, &ServersWorkspacePage::serverDisconnectRequested,
+            this, [this](const QString& id) { accounts.disconnectAccount(id); });
     connect(serversStartupPage, &ServersWorkspacePage::addServerRequested, this,
             [this] { openLoginWindow(); });
 
@@ -480,10 +480,10 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
     });
     connect(page, &MainWindow::addServerRequested, this,
             [this] { openLoginWindow(); });
-    connect(page, &MainWindow::serverSignInRequested, this,
-            [this](const QString& id) {
-        if (accounts.selectAccount(id)) openLoginWindow(id);
-    });
+    connect(page, &MainWindow::serverSettingsRequested, this,
+            [this](const QString& id) { openLoginWindow(id); });
+    connect(page, &MainWindow::serverDisconnectRequested, this,
+            [this](const QString& id) { accounts.disconnectAccount(id); });
     connect(page, &MainWindow::serverConnectRequested, this,
             [this](const QString& id) {
         if (accounts.selectAccount(id)) accounts.restoreAccount(id);
@@ -548,7 +548,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         connect(dialog, &QDialog::accepted, this, [this, dialog] {
             const BackendLoginData credentials = dialog->submittedCredentials();
             if (loginDialog == dialog) loginDialog = nullptr;
-            accounts.beginNewServerLogin(credentials);
+            accounts.beginNewServerLogin(credentials, dialog->displayName());
         });
         dialog->open();
         return;
@@ -582,6 +582,12 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         lockIdentity ? fixedServer : suggestedServer,
         lockIdentity ? fixedLogin : suggestedLogin, lockIdentity);
     loginDialog = dialog;
+    if (Account* existing = accounts.account(recoveryAccountId)) {
+        if (const auto* record = existing->record())
+            dialog->configureExistingAccount(
+                record->name, record->serverUserId,
+                existing->state() == AccountConnectionState::Connected);
+    }
     if (!workspaceShell)
         trayWindow.setWindow(dialog);
 
@@ -600,9 +606,25 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
     connect(dialog, &QDialog::accepted, this,
             [this, dialog, candidate, adopted, recoveryAccountId] {
         loginDialog = nullptr;
+        const QString updatedLabel = dialog->displayName();
+        auto saveAlias = [this, &updatedLabel](const QString& accountId) {
+            if (updatedLabel.isEmpty()) return;
+            WorkspaceLayout updated = accounts.layout();
+            for (auto& record : updated.accounts)
+                if (record.id == accountId)
+                    record.name = updatedLabel;
+            QString error;
+            if (!accounts.applyLayoutEdits(updated, &error))
+                qWarning() << "Server alias update failed:" << error;
+        };
+        if (!dialog->submittedNewCredentials()) {
+            saveAlias(recoveryAccountId);
+            return; // Metadata-only edit: candidate is safely discarded.
+        }
         const QString host = QUrl(candidate->serverDomain()).host();
-        const QString display = host + QStringLiteral(" — ")
-            + candidate->getLoginUser().username;
+        const QString display = updatedLabel.isEmpty()
+            ? host + QStringLiteral(" — ") + candidate->getLoginUser().username
+            : updatedLabel;
 
         Account* item = accounts.adoptAuthenticated(
             candidate, dialog->authenticatedLoginName(), display,
@@ -621,6 +643,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
             return; // Destroyed dialog discards the unadopted candidate.
         }
         *adopted = true;
+        saveAlias(item->id());
         selectAccount(item->id());
         if (workspaceShell) {
             trayWindow.setWindow(workspaceShell.get());

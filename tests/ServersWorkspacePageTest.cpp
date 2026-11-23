@@ -2,6 +2,7 @@
 #include <QAbstractItemModel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QToolButton>
 #include <QTabWidget>
 #include <QTreeView>
 
@@ -39,9 +40,11 @@ private slots:
         QCOMPARE(tree->model()->rowCount(), 0);
 
         QSignalSpy add(&page, &ServersWorkspacePage::addServerRequested);
-        auto* button = page.findChild<QPushButton*>(
+        auto* button = page.findChild<QToolButton*>(
             QStringLiteral("serversAdd"));
         QVERIFY(button);
+        QVERIFY(button->text().isEmpty());
+        QCOMPARE(button->iconSize(), QSize(20, 20)); // qrc icons live in the app binary.
         button->click();
         QCOMPARE(add.count(), 1);
     }
@@ -67,7 +70,11 @@ private slots:
         const QModelIndex pending = model->index(0, 0);
         QCOMPARE(pending.data(WorkspaceTreeModel::NodeKindRole).toInt(),
                  int(WorkspaceTreeModel::PendingNode));
-        QVERIFY(pending.data(Qt::DisplayRole).toString().contains(
+        QCOMPARE(pending.data(Qt::DisplayRole).toString(),
+                 QStringLiteral("chat.example.org"));
+        QCOMPARE(pending.data(WorkspaceTreeModel::StatusRole).toString(),
+                 QStringLiteral("Connecting…"));
+        QVERIFY(pending.data(Qt::ToolTipRole).toString().contains(
                     QStringLiteral("Connecting…")));
 
         model->setPendingServer(QStringLiteral("attempt-1"),

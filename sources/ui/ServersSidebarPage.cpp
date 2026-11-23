@@ -4,11 +4,23 @@
 #include <utility>
 
 #include <QAbstractItemView>
+#include <QApplication>
+#include <QFrame>
+#include <QIcon>
+#include <QPainter>
+#include <QMouseEvent>
+#include <QHelpEvent>
+#include <QToolTip>
+#include <QPixmap>
+#include <QStyledItemDelegate>
+#include <QStyle>
+#include <QStyleOptionViewItem>
+#include <functional>
+#include "ui/IconUtils.h"
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
-#include <QFont>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -37,6 +49,185 @@ QString generatedId()
 {
     return QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
+
+// Keep the QtCore model independent of the Widgets presentation. Its
+// ConnectionStateRole also lets a future QML tree render the same state.
+class ServerStatusDelegate final : public QStyledItemDelegate
+{
+public:
+    using Action = std::function<void(const QModelIndex&)>;
+    explicit ServerStatusDelegate(Action edit, Action connectOrDisconnect,
+                                  QObject* parent)
+        : QStyledItemDelegate(parent), _edit(std::move(edit)),
+          _connectOrDisconnect(std::move(connectOrDisconnect))
+    {
+    }
+
+    static AccountConnectionState connectionState(const QModelIndex& index)
+    {
+        return static_cast<AccountConnectionState>(
+            index.data(WorkspaceTreeModel::ConnectionStateRole).toInt());
+    }
+
+    static bool canToggleConnection(const QModelIndex& index)
+    {
+        switch (connectionState(index)) {
+        case AccountConnectionState::Connected:
+        case AccountConnectionState::Disconnected:
+        case AccountConnectionState::Unavailable:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override
+    {
+        QStyleOptionViewItem decorated(option);
+        initStyleOption(&decorated, index);
+        const int kind = index.data(WorkspaceTreeModel::NodeKindRole).toInt();
+        const bool account = kind == WorkspaceTreeModel::AccountNode;
+        if (account || kind == WorkspaceTreeModel::PendingNode) {
+            const auto state = kind == WorkspaceTreeModel::PendingNode
+                ? AccountConnectionState::Connecting : connectionState(index);
+            QColor color;
+            switch (state) {
+            case AccountConnectionState::Connected:
+                color = QColor(38, 165, 102); break;
+            case AccountConnectionState::Connecting:
+            case AccountConnectionState::SetupRequired:
+                color = QColor(217, 150, 33); break;
+            case AccountConnectionState::Unavailable:
+            case AccountConnectionState::AuthenticationRequired:
+                color = QColor(199, 79, 68); break;
+            case AccountConnectionState::Disconnected:
+                color = option.palette.color(QPalette::Mid); break;
+            }
+            QPixmap marker(21, 21);
+            marker.fill(Qt::transparent);
+            {
+                QPainter icon(&marker);
+                icon.setRenderHint(QPainter::Antialiasing);
+                icon.scale(1.5, 1.5);
+                icon.setPen(QPen(color, 1.5));
+                icon.setBrush(state == AccountConnectionState::Disconnected
+                    ? Qt::NoBrush : QBrush(color));
+                icon.drawEllipse(QRectF(2.5, 2.5, 9, 9));
+                if (state == AccountConnectionState::Connected) {
+                    icon.setPen(QPen(Qt::white, 1.5, Qt::SolidLine,
+                                     Qt::RoundCap, Qt::RoundJoin));
+                    icon.drawLine(QPointF(4.5, 7), QPointF(6.5, 9));
+                    icon.drawLine(QPointF(6.5, 9), QPointF(10, 5.5));
+                }
+            }
+            decorated.icon = QIcon(marker);
+            decorated.decorationSize = QSize(21, 21);
+            decorated.features |= QStyleOptionViewItem::HasDecoration;
+        }
+        if (account)
+            decorated.rect.adjust(0, 0, -2 * ActionHitWidth, 0);
+        QStyle* style = decorated.widget ? decorated.widget->style()
+                                        : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &decorated, painter,
+                           decorated.widget);
+        if (!account)
+            return;
+
+        const auto draw = [&](int slot, const QString& path, bool enabled) {
+            const QRect hit = actionRect(option.rect, slot);
+            const QRect iconRect(hit.center().x() - ActionExtent / 2,
+                                 hit.center().y() - ActionExtent / 2,
+                                 ActionExtent, ActionExtent);
+            painter->save();
+            painter->setOpacity(painter->opacity() *
+                (enabled ? (option.state.testFlag(QStyle::State_MouseOver)
+                    ? 1.0 : 0.48) : 0.22));
+            IconUtils::tintedSymbolicIcon(
+                path, option.palette.color(QPalette::Text)).paint(painter, iconRect);
+            painter->restore();
+        };
+        // Settings are anchored to the right edge, exactly like the category
+        // accessory slot. Connection control occupies the adjacent slot.
+        draw(0, QStringLiteral(":/icons/menu-settings"), true);
+        draw(1, QStringLiteral(":/icons/menu-power"), canToggleConnection(index));
+    }
+
+    bool editorEvent(QEvent* event, QAbstractItemModel*,
+                     const QStyleOptionViewItem& option,
+                     const QModelIndex& index) override
+    {
+        if (index.data(WorkspaceTreeModel::NodeKindRole).toInt()
+            != WorkspaceTreeModel::AccountNode)
+            return false;
+        if (event->type() != QEvent::MouseButtonPress
+            && event->type() != QEvent::MouseButtonRelease
+            && event->type() != QEvent::MouseButtonDblClick)
+            return false;
+        const auto* mouse = static_cast<QMouseEvent*>(event);
+        if (mouse->button() != Qt::LeftButton)
+            return false;
+        if (actionRect(option.rect, 0).contains(mouse->pos())) {
+            if (event->type() == QEvent::MouseButtonRelease && _edit)
+                _edit(index);
+            return true;
+        }
+        if (actionRect(option.rect, 1).contains(mouse->pos())) {
+            if (event->type() == QEvent::MouseButtonRelease
+                && canToggleConnection(index) && _connectOrDisconnect)
+                _connectOrDisconnect(index);
+            return true;
+        }
+        return false;
+    }
+
+    bool helpEvent(QHelpEvent* event, QAbstractItemView* view,
+                   const QStyleOptionViewItem& option,
+                   const QModelIndex& index) override
+    {
+        if (index.data(WorkspaceTreeModel::NodeKindRole).toInt()
+            == WorkspaceTreeModel::AccountNode) {
+            QString label;
+            if (actionRect(option.rect, 0).contains(event->pos()))
+                label = QObject::tr("Edit server");
+            else if (actionRect(option.rect, 1).contains(event->pos())) {
+                const auto state = connectionState(index);
+                if (state == AccountConnectionState::Connected)
+                    label = QObject::tr("Disconnect");
+                else if (canToggleConnection(index))
+                    label = QObject::tr("Connect");
+                else
+                    label = QObject::tr("Enter credentials in server settings");
+            }
+            if (!label.isEmpty()) {
+                QToolTip::showText(event->globalPos(), label, view);
+                return true;
+            }
+        }
+        return QStyledItemDelegate::helpEvent(event, view, option, index);
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem& option,
+                   const QModelIndex& index) const override
+    {
+        QSize hint = QStyledItemDelegate::sizeHint(option, index);
+        // QTreeView uses uniform row heights. Even if the first row is a
+        // profile rather than an account, reserve enough room for the 21px
+        // status marker and its vertical margins.
+        hint.setHeight(qMax(hint.height(), 30));
+        return hint;
+    }
+private:
+    static constexpr int ActionExtent = 20;
+    static constexpr int ActionHitWidth = 30;
+    static QRect actionRect(const QRect& row, int slot)
+    {
+        return QRect(row.right() - (slot + 1) * ActionHitWidth + 1, row.top(),
+                     ActionHitWidth, row.height());
+    }
+    Action _edit;
+    Action _connectOrDisconnect;
+};
 
 // Edits are staged in a plain WorkspaceLayout and committed only once on
 // acceptance. No view reparenting, Backend restart, or keyring action can be
@@ -459,55 +650,66 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
     layout->setContentsMargins(4, 5, 4, 4);
     layout->setSpacing(5);
 
-    auto* heading = new QLabel(tr("Servers and views"), this);
-    QFont font = heading->font();
-    font.setBold(true);
-    heading->setFont(font);
-    layout->addWidget(heading);
+    // Mirror the Channels/Unread header toolbar: 34px total, 28px tools.
+    auto* toolbar = new QWidget(this);
+    toolbar->setObjectName(QStringLiteral("serversToolbar"));
+    toolbar->setFixedHeight(34);
+    auto* toolbarLayout = new QHBoxLayout(toolbar);
+    toolbarLayout->setContentsMargins(4, 2, 4, 2);
+    toolbarLayout->setSpacing(3);
+    // The tab already names this surface; keep its toolbar icon-only.
+    toolbarLayout->addStretch();
+    auto* add = new QToolButton(toolbar);
+    add->setObjectName(QStringLiteral("serversAdd"));
+    add->setAutoRaise(true);
+    add->setIconSize(QSize(20, 20));
+    add->setFixedSize(30, 28);
+    add->setIcon(IconUtils::tintedSymbolicIcon(QStringLiteral(":/icons/add"),
+                 palette().color(QPalette::ButtonText)));
+    add->setToolTip(tr("Add server"));
+    add->setAccessibleName(tr("Add server"));
+    toolbarLayout->addWidget(add);
+    auto* editLayout = new QToolButton(toolbar);
+    editLayout->setObjectName(QStringLiteral("serversEditLayout"));
+    editLayout->setAutoRaise(true);
+    editLayout->setIconSize(QSize(20, 20));
+    editLayout->setFixedSize(28, 28);
+    editLayout->setIcon(IconUtils::tintedSymbolicIcon(
+        QStringLiteral(":/icons/menu-settings"),
+        palette().color(QPalette::ButtonText)));
+    editLayout->setToolTip(tr("Edit layout"));
+    editLayout->setAccessibleName(tr("Edit layout"));
+    toolbarLayout->addWidget(editLayout);
+    layout->addWidget(toolbar);
 
     _tree = new QTreeView(this);
     _tree->setObjectName(QStringLiteral("serversWorkspaceTree"));
     _tree->setModel(_accounts.workspaceTreeModel());
     _tree->setHeaderHidden(true);
+    _tree->setFrameShape(QFrame::NoFrame);
+    _tree->setMouseTracking(true);
+    _tree->setItemDelegate(new ServerStatusDelegate(
+        [this](const QModelIndex& index) {
+            const QString id = index.data(
+                WorkspaceTreeModel::AccountIdRole).toString();
+            if (!id.isEmpty()) emit serverSettingsRequested(id);
+        },
+        [this](const QModelIndex& index) {
+            const QString id = index.data(
+                WorkspaceTreeModel::AccountIdRole).toString();
+            if (id.isEmpty()) return;
+            if (ServerStatusDelegate::connectionState(index)
+                == AccountConnectionState::Connected)
+                emit disconnectRequested(id);
+            else
+                emit retryRequested(id);
+        }, _tree));
     _tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     _tree->setUniformRowHeights(true);
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
     _tree->expandAll();
     layout->addWidget(_tree, 1);
 
-    _details = new QLabel(this);
-    _details->setObjectName(QStringLiteral("serversSelectionDetails"));
-    _details->setWordWrap(true);
-    _details->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(_details);
-
-    auto* actions = new QHBoxLayout;
-    _open = new QPushButton(tr("Open"), this);
-    _open->setObjectName(QStringLiteral("serversOpen"));
-    _edit = new QPushButton(tr("Settings…"), this);
-    _edit->setObjectName(QStringLiteral("serversSettings"));
-    actions->addWidget(_open);
-    actions->addWidget(_edit);
-    layout->addLayout(actions);
-
-    auto* sessionActions = new QHBoxLayout;
-    _retry = new QPushButton(tr("Connect"), this);
-    _signIn = new QPushButton(tr("Sign in…"), this);
-    sessionActions->addWidget(_retry);
-    sessionActions->addWidget(_signIn);
-    layout->addLayout(sessionActions);
-
-    auto* catalogActions = new QHBoxLayout;
-    auto* add = new QPushButton(tr("Add server…"), this);
-    add->setObjectName(QStringLiteral("serversAdd"));
-    auto* editLayout = new QPushButton(tr("Layout…"), this);
-    editLayout->setObjectName(QStringLiteral("serversEditLayout"));
-    catalogActions->addWidget(add);
-    catalogActions->addWidget(editLayout);
-    layout->addLayout(catalogActions);
-
-    connect(_tree->selectionModel(), &QItemSelectionModel::currentChanged,
-            this, [this] { updateSelection(); });
     connect(_tree, &QTreeView::doubleClicked, this,
             [this](const QModelIndex&) { openSelected(); });
     connect(_tree, &QTreeView::customContextMenuRequested, this,
@@ -518,82 +720,20 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
         QMenu menu(this);
         menu.addAction(tr("Open"), this, &ServersSidebarPage::openSelected);
         if (index.data(WorkspaceTreeModel::NodeKindRole).toInt()
-            == WorkspaceTreeModel::AccountNode)
-            menu.addAction(tr("Server settings…"), this,
+            == WorkspaceTreeModel::AccountNode) {
+            menu.addAction(tr("Edit server…"), this,
                            &ServersSidebarPage::editSelectedAccount);
+        }
         menu.addAction(tr("Edit layout…"), this,
                        &ServersSidebarPage::editLayout);
         menu.exec(_tree->viewport()->mapToGlobal(point));
     });
-    connect(_open, &QPushButton::clicked, this, &ServersSidebarPage::openSelected);
-    connect(_edit, &QPushButton::clicked, this, &ServersSidebarPage::editSelectedAccount);
-    connect(_retry, &QPushButton::clicked, this, [this] {
-        const QString id = _tree->currentIndex().data(
-            WorkspaceTreeModel::AccountIdRole).toString();
-        if (!id.isEmpty()) emit retryRequested(id);
-    });
-    connect(_signIn, &QPushButton::clicked, this, [this] {
-        const QString id = _tree->currentIndex().data(
-            WorkspaceTreeModel::AccountIdRole).toString();
-        if (!id.isEmpty()) emit signInRequested(id);
-    });
-    connect(add, &QPushButton::clicked, this, &ServersSidebarPage::addServerRequested);
-    connect(editLayout, &QPushButton::clicked, this, &ServersSidebarPage::editLayout);
-    connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::dataChanged,
-            this, [this] { updateSelection(); });
+    connect(add, &QToolButton::clicked, this, &ServersSidebarPage::addServerRequested);
+    connect(editLayout, &QToolButton::clicked, this, &ServersSidebarPage::editLayout);
     connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::rowsInserted,
-            this, [this] { _tree->expandAll(); updateSelection(); });
-    connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::rowsRemoved,
-            this, [this] { updateSelection(); });
-    connect(&_accounts, &AccountManager::layoutChanged, this, [this] {
-        _tree->expandAll();
-        updateSelection();
-    });
-    updateSelection();
-}
-
-void ServersSidebarPage::updateSelection()
-{
-    const QModelIndex index = _tree->currentIndex();
-    const int kind = index.data(WorkspaceTreeModel::NodeKindRole).toInt();
-    const QString accountId = index.data(WorkspaceTreeModel::AccountIdRole).toString();
-    const QString viewId = index.data(WorkspaceTreeModel::ViewIdRole).toString();
-    const bool account = index.isValid()
-        && kind == WorkspaceTreeModel::AccountNode;
-    const bool view = index.isValid() && kind == WorkspaceTreeModel::ViewNode;
-    _open->setEnabled(account || view);
-    _edit->setEnabled(account);
-    const auto state = static_cast<AccountConnectionState>(index.data(
-        WorkspaceTreeModel::ConnectionStateRole).toInt());
-    _retry->setEnabled(account && (state == AccountConnectionState::Disconnected
-                                 || state == AccountConnectionState::Unavailable));
-    _signIn->setEnabled(account && state != AccountConnectionState::Connected
-                               && state != AccountConnectionState::Connecting);
-    if (account) {
-        const auto* record = _accounts.layout().account(accountId);
-        if (record) {
-            _details->setText(tr("%1\n@%2\n%3")
-                .arg(record->serverBaseUrl, record->loginName,
-                     index.data(WorkspaceTreeModel::StatusRole).toString()));
-            return;
-        }
-    }
-    if (index.isValid() && kind == WorkspaceTreeModel::PendingNode) {
-        _details->setText(tr("Connecting to %1: %2")
-            .arg(index.data(WorkspaceTreeModel::NodeIdRole).toString().isEmpty()
-                     ? tr("server") : index.data(Qt::DisplayRole).toString(),
-                 index.data(WorkspaceTreeModel::StatusRole).toString()));
-        return;
-    }
-    if (view) {
-        for (const auto& item : _accounts.layout().views)
-            if (item.id == viewId) {
-                _details->setText(tr("%1 server(s) in this view. "
-                    "Double-click to activate.").arg(item.accountIds.size()));
-                return;
-            }
-    }
-    _details->setText(tr("Select a server or view to manage it."));
+            this, [this] { _tree->expandAll(); });
+    connect(&_accounts, &AccountManager::layoutChanged,
+            this, [this] { _tree->expandAll(); });
 }
 
 void ServersSidebarPage::openSelected()
@@ -614,59 +754,8 @@ void ServersSidebarPage::editSelectedAccount()
 {
     const QString id = _tree->currentIndex().data(
         WorkspaceTreeModel::AccountIdRole).toString();
-    const auto* record = _accounts.layout().account(id);
-    if (!record) return;
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Server settings"));
-    auto* layout = new QVBoxLayout(&dialog);
-    auto* form = new QFormLayout;
-    auto* alias = new QLineEdit(record->name, &dialog);
-    alias->setObjectName(QStringLiteral("serverSettingsDisplayName"));
-    form->addRow(tr("Display name"), alias);
-    auto* url = new QLineEdit(record->serverBaseUrl, &dialog);
-    url->setReadOnly(true);
-    url->setObjectName(QStringLiteral("serverSettingsUrl"));
-    form->addRow(tr("Server URL"), url);
-    auto* login = new QLineEdit(record->loginName, &dialog);
-    login->setReadOnly(true);
-    form->addRow(tr("Login"), login);
-    auto* serverUser = new QLineEdit(record->serverUserId, &dialog);
-    serverUser->setReadOnly(true);
-    form->addRow(tr("Server user ID"), serverUser);
-    layout->addLayout(form);
-    auto* hint = new QLabel(tr("Server address and login identify an authenticated "
-        "account. To use a different identity, add another server. "
-        "For an expired session, sign in again."), &dialog);
-    hint->setWordWrap(true);
-    layout->addWidget(hint);
-    auto* buttons = new QDialogButtonBox(
-        QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
-    auto* reauth = buttons->addButton(tr("Sign in again…"),
-                                    QDialogButtonBox::ActionRole);
-    // A connected account already owns its authenticated Backend. A second
-    // candidate login for the same identity cannot be adopted concurrently.
-    if (auto* account = _accounts.account(id))
-        reauth->setEnabled(account->state() != AccountConnectionState::Connected
-                           && account->state() != AccountConnectionState::Connecting);
-    connect(reauth, &QPushButton::clicked, &dialog, [this, id, &dialog] {
-        dialog.reject();
-        emit signInRequested(id);
-    });
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(buttons);
-    if (dialog.exec() != QDialog::Accepted) return;
-    const QString updatedName = alias->text().trimmed();
-    if (updatedName.isEmpty()) {
-        QMessageBox::warning(this, tr("Invalid name"), tr("Enter a server name."));
-        return;
-    }
-    WorkspaceLayout changed = _accounts.layout();
-    for (auto& item : changed.accounts)
-        if (item.id == id) item.name = updatedName;
-    QString error;
-    if (!_accounts.applyLayoutEdits(changed, &error))
-        QMessageBox::warning(this, tr("Server settings"), error);
+    if (!id.isEmpty())
+        emit serverSettingsRequested(id);
 }
 
 void ServersSidebarPage::editLayout()
