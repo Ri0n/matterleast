@@ -4,6 +4,7 @@
 
 #include "channel-tree/ChannelTree.h"
 #include "backend/SharedConversationOrder.h"
+#include "backend/SharedConversationProjection.h"
 #include "channel-tree/ChannelTreeItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "backend/Backend.h"
@@ -214,6 +215,14 @@ private slots:
         QCOMPARE(merged.at(0).accountId, QStringLiteral("a"));
         QCOMPARE(merged.at(1).accountId, QStringLiteral("b"));
         QCOMPARE(merged.at(0).channelId, merged.at(1).channelId);
+
+        const auto widgetFree = SharedConversationProjection::collect({
+            {QStringLiteral("a"), &first, {QStringLiteral("team")}},
+            {QStringLiteral("b"), &second, {QStringLiteral("team")}}},
+            QStringLiteral("recent"));
+        QCOMPARE(widgetFree.size(), merged.size());
+        QCOMPARE(widgetFree.at(0).accountId, merged.at(0).accountId);
+        QCOMPARE(widgetFree.at(1).accountId, merged.at(1).accountId);
 
         QVERIFY(tree.setSharedConversationSorting(QStringLiteral("alpha")));
         merged = tree.sharedConversationEntries();

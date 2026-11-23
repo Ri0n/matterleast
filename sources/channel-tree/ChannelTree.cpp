@@ -47,6 +47,7 @@
 
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
+#include "backend/SharedConversationProjection.h"
 #include "backend/UserProfileService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendUser.h"
@@ -259,50 +260,27 @@ bool ChannelTree::setSharedConversationSorting(const QString& sorting)
 
 QVector<SharedConversationOrder::Entry> ChannelTree::sharedConversationEntries() const
 {
-    QVector<SharedConversationOrder::Entry> entries;
     if (_visibleAccountRootIds.size() < 2)
-        return entries;
+        return {};
 
-    // Categories are per-server and can contain the same DM in multiple
-    // teams. Their ownership, ordering and membership remain authoritative;
-    // this projection has exactly one entry per local account + remote ID.
-    QSet<ScopedId> seen;
+    // Presentation provides View membership; backend-owned state performs
+    // the actual projection, shared with future QML presenters.
+    QVector<SharedConversationProjection::AccountSource> sources;
     for (const QString& accountId : _visibleAccountRootIds) {
         Backend* owner = backendForAccount(accountId);
         if (!owner)
             continue;
-        auto& sidebar = SidebarService::instance(*owner);
+        SharedConversationProjection::AccountSource source;
+        source.accountId = accountId;
+        source.backend = owner;
         for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
-            if (it.key().first != accountId || !it.value()
-                || &it.value()->backend != owner)
-                continue;
-            const SidebarTeamState* state = sidebar.teamState(it.key().second);
-            if (!state)
-                continue;
-            for (const QString& categoryId : state->order) {
-                const SidebarCategory* category = state->category(categoryId);
-                if (!category)
-                    continue;
-                for (const QString& channelId : sidebar.visibleChannelIds(*category)) {
-                    const ScopedId identity {accountId, channelId};
-                    if (seen.contains(identity))
-                        continue;
-                    BackendChannel* channel = owner->getStorage().getChannelById(channelId);
-                    if (!channel || (channel->type != BackendChannel::directChannel
-                                     && channel->type != BackendChannel::groupChannel))
-                        continue;
-                    seen.insert(identity);
-                    quint64 activity = static_cast<quint64>(channel->create_at);
-                    activity = qMax(activity, static_cast<quint64>(channel->last_post_at));
-                    activity = qMax(activity, static_cast<quint64>(
-                        sidebar.channelActivityTime(*channel)));
-                    entries.push_back({accountId, channelId, channel->display_name, activity});
-                }
-            }
+            if (it.key().first == accountId && it.value()
+                && &it.value()->backend == owner)
+                source.teamIds.push_back(it.key().second);
         }
+        sources.push_back(std::move(source));
     }
-    SharedConversationOrder::sort(entries, _sharedConversationSorting);
-    return entries;
+    return SharedConversationProjection::collect(sources, _sharedConversationSorting);
 }
 
 bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
