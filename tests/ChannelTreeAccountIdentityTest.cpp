@@ -279,6 +279,17 @@ private slots:
         QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
         QVERIFY(tree.backendForAccount(QString()) == nullptr);
         QVERIFY(tree.backendInstance() == nullptr);
+        // Even an explicit API cannot guess a missing account ID in a
+        // merged View; only the old singleton slots allow omission.
+        auto* row = new QTreeWidgetItem(&tree);
+        row->setData(0, SidebarItem::KindRole, int(SidebarItem::Channel));
+        row->setData(0, SidebarItem::IdRole, QStringLiteral("sample"));
+        row->setData(0, SidebarItem::AccountIdRole, QStringLiteral("a"));
+        tree.addChannelToItem(QStringLiteral("sample"), row);
+        tree.openChannelForAccount(QStringLiteral("sample"), {});
+        QVERIFY(tree.currentItem() == nullptr);
+        tree.openStoredChannelForAccount(QStringLiteral("sample"), {});
+        QVERIFY(tree.currentItem() == nullptr);
         QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
         QCOMPARE(tree.backendForAccount(QString()), &first);
         QCOMPARE(tree.backendInstance(), &first);

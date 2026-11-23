@@ -174,6 +174,8 @@ public:
                                           const QString& accountId,
                                           const QPoint& globalPos)
     {
+        if (accountId.isEmpty() && _visibleAccountRootIds.size() > 1)
+            return;
         const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId,
                             channelID};
         Backend* owner = backendForAccount(key.first);

@@ -1231,6 +1231,8 @@ void ChannelTree::openChannel(QString channelID)
 
 void ChannelTree::openChannelForAccount(QString channelID, const QString& accountId)
 {
+    if (accountId.isEmpty() && _visibleAccountRootIds.size() > 1)
+        return;
     const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelID};
     Backend* owner = backendForAccount(key.first);
     auto it = channelToItemMap.find(key);

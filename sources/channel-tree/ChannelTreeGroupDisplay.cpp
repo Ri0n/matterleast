@@ -20,6 +20,8 @@ void ChannelTree::ensureGroupChannelDisplayName(const QString& channelId)
 void ChannelTree::ensureGroupChannelDisplayName(const QString& accountId,
                                                 const QString& channelId)
 {
+    if (accountId.isEmpty() && _visibleAccountRootIds.size() > 1)
+        return;
     const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelId};
     Backend* owner = backendForAccount(key.first);
     if (!owner || channelId.isEmpty())

@@ -44,6 +44,8 @@ void ChannelTree::openStoredChannel(QString channelID)
 
 void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& accountId)
 {
+    if (accountId.isEmpty() && _visibleAccountRootIds.size() > 1)
+        return;
     const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId, channelID};
     if (sidebarDragActive) {
         pendingStoredChannelOpens.insert(key);
