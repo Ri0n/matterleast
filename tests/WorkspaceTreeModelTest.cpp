@@ -68,7 +68,11 @@ private slots:
                  int(WorkspaceTreeModel::ProfileNode));
         QCOMPARE(tree.data(work, Qt::DisplayRole).toString(), QStringLiteral("Work"));
         QCOMPARE(tree.rowCount(work), 2);
-        QCOMPARE(tree.rowCount(personal), 1);
+        QCOMPARE(personal.data(WorkspaceTreeModel::NodeKindRole).toInt(),
+                 int(WorkspaceTreeModel::AccountNode));
+        QCOMPARE(personal.data(WorkspaceTreeModel::AccountIdRole).toString(),
+                 QStringLiteral("c"));
+        QCOMPARE(tree.rowCount(personal), 0);
 
         const QModelIndex all = tree.index(0, 0, work);
         const QModelIndex betaOnly = tree.index(1, 0, work);
@@ -95,6 +99,76 @@ private slots:
         QVERIFY(!tree.parent(work).isValid());
         QCOMPARE(tree.roleNames().value(WorkspaceTreeModel::AccountIdRole),
                  QByteArrayLiteral("accountId"));
+    }
+
+    void oldSingletonSimultaneousIsDisplayedAsRootServer()
+    {
+        WorkspaceLayout layout;
+        layout.accounts = {{QStringLiteral("only"), QStringLiteral("Only")}};
+        layout.profiles = {{QStringLiteral("legacy"), QStringLiteral("Simultaneous"),
+                            {QStringLiteral("only")}}};
+        layout.views = {{QStringLiteral("view"), QStringLiteral("legacy"),
+                         QStringLiteral("Only"), {QStringLiteral("only")}}};
+        layout.activeViewId = QStringLiteral("view");
+        AccountListModel accounts;
+        accounts.setEntries({
+            entry(QStringLiteral("only"), QStringLiteral("Only"),
+                  AccountConnectionState::Disconnected)}, QStringLiteral("only"));
+        WorkspaceTreeModel model(layout, accounts);
+        QCOMPARE(model.rowCount(), 1);
+        const QModelIndex account = model.index(0, 0);
+        QCOMPARE(account.data(Qt::DisplayRole).toString(), QStringLiteral("Only"));
+        QCOMPARE(account.data(WorkspaceTreeModel::NodeKindRole).toInt(),
+                 int(WorkspaceTreeModel::AccountNode));
+        QCOMPARE(account.data(WorkspaceTreeModel::ViewIdRole).toString(),
+                 QStringLiteral("view"));
+        QCOMPARE(model.rowCount(account), 0);
+        QVERIFY(account.data(Qt::ToolTipRole).toString().contains(
+            QStringLiteral("Disconnected")));
+
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        accounts.setEntries({
+            entry(QStringLiteral("only"), QStringLiteral("Only"),
+                  AccountConnectionState::Connected)}, QStringLiteral("only"));
+        QCOMPARE(account.data(WorkspaceTreeModel::ConnectionStateRole).toInt(),
+                 int(AccountConnectionState::Connected));
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(resets.count(), 0);
+    }
+
+    void explicitGroupingAddsProfileHierarchyIncrementally()
+    {
+        WorkspaceLayout layout;
+        layout.accounts = {{QStringLiteral("a"), QStringLiteral("A")},
+                           {QStringLiteral("b"), QStringLiteral("B")}};
+        layout.profiles = {{QStringLiteral("p1"), QStringLiteral("Solo"),
+                            {QStringLiteral("a")}},
+                           {QStringLiteral("p2"), QStringLiteral("B"),
+                            {QStringLiteral("b")}}};
+        layout.views = {{QStringLiteral("v1"), QStringLiteral("p1"),
+                         QStringLiteral("A"), {QStringLiteral("a")}},
+                        {QStringLiteral("v2"), QStringLiteral("p2"),
+                         QStringLiteral("B"), {QStringLiteral("b")}}};
+        layout.activeViewId = QStringLiteral("v1");
+        AccountListModel accounts;
+        WorkspaceTreeModel model(layout, accounts);
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.index(0, 0).data(WorkspaceTreeModel::NodeKindRole).toInt(),
+                 int(WorkspaceTreeModel::AccountNode));
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy inserted(&model, &QAbstractItemModel::rowsInserted);
+        layout.profiles[0].accountIds.append(QStringLiteral("b"));
+        layout.views[0].accountIds.append(QStringLiteral("b"));
+        QVERIFY(layout.validate());
+        model.refreshTopology();
+        const QModelIndex group = model.index(0, 0);
+        QCOMPARE(group.data(WorkspaceTreeModel::NodeKindRole).toInt(),
+                 int(WorkspaceTreeModel::ProfileNode));
+        QCOMPARE(model.rowCount(group), 1);
+        QCOMPARE(model.rowCount(model.index(0, 0, group)), 2);
+        QVERIFY(inserted.count() > 0);
+        QCOMPARE(resets.count(), 0);
     }
 
     void oneServerStateUpdatesEveryOccurrenceWithoutReset()
