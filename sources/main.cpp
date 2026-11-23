@@ -55,6 +55,7 @@
 #include "mainwindow.h"
 #include "backend/Backend.h"
 #include "backend/AccountManager.h"
+#include "plugins/PluginManager.h"
 #include "migrations/MigrationManager.h"
 #include "backend/Account.h"
 #include "backend/UserActivityMonitor.h"
@@ -98,6 +99,7 @@ private:
 
     // One account domain; the application only owns its Widgets and tray.
     AccountManager accounts;
+    std::unique_ptr<PluginManager> plugins;
     UserActivityMonitor _activityMonitor;
     MigrationManager migrations;
     std::unique_ptr<QMenu> trayIconMenu;
@@ -128,6 +130,8 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     OverlayScrollBarManager::install(*this);
 
     Config::init ();
+    // Plugins are application-scoped, not owned by a Backend or Account.
+    plugins = std::make_unique<PluginManager>(accounts, this);
 	trayIcon->setToolTip(applicationDisplayName());
 	trayIcon->setContextMenu (trayIconMenu.get());
 	trayIcon->show();

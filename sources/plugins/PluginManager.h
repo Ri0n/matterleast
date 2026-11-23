@@ -22,6 +22,7 @@ namespace MatterLeast::PluginApi { class CallsProviderInterface; }
 namespace Mattermost {
 
 class Backend;
+class AccountManager;
 class PluginHost;
 
 struct PluginInfo
@@ -34,6 +35,7 @@ struct PluginInfo
 };
 
 struct IncomingCall {
+    QString accountId;
     QString id;
     QString channelId;
     QString postId;
@@ -47,6 +49,7 @@ class PluginManager final : public QObject
 public:
     static PluginManager& instance(Backend& backend);
     static void restoreBackendConnections(Backend& backend);
+    explicit PluginManager(AccountManager& accounts, QObject* parent = nullptr);
     ~PluginManager() override;
 
     QList<QAction*> createConversationMenuActions(
@@ -69,18 +72,21 @@ public:
     /** Calls capability is absent when no enabled Calls provider is loaded. */
     bool callsAvailable() const;
     MatterLeast::PluginApi::CallsSnapshot callsSnapshot() const;
-    bool startCall(const QString& channelId);
-    bool joinCall(const QString& channelId);
-    bool leaveCall();
+    QString accountId(const Backend& backend) const;
+    bool startCall(const QString& accountId, const QString& channelId);
+    bool joinCall(const QString& accountId, const QString& channelId);
+    bool leaveCall(const QString& accountId);
     bool setCallMicrophoneMuted(bool muted);
-    QString incomingCallForPost(const QString& postId) const;
-    void answerIncomingCall(const QString& callId, bool accept);
+    QString incomingCallForPost(const QString& accountId,
+                                const QString& postId) const;
+    void answerIncomingCall(const QString& accountId,
+                            const QString& callId, bool accept);
 
 signals:
     void callsAvailabilityChanged(bool available);
     void callsSnapshotChanged();
     void incomingCallStarted(const IncomingCall& call);
-    void incomingCallClosed(const QString& callId);
+    void incomingCallClosed(const QString& accountId, const QString& callId);
 
 private:
     class ConversationHost;
@@ -93,19 +99,21 @@ private:
         bool checking = false;
     };
 
-    void handleIncomingCallEvent(const QString& name, const QJsonObject& data,
+    static QString incomingKey(const QString& accountId, const QString& channelId);
+    Backend* backendForAccount(const QString& accountId) const;
+    void handleIncomingCallEvent(const QString& accountId,
+                                 const QString& name, const QJsonObject& data,
                                  const QJsonObject& broadcast);
-    void announceIncomingCall(const QString& channelId);
-    void closeIncomingCall(const QString& channelId);
-    void endIncomingCall(const QString& channelId);
-    void clearIncomingCalls();
+    void announceIncomingCall(const QString& accountId, const QString& channelId);
+    void closeIncomingCall(const QString& accountId, const QString& channelId);
+    void endIncomingCall(const QString& accountId, const QString& channelId);
+    void clearIncomingCalls(const QString& accountId = {});
     void handleIncomingCallSnapshot();
     QHash<QString, IncomingInvitation> incomingCalls_;
     QString joiningIncomingCallId_;
     quint64 incomingCallsGeneration_ = 0;
 
-    explicit PluginManager(Backend& backend);
-    void connectBackendSignals();
+    void connectBackendSignals(Backend& backend);
     void attachWindowOverlay(PluginHost& host);
     void restorePluginSettings(const QString& pluginId, QObject& object);
     void loadStandardPlugins();
@@ -113,8 +121,8 @@ private:
     void shutdown();
     MatterLeast::PluginApi::CallsProviderInterface* callsProvider() const;
 
-    Backend& backend_;
-    QPointer<QWidget> _mainWindow;
+    AccountManager& accounts_;
+    QList<QPointer<QWidget>> _mainWindows;
     std::unique_ptr<ConversationHost> conversationHost_;
     std::unique_ptr<CallsHost> callsHost_;
     std::unique_ptr<QTemporaryDir> _verifiedPluginDirectory;
