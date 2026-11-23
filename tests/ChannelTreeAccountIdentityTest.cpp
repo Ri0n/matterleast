@@ -8,6 +8,8 @@
 #include "channel-tree/ChannelItemDelegate.h"
 #include "backend/Backend.h"
 #include "backend/SidebarService.h"
+#include "channel-tree/team-item/GroupTeamItem.h"
+#include <QJsonObject>
 #include "channel-tree/channel-item/DirectChannelItem.h"
 #include "channel-tree/SidebarItem.h"
 
@@ -165,6 +167,68 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+
+    void sharedProjectionDeduplicatesTeamsButNotAccounts()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        auto addServer = [&tree](Backend& owner, const QString& accountId,
+                                 const QString& name, int activity) {
+            auto& storage = owner.getStorage();
+            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
+            QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team")},
+                                     {QStringLiteral("display_name"), QStringLiteral("Team")}}));
+            auto* channel = storage.addGroupChannel({
+                {QStringLiteral("id"), QStringLiteral("same-remote-id")},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"), QStringLiteral("self, ") + name},
+                {QStringLiteral("last_post_at"), activity}});
+            QVERIFY(channel);
+
+            auto* team = new GroupTeamItem(tree, owner, QStringLiteral("Team"),
+                                           QStringLiteral("team"));
+            team->setData(0, SidebarItem::KindRole, int(SidebarItem::Team));
+            team->setData(0, SidebarItem::AccountIdRole, accountId);
+            tree.teamToItemMap.insert({accountId, QStringLiteral("team")}, team);
+            SidebarTeamState state;
+            SidebarCategory dm;
+            dm.id = QStringLiteral("dm");
+            dm.type = QStringLiteral("direct_messages");
+            dm.sorting = QStringLiteral("manual");
+            dm.channelIds = {QStringLiteral("same-remote-id")};
+            state.order = {dm.id};
+            state.categories.insert(dm.id, dm);
+            SidebarService::instance(owner).applyLocalTeamState(
+                QStringLiteral("team"), state);
+        };
+
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        addServer(first, QStringLiteral("a"), QStringLiteral("Zebra"), 300);
+        addServer(second, QStringLiteral("b"), QStringLiteral("Alpha"), 100);
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        auto merged = tree.sharedConversationEntries();
+        QCOMPARE(merged.size(), 2);
+        QCOMPARE(merged.at(0).accountId, QStringLiteral("a"));
+        QCOMPARE(merged.at(1).accountId, QStringLiteral("b"));
+        QCOMPARE(merged.at(0).channelId, merged.at(1).channelId);
+
+        QVERIFY(tree.setSharedConversationSorting(QStringLiteral("alpha")));
+        merged = tree.sharedConversationEntries();
+        QCOMPARE(merged.at(0).accountId, QStringLiteral("b"));
+        QCOMPARE(merged.at(1).accountId, QStringLiteral("a"));
+        QVERIFY(!tree.setSharedConversationSorting(QStringLiteral("invalid")));
+        QCOMPARE(tree.sharedConversationEntries().at(0).accountId,
+                 QStringLiteral("b"));
+        QCOMPARE(SidebarService::instance(first).teamState(QStringLiteral("team"))
+                     ->category(QStringLiteral("dm"))->sorting,
+                 QStringLiteral("manual"));
+
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        QVERIFY(tree.sharedConversationEntries().isEmpty());
+    }
 
     void mergedConversationOrderIsViewLocalAndAccountQualified()
     {
