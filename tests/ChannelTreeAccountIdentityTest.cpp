@@ -279,6 +279,46 @@ private slots:
                  size_t(1));
     }
 
+    void sharedVisibilityUsesAccountCatalogAndCapsReadHistory()
+    {
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                         {QStringLiteral("username"), QStringLiteral("self")}}, true);
+
+        // No teams or categories: group conversations belong to the account.
+        for (int i = 0; i < 45; ++i) {
+            const QString id = QStringLiteral("group-%1").arg(i);
+            QVERIFY(storage.addOwnChannel({
+                {QStringLiteral("id"), id},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"),
+                 QStringLiteral("self, user-%1").arg(i)},
+                {QStringLiteral("last_post_at"), 1000 + i}}));
+        }
+        const auto& sidebar = SidebarService::instance(backend);
+        const QStringList visible = sidebar.visibleDirectConversationIds();
+        QCOMPARE(visible.size(), 40);
+        QCOMPARE(visible.first(), QStringLiteral("group-44"));
+        QCOMPARE(visible.last(), QStringLiteral("group-5"));
+
+        // The self conversation has a Personal row, not a duplicate DM row.
+        QVERIFY(storage.addOwnChannel({
+            {QStringLiteral("id"), QStringLiteral("self-channel")},
+            {QStringLiteral("type"), QStringLiteral("D")},
+            {QStringLiteral("name"), QStringLiteral("self__self")}}));
+        QVERIFY(!sidebar.visibleDirectConversationIds().contains(
+            QStringLiteral("self-channel")));
+
+        // A matching directory search must not be constrained to the 40
+        // most recent conversations or to any team's sidebar categories.
+        SidebarService::instance(backend).setConversationSearchTerm(
+            QStringLiteral("user-0"));
+        const QStringList matches = sidebar.visibleDirectConversationIds();
+        QCOMPARE(matches.size(), 1);
+        QCOMPARE(matches.first(), QStringLiteral("group-0"));
+    }
+
     void mergedConversationOrderIsViewLocalAndAccountQualified()
     {
         using Entry = SharedConversationOrder::Entry;
