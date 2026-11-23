@@ -212,9 +212,10 @@ public:
                    const QModelIndex& index) const override
     {
         QSize hint = QStyledItemDelegate::sizeHint(option, index);
-        if (index.data(WorkspaceTreeModel::NodeKindRole).toInt()
-            == WorkspaceTreeModel::AccountNode)
-            hint.setHeight(qMax(hint.height(), 30));
+        // QTreeView uses uniform row heights. Even if the first row is a
+        // profile rather than an account, reserve enough room for the 21px
+        // status marker and its vertical margins.
+        hint.setHeight(qMax(hint.height(), 30));
         return hint;
     }
 private:
