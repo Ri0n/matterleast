@@ -480,6 +480,20 @@ void MainWindow::showChannelsSidebar()
         channelTabs->setCurrentWidget(channelsPage);
 }
 
+void MainWindow::setMergedSidebarMode(bool enabled)
+{
+    if (!sidebarSplitter || sidebarSplitter->count() < 2)
+        return;
+    QWidget* nativeSidebar = sidebarSplitter->widget(0);
+    if (!nativeSidebar || nativeSidebar->isHidden() == enabled)
+        return;
+    nativeSidebar->setHidden(enabled);
+    // Do not write a synthetic zero-width splitter state. The original
+    // account-specific width is restored when its sidebar is shown again.
+    if (!enabled && isVisible())
+        restoreSidebarWidth();
+}
+
 static QString infoText()
 {
     QString description = QString("MatterLeast " PROJECT_VER "<br/>"

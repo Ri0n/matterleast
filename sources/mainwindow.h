@@ -74,6 +74,9 @@ public:
     void restoreSidebarWidth();
     void showServersSidebar();
     void showChannelsSidebar();
+    // The account's chats remain live while the active multi-account View
+    // supplies a single ChannelTree at application-shell scope.
+    void setMergedSidebarMode(bool enabled);
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
