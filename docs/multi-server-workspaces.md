@@ -230,6 +230,11 @@ continue to use the server category's current sorting, while a merged view
 must apply its own setting to the combined entries **without modifying any
 server's category sorting**. A view-local manual order is intentionally not
 specified: server-side manual lists have no meaningful inter-server order.
+Do not maintain a separate View-scoped DM/GM item model. The combined DM/GM
+branch must be materialized by the same sidebar model and reconciliation
+mechanism as regular channel rows. This avoids two independently updated
+projections of the same channels; the existing persisted sorting preference
+is retained for when the combined branch is implemented.
 Shared Unread/Attention and per-view navigation remain subsequent work.
 
 ## Per-view UI state (essential invariant)

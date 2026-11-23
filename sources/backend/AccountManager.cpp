@@ -28,7 +28,6 @@
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
 #include "navigation/ViewNavigationSession.h"
-#include "workspaces/ViewConversationModel.h"
 #include "options/MLOptions.h"
 
 namespace Mattermost {
@@ -320,16 +319,6 @@ bool AccountManager::applyLayoutEdits(const WorkspaceLayout& proposed,
             it = _viewSessions.erase(it);
         }
     }
-    for (auto it = _viewConversations.begin(); it != _viewConversations.end();) {
-        bool found = false;
-        for (const auto& view : _layout.views)
-            if (view.id == it.key()) { found = true; break; }
-        if (found) ++it;
-        else {
-            it.value()->deleteLater();
-            it = _viewConversations.erase(it);
-        }
-    }
     ensureViewSessions();
     rebuildModel();
     _treeModel.refreshTopology();
@@ -373,16 +362,6 @@ QAbstractItemModel* AccountManager::activeViewTabs() const
     return viewSession(_layout.activeViewId);
 }
 
-ViewConversationModel* AccountManager::viewConversations(const QString& viewId) const
-{
-    return _viewConversations.value(viewId, nullptr);
-}
-
-QAbstractItemModel* AccountManager::activeViewConversations() const
-{
-    return viewConversations(_layout.activeViewId);
-}
-
 void AccountManager::ensureViewSessions()
 {
     for (const auto& view : _layout.views) {
@@ -392,18 +371,6 @@ void AccountManager::ensureViewSessions()
         // merely a filtered sidebar. Retired destinations must disappear from
         // the view's tabs, dock and Back/Forward before Widgets can rebind.
         _viewSessions.value(view.id)->setAllowedAccounts(view.accountIds);
-
-        auto*& conversations = _viewConversations[view.id];
-        if (!conversations)
-            conversations = new ViewConversationModel(this);
-        conversations->setSorting(view.directMessagesSorting);
-        QVector<ViewConversationModel::Source> sources;
-        sources.reserve(view.accountIds.size());
-        for (const QString& accountId : view.accountIds) {
-            Account* owner = account(accountId);
-            sources.push_back({accountId, owner ? owner->backend() : nullptr});
-        }
-        conversations->setSources(sources);
     }
 }
 

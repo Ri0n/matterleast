@@ -17,7 +17,6 @@ namespace Mattermost {
 class Account;
 class Backend;
 class ViewNavigationSession;
-class ViewConversationModel;
 class BackendLoginData;
 
 // Single owner of durable account QObjects and optional session Backends.
@@ -29,8 +28,6 @@ class AccountManager final : public QObject
     Q_PROPERTY(QAbstractItemModel* workspaceTreeModel READ workspaceTreeModel CONSTANT)
     Q_PROPERTY(QAbstractItemModel* activeViewTabs READ activeViewTabs
                NOTIFY activeViewSessionChanged)
-    Q_PROPERTY(QAbstractItemModel* activeViewConversations
-               READ activeViewConversations NOTIFY activeViewSessionChanged)
 public:
     explicit AccountManager(QObject* parent = nullptr);
     ~AccountManager() override;
@@ -47,8 +44,6 @@ public:
     // Backend or chat widgets. Views may share accounts freely.
     ViewNavigationSession* viewSession(const QString& viewId) const;
     QAbstractItemModel* activeViewTabs() const;
-    ViewConversationModel* viewConversations(const QString& viewId) const;
-    QAbstractItemModel* activeViewConversations() const;
 
     Account* account(const QString& id) const { return _byId.value(id, nullptr); }
     Account* accountForBackend(const Backend* backend) const;
@@ -149,7 +144,6 @@ private:
     AccountListModel _listModel;
     WorkspaceTreeModel _treeModel;
     QHash<QString, ViewNavigationSession*> _viewSessions;
-    QHash<QString, ViewConversationModel*> _viewConversations;
     QString _selectedId;
     QHash<QString, QString> _lastSelectedByView;
     QSet<QString> _suspendingProfileAccounts;
