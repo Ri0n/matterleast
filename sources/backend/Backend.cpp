@@ -1124,6 +1124,9 @@ void Backend::retrieveTeam (QString teamID)
 
 		if (team) {
 			emit onAddedToTeam (*team);
+            // A team joined after login needs only its own memberships.
+            // Startup still uses the single account-wide catalog request.
+            retrieveNewTeamChannels(*team);
 		}
     }));
 }
@@ -1184,6 +1187,42 @@ void Backend::retrieveChannelsMemberCounts(
         [callback = std::move(callback)](const QJsonDocument& doc) mutable {
             if (callback) {
                 callback(doc.object());
+            }
+        }));
+}
+
+void Backend::retrieveNewTeamChannels(BackendTeam& team)
+{
+    const QPointer<BackendTeam> teamGuard(&team);
+    NetworkRequest request(_networkSession,
+                           QStringLiteral("users/me/teams/") + team.id
+                           + QStringLiteral("/channels"));
+    httpConnector.get(request, HttpResponseCallback(
+        [this, teamGuard](const QJsonDocument& doc, const QNetworkReply& reply) {
+            if (!teamGuard || !isLoggedIn)
+                return;
+            if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+                QTimer::singleShot(5000, this, [this, teamGuard] {
+                    if (isLoggedIn && teamGuard)
+                        retrieveNewTeamChannels(*teamGuard);
+                });
+                return;
+            }
+            for (const QJsonValue& value : doc.array()) {
+                const QJsonObject object = value.toObject();
+                const QString channelId = object.value(QStringLiteral("id")).toString();
+                if (channelId.isEmpty())
+                    continue;
+                const bool alreadyKnown = storage.getChannelById(channelId) != nullptr;
+                BackendChannel* channel = storage.addOwnChannel(object);
+                if (!channel || alreadyKnown)
+                    continue;
+                if (channel->type == BackendChannel::directChannel)
+                    emit storage.directChannels.onNewChannel(*channel);
+                else if (channel->type == BackendChannel::groupChannel)
+                    emit storage.groupChannels.onNewChannel(*channel);
+                else
+                    emit teamGuard->onNewChannel(*channel);
             }
         }));
 }

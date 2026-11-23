@@ -16,7 +16,7 @@ QVector<SharedConversationOrder::Entry> SharedConversationProjection::collect(
     for (const AccountSource& source : sources) {
         if (source.accountId.isEmpty() || !source.backend)
             continue;
-        const auto& storage = source.backend->getStorage();
+        auto& storage = source.backend->getStorage();
         auto& sidebar = SidebarService::instance(*source.backend);
         for (const QString& channelId : sidebar.visibleDirectConversationIds()) {
             const BackendChannel* channel = storage.getChannelById(channelId);

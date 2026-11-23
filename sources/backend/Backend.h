@@ -415,6 +415,7 @@ private:
     void hasChannelPermissions(BackendChannel& channel, const QStringList& required,
                                std::function<void(bool)> callback);
     void scheduleTypingExpiration();
+    void retrieveNewTeamChannels(BackendTeam& team);
     void clearTypingActivity();
     bool hasVisibleTypingView(const QString& channelId,
                               const QString& parentId) const;
