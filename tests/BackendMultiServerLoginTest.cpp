@@ -292,6 +292,32 @@ void checkCookies(const QList<QByteArray>& cookies,
                  "An API request leaked another server's authentication");
     }
 }
+// Most accounts start in exclusive profiles. This fixture intentionally
+// exercises two simultaneously connected sessions, so opt into a shared
+// profile explicitly rather than relying on implicit grouping at login.
+bool activateSimultaneousProfile(AccountManager& manager,
+                                 const QStringList& accountIds)
+{
+    WorkspaceLayout layout = manager.layout();
+    WorkspaceLayout::Profile profile;
+    profile.id = QStringLiteral("test-simultaneous");
+    profile.name = QStringLiteral("Simultaneous");
+    profile.accountIds = accountIds;
+    WorkspaceLayout::View view;
+    view.id = QStringLiteral("test-combined-view");
+    view.profileId = profile.id;
+    view.name = QStringLiteral("Both");
+    view.accountIds = accountIds;
+    layout.profiles.append(profile);
+    layout.views.append(view);
+    layout.activeViewId = view.id;
+    QString error;
+    const bool result = manager.applyLayoutEdits(layout, &error);
+    if (!result)
+        qWarning() << "Could not configure simultaneous test View:" << error;
+    return result;
+}
+
 } // namespace
 
 class BackendMultiServerLoginTest final : public QObject
@@ -393,6 +419,8 @@ private slots:
             backendTwo, loginTwo.username, QStringLiteral("Two"));
         QVERIFY(accountOne);
         QVERIFY(accountTwo);
+        QVERIFY(activateSimultaneousProfile(
+            sessions, QStringList({accountOne->id(), accountTwo->id()})));
         QCOMPARE(sessions.adoptAuthenticated(
             backendOne, loginOne.username, QStringLiteral("One")),
             accountOne);
@@ -724,6 +752,8 @@ private slots:
             second, QStringLiteral("token-two"), QStringLiteral("Second"));
         QVERIFY(firstAccount);
         QVERIFY(secondAccount);
+        QVERIFY(activateSimultaneousProfile(
+            sessions, QStringList({firstAccount->id(), secondAccount->id()})));
         QCOMPARE(sessions.registeredBackends().size(), 2);
         QCOMPARE(sessions.findAccount(server.origin(), QStringLiteral("shared-server-one")),
                  first);
