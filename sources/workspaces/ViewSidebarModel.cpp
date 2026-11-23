@@ -175,7 +175,7 @@ void ViewSidebarModel::refresh()
         if (backend) {
             SidebarService* sidebar = SidebarService::existing(*backend);
             if (sidebar) observeSidebar(*backend, *sidebar);
-            const Storage& storage = backend->getStorage();
+            Storage& storage = backend->getStorage();
             for (const auto& pair : storage.teams) {
                 const BackendTeam& sourceTeam = pair.second;
                 if (sourceTeam.delete_at) continue;
