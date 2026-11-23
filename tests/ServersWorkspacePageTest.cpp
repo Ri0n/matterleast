@@ -2,6 +2,7 @@
 #include <QAbstractItemModel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QToolButton>
 #include <QTabWidget>
 #include <QTreeView>
 
@@ -39,9 +40,11 @@ private slots:
         QCOMPARE(tree->model()->rowCount(), 0);
 
         QSignalSpy add(&page, &ServersWorkspacePage::addServerRequested);
-        auto* button = page.findChild<QPushButton*>(
+        auto* button = page.findChild<QToolButton*>(
             QStringLiteral("serversAdd"));
         QVERIFY(button);
+        QVERIFY(button->text().isEmpty());
+        QVERIFY(!button->icon().isNull());
         button->click();
         QCOMPARE(add.count(), 1);
     }

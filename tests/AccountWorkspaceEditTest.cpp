@@ -3,6 +3,8 @@
 #include <QAbstractItemModel>
 #include <QFrame>
 #include <QPushButton>
+#include <QToolButton>
+#include <QLayout>
 #include <QTreeView>
 
 #include "backend/AccountManager.h"
@@ -181,13 +183,21 @@ private slots:
         QCOMPARE(tree->model(), manager.workspaceTreeModel());
         QCOMPARE(tree->frameShape(), QFrame::NoFrame);
         QCOMPARE(tree->model()->rowCount(), 1);
-        auto* layouts = page.findChild<QPushButton*>(QStringLiteral("serversEditLayout"));
-        auto* add = page.findChild<QPushButton*>(QStringLiteral("serversAdd"));
-        auto* open = page.findChild<QPushButton*>(QStringLiteral("serversOpen"));
+        auto* layouts = page.findChild<QToolButton*>(QStringLiteral("serversEditLayout"));
+        auto* add = page.findChild<QToolButton*>(QStringLiteral("serversAdd"));
+        auto* toolbar = page.findChild<QWidget*>(QStringLiteral("serversToolbar"));
         QVERIFY(layouts);
         QVERIFY(add);
-        QVERIFY(open);
-        QVERIFY(!open->isEnabled());
+        QVERIFY(toolbar);
+        QCOMPARE(toolbar->height(), 34);
+        QCOMPARE(page.layout()->count(), 2); // Toolbar + tree; no footer controls.
+        QVERIFY(add->text().isEmpty());
+        QVERIFY(layouts->text().isEmpty());
+        QVERIFY(!add->icon().isNull());
+        QVERIFY(!layouts->icon().isNull());
+        QVERIFY(!page.findChild<QPushButton*>(QStringLiteral("serversOpen")));
+        QVERIFY(!page.findChild<QPushButton*>(QStringLiteral("serversSettings")));
+        QVERIFY(!page.findChild<QPushButton*>(QStringLiteral("serversConnect")));
         QSignalSpy addRequested(&page, &ServersSidebarPage::addServerRequested);
         add->click();
         QCOMPARE(addRequested.count(), 1);
