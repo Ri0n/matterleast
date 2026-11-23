@@ -165,6 +165,38 @@ private slots:
     }
 
 
+    void mergedViewRejectsUnqualifiedActionsWithOnlyOneBackendOnline()
+    {
+        Backend first;
+        ChannelTree tree;
+        tree.backendForSidebar = &first;
+        QVERIFY(tree.bindSingleAccount(QStringLiteral("a")));
+        QCOMPARE(tree.backendInstance(), &first);
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        QVERIFY(tree.backendForAccount(QString()) == nullptr);
+        QVERIFY(tree.backendInstance() == nullptr);
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        QCOMPARE(tree.backendForAccount(QString()), &first);
+        QCOMPARE(tree.backendInstance(), &first);
+    }
+
+    void searchOnlyTouchesVisibleAccounts()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        tree.setConversationSearchTerm(QStringLiteral("foo"));
+        QVERIFY(SidebarService::instance(first).conversationSearchActive());
+        QVERIFY(SidebarService::instance(second).conversationSearchActive());
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        tree.setConversationSearchTerm(QString());
+        QVERIFY(!SidebarService::instance(first).conversationSearchActive());
+        QVERIFY(SidebarService::instance(second).conversationSearchActive());
+    }
+
     void accountRootsPreserveLiveRowsAndSelection()
     {
         ChannelTree tree;

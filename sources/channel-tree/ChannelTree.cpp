@@ -396,6 +396,8 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
 Backend* ChannelTree::backendForAccount(const QString& accountId) const
 {
     if (accountId.isEmpty()) {
+        if (_visibleAccountRootIds.size() > 1)
+            return nullptr;
         // Legacy callers can omit the account only while exactly one Backend
         // owns this presentation. A bound primary account does not make an
         // unqualified lookup safe once another Backend is registered.
@@ -558,6 +560,9 @@ void ChannelTree::setConversationSearchTerm(const QString& term)
     const auto applyToBackend = [this, &term](Backend* owner) {
         if (!owner)
             return;
+        const QString id = accountIdForBackend(owner);
+        if (!_visibleAccountRootIds.isEmpty() && !_visibleAccountRootIds.contains(id))
+            return;
         auto& sidebar = SidebarService::instance(*owner);
         const bool wasSearching = sidebar.conversationSearchActive();
         sidebar.setConversationSearchTerm(term);
@@ -594,7 +599,7 @@ Backend* ChannelTree::backendForSidebarSignal() const
 {
     const QObject* source = sender();
     if (!source)
-        return backendForSidebar.data();
+        return _visibleAccountRootIds.size() > 1 ? nullptr : backendForSidebar.data();
     for (auto it = _accountBackends.cbegin(); it != _accountBackends.cend(); ++it) {
         Backend* owner = it.value();
         if (owner && &SidebarService::instance(*owner) == source)
@@ -645,6 +650,8 @@ void ChannelTree::populateSidebars(Backend& backend)
 
 void ChannelTree::refreshServerSnapshot()
 {
+    if (_visibleAccountRootIds.size() > 1)
+        return;
     refreshServerSnapshotForAccount(_boundAccountId);
 }
 
@@ -1183,6 +1190,8 @@ void ChannelTree::setChatAreaStackedWidget (QStackedWidget* stackedWidget)
 
 void ChannelTree::openChannel(QString channelID)
 {
+    if (_visibleAccountRootIds.size() > 1)
+        return;
     openChannelForAccount(std::move(channelID), _boundAccountId);
 }
 

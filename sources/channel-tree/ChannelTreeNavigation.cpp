@@ -37,6 +37,8 @@ bool containsChannel(const SidebarTeamState& state, const QString& channelId)
 
 void ChannelTree::openStoredChannel(QString channelID)
 {
+    if (_visibleAccountRootIds.size() > 1)
+        return;
     openStoredChannelForAccount(std::move(channelID), _boundAccountId);
 }
 

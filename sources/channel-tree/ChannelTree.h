@@ -157,6 +157,8 @@ public:
 	// actions and handlers stay identical to the Channels tab.
 	void showChannelContextMenu(const QString& channelID, const QPoint& globalPos)
     {
+        if (_visibleAccountRootIds.size() > 1)
+            return;
         // Old Recent/Attention widgets belong to a single-account window.
         showChannelContextMenuForAccount(channelID, _boundAccountId, globalPos);
     }

@@ -12,6 +12,8 @@ namespace Mattermost {
 
 void ChannelTree::ensureGroupChannelDisplayName(const QString& channelId)
 {
+    if (_visibleAccountRootIds.size() > 1)
+        return;
     ensureGroupChannelDisplayName(_boundAccountId, channelId);
 }
 
