@@ -26,6 +26,7 @@ private slots:
         stack.setServersPage(servers);
         QVERIFY(stack.addWorkspace(QStringLiteral("a"), first));
         QVERIFY(stack.addWorkspace(QStringLiteral("b"), second));
+        QVERIFY(stack.activateWorkspace(QStringLiteral("a")));
 
         ViewConversationModel conversations;
         ViewSidebarModel sidebar;
