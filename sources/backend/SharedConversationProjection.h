@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QString>
-#include <QStringList>
 #include <QVector>
 
 #include "SharedConversationOrder.h"
@@ -18,7 +17,6 @@ public:
     struct AccountSource {
         QString accountId;
         Backend* backend = nullptr;
-        QStringList teamIds;
     };
 
     static QVector<SharedConversationOrder::Entry> collect(

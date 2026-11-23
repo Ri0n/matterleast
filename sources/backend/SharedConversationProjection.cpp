@@ -1,7 +1,6 @@
 #include "SharedConversationProjection.h"
 
-#include <QPair>
-#include <QSet>
+#include <algorithm>
 
 #include "Backend.h"
 #include "SidebarService.h"
@@ -14,37 +13,21 @@ QVector<SharedConversationOrder::Entry> SharedConversationProjection::collect(
     const QVector<AccountSource>& sources, const QString& sorting)
 {
     QVector<SharedConversationOrder::Entry> entries;
-    QSet<QPair<QString, QString>> seen;
     for (const AccountSource& source : sources) {
         if (source.accountId.isEmpty() || !source.backend)
             continue;
+        const auto& storage = source.backend->getStorage();
         auto& sidebar = SidebarService::instance(*source.backend);
-        for (const QString& teamId : source.teamIds) {
-            const SidebarTeamState* state = sidebar.teamState(teamId);
-            if (!state)
+        for (const QString& channelId : sidebar.visibleDirectConversationIds()) {
+            const BackendChannel* channel = storage.getChannelById(channelId);
+            if (!channel)
                 continue;
-            for (const QString& categoryId : state->order) {
-                const SidebarCategory* category = state->category(categoryId);
-                if (!category)
-                    continue;
-                for (const QString& channelId : sidebar.visibleChannelIds(*category)) {
-                    const auto identity = qMakePair(source.accountId, channelId);
-                    if (seen.contains(identity))
-                        continue;
-                    BackendChannel* channel =
-                        source.backend->getStorage().getChannelById(channelId);
-                    if (!channel || (channel->type != BackendChannel::directChannel
-                                     && channel->type != BackendChannel::groupChannel))
-                        continue;
-                    seen.insert(identity);
-                    quint64 activity = static_cast<quint64>(channel->create_at);
-                    activity = qMax(activity, static_cast<quint64>(channel->last_post_at));
-                    activity = qMax(activity, static_cast<quint64>(
-                        sidebar.channelActivityTime(*channel)));
-                    entries.push_back({source.accountId, channelId,
-                                       channel->display_name, activity});
-                }
-            }
+            quint64 activity = std::max<quint64>(channel->create_at,
+                                                  channel->last_post_at);
+            activity = std::max(activity, static_cast<quint64>(
+                sidebar.channelActivityTime(*channel)));
+            entries.push_back({source.accountId, channelId,
+                               channel->display_name, activity});
         }
     }
     SharedConversationOrder::sort(entries, sorting);

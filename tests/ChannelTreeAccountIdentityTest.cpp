@@ -169,30 +169,25 @@ private slots:
     }
 
 
-    void sharedProjectionDeduplicatesTeamsButNotAccounts()
+    void sharedProjectionUsesAccountCatalogWithoutTeamOrCategoryWalks()
     {
         Backend first;
         Backend second;
         ChannelTree tree;
-        auto addServer = [&tree](Backend& owner, const QString& accountId,
-                                 const QString& name, int activity) {
-            auto& storage = owner.getStorage();
+        auto addServer = [](Backend& backend, const QString& name, int activity) {
+            auto& storage = backend.getStorage();
             storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
                              {QStringLiteral("username"), QStringLiteral("self")}}, true);
-            QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team")},
-                                     {QStringLiteral("display_name"), QStringLiteral("Team")}}));
-            auto* channel = storage.addGroupChannel({
+            auto* channel = storage.addOwnChannel({
                 {QStringLiteral("id"), QStringLiteral("same-remote-id")},
                 {QStringLiteral("type"), QStringLiteral("G")},
                 {QStringLiteral("display_name"), QStringLiteral("self, ") + name},
                 {QStringLiteral("last_post_at"), activity}});
             QVERIFY(channel);
-
-            auto* team = new GroupTeamItem(tree, owner, QStringLiteral("Team"),
-                                           QStringLiteral("team"));
-            team->setData(0, SidebarItem::KindRole, int(SidebarItem::Team));
-            team->setData(0, SidebarItem::AccountIdRole, accountId);
-            tree.teamToItemMap.insert({accountId, QStringLiteral("team")}, team);
+            QCOMPARE(storage.groupChannels.channels.size(), size_t(1));
+            // Server category duplication must not affect the projection.
+            QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-1")}}));
+            QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-2")}}));
             SidebarTeamState state;
             SidebarCategory dm;
             dm.id = QStringLiteral("dm");
@@ -201,14 +196,15 @@ private slots:
             dm.channelIds = QStringList{QStringLiteral("same-remote-id")};
             state.order = QStringList{dm.id};
             state.categories.insert(dm.id, dm);
-            SidebarService::instance(owner).applyLocalTeamState(
-                QStringLiteral("team"), state);
+            SidebarService::instance(backend).applyLocalTeamState(
+                QStringLiteral("team-1"), state);
+            SidebarService::instance(backend).applyLocalTeamState(
+                QStringLiteral("team-2"), state);
         };
-
         QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
         QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
-        addServer(first, QStringLiteral("a"), QStringLiteral("Zebra"), 300);
-        addServer(second, QStringLiteral("b"), QStringLiteral("Alpha"), 100);
+        addServer(first, QStringLiteral("Zebra"), 300);
+        addServer(second, QStringLiteral("Alpha"), 100);
         QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
         auto merged = tree.sharedConversationEntries();
         QCOMPARE(merged.size(), 2);
@@ -217,8 +213,7 @@ private slots:
         QCOMPARE(merged.at(0).channelId, merged.at(1).channelId);
 
         const auto widgetFree = SharedConversationProjection::collect({
-            {QStringLiteral("a"), &first, {QStringLiteral("team")}},
-            {QStringLiteral("b"), &second, {QStringLiteral("team")}}},
+            {QStringLiteral("a"), &first}, {QStringLiteral("b"), &second}},
             QStringLiteral("recent"));
         QCOMPARE(widgetFree.size(), merged.size());
         QCOMPARE(widgetFree.at(0).accountId, merged.at(0).accountId);
@@ -231,12 +226,45 @@ private slots:
         QVERIFY(!tree.setSharedConversationSorting(QStringLiteral("invalid")));
         QCOMPARE(tree.sharedConversationEntries().at(0).accountId,
                  QStringLiteral("b"));
-        QCOMPARE(SidebarService::instance(first).teamState(QStringLiteral("team"))
+        QCOMPARE(SidebarService::instance(first).teamState(QStringLiteral("team-1"))
                      ->category(QStringLiteral("dm"))->sorting,
                  QStringLiteral("manual"));
-
         QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
         QVERIFY(tree.sharedConversationEntries().isEmpty());
+    }
+
+    void accountCatalogKeepsCanonicalChannelsAcrossTeams()
+    {
+        Backend backend;
+        auto& storage = backend.getStorage();
+        storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                         {QStringLiteral("username"), QStringLiteral("self")}}, true);
+        QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-1")}}));
+        QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-2")}}));
+        const QJsonObject dm {
+            {QStringLiteral("id"), QStringLiteral("shared-dm")},
+            {QStringLiteral("name"), QStringLiteral("self__peer")},
+            {QStringLiteral("type"), QStringLiteral("D")}
+        };
+        auto* first = storage.addOwnChannel(dm);
+        QVERIFY(first);
+        QCOMPARE(storage.addOwnChannel(dm), first);
+        QCOMPARE(storage.directChannels.channels.size(), size_t(1));
+        const QJsonObject team {
+            {QStringLiteral("id"), QStringLiteral("team-channel")},
+            {QStringLiteral("team_id"), QStringLiteral("team-1")},
+            {QStringLiteral("type"), QStringLiteral("O")}
+        };
+        auto* serverChannel = storage.addOwnChannel(team);
+        QVERIFY(serverChannel);
+        QCOMPARE(storage.addOwnChannel(team), serverChannel);
+        QCOMPARE(storage.getTeamById(QStringLiteral("team-1"))->channels.size(),
+                 size_t(1));
+        QCOMPARE(storage.getTeamById(QStringLiteral("team-2"))->channels.size(),
+                 size_t(0));
+        QVERIFY(!storage.addOwnChannel({{QStringLiteral("id"), QStringLiteral("orphan")},
+                                        {QStringLiteral("type"), QStringLiteral("O")},
+                                        {QStringLiteral("team_id"), QStringLiteral("absent")}}));
     }
 
     void mergedConversationOrderIsViewLocalAndAccountQualified()

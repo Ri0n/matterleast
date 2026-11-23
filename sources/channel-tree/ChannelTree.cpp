@@ -263,22 +263,12 @@ QVector<SharedConversationOrder::Entry> ChannelTree::sharedConversationEntries()
     if (_visibleAccountRootIds.size() < 2)
         return {};
 
-    // Presentation provides View membership; backend-owned state performs
-    // the actual projection, shared with future QML presenters.
+    // One account Backend is one source. Teams and category snapshots are
+    // irrelevant to the identity or visibility of its direct conversations.
     QVector<SharedConversationProjection::AccountSource> sources;
     for (const QString& accountId : _visibleAccountRootIds) {
-        Backend* owner = backendForAccount(accountId);
-        if (!owner)
-            continue;
-        SharedConversationProjection::AccountSource source;
-        source.accountId = accountId;
-        source.backend = owner;
-        for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
-            if (it.key().first == accountId && it.value()
-                && &it.value()->backend == owner)
-                source.teamIds.push_back(it.key().second);
-        }
-        sources.push_back(std::move(source));
+        if (Backend* owner = backendForAccount(accountId))
+            sources.push_back({accountId, owner});
     }
     return SharedConversationProjection::collect(sources, _sharedConversationSorting);
 }

@@ -101,6 +101,10 @@ public:
         return activityTracker.openTime(channelId);
     }
     QStringList visibleChannelIds(const SidebarCategory& category, bool applySearch = true) const;
+    // Account-wide DM/GM visibility, derived from canonical Storage channels.
+    // No server team/category iteration; the one-account UI keeps its original
+    // server category ordering via visibleChannelIds().
+    QStringList visibleDirectConversationIds() const;
     void setConversationSearchTerm(const QString& term) { _conversationSearchTerm = term.trimmed(); }
     bool conversationSearchActive() const { return !_conversationSearchTerm.isEmpty(); }
     void markChannelViewedLocally(const BackendChannel& channel);
