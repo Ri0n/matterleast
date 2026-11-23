@@ -265,6 +265,18 @@ private slots:
         QVERIFY(!storage.addOwnChannel({{QStringLiteral("id"), QStringLiteral("orphan")},
                                         {QStringLiteral("type"), QStringLiteral("O")},
                                         {QStringLiteral("team_id"), QStringLiteral("absent")}}));
+        // Clearing an old team snapshot must not leave a dangling pointer in
+        // the account's global channel index.
+        storage.eraseTeam(QStringLiteral("team-1"));
+        QVERIFY(!storage.getChannelById(QStringLiteral("team-channel")));
+        const QJsonObject replacement {
+            {QStringLiteral("id"), QStringLiteral("team-channel")},
+            {QStringLiteral("team_id"), QStringLiteral("team-2")},
+            {QStringLiteral("type"), QStringLiteral("O")}
+        };
+        QVERIFY(storage.addOwnChannel(replacement));
+        QCOMPARE(storage.getTeamById(QStringLiteral("team-2"))->channels.size(),
+                 size_t(1));
     }
 
     void mergedConversationOrderIsViewLocalAndAccountQualified()

@@ -1069,7 +1069,11 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
             return;
         }
     	LOG_DEBUG ("retrieveOwnTeams reply");
-		storage.teams.clear ();
+        // Erase the previous team's channel pointers from Storage's global
+        // index before destroying their owners. Otherwise an account-wide
+        // snapshot would mistake dangling entries for already loaded channels.
+        while (!storage.teams.empty())
+            storage.eraseTeam(storage.teams.begin()->first);
 
 #if 0
 		QString jsonString = doc.toJson(QJsonDocument::Indented);
