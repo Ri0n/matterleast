@@ -3,6 +3,7 @@
 #include <QTreeWidgetItem>
 
 #include "channel-tree/ChannelTree.h"
+#include "backend/SharedConversationOrder.h"
 #include "channel-tree/ChannelTreeItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "backend/Backend.h"
@@ -164,6 +165,36 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+
+    void mergedConversationOrderIsViewLocalAndAccountQualified()
+    {
+        using Entry = SharedConversationOrder::Entry;
+        QVector<Entry> conversations {
+            {QStringLiteral("b"), QStringLiteral("same-id"),
+             QStringLiteral("zebra"), 300},
+            {QStringLiteral("a"), QStringLiteral("same-id"),
+             QStringLiteral("Alpha"), 100},
+            {QStringLiteral("c"), QStringLiteral("other-id"),
+             QStringLiteral("alpha"), 200},
+        };
+
+        SharedConversationOrder::sort(conversations, QStringLiteral("recent"));
+        QCOMPARE(conversations.at(0).accountId, QStringLiteral("b"));
+        QCOMPARE(conversations.at(1).accountId, QStringLiteral("c"));
+        QCOMPARE(conversations.at(2).accountId, QStringLiteral("a"));
+
+        SharedConversationOrder::sort(conversations, QStringLiteral("alpha"));
+        QCOMPARE(conversations.at(0).accountId, QStringLiteral("a"));
+        QCOMPARE(conversations.at(1).accountId, QStringLiteral("c"));
+        QCOMPARE(conversations.at(2).accountId, QStringLiteral("b"));
+
+        conversations[1].title = conversations[0].title;
+        conversations[1].accountId = conversations[0].accountId;
+        conversations[1].channelId = QStringLiteral("other-id");
+        SharedConversationOrder::sort(conversations, QStringLiteral("alpha"));
+        QCOMPARE(conversations.at(0).channelId, QStringLiteral("other-id"));
+        QCOMPARE(conversations.at(1).channelId, QStringLiteral("same-id"));
+    }
 
     void mergedViewRejectsUnqualifiedActionsWithOnlyOneBackendOnline()
     {
