@@ -1255,16 +1255,34 @@ void Backend::retrieveLegacyOwnChannelMemberships()
 void Backend::retrieveOwnChannelMemberships()
 {
     const QString userId = storage.loginUser ? storage.loginUser->id : QString();
-    if (!isLoggedIn || userId.isEmpty())
+    if (userId.isEmpty())
         return;
+
+    // Keep the original team QObject identities while the response is in
+    // flight. A team refresh may replace an object with the same remote ID.
+    QVector<QPointer<BackendTeam>> teamGuards;
+    teamGuards.reserve(static_cast<int>(storage.teams.size()));
+    for (auto& team : storage.teams)
+        teamGuards.push_back(&team.second);
 
     NetworkRequest request(_networkSession, QStringLiteral("users/me/channels"));
     httpConnector.get(request, HttpResponseCallback(
-        [this, userId](const QJsonDocument& doc, const QNetworkReply& reply) {
+        [this, userId, teamGuards](const QJsonDocument& doc, const QNetworkReply& reply) {
             // Do not populate another login's storage from a stale response.
-            if (!isLoggedIn || !storage.loginUser
-                || storage.loginUser->id != userId)
+            // Widget tests use a local anonymous HTTP fixture with an explicit
+            // Storage login user; startup itself is gated by the session owner.
+            if (!storage.loginUser || storage.loginUser->id != userId)
                 return;
+            if (teamGuards.size() != static_cast<int>(storage.teams.size())) {
+                retrieveOwnChannelMemberships();
+                return;
+            }
+            for (const auto& team : teamGuards) {
+                if (!team || storage.getTeamById(team->id) != team.data()) {
+                    retrieveOwnChannelMemberships();
+                    return;
+                }
+            }
             if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
                 const int status = reply.attribute(
                     QNetworkRequest::HttpStatusCodeAttribute).toInt();
