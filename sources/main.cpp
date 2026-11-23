@@ -450,6 +450,18 @@ void MattermostApplication::syncMergedSidebarPresentation()
                 target->openChannelPost(channelId);
             }
         });
+        connect(tree, &ChannelTree::virtualDestinationRequestedForAccount, this,
+                [this, viewId](const QString& accountId, int destination,
+                               const QString& teamId) {
+            if (accounts.activeViewId() != viewId)
+                return;
+            Account* owner = accounts.account(accountId);
+            if (!owner || !owner->backend() || closingAccounts.contains(owner->backend()))
+                return;
+            selectAccount(accountId);
+            if (MainWindow* target = accountViews.value(owner->backend(), nullptr))
+                target->openAccountDestination(destination, teamId);
+        });
         connect(tree, &QTreeWidget::currentItemChanged, this,
                 [this, viewId](QTreeWidgetItem* item, QTreeWidgetItem*) {
             if (accounts.activeViewId() != viewId || !item

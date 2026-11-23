@@ -481,6 +481,11 @@ void MainWindow::showChannelsSidebar()
         channelTabs->setCurrentWidget(channelsPage);
 }
 
+void MainWindow::openAccountDestination(int destination, const QString& teamId)
+{
+    on_channelList_virtualDestinationRequested(destination, teamId);
+}
+
 void MainWindow::setMergedSidebarMode(bool enabled)
 {
     if (!sidebarSplitter || sidebarSplitter->count() < 2)

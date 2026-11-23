@@ -703,6 +703,33 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+    void mergedVirtualDestinationsRetainTheirOwningAccount()
+    {
+        Backend a;
+        Backend b;
+        ChannelTree tree;
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), a));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), b));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        auto* team = addRow(tree.topLevelItem(1), SidebarItem::Team,
+                            QStringLiteral("team-b"));
+        team->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        auto* saved = addRow(team, SidebarItem::VirtualDestination,
+                             QStringLiteral("saved"));
+        saved->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        saved->setData(0, SidebarItem::TeamIdRole, QStringLiteral("team-b"));
+        saved->setData(0, SidebarItem::DestinationRole,
+                       int(SidebarItem::SavedDestination));
+        QSignalSpy shared(&tree, &ChannelTree::virtualDestinationRequestedForAccount);
+        QSignalSpy legacy(&tree, &ChannelTree::virtualDestinationRequested);
+        tree.setCurrentItem(saved);
+        QCOMPARE(shared.count(), 1);
+        QCOMPARE(legacy.count(), 0);
+        QCOMPARE(shared.at(0).at(0).toString(), QStringLiteral("b"));
+        QCOMPARE(shared.at(0).at(1).toInt(), int(SidebarItem::SavedDestination));
+        QCOMPARE(shared.at(0).at(2).toString(), QStringLiteral("team-b"));
+    }
+
     void mergedConversationsReuseChannelTreeRowsAndViewLocalSorting()
     {
         Backend first;

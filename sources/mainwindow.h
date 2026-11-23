@@ -74,6 +74,7 @@ public:
     void restoreSidebarWidth();
     void showServersSidebar();
     void showChannelsSidebar();
+    void openAccountDestination(int destination, const QString& teamId);
     // The account's chats remain live while the active multi-account View
     // supplies a single ChannelTree at application-shell scope.
     void setMergedSidebarMode(bool enabled);

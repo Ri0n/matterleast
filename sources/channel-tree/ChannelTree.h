@@ -202,6 +202,8 @@ signals:
     void conversationOpenRequested(const QString& accountId, const QString& channelId);
     void teamSidebarPopulated(const QString& teamId);
     void virtualDestinationRequested(int destination, const QString& teamId);
+    void virtualDestinationRequestedForAccount(const QString& accountId,
+                                               int destination, const QString& teamId);
     /** Completion of a stored-channel open that required asynchronous admission/join. */
     void storedChannelOpenFinished(const QString& channelId, bool opened);
 

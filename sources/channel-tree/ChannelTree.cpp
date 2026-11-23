@@ -1413,8 +1413,11 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
     if (destination == SidebarItem::SavedDestination
         || destination == SidebarItem::DraftsDestination
         || destination == SidebarItem::RecentMentionsDestination) {
-        emit virtualDestinationRequested(destination,
-                                         item->data(0, ItemTeamIdRole).toString());
+        const QString teamId = item->data(0, ItemTeamIdRole).toString();
+        if (_visibleAccountRootIds.size() > 1 && !chatAreaStackedWidget)
+            emit virtualDestinationRequestedForAccount(accountId, destination, teamId);
+        else
+            emit virtualDestinationRequested(destination, teamId);
         return;
     }
     if (destination != SidebarItem::PersonalDestination) {
