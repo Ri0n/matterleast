@@ -134,7 +134,7 @@ private slots:
         QVERIFY(!provider->joinCall(QStringLiteral("account-1"), QStringLiteral("channel-123")));
         QVERIFY(plugin.isEnabled()); // A missing login must not hide the plugin.
         calls.signedIn = true;
-        QVERIFY(provider->joinCall(QStringLiteral("channel-123")));
+        QVERIFY(provider->joinCall(QStringLiteral("account-1"), QStringLiteral("channel-123")));
         QCOMPARE(calls.actions, 1);
         QCOMPARE(calls.lastAccountId, QStringLiteral("account-1"));
         QCOMPARE(provider->snapshot().accountId, QStringLiteral("account-1"));
