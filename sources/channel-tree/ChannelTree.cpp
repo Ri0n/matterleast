@@ -273,7 +273,12 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
 
     // Qt item ownership/parenting changes; channel, team, page and model
     // addresses remain stable. Suppress temporary selection-as-navigation.
-    QTreeWidgetItem* const selected = currentItem();
+    QTreeWidgetItem* const selectedRow = currentItem();
+    // Account headers are destroyed when switching presentation modes.
+    // Never keep their raw pointers alive across the reparenting.
+    QTreeWidgetItem* const selected = selectedRow
+        && selectedRow->data(0, ItemKindRole).toInt() != AccountRootItemKind
+        ? selectedRow : nullptr;
     const bool selectedBefore = selected && selected->isSelected();
     const QSignalBlocker selectionBlock(this);
     const QScopedValueRollback<bool> renderGuard(renderingSidebar, true);
@@ -315,9 +320,19 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
             attachTeamToAccountRoot(row);
     }
 
-    if (selected && selected->treeWidget() == this)
+    bool stillVisible = selected && selected->treeWidget() == this;
+    for (QTreeWidgetItem* ancestor = selected; stillVisible && ancestor;
+         ancestor = ancestor->parent()) {
+        if (ancestor->isHidden())
+            stillVisible = false;
+    }
+    if (stillVisible) {
         setCurrentItem(selected, 0, selectedBefore
             ? QItemSelectionModel::ClearAndSelect : QItemSelectionModel::NoUpdate);
+    } else {
+        // Switching Views must not leave an invisible conversation selected.
+        setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
+    }
     return true;
 }
 

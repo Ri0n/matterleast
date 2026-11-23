@@ -228,6 +228,20 @@ private slots:
         QVERIFY(late->isHidden());
         QCOMPARE(tree.currentItem(), channel);
         QCOMPARE(resets.count(), 0);
+
+        // Selecting an account heading before returning to a singleton
+        // must not dereference that heading after its deletion.
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        tree.setCurrentItem(tree.topLevelItem(0));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        QVERIFY(tree.currentItem() == nullptr);
+
+        // A selection in an account excluded by the next View is cleared.
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        tree.setCurrentItem(secondChannel);
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        QVERIFY(tree.currentItem() == nullptr);
+        QCOMPARE(resets.count(), 0);
     }
 
     void contextMenusUseOwningAccountWithCollidingIds()
