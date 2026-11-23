@@ -134,6 +134,9 @@ void ViewConversationModel::refresh()
                 _connections.push_back(connect(
                     sidebar, &SidebarService::categoriesChanged,
                     this, &ViewConversationModel::refresh));
+                _connections.push_back(connect(
+                    sidebar, &SidebarService::conversationSearchChanged,
+                    this, &ViewConversationModel::refresh));
             }
             auto& storage = backend->getStorage();
             for (const QString& channelId : sidebar->visibleDirectConversationIds()) {

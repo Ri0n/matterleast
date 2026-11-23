@@ -107,7 +107,7 @@ public:
     // No server team/category iteration; the one-account UI keeps its original
     // server category ordering via visibleChannelIds().
     QStringList visibleDirectConversationIds() const;
-    void setConversationSearchTerm(const QString& term) { _conversationSearchTerm = term.trimmed(); }
+    void setConversationSearchTerm(const QString& term);
     bool conversationSearchActive() const { return !_conversationSearchTerm.isEmpty(); }
     void markChannelViewedLocally(const BackendChannel& channel);
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
@@ -168,6 +168,7 @@ signals:
     void channelUnreadRewound(const QString& channelId, const QString& postId);
     void channelActivityReset();
     void categoriesChanged(const QString& teamId);
+    void conversationSearchChanged();
 
 private:
     explicit SidebarService(Backend& backend);

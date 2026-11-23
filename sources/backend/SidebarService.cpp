@@ -510,6 +510,15 @@ bool SidebarService::isDirectChannelManuallyHidden(const BackendChannel& channel
     return false;
 }
 
+void SidebarService::setConversationSearchTerm(const QString& term)
+{
+    const QString normalized = term.trimmed();
+    if (_conversationSearchTerm == normalized)
+        return;
+    _conversationSearchTerm = normalized;
+    emit conversationSearchChanged();
+}
+
 QStringList SidebarService::visibleDirectConversationIds() const
 {
     struct Candidate {

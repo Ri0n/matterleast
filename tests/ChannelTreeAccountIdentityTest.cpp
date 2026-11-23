@@ -227,6 +227,40 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+    void mergedSearchReconcilesImmediatelyAndWithoutModelReset()
+    {
+        Backend a;
+        Backend b;
+        auto setup = [](Backend& backend, const QString& id, const QString& name) {
+            auto& storage = backend.getStorage();
+            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
+            QVERIFY(storage.addOwnChannel({
+                {QStringLiteral("id"), id},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"), name},
+                {QStringLiteral("last_post_at"), 100}}));
+            SidebarService::instance(backend);
+        };
+        setup(a, QStringLiteral("one"), QStringLiteral("Alpha"));
+        setup(b, QStringLiteral("two"), QStringLiteral("Beta"));
+        ViewConversationModel model;
+        model.setSources({{QStringLiteral("a"), &a},
+                          {QStringLiteral("b"), &b}});
+        QCOMPARE(model.rowCount(), 2);
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        auto& firstSidebar = SidebarService::instance(a);
+        auto& secondSidebar = SidebarService::instance(b);
+        firstSidebar.setConversationSearchTerm(QStringLiteral("Alpha"));
+        secondSidebar.setConversationSearchTerm(QStringLiteral("Alpha"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("a"));
+        firstSidebar.setConversationSearchTerm({});
+        secondSidebar.setConversationSearchTerm({});
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(resets.count(), 0);
+    }
+
     void accountCatalogKeepsCanonicalChannelsAcrossTeams()
     {
         Backend backend;
