@@ -184,7 +184,9 @@ private slots:
         auto* tree = page.findChild<QTreeView*>(
             QStringLiteral("serversWorkspaceTree"));
         QVERIFY(tree);
-        const QModelIndex server = tree->model()->index(1, 0);
+        const QModelIndex profile = tree->model()->index(0, 0);
+        const QModelIndex view = tree->model()->index(0, 0, profile);
+        const QModelIndex server = tree->model()->index(0, 0, view);
         QVERIFY(server.isValid());
         QCOMPARE(server.data(WorkspaceTreeModel::NodeKindRole).toInt(),
                  int(WorkspaceTreeModel::AccountNode));
