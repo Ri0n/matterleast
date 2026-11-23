@@ -226,8 +226,8 @@ private slots:
         QCOMPARE(page.layout()->count(), 2); // Toolbar + tree; no footer controls.
         QVERIFY(add->text().isEmpty());
         QVERIFY(layouts->text().isEmpty());
-        QVERIFY(!add->icon().isNull());
-        QVERIFY(!layouts->icon().isNull());
+        QCOMPARE(add->iconSize(), QSize(20, 20));
+        QCOMPARE(layouts->iconSize(), QSize(20, 20));
         QVERIFY(!page.findChild<QPushButton*>(QStringLiteral("serversOpen")));
         QVERIFY(!page.findChild<QPushButton*>(QStringLiteral("serversSettings")));
         QVERIFY(!page.findChild<QPushButton*>(QStringLiteral("serversConnect")));
