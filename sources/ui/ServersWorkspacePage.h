@@ -23,7 +23,8 @@ signals:
     void accountSelected(const QString& id);
     void viewSelected(const QString& id);
     void addServerRequested();
-    void signInRequested(const QString& id);
+    void serverSettingsRequested(const QString& id);
+    void serverDisconnectRequested(const QString& id);
     void retryRequested(const QString& id);
 
 private:

@@ -62,8 +62,10 @@ ServersWorkspacePage::ServersWorkspacePage(AccountManager& accounts, QWidget* pa
             this, &ServersWorkspacePage::viewSelected);
     connect(_servers, &ServersSidebarPage::addServerRequested,
             this, &ServersWorkspacePage::addServerRequested);
-    connect(_servers, &ServersSidebarPage::signInRequested,
-            this, &ServersWorkspacePage::signInRequested);
+    connect(_servers, &ServersSidebarPage::serverSettingsRequested,
+            this, &ServersWorkspacePage::serverSettingsRequested);
+    connect(_servers, &ServersSidebarPage::disconnectRequested,
+            this, &ServersWorkspacePage::serverDisconnectRequested);
     connect(_servers, &ServersSidebarPage::retryRequested,
             this, &ServersWorkspacePage::retryRequested);
 }

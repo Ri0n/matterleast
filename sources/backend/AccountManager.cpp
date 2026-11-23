@@ -774,6 +774,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     Account* item = existing ? existing : ensureAccount(id);
     if (!item || !item->adoptBackend(backend))
         return nullptr;
+    _manuallyDisconnected.remove(id);
     // The saved-token verification has succeeded. Clear its retry cycle
     // BEFORE observing the WebSocket state: a socket may already be offline,
     // and clearing later would silently erase its newly scheduled retry.
