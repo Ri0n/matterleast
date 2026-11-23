@@ -1195,20 +1195,22 @@ void Backend::retrieveChannelsMemberCounts(
         }));
 }
 
-void Backend::retrieveNewTeamChannels(BackendTeam& team)
+void Backend::retrieveNewTeamChannels(BackendTeam& team,
+                                      std::function<void()> completed)
 {
     const QPointer<BackendTeam> teamGuard(&team);
     NetworkRequest request(_networkSession,
                            QStringLiteral("users/me/teams/") + team.id
                            + QStringLiteral("/channels"));
     httpConnector.get(request, HttpResponseCallback(
-        [this, teamGuard](const QJsonDocument& doc, const QNetworkReply& reply) {
+        [this, teamGuard, completed = std::move(completed)](
+            const QJsonDocument& doc, const QNetworkReply& reply) {
             if (!teamGuard || !isLoggedIn)
                 return;
             if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
-                QTimer::singleShot(5000, this, [this, teamGuard] {
+                QTimer::singleShot(5000, this, [this, teamGuard, completed] {
                     if (isLoggedIn && teamGuard)
-                        retrieveNewTeamChannels(*teamGuard);
+                        retrieveNewTeamChannels(*teamGuard, completed);
                 });
                 return;
             }
@@ -1228,7 +1230,24 @@ void Backend::retrieveNewTeamChannels(BackendTeam& team)
                 else
                     emit teamGuard->onNewChannel(*channel);
             }
+            if (completed)
+                completed();
         }));
+}
+
+void Backend::retrieveLegacyOwnChannelMemberships()
+{
+    if (storage.teams.empty()) {
+        emit onAllTeamChannelsPopulated();
+        return;
+    }
+    auto remaining = std::make_shared<int>(static_cast<int>(storage.teams.size()));
+    for (auto& team : storage.teams) {
+        retrieveNewTeamChannels(team.second, [this, remaining] {
+            if (--*remaining == 0)
+                emit onAllTeamChannelsPopulated();
+        });
+    }
 }
 
 void Backend::retrieveOwnChannelMemberships()
@@ -1245,6 +1264,18 @@ void Backend::retrieveOwnChannelMemberships()
                 || storage.loginUser->id != userId)
                 return;
             if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+                const int status = reply.attribute(
+                    QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                // Only an actual Mattermost API error denotes a missing route.
+                // Corporate proxies/VPN filters also return 403/404, often
+                // with HTML; never fan out N fallback requests for those.
+                const QString errorId = doc.isObject()
+                    ? doc.object().value(QStringLiteral("id")).toString() : QString();
+                if ((status == 404 || status == 405)
+                    && errorId.startsWith(QLatin1String("api."))) {
+                    retrieveLegacyOwnChannelMemberships();
+                    return;
+                }
                 LOG_DEBUG("Account channel catalog failed; retrying in 5 seconds");
                 QTimer::singleShot(5000, this, [this, userId] {
                     if (isLoggedIn && storage.loginUser
