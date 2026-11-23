@@ -590,6 +590,39 @@ private slots:
     }
 
 
+    void accountRootsSynchronizeLoadedTeamsWithoutExtraModel()
+    {
+        Backend a;
+        Backend b;
+        auto* teamA = a.getStorage().addTeam({
+            {QStringLiteral("id"), QStringLiteral("same-team")},
+            {QStringLiteral("display_name"), QStringLiteral("Alpha")}});
+        auto* teamB = b.getStorage().addTeam({
+            {QStringLiteral("id"), QStringLiteral("same-team")},
+            {QStringLiteral("display_name"), QStringLiteral("Beta")}});
+        QVERIFY(teamA);
+        QVERIFY(teamB);
+        ChannelTree tree;
+        QAbstractItemModel* const originalModel = tree.model();
+        QSignalSpy resets(originalModel, &QAbstractItemModel::modelReset);
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), a));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), b));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        QCOMPARE(tree.topLevelItemCount(), 2);
+        QCOMPARE(tree.topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(1)->childCount(), 1);
+        QTreeWidgetItem* const oldA = tree.topLevelItem(0)->child(0);
+        QTreeWidgetItem* const oldB = tree.topLevelItem(1)->child(0);
+        teamA->display_name = QStringLiteral("Renamed Alpha");
+        emit a.onAllTeamChannelsPopulated();
+        QCOMPARE(tree.topLevelItem(0)->child(0), oldA);
+        QCOMPARE(tree.topLevelItem(1)->child(0), oldB);
+        QCOMPARE(oldA->text(0), QStringLiteral("Renamed Alpha"));
+        QCOMPARE(oldB->text(0), QStringLiteral("Beta"));
+        QCOMPARE(tree.model(), originalModel);
+        QCOMPARE(resets.count(), 0);
+    }
+
     void mergedViewReusesOriginalTreeAndRoutesByAccount()
     {
         Backend first;

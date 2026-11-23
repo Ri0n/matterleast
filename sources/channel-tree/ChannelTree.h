@@ -60,6 +60,7 @@ class ChatArea;
 class TeamItem;
 class ChannelItem;
 class Storage;
+class SidebarService;
 struct SidebarTeamState;
 
 class ChannelTree: public QTreeWidget {
@@ -106,6 +107,9 @@ public:
                                 const QHash<QString, QString>& labels = {});
     // The AccountManager owns Backend lifetimes; this tree only observes them.
     bool registerAccountBackend(const QString& accountId, Backend& backend);
+    // Populate this same tree from an already loaded account snapshot.
+    // Must not cause another fetch of the server's sidebar categories.
+    void synchronizeAccountSidebar(const QString& accountId);
     void unregisterAccountBackend(const QString& accountId, const Backend* expected = nullptr);
     Backend* backendForAccount(const QString& accountId) const;
     Backend* backendForRow(const QTreeWidgetItem* row) const;
@@ -217,6 +221,7 @@ protected:
 private:
     static void tagAccount(QTreeWidgetItem* item, const QString& accountId);
     void attachTeamToAccountRoot(QTreeWidgetItem* team);
+    void observeSidebarSignals(Backend& backend, SidebarService& sidebar);
     using ScopedId = QPair<QString, QString>;
     // Keep the remote identifier local to its owning account. The row role
     // takes priority for retained/moved items; before login it is unbound.
@@ -332,6 +337,7 @@ private:
     QPointer<Backend>                   backendForSidebar;
     QString                             _boundAccountId;
     QMap<QString, QPointer<Backend>>     _accountBackends;
+    QMap<ScopedId, QPointer<BackendTeam>> _observedTeams;
     QStringList                         _visibleAccountRootIds;
     QHash<QString, QString>             _accountRootLabels;
     QHash<QString, QTreeWidgetItem*>    _accountRootItems;

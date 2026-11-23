@@ -330,6 +330,11 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
     }
     for (QTreeWidgetItem* row : teams)
         attachTeamToAccountRoot(row);
+    // The caller already has live Backends. A View switch only projects
+    // their cached sidebar state into the same ChannelTree implementation.
+    for (const QString& id : accountIds)
+        if (backendForAccount(id))
+            synchronizeAccountSidebar(id);
 
     bool stillVisible = selected && selected->treeWidget() == this;
     for (QTreeWidgetItem* ancestor = selected; stillVisible && ancestor;
@@ -381,7 +386,18 @@ bool ChannelTree::registerAccountBackend(const QString& accountId, Backend& back
     if (accountId == _boundAccountId && backendForSidebar
         && backendForSidebar != &backend)
         return false;
+    const bool newSource = existing == _accountBackends.cend()
+        || existing.value() != &backend;
     _accountBackends.insert(accountId, &backend);
+    if (newSource) {
+        QPointer<Backend> guard(&backend);
+        connect(&backend, &Backend::onAllTeamChannelsPopulated, this,
+                [this, accountId, guard] {
+            if (guard && backendForAccount(accountId) == guard.data()
+                && _visibleAccountRootIds.contains(accountId))
+                synchronizeAccountSidebar(accountId);
+        });
+    }
     return true;
 }
 
@@ -391,6 +407,11 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
     const auto it = _accountBackends.constFind(accountId);
     if (it == _accountBackends.cend() || (expected && it.value() != expected))
         return;
+    // An account's UI rows must be discarded before Backend storage is reset.
+    const QList<ScopedId> keys = teamToItemMap.keys();
+    for (const ScopedId& key : keys)
+        if (key.first == accountId)
+            removeTeamSidebar(key);
     _accountBackends.remove(accountId);
     for (auto userIt = connectedSidebarUsers.begin();
          userIt != connectedSidebarUsers.end();) {
@@ -496,17 +517,9 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
     if (!backendForSidebar)
         backendForSidebar = &backend;
     const ScopedId key {accountIdForBackend(&backend), team.id};
-    // A reconnect or repeated team snapshot must retain the same sidebar
-    // items and their model indexes. Duplicating a team also duplicates its
-    // live channel rows and every visual/navigation connection.
-    if (TeamItem* existing = teamToItemMap.value(key, nullptr)) {
-        if (&existing->backend != &backend)
-            return;
-        if (existing->text(0) != team.display_name)
-            existing->setText(0, team.display_name);
-        attachTeamToAccountRoot(existing);
+    TeamItem* teamList = teamToItemMap.value(key, nullptr);
+    if (teamList && &teamList->backend != &backend)
         return;
-    }
     if (!profileSourcesConnected.contains(&backend)) {
         profileSourcesConnected.insert(&backend);
         QPointer<Backend> ownerGuard(&backend);
@@ -545,35 +558,87 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
         });
     }
 
-	TeamItem* teamList = new GroupTeamItem (*this, backend, team.display_name, team.id);
-    teamList->setData(0, ItemKindRole, TeamItemKind);
-    teamList->setData(0, ItemIdRole, team.id);
-    teamList->setData(0, ItemTeamIdRole, team.id);
-    const QString accountId = accountIdForBackend(&backend);
-    if (!accountId.isEmpty())
-        teamList->setData(0, ItemAccountIdRole, accountId);
-    teamList->setFlags(teamList->flags() & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
-
-	addTopLevelItem (teamList);
+    if (!teamList) {
+        teamList = new GroupTeamItem(*this, backend, team.display_name, team.id);
+        teamList->setData(0, ItemKindRole, TeamItemKind);
+        teamList->setData(0, ItemIdRole, team.id);
+        teamList->setData(0, ItemTeamIdRole, team.id);
+        const QString accountId = accountIdForBackend(&backend);
+        if (!accountId.isEmpty())
+            teamList->setData(0, ItemAccountIdRole, accountId);
+        teamList->setFlags(teamList->flags()
+                           & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
+        addTopLevelItem(teamList);
+        teamToItemMap.insert(key, teamList);
+        header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    } else if (teamList->text(0) != team.display_name) {
+        teamList->setText(0, team.display_name);
+    }
     attachTeamToAccountRoot(teamList);
-    teamToItemMap.insert({accountId, team.id}, teamList);
-	header()->setSectionResizeMode(0, QHeaderView::Stretch);
 
-	connect (&team, &BackendTeam::onNewChannel, this, [this, &backend, &team] (BackendChannel&) {
-        refreshTeamSidebar(backend, team);
-	});
-
-    connect(&team, &BackendTeam::onLeave, this, [this, &backend, teamId = team.id] {
-        const ScopedId key {accountIdForBackend(&backend), teamId};
-        if (sidebarDragActive) {
-            pendingSidebarRefreshTeams.insert(key);
-            return;
-        }
-        removeTeamSidebar(key);
-    });
+    // The logical team row survives refreshed snapshots; its BackendTeam
+    // signal source may not. Reconnect only when the QObject really changed.
+    if (_observedTeams.value(key) != &team) {
+        if (BackendTeam* previous = _observedTeams.value(key))
+            disconnect(previous, nullptr, this, nullptr);
+        _observedTeams.insert(key, &team);
+        QPointer<BackendTeam> teamGuard(&team);
+        QPointer<Backend> backendGuard(&backend);
+        connect(&team, &BackendTeam::onNewChannel, this,
+                [this, teamGuard, backendGuard](BackendChannel&) {
+            if (teamGuard && backendGuard
+                && _observedTeams.value(
+                       {accountIdForBackend(backendGuard.data()), teamGuard->id}) == teamGuard)
+                refreshTeamSidebar(*backendGuard, *teamGuard);
+        });
+        connect(&team, &BackendTeam::onLeave, this,
+                [this, teamGuard, backendGuard, teamId = team.id] {
+            if (!backendGuard || !teamGuard)
+                return;
+            const ScopedId key {accountIdForBackend(backendGuard.data()), teamId};
+            if (_observedTeams.value(key) != teamGuard)
+                return;
+            if (sidebarDragActive) {
+                pendingSidebarRefreshTeams.insert(key);
+                return;
+            }
+            removeTeamSidebar(key);
+        });
+    }
 
     // Backend loads the account-wide channel catalog after announcing teams.
     // Team members are still fetched only by dialogs that need them.
+}
+
+void ChannelTree::synchronizeAccountSidebar(const QString& accountId)
+{
+    Backend* owner = backendForAccount(accountId);
+    if (!owner)
+        return;
+    auto& storage = owner->getStorage();
+    // Idempotent and scoped: do not re-query teams/channels, and do not
+    // iterate an unrelated account's storage on a view switch.
+    for (auto& entry : storage.teams)
+        addTeam(*owner, entry.second);
+
+    const QList<ScopedId> keys = teamToItemMap.keys();
+    for (const ScopedId& key : keys) {
+        if (key.first == accountId && !storage.getTeamById(key.second))
+            removeTeamSidebar(key);
+    }
+
+    // Another account's MainWindow normally owns retrieval. Reuse the cache,
+    // not SidebarService::instance() (which may trigger startup network calls).
+    SidebarService* sidebar = SidebarService::existing(*owner);
+    if (!sidebar)
+        return;
+    observeSidebarSignals(*owner, *sidebar);
+    for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
+        if (it.key().first != accountId || !it.value())
+            continue;
+        if (const SidebarTeamState* state = sidebar->teamState(it.key().second))
+            reconcileTeamSidebar(*owner, *it.value(), *state);
+    }
 }
 
 void ChannelTree::setConversationSearchTerm(const QString& term)
@@ -643,11 +708,9 @@ void ChannelTree::onSidebarCategoriesChanged(const QString& teamId)
         reconcileTeamSidebar(*owner, *team, *state);
 }
 
-void ChannelTree::populateSidebars(Backend& backend)
+void ChannelTree::observeSidebarSignals(Backend& backend, SidebarService& sidebar)
 {
-    if (!backendForSidebar)
-        backendForSidebar = &backend;
-    auto& sidebar = SidebarService::instance(backend);
+    Q_UNUSED(backend);
     connect(&sidebar, &SidebarService::channelMutedChanged,
             this, &ChannelTree::setChannelMutedVisual, Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::channelActivityChanged,
@@ -659,6 +722,14 @@ void ChannelTree::populateSidebars(Backend& backend)
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::categoriesChanged, this,
             &ChannelTree::onSidebarCategoriesChanged, Qt::UniqueConnection);
+}
+
+void ChannelTree::populateSidebars(Backend& backend)
+{
+    if (!backendForSidebar)
+        backendForSidebar = &backend;
+    auto& sidebar = SidebarService::instance(backend);
+    observeSidebarSignals(backend, sidebar);
 
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
         // Multiple servers can legitimately use the same remote team ID.
@@ -750,6 +821,7 @@ void ChannelTree::renderTeamSidebar(Backend& backend, TeamItem& teamItem,
 void ChannelTree::removeTeamSidebar(const ScopedId& teamKey)
 {
     TeamItem* teamItem = teamToItemMap.take(teamKey);
+    _observedTeams.remove(teamKey);
     if (!teamItem) {
         return;
     }
