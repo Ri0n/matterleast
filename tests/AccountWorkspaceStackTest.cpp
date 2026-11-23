@@ -6,6 +6,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include "backend/Backend.h"
 #include "ui/AccountWorkspaceStack.h"
 #include "workspaces/ViewConversationModel.h"
 #include "workspaces/ViewSidebarModel.h"
@@ -50,7 +51,7 @@ private slots:
                  QStringLiteral("b"));
         stack.resize(650, 450);
         stack.show();
-        QTest::qWaitForWindowExposed(&stack);
+        QVERIFY(QTest::qWaitForWindowExposed(&stack));
         QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
                           tree->visualRect(root).center());
         QCOMPARE(selected.count(), 1);

@@ -34,12 +34,12 @@ void populate(Backend& backend, const QString& accountTitle,
     channels.type = QStringLiteral("channels");
     channels.displayName = QStringLiteral("Channels");
     channels.sorting = QStringLiteral("manual");
-    channels.channelIds = {QStringLiteral("same-channel")};
+    channels.channelIds = QStringList{QStringLiteral("same-channel")};
     SidebarCategory dm;
     dm.id = QStringLiteral("direct");
     dm.type = QStringLiteral("direct_messages");
-    dm.channelIds = {QStringLiteral("same-dm")};
-    state.order = {channels.id, dm.id};
+    dm.channelIds = QStringList{QStringLiteral("same-dm")};
+    state.order = QStringList{channels.id, dm.id};
     state.categories.insert(channels.id, channels);
     state.categories.insert(dm.id, dm);
     SidebarService::instance(backend).applyLocalTeamState(teamId, state);
