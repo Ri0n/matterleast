@@ -302,8 +302,17 @@ QVariant WorkspaceTreeModel::data(const QModelIndex& idx, int role) const
         if (node->kind != AccountNode && node->kind != PendingNode)
             return {};
         const QString status = data(idx, StatusRole).toString();
-        return status.isEmpty() ? QVariant(node->name)
-            : QVariant(QStringLiteral("%1 — %2").arg(node->name, status));
+        if (node->kind == PendingNode)
+            return status.isEmpty() ? QVariant(node->name)
+                : QVariant(QStringLiteral("%1 — %2").arg(node->name, status));
+        const auto* account = _layout.account(node->accountId);
+        if (!account) return {};
+        QStringList lines;
+        lines << account->name << status << account->serverBaseUrl
+              << account->loginName;
+        if (!account->serverUserId.isEmpty())
+            lines << tr("Server user ID: %1").arg(account->serverUserId);
+        return lines.join(QLatin1Char('\n'));
     }
     case NodeKindRole: return static_cast<int>(node->kind);
     case NodeIdRole: return node->id;

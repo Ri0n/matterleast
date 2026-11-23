@@ -23,7 +23,8 @@ signals:
     void accountOpenRequested(const QString& accountId);
     void viewOpenRequested(const QString& viewId);
     void addServerRequested();
-    void signInRequested(const QString& accountId);
+    void serverSettingsRequested(const QString& accountId);
+    void disconnectRequested(const QString& accountId);
     void retryRequested(const QString& accountId);
 
 private:
@@ -34,11 +35,7 @@ private:
 
     AccountManager& _accounts;
     QTreeView* _tree = nullptr;
-    QLabel* _details = nullptr;
-    QPushButton* _open = nullptr;
-    QPushButton* _edit = nullptr;
-    QPushButton* _retry = nullptr;
-    QPushButton* _signIn = nullptr;
+    QPushButton* _connection = nullptr;
 };
 
 } // namespace Mattermost
