@@ -29,12 +29,28 @@ public:
 class FakeCallsHost final : public MatterLeast::PluginApi::CallsHostInterface
 {
 public:
-    bool authenticated() const override { return signedIn; }
-    QString localUserId() const override { return QStringLiteral("user-A"); }
-    QString connectionId() const override { return QStringLiteral("conn-A"); }
+    bool authenticated(const QString& accountId) const override
+    { return signedIn && accountId == QLatin1String("account-A"); }
+    QString localUserId(const QString&) const override
+    { return QStringLiteral("user-A"); }
+    QString selectedAccountId() const override
+    { return QStringLiteral("account-A"); }
+    QString connectionId(const QString&) const override
+    { return QStringLiteral("conn-A"); }
+    QString conversationDisplayName(const QString&, const QString& channelId) const override
+    { return channelId; }
+    QString userDisplayName(const QString&, const QString& userId) const override
+    { return QStringLiteral("name:") + userId; }
 
-    void request(const QString& method, const QString& path,
+    void request(const QString& accountId, const QString& method, const QString& path,
                  const QJsonObject&, QObject* context, Reply callback) override
+    {
+        lastAccountId = accountId;
+        requestImpl(method, path, context, std::move(callback));
+    }
+
+    void requestImpl(const QString& method, const QString& path,
+                     QObject* context, Reply callback)
     {
         lastRequestMethod = method;
         lastRequestPath = path;
@@ -49,15 +65,18 @@ public:
         });
     }
 
-    bool sendAction(const QString& action, const QJsonObject& body) override
+    bool sendAction(const QString& accountId, const QString& action,
+                    const QJsonObject& body) override
     {
+        lastAccountId = accountId;
         actions.append(action);
         lastActionData = body;
         return true;
     }
 
-    bool sendSdp(const QJsonObject& description) override
+    bool sendSdp(const QString& accountId, const QJsonObject& description) override
     {
+        lastAccountId = accountId;
         if (description.value(QStringLiteral("type")) == QLatin1String("offer")
             && !description.value(QStringLiteral("sdp")).toString().isEmpty()) {
             offers.append(description);
@@ -73,6 +92,7 @@ public:
     int configRequests = 0;
     int configReplies = 0;
     int changed = 0;
+    QString lastAccountId;
     QString lastRequestMethod;
     QString lastRequestPath;
     QStringList actions;
@@ -119,7 +139,7 @@ private slots:
         QVERIFY(menu);
         QCOMPARE(menu->conversationMenuActions(QStringLiteral("channel-A"), {}).size(), 1);
 
-        QVERIFY(provider->joinCall(QStringLiteral("channel-A")));
+        QVERIFY(provider->joinCall(QStringLiteral("account-A"), QStringLiteral("channel-A")));
         QWidget* window = nullptr;
         for (QWidget* widget : QApplication::topLevelWidgets()) {
             if (widget->objectName() == QLatin1String("callsWindow")) {
@@ -134,6 +154,7 @@ private slots:
         QCOMPARE(end->text(), QStringLiteral("Cancel"));
         QCOMPARE(calls.configRequests, 1);
         QCOMPARE(calls.lastRequestMethod, QStringLiteral("GET"));
+        QCOMPARE(calls.lastAccountId, QStringLiteral("account-A"));
         QCOMPARE(calls.lastRequestPath,
                  QStringLiteral("plugins/com.mattermost.calls/config"));
         QTRY_COMPARE_WITH_TIMEOUT(calls.configReplies, 1, 3000);
@@ -147,6 +168,7 @@ private slots:
                  MatterLeast::PluginApi::CallsState::Connecting);
         QVERIFY(calls.offers.isEmpty());
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_join"),
             {{QStringLiteral("connID"), QStringLiteral("conn-A")}}, {});
         QTRY_VERIFY_WITH_TIMEOUT(!calls.offers.isEmpty(), 18000);
@@ -186,13 +208,17 @@ private slots:
              QString::fromUtf8(QJsonDocument(callState).toJson(QJsonDocument::Compact))}
         };
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_call_state"),
             stateEvent, {});
         QCOMPARE(provider->snapshot().callId, QStringLiteral("call-abc"));
+        QCOMPARE(provider->snapshot().accountId, QStringLiteral("account-A"));
         QCOMPARE(provider->snapshot().participants.size(), 2);
         QCOMPARE(window->findChildren<QFrame*>(QStringLiteral("callsParticipantTile")).size(), 2);
         QCOMPARE(provider->snapshot().participants.at(0).userId, QStringLiteral("alice"));
         QCOMPARE(provider->snapshot().participants.at(1).userId, QStringLiteral("bob"));
+        QCOMPARE(provider->snapshot().participants.at(1).displayName,
+                 QStringLiteral("name:bob"));
         QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
         auto* bobTile = [&]() -> QFrame* {
             for (QFrame* tile : window->findChildren<QFrame*>(
@@ -208,6 +234,14 @@ private slots:
         QVERIFY(bobMuteLabel);
         QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone off"));
 
+        // Even identical channel/session IDs on another server must be ignored.
+        provider->onServerEvent(QStringLiteral("account-B"),
+            QStringLiteral("custom_com.mattermost.calls_user_unmuted"),
+            {{QStringLiteral("userID"), QStringLiteral("bob")},
+             {QStringLiteral("session_id"), QStringLiteral("session-bob")}},
+            {{QStringLiteral("channel_id"), QStringLiteral("channel-A")}});
+        QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
+
         // The official server emits userID (camelCase) for mute changes,
         // while join events and call_state use user_id.
         const QJsonObject bobIdentity {
@@ -218,23 +252,27 @@ private slots:
             {QStringLiteral("channel_id"), QStringLiteral("channel-A")}
         };
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_unmuted"),
             bobIdentity, inChannel);
         QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
         QCOMPARE(bobMuteLabel->text(), QStringLiteral("Microphone on"));
 
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_muted"),
             bobIdentity, {{QStringLiteral("channel_id"),
                           QStringLiteral("unrelated-channel")}});
         QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_muted"),
             {{QStringLiteral("userID"), QStringLiteral("someone-else")},
              {QStringLiteral("session_id"), QStringLiteral("session-bob")}},
             inChannel);
         QVERIFY(!provider->snapshot().participants.at(1).microphoneMuted);
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_muted"),
             bobIdentity, inChannel);
         QVERIFY(provider->snapshot().participants.at(1).microphoneMuted);
@@ -244,24 +282,30 @@ private slots:
             QStringLiteral("callsParticipantActivity"));
         QVERIFY(activity);
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_voice_on"),
             bobIdentity, inChannel);
         QCOMPARE(activity->text(), QStringLiteral("Speaking"));
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_raise_hand"),
             bobIdentity, inChannel);
         QVERIFY(activity->text().contains(QStringLiteral("Hand raised")));
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_screen_on"),
             bobIdentity, inChannel);
         QVERIFY(activity->text().contains(QStringLiteral("Sharing screen")));
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_voice_off"),
             bobIdentity, inChannel);
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_unraise_hand"),
             bobIdentity, inChannel);
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_screen_off"),
             bobIdentity, inChannel);
         QVERIFY(activity->text().isEmpty());
@@ -271,11 +315,13 @@ private slots:
         foreignState.insert(QStringLiteral("channel_id"),
                             QStringLiteral("unrelated-channel"));
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_call_state"),
             foreignState, {});
         QCOMPARE(provider->snapshot().participants.size(), 2);
 
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_joined"),
             {{QStringLiteral("user_id"), QStringLiteral("charlie")},
              {QStringLiteral("session_id"), QStringLiteral("session-charlie")}},
@@ -284,6 +330,7 @@ private slots:
         QCOMPARE(window->findChildren<QFrame*>(QStringLiteral("callsParticipantTile")).size(), 3);
         QVERIFY(provider->snapshot().participants.at(2).microphoneMuted);
         provider->onServerEvent(
+            QStringLiteral("account-A"),
             QStringLiteral("custom_com.mattermost.calls_user_left"),
             {{QStringLiteral("user_id"), QStringLiteral("charlie")},
              {QStringLiteral("session_id"), QStringLiteral("session-charlie")}},
@@ -312,7 +359,7 @@ private slots:
         auto* provider = qobject_cast<MatterLeast::PluginApi::CallsProviderInterface*>(
             loader.instance());
         QVERIFY(provider);
-        QVERIFY(provider->joinCall(QStringLiteral("channel-A")));
+        QVERIFY(provider->joinCall(QStringLiteral("account-A"), QStringLiteral("channel-A")));
         QTRY_COMPARE_WITH_TIMEOUT(calls.configReplies, 1, 3000);
         QCOMPARE(provider->snapshot().state,
                  MatterLeast::PluginApi::CallsState::Failed);
@@ -336,7 +383,7 @@ private slots:
         auto* provider = qobject_cast<MatterLeast::PluginApi::CallsProviderInterface*>(
             loader.instance());
         QVERIFY(provider);
-        QVERIFY(provider->joinCall(QStringLiteral("channel-A")));
+        QVERIFY(provider->joinCall(QStringLiteral("account-A"), QStringLiteral("channel-A")));
         QTRY_COMPARE_WITH_TIMEOUT(calls.configReplies, 1, 3000);
 
         QWidget* window = nullptr;
@@ -374,7 +421,7 @@ private slots:
         auto* provider = qobject_cast<MatterLeast::PluginApi::CallsProviderInterface*>(
             loader.instance());
         QVERIFY(provider);
-        QVERIFY(!provider->joinCall(QStringLiteral("channel-A")));
+        QVERIFY(!provider->joinCall(QStringLiteral("account-A"), QStringLiteral("channel-A")));
         QCOMPARE(calls.configRequests, 0);
         QVERIFY(loader.disableAndUnload());
     }
