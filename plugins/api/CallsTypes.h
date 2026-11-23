@@ -20,7 +20,7 @@ struct CallsParticipant {
     // The server starts each newly joined session muted.
     bool microphoneMuted = true;
     // Appended to preserve existing CallsParticipant aggregate initializers.
-    QString displayName;
+    QString displayName = {};
 };
 
 struct CallsSnapshot {
