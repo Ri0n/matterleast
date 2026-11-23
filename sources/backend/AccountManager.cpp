@@ -644,7 +644,8 @@ Backend* AccountManager::createLoginBackend()
     return new Backend(this);
 }
 
-void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
+void AccountManager::beginNewServerLogin(const BackendLoginData& credentials,
+                                         const QString& displayName)
 {
     if (_invalidCatalog || credentials.domain.isEmpty()
         || credentials.username.isEmpty()
@@ -669,13 +670,15 @@ void AccountManager::beginNewServerLogin(const BackendLoginData& credentials)
     // constructing a dummy Account or a full MainWindow for this Backend.
     const QString loginName = credentials.username;
     candidate->login(credentials,
-        [this, guard, requestId, serverName, loginName](const QString& token) {
+        [this, guard, requestId, serverName, loginName, displayName](const QString& token) {
         if (!guard || _pendingNewServers.value(requestId) != guard)
             return;
         _pendingNewServers.remove(requestId);
         if (!token.isEmpty()) {
-            const QString display = QUrl(guard->serverDomain()).host()
-                + QStringLiteral(" — ") + guard->getLoginUser().username;
+            const QString display = displayName.isEmpty()
+                ? QUrl(guard->serverDomain()).host()
+                    + QStringLiteral(" — ") + guard->getLoginUser().username
+                : displayName;
             Account* connected = adoptAuthenticated(guard.data(), loginName, display);
             if (connected) {
                 _treeModel.removePendingServer(requestId);

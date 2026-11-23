@@ -72,7 +72,8 @@ public:
     // manager until successfully reparented to their durable Account.
     Backend* createLoginBackend();
     // Credential form closes before authentication; progress stays in the tree.
-    void beginNewServerLogin(const BackendLoginData& credentials);
+    void beginNewServerLogin(const BackendLoginData& credentials,
+                             const QString& displayName = {});
     void discardCandidate(Backend* candidate);
     // Own all arguments before replacing _layout. Restoring existing accounts
     // passes QStrings referring to the old layout's Account records.

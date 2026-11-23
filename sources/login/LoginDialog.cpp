@@ -19,6 +19,9 @@
 
 #include <iostream>
 #include <QCheckBox>
+#include <QGridLayout>
+#include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QUrl>
 #include "LoginDialog.h"
@@ -69,6 +72,21 @@ LoginDialog::LoginDialog(QWidget* parent, Backend* backend,
     ui->domain_lineEdit->setText(server.isEmpty()
         ? QStringLiteral("https://") : server);
     ui->username_lineEdit->setText(login);
+    // Add and Edit share the same credential form. The optional friendly
+    // alias does not affect the immutable server/user authentication identity.
+    auto* aliasLabel = new QLabel(tr("Display name"), this);
+    _displayName = new QLineEdit(this);
+    _displayName->setObjectName(QStringLiteral("serverDisplayName"));
+    _displayName->setPlaceholderText(tr("Optional server name"));
+    ui->gridLayout->addWidget(aliasLabel, 1, 0);
+    ui->gridLayout->addWidget(_displayName, 1, 1);
+    _serverUserInfo = new QLabel(this);
+    _serverUserInfo->setObjectName(QStringLiteral("serverUserIdInfo"));
+    _serverUserInfo->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    _serverUserInfo->setWordWrap(true);
+    _serverUserInfo->hide();
+    ui->gridLayout->addWidget(_serverUserInfo, 5, 0, 1, 2);
+
     if (lockIdentity) {
         ui->domain_lineEdit->setReadOnly(true);
         ui->username_lineEdit->setReadOnly(true);
@@ -89,6 +107,36 @@ LoginDialog::LoginDialog(QWidget* parent, Backend* backend,
     ui->loginInProgressLabel->hide();
 }
 
+void LoginDialog::configureExistingAccount(const QString& name,
+                                           const QString& userId,
+                                           bool connected)
+{
+    _editingExisting = true;
+    _editingConnected = connected;
+    _displayName->setText(name);
+    ui->domain_lineEdit->setReadOnly(true);
+    ui->username_lineEdit->setReadOnly(true);
+    ui->titleLabel->setText(tr("Edit server"));
+    ui->login_pushButton->setText(tr("Save"));
+    if (!userId.isEmpty()) {
+        _serverUserInfo->setText(tr("Server user ID: %1").arg(userId));
+        _serverUserInfo->show();
+    }
+    if (connected) {
+        // Cannot adopt another Backend for the same authenticated identity
+        // while the live connection and its Widgets are still in use.
+        ui->password_lineEdit->setEnabled(false);
+        _tokenMode->setEnabled(false);
+        ui->password_lineEdit->setPlaceholderText(
+            tr("Disconnect to change credentials"));
+    }
+}
+
+QString LoginDialog::displayName() const
+{
+    return _displayName ? _displayName->text().trimmed() : QString();
+}
+
 LoginDialog::~LoginDialog()
 {
     delete ui;
@@ -101,6 +149,13 @@ void LoginDialog::on_login_pushButton_clicked()
     BackendLoginData credentials;
     credentials.domain = ui->domain_lineEdit->text().trimmed();
     credentials.username = ui->username_lineEdit->text().trimmed();
+    if (_editingExisting && (_editingConnected
+                             || ui->password_lineEdit->text().isEmpty())) {
+        // Alias-only edit: no authentication, token mutation or Backend.
+        _credentialsSubmitted = false;
+        accept();
+        return;
+    }
     if (_tokenMode->isChecked())
         credentials.token = ui->password_lineEdit->text();
     else
@@ -121,6 +176,7 @@ void LoginDialog::on_login_pushButton_clicked()
         // New server setup: never perform a login while the modal form is
         // open. AccountManager now owns connection progress and failures.
         _submittedCredentials = credentials;
+        _credentialsSubmitted = true;
         _authenticatedLoginName = credentials.username;
         accept();
         return;
@@ -149,6 +205,7 @@ void LoginDialog::loginToServer(const BackendLoginData& credentials)
             return;
         _attemptInProgress = false;
         if (!token.isEmpty()) {
+            _credentialsSubmitted = true;
             _authenticatedLoginName = credentials.username;
             // Authentication / keyring persistence belongs to AccountManager.
             // Versioned legacy fallback belongs to migrations/.
@@ -182,7 +239,7 @@ void LoginDialog::setError (const QString& errorStr)
     ui->password_lineEdit->setEnabled(true);
     ui->login_pushButton->setEnabled(true);
     _tokenMode->setEnabled(true);
-    ui->login_pushButton->setText(tr("Sign in"));
+    ui->login_pushButton->setText(_editingExisting ? tr("Save") : tr("Sign in"));
 
     ui->error_label->setText (errorStr);
 }
