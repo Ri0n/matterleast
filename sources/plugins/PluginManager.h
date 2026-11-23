@@ -111,7 +111,8 @@ private:
     void handleIncomingCallSnapshot();
     QHash<QString, IncomingInvitation> incomingCalls_;
     QString joiningIncomingCallId_;
-    quint64 incomingCallsGeneration_ = 0;
+    quint64 incomingCallsGeneration_ = 0; // Global plugin disable.
+    QHash<QString, quint64> incomingCallsAccountGeneration_;
 
     void connectBackendSignals(Backend& backend);
     void attachWindowOverlay(PluginHost& host);

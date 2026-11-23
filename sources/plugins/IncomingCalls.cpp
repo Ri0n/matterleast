@@ -157,6 +157,7 @@ void PluginManager::answerIncomingCall(const QString& accountId,
     }
     const QString channelId = invitation->call.channelId;
     const auto generation = incomingCallsGeneration_;
+    const auto accountGeneration = incomingCallsAccountGeneration_.value(accountId);
     if (accept) {
         invitation->checking = true;
     } else {
@@ -167,11 +168,13 @@ void PluginManager::answerIncomingCall(const QString& accountId,
     // an outdated action cannot knowingly start or dismiss a different call.
     backend->requestCallsPlugin(QStringLiteral("GET"),
         QLatin1String(CallsApiRoot) + channelId, {}, this,
-        [this, accountId, callId, channelId, accept, generation](int status,
+        [this, accountId, callId, channelId, accept, generation, accountGeneration](int status,
                const QJsonObject& response) {
         if (!backendForAccount(accountId)) return;
         auto current = incomingCalls_.find(incomingKey(accountId, channelId));
-        if (generation != incomingCallsGeneration_ || current == incomingCalls_.end()
+        if (generation != incomingCallsGeneration_
+            || accountGeneration != incomingCallsAccountGeneration_.value(accountId)
+            || current == incomingCalls_.end()
             || current->call.id != callId || current->pending != accept) {
             return;
         }
@@ -249,7 +252,8 @@ void PluginManager::handleIncomingCallSnapshot()
 
 void PluginManager::clearIncomingCalls(const QString& accountId)
 {
-    ++incomingCallsGeneration_;
+    if (accountId.isEmpty()) ++incomingCallsGeneration_;
+    else ++incomingCallsAccountGeneration_[accountId];
     const auto snapshot = callsSnapshot();
     if (!joiningIncomingCallId_.isEmpty()
         && (accountId.isEmpty() || snapshot.accountId == accountId)) {
