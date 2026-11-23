@@ -116,10 +116,10 @@ class Server : public QTcpServer
 public:
     QStringList postLookups;
     QStringList threadLookups;
-    QStringList teamChannelLookups;
+    QStringList accountChannelLookups;
     QStringList channelContextRequests;
     int channelRootCount = 0;
-    int teamChannelResponses = 0;
+    int accountChannelResponses = 0;
     int delayMs = 0;
     int replyCount = 3;
     int returnedReplies = 0;
@@ -145,7 +145,8 @@ public:
                     bool failed = false;
                     const bool teamChannels = url.path().startsWith("/api/v4/users/me/teams/")
                         && url.path().endsWith("/channels");
-                    if (teamChannels) teamChannelLookups.push_back(url.path());
+                    const bool accountChannels = url.path() == "/api/v4/users/me/channels";
+                    if (accountChannels) accountChannelLookups.push_back(url.path());
                     if (unreadReplyFixture
                         && url.path() == "/api/v4/users/me/channels/channel/posts/unread") {
                         body = R"({"order":["reply-1"],"posts":{"reply-1":{"id":"reply-1","root_id":"thread-1"}}})";
@@ -156,7 +157,7 @@ public:
                         body = R"([{"channel_id":"channel","msg_count":5,"msg_count_root":5,"mention_count":0,"mention_count_root":0,"last_viewed_at":1000}])";
                     } else if (startupChannels && url.path() == "/api/v4/users/me/teams") {
                         body = R"([{"id":"team","name":"team","display_name":"Team"}])";
-                    } else if (startupChannels && url.path() == "/api/v4/users/me/teams/team/channels") {
+                    } else if (startupChannels && (accountChannels || teamChannels)) {
                         QJsonObject info {{"id", "channel"}, {"type", "G"},
                                           {"display_name", "Test chat"}};
                         if (channelRootCount > 0) {
@@ -260,10 +261,10 @@ public:
                     const QByteArray response = "HTTP/1.1 " + QByteArray(failed ? "500 Failed" : "200 OK")
                         + "\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
                         + QByteArray::number(body.size()) + "\r\n\r\n" + body;
-                    QTimer::singleShot(delayMs, socket, [this, socket, response, teamChannels] {
+                    QTimer::singleShot(delayMs, socket, [this, socket, response, accountChannels] {
                         socket->write(response);
                         socket->disconnectFromHost();
-                        if (teamChannels) ++teamChannelResponses;
+                        if (accountChannels) ++accountChannelResponses;
                     });
                 });
             }
@@ -331,32 +332,63 @@ private slots:
         QCOMPARE(channel->postIdToPost.value(root->id), root);
     }
 
-    void lateTeamChannelsResponseDoesNotTouchReplacementTeam()
+    void verifiedReplayUsesExistingAccountCatalog()
     {
         Server server;
         server.startupChannels = true;
-        server.delayMs = 50;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        backend.networkSession().setHost(serverBaseUrl(server));
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        window.show();
+        QTRY_VERIFY(backend.getStorage().getChannelById(QStringLiteral("channel")));
+        QTRY_COMPARE(server.accountChannelLookups.size(), 1);
+
+        BackendChannel* cached = backend.getStorage().getChannelById(
+            QStringLiteral("channel"));
+        // A verified WebSocket replay may refresh read cursors, preferences,
+        // and categories, but it must not re-download the channel catalog.
+        emit backend.onRealtimeRecovered();
+        QTest::qWait(150);
+        QCOMPARE(server.accountChannelLookups.size(), 1);
+        QCOMPARE(backend.getStorage().getChannelById(QStringLiteral("channel")),
+                 cached);
+    }
+
+    void lateAccountCatalogResponseDoesNotTouchReplacementTeam()
+    {
+        Server server;
+        server.startupChannels = true;
+        server.delayMs = 150;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         Backend backend;
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
-        auto* team = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "old"}});
-        int delivered = 0;
-        backend.retrieveOwnChannelMembershipsForTeam(*team, [&delivered](BackendChannel&) { ++delivered; });
-        QTRY_COMPARE(server.teamChannelLookups.size(), 1);
-        storage.teams.clear();
-        auto* replacement = storage.addTeam(QJsonObject {{"id", "team"}, {"name", "replacement"}});
-        auto* retained = storage.addTeamChannel(*replacement, QJsonObject {{"id", "retained"}, {"type", "O"}});
+        QVERIFY(storage.addTeam(QJsonObject {{"id", "team"}, {"name", "old"}}));
+        backend.retrieveOwnChannelMemberships();
+        QTRY_COMPARE(server.accountChannelLookups.size(), 1);
+
+        // Replace the team's QObject while the original account-wide HTTP
+        // response is in flight. The old response must be rejected before it
+        // can update Storage, even when the remote team ID is identical.
+        storage.eraseTeam(QStringLiteral("team"));
+        auto* replacement = storage.addTeam(
+            QJsonObject {{"id", "team"}, {"name", "replacement"}});
+        auto* retained = storage.addTeamChannel(
+            *replacement, QJsonObject {{"id", "retained"}, {"type", "O"}});
         QSignalSpy populated(&backend, &Backend::onAllTeamChannelsPopulated);
-        QTRY_COMPARE(server.teamChannelResponses, 1);
-        // Drain the HTTP completion, not merely the server's socket write.
-        QTest::qWait(100);
-        QCOMPARE(delivered, 0);
+        QTRY_COMPARE(server.accountChannelResponses, 1);
+        QTest::qWait(40); // Drain the first response, not the replacement fetch.
         QCOMPARE(populated.count(), 0);
         QCOMPARE(replacement->channels.size(), size_t(1));
         QCOMPARE(replacement->channels.front().get(), retained);
         QCOMPARE(storage.getChannelById("retained"), retained);
+        QVERIFY(storage.getChannelById("channel") == nullptr);
+        // Backend may now retry with the replacement team snapshot.
     }
 
     void sidebarAndComposerMenusHaveSymbolicIcons()

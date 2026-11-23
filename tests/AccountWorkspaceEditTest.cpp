@@ -8,6 +8,7 @@
 #include "navigation/ViewNavigationSession.h"
 #include "ui/ServersSidebarPage.h"
 #include "workspaces/WorkspaceTreeModel.h"
+#include "workspaces/ViewConversationModel.h"
 
 using namespace Mattermost;
 
@@ -81,6 +82,34 @@ private slots:
         const QModelIndex firstServer = manager.workspaceTreeModel()->index(0, 0, combined);
         QCOMPARE(firstServer.data(WorkspaceTreeModel::AccountIdRole).toString(),
                  QStringLiteral("b"));
+    }
+
+    void eachViewOwnsOneStableConversationModel()
+    {
+        AccountManager manager;
+        QVERIFY(manager.load(topology().toJson()));
+        auto* combined = manager.viewConversations(QStringLiteral("combined"));
+        auto* single = manager.viewConversations(QStringLiteral("second"));
+        QVERIFY(combined);
+        QVERIFY(single);
+        QVERIFY(combined != single);
+        QCOMPARE(manager.activeViewConversations(),
+                 static_cast<QAbstractItemModel*>(combined));
+        QCOMPARE(combined->sorting(), QStringLiteral("recent"));
+        QSignalSpy resets(combined, &QAbstractItemModel::modelReset);
+
+        // Sorting belongs to the View, not to either account's backend.
+        WorkspaceLayout edited = manager.layout();
+        edited.views[0].directMessagesSorting = QStringLiteral("alpha");
+        QString error;
+        QVERIFY2(manager.applyLayoutEdits(edited, &error), qPrintable(error));
+        QCOMPARE(manager.viewConversations(QStringLiteral("combined")), combined);
+        QCOMPARE(combined->sorting(), QStringLiteral("alpha"));
+        QCOMPARE(single->sorting(), QStringLiteral("recent"));
+        QVERIFY(manager.activateView(QStringLiteral("second")));
+        QCOMPARE(manager.activeViewConversations(),
+                 static_cast<QAbstractItemModel*>(single));
+        QCOMPARE(resets.count(), 0);
     }
 
     void removingServerFromViewDiscardsOnlyItsNavigation()

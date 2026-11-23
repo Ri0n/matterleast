@@ -339,7 +339,6 @@ Backend::Backend(QObject *parent)
 ,currentChannel (nullptr)
 ,isLoggedIn (false)
 ,autoLoginEnabledFlag (true)
-,nonFilledTeams (0)
 ,avatarsLoaded(0)
 {
     _typingClock.start();
@@ -718,7 +717,6 @@ void Backend::reset ()
     _typingViews.clear();
     _typingTrackedViews.clear();
 	storage.reset ();
-	nonFilledTeams = 0;
     PluginManager::restoreBackendConnections(*this);
 }
 
@@ -1071,27 +1069,23 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
             return;
         }
     	LOG_DEBUG ("retrieveOwnTeams reply");
-		storage.teams.clear ();
-		nonFilledTeams = 0;
-
-#if 0
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		std::cout << "get teams reply: "  << std::endl;
-		std::cout << jsonString.toStdString() << std::endl;
-#endif
+        // Erase the previous team's channel pointers from Storage's global
+        // index before destroying their owners. Otherwise an account-wide
+        // snapshot would mistake dangling entries for already loaded channels.
+        while (!storage.teams.empty())
+            storage.eraseTeam(storage.teams.begin()->first);
 
 		 auto root = doc.array();
 		for (const auto &itemRef: std::as_const(root)) {
 			storage.addTeam (itemRef.toObject());
-			++nonFilledTeams;
 		}
 
 		for (auto& team: storage.teams) {
 			callback (team.second);
 		}
-        if (storage.teams.empty()) {
-            emit onAllTeamChannelsPopulated();
-        }
+        // The full channel catalog (including DM/GM) is loaded once,
+        // independently of how many team sidebar rows exist.
+        retrieveOwnChannelMemberships();
     }));
 }
 
@@ -1128,6 +1122,9 @@ void Backend::retrieveTeam (QString teamID)
 
 		if (team) {
 			emit onAddedToTeam (*team);
+            // A team joined after login needs only its own memberships.
+            // Startup still uses the single account-wide catalog request.
+            retrieveNewTeamChannels(*team);
 		}
     }));
 }
@@ -1192,71 +1189,88 @@ void Backend::retrieveChannelsMemberCounts(
         }));
 }
 
-void Backend::retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback)
+void Backend::retrieveNewTeamChannels(BackendTeam& team)
 {
-    NetworkRequest request (_networkSession, "users/me/teams/" + team.id + "/channels");
-    QPointer<BackendTeam> teamGuard(&team);
-
-    httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (
-            const QJsonDocument& doc, const QNetworkReply& reply) {
-        if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
-            LOG_DEBUG("Channel memberships request failed; retrying in 5 seconds");
-            QTimer::singleShot(5000, this, [this, teamGuard, callback] {
-                if (isLoggedIn && teamGuard)
-                    retrieveOwnChannelMembershipsForTeam(*teamGuard, callback);
-            });
-            return;
-        }
-        // A refreshed team snapshot may replace this QObject while HTTP is in
-        // flight, even reusing its ID/address. Never apply the old response to
-        // a destroyed team or decrement the new snapshot's startup counter.
-        if (!teamGuard) return;
-        BackendTeam& currentTeam = *teamGuard;
-        currentTeam.channels.clear ();
-
-#if 0
-    	QString jsonString = doc.toJson(QJsonDocument::Indented);
-    	std::cout << "retrieveOwnChannelMembershipsForTeam reply: " <<  jsonString.toStdString() << std::endl;
-#endif
-
-        LOG_DEBUG ("Team " << currentTeam.display_name << ":");
-		for (const auto &itemRef: doc.array()) {
-			storage.addChannel (currentTeam, itemRef.toObject());
-		}
-
-		for (auto& channel: currentTeam.channels) {
-			callback (*channel.get());
-			LOG_DEBUG ("\tChannel added: " << channel->id << " " << channel->display_name);
-		}
-
-		--nonFilledTeams;
-
-		if (nonFilledTeams == 0) {
-			emit onAllTeamChannelsPopulated ();
-		}
-    }));
+    const QPointer<BackendTeam> teamGuard(&team);
+    NetworkRequest request(_networkSession,
+                           QStringLiteral("users/me/teams/") + team.id
+                           + QStringLiteral("/channels"));
+    httpConnector.get(request, HttpResponseCallback(
+        [this, teamGuard](const QJsonDocument& doc, const QNetworkReply& reply) {
+            if (!teamGuard || !isLoggedIn)
+                return;
+            if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+                QTimer::singleShot(5000, this, [this, teamGuard] {
+                    if (isLoggedIn && teamGuard)
+                        retrieveNewTeamChannels(*teamGuard);
+                });
+                return;
+            }
+            for (const QJsonValue& value : doc.array()) {
+                const QJsonObject object = value.toObject();
+                const QString channelId = object.value(QStringLiteral("id")).toString();
+                if (channelId.isEmpty() || storage.getChannelById(channelId))
+                    continue;
+                BackendChannel* channel = storage.addOwnChannel(object);
+                if (!channel)
+                    continue;
+                if (channel->type == BackendChannel::directChannel)
+                    emit storage.directChannels.onNewChannel(*channel);
+                else if (channel->type == BackendChannel::groupChannel)
+                    emit storage.groupChannels.onNewChannel(*channel);
+                else
+                    emit teamGuard->onNewChannel(*channel);
+            }
+        }));
 }
 
-#if 0 //supported in Mattermost server 6.2
-void Backend::retrieveOwnAllChannelMemberships (std::function<void ()> callback)
+void Backend::retrieveOwnChannelMemberships()
 {
-    QNetworkRequest request;
+    const QString userId = storage.loginUser ? storage.loginUser->id : QString();
+    if (userId.isEmpty())
+        return;
 
-    request.setUrl(QUrl(httpHost + "users/me/channel_members?page=0&per_page=2"));
-    request.setRawHeader("X-Requested-With", "XMLHttpRequest");
+    // Keep the original team QObject identities while the response is in
+    // flight. A team refresh may replace an object with the same remote ID.
+    QVector<QPointer<BackendTeam>> teamGuards;
+    teamGuards.reserve(static_cast<int>(storage.teams.size()));
+    for (auto& team : storage.teams)
+        teamGuards.push_back(&team.second);
 
-    httpConnector.get(request, [this, callback](QVariant, QByteArray data) {
+    NetworkRequest request(_networkSession, QStringLiteral("users/me/channels"));
+    httpConnector.get(request, HttpResponseCallback(
+        [this, userId, teamGuards](const QJsonDocument& doc, const QNetworkReply& reply) {
+            // Do not populate another login's storage from a stale response.
+            // Widget tests use a local anonymous HTTP fixture with an explicit
+            // Storage login user; startup itself is gated by the session owner.
+            if (!storage.loginUser || storage.loginUser->id != userId)
+                return;
+            if (teamGuards.size() != static_cast<int>(storage.teams.size())) {
+                retrieveOwnChannelMemberships();
+                return;
+            }
+            for (const auto& team : teamGuards) {
+                if (!team || storage.getTeamById(team->id) != team.data()) {
+                    retrieveOwnChannelMemberships();
+                    return;
+                }
+            }
+            if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+                LOG_DEBUG("Account channel catalog failed; retrying in 5 seconds");
+                QTimer::singleShot(5000, this, [this, userId] {
+                    if (isLoggedIn && storage.loginUser
+                        && storage.loginUser->id == userId)
+                        retrieveOwnChannelMemberships();
+                });
+                return;
+            }
 
-    	QJsonDocument doc = QJsonDocument::fromJson(data);
+            for (const QJsonValue& value : doc.array())
+                storage.addOwnChannel(value.toObject());
 
-    	QString jsonString = doc.toJson(QJsonDocument::Indented);
-    	std::cout << "getOwnAllChannelMemberships reply: " <<  jsonString.toStdString() << std::endl;
-
-
-		callback ();
-    });
+            emit onAllTeamChannelsPopulated();
+        }));
 }
-#endif
 
 void Backend::retrieveTeamMembers (BackendTeam& team, int page)
 {

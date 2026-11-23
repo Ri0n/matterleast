@@ -32,6 +32,7 @@ enum Kind {
     Channel,
     Thread,
     VirtualDestination,
+    AccountRoot, // View-owned grouping, not a Mattermost team
 };
 
 /** Local destinations that are not ordinary server sidebar rows. */

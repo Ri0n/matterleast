@@ -24,11 +24,13 @@
 
 #pragma once
 
+#include <QHash>
 #include <QMap>
 #include <QPair>
 #include <QPointer>
 #include <QPersistentModelIndex>
 #include <QSet>
+#include <QStringList>
 #include <QTreeWidget>
 #include <QVector>
 
@@ -57,6 +59,7 @@ class BackendUser;
 class ChatArea;
 class TeamItem;
 class ChannelItem;
+class Storage;
 struct SidebarTeamState;
 
 class ChannelTree: public QTreeWidget {
@@ -73,6 +76,7 @@ public:
     static constexpr ItemKind CategoryItemKind = SidebarItem::Category;
     static constexpr ItemKind ChannelItemKind = SidebarItem::Channel;
     static constexpr ItemKind VirtualDestinationItemKind = SidebarItem::VirtualDestination;
+    static constexpr ItemKind AccountRootItemKind = SidebarItem::AccountRoot;
 
     static constexpr ItemRole ItemKindRole = SidebarItem::KindRole;
     static constexpr ItemRole ItemIdRole = SidebarItem::IdRole;
@@ -95,6 +99,17 @@ public:
     // it to a different account (that requires a separate presentation).
     bool bindSingleAccount(const QString& accountId);
     QString boundAccountId() const { return _boundAccountId; }
+    // View-scoped account roots, without a replacement channel model.
+    // Singletons retain the exact original team hierarchy.
+    // Do not activate merged Views until their shared DM/GM section is ready.
+    bool setVisibleAccountRoots(const QStringList& accountIds,
+                                const QHash<QString, QString>& labels = {});
+    // The AccountManager owns Backend lifetimes; this tree only observes them.
+    bool registerAccountBackend(const QString& accountId, Backend& backend);
+    void unregisterAccountBackend(const QString& accountId, const Backend* expected = nullptr);
+    Backend* backendForAccount(const QString& accountId) const;
+    Backend* backendForRow(const QTreeWidgetItem* row) const;
+    QString accountIdForBackend(const Backend* backend) const;
 	bool isChannelActive (const BackendChannel& channel);
 	Backend* backendInstance() const;
 
@@ -102,11 +117,14 @@ public:
     // visible. Keeping the request on the tree side avoids backend/network work
     // inside paint() and keeps the delegate independently testable.
     Q_INVOKABLE void ensureGroupChannelDisplayName(const QString& channelId);
+    Q_INVOKABLE void ensureGroupChannelDisplayName(const QString& accountId,
+                                                 const QString& channelId);
 
 	void addTeam (Backend& backend, BackendTeam& team);
 	void populateSidebars(Backend& backend);
     /** Re-fetch read state, preferences and server categories after reconnect. */
     void refreshServerSnapshot();
+    void refreshServerSnapshotForAccount(const QString& accountId);
     // Reconcile a temporary, non-persistent view of older conversations while
     // the sidebar search field is populated.
     void setConversationSearchTerm(const QString& term);
@@ -120,10 +138,12 @@ public:
 	ChatArea* getCurrentPage ();
 
 	void openChannel (QString channelID);
+    void openChannelForAccount(QString channelID, const QString& accountId);
 	// Programmatic navigation may target a valid channel that is currently
 	// outside the visible DM/GM sidebar limit. Materialize its server-category
 	// row first, then activate it through the same path as an ordinary click.
 	void openStoredChannel(QString channelID);
+    void openStoredChannelForAccount(QString channelID, const QString& accountId);
     // A realtime direct/group channel can reach Storage before the server-backed
     // sidebar category is refreshed. Admit it into every loaded Direct Messages
     // category without opening the conversation or issuing a category reload.
@@ -136,20 +156,37 @@ public:
 	// Route their context-menu requests back through the real ChannelItem so all
 	// actions and handlers stay identical to the Channels tab.
 	void showChannelContextMenu(const QString& channelID, const QPoint& globalPos)
-	{
-		auto it = channelToItemMap.constFind(scopedId(channelID));
-		if (it == channelToItemMap.cend()) {
-			return;
-		}
-		for (QTreeWidgetItem* item : it.value()) {
-			if (!item || item->data(0, ItemKindRole).toInt() != ChannelItemKind) {
-				continue;
-			}
-			static_cast<ChannelTreeItem*>(item)->showContextMenu(globalPos);
-			return;
-		}
-	}
+    {
+        if (_visibleAccountRootIds.size() > 1)
+            return;
+        // Old Recent/Attention widgets belong to a single-account window.
+        showChannelContextMenuForAccount(channelID, _boundAccountId, globalPos);
+    }
 
+    // Merged projections must supply the originating account: remote
+    // channel IDs are not globally unique.
+    void showChannelContextMenuForAccount(const QString& channelID,
+                                          const QString& accountId,
+                                          const QPoint& globalPos)
+    {
+        if (accountId.isEmpty() && _visibleAccountRootIds.size() > 1)
+            return;
+        const ScopedId key {accountId.isEmpty() ? _boundAccountId : accountId,
+                            channelID};
+        Backend* owner = backendForAccount(key.first);
+        if (!owner)
+            return;
+        const auto it = channelToItemMap.constFind(key);
+        if (it == channelToItemMap.cend())
+            return;
+        for (QTreeWidgetItem* item : it.value()) {
+            if (!item || item->data(0, ItemKindRole).toInt() != ChannelItemKind
+                || backendForRow(item) != owner)
+                continue;
+            static_cast<ChannelTreeItem*>(item)->showContextMenu(globalPos);
+            return;
+        }
+    }
 
 
 signals:
@@ -176,6 +213,7 @@ protected:
 
 private:
     static void tagAccount(QTreeWidgetItem* item, const QString& accountId);
+    void attachTeamToAccountRoot(QTreeWidgetItem* team);
     using ScopedId = QPair<QString, QString>;
     // Keep the remote identifier local to its owning account. The row role
     // takes priority for retained/moved items; before login it is unbound.
@@ -194,9 +232,10 @@ private:
 	void refreshCurrentChannelReadState(QTreeWidgetItem* item);
 	void showContextMenu (const QPoint& pos);
 	void handleChannelLeave();
+    void handleChannelLeaveForAccount(const QString& accountId, const QString& channelId);
     void handleChannelUpdated();
     void onDirectCustomStatusChanged();
-    void bindDirectUser(BackendUser& user);
+    void bindDirectUser(Backend& backend, BackendUser& user);
     void updateDirectUserVisuals(const BackendUser& user);
 	void refreshTeamSidebar(Backend& backend, BackendTeam& team);
 	void renderTeamSidebar(Backend& backend, TeamItem& teamItem,
@@ -204,7 +243,7 @@ private:
     void reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                               const SidebarTeamState& state);
     void destroySidebarRow(QTreeWidgetItem* item);
-    void removeTeamSidebar(const QString& teamId);
+    void removeTeamSidebar(const ScopedId& teamKey);
 	QTreeWidgetItem* createCategoryItem(TeamItem& teamItem, const QString& categoryId,
 	                                    const QString& displayName, bool collapsed);
 	ChannelItem* createChannelItem(Backend& backend, TeamItem& teamItem,
@@ -217,13 +256,16 @@ private:
                                   QTreeWidgetItem& parentItem);
     ChannelItem* createRecentMentionsItem(Backend& backend, TeamItem& teamItem,
                                           QTreeWidgetItem& parentItem);
-    QTreeWidgetItem* personalItemForTeam(const QString& teamId) const;
+    QTreeWidgetItem* personalItemForTeam(const QString& teamId,
+                                        const QString& accountId = {}) const;
     void refreshPersonalItems();
-    void activateConversation(const QString& channelId, const QString& teamId = {});
+    void activateConversation(const QString& channelId, const QString& teamId = {},
+                              const QString& accountId = {});
 	void activateChannelItem(QTreeWidgetItem* item);
     void activateVirtualDestination(QTreeWidgetItem* item);
 	void setCategoryCollapsed(QTreeWidgetItem* item, bool collapsed);
-    void showCategoryMenu(const QString& teamId, const QString& categoryId);
+    void showCategoryMenu(const QString& accountId, const QString& teamId,
+                          const QString& categoryId);
 	void setChannelMutedVisual(const QString& channelId, bool muted);
     void refreshChannelUnreadVisual(const QString& channelId);
     void refreshAllChannelActivityVisuals();
@@ -268,21 +310,28 @@ private:
 	                 bool explicitPosition);
     void moveCategory(QTreeWidgetItem* item, const QString& targetCategoryId,
                       bool afterTarget);
-	void refreshSidebarTeam(const QString& teamId);
-    void verifySidebarTeam(const QString& teamId, quint64 mutation);
+	void refreshSidebarTeam(const ScopedId& teamKey);
+    void verifySidebarTeam(const ScopedId& teamKey, quint64 mutation);
     void flushDeferredSidebarReconciles();
+    Backend* backendForSidebarSignal() const;
+    Backend* backendForStorage(const Storage& storage) const;
+    Backend* backendForUser(const BackendUser& user) const;
+    void onSidebarCategoriesChanged(const QString& teamId);
     void refreshPaletteDependentIcons();
 
 	QStackedWidget*						chatAreaStackedWidget;
     QMap<ScopedId, QPointer<ChatArea>>  channelPages;
     QMap<ScopedId, QList<QTreeWidgetItem*>> channelToItemMap;
     QMap<ScopedId, TeamItem*>            teamToItemMap;
-	QSet<QString>						connectedSidebarUsers;
-    bool                                customEmojiConnected_ = false;
-    bool                                categorySyncConnected_ = false;
-    QSet<QString>                        pendingChannelAdmissions;
-	Backend*							backendForSidebar;
+    QSet<ScopedId>                      connectedSidebarUsers;
+    QSet<Backend*>                      profileSourcesConnected;
+    QSet<ScopedId>                        pendingChannelAdmissions;
+    QPointer<Backend>                   backendForSidebar;
     QString                             _boundAccountId;
+    QMap<QString, QPointer<Backend>>     _accountBackends;
+    QStringList                         _visibleAccountRootIds;
+    QHash<QString, QString>             _accountRootLabels;
+    QHash<QString, QTreeWidgetItem*>    _accountRootItems;
 	bool							renderingSidebar;
     bool                                personalUserConnected = false;
     // True during an internal sidebar mouse drag. Structural sidebar
@@ -311,10 +360,10 @@ private:
     int                                 dragViewportScrollPixels = 0;
     int                                 draggedBlockStartLogicalY = 0;
     QVector<CategoryDragBoundary>       categoryDragBoundaries;
-    QSet<QString>                       pendingSidebarReconcileTeams;
-    QSet<QString>                       pendingSidebarRefreshTeams;
-    QSet<QString>                       pendingStoredChannelOpens;
-    QMap<QString, quint64>              sidebarMutationGeneration;
+    QSet<ScopedId>                       pendingSidebarReconcileTeams;
+    QSet<ScopedId>                       pendingSidebarRefreshTeams;
+    QSet<ScopedId>                       pendingStoredChannelOpens;
+    QMap<ScopedId, quint64>              sidebarMutationGeneration;
 };
 
 } /* namespace Mattermost */

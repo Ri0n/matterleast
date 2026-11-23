@@ -149,8 +149,8 @@ public:
     void retrieveChannelsMemberCounts(const QStringList& channelIds,
                                       std::function<void(QJsonObject)> callback);
 
-	//get own channel memberships (/users/me/teams/teamID/channels)
-	void retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback);
+    // The account-wide catalog includes team channels and canonical DM/GM.
+    void retrieveOwnChannelMemberships();
 
 	//get multiple team members (/teams/{teamID}/members)
 	void retrieveTeamMembers (BackendTeam& team, int page = 0);
@@ -415,6 +415,8 @@ private:
     void hasChannelPermissions(BackendChannel& channel, const QStringList& required,
                                std::function<void(bool)> callback);
     void scheduleTypingExpiration();
+    // A newly joined team is the only place we need a team-specific fetch.
+    void retrieveNewTeamChannels(BackendTeam& team);
     void clearTypingActivity();
     bool hasVisibleTypingView(const QString& channelId,
                               const QString& parentId) const;
@@ -445,7 +447,6 @@ private:
     bool _lastLoginFailureTransient = false;
     bool _authVerificationInFlight = false;
     bool _authExpiryNotified = false;
-    uint32_t						nonFilledTeams;
     uint64_t						lastStartTime;
     QAtomicInteger<unsigned>				avatarsLoaded;
 };

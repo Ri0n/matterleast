@@ -19,7 +19,8 @@ void ChannelTree::refreshCurrentChannelReadState(QTreeWidgetItem* item)
 
     const QString channelId = item->data(0, ItemIdRole).toString();
     ChatArea* page = getCurrentPage();
-    if (!page || page->getChannel().id != channelId) {
+    if (!page || page->getChannel().id != channelId
+        || backendForRow(item) != &page->getBackend()) {
         return;
     }
 
@@ -44,6 +45,7 @@ void ChannelTree::currentChanged(const QModelIndex& current, const QModelIndex& 
     }
 
     const QString channelId = item->data(0, ItemIdRole).toString();
+    const QString accountId = item->data(0, ItemAccountIdRole).toString();
     if (channelId.isEmpty()) {
         return;
     }
@@ -57,11 +59,12 @@ void ChannelTree::currentChanged(const QModelIndex& current, const QModelIndex& 
     // currentItemChanged activates/materializes the ChatArea. Defer the viewport
     // re-check until that synchronous navigation path has completed, and resolve
     // the item again so category/sidebar rebuilds cannot leave a stale pointer.
-    QTimer::singleShot(0, this, [this, channelId] {
+    QTimer::singleShot(0, this, [this, accountId, channelId] {
         QTreeWidgetItem* currentItemPtr = currentItem();
         if (!currentItemPtr
             || currentItemPtr->data(0, ItemKindRole).toInt() != ChannelItemKind
-            || currentItemPtr->data(0, ItemIdRole).toString() != channelId) {
+            || currentItemPtr->data(0, ItemIdRole).toString() != channelId
+            || currentItemPtr->data(0, ItemAccountIdRole).toString() != accountId) {
             return;
         }
         refreshCurrentChannelReadState(currentItemPtr);
@@ -88,9 +91,10 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
     const QPoint eventPos = event->pos();
 #endif
 
-    if (!renderingSidebar && event->button() == Qt::MiddleButton && backendForSidebar) {
+    if (!renderingSidebar && event->button() == Qt::MiddleButton) {
         QTreeWidgetItem* clickedItem = itemAt(eventPos);
-        if (clickedItem) {
+        Backend* owner = backendForRow(clickedItem);
+        if (clickedItem && owner) {
             QString channelId;
             const int kind = clickedItem->data(0, ItemKindRole).toInt();
             if (kind == ChannelItemKind) {
@@ -101,16 +105,15 @@ void ChannelTree::mousePressEvent(QMouseEvent* event)
                 channelId = clickedItem->data(0, ItemChannelIdRole).toString();
                 if (channelId.isEmpty()) {
                     if (BackendChannel* personal =
-                            backendForSidebar->getStorage().getDirectChannelByUserId(
-                                backendForSidebar->getLoginUser().id)) {
+                            owner->getStorage().getDirectChannelByUserId(
+                                owner->getLoginUser().id)) {
                         channelId = personal->id;
                     }
                 }
             }
 
             if (!channelId.isEmpty()) {
-                AppNavigationService::instance(*backendForSidebar)
-                    .openChannelInTab(channelId);
+                AppNavigationService::instance(*owner).openChannelInTab(channelId);
                 event->accept();
                 return;
             }

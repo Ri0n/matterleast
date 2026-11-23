@@ -55,6 +55,8 @@ class SidebarService : public QObject {
     Q_OBJECT
 public:
     static SidebarService& instance(Backend& backend);
+    // Looking up an existing service must never trigger HTTP startup work.
+    static SidebarService* existing(Backend& backend);
 
     void clear();
 
@@ -101,7 +103,11 @@ public:
         return activityTracker.openTime(channelId);
     }
     QStringList visibleChannelIds(const SidebarCategory& category, bool applySearch = true) const;
-    void setConversationSearchTerm(const QString& term) { _conversationSearchTerm = term.trimmed(); }
+    // Account-wide DM/GM visibility, derived from canonical Storage channels.
+    // No server team/category iteration; the one-account UI keeps its original
+    // server category ordering via visibleChannelIds().
+    QStringList visibleDirectConversationIds() const;
+    void setConversationSearchTerm(const QString& term);
     bool conversationSearchActive() const { return !_conversationSearchTerm.isEmpty(); }
     void markChannelViewedLocally(const BackendChannel& channel);
     void applyServerChannelViewed(const BackendChannel& channel, uint64_t viewedAt);
@@ -118,8 +124,6 @@ public:
     void synchronizeChannelActivity();
     /** Require fresh membership/read cursors and preferences on next fetch. */
     void invalidateCachedReads();
-    /** Refresh server channel totals without replacing live BackendChannel objects. */
-    void refreshKnownChannelSummaries(std::function<void()> callback = {});
     /** Mirror webapp loadNewDM/GMIfNeeded for a realtime posted event. */
     void resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt);
 
@@ -164,6 +168,7 @@ signals:
     void channelUnreadRewound(const QString& channelId, const QString& postId);
     void channelActivityReset();
     void categoriesChanged(const QString& teamId);
+    void conversationSearchChanged();
 
 private:
     explicit SidebarService(Backend& backend);

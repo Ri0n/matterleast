@@ -120,13 +120,24 @@ const SidebarCategory* SidebarTeamState::categoryByType(const QString& type) con
     return nullptr;
 }
 
-SidebarService& SidebarService::instance(Backend& backend)
+namespace {
+QMap<Backend*, QPointer<SidebarService>>& sidebarInstances()
 {
     static QMap<Backend*, QPointer<SidebarService>> instances;
-    auto& service = instances[&backend];
-    if (!service) {
+    return instances;
+}
+}
+
+SidebarService* SidebarService::existing(Backend& backend)
+{
+    return sidebarInstances().value(&backend).data();
+}
+
+SidebarService& SidebarService::instance(Backend& backend)
+{
+    auto& service = sidebarInstances()[&backend];
+    if (!service)
         service = new SidebarService(backend);
-    }
     return *service;
 }
 
@@ -159,68 +170,6 @@ void SidebarService::invalidateCachedReads()
     // Existing retrieval APIs coalesce concurrent loads.
     membershipsLoaded = false;
     preferencesLoaded = false;
-}
-
-void SidebarService::refreshKnownChannelSummaries(std::function<void()> callback)
-{
-    const auto& teams = backend.getStorage().teams;
-    if (teams.empty()) {
-        synchronizeChannelActivity();
-        if (callback) callback();
-        return;
-    }
-
-    // Never call Backend::retrieveOwnChannelMembershipsForTeam() here:
-    // that startup-only method clears team.channels and replaces the
-    // BackendChannel instances owned by every open chat and post source.
-    auto remaining = std::make_shared<int>(static_cast<int>(teams.size()));
-    QPointer<SidebarService> guard(this);
-    for (const auto& entry : teams) {
-        const QString teamId = entry.first;
-        NetworkRequest request(backend.networkSession(), QStringLiteral("users/me/teams/") + teamId
-                               + QStringLiteral("/channels"));
-        httpConnector.get(request, HttpResponseCallback(
-            [guard, remaining, callback, teamId](QVariant status, const QJsonDocument& doc) {
-                if (!guard) return;
-                if (status.toInt() == QNetworkReply::NoError && doc.isArray()) {
-                    Storage& storage = guard->backend.getStorage();
-                    BackendTeam* team = storage.getTeamById(teamId);
-                    for (const QJsonValue& value : doc.array()) {
-                        const QJsonObject object = value.toObject();
-                        const QString id = object.value(QStringLiteral("id")).toString();
-                        if (id.isEmpty() || !object.contains(QStringLiteral("total_msg_count")))
-                            continue;
-                        BackendChannel* channel = storage.getChannelById(id);
-                        if (!channel && team) {
-                            channel = storage.addChannel(*team, object);
-                        }
-                        if (!channel) continue;
-
-                        const uint64_t serverLastPost =
-                            object.value(QStringLiteral("last_post_at")).toVariant().toULongLong();
-                        // A more recent live event might have updated this object
-                        // since the REST request began. Never replace newer counts
-                        // with an older response.
-                        if (serverLastPost < channel->last_post_at) continue;
-                        channel->last_post_at = serverLastPost;
-                        channel->last_root_post_at = object.contains(QStringLiteral("last_root_post_at"))
-                            ? object.value(QStringLiteral("last_root_post_at")).toVariant().toULongLong()
-                            : serverLastPost;
-                        channel->total_msg_count =
-                            object.value(QStringLiteral("total_msg_count")).toInt();
-                        channel->has_total_msg_count_root =
-                            object.contains(QStringLiteral("total_msg_count_root"));
-                        channel->total_msg_count_root = channel->has_total_msg_count_root
-                            ? object.value(QStringLiteral("total_msg_count_root")).toInt()
-                            : channel->total_msg_count;
-                    }
-                }
-                if (--*remaining == 0) {
-                    guard->synchronizeChannelActivity();
-                    if (callback) callback();
-                }
-            }));
-    }
 }
 
 void SidebarService::clear()
@@ -559,6 +508,105 @@ bool SidebarService::isDirectChannelManuallyHidden(const BackendChannel& channel
         return it != groupChannelVisibility.cend() && !it.value();
     }
     return false;
+}
+
+void SidebarService::setConversationSearchTerm(const QString& term)
+{
+    const QString normalized = term.trimmed();
+    if (_conversationSearchTerm == normalized)
+        return;
+    _conversationSearchTerm = normalized;
+    emit conversationSearchChanged();
+}
+
+QStringList SidebarService::visibleDirectConversationIds() const
+{
+    struct Candidate {
+        const BackendChannel* channel;
+        bool unread;
+        bool pinned;
+    };
+    const auto& storage = backend.getStorage();
+    const BackendChannel* current = backend.getCurrentChannel();
+    const bool searching = conversationSearchActive();
+
+    // Favorites can belong to any team but must survive a DM history limit.
+    // Build the set once, rather than searching every team for every DM.
+    QSet<QString> favorites;
+    for (auto it = sidebarByTeam.cbegin(); it != sidebarByTeam.cend(); ++it) {
+        for (auto category = it->categories.cbegin();
+             category != it->categories.cend(); ++category) {
+            if (category->type != QLatin1String("favorites"))
+                continue;
+            for (const QString& id : category->channelIds)
+                favorites.insert(id);
+        }
+    }
+
+    QVector<Candidate> candidates;
+    const auto consider = [&](const BackendChannel* channel) {
+        if (!channel || (channel->type != BackendChannel::directChannel
+                          && channel->type != BackendChannel::groupChannel))
+            return;
+        if (channel->type == BackendChannel::directChannel
+            && storage.loginUser && channel->name == storage.loginUser->id)
+            return; // Self DM has a dedicated Personal destination.
+        if (channel->delete_at != 0 && (searching || channel != current))
+            return;
+        const bool unread = isChannelUnread(*channel);
+        const bool favorite = favorites.contains(channel->id);
+        if (!searching && isDirectChannelManuallyHidden(*channel)
+            && !unread && !favorite && channel != current)
+            return;
+        if (searching) {
+            const BackendUser* user = channel->type == BackendChannel::directChannel
+                ? storage.getUserById(channel->name) : nullptr;
+            if (!matchesConversationSearch(
+                    _conversationSearchTerm, channel->display_name,
+                    user ? user->getDisplayName() : QString(),
+                    user ? user->username : QString(),
+                    user ? user->email : QString()))
+                return;
+        }
+        candidates.push_back({channel, unread,
+                              unread || favorite || channel == current});
+    };
+
+    // Storage owns each channel once, independent of Mattermost team categories.
+    for (const auto& channel : storage.directChannels.channels)
+        consider(channel.get());
+    for (const auto& channel : storage.groupChannels.channels)
+        consider(channel.get());
+
+    if (!searching) {
+        std::stable_sort(candidates.begin(), candidates.end(),
+                         [this, current](const Candidate& a, const Candidate& b) {
+            if (a.pinned != b.pinned)
+                return a.pinned;
+            if (a.channel == current && b.channel != current)
+                return true;
+            if (b.channel == current && a.channel != current)
+                return false;
+            if (a.unread != b.unread)
+                return a.unread;
+            return std::max({channelRecentTime(*a.channel),
+                             a.channel->last_post_at, a.channel->create_at})
+                > std::max({channelRecentTime(*b.channel),
+                            b.channel->last_post_at, b.channel->create_at});
+        });
+        int pinned = 0;
+        for (const Candidate& candidate : candidates)
+            pinned += candidate.pinned ? 1 : 0;
+        const int limit = std::max(visibleDirectMessagesLimit, pinned);
+        if (candidates.size() > limit)
+            candidates.resize(limit);
+    }
+
+    QStringList result;
+    result.reserve(candidates.size());
+    for (const Candidate& candidate : candidates)
+        result.push_back(candidate.channel->id);
+    return result;
 }
 
 QStringList SidebarService::visibleChannelIds(const SidebarCategory& category, bool applySearch) const

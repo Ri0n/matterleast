@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QSet>
+#include <QPair>
 #include <QStyledItemDelegate>
 
 namespace Mattermost {
@@ -21,9 +22,9 @@ public:
                      const QModelIndex& index) override;
 
 signals:
-    void categoryActionRequested(const QString& teamId,
+    void categoryActionRequested(const QString& accountId, const QString& teamId,
                                  const QString& categoryId);
-    void categoryMenuRequested(const QString& teamId,
+    void categoryMenuRequested(const QString& accountId, const QString& teamId,
                                const QString& categoryId);
 
 protected:
@@ -31,7 +32,7 @@ protected:
                          const QModelIndex& index) const override;
 
 private:
-    mutable QSet<QString> requestedGroupChannels;
+    mutable QSet<QPair<QString, QString>> requestedGroupChannels;
 };
 
 } // namespace Mattermost
