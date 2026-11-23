@@ -9,6 +9,8 @@
 #include <QIcon>
 #include <QPainter>
 #include <QMouseEvent>
+#include <QHelpEvent>
+#include <QToolTip>
 #include <QPixmap>
 #include <QStyledItemDelegate>
 #include <QStyle>
@@ -54,10 +56,30 @@ QString generatedId()
 class ServerStatusDelegate final : public QStyledItemDelegate
 {
 public:
-    explicit ServerStatusDelegate(std::function<void(const QModelIndex&)> edit,
+    using Action = std::function<void(const QModelIndex&)>;
+    explicit ServerStatusDelegate(Action edit, Action connectOrDisconnect,
                                   QObject* parent)
-        : QStyledItemDelegate(parent), _edit(std::move(edit))
+        : QStyledItemDelegate(parent), _edit(std::move(edit)),
+          _connectOrDisconnect(std::move(connectOrDisconnect))
     {
+    }
+
+    static AccountConnectionState connectionState(const QModelIndex& index)
+    {
+        return static_cast<AccountConnectionState>(
+            index.data(WorkspaceTreeModel::ConnectionStateRole).toInt());
+    }
+
+    static bool canToggleConnection(const QModelIndex& index)
+    {
+        switch (connectionState(index)) {
+        case AccountConnectionState::Connected:
+        case AccountConnectionState::Disconnected:
+        case AccountConnectionState::Unavailable:
+            return true;
+        default:
+            return false;
+        }
     }
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
@@ -69,9 +91,7 @@ public:
         const bool account = kind == WorkspaceTreeModel::AccountNode;
         if (account || kind == WorkspaceTreeModel::PendingNode) {
             const auto state = kind == WorkspaceTreeModel::PendingNode
-                ? AccountConnectionState::Connecting
-                : static_cast<AccountConnectionState>(
-                    index.data(WorkspaceTreeModel::ConnectionStateRole).toInt());
+                ? AccountConnectionState::Connecting : connectionState(index);
             QColor color;
             switch (state) {
             case AccountConnectionState::Connected:
@@ -85,8 +105,6 @@ public:
             case AccountConnectionState::Disconnected:
                 color = option.palette.color(QPalette::Mid); break;
             }
-            // 21 logical pixels, rather than 14: the same 1.5x scale on all
-            // display resolutions without compromising high-DPI painting.
             QPixmap marker(21, 21);
             marker.fill(Qt::transparent);
             {
@@ -109,24 +127,31 @@ public:
             decorated.features |= QStyleOptionViewItem::HasDecoration;
         }
         if (account)
-            decorated.rect.adjust(0, 0, -ActionHitWidth, 0);
+            decorated.rect.adjust(0, 0, -2 * ActionHitWidth, 0);
         QStyle* style = decorated.widget ? decorated.widget->style()
                                         : QApplication::style();
         style->drawControl(QStyle::CE_ItemViewItem, &decorated, painter,
                            decorated.widget);
-        if (account) {
-            const QRect hit = actionRect(option.rect);
+        if (!account)
+            return;
+
+        const auto draw = [&](int slot, const QString& path, bool enabled) {
+            const QRect hit = actionRect(option.rect, slot);
             const QRect iconRect(hit.center().x() - ActionExtent / 2,
                                  hit.center().y() - ActionExtent / 2,
                                  ActionExtent, ActionExtent);
             painter->save();
-            painter->setOpacity(painter->opacity() * (
-                option.state.testFlag(QStyle::State_MouseOver) ? 1.0 : 0.48));
+            painter->setOpacity(painter->opacity() *
+                (enabled ? (option.state.testFlag(QStyle::State_MouseOver)
+                    ? 1.0 : 0.48) : 0.22));
             IconUtils::tintedSymbolicIcon(
-                QStringLiteral(":/icons/menu-settings"),
-                option.palette.color(QPalette::Text)).paint(painter, iconRect);
+                path, option.palette.color(QPalette::Text)).paint(painter, iconRect);
             painter->restore();
-        }
+        };
+        // Settings are anchored to the right edge, exactly like the category
+        // accessory slot. Connection control occupies the adjacent slot.
+        draw(0, QStringLiteral(":/icons/menu-settings"), true);
+        draw(1, QStringLiteral(":/icons/menu-power"), canToggleConnection(index));
     }
 
     bool editorEvent(QEvent* event, QAbstractItemModel*,
@@ -141,12 +166,46 @@ public:
             && event->type() != QEvent::MouseButtonDblClick)
             return false;
         const auto* mouse = static_cast<QMouseEvent*>(event);
-        if (mouse->button() != Qt::LeftButton
-            || !actionRect(option.rect).contains(mouse->pos()))
+        if (mouse->button() != Qt::LeftButton)
             return false;
-        if (event->type() == QEvent::MouseButtonRelease && _edit)
-            _edit(index);
-        return true; // Do not also select/open the server.
+        if (actionRect(option.rect, 0).contains(mouse->pos())) {
+            if (event->type() == QEvent::MouseButtonRelease && _edit)
+                _edit(index);
+            return true;
+        }
+        if (actionRect(option.rect, 1).contains(mouse->pos())) {
+            if (event->type() == QEvent::MouseButtonRelease
+                && canToggleConnection(index) && _connectOrDisconnect)
+                _connectOrDisconnect(index);
+            return true;
+        }
+        return false;
+    }
+
+    bool helpEvent(QHelpEvent* event, QAbstractItemView* view,
+                   const QStyleOptionViewItem& option,
+                   const QModelIndex& index) override
+    {
+        if (index.data(WorkspaceTreeModel::NodeKindRole).toInt()
+            == WorkspaceTreeModel::AccountNode) {
+            QString label;
+            if (actionRect(option.rect, 0).contains(event->pos()))
+                label = QObject::tr("Edit server");
+            else if (actionRect(option.rect, 1).contains(event->pos())) {
+                const auto state = connectionState(index);
+                if (state == AccountConnectionState::Connected)
+                    label = QObject::tr("Disconnect");
+                else if (canToggleConnection(index))
+                    label = QObject::tr("Connect");
+                else
+                    label = QObject::tr("Enter credentials in server settings");
+            }
+            if (!label.isEmpty()) {
+                QToolTip::showText(event->globalPos(), label, view);
+                return true;
+            }
+        }
+        return QStyledItemDelegate::helpEvent(event, view, option, index);
     }
 
     QSize sizeHint(const QStyleOptionViewItem& option,
@@ -161,12 +220,13 @@ public:
 private:
     static constexpr int ActionExtent = 20;
     static constexpr int ActionHitWidth = 30;
-    static QRect actionRect(const QRect& row)
+    static QRect actionRect(const QRect& row, int slot)
     {
-        return QRect(row.right() - ActionHitWidth + 1, row.top(),
+        return QRect(row.right() - (slot + 1) * ActionHitWidth + 1, row.top(),
                      ActionHitWidth, row.height());
     }
-    std::function<void(const QModelIndex&)> _edit;
+    Action _edit;
+    Action _connectOrDisconnect;
 };
 
 // Edits are staged in a plain WorkspaceLayout and committed only once on
@@ -636,8 +696,17 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
         [this](const QModelIndex& index) {
             const QString id = index.data(
                 WorkspaceTreeModel::AccountIdRole).toString();
-            if (!id.isEmpty())
-                emit serverSettingsRequested(id);
+            if (!id.isEmpty()) emit serverSettingsRequested(id);
+        },
+        [this](const QModelIndex& index) {
+            const QString id = index.data(
+                WorkspaceTreeModel::AccountIdRole).toString();
+            if (id.isEmpty()) return;
+            if (ServerStatusDelegate::connectionState(index)
+                == AccountConnectionState::Connected)
+                emit disconnectRequested(id);
+            else
+                emit retryRequested(id);
         }, _tree));
     _tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     _tree->setUniformRowHeights(true);
@@ -645,12 +714,6 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
     _tree->expandAll();
     layout->addWidget(_tree, 1);
 
-    _connection = new QPushButton(tr("Connect"), this);
-    _connection->setObjectName(QStringLiteral("serversConnect"));
-    layout->addWidget(_connection);
-
-    connect(_tree->selectionModel(), &QItemSelectionModel::currentChanged,
-            this, [this] { updateSelection(); });
     connect(_tree, &QTreeView::doubleClicked, this,
             [this](const QModelIndex&) { openSelected(); });
     connect(_tree, &QTreeView::customContextMenuRequested, this,
@@ -669,52 +732,12 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
                        &ServersSidebarPage::editLayout);
         menu.exec(_tree->viewport()->mapToGlobal(point));
     });
-    connect(_connection, &QPushButton::clicked, this, [this] {
-        const QModelIndex index = _tree->currentIndex();
-        if (index.data(WorkspaceTreeModel::NodeKindRole).toInt()
-            != WorkspaceTreeModel::AccountNode)
-            return;
-        const QString id = index.data(
-            WorkspaceTreeModel::AccountIdRole).toString();
-        if (id.isEmpty()) return;
-        const auto state = static_cast<AccountConnectionState>(index.data(
-            WorkspaceTreeModel::ConnectionStateRole).toInt());
-        if (state == AccountConnectionState::Connected)
-            emit disconnectRequested(id);
-        else if (state == AccountConnectionState::Disconnected
-                 || state == AccountConnectionState::Unavailable)
-            emit retryRequested(id);
-    });
     connect(add, &QToolButton::clicked, this, &ServersSidebarPage::addServerRequested);
     connect(editLayout, &QToolButton::clicked, this, &ServersSidebarPage::editLayout);
-    connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::dataChanged,
-            this, [this] { updateSelection(); });
     connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::rowsInserted,
-            this, [this] { _tree->expandAll(); updateSelection(); });
-    connect(_accounts.workspaceTreeModel(), &QAbstractItemModel::rowsRemoved,
-            this, [this] { updateSelection(); });
-    connect(&_accounts, &AccountManager::layoutChanged, this, [this] {
-        _tree->expandAll();
-        updateSelection();
-    });
-    updateSelection();
-}
-
-void ServersSidebarPage::updateSelection()
-{
-    const QModelIndex index = _tree->currentIndex();
-    const bool account = index.isValid()
-        && index.data(WorkspaceTreeModel::NodeKindRole).toInt()
-            == WorkspaceTreeModel::AccountNode;
-    const auto state = static_cast<AccountConnectionState>(index.data(
-        WorkspaceTreeModel::ConnectionStateRole).toInt());
-    const bool connected = account && state == AccountConnectionState::Connected;
-    _connection->setText(connected ? tr("Disconnect") : tr("Connect"));
-    // Auth-required/setup-required entries have no verified saved session.
-    // Their credential editor is available from each row's settings icon.
-    _connection->setEnabled(account && (connected
-        || state == AccountConnectionState::Disconnected
-        || state == AccountConnectionState::Unavailable));
+            this, [this] { _tree->expandAll(); });
+    connect(&_accounts, &AccountManager::layoutChanged,
+            this, [this] { _tree->expandAll(); });
 }
 
 void ServersSidebarPage::openSelected()

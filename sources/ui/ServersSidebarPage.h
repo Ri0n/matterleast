@@ -2,8 +2,6 @@
 
 #include <QWidget>
 
-class QLabel;
-class QPushButton;
 class QTreeView;
 class QModelIndex;
 
@@ -28,14 +26,12 @@ signals:
     void retryRequested(const QString& accountId);
 
 private:
-    void updateSelection();
     void openSelected();
     void editSelectedAccount();
     void editLayout();
 
     AccountManager& _accounts;
     QTreeView* _tree = nullptr;
-    QPushButton* _connection = nullptr;
 };
 
 } // namespace Mattermost
