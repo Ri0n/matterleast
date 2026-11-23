@@ -404,8 +404,9 @@ void ChatArea::setupHeaderUi()
     // The Calls module is optional. Reserve no header space for unavailable
     // capabilities, and never offer a call button in threads or channels yet.
     if (!isThread && (channel.type == BackendChannel::directChannel
-                      || channel.type == BackendChannel::groupChannel)) {
-        auto& calls = PluginManager::instance();
+                      || channel.type == BackendChannel::groupChannel)
+        && PluginManager::instance()) {
+        auto& calls = *PluginManager::instance();
         chatCallButton = new QToolButton(this);
         chatCallButton->setObjectName(QStringLiteral("chatCallButton"));
         chatCallButton->setAutoRaise(true);
@@ -514,11 +515,12 @@ void ChatArea::refreshCallButton()
 {
     if (!chatCallButton) return;
 
-    auto& calls = PluginManager::instance();
-    const bool available = calls.callsAvailable();
+    auto* manager = PluginManager::instance();
+    const bool available = manager && manager->callsAvailable();
     chatCallButton->setVisible(available);
     if (!available) return;
 
+    const auto& calls = *manager;
     const auto state = calls.callsSnapshot();
     using MatterLeast::PluginApi::CallsState;
     const bool active = state.state != CallsState::Idle;

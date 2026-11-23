@@ -47,7 +47,8 @@ class PluginManager final : public QObject
 {
     Q_OBJECT
 public:
-    static PluginManager& instance();
+    // Optional: tests may construct widgets without the application plugin service.
+    static PluginManager* instance();
     static void restoreBackendConnections(Backend& backend);
     explicit PluginManager(AccountManager& accounts, QObject* parent = nullptr);
     ~PluginManager() override;

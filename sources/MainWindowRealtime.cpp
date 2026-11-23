@@ -124,7 +124,9 @@ void MainWindow::installRealtimeUiSync()
         AppNavigationService::instance(backend).openPost(target.postId);
     });
 
-    auto& plugins = PluginManager::instance();
+    // Standalone widget tests do not have the application's plugin manager.
+    if (auto* manager = PluginManager::instance()) {
+    auto& plugins = *manager;
     connect(notificationManager, &NotificationManager::incomingCallAnswered,
             this, [this, &plugins](const QString& callId, bool accept) {
         plugins.answerIncomingCall(plugins.accountId(backend), callId, accept);
@@ -190,6 +192,8 @@ void MainWindow::installRealtimeUiSync()
                                    call.threadId == call.postId ? QString() : call.threadId,
                                    call.id});
     });
+
+    }
 
     // Server-originated ephemeral posts are transient by definition: surface
     // them through the existing desktop notification path rather than adding

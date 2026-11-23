@@ -252,13 +252,11 @@ private:
     PluginManager& manager_;
 };
 
-PluginManager& PluginManager::instance()
+PluginManager* PluginManager::instance()
 {
     auto* app = QCoreApplication::instance();
-    auto* manager = app ? app->findChild<PluginManager*>(
+    return app ? app->findChild<PluginManager*>(
         ManagerObjectName, Qt::FindDirectChildrenOnly) : nullptr;
-    Q_ASSERT(manager); // The application owns one manager for every account.
-    return *manager;
 }
 
 PluginManager::PluginManager(AccountManager& accounts, QObject* parent)

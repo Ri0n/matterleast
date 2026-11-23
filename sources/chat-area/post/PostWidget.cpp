@@ -439,8 +439,9 @@ PostWidget::PostWidget(Backend& backend,
             this, &PostWidget::connectMessageLinks);
 	messageContent->setMessage(displayMessage(post, post.message));
     if (presentationMode_ == PresentationMode::Interactive
-        && post.type == QLatin1String("custom_calls")) {
-        auto& calls = PluginManager::instance();
+        && post.type == QLatin1String("custom_calls")
+        && PluginManager::instance()) {
+        auto& calls = *PluginManager::instance();
         const QString accountId = calls.accountId(backend_);
         auto* actions = new QWidget(this);
         auto* layout = new QHBoxLayout(actions);
