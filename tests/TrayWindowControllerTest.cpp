@@ -65,6 +65,33 @@ private slots:
         QVERIFY(!mainWindow.isVisible());
     }
 
+    void preservesGeometryAcrossTrayToggleAndWindowClose()
+    {
+        TrayWindowController controller;
+        QWidget window;
+        window.resize(1100, 730);
+        controller.setWindow(&window);
+        QVERIFY(controller.showWindow());
+        QCOMPARE(window.size(), QSize(1100, 730));
+
+        // Simulate a compositor assigning its minimum size after unmapping.
+        QVERIFY(controller.toggleWindow());
+        QVERIFY(!window.isVisible());
+        window.resize(180, 130);
+        QVERIFY(controller.toggleWindow());
+        QVERIFY(window.isVisible());
+        QCOMPARE(window.size(), QSize(1100, 730));
+
+        // Closing a plain QWidget bypasses toggleWindow(). The hide event
+        // must still remember its last size for the next tray activation.
+        window.resize(1010, 690);
+        QVERIFY(window.close());
+        QVERIFY(!window.isVisible());
+        window.resize(210, 160);
+        QVERIFY(controller.showWindow());
+        QCOMPARE(window.size(), QSize(1010, 690));
+    }
+
     void toggleAStillAliveWindow()
     {
         TrayWindowController controller;
