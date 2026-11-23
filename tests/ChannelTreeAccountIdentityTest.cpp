@@ -349,7 +349,9 @@ private slots:
                                             {{QStringLiteral("a"), QStringLiteral("Alpha")},
                                              {QStringLiteral("b"), QStringLiteral("Beta")}}));
         QCOMPARE(tree.model(), oldModel);
-        QCOMPARE(tree.topLevelItemCount(), 2);
+        QCOMPARE(tree.topLevelItemCount(), 3);
+        QCOMPARE(tree.topLevelItem(2)->data(0, SidebarItem::KindRole).toInt(),
+                 int(SidebarItem::SharedConversations));
         auto* aRoot = tree.topLevelItem(0);
         auto* bRoot = tree.topLevelItem(1);
         QCOMPARE(aRoot->data(0, SidebarItem::KindRole).toInt(),
@@ -698,6 +700,68 @@ private slots:
                  (QList<QVariant>{QStringLiteral("a"),
                                   QStringLiteral("same-channel")}));
         QCOMPARE(tree.model(), originalModel);
+        QCOMPARE(resets.count(), 0);
+    }
+
+    void mergedConversationsReuseChannelTreeRowsAndViewLocalSorting()
+    {
+        Backend first;
+        Backend second;
+        auto prepare = [](Backend& backend, const QString& title, int at) {
+            auto& storage = backend.getStorage();
+            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
+            QVERIFY(storage.addOwnChannel({
+                {QStringLiteral("id"), QStringLiteral("same-dm")},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"), title},
+                {QStringLiteral("last_post_at"), at}}));
+            SidebarService::instance(backend);
+        };
+        prepare(first, QStringLiteral("Zebra"), 300);
+        prepare(second, QStringLiteral("Alpha"), 100);
+        ChannelTree tree;
+        auto* const model = tree.model();
+        QSignalSpy resets(model, &QAbstractItemModel::modelReset);
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        QCOMPARE(tree.topLevelItemCount(), 3);
+        QTreeWidgetItem* root = tree.topLevelItem(2);
+        QCOMPARE(root->data(0, SidebarItem::KindRole).toInt(),
+                 int(SidebarItem::SharedConversations));
+        QCOMPARE(root->childCount(), 2);
+        QTreeWidgetItem* zebra = root->child(0);
+        QTreeWidgetItem* alpha = root->child(1);
+        QCOMPARE(zebra->data(0, SidebarItem::AccountIdRole).toString(),
+                 QStringLiteral("a"));
+        QCOMPARE(alpha->data(0, SidebarItem::AccountIdRole).toString(),
+                 QStringLiteral("b"));
+        QCOMPARE(zebra->data(0, SidebarItem::IdRole),
+                 alpha->data(0, SidebarItem::IdRole));
+        QVERIFY(tree.setMergedConversationSorting(QStringLiteral("alpha")));
+        QCOMPARE(root->child(0), alpha);
+        QCOMPARE(root->child(1), zebra);
+        QVERIFY(!tree.setMergedConversationSorting(QStringLiteral("invalid")));
+        QSignalSpy opened(&tree, &ChannelTree::conversationOpenRequested);
+        tree.openChannelForAccount(QStringLiteral("same-dm"), QStringLiteral("b"));
+        QCOMPARE(tree.currentItem(), alpha);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.takeFirst().at(0).toString(), QStringLiteral("b"));
+        // Cached account-wide search affects the same rows, without a second
+        // QAbstractItemModel or a modelReset. Restore the other account later.
+        SidebarService::instance(first).setConversationSearchTerm(
+            QStringLiteral("Zebra"));
+        SidebarService::instance(second).setConversationSearchTerm(
+            QStringLiteral("Zebra"));
+        QCOMPARE(root->childCount(), 1);
+        QCOMPARE(root->child(0), zebra);
+        SidebarService::instance(second).setConversationSearchTerm({});
+        QCOMPARE(root->childCount(), 2);
+        QCOMPARE(root->child(1), zebra);
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        QCOMPARE(tree.topLevelItemCount(), 0);
+        QCOMPARE(tree.model(), model);
         QCOMPARE(resets.count(), 0);
     }
 

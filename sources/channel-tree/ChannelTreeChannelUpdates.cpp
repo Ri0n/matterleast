@@ -36,6 +36,9 @@ void ChannelTree::handleChannelUpdated()
         }
         static_cast<ChannelItem*>(row)->setLabel(channel->display_name);
     }
+    if (channel->type == BackendChannel::directChannel
+        || channel->type == BackendChannel::groupChannel)
+        refreshMergedConversations();
     if (channel->type == BackendChannel::directChannel) {
         if (const BackendUser* user = owner->getStorage().getUserById(channel->name)) {
             updateDirectCustomStatus(*user);

@@ -110,6 +110,8 @@ public:
     // Populate this same tree from an already loaded account snapshot.
     // Must not cause another fetch of the server's sidebar categories.
     void synchronizeAccountSidebar(const QString& accountId);
+    bool setMergedConversationSorting(const QString& sorting);
+    void refreshMergedConversations();
     void unregisterAccountBackend(const QString& accountId, const Backend* expected = nullptr);
     Backend* backendForAccount(const QString& accountId) const;
     Backend* backendForRow(const QTreeWidgetItem* row) const;
@@ -254,7 +256,7 @@ private:
     void removeTeamSidebar(const ScopedId& teamKey);
 	QTreeWidgetItem* createCategoryItem(TeamItem& teamItem, const QString& categoryId,
 	                                    const QString& displayName, bool collapsed);
-	ChannelItem* createChannelItem(Backend& backend, TeamItem& teamItem,
+	ChannelItem* createChannelItem(Backend& backend, TeamItem* teamItem,
 	                               QTreeWidgetItem& categoryItem, BackendChannel& channel);
     ChannelItem* createPersonalItem(Backend& backend, TeamItem& teamItem,
                                     QTreeWidgetItem& parentItem);
@@ -338,6 +340,8 @@ private:
     QString                             _boundAccountId;
     QMap<QString, QPointer<Backend>>     _accountBackends;
     QMap<ScopedId, QPointer<BackendTeam>> _observedTeams;
+    QTreeWidgetItem* _sharedConversationsRoot = nullptr;
+    QString _mergedConversationSorting = QStringLiteral("recent");
     QStringList                         _visibleAccountRootIds;
     QHash<QString, QString>             _accountRootLabels;
     QHash<QString, QTreeWidgetItem*>    _accountRootItems;

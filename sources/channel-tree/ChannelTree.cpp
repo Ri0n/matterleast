@@ -25,6 +25,7 @@
 #include "ChannelTree.h"
 
 #include <QAbstractItemModel>
+#include <algorithm>
 #include <QAction>
 #include <QApplication>
 #include <QCursor>
@@ -278,6 +279,8 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
     // Never keep their raw pointers alive across the reparenting.
     QTreeWidgetItem* const selected = selectedRow
         && selectedRow->data(0, ItemKindRole).toInt() != AccountRootItemKind
+        && selectedRow != _sharedConversationsRoot
+        && selectedRow->parent() != _sharedConversationsRoot
         ? selectedRow : nullptr;
     const bool selectedBefore = selected && selected->isSelected();
     const QSignalBlocker selectionBlock(this);
@@ -297,6 +300,17 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
         delete root;
     }
     _accountRootItems.clear();
+    if (_sharedConversationsRoot && accountIds.size() < 2) {
+        // Shared rows are presentation-only; singleton restores the original
+        // server category hierarchy instead of keeping duplicate DM rows.
+        while (_sharedConversationsRoot->childCount())
+            destroySidebarRow(_sharedConversationsRoot->takeChild(0));
+        const int index = indexOfTopLevelItem(_sharedConversationsRoot);
+        if (index >= 0)
+            takeTopLevelItem(index);
+        delete _sharedConversationsRoot;
+        _sharedConversationsRoot = nullptr;
+    }
     _visibleAccountRootIds = accountIds;
     _accountRootLabels = labels;
 
@@ -330,11 +344,20 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
     }
     for (QTreeWidgetItem* row : teams)
         attachTeamToAccountRoot(row);
-    // The caller already has live Backends. A View switch only projects
-    // their cached sidebar state into the same ChannelTree implementation.
-    for (const QString& id : accountIds)
-        if (backendForAccount(id))
-            synchronizeAccountSidebar(id);
+    if (accountIds.size() > 1 && !_sharedConversationsRoot) {
+        _sharedConversationsRoot = new QTreeWidgetItem;
+        _sharedConversationsRoot->setText(0, tr("Direct Messages"));
+        _sharedConversationsRoot->setData(0, ItemKindRole,
+                                          int(SidebarItem::SharedConversations));
+        _sharedConversationsRoot->setFlags(
+            _sharedConversationsRoot->flags()
+            & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled | Qt::ItemIsEditable));
+        QFont font = _sharedConversationsRoot->font(0);
+        font.setBold(true);
+        _sharedConversationsRoot->setFont(0, font);
+        addTopLevelItem(_sharedConversationsRoot);
+        _sharedConversationsRoot->setExpanded(true);
+    }
 
     bool stillVisible = selected && selected->treeWidget() == this;
     for (QTreeWidgetItem* ancestor = selected; stillVisible && ancestor;
@@ -349,6 +372,12 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
         // Switching Views must not leave an invisible conversation selected.
         setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
     }
+    // This can remove server DM category rows; do it only after the saved
+    // selection pointer above has been inspected, never before.
+    for (const QString& id : accountIds)
+        if (backendForAccount(id))
+            synchronizeAccountSidebar(id);
+    refreshMergedConversations();
     return true;
 }
 
@@ -394,9 +423,17 @@ bool ChannelTree::registerAccountBackend(const QString& accountId, Backend& back
         connect(&backend, &Backend::onAllTeamChannelsPopulated, this,
                 [this, accountId, guard] {
             if (guard && backendForAccount(accountId) == guard.data()
-                && _visibleAccountRootIds.contains(accountId))
+                && _visibleAccountRootIds.contains(accountId)) {
                 synchronizeAccountSidebar(accountId);
+                refreshMergedConversations();
+            }
         });
+        connect(&backend.getStorage().directChannels,
+                &BackendDirectChannelsTeam::onNewChannel,
+                this, &ChannelTree::refreshMergedConversations);
+        connect(&backend.getStorage().groupChannels,
+                &BackendDirectChannelsTeam::onNewChannel,
+                this, &ChannelTree::refreshMergedConversations);
     }
     return true;
 }
@@ -412,6 +449,13 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
     for (const ScopedId& key : keys)
         if (key.first == accountId)
             removeTeamSidebar(key);
+    if (_sharedConversationsRoot) {
+        for (int row = _sharedConversationsRoot->childCount() - 1; row >= 0; --row) {
+            QTreeWidgetItem* item = _sharedConversationsRoot->child(row);
+            if (item->data(0, ItemAccountIdRole).toString() == accountId)
+                destroySidebarRow(_sharedConversationsRoot->takeChild(row));
+        }
+    }
     _accountBackends.remove(accountId);
     for (auto userIt = connectedSidebarUsers.begin();
          userIt != connectedSidebarUsers.end();) {
@@ -423,6 +467,7 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
     if (accountId == _boundAccountId
         && (!expected || expected == backendForSidebar))
         backendForSidebar = nullptr;
+    refreshMergedConversations();
 }
 
 Backend* ChannelTree::backendForAccount(const QString& accountId) const
@@ -641,6 +686,109 @@ void ChannelTree::synchronizeAccountSidebar(const QString& accountId)
     }
 }
 
+bool ChannelTree::setMergedConversationSorting(const QString& sorting)
+{
+    if (sorting != QLatin1String("recent") && sorting != QLatin1String("alpha"))
+        return false;
+    if (_mergedConversationSorting == sorting)
+        return true;
+    _mergedConversationSorting = sorting;
+    refreshMergedConversations();
+    return true;
+}
+
+void ChannelTree::refreshMergedConversations()
+{
+    if (!_sharedConversationsRoot || _visibleAccountRootIds.size() < 2
+        || sidebarDragActive)
+        return;
+
+    struct Entry {
+        ScopedId key;
+        QPointer<Backend> owner;
+        QPointer<BackendChannel> channel;
+        quint64 recentAt = 0;
+        QString title;
+    };
+    QVector<Entry> desired;
+    for (const QString& accountId : _visibleAccountRootIds) {
+        Backend* owner = backendForAccount(accountId);
+        if (!owner)
+            continue;
+        SidebarService* sidebar = SidebarService::existing(*owner);
+        if (!sidebar)
+            continue; // Never create a service/network request from presentation.
+        for (const QString& id : sidebar->visibleDirectConversationIds()) {
+            BackendChannel* channel = owner->getStorage().getChannelById(id);
+            if (!channel)
+                continue;
+            const quint64 recentAt = std::max<quint64>(
+                std::max<quint64>(channel->last_post_at, channel->create_at),
+                sidebar->channelRecentTime(*channel));
+            desired.push_back({{accountId, id}, owner, channel,
+                               recentAt, channel->display_name});
+        }
+    }
+    const bool alpha = _mergedConversationSorting == QLatin1String("alpha");
+    std::sort(desired.begin(), desired.end(),
+              [alpha](const Entry& lhs, const Entry& rhs) {
+        if (!alpha && lhs.recentAt != rhs.recentAt)
+            return lhs.recentAt > rhs.recentAt;
+        const int names = QString::compare(lhs.title, rhs.title, Qt::CaseInsensitive);
+        if (names != 0)
+            return names < 0;
+        return lhs.key < rhs.key;
+    });
+
+    const QSignalBlocker signals(this);
+    const QScopedValueRollback<bool> restoring(renderingSidebar, true);
+    QMap<ScopedId, QTreeWidgetItem*> retained;
+    for (int row = 0; row < _sharedConversationsRoot->childCount(); ++row) {
+        QTreeWidgetItem* item = _sharedConversationsRoot->child(row);
+        retained.insert({item->data(0, ItemAccountIdRole).toString(),
+                         item->data(0, ItemIdRole).toString()}, item);
+    }
+    int row = 0;
+    for (const Entry& entry : desired) {
+        QTreeWidgetItem* item = retained.take(entry.key);
+        if (!item) {
+            item = createChannelItem(*entry.owner, nullptr,
+                                     *_sharedConversationsRoot, *entry.channel);
+            if (!item)
+                continue;
+            // This row is not a server-owned category member; cross-server DnD
+            // has no server-side order to persist.
+            item->setFlags(item->flags() & ~Qt::ItemIsDragEnabled);
+        }
+        if (item->data(0, ItemAccountIdRole).toString() != entry.key.first)
+            item->setData(0, ItemAccountIdRole, entry.key.first);
+        auto* channelItem = static_cast<ChannelItem*>(item);
+        if (item->text(0) != entry.title)
+            channelItem->setLabel(entry.title);
+        SidebarService* sidebar = SidebarService::existing(*entry.owner);
+        if (sidebar) {
+            const bool muted = sidebar->isChannelMuted(*entry.channel);
+            const bool unread = sidebar->isChannelUnread(*entry.channel);
+            const bool mentioned = sidebar->hasUnreadMention(entry.key.second);
+            if (item->data(0, ItemMutedRole).toBool() != muted)
+                channelItem->setMuted(muted);
+            if (item->data(0, ItemUnreadRole).toBool() != unread)
+                channelItem->setUnread(unread);
+            if (item->data(0, ItemMentionedRole).toBool() != mentioned)
+                channelItem->setMentioned(mentioned);
+        }
+        const int previous = _sharedConversationsRoot->indexOfChild(item);
+        if (previous != row) {
+            if (previous >= 0)
+                _sharedConversationsRoot->takeChild(previous);
+            _sharedConversationsRoot->insertChild(row, item);
+        }
+        ++row;
+    }
+    while (_sharedConversationsRoot->childCount() > row)
+        destroySidebarRow(_sharedConversationsRoot->takeChild(row));
+}
+
 void ChannelTree::setConversationSearchTerm(const QString& term)
 {
     const auto applyToBackend = [this, &term](Backend* owner) {
@@ -722,6 +870,16 @@ void ChannelTree::observeSidebarSignals(Backend& backend, SidebarService& sideba
             this, &ChannelTree::setChannelMentionedVisual, Qt::UniqueConnection);
     connect(&sidebar, &SidebarService::categoriesChanged, this,
             &ChannelTree::onSidebarCategoriesChanged, Qt::UniqueConnection);
+    // Only a merged View has a shared branch; the usual one-account sidebar
+    // never traverses other Backends or performs additional work.
+    connect(&sidebar, &SidebarService::channelActivityChanged, this,
+            &ChannelTree::refreshMergedConversations, Qt::UniqueConnection);
+    connect(&sidebar, &SidebarService::channelActivityReset, this,
+            &ChannelTree::refreshMergedConversations, Qt::UniqueConnection);
+    connect(&sidebar, &SidebarService::categoriesChanged, this,
+            &ChannelTree::refreshMergedConversations, Qt::UniqueConnection);
+    connect(&sidebar, &SidebarService::conversationSearchChanged, this,
+            &ChannelTree::refreshMergedConversations, Qt::UniqueConnection);
 }
 
 void ChannelTree::populateSidebars(Backend& backend)
@@ -858,7 +1016,7 @@ QTreeWidgetItem* ChannelTree::createCategoryItem(TeamItem& teamItem, const QStri
     auto* item = new QTreeWidgetItem(&teamItem, QStringList() << displayName);
     item->setData(0, ItemKindRole, CategoryItemKind);
     item->setData(0, ItemIdRole, categoryId);
-    item->setData(0, ItemTeamIdRole, teamItem.teamId);
+    item->setData(0, ItemTeamIdRole, teamItem ? teamItem->teamId : QString());
     item->setFlags((item->flags() | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled)
                    & ~Qt::ItemIsEditable);
 
@@ -978,14 +1136,16 @@ void ChannelTree::refreshPersonalItems()
     }
 }
 
-ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem& teamItem,
+ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem* teamItem,
                                             QTreeWidgetItem& categoryItem, BackendChannel& channel)
 {
     ChannelItem* item = nullptr;
     if (channel.type == BackendChannel::directChannel || channel.type == BackendChannel::groupChannel) {
         item = new DirectChannelItem(backend, nullptr);
+    } else if (teamItem) {
+        item = teamItem->createChannelItem(backend, nullptr);
     } else {
-        item = teamItem.createChannelItem(backend, nullptr);
+        return nullptr;
     }
 
     categoryItem.addChild(item);
@@ -1301,6 +1461,14 @@ void ChannelTree::openChannelForAccount(QString channelID, const QString& accoun
 
     if (it != channelToItemMap.end() && !it.value().isEmpty()) {
         item = it.value().front();
+        if (_sharedConversationsRoot) {
+            for (QTreeWidgetItem* candidate : it.value()) {
+                if (candidate && candidate->parent() == _sharedConversationsRoot) {
+                    item = candidate;
+                    break;
+                }
+            }
+        }
     } else if (owner) {
         BackendChannel* personal = owner->getStorage().getDirectChannelByUserId(
             owner->getLoginUser().id);
