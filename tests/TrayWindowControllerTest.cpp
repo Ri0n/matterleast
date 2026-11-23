@@ -69,10 +69,11 @@ private slots:
     {
         TrayWindowController controller;
         QWidget window;
-        window.resize(1100, 730);
+        // Keep the test window within Qt's 800x600 offscreen desktop.
+        window.resize(640, 480);
         controller.setWindow(&window);
         QVERIFY(controller.showWindow());
-        QCOMPARE(window.size(), QSize(1100, 730));
+        QCOMPARE(window.size(), QSize(640, 480));
 
         // Simulate a compositor assigning its minimum size after unmapping.
         QVERIFY(controller.toggleWindow());
@@ -80,16 +81,16 @@ private slots:
         window.resize(180, 130);
         QVERIFY(controller.toggleWindow());
         QVERIFY(window.isVisible());
-        QCOMPARE(window.size(), QSize(1100, 730));
+        QCOMPARE(window.size(), QSize(640, 480));
 
         // Closing a plain QWidget bypasses toggleWindow(). The hide event
         // must still remember its last size for the next tray activation.
-        window.resize(1010, 690);
+        window.resize(620, 450);
         QVERIFY(window.close());
         QVERIFY(!window.isVisible());
         window.resize(210, 160);
         QVERIFY(controller.showWindow());
-        QCOMPARE(window.size(), QSize(1010, 690));
+        QCOMPARE(window.size(), QSize(620, 450));
     }
 
     void toggleAStillAliveWindow()
