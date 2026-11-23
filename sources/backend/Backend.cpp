@@ -1075,12 +1075,6 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
         while (!storage.teams.empty())
             storage.eraseTeam(storage.teams.begin()->first);
 
-#if 0
-		QString jsonString = doc.toJson(QJsonDocument::Indented);
-		std::cout << "get teams reply: "  << std::endl;
-		std::cout << jsonString.toStdString() << std::endl;
-#endif
-
 		 auto root = doc.array();
 		for (const auto &itemRef: std::as_const(root)) {
 			storage.addTeam (itemRef.toObject());
@@ -1277,27 +1271,6 @@ void Backend::retrieveOwnChannelMemberships()
             emit onAllTeamChannelsPopulated();
         }));
 }
-
-#if 0 //supported in Mattermost server 6.2
-void Backend::retrieveOwnAllChannelMemberships (std::function<void ()> callback)
-{
-    QNetworkRequest request;
-
-    request.setUrl(QUrl(httpHost + "users/me/channel_members?page=0&per_page=2"));
-    request.setRawHeader("X-Requested-With", "XMLHttpRequest");
-
-    httpConnector.get(request, [this, callback](QVariant, QByteArray data) {
-
-    	QJsonDocument doc = QJsonDocument::fromJson(data);
-
-    	QString jsonString = doc.toJson(QJsonDocument::Indented);
-    	std::cout << "getOwnAllChannelMemberships reply: " <<  jsonString.toStdString() << std::endl;
-
-
-		callback ();
-    });
-}
-#endif
 
 void Backend::retrieveTeamMembers (BackendTeam& team, int page)
 {
