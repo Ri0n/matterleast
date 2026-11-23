@@ -112,6 +112,17 @@ private slots:
         QVERIFY(!beforeSnow.isNull());
 
         overlayExtension->attachToMainWindow(&mainWindow);
+        QWidget secondWindow;
+        secondWindow.resize(640, 480);
+        secondWindow.show();
+        overlayExtension->attachToMainWindow(&secondWindow);
+        auto* secondOverlay = secondWindow.findChild<QWidget*>(
+            QStringLiteral("seasonalSnowOverlay"));
+        QVERIFY(secondOverlay);
+        // Reattaching an existing surface must not duplicate its widget.
+        overlayExtension->attachToMainWindow(&mainWindow);
+        QCOMPARE(mainWindow.findChildren<QWidget*>(
+            QStringLiteral("seasonalSnowOverlay")).size(), 1);
 
         auto* overlay = mainWindow.findChild<QWidget*>(
             QStringLiteral("seasonalSnowOverlay"));
@@ -124,6 +135,7 @@ private slots:
         QCOMPARE(originalCount, MatterLeast::SeasonalSnow::flakeCountForArea(800, 600, 100));
         QVERIFY(settings->setSettingValue(QStringLiteral("sizePercent"), 225));
         QCOMPARE(overlay->property("snowflakeSizePercent").toInt(), 225);
+        QCOMPARE(secondOverlay->property("snowflakeSizePercent").toInt(), 225);
         QVERIFY(settings->setSettingValue(QStringLiteral("intensityPercent"), 200));
         QCOMPARE(overlay->property("snowflakeCount").toInt(), originalCount * 2);
         QVERIFY(!settings->setSettingValue(QStringLiteral("sizePercent"), 999));
@@ -156,6 +168,8 @@ private slots:
         QTRY_COMPARE(overlay->geometry(), mainWindow.rect());
         QVERIFY(plugin->disable());
         QVERIFY(mainWindow.findChild<QWidget*>(
+            QStringLiteral("seasonalSnowOverlay")) == nullptr);
+        QVERIFY(secondWindow.findChild<QWidget*>(
             QStringLiteral("seasonalSnowOverlay")) == nullptr);
         QVERIFY(loader.unload());
         qunsetenv("MATTERLEAST_SNOW_PREVIEW");

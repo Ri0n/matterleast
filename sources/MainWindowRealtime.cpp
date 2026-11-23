@@ -124,9 +124,13 @@ void MainWindow::installRealtimeUiSync()
         AppNavigationService::instance(backend).openPost(target.postId);
     });
 
-    auto& plugins = PluginManager::instance(backend);
+    // Standalone widget tests do not have the application's plugin manager.
+    if (auto* manager = PluginManager::instance()) {
+    auto& plugins = *manager;
     connect(notificationManager, &NotificationManager::incomingCallAnswered,
-            &plugins, &PluginManager::answerIncomingCall);
+            this, [this, &plugins](const QString& callId, bool accept) {
+        plugins.answerIncomingCall(plugins.accountId(backend), callId, accept);
+    });
     auto* ringTimer = new QTimer(this);
     ringTimer->setInterval(2600);
 #if BUILD_MULTIMEDIA
@@ -161,12 +165,14 @@ void MainWindow::installRealtimeUiSync()
         }
     };
     connect(&plugins, &PluginManager::incomingCallClosed, this,
-            [this, stopRinging](const QString& id) {
+            [this, &plugins, stopRinging](const QString& accountId, const QString& id) {
+        if (accountId != plugins.accountId(backend)) return;
         stopRinging(id);
         notificationManager->closeIncomingCall(id);
     });
     connect(&plugins, &PluginManager::incomingCallStarted, this,
-            [this, ringTimer, ring, ringing, stopRinging](const IncomingCall& call) {
+            [this, &plugins, ringTimer, ring, ringing, stopRinging](const IncomingCall& call) {
+        if (call.accountId != plugins.accountId(backend)) return;
         auto* channel = backend.getStorage().getChannelById(call.channelId);
         if (!channel || SidebarService::instance(backend).isChannelMuted(*channel)) {
             return;
@@ -186,6 +192,8 @@ void MainWindow::installRealtimeUiSync()
                                    call.threadId == call.postId ? QString() : call.threadId,
                                    call.id});
     });
+
+    }
 
     // Server-originated ephemeral posts are transient by definition: surface
     // them through the existing desktop notification path rather than adding

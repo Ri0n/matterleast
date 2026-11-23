@@ -5,29 +5,33 @@
 MatterLeast's ordinary chat executable, Qt Widgets UI, Backend, and installed
 native-plugin SDK do **not** depend on GStreamer. The Calls capability is
 implemented by an optional native MatterLeast plugin loaded through the
-existing PluginManager/PluginHost and QPluginLoader infrastructure.
+existing PluginManager/PluginHost and QPluginLoader infrastructure. The
+application owns one PluginManager independently of accounts and Backends.
+AccountManager owns each Backend and resolves account IDs at the host boundary.
 
 The public `plugins/api` interfaces are intentionally independent of media
 engines and the internal `Backend`:
 
-- `CallsProviderInterface` (IID `CallsProvider/1.0`): start, join, leave, mute,
+- `CallsProviderInterface` (IID `CallsProvider/2.0`): account-qualified start, join, leave, mute,
   apply server events, connection changes, and a by-value `CallsSnapshot`.
-- `CallsHostAccessor` (IID `CallsHostAccessor/1.0`): injected before
+- `CallsHostAccessor` (IID `CallsHostAccessor/2.0`): injected before
   `PluginInterface::enable()`. The base plugin IID remains unchanged.
-- `CallsHostInterface` (IID `CallsHost/1.0`): logged-in identity, scoped
+- `CallsHostInterface` (IID `CallsHost/2.0`): account-qualified identity, scoped
   authenticated Calls REST requests, sends to the existing authenticated
   sequenced Mattermost WebSocket, and state-change notifications.
 - `CallsTypes.h`: state and participant descriptors using only QtCore types.
 
 Clients use `PluginManager::callsAvailable()`, `callsSnapshot()`, and its
-call actions. **Never retain** an interface pointer across a native plugin
+account-qualified call actions. A single provider currently supports only
+one live call; its snapshot includes the owning account ID, and events and
+connection status from other accounts are ignored. **Never retain** an interface pointer across a native plugin
 disable/unload. The manager checks the enabled provider on each operation.
 
 ### Session ownership
 
 A real provider may be discovered before login; it must not require a
 credential or create media on `enable()`. The call may start only when the
-Backend is authenticated. All Mattermost API authentication, cookies, TLS
+specified account's Backend is authenticated. All Mattermost API authentication, cookies, TLS
 configuration, reconnect handling, and network transport remain in the core.
 The Calls host accepts only supported HTTP methods on official Calls plugin
 paths below `plugins/com.mattermost.calls/` at the server root. An HTTP completion is
@@ -37,7 +41,9 @@ module unloads; merely testing a `QPointer` on a later response is not enough,
 because the deferred callback's destructor could otherwise execute unloaded
 plugin code. The provider receives forwarded Calls-specific
 `custom_com.mattermost.calls_*` WebSocket events and backend connection
-changes, not raw credentials. Outgoing Calls actions use the same
+changes tagged with their account ID, not raw credentials. CallsHost routes
+outgoing requests via AccountManager to the owning Backend and can resolve
+conversation and participant names from that account's existing cache. Outgoing Calls actions use the same
 authenticated WebSocket and the connector's existing sequence counter;
 the plugin must not create an independent main Mattermost socket.
 
@@ -52,8 +58,9 @@ transitions with server events and media callbacks. The fake test provider
 completes transitions synchronously without speaking to a server.
 
 ### Incoming invitations
-The core tracks live DM/GM invitations from the authenticated Calls WebSocket
-while a Calls provider is available. The invitation binds one call ID to its
+The core tracks live DM/GM invitations per account from the authenticated Calls
+WebSocket while a Calls provider is available. Notification and invitation
+identities are scoped to the originating account. The invitation binds one call ID to its
 server-created `custom_calls` post. The chat card and desktop actions use the
 same state. Decline dismisses the invitation for the current user through the
 Calls API. Accept and Decline verify the active call ID before sending
@@ -65,8 +72,9 @@ Normal last-participant departure updates the original post with `end_at`,
 which also clears the invitation in cold timelines. Explicit end, join,
 disconnect, and plugin disable clear the corresponding local actions. Logout
 leaves the media session and clears invitations before credentials are reset.
-The persistent manager restores its Backend signal connections after the
-session reset so the next login receives Calls events.
+The application-scoped manager restores its per-Backend signal connections
+after the session reset so the next login receives Calls events. Disabling a
+Backend does not unload the native plugin or affect media for other accounts.
 
 Incoming DM/GM calls in unmuted conversations ring locally for up to 30 seconds
 and publish a passive desktop notification. Freedesktop notification servers
@@ -128,7 +136,9 @@ mute, remote events, state notifications, refusal to unload a connected call,
 leave, disable/unload, re-enable, connection-failure state, and cleanup.
 
 The existing plugin SDK external smoke build, signed-plugin policies and
-normal Qt 5/Qt 6 CI must remain green. No existing plugin IID is modified.
+normal Qt 5/Qt 6 CI must remain green. The base plugin IID is unchanged;
+the Calls-only provider, host and accessor IIDs use 2.0 because their C++ ABI
+is incompatible with Calls 1.0.
 
 ## Whiteboard transport (design only)
 

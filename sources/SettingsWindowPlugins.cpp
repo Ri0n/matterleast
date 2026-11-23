@@ -54,8 +54,10 @@ void SettingsWindow::showEvent(QShowEvent* event)
         return;
     }
 
+    auto* pluginManager = PluginManager::instance();
+    if (!pluginManager) return; // No plugin service in standalone widget tests.
     pluginsPageAdded_ = true;
-    auto& manager = PluginManager::instance(mainWindow->backendInstance());
+    auto& manager = *pluginManager;
 
     auto* page = new QWidget(tabs);
     auto* layout = new QVBoxLayout(page);

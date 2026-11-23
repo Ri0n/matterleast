@@ -24,29 +24,38 @@ bool isRecentStart(qint64 startAt)
 }
 }
 
-void PluginManager::handleIncomingCallEvent(const QString& name, const QJsonObject& data,
+QString PluginManager::incomingKey(const QString& accountId, const QString& channelId)
+{
+    // Account identifiers and server channel IDs are never interchangeable.
+    return accountId + QChar(0x1f) + channelId;
+}
+
+void PluginManager::handleIncomingCallEvent(const QString& accountId,
+                                            const QString& name, const QJsonObject& data,
                                             const QJsonObject& broadcast)
 {
+    Backend* backend = backendForAccount(accountId);
+    if (!backend) return;
     const QString event = name.mid(int(qstrlen(CallsPrefix)));
     QString channelId = data.value(QStringLiteral("channelID")).toString();
     if (channelId.isEmpty()) {
         channelId = broadcast.value(QStringLiteral("channel_id")).toString();
     }
     if (event == QLatin1String("user_dismissed_notification")) {
-        if (data.value(QStringLiteral("userID")).toString() != backend_.getLoginUser().id) {
+        if (data.value(QStringLiteral("userID")).toString() != backend->getLoginUser().id) {
             return;
         }
         const QString id = data.value(QStringLiteral("callID")).toString();
         for (const auto& invitation : std::as_const(incomingCalls_)) {
-            if (invitation.call.id == id) {
-                closeIncomingCall(invitation.call.channelId);
+            if (invitation.call.accountId == accountId && invitation.call.id == id) {
+                closeIncomingCall(accountId, invitation.call.channelId);
                 break;
             }
         }
         return;
     }
     if (event == QLatin1String("call_end")) {
-        endIncomingCall(channelId);
+        endIncomingCall(accountId, channelId);
         return;
     }
     if (event != QLatin1String("call_start")) {
@@ -54,6 +63,7 @@ void PluginManager::handleIncomingCallEvent(const QString& name, const QJsonObje
     }
 
     IncomingCall call {
+        accountId,
         data.value(QStringLiteral("id")).toString(),
         channelId,
         data.value(QStringLiteral("post_id")).toString(),
@@ -66,26 +76,28 @@ void PluginManager::handleIncomingCallEvent(const QString& name, const QJsonObje
         return;
     }
 
-    const auto previous = incomingCalls_.constFind(channelId);
+    const auto previous = incomingCalls_.constFind(incomingKey(accountId, channelId));
     if (previous != incomingCalls_.cend()
         && (previous->call.id == call.id || previous->startAt > startAt)) {
         return;
     }
 
-    endIncomingCall(channelId);
+    endIncomingCall(accountId, channelId);
     const auto session = callsSnapshot();
-    if (call.ownerId == backend_.getLoginUser().id
-        || (session.channelId == channelId && (session.state == CallsState::Connecting
+    if (call.ownerId == backend->getLoginUser().id
+        || (session.accountId == accountId && session.channelId == channelId
+            && (session.state == CallsState::Connecting
                                                || session.state == CallsState::Connected))) {
         return;
     }
-    incomingCalls_.insert(channelId, {std::move(call), startAt});
-    announceIncomingCall(channelId);
+    incomingCalls_.insert(incomingKey(accountId, channelId), {std::move(call), startAt});
+    announceIncomingCall(accountId, channelId);
 }
 
-void PluginManager::announceIncomingCall(const QString& channelId)
+void PluginManager::announceIncomingCall(const QString& accountId,
+                                         const QString& channelId)
 {
-    auto invitation = incomingCalls_.find(channelId);
+    auto invitation = incomingCalls_.find(incomingKey(accountId, channelId));
     if (invitation == incomingCalls_.end() || !invitation->pending || invitation->announced) {
         return;
     }
@@ -94,7 +106,12 @@ void PluginManager::announceIncomingCall(const QString& channelId)
         incomingCalls_.erase(invitation);
         return;
     }
-    const auto* channel = backend_.getStorage().getChannelById(channelId);
+    Backend* backend = backendForAccount(accountId);
+    if (!backend) {
+        incomingCalls_.erase(invitation);
+        return;
+    }
+    const auto* channel = backend->getStorage().getChannelById(channelId);
     if (!channel) {
         return; // A first DM may still be materializing from its post event.
     }
@@ -109,45 +126,55 @@ void PluginManager::announceIncomingCall(const QString& channelId)
     emit incomingCallStarted(call);
 }
 
-QString PluginManager::incomingCallForPost(const QString& postId) const
+QString PluginManager::incomingCallForPost(const QString& accountId,
+                                           const QString& postId) const
 {
     for (const auto& invitation : incomingCalls_) {
-        if (invitation.pending && invitation.announced && invitation.call.postId == postId) {
+        if (invitation.call.accountId == accountId && invitation.pending
+            && invitation.announced && invitation.call.postId == postId) {
             return invitation.call.id;
         }
     }
     return {};
 }
 
-void PluginManager::answerIncomingCall(const QString& callId, bool accept)
+void PluginManager::answerIncomingCall(const QString& accountId,
+                                       const QString& callId, bool accept)
 {
-    if (callId.isEmpty() || !callsAvailable() || !backend_.loggedIn()
+    Backend* backend = backendForAccount(accountId);
+    if (!backend || callId.isEmpty() || !callsAvailable() || !backend->loggedIn()
         || (accept && callsSnapshot().state != CallsState::Idle)) {
         return;
     }
 
     auto invitation = std::find_if(incomingCalls_.begin(), incomingCalls_.end(),
-                                   [&callId](const IncomingInvitation& item) {
-        return item.pending && item.announced && item.call.id == callId;
+                                   [&callId, &accountId](const IncomingInvitation& item) {
+        return item.call.accountId == accountId && item.pending
+            && item.announced && item.call.id == callId;
     });
     if (invitation == incomingCalls_.end() || (accept && invitation->checking)) {
         return;
     }
-    const QString channelId = invitation.key();
+    const QString channelId = invitation->call.channelId;
     const auto generation = incomingCallsGeneration_;
+    const auto accountGeneration = incomingCallsAccountGeneration_.value(accountId);
     if (accept) {
         invitation->checking = true;
     } else {
-        closeIncomingCall(channelId);
+        closeIncomingCall(accountId, channelId);
     }
 
     // Both server actions address the channel. Verify the invitation's ID so
     // an outdated action cannot knowingly start or dismiss a different call.
-    backend_.requestCallsPlugin(QStringLiteral("GET"),
+    backend->requestCallsPlugin(QStringLiteral("GET"),
         QLatin1String(CallsApiRoot) + channelId, {}, this,
-        [this, callId, channelId, accept, generation](int status, const QJsonObject& response) {
-        auto current = incomingCalls_.find(channelId);
-        if (generation != incomingCallsGeneration_ || current == incomingCalls_.end()
+        [this, accountId, callId, channelId, accept, generation, accountGeneration](int status,
+               const QJsonObject& response) {
+        if (!backendForAccount(accountId)) return;
+        auto current = incomingCalls_.find(incomingKey(accountId, channelId));
+        if (generation != incomingCallsGeneration_
+            || accountGeneration != incomingCallsAccountGeneration_.value(accountId)
+            || current == incomingCalls_.end()
             || current->call.id != callId || current->pending != accept) {
             return;
         }
@@ -157,49 +184,52 @@ void PluginManager::answerIncomingCall(const QString& callId, bool accept)
         }
         const auto active = response.value(QStringLiteral("call")).toObject();
         if (active.value(QStringLiteral("id")).toString() != callId) {
-            endIncomingCall(channelId);
+            endIncomingCall(accountId, channelId);
             return;
         }
 
         if (!accept) {
-            backend_.requestCallsPlugin(QStringLiteral("POST"),
+            backendForAccount(accountId)->requestCallsPlugin(QStringLiteral("POST"),
                 QLatin1String(CallsApiRoot) + QStringLiteral("calls/%1/dismiss-notification").arg(channelId),
                 {}, this, [](int, const QJsonObject&) {});
         } else if (callsSnapshot().state == CallsState::Idle) {
             // The provider can still be waiting for ICE configuration after
             // joinCall(). An end event for this invitation cancels that join.
             joiningIncomingCallId_ = callId;
-            if (!joinCall(channelId)) {
+            if (!joinCall(accountId, channelId)) {
                 joiningIncomingCallId_.clear();
             }
         }
     });
 }
 
-void PluginManager::closeIncomingCall(const QString& channelId)
+void PluginManager::closeIncomingCall(const QString& accountId,
+                                      const QString& channelId)
 {
-    const auto call = incomingCalls_.find(channelId);
+    const auto call = incomingCalls_.find(incomingKey(accountId, channelId));
     if (call != incomingCalls_.end() && call->pending) {
         call->pending = false;
         if (call->announced) {
             const QString id = call->call.id;
-            emit incomingCallClosed(id);
+            emit incomingCallClosed(accountId, id);
         }
     }
 }
 
-void PluginManager::endIncomingCall(const QString& channelId)
+void PluginManager::endIncomingCall(const QString& accountId,
+                                    const QString& channelId)
 {
-    const auto invitation = incomingCalls_.take(channelId);
+    const auto invitation = incomingCalls_.take(incomingKey(accountId, channelId));
     if (invitation.call.id.isEmpty()) {
         return;
     }
-    if (joiningIncomingCallId_ == invitation.call.id) {
+    if (joiningIncomingCallId_ == invitation.call.id
+        && callsSnapshot().accountId == accountId) {
         joiningIncomingCallId_.clear();
-        leaveCall();
+        leaveCall(accountId);
     }
     if (invitation.pending && invitation.announced) {
-        emit incomingCallClosed(invitation.call.id);
+        emit incomingCallClosed(accountId, invitation.call.id);
     }
 }
 
@@ -209,28 +239,36 @@ void PluginManager::handleIncomingCallSnapshot()
     if (!joiningIncomingCallId_.isEmpty() && !snapshot.callId.isEmpty()
         && snapshot.callId != joiningIncomingCallId_) {
         joiningIncomingCallId_.clear();
-        leaveCall();
+        leaveCall(snapshot.accountId);
         return;
     }
     if (snapshot.state != CallsState::Connecting) {
         joiningIncomingCallId_.clear();
     }
     if (snapshot.state == CallsState::Connecting || snapshot.state == CallsState::Connected) {
-        closeIncomingCall(snapshot.channelId);
+        closeIncomingCall(snapshot.accountId, snapshot.channelId);
     }
 }
 
-void PluginManager::clearIncomingCalls()
+void PluginManager::clearIncomingCalls(const QString& accountId)
 {
-    ++incomingCallsGeneration_;
-    const auto previous = std::exchange(incomingCalls_, {});
-    if (!joiningIncomingCallId_.isEmpty()) {
+    if (accountId.isEmpty()) ++incomingCallsGeneration_;
+    else ++incomingCallsAccountGeneration_[accountId];
+    const auto snapshot = callsSnapshot();
+    if (!joiningIncomingCallId_.isEmpty()
+        && (accountId.isEmpty() || snapshot.accountId == accountId)) {
         joiningIncomingCallId_.clear();
-        leaveCall();
+        if (!snapshot.accountId.isEmpty()) leaveCall(snapshot.accountId);
     }
-    for (const auto& invitation : previous) {
+    for (auto it = incomingCalls_.begin(); it != incomingCalls_.end();) {
+        if (!accountId.isEmpty() && it->call.accountId != accountId) {
+            ++it;
+            continue;
+        }
+        const IncomingInvitation invitation = it.value();
+        it = incomingCalls_.erase(it);
         if (invitation.pending && invitation.announced) {
-            emit incomingCallClosed(invitation.call.id);
+            emit incomingCallClosed(invitation.call.accountId, invitation.call.id);
         }
     }
 }

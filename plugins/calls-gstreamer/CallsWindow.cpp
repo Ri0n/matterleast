@@ -616,7 +616,9 @@ void CallsWindow::updateParticipants(const QList<CallsParticipant>& participants
         tile.frame->setProperty("localParticipant", local);
         tile.frame->setAccessibleName(local ? tr("You")
                                             : tr("Participant %1").arg(participant.userId));
-        tile.title->setText(local ? tr("You") : participantLabel(participant.userId));
+        const QString display = participant.displayName.isEmpty()
+            ? participantLabel(participant.userId) : participant.displayName;
+        tile.title->setText(local ? tr("You") : display);
         tile.title->setToolTip(participant.userId);
         tile.avatar->setText(local ? tr("You").left(1)
                                    : participant.userId.isEmpty()

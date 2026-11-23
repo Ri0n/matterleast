@@ -16,6 +16,9 @@
 #include "PluginHost.h"
 #include "PluginSignature.h"
 #include "backend/Backend.h"
+#include "backend/Account.h"
+#include "backend/AccountManager.h"
+#include "backend/types/BackendUser.h"
 #include "backend/types/BackendPost.h"
 #include "backend/Storage.h"
 #include "backend/types/BackendChannel.h"
@@ -107,129 +110,176 @@ bool validSettingValue(const QVariantHash& descriptor, const QVariant& value)
 
 } // namespace
 
+
 class PluginManager::ConversationHost final
     : public MatterLeast::PluginApi::ConversationAccessingHost
 {
 public:
-    explicit ConversationHost(Backend& backend)
-        : backend_(backend)
-    {
-    }
+    explicit ConversationHost(AccountManager& accounts)
+        : accounts_(accounts) {}
 
     QString displayName(const QString& conversationId) const override
     {
+        Backend* backend = accounts_.activeBackend();
+        if (!backend) return {};
         const BackendChannel* channel =
-            backend_.getStorage().getChannelById(conversationId);
-        if (!channel) {
-            return {};
-        }
+            backend->getStorage().getChannelById(conversationId);
+        if (!channel) return {};
         const QString display = channel->display_name.trimmed();
-        if (!display.isEmpty()) {
-            return display;
-        }
-        return channel->name.trimmed();
+        return display.isEmpty() ? channel->name.trimmed() : display;
     }
 
     QString reference(const QString& conversationId) const override
     {
+        Backend* backend = accounts_.activeBackend();
+        if (!backend) return {};
         BackendChannel* channel =
-            backend_.getStorage().getChannelById(conversationId);
-        return channel ? ConversationReference::copyText(backend_, *channel)
+            backend->getStorage().getChannelById(conversationId);
+        return channel ? ConversationReference::copyText(*backend, *channel)
                        : QString();
     }
 
     void open(const QString& conversationId,
               const QString& threadRootId) override
     {
-        auto& navigation = AppNavigationService::instance(backend_);
-        if (threadRootId.isEmpty()) {
-            navigation.openChannel(conversationId);
-        } else {
-            navigation.openThread(conversationId, threadRootId);
-        }
+        Backend* backend = accounts_.activeBackend();
+        if (!backend) return;
+        auto& navigation = AppNavigationService::instance(*backend);
+        if (threadRootId.isEmpty()) navigation.openChannel(conversationId);
+        else navigation.openThread(conversationId, threadRootId);
     }
 
     void openInNewTab(const QString& conversationId,
                       const QString& threadRootId) override
     {
-        auto& navigation = AppNavigationService::instance(backend_);
-        if (threadRootId.isEmpty()) {
-            navigation.openChannelInTab(conversationId);
-        } else {
-            navigation.openThreadInTab(conversationId, threadRootId);
-        }
+        Backend* backend = accounts_.activeBackend();
+        if (!backend) return;
+        auto& navigation = AppNavigationService::instance(*backend);
+        if (threadRootId.isEmpty()) navigation.openChannelInTab(conversationId);
+        else navigation.openThreadInTab(conversationId, threadRootId);
     }
 
 private:
-    Backend& backend_;
+    AccountManager& accounts_;
 };
 
 class PluginManager::CallsHost final : public MatterLeast::PluginApi::CallsHostInterface
 {
 public:
-    CallsHost(PluginManager& manager, Backend& backend)
-        : manager_(manager), backend_(backend) {}
+    explicit CallsHost(PluginManager& manager) : manager_(manager) {}
 
-    bool authenticated() const override { return backend_.loggedIn(); }
-
-    QString localUserId() const override
+    bool authenticated(const QString& accountId) const override
     {
-        return backend_.loggedIn() ? backend_.getLoginUser().id : QString();
+        const Backend* backend = manager_.backendForAccount(accountId);
+        return backend && backend->loggedIn();
     }
 
-    bool sendSdp(const QJsonObject& description) override
+    QString localUserId(const QString& accountId) const override
     {
-        return backend_.sendCallsSdp(description);
+        const Backend* backend = manager_.backendForAccount(accountId);
+        return backend && backend->loggedIn() ? backend->getLoginUser().id : QString();
     }
 
-    bool sendAction(const QString& action, const QJsonObject& data) override
+    QString selectedAccountId() const override
     {
-        return backend_.sendCallsPluginAction(action, data);
+        return manager_.accounts_.selectedAccountId();
     }
 
-    QString connectionId() const override
+    QString conversationDisplayName(const QString& accountId,
+                                    const QString& channelId) const override
     {
-        return backend_.callsConnectionId();
+        Backend* backend = manager_.backendForAccount(accountId);
+        if (!backend || !backend->loggedIn()) return {};
+        const BackendChannel* channel =
+            backend->getStorage().getChannelById(channelId);
+        if (!channel) return {};
+        const QString display = channel->display_name.trimmed();
+        return display.isEmpty() ? channel->name.trimmed() : display;
     }
 
-    void request(const QString& method, const QString& relativePath,
-                 const QJsonObject& body, QObject* context, Reply completion) override
+    QString userDisplayName(const QString& accountId,
+                            const QString& userId) const override
     {
-        backend_.requestCallsPlugin(method, relativePath, body, context,
+        Backend* backend = manager_.backendForAccount(accountId);
+        if (!backend || !backend->loggedIn()) return {};
+        const BackendUser* user = backend->getStorage().getUserById(userId);
+        return user ? user->getDisplayName() : QString();
+    }
+
+    bool sendSdp(const QString& accountId,
+                 const QJsonObject& description) override
+    {
+        Backend* backend = manager_.backendForAccount(accountId);
+        return backend && backend->loggedIn() && backend->sendCallsSdp(description);
+    }
+
+    bool sendAction(const QString& accountId, const QString& action,
+                    const QJsonObject& data) override
+    {
+        Backend* backend = manager_.backendForAccount(accountId);
+        return backend && backend->loggedIn()
+            && backend->sendCallsPluginAction(action, data);
+    }
+
+    QString connectionId(const QString& accountId) const override
+    {
+        const Backend* backend = manager_.backendForAccount(accountId);
+        return backend && backend->loggedIn() ? backend->callsConnectionId() : QString();
+    }
+
+    void request(const QString& accountId, const QString& method,
+                 const QString& relativePath, const QJsonObject& body,
+                 QObject* context, Reply completion) override
+    {
+        Backend* backend = manager_.backendForAccount(accountId);
+        if (!backend || !backend->loggedIn()) {
+            if (completion && context) {
+                completion(0, QJsonObject{{QStringLiteral("error"),
+                                           QStringLiteral("Account unavailable")}});
+            }
+            return;
+        }
+        backend->requestCallsPlugin(method, relativePath, body, context,
                                     std::move(completion));
     }
 
     void providerChanged() override
     {
-        if (manager_.callsAvailable()) {
-            emit manager_.callsSnapshotChanged();
-        }
+        if (manager_.callsAvailable()) emit manager_.callsSnapshotChanged();
     }
 
 private:
     PluginManager& manager_;
-    Backend& backend_;
 };
 
-PluginManager& PluginManager::instance(Backend& backend)
+PluginManager* PluginManager::instance()
 {
-    if (auto* existing = backend.findChild<PluginManager*>(
-            ManagerObjectName, Qt::FindDirectChildrenOnly)) {
-        return *existing;
-    }
-
-    auto* manager = new PluginManager(backend);
-    manager->setObjectName(ManagerObjectName);
-    return *manager;
+    auto* app = QCoreApplication::instance();
+    return app ? app->findChild<PluginManager*>(
+        ManagerObjectName, Qt::FindDirectChildrenOnly) : nullptr;
 }
 
-PluginManager::PluginManager(Backend& backend)
-    : QObject(&backend)
-    , backend_(backend)
-    , conversationHost_(std::make_unique<ConversationHost>(backend))
-    , callsHost_(std::make_unique<CallsHost>(*this, backend))
+PluginManager::PluginManager(AccountManager& accounts, QObject* parent)
+    : QObject(parent)
+    , accounts_(accounts)
+    , conversationHost_(std::make_unique<ConversationHost>(accounts))
+    , callsHost_(std::make_unique<CallsHost>(*this))
 {
-    connectBackendSignals();
+    setObjectName(ManagerObjectName);
+    connect(&accounts_, &AccountManager::accountRegistered, this,
+            [this](Backend* backend) {
+        if (backend) connectBackendSignals(*backend);
+    });
+    connect(&accounts_, &AccountManager::accountUnregistered, this,
+            [this](Backend* backend) {
+        const QString id = backend ? accountId(*backend) : QString();
+        if (id.isEmpty()) return;
+        if (callsSnapshot().accountId == id) leaveCall(id);
+        clearIncomingCalls(id);
+    });
+    for (Backend* backend : accounts_.registeredBackends()) {
+        connectBackendSignals(*backend);
+    }
     connect(this, &PluginManager::callsSnapshotChanged,
             this, &PluginManager::handleIncomingCallSnapshot);
     connect(this, &PluginManager::callsAvailabilityChanged, this, [this](bool available) {
@@ -239,59 +289,77 @@ PluginManager::PluginManager(Backend& backend)
         connect(app, &QCoreApplication::aboutToQuit,
                 this, [this] { shutdown(); });
     }
+}
+
+void PluginManager::initializePlugins()
+{
     loadStandardPlugins();
 }
 
 void PluginManager::restoreBackendConnections(Backend& backend)
 {
-    if (auto* manager = backend.findChild<PluginManager*>(
-            ManagerObjectName, Qt::FindDirectChildrenOnly)) {
-        manager->connectBackendSignals();
+    auto* app = QCoreApplication::instance();
+    auto* manager = app ? app->findChild<PluginManager*>(
+        ManagerObjectName, Qt::FindDirectChildrenOnly) : nullptr;
+    if (manager && !manager->accountId(backend).isEmpty()) {
+        manager->connectBackendSignals(backend);
     }
 }
 
-void PluginManager::connectBackendSignals()
+QString PluginManager::accountId(const Backend& backend) const
 {
-    connect(&backend_, &Backend::onCallsPluginEvent, this,
-            [this](const QString& name, const QJsonObject& data,
-                   const QJsonObject& broadcast) {
-        if (!backend_.loggedIn()) {
-            return;
-        }
-        if (callsAvailable()) {
-            handleIncomingCallEvent(name, data, broadcast);
-        }
+    const Account* account = accounts_.accountForBackend(&backend);
+    return account ? account->id() : QString();
+}
+
+Backend* PluginManager::backendForAccount(const QString& id) const
+{
+    const Account* account = accounts_.account(id);
+    return account ? account->backend() : nullptr;
+}
+
+void PluginManager::connectBackendSignals(Backend& backend)
+{
+    const QString id = accountId(backend);
+    if (id.isEmpty()) return;
+
+    connect(&backend, &Backend::onCallsPluginEvent, this,
+            [this, id, owner = &backend](const QString& name, const QJsonObject& data,
+                                        const QJsonObject& broadcast) {
+        if (backendForAccount(id) != owner || !owner->loggedIn()) return;
+        if (callsAvailable()) handleIncomingCallEvent(id, name, data, broadcast);
         if (auto* provider = callsProvider()) {
-            provider->onServerEvent(name, data, broadcast);
+            provider->onServerEvent(id, name, data, broadcast);
         }
     });
-    connect(&backend_, &Backend::onNewPost, this,
-            [this](BackendChannel& channel, const BackendPost& post) {
+    connect(&backend, &Backend::onNewPost, this,
+            [this, id, owner = &backend](BackendChannel& channel, const BackendPost& post) {
+        if (backendForAccount(id) != owner) return;
         if (post.type == QLatin1String("custom_calls")) {
-            announceIncomingCall(channel.id);
+            announceIncomingCall(id, channel.id);
         }
     });
-    connect(&backend_, &Backend::callPostEnded, this,
-            [this](const QString& channelId, const QString& postId) {
-        const auto invitation = incomingCalls_.constFind(channelId);
+    connect(&backend, &Backend::callPostEnded, this,
+            [this, id, owner = &backend](const QString& channelId, const QString& postId) {
+        if (backendForAccount(id) != owner) return;
+        const auto invitation = incomingCalls_.constFind(incomingKey(id, channelId));
         if (invitation != incomingCalls_.cend() && invitation->call.postId == postId) {
-            endIncomingCall(channelId);
+            endIncomingCall(id, channelId);
         }
     });
-    connect(&backend_, &Backend::onWebSocketConnect, this, [this] {
-        if (auto* provider = callsProvider()) {
-            provider->onConnectionChanged(true);
-        }
+    connect(&backend, &Backend::onWebSocketConnect, this, [this, id, owner = &backend] {
+        if (backendForAccount(id) != owner) return;
+        if (auto* provider = callsProvider()) provider->onConnectionChanged(id, true);
     });
-    connect(&backend_, &Backend::onWebSocketDisconnect, this, [this] {
-        clearIncomingCalls();
-        if (auto* provider = callsProvider()) {
-            provider->onConnectionChanged(false);
-        }
+    connect(&backend, &Backend::onWebSocketDisconnect, this, [this, id, owner = &backend] {
+        if (backendForAccount(id) != owner) return;
+        clearIncomingCalls(id);
+        if (auto* provider = callsProvider()) provider->onConnectionChanged(id, false);
     });
-    connect(&backend_, &Backend::sessionEnding, this, [this] {
-        leaveCall();
-        clearIncomingCalls();
+    connect(&backend, &Backend::sessionEnding, this, [this, id, owner = &backend] {
+        if (backendForAccount(id) != owner) return;
+        leaveCall(id);
+        clearIncomingCalls(id);
     });
 }
 
@@ -341,25 +409,25 @@ QStringList PluginManager::pluginSearchPaths() const
 
 void PluginManager::attachMainWindow(QWidget& window)
 {
-    _mainWindow = &window;
+    for (const auto& existing : _mainWindows) {
+        if (existing == &window) return;
+    }
+    _mainWindows.append(&window);
     for (const auto& host : plugins_) {
-        if (host && host->isEnabled()) {
-            attachWindowOverlay(*host);
-        }
+        if (host && host->isEnabled()) attachWindowOverlay(*host);
     }
 }
 
 void PluginManager::attachWindowOverlay(PluginHost& host)
 {
-    if (!_mainWindow || !host.isEnabled()) {
-        return;
-    }
+    if (!host.isEnabled()) return;
     QObject* object = host.instance();
     auto* overlay = object
         ? qobject_cast<MatterLeast::PluginApi::MainWindowOverlayInterface*>(object)
         : nullptr;
-    if (overlay) {
-        overlay->attachToMainWindow(_mainWindow);
+    if (!overlay) return;
+    for (const auto& window : _mainWindows) {
+        if (window) overlay->attachToMainWindow(window);
     }
 }
 
@@ -468,22 +536,25 @@ MatterLeast::PluginApi::CallsSnapshot PluginManager::callsSnapshot() const
     return {};
 }
 
-bool PluginManager::startCall(const QString& channelId)
+bool PluginManager::startCall(const QString& accountId, const QString& channelId)
 {
     auto* provider = callsProvider();
-    return provider && !channelId.isEmpty() && provider->startCall(channelId);
+    return provider && backendForAccount(accountId) && !channelId.isEmpty()
+        && provider->startCall(accountId, channelId);
 }
 
-bool PluginManager::joinCall(const QString& channelId)
+bool PluginManager::joinCall(const QString& accountId, const QString& channelId)
 {
     auto* provider = callsProvider();
-    return provider && !channelId.isEmpty() && provider->joinCall(channelId);
+    return provider && backendForAccount(accountId) && !channelId.isEmpty()
+        && provider->joinCall(accountId, channelId);
 }
 
-bool PluginManager::leaveCall()
+bool PluginManager::leaveCall(const QString& accountId)
 {
     auto* provider = callsProvider();
-    return provider && provider->leaveCall();
+    return provider && provider->snapshot().accountId == accountId
+        && provider->leaveCall();
 }
 
 bool PluginManager::setCallMicrophoneMuted(bool muted)

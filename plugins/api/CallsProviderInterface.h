@@ -23,22 +23,23 @@ public:
     virtual ~CallsProviderInterface() = default;
 
     virtual CallsSnapshot snapshot() const = 0;
-    virtual bool startCall(const QString& channelId) = 0;
-    virtual bool joinCall(const QString& channelId) = 0;
+    virtual bool startCall(const QString& accountId, const QString& channelId) = 0;
+    virtual bool joinCall(const QString& accountId, const QString& channelId) = 0;
     virtual bool leaveCall() = 0;
     virtual bool setMicrophoneMuted(bool muted) = 0;
 
     // Only custom_* Mattermost WebSocket events reach this method. The
     // provider filters Calls event names and owns all call-specific parsing.
-    virtual void onServerEvent(const QString& eventName,
+    virtual void onServerEvent(const QString& accountId,
+                               const QString& eventName,
                                const QJsonObject& data,
                                const QJsonObject& broadcast) = 0;
-    virtual void onConnectionChanged(bool connected) = 0;
+    virtual void onConnectionChanged(const QString& accountId, bool connected) = 0;
 };
 
 } // namespace MatterLeast::PluginApi
 
 #define MATTERLEAST_CALLS_PROVIDER_IID \
-    "io.github.Ri0n.MatterLeast.CallsProvider/1.0"
+    "io.github.Ri0n.MatterLeast.CallsProvider/2.0"
 Q_DECLARE_INTERFACE(MatterLeast::PluginApi::CallsProviderInterface,
                     MATTERLEAST_CALLS_PROVIDER_IID)
