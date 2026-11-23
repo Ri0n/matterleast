@@ -27,6 +27,7 @@ public:
     Q_ENUM(Kind)
     enum Role {
         KindRole = Qt::UserRole + 1,
+        TitleRole,
         AccountIdRole,
         TeamIdRole,
         CategoryIdRole,

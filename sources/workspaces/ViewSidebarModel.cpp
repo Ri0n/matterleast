@@ -58,7 +58,8 @@ QVariant ViewSidebarModel::data(const QModelIndex& idx, int role) const
     if (!idx.isValid() || idx.column() != 0) return {};
     const auto* node = static_cast<const Node*>(idx.internalPointer());
     switch (role) {
-    case Qt::DisplayRole: return node->title;
+    case Qt::DisplayRole:
+    case TitleRole: return node->title;
     case KindRole: return int(node->kind);
     case AccountIdRole: return node->accountId;
     case TeamIdRole: return node->teamId;
@@ -72,6 +73,7 @@ QHash<int, QByteArray> ViewSidebarModel::roleNames() const
 {
     return {
         {KindRole, QByteArrayLiteral("kind")},
+        {TitleRole, QByteArrayLiteral("title")},
         {AccountIdRole, QByteArrayLiteral("accountId")},
         {TeamIdRole, QByteArrayLiteral("teamId")},
         {CategoryIdRole, QByteArrayLiteral("categoryId")},
@@ -282,7 +284,7 @@ void ViewSidebarModel::reconcile(Node* owner, const std::vector<Desired>& desire
             node->categoryId = want.categoryId;
             node->channelId = want.channelId;
             const QModelIndex idx = modelIndex(node);
-            emit dataChanged(idx, idx, {Qt::DisplayRole, AccountIdRole,
+            emit dataChanged(idx, idx, {Qt::DisplayRole, TitleRole, AccountIdRole,
                                         TeamIdRole, CategoryIdRole, ChannelIdRole});
         }
         reconcile(node, want.children);
