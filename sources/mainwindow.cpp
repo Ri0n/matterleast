@@ -389,7 +389,8 @@ void MainWindow::restoreSidebarWidth()
     // Embedded workspaces own their geometry through AccountWorkspaceStack.
     // A standalone top-level window follows the normal QSplitter layout.
     if (isWindow() || !sidebarSplitter || !sidebarSplitter->isVisible()
-        || sidebarSplitter->count() < 2)
+        || sidebarSplitter->count() < 2
+        || sidebarSplitter->widget(0)->isHidden())
         return;
     const QString partition =
         backend.networkSession().cachePartitionId(backend.getLoginUser().id);

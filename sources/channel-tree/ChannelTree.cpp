@@ -444,6 +444,8 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
     const auto it = _accountBackends.constFind(accountId);
     if (it == _accountBackends.cend() || (expected && it.value() != expected))
         return;
+    const QSignalBlocker suppressNavigation(this);
+    const QScopedValueRollback<bool> renderingGuard(renderingSidebar, true);
     // An account's UI rows must be discarded before Backend storage is reset.
     const QList<ScopedId> keys = teamToItemMap.keys();
     for (const ScopedId& key : keys)
@@ -634,7 +636,25 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
             if (teamGuard && backendGuard
                 && _observedTeams.value(
                        {accountIdForBackend(backendGuard.data()), teamGuard->id}) == teamGuard)
-                refreshTeamSidebar(*backendGuard, *teamGuard);
+                if (_visibleAccountRootIds.size() > 1
+                    && !chatAreaStackedWidget) {
+                    // The account's own ChannelTree retrieves fresh category
+                    // snapshots. A combined View only consumes its cache:
+                    // two presenters must not double the server request.
+                    if (SidebarService* sidebar =
+                            SidebarService::existing(*backendGuard)) {
+                        if (const SidebarTeamState* state =
+                                sidebar->teamState(teamGuard->id)) {
+                            if (TeamItem* row = teamToItemMap.value(
+                                    {accountIdForBackend(backendGuard.data()),
+                                     teamGuard->id}, nullptr))
+                                reconcileTeamSidebar(*backendGuard, *row, *state);
+                        }
+                    }
+                    refreshMergedConversations();
+                } else {
+                    refreshTeamSidebar(*backendGuard, *teamGuard);
+                }
         });
         connect(&team, &BackendTeam::onLeave, this,
                 [this, teamGuard, backendGuard, teamId = team.id] {
