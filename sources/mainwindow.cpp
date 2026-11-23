@@ -483,7 +483,12 @@ void MainWindow::showChannelsSidebar()
 
 void MainWindow::openAccountDestination(int destination, const QString& teamId)
 {
-    on_channelList_virtualDestinationRequested(destination, teamId);
+    if (destination == SidebarItem::SavedDestination)
+        openSavedMessages(teamId);
+    else if (destination == SidebarItem::DraftsDestination)
+        openDrafts(teamId);
+    else if (destination == SidebarItem::RecentMentionsDestination)
+        on_channelList_virtualDestinationRequested(destination, teamId);
 }
 
 void MainWindow::setMergedSidebarMode(bool enabled)
