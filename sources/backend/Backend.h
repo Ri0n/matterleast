@@ -415,10 +415,8 @@ private:
     void hasChannelPermissions(BackendChannel& channel, const QStringList& required,
                                std::function<void(bool)> callback);
     void scheduleTypingExpiration();
-    void retrieveNewTeamChannels(BackendTeam& team,
-                                 std::function<void()> completed = {},
-                                 bool notifyChanges = true);
-    void retrieveLegacyOwnChannelMemberships();
+    // A newly joined team is the only place we need a team-specific fetch.
+    void retrieveNewTeamChannels(BackendTeam& team);
     void clearTypingActivity();
     bool hasVisibleTypingView(const QString& channelId,
                               const QString& parentId) const;

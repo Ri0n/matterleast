@@ -1195,35 +1195,30 @@ void Backend::retrieveChannelsMemberCounts(
         }));
 }
 
-void Backend::retrieveNewTeamChannels(BackendTeam& team,
-                                      std::function<void()> completed,
-                                      bool notifyChanges)
+void Backend::retrieveNewTeamChannels(BackendTeam& team)
 {
     const QPointer<BackendTeam> teamGuard(&team);
     NetworkRequest request(_networkSession,
                            QStringLiteral("users/me/teams/") + team.id
                            + QStringLiteral("/channels"));
     httpConnector.get(request, HttpResponseCallback(
-        [this, teamGuard, notifyChanges, completed = std::move(completed)](
-            const QJsonDocument& doc, const QNetworkReply& reply) {
+        [this, teamGuard](const QJsonDocument& doc, const QNetworkReply& reply) {
             if (!teamGuard || !isLoggedIn)
                 return;
             if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
-                QTimer::singleShot(5000, this, [this, teamGuard, completed,
-                                                 notifyChanges] {
+                QTimer::singleShot(5000, this, [this, teamGuard] {
                     if (isLoggedIn && teamGuard)
-                        retrieveNewTeamChannels(*teamGuard, completed, notifyChanges);
+                        retrieveNewTeamChannels(*teamGuard);
                 });
                 return;
             }
             for (const QJsonValue& value : doc.array()) {
                 const QJsonObject object = value.toObject();
                 const QString channelId = object.value(QStringLiteral("id")).toString();
-                if (channelId.isEmpty())
+                if (channelId.isEmpty() || storage.getChannelById(channelId))
                     continue;
-                const bool alreadyKnown = storage.getChannelById(channelId) != nullptr;
                 BackendChannel* channel = storage.addOwnChannel(object);
-                if (!channel || alreadyKnown || !notifyChanges)
+                if (!channel)
                     continue;
                 if (channel->type == BackendChannel::directChannel)
                     emit storage.directChannels.onNewChannel(*channel);
@@ -1232,24 +1227,7 @@ void Backend::retrieveNewTeamChannels(BackendTeam& team,
                 else
                     emit teamGuard->onNewChannel(*channel);
             }
-            if (completed)
-                completed();
         }));
-}
-
-void Backend::retrieveLegacyOwnChannelMemberships()
-{
-    if (storage.teams.empty()) {
-        emit onAllTeamChannelsPopulated();
-        return;
-    }
-    auto remaining = std::make_shared<int>(static_cast<int>(storage.teams.size()));
-    for (auto& team : storage.teams) {
-        retrieveNewTeamChannels(team.second, [this, remaining] {
-            if (--*remaining == 0)
-                emit onAllTeamChannelsPopulated();
-        }, false);
-    }
 }
 
 void Backend::retrieveOwnChannelMemberships()
@@ -1284,18 +1262,6 @@ void Backend::retrieveOwnChannelMemberships()
                 }
             }
             if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
-                const int status = reply.attribute(
-                    QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                // Only an actual Mattermost API error denotes a missing route.
-                // Corporate proxies/VPN filters also return 403/404, often
-                // with HTML; never fan out N fallback requests for those.
-                const QString errorId = doc.isObject()
-                    ? doc.object().value(QStringLiteral("id")).toString() : QString();
-                if ((status == 404 || status == 405)
-                    && errorId.startsWith(QLatin1String("api."))) {
-                    retrieveLegacyOwnChannelMemberships();
-                    return;
-                }
                 LOG_DEBUG("Account channel catalog failed; retrying in 5 seconds");
                 QTimer::singleShot(5000, this, [this, userId] {
                     if (isLoggedIn && storage.loginUser
