@@ -8,6 +8,7 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPointer>
+#include <QHash>
 #include <QRandomGenerator>
 #include <QTimer>
 #include <QVector>
@@ -329,8 +330,8 @@ public:
         } else {
             return false;
         }
-        if (_overlay) {
-            _overlay->applySettings(_sizePercent, _intensityPercent);
+        for (const auto& overlay : _overlays) {
+            if (overlay) overlay->applySettings(_sizePercent, _intensityPercent);
         }
         return true;
     }
@@ -345,8 +346,8 @@ public:
     {
         // Do not unload a plugin library while one of its QWidget subclasses
         // or event filters still belongs to the application's widget tree.
-        delete _overlay.data();
-        _overlay.clear();
+        for (const auto& overlay : _overlays) delete overlay.data();
+        _overlays.clear();
         _enabled = false;
         return true;
     }
@@ -356,15 +357,16 @@ public:
         if (!_enabled || !window) {
             return;
         }
-        if (_overlay && _overlay->parentWidget() == window) {
-            return;
-        }
-        delete _overlay.data();
-        _overlay = new SnowOverlay(window, _sizePercent, _intensityPercent);
+        if (_overlays.value(window)) return;
+        _overlays.insert(window,
+            new SnowOverlay(window, _sizePercent, _intensityPercent));
+        connect(window, &QObject::destroyed, this, [this, window] {
+            _overlays.remove(window);
+        });
     }
 
 private:
-    QPointer<SnowOverlay> _overlay;
+    QHash<QWidget*, QPointer<SnowOverlay>> _overlays;
     int _sizePercent = MatterLeast::SeasonalSnow::DefaultSizePercent;
     int _intensityPercent = MatterLeast::SeasonalSnow::DefaultIntensityPercent;
     bool _enabled = false;
