@@ -586,7 +586,7 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
     // Populate only channels at startup. Team members are loaded on demand by
     // the dialogs that actually need them; downloading every member here is a
     // large and unrelated startup request burst on big Mattermost instances.
-	backend.retrieveOwnChannelMembershipsForTeam (team, [] (BackendChannel&) {});
+    // Backend loads team channels and DM/GM once per account after adding teams.
 }
 
 void ChannelTree::setConversationSearchTerm(const QString& term)

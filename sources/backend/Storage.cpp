@@ -157,6 +157,27 @@ BackendTeam* Storage::addTeam (const QJsonObject& json)
 	}
 }
 
+BackendChannel* Storage::addOwnChannel(const QJsonObject& json)
+{
+    const QString id = json.value(QStringLiteral("id")).toString();
+    if (id.isEmpty())
+        return nullptr;
+    if (BackendChannel* existing = getChannelById(id))
+        return existing;
+
+    const auto channelType = BackendChannel::getChannelType(json);
+    if (channelType == BackendChannel::directChannel)
+        return loginUser ? addDirectChannel(json) : nullptr;
+    if (channelType == BackendChannel::groupChannel)
+        return loginUser ? addGroupChannel(json) : nullptr;
+    if (channelType != BackendChannel::publicChannel
+        && channelType != BackendChannel::privateChannel)
+        return nullptr;
+
+    BackendTeam* team = getTeamById(json.value(QStringLiteral("team_id")).toString());
+    return team ? addTeamChannel(*team, json) : nullptr;
+}
+
 BackendChannel* Storage::addChannel (BackendTeam& team, const QJsonObject& json)
 {
 	uint32_t channelType = BackendChannel::getChannelType (json);

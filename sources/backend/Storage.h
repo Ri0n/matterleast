@@ -65,6 +65,9 @@ public:
 
 	BackendTeam* addTeam (const QJsonObject& json);
 
+    // Materialize one channel from the account-wide catalog, never replacing
+    // an existing BackendChannel referenced by a live conversation.
+    BackendChannel* addOwnChannel(const QJsonObject& json);
 	BackendChannel* addChannel (BackendTeam& team, const QJsonObject& json);
 	BackendChannel* addTeamChannel (BackendTeam& team, const QJsonObject& json);
 	BackendChannel* addDirectChannel (const QJsonObject& json);

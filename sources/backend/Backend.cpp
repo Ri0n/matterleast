@@ -339,7 +339,6 @@ Backend::Backend(QObject *parent)
 ,currentChannel (nullptr)
 ,isLoggedIn (false)
 ,autoLoginEnabledFlag (true)
-,nonFilledTeams (0)
 ,avatarsLoaded(0)
 {
     _typingClock.start();
@@ -718,7 +717,6 @@ void Backend::reset ()
     _typingViews.clear();
     _typingTrackedViews.clear();
 	storage.reset ();
-	nonFilledTeams = 0;
     PluginManager::restoreBackendConnections(*this);
 }
 
@@ -1072,7 +1070,6 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
         }
     	LOG_DEBUG ("retrieveOwnTeams reply");
 		storage.teams.clear ();
-		nonFilledTeams = 0;
 
 #if 0
 		QString jsonString = doc.toJson(QJsonDocument::Indented);
@@ -1083,15 +1080,14 @@ void Backend::retrieveOwnTeams (std::function<void(BackendTeam&)> callback)
 		 auto root = doc.array();
 		for (const auto &itemRef: std::as_const(root)) {
 			storage.addTeam (itemRef.toObject());
-			++nonFilledTeams;
 		}
 
 		for (auto& team: storage.teams) {
 			callback (team.second);
 		}
-        if (storage.teams.empty()) {
-            emit onAllTeamChannelsPopulated();
-        }
+        // The full channel catalog (including DM/GM) is loaded once,
+        // independently of how many team sidebar rows exist.
+        retrieveOwnChannelMemberships();
     }));
 }
 
@@ -1192,49 +1188,34 @@ void Backend::retrieveChannelsMemberCounts(
         }));
 }
 
-void Backend::retrieveOwnChannelMembershipsForTeam (BackendTeam& team, std::function<void(BackendChannel&)> callback)
+void Backend::retrieveOwnChannelMemberships()
 {
-    NetworkRequest request (_networkSession, "users/me/teams/" + team.id + "/channels");
-    QPointer<BackendTeam> teamGuard(&team);
+    const QString userId = storage.loginUser ? storage.loginUser->id : QString();
+    if (!isLoggedIn || userId.isEmpty())
+        return;
 
-    httpConnector.get (request, HttpResponseCallback ([this, teamGuard, callback] (
-            const QJsonDocument& doc, const QNetworkReply& reply) {
-        if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
-            LOG_DEBUG("Channel memberships request failed; retrying in 5 seconds");
-            QTimer::singleShot(5000, this, [this, teamGuard, callback] {
-                if (isLoggedIn && teamGuard)
-                    retrieveOwnChannelMembershipsForTeam(*teamGuard, callback);
-            });
-            return;
-        }
-        // A refreshed team snapshot may replace this QObject while HTTP is in
-        // flight, even reusing its ID/address. Never apply the old response to
-        // a destroyed team or decrement the new snapshot's startup counter.
-        if (!teamGuard) return;
-        BackendTeam& currentTeam = *teamGuard;
-        currentTeam.channels.clear ();
+    NetworkRequest request(_networkSession, QStringLiteral("users/me/channels"));
+    httpConnector.get(request, HttpResponseCallback(
+        [this, userId](const QJsonDocument& doc, const QNetworkReply& reply) {
+            // Do not populate another login's storage from a stale response.
+            if (!isLoggedIn || !storage.loginUser
+                || storage.loginUser->id != userId)
+                return;
+            if (reply.error() != QNetworkReply::NoError || !doc.isArray()) {
+                LOG_DEBUG("Account channel catalog failed; retrying in 5 seconds");
+                QTimer::singleShot(5000, this, [this, userId] {
+                    if (isLoggedIn && storage.loginUser
+                        && storage.loginUser->id == userId)
+                        retrieveOwnChannelMemberships();
+                });
+                return;
+            }
 
-#if 0
-    	QString jsonString = doc.toJson(QJsonDocument::Indented);
-    	std::cout << "retrieveOwnChannelMembershipsForTeam reply: " <<  jsonString.toStdString() << std::endl;
-#endif
+            for (const QJsonValue& value : doc.array())
+                storage.addOwnChannel(value.toObject());
 
-        LOG_DEBUG ("Team " << currentTeam.display_name << ":");
-		for (const auto &itemRef: doc.array()) {
-			storage.addChannel (currentTeam, itemRef.toObject());
-		}
-
-		for (auto& channel: currentTeam.channels) {
-			callback (*channel.get());
-			LOG_DEBUG ("\tChannel added: " << channel->id << " " << channel->display_name);
-		}
-
-		--nonFilledTeams;
-
-		if (nonFilledTeams == 0) {
-			emit onAllTeamChannelsPopulated ();
-		}
-    }));
+            emit onAllTeamChannelsPopulated();
+        }));
 }
 
 #if 0 //supported in Mattermost server 6.2
