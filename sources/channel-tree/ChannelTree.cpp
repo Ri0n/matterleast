@@ -1016,7 +1016,7 @@ QTreeWidgetItem* ChannelTree::createCategoryItem(TeamItem& teamItem, const QStri
     auto* item = new QTreeWidgetItem(&teamItem, QStringList() << displayName);
     item->setData(0, ItemKindRole, CategoryItemKind);
     item->setData(0, ItemIdRole, categoryId);
-    item->setData(0, ItemTeamIdRole, teamItem ? teamItem->teamId : QString());
+    item->setData(0, ItemTeamIdRole, teamItem.teamId);
     item->setFlags((item->flags() | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled)
                    & ~Qt::ItemIsEditable);
 
@@ -1151,7 +1151,9 @@ ChannelItem* ChannelTree::createChannelItem(Backend& backend, TeamItem* teamItem
     categoryItem.addChild(item);
     item->setData(0, ItemKindRole, ChannelItemKind);
     item->setData(0, ItemIdRole, channel.id);
-    item->setData(0, ItemTeamIdRole, teamItem.teamId);
+    // The shared root has no account ID: stamp the row before indexing it.
+    item->setData(0, ItemAccountIdRole, accountIdForBackend(&backend));
+    item->setData(0, ItemTeamIdRole, teamItem ? teamItem->teamId : QString());
     item->setFlags((item->flags() | Qt::ItemIsDragEnabled) & ~Qt::ItemIsDropEnabled);
     item->setLabel(channel.display_name);
 
