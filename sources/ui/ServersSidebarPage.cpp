@@ -4,6 +4,14 @@
 #include <utility>
 
 #include <QAbstractItemView>
+#include <QApplication>
+#include <QFrame>
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
+#include <QStyledItemDelegate>
+#include <QStyle>
+#include <QStyleOptionViewItem>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -37,6 +45,66 @@ QString generatedId()
 {
     return QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
+
+// Keep the QtCore model independent of the Widgets presentation. Its
+// ConnectionStateRole also lets a future QML tree render the same state.
+class ServerStatusDelegate final : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override
+    {
+        QStyleOptionViewItem decorated(option);
+        initStyleOption(&decorated, index);
+        const int kind = index.data(WorkspaceTreeModel::NodeKindRole).toInt();
+        if (kind == WorkspaceTreeModel::AccountNode
+            || kind == WorkspaceTreeModel::PendingNode) {
+            const auto state = kind == WorkspaceTreeModel::PendingNode
+                ? AccountConnectionState::Connecting
+                : static_cast<AccountConnectionState>(
+                    index.data(WorkspaceTreeModel::ConnectionStateRole).toInt());
+            QColor color;
+            switch (state) {
+            case AccountConnectionState::Connected:
+                color = QColor(38, 165, 102); break;
+            case AccountConnectionState::Connecting:
+            case AccountConnectionState::SetupRequired:
+                color = QColor(217, 150, 33); break;
+            case AccountConnectionState::Unavailable:
+            case AccountConnectionState::AuthenticationRequired:
+                color = QColor(199, 79, 68); break;
+            case AccountConnectionState::Disconnected:
+                color = option.palette.color(QPalette::Mid); break;
+            }
+            QPixmap marker(14, 14);
+            marker.fill(Qt::transparent);
+            {
+                QPainter icon(&marker);
+                icon.setRenderHint(QPainter::Antialiasing);
+                icon.setPen(QPen(color, 1.5));
+                icon.setBrush(state == AccountConnectionState::Disconnected
+                    ? Qt::NoBrush : QBrush(color));
+                icon.drawEllipse(QRectF(2.5, 2.5, 9, 9));
+                if (state == AccountConnectionState::Connected) {
+                    icon.setPen(QPen(Qt::white, 1.5, Qt::SolidLine,
+                                     Qt::RoundCap, Qt::RoundJoin));
+                    icon.drawLine(QPointF(4.5, 7), QPointF(6.5, 9));
+                    icon.drawLine(QPointF(6.5, 9), QPointF(10, 5.5));
+                }
+            }
+            decorated.icon = QIcon(marker);
+            decorated.decorationSize = QSize(14, 14);
+            decorated.features |= QStyleOptionViewItem::HasDecoration;
+        }
+        QStyle* style = decorated.widget ? decorated.widget->style()
+                                        : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &decorated, painter,
+                           decorated.widget);
+    }
+};
+
 
 // Edits are staged in a plain WorkspaceLayout and committed only once on
 // acceptance. No view reparenting, Backend restart, or keyring action can be
@@ -469,6 +537,8 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
     _tree->setObjectName(QStringLiteral("serversWorkspaceTree"));
     _tree->setModel(_accounts.workspaceTreeModel());
     _tree->setHeaderHidden(true);
+    _tree->setFrameShape(QFrame::NoFrame);
+    _tree->setItemDelegate(new ServerStatusDelegate(_tree));
     _tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     _tree->setUniformRowHeights(true);
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
