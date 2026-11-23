@@ -51,6 +51,8 @@ public:
     static void restoreBackendConnections(Backend& backend);
     explicit PluginManager(AccountManager& accounts, QObject* parent = nullptr);
     ~PluginManager() override;
+    // Called after application options/configuration are initialized.
+    void initializePlugins();
 
     QList<QAction*> createConversationMenuActions(
         QObject* parent,

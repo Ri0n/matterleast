@@ -291,6 +291,10 @@ PluginManager::PluginManager(AccountManager& accounts, QObject* parent)
         connect(app, &QCoreApplication::aboutToQuit,
                 this, [this] { shutdown(); });
     }
+}
+
+void PluginManager::initializePlugins()
+{
     loadStandardPlugins();
 }
 

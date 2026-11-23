@@ -99,7 +99,7 @@ private:
 
     // One account domain; the application only owns its Widgets and tray.
     AccountManager accounts;
-    std::unique_ptr<PluginManager> plugins;
+    PluginManager plugins;
     UserActivityMonitor _activityMonitor;
     MigrationManager migrations;
     std::unique_ptr<QMenu> trayIconMenu;
@@ -116,6 +116,7 @@ private:
 inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 :QApplication (argc, argv)
 ,accounts(this)
+,plugins(accounts, this)
 ,_activityMonitor(accounts, this)
 ,migrations(accounts, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
@@ -131,7 +132,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 
     Config::init ();
     // Plugins are application-scoped, not owned by a Backend or Account.
-    plugins = std::make_unique<PluginManager>(accounts, this);
+    plugins.initializePlugins();
 	trayIcon->setToolTip(applicationDisplayName());
 	trayIcon->setContextMenu (trayIconMenu.get());
 	trayIcon->show();
