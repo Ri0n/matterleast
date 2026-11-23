@@ -67,7 +67,11 @@ private slots:
         const QModelIndex pending = model->index(0, 0);
         QCOMPARE(pending.data(WorkspaceTreeModel::NodeKindRole).toInt(),
                  int(WorkspaceTreeModel::PendingNode));
-        QVERIFY(pending.data(Qt::DisplayRole).toString().contains(
+        QCOMPARE(pending.data(Qt::DisplayRole).toString(),
+                 QStringLiteral("chat.example.org"));
+        QCOMPARE(pending.data(WorkspaceTreeModel::StatusRole).toString(),
+                 QStringLiteral("Connecting…"));
+        QVERIFY(pending.data(Qt::ToolTipRole).toString().contains(
                     QStringLiteral("Connecting…")));
 
         model->setPendingServer(QStringLiteral("attempt-1"),
