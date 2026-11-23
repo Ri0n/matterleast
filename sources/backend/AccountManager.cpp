@@ -29,6 +29,7 @@
 #include "backend/types/BackendUser.h"
 #include "navigation/ViewNavigationSession.h"
 #include "workspaces/ViewConversationModel.h"
+#include "workspaces/ViewSidebarModel.h"
 #include "options/MLOptions.h"
 
 namespace Mattermost {
@@ -330,6 +331,16 @@ bool AccountManager::applyLayoutEdits(const WorkspaceLayout& proposed,
             it = _viewConversations.erase(it);
         }
     }
+    for (auto it = _viewSidebars.begin(); it != _viewSidebars.end();) {
+        bool found = false;
+        for (const auto& view : _layout.views)
+            if (view.id == it.key()) { found = true; break; }
+        if (found) ++it;
+        else {
+            it.value()->deleteLater();
+            it = _viewSidebars.erase(it);
+        }
+    }
     ensureViewSessions();
     rebuildModel();
     _treeModel.refreshTopology();
@@ -383,6 +394,24 @@ QAbstractItemModel* AccountManager::activeViewConversations() const
     return viewConversations(_layout.activeViewId);
 }
 
+ViewSidebarModel* AccountManager::viewSidebar(const QString& viewId)
+{
+    if (auto* existing = _viewSidebars.value(viewId, nullptr)) return existing;
+    bool found = false;
+    for (const auto& view : _layout.views)
+        if (view.id == viewId) { found = true; break; }
+    if (!found) return nullptr;
+    auto* model = new ViewSidebarModel(this);
+    _viewSidebars.insert(viewId, model);
+    ensureViewSessions();
+    return model;
+}
+
+QAbstractItemModel* AccountManager::activeViewSidebar()
+{
+    return viewSidebar(_layout.activeViewId);
+}
+
 void AccountManager::ensureViewSessions()
 {
     for (const auto& view : _layout.views) {
@@ -404,6 +433,18 @@ void AccountManager::ensureViewSessions()
             sources.push_back({accountId, owner ? owner->backend() : nullptr});
         }
         conversations->setSources(sources);
+        // One per View, created on demand. Invisible Views incur no tree walk.
+        if (auto* sidebar = _viewSidebars.value(view.id, nullptr)) {
+            QVector<ViewSidebarModel::Source> roots;
+            roots.reserve(view.accountIds.size());
+            for (const QString& id : view.accountIds) {
+                const auto* record = _layout.account(id);
+                Account* owner = account(id);
+                roots.push_back({id, record ? record->name : id,
+                                 owner ? owner->backend() : nullptr});
+            }
+            sidebar->setSources(roots, conversations);
+        }
     }
 }
 

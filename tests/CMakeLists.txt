@@ -21,6 +21,18 @@ target_link_libraries(view-navigation-session-test PRIVATE
     Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
 add_test(NAME view-navigation-session-test COMMAND view-navigation-session-test)
 
+# Merged View sidebar is a QtCore model, independent of the Widgets tree.
+# Reuse the production Backend/SidebarService implementation so duplicate
+# remote IDs and incremental category changes follow real routing.
+if(TARGET matterleast-core)
+    add_executable(view-sidebar-model-test ViewSidebarModelTest.cpp)
+    target_link_libraries(view-sidebar-model-test PRIVATE
+        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME view-sidebar-model-test COMMAND view-sidebar-model-test)
+    set_tests_properties(view-sidebar-model-test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 add_executable(workspace-tree-model-test
     WorkspaceTreeModelTest.cpp
     "${CMAKE_SOURCE_DIR}/sources/workspaces/WorkspaceTreeModel.cpp"
