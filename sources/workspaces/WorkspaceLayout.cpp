@@ -124,41 +124,18 @@ QString WorkspaceLayout::upsertAuthenticatedAccount(
     const QString addedId = record.id;
     next.accounts.append(record);
 
-    if (next.profiles.isEmpty()) {
-        Profile profile;
-        profile.id = newAccountId();
-        profile.name = QStringLiteral("Simultaneous");
-        profile.accountIds.append(addedId);
-        next.profiles.append(profile);
-    } else {
-        QString selectedProfile;
-        for (const View& view : next.views) {
-            if (view.id == next.activeViewId) {
-                selectedProfile = view.profileId;
-                break;
-            }
-        }
-        bool appended = false;
-        for (Profile& profile : next.profiles) {
-            if (selectedProfile.isEmpty() || profile.id == selectedProfile) {
-                profile.accountIds.append(addedId);
-                selectedProfile = profile.id;
-                appended = true;
-                break;
-            }
-        }
-        if (!appended)
-            return {};
-    }
+    // A new server starts independently. Only an explicit layout edit may
+    // add it to an existing simultaneous-login profile.
+    Profile profile;
+    profile.id = newAccountId();
+    profile.name = displayName;
+    profile.accountIds.append(addedId);
+    const QString profileId = profile.id;
+    next.profiles.append(std::move(profile));
 
     View view;
     view.id = newAccountId();
-    for (const Profile& profile : next.profiles) {
-        if (profile.accountIds.contains(addedId)) {
-            view.profileId = profile.id;
-            break;
-        }
-    }
+    view.profileId = profileId;
     view.name = displayName;
     view.accountIds.append(addedId);
     next.views.append(view);
