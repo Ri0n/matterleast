@@ -460,7 +460,7 @@ void MainWindow::installServersSidebar(AccountManager& manager)
             this, &MainWindow::serverConnectRequested);
     connect(channelTabs, &QTabWidget::currentChanged, this, [this] {
         if (sidebarFilterRow)
-            sidebarFilterRow->setVisible(channelTabs->currentWidget() != serversPage);
+            sidebarFilterRow->setEnabled(channelTabs->currentWidget() != serversPage);
     });
 }
 
