@@ -21,7 +21,6 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
-#include <QFont>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -658,11 +657,7 @@ ServersSidebarPage::ServersSidebarPage(AccountManager& accounts, QWidget* parent
     auto* toolbarLayout = new QHBoxLayout(toolbar);
     toolbarLayout->setContentsMargins(4, 2, 4, 2);
     toolbarLayout->setSpacing(3);
-    auto* heading = new QLabel(tr("Servers and views"), toolbar);
-    QFont font = heading->font();
-    font.setBold(true);
-    heading->setFont(font);
-    toolbarLayout->addWidget(heading);
+    // The tab already names this surface; keep its toolbar icon-only.
     toolbarLayout->addStretch();
     auto* add = new QToolButton(toolbar);
     add->setObjectName(QStringLiteral("serversAdd"));
