@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <type_traits>
 #include <QAbstractItemModel>
+#include <QFrame>
 #include <QPushButton>
 #include <QTreeView>
 
@@ -178,6 +179,7 @@ private slots:
         auto* tree = page.findChild<QTreeView*>(QStringLiteral("serversWorkspaceTree"));
         QVERIFY(tree);
         QCOMPARE(tree->model(), manager.workspaceTreeModel());
+        QCOMPARE(tree->frameShape(), QFrame::NoFrame);
         QCOMPARE(tree->model()->rowCount(), 1);
         auto* layouts = page.findChild<QPushButton*>(QStringLiteral("serversEditLayout"));
         auto* add = page.findChild<QPushButton*>(QStringLiteral("serversAdd"));
