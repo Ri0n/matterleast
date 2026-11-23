@@ -407,6 +407,37 @@ private slots:
         QVERIFY(SidebarService::instance(second).conversationSearchActive());
     }
 
+    void accountRootTransitionsPreserveTeamOrder()
+    {
+        ChannelTree tree;
+        auto addTeam = [&tree](const QString& account, const QString& id) {
+            auto* team = new QTreeWidgetItem(&tree);
+            team->setData(0, SidebarItem::KindRole, int(SidebarItem::Team));
+            team->setData(0, SidebarItem::AccountIdRole, account);
+            team->setData(0, SidebarItem::IdRole, id);
+            return team;
+        };
+        QTreeWidgetItem* a1 = addTeam(QStringLiteral("a"), QStringLiteral("a1"));
+        QTreeWidgetItem* b1 = addTeam(QStringLiteral("b"), QStringLiteral("b1"));
+        QTreeWidgetItem* a2 = addTeam(QStringLiteral("a"), QStringLiteral("a2"));
+        QTreeWidgetItem* b2 = addTeam(QStringLiteral("b"), QStringLiteral("b2"));
+        QSignalSpy resets(tree.model(), &QAbstractItemModel::modelReset);
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            QVERIFY(tree.setVisibleAccountRoots(
+                {QStringLiteral("a"), QStringLiteral("b")}));
+            QCOMPARE(tree.topLevelItem(0)->childCount(), 2);
+            QCOMPARE(tree.topLevelItem(1)->childCount(), 2);
+            QCOMPARE(tree.topLevelItem(0)->child(0), a1);
+            QCOMPARE(tree.topLevelItem(0)->child(1), a2);
+            QCOMPARE(tree.topLevelItem(1)->child(0), b1);
+            QCOMPARE(tree.topLevelItem(1)->child(1), b2);
+            QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+            QVERIFY(tree.indexOfTopLevelItem(a1) < tree.indexOfTopLevelItem(a2));
+            QVERIFY(tree.indexOfTopLevelItem(b1) < tree.indexOfTopLevelItem(b2));
+        }
+        QCOMPARE(resets.count(), 0);
+    }
+
     void accountRootsPreserveLiveRowsAndSelection()
     {
         ChannelTree tree;

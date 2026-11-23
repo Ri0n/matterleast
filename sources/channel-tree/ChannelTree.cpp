@@ -283,7 +283,12 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
     const QSignalBlocker selectionBlock(this);
     const QScopedValueRollback<bool> renderGuard(renderingSidebar, true);
 
-    for (QTreeWidgetItem* root : _accountRootItems) {
+    // QHash iteration would scramble account groups. Retire roots in the
+    // View's defined order, preserving each account's team ordering.
+    for (const QString& accountId : _visibleAccountRootIds) {
+        QTreeWidgetItem* root = _accountRootItems.value(accountId, nullptr);
+        if (!root)
+            continue;
         while (root->childCount())
             addTopLevelItem(root->takeChild(0));
         const int index = indexOfTopLevelItem(root);
@@ -314,11 +319,17 @@ bool ChannelTree::setVisibleAccountRoots(const QStringList& accountIds,
             _accountRootItems.insert(accountId, root);
         }
     }
-    for (int i = topLevelItemCount() - 1; i >= 0; --i) {
+    // Collect before moving: traversing top-level items backwards reverses
+    // sibling teams when a singleton sidebar becomes a merged View.
+    QVector<QTreeWidgetItem*> teams;
+    teams.reserve(topLevelItemCount());
+    for (int i = 0; i < topLevelItemCount(); ++i) {
         QTreeWidgetItem* row = topLevelItem(i);
         if (row && row->data(0, ItemKindRole).toInt() == TeamItemKind)
-            attachTeamToAccountRoot(row);
+            teams.push_back(row);
     }
+    for (QTreeWidgetItem* row : teams)
+        attachTeamToAccountRoot(row);
 
     bool stillVisible = selected && selected->treeWidget() == this;
     for (QTreeWidgetItem* ancestor = selected; stillVisible && ancestor;
