@@ -32,6 +32,7 @@ private slots:
         QCOMPARE(registry.profiles[1].accountIds, QStringList{b});
         QCOMPARE(registry.profiles[0].name, QStringLiteral("chat-one — alice"));
         QCOMPARE(registry.profiles[1].name, QStringLiteral("chat-two — bob"));
+        QCOMPARE(registry.activeViewId, registry.views.first().id);
         const QByteArray saved = registry.toJson();
         QVERIFY(!saved.isEmpty());
         QVERIFY(!saved.contains("password"));
@@ -78,7 +79,7 @@ private slots:
         QCOMPARE(registry.profiles.size(), 4);
         QCOMPARE(registry.profiles.last().accountIds, QStringList({c}));
         QCOMPARE(registry.views.last().accountIds, QStringList({c}));
-        QCOMPARE(registry.activeViewId, registry.views.last().id);
+        QCOMPARE(registry.activeViewId, merged.id);
         QVERIFY(registry.validate());
     }
 
