@@ -83,6 +83,9 @@ public:
     Backend* findAccount(const QString& server, const QString& userId) const;
 
     void restoreAccount(const QString& id);
+    // Manual disconnect is transport/session suspension, not logout: leave
+    // the keyring token untouched and skip automatic profile reconciliation.
+    bool disconnectAccount(const QString& id);
     // Starts only accounts admitted by the active profile, including hidden
     // accounts in its other views. Unavailable sessions retry automatically
     // via the shared scheduler; confirmed auth failures require user action.
@@ -149,6 +152,7 @@ private:
     QString _selectedId;
     QHash<QString, QString> _lastSelectedByView;
     QSet<QString> _suspendingProfileAccounts;
+    QSet<QString> _manuallyDisconnected;
     bool _invalidCatalog = false;
 };
 
