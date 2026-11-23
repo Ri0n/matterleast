@@ -740,7 +740,7 @@ void ChannelTree::refreshMergedConversations()
         return lhs.key < rhs.key;
     });
 
-    const QSignalBlocker signals(this);
+    const QSignalBlocker suppressSelectionSignals(this);
     const QScopedValueRollback<bool> restoring(renderingSidebar, true);
     QMap<ScopedId, QTreeWidgetItem*> retained;
     for (int row = 0; row < _sharedConversationsRoot->childCount(); ++row) {
