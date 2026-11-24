@@ -116,12 +116,6 @@ bool filterTreeItem(QTreeWidgetItem* item, const QString& term)
 
 } // namespace
 
-MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& source)
-    : MainWindow(parent, trayIcon)
-{
-    attachInitialBackend(source);
-}
-
 MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
     : QMainWindow(parent)
     , ui(std::make_unique<Ui::MainWindow>())
@@ -144,14 +138,6 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
         if (!source) return;
         if (backendOrNull() != source) emit serverOpenRequested(accountId);
         if (backendOrNull() == source) openAccountDestination(destination, teamId);
-    });
-    connect(ui->channelList, &ChannelTree::virtualDestinationRequested,
-            this, [this](int destination, const QString& teamId) {
-        if (destination == SidebarItem::SavedDestination) {
-            openSavedMessages(teamId);
-        } else if (destination == SidebarItem::DraftsDestination) {
-            openDrafts(teamId);
-        }
     });
     if (auto* delegate = qobject_cast<ChannelItemDelegate*>(
             ui->channelList->itemDelegate())) {
@@ -252,100 +238,13 @@ Backend& MainWindow::backendInstance() const
     return *_backend.data();
 }
 
-bool MainWindow::attachInitialBackend(Backend& source)
-{
-    if (_backend)
-        return _backend.data() == &source;
-    const BackendUser* user = source.getStorage().loginUser;
-    if (!user || user->id.isEmpty())
-        return false;
-    _backend = &source;
-    setProfileBackend(&source);
-    ui->searchButton->setEnabled(true);
-    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))
-        action->setEnabled(true);
-    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarUserGroupsAction"))) {
-        action->setEnabled(true);
-    }
-
-    // Standalone widget fixtures also use the account's idempotent startup
-    // path. The production AccountManager has already started it.
-    source.startAccountData();
-    auto& sidebar = SidebarService::instance(source);
-    connect(&sidebar, &SidebarService::channelActivityChanged, this,
-            [this](const QString&) { refreshSidebarViews(); });
-    connect(&sidebar, &SidebarService::channelActivityReset,
-            this, &MainWindow::refreshSidebarViews);
-    connect(&sidebar, &SidebarService::categoriesChanged, this,
-            [this](const QString&) {
-        QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
-    });
-
-    recentChannels->initialize(backendInstance());
-    attentionList->initialize(backendInstance());
-    installRealtimeUiSync();
-
-    QPointer<MainWindow> windowGuard(this);
-    sidebar.retrieveChannelMemberships([windowGuard] {
-        if (!windowGuard) return;
-        windowGuard->channelMembershipsReady = true;
-        windowGuard->restoreNavigationSessionWhenReady();
-    });
-    connect(ui->channelList, &ChannelTree::teamSidebarPopulated, this,
-        [this](const QString& teamId) {
-            populatedSessionSidebars.insert(teamId);
-            restoreNavigationSessionWhenReady();
-        });
-
-
-    const auto addTeam = [this, &source](BackendTeam& team) {
-        ui->channelList->addTeam(source, team);
-    };
-    connect(&source, &Backend::ownTeamDiscovered, this, addTeam);
-    connect(&source, &Backend::onAddedToTeam, this, addTeam);
-    const auto synchronize = [this, &source] {
-        ui->channelList->synchronizeAccountSidebar(ui->channelList->accountIdForBackend(&source));
-        refreshSidebarViews();
-        initializationComplete();
-    };
-    connect(&source, &Backend::onAllTeamChannelsPopulated, this, synchronize);
-    for (auto& team : source.getStorage().teams)
-        addTeam(team.second);
-    ui->channelList->observeAccountSidebar(source);
-    if (source.accountCatalogReady()) {
-        synchronize();
-    }
-
-    LOG_DEBUG("MainWindow signal register finish");
-
-    // Register the Backend-owned navigation receiver once the complete
-    // channel/thread presentation exists, before plugins can navigate.
-    AppNavigationService::instance(source).bindMainWindow(*this);
-    if (auto* navigation = findChild<NavigationUiController*>(
-            QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
-        navigation->attachBackend(source);
-    LOG_DEBUG("MainWindow account attached");
-    return true;
-}
-
 Backend* MainWindow::navigationBackend(const QString& accountId) const
 {
-    if (auto* owner = ui->channelList->backendForAccount(accountId))
-        return owner;
-    // Existing standalone widgets have no Account object. Preserve their
-    // private semantic identity without inventing an ID for another session.
-    if (auto* primary = backendOrNull()) {
-        const auto* account = qobject_cast<const Account*>(primary->parent());
-        if ((!account && accountId == QStringLiteral("_startup"))
-            || (account && account->id() == accountId))
-            return primary;
-    }
-    return nullptr;
+    return ui->channelList->backendForAccount(accountId);
 }
 
 bool MainWindow::admitsNavigationBackend(const Backend& source) const
 {
-    if (&source == backendOrNull()) return true;
     const auto* account = qobject_cast<const Account*>(source.parent());
     return account && navigationBackend(account->id()) == &source;
 }
@@ -1517,26 +1416,6 @@ void MainWindow::closeEvent(QCloseEvent* event)
 		hide();
 		event->ignore();
 	}
-}
-
-void MainWindow::initializationComplete()
-{
-	teamChannelsReady = true;
-	restoreNavigationSessionWhenReady();
-	LOG_DEBUG("MainWindow initialization comlete");
-}
-
-void MainWindow::restoreNavigationSessionWhenReady()
-{
-    if (!backendOrNull()) return;
-	if (!channelMembershipsReady || !teamChannelsReady || navigationSessionRestoreScheduled) return;
-	for (const auto& team : backendInstance().getStorage().teams) {
-		if (!populatedSessionSidebars.contains(team.first)) return;
-	}
-	// Wait for the existing sidebar requests/rendering; restoration must not
-	// duplicate category HTTP requests merely to establish startup readiness.
-	navigationSessionRestoreScheduled = true;
-	NavigationUiController::instance(*this).restoreSession();
 }
 
 void MainWindow::setNotificationsCountVisualization(uint32_t notificationsCount)
