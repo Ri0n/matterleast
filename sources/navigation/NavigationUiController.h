@@ -153,7 +153,7 @@ private:
     void recordCollection(PostCollectionView* page);
     void recordLocation(const Location& location, ChatArea* area);
     void navigateTo(const Location& location);
-    PostCollectionView* findCollection(Location::Kind kind) const;
+    PostCollectionView* findCollection(const Location& location) const;
 
     NavigationTabsModel::Entry tabEntry(const Location& location) const;
     Location tabLocation(const NavigationTabsModel::Entry& entry) const;
@@ -189,6 +189,9 @@ private:
 
     ChatArea* currentChannelPage() const;
     Backend* backend() const;
+    Backend* backendForAccount(const QString& accountId) const;
+    ChatArea* findThreadForBackend(const Backend& owner, const QString& channelId,
+                                   const QString& rootId) const;
     // Transitional single-account presenter. Resolve stable identity from the
     // owning Account, never from the selected View or a server channel ID.
     QString presentationAccountId() const;

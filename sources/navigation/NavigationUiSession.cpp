@@ -466,11 +466,11 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
     if (state.dockVisible && state.dock.rootId.size()) {
         Location dock;
         if (presentationLocation(state.dock, dock)) {
-            Backend* owner = backend();
+            Backend* owner = backendForAccount(dock.accountId);
             BackendChannel* channel = owner
                 ? owner->getStorage().getChannelById(dock.channelId) : nullptr;
             if (channel) {
-                ChatArea* area = findThread(dock.channelId, dock.rootId);
+                ChatArea* area = findThreadForBackend(*owner, dock.channelId, dock.rootId);
                 if (!area)
                     area = new ChatArea(*owner, *channel, dock.rootId, nullptr);
                 attachThread(area);

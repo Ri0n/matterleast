@@ -24,7 +24,9 @@ Team context for DM/GM actions lives on the page and remains available when
 its row is absent. A real channel leave destroys the page synchronously
 before Storage releases the backing channel, even without an attached tree.
 The host is currently per central stack; once MainWindow is application-wide
-the same host can handle the channels of multiple accounts.
+the same host can handle the channels of multiple accounts. Detached thread
+lookup also requires the exact live Backend, not just the remote channel/root
+IDs: an unrelated server's top-level window must never be adopted by a tab.
 
 A thread is different because it already has an independent `ChatArea`.
 Moving a thread to a tab reparents that same widget from the right-hand thread

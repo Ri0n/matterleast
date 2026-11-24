@@ -506,7 +506,15 @@ ChatArea* NavigationUiController::currentChannelPage() const
 
 Backend* NavigationUiController::backend() const
 {
-    return channelTree ? channelTree->backendInstance() : nullptr;
+    return &window.backendInstance();
+}
+
+Backend* NavigationUiController::backendForAccount(const QString& accountId) const
+{
+    // The current presenter still has exactly one owner. This is the
+    // account-resolution boundary to replace when MainWindow becomes shared.
+    Backend* owner = backend();
+    return owner && accountIdForBackend(*owner) == accountId ? owner : nullptr;
 }
 
 QString NavigationUiController::accountIdForBackend(const Backend& source)
@@ -592,7 +600,7 @@ NavigationUiController::captureCollection(PostCollectionView* page) const
         return location;
     }
 
-    location.accountId = presentationAccountId();
+    location.accountId = accountIdForBackend(page->backendInstance());
     switch (page->viewMode()) {
     case PostCollectionView::Mode::Saved:
         location.kind = Location::Kind::Saved;
@@ -612,15 +620,15 @@ NavigationUiController::captureCollection(PostCollectionView* page) const
     return location;
 }
 
-PostCollectionView* NavigationUiController::findCollection(Location::Kind kind) const
+PostCollectionView* NavigationUiController::findCollection(const Location& location) const
 {
-    if (!mainStack || kind == Location::Kind::Chat) {
+    if (!mainStack || location.isChat()) {
         return nullptr;
     }
 
     for (int index = 0; index < mainStack->count(); ++index) {
         auto* page = qobject_cast<PostCollectionView*>(mainStack->widget(index));
-        if (page && captureCollection(page).kind == kind) {
+        if (page && captureCollection(page).sameDestination(location)) {
             return page;
         }
     }
@@ -655,7 +663,7 @@ NavigationUiController::tabLocation(const NavigationTabsModel::Entry& entry) con
 QString NavigationUiController::tabTitle(const Location& location) const
 {
     QString title = location.channelId;
-    if (Backend* sourceBackend = backend()) {
+    if (Backend* sourceBackend = backendForAccount(location.accountId)) {
         if (BackendChannel* channel =
                 sourceBackend->getStorage().getChannelById(location.channelId)) {
             title = channel->display_name.trimmed();
@@ -897,7 +905,7 @@ int NavigationUiController::releaseThreadFromTabSurface(ChatArea* area)
 void NavigationUiController::activateTab(int index, bool restoreBookmark)
 {
     const auto* entry = tabModel.at(index);
-    if (!entry || !navigationTabs) {
+    if (!entry || !navigationTabs || !backendForAccount(entry->accountId)) {
         return;
     }
 
@@ -948,8 +956,10 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
         // A thread-only tab is independent, but its right pane must still not
         // show a docked thread from an unrelated channel in contextual mode.
         closeThreadDockIfDifferent(location.channelId);
-        ChatArea* area = findThread(location.channelId, location.rootId);
-        Backend* sourceBackend = backend();
+        Backend* sourceBackend = backendForAccount(location.accountId);
+        ChatArea* area = sourceBackend
+            ? findThreadForBackend(*sourceBackend, location.channelId, location.rootId)
+            : nullptr;
         BackendChannel* channel = sourceBackend
             ? sourceBackend->getStorage().getChannelById(location.channelId)
             : nullptr;
@@ -1286,7 +1296,8 @@ void NavigationUiController::recordArea(ChatArea* area)
         && currentLocation.channelId == next.channelId
         && threadStack && !threadStack->isHidden()) {
         auto* docked = qobject_cast<ChatArea*>(threadStack->currentWidget());
-        if (docked && docked->root_id == currentLocation.rootId
+        if (docked && &docked->getBackend() == &area->getBackend()
+            && docked->root_id == currentLocation.rootId
             && docked->getChannel().id == next.channelId) {
             return;
         }
@@ -1427,12 +1438,12 @@ void NavigationUiController::goForward()
 
 void NavigationUiController::navigateTo(const Location& location)
 {
-    if (!location.isValid() || location.accountId != presentationAccountId()) {
+    if (!location.isValid() || !backendForAccount(location.accountId)) {
         return;
     }
 
     if (!location.isChat()) {
-        PostCollectionView* page = findCollection(location.kind);
+        PostCollectionView* page = findCollection(location);
         if (!page || !mainStack) {
             return;
         }
@@ -1446,7 +1457,7 @@ void NavigationUiController::navigateTo(const Location& location)
         return;
     }
 
-    Backend* sourceBackend = backend();
+    Backend* sourceBackend = backendForAccount(location.accountId);
     if (!sourceBackend || !channelTree) {
         return;
     }
@@ -1458,7 +1469,7 @@ void NavigationUiController::navigateTo(const Location& location)
 
     ChatArea* area = nullptr;
     if (location.rootId.isEmpty()) {
-        channelTree->openStoredChannel(location.channelId);
+        channelTree->openStoredChannelForAccount(location.channelId, location.accountId);
         area = currentChannelPage();
         if (!area || &area->getChannel() != channel) {
             return;
@@ -1483,7 +1494,7 @@ void NavigationUiController::navigateTo(const Location& location)
         if (existingThreadTab >= 0) {
             activateTab(existingThreadTab, location.postId.isEmpty());
             currentLocation = location;
-            activeArea = findThread(location.channelId, location.rootId);
+            activeArea = findThreadForBackend(*sourceBackend, location.channelId, location.rootId);
             if (activeArea && !location.postId.isEmpty()) {
                 restoreSessionBookmark(activeArea, location.postId,
                                        location.viewportAnchor);
@@ -1491,7 +1502,7 @@ void NavigationUiController::navigateTo(const Location& location)
             return;
         }
 
-        area = findThread(location.channelId, location.rootId);
+        area = findThreadForBackend(*sourceBackend, location.channelId, location.rootId);
         const bool independentThread =
             area && (area->property("threadTabbed").toBool()
                      || area->property("threadDetached").toBool());
@@ -1559,7 +1570,7 @@ bool NavigationUiController::isConversationVisible(
         area = findThread(channelId, rootId);
     }
 
-    if (!area || area->getChannel().id != channelId
+    if (!area || &area->getBackend() != backend() || area->getChannel().id != channelId
         || !area->isVisible() || !area->window()) {
         return false;
     }
@@ -1572,12 +1583,20 @@ bool NavigationUiController::isConversationVisible(
 ChatArea* NavigationUiController::findThread(const QString& channelId,
                                              const QString& rootId) const
 {
+    const Backend* owner = backend();
+    return owner ? findThreadForBackend(*owner, channelId, rootId) : nullptr;
+}
+
+ChatArea* NavigationUiController::findThreadForBackend(
+    const Backend& owner, const QString& channelId, const QString& rootId) const
+{
     if (channelId.isEmpty() || rootId.isEmpty()) {
         return nullptr;
     }
 
-    const auto matches = [&channelId, &rootId](ChatArea* area) {
-        return area && area->isThread && area->root_id == rootId
+    const auto matches = [&owner, &channelId, &rootId](ChatArea* area) {
+        return area && &area->getBackend() == &owner
+            && area->isThread && area->root_id == rootId
             && area->getChannel().id == channelId;
     };
 
@@ -1722,10 +1741,8 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
                     attachThread(guard);
                     return;
                 }
-                if (Backend* sourceBackend = backend()) {
-                    AppNavigationService::instance(*sourceBackend).openThreadInTab(
-                        guard->getChannel().id, guard->root_id);
-                }
+                AppNavigationService::instance(guard->getBackend()).openThreadInTab(
+                    guard->getChannel().id, guard->root_id);
             });
         });
     }

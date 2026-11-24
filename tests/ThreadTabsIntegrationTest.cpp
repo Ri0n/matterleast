@@ -2258,6 +2258,29 @@ private slots:
         navB.openThreadInTab(QStringLiteral("channel"), rootId(903));
         QTRY_VERIFY(uiB.findThread(QStringLiteral("channel"), rootId(903)));
         QVERIFY(!uiA.findThread(QStringLiteral("channel"), rootId(903)));
+
+        // A detached window is found by walking all top-level widgets, not
+        // just the originating account's stacks. Remote IDs deliberately
+        // collide in these two independent server fixtures.
+        auto* channelA = backendA.getStorage().getChannelById("channel");
+        QVERIFY(channelA);
+        QScopedPointer<ChatArea> detached(new ChatArea(
+            backendA, *channelA, rootId(904), nullptr));
+        detached->setProperty("threadDetached", true);
+        uiA.presentThread(detached.data());
+        QTRY_VERIFY(detached->isVisible());
+        QCOMPARE(uiA.findThread(QStringLiteral("channel"), rootId(904)),
+                 detached.data());
+        QVERIFY(!uiB.findThread(QStringLiteral("channel"), rootId(904)));
+
+        navB.openThreadInTab(QStringLiteral("channel"), rootId(904));
+        QTRY_VERIFY(uiB.findThread(QStringLiteral("channel"), rootId(904)));
+        auto* tab = uiB.findThread(QStringLiteral("channel"), rootId(904));
+        QVERIFY(tab != detached.data());
+        QCOMPARE(&tab->getBackend(), &backendB);
+        QVERIFY(detached->property("threadDetached").toBool());
+        QCOMPARE(uiA.findThread(QStringLiteral("channel"), rootId(904)),
+                 detached.data());
     }
 
 };
