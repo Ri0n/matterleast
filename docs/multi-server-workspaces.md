@@ -530,7 +530,11 @@ The AccountManager starts the authenticated Backend's catalog, membership,
 webapp-plugin and pending-send projections once. `SidebarService` owns the
 category snapshot and realtime DM/GM admission, including when no tree exists.
 Verified replay refreshes membership/preferences/categories on the account,
-not on any View. ChannelTree subscribes to the cached snapshots. Saved
+not on any View. ChannelTree subscribes to the cached snapshots. When a team
+vanishes, detach its row from the Qt item model before destroying the derived
+TeamItem: synchronous removal observers must see the intact item, not its
+partially destroyed QTreeWidgetItem base. Other account rows and the model
+remain unchanged. Saved
 collections subscribe directly to their own Backend's flagged-post events.
 The standalone constructor still starts the same idempotent startup path for
 widget fixtures; production session initialization does not require a window.
