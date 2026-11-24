@@ -40,7 +40,6 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSplitter>
-#include <QStackedLayout>
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
@@ -233,18 +232,9 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
         connect(sidebarSplitter, &QSplitter::splitterMoved, this, [this](int, int) {
             if (!sidebarSplitter->isVisible()) return;
             const auto sizes = sidebarSplitter->sizes();
-            if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0) {
-                if (_sharedPresentation) {
-                    MLOptions::instance()->setValue(QStringLiteral("sidebar_splitter_state"),
-                                                     sidebarSplitter->saveState());
-                    return;
-                }
-                if (!backendOrNull()) return;
-                const QString partition = backendInstance().networkSession()
-                    .cachePartitionId(backendInstance().getLoginUser().id);
-                MLOptions::instance()->setValue(
-                    QStringLiteral("workspace/%1/sidebar_width").arg(partition), sizes[0]);
-            }
+            if (sizes.size() == 2 && sizes[0] > 0 && sizes[1] > 1)
+                MLOptions::instance()->setValue(QStringLiteral("sidebar_splitter_state"),
+                                                 sidebarSplitter->saveState());
         });
     }
     connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
@@ -492,67 +482,6 @@ MainWindow::~MainWindow()
         navigation->beginShutdown();
 }
 
-void MainWindow::showEvent(QShowEvent* event)
-{
-    QWidget::showEvent(event);
-    // Only embedded account views use the deferred splitter restoration.
-    // Standalone MainWindow (including existing widget tests) must not be
-    // resized asynchronously after their explicit window.resize()/show().
-    if (isWindow())
-        return;
-    // Restoring the splitter in the constructor happens while its workspace
-    // is hidden. Wait until QStackedWidget shows both panes and lays them out.
-    // This also handles account switches without additional polling timers.
-    QTimer::singleShot(0, this, [this] {
-        if (isVisible())
-            restoreSidebarWidth();
-    });
-}
-
-void MainWindow::restoreSidebarWidth()
-{
-    // Embedded workspaces own their geometry through AccountWorkspaceStack.
-    // A standalone top-level window follows the normal QSplitter layout.
-    if (!backendOrNull() || isWindow() || !sidebarSplitter || !sidebarSplitter->isVisible()
-        || sidebarSplitter->count() < 2
-        || sidebarSplitter->widget(0)->isHidden())
-        return;
-    const QString partition =
-        backendInstance().networkSession().cachePartitionId(backendInstance().getLoginUser().id);
-    auto* options = MLOptions::instance();
-    const QString widthKey = QStringLiteral("workspace/%1/sidebar_width")
-        .arg(partition);
-    const int savedWidth = options->value<int>(widthKey, 0);
-
-    const QList<int> sizes = sidebarSplitter->sizes();
-    if (sizes.size() < 2)
-        return;
-    const int total = sizes[0] + sizes[1];
-    if (total <= 0)
-        return;
-
-    if (savedWidth <= 0) {
-        // On upgrading a single-server installation there may be no pixel
-        // width key yet. Restore the historical QSplitter state only after
-        // layout, not in the constructor when it was still invisible.
-        QByteArray state = options->value<QByteArray>(
-            QStringLiteral("workspace/%1/sidebar_splitter_state")
-                .arg(partition));
-        if (state.isEmpty())
-            state = options->value<QByteArray>(
-                QStringLiteral("sidebar_splitter_state"));
-        if (!state.isEmpty() && sidebarSplitter->restoreState(state)) {
-            sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
-            return;
-        }
-    }
-
-    const int requested = savedWidth > 0 ? savedWidth : 280;
-    const int left = std::min(requested, std::max(1, total - 1));
-    if (left != sizes[0])
-        sidebarSplitter->setSizes({left, total - left});
-}
-
 void MainWindow::bindViewNavigation(ViewNavigationSession* session,
                                     const QString& accountId)
 {
@@ -631,39 +560,6 @@ void MainWindow::openAccountDestination(int destination, const QString& teamId)
         on_channelList_virtualDestinationRequested(destination, teamId);
 }
 
-ChannelTree* MainWindow::viewChannelTree() const
-{
-    return _viewChannelTree.data();
-}
-
-void MainWindow::setViewChannelTree(ChannelTree* tree, QWidget* parkingParent)
-{
-    if (_viewChannelTree == tree || !channelTreePages)
-        return;
-
-    if (ChannelTree* previous = _viewChannelTree.data()) {
-        QObject::disconnect(_viewTreeSearchConnection);
-        _viewTreeSearchConnection = {};
-        // Switch to the native tree first. The shared View tree must never
-        // become a detached top-level window while moving between accounts.
-        channelTreePages->setCurrentWidget(ui->channelList);
-        previous->hide();
-        channelTreePages->removeWidget(previous);
-        previous->setParent(parkingParent ? parkingParent : this);
-    }
-    _viewChannelTree = tree;
-    if (tree) {
-        channelTreePages->addWidget(tree);
-        channelTreePages->setCurrentWidget(tree);
-        _viewTreeSearchConnection = connect(
-            sidebarFilterEdit, &QLineEdit::textChanged,
-            tree, &ChannelTree::setConversationSearchTerm);
-        tree->setConversationSearchTerm(sidebarFilterEdit->text());
-    } else {
-        channelTreePages->setCurrentWidget(ui->channelList);
-    }
-}
-
 static QString infoText()
 {
     QString description = QString("MatterLeast " PROJECT_VER "<br/>"
@@ -732,11 +628,7 @@ void MainWindow::setupChannelTabs()
     // stylesheet prevents it from inheriting the new palette correctly.
     teamToolbar->installEventFilter(this);
     channelsLayout->addWidget(teamToolbar);
-    // Preserve the original Channels tab geometry and native account tree.
-    channelTreePages = new QStackedLayout;
-    channelTreePages->setContentsMargins(0, 0, 0, 0);
-    channelTreePages->addWidget(ui->channelList);
-    channelsLayout->addLayout(channelTreePages, 1);
+    channelsLayout->addWidget(ui->channelList, 1);
 
     // Reuse the existing Following projection inside an Unread tab. The
     // filters remain local view preferences, not new unread state.
@@ -1696,33 +1588,11 @@ void MainWindow::saveState()
 	NavigationUiController::instance(*this).saveSession();
 	LOG_DEBUG("MainWindow saveState");
 	auto* options = MLOptions::instance();
-    // Embedded account views have no independent top-level geometry. The
-    // AccountWorkspaceStack shell persists the single application window.
-    if (isWindow()) {
-        options->setValue(QStringLiteral("geometry"), saveGeometry());
-    }
-    if (_sharedPresentation && sidebarSplitter && sidebarSplitter->isVisible()) {
+    options->setValue(QStringLiteral("geometry"), saveGeometry());
+    if (sidebarSplitter && sidebarSplitter->isVisible()) {
         const auto sizes = sidebarSplitter->sizes();
         if (sizes.size() == 2 && sizes[0] > 0 && sizes[1] > 1)
             options->setValue(QStringLiteral("sidebar_splitter_state"), sidebarSplitter->saveState());
-        return;
-    }
-    if (backendOrNull() && sidebarSplitter && sidebarSplitter->isVisible()) {
-        const QList<int> sizes = sidebarSplitter->sizes();
-        if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0) {
-            const QString partition =
-                backendInstance().networkSession().cachePartitionId(backendInstance().getLoginUser().id);
-            options->setValue(
-                QStringLiteral("workspace/%1/sidebar_width").arg(partition), sizes[0]);
-            const QByteArray state = sidebarSplitter->saveState();
-            options->setValue(
-                QStringLiteral("workspace/%1/sidebar_splitter_state").arg(partition),
-                state);
-            if (isWindow()) {
-                // Historical standalone MainWindow layout key is still readable.
-                options->setValue(QStringLiteral("sidebar_splitter_state"), state);
-            }
-        }
     }
 }
 
