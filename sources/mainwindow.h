@@ -88,7 +88,7 @@ public:
 	void initializationComplete ();
     void installRealtimeUiSync();
     void installRealtimeUiSync(Backend& source, QObject* context);
-    void bindViewNavigation(ViewNavigationSession* session, const QString& accountId = {});
+    void bindViewNavigation(ViewNavigationSession* session);
     void unbindViewNavigation();
     // Shared account/profile model rendered as an icon-only tab before Channels.
     void installServersSidebar(AccountManager& manager);
