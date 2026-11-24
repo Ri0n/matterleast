@@ -24,7 +24,7 @@ public:
     using NavigationCallback = std::function<void(bool)>;
 
     static AppNavigationService& instance(Backend& backend);
-    // An account's Widgets presentation may be embedded in AccountWorkspaceStack.
+    // Bind this account's navigation service to the permanent application window.
     void bindMainWindow(MainWindow& window);
     void unbindMainWindow(MainWindow& window);
     void cancelPendingNavigation() { navigationRequests.begin(); }
