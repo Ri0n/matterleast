@@ -146,6 +146,7 @@ bool fromViewLocation(
         result.kind = Location::Kind::Search;
         break;
     }
+    result.accountId = source.accountId;
     result.channelId = source.channelId;
     result.rootId = source.rootId;
     result.postId = source.postId;
@@ -162,6 +163,7 @@ ViewNavigationSession* NavigationUiController::historySession() const
 ViewNavigationSession::Location NavigationUiController::semanticLocation(
     const Location& source) const
 {
+    if (source.accountId != presentationAccountId()) return {};
     return toViewLocation(source, viewNavigationAccountId.isEmpty()
         ? QStringLiteral("_startup") : viewNavigationAccountId);
 }
@@ -169,8 +171,12 @@ ViewNavigationSession::Location NavigationUiController::semanticLocation(
 bool NavigationUiController::presentationLocation(
     const ViewNavigationSession::Location& source, Location& result) const
 {
-    return fromViewLocation(source, viewNavigationAccountId.isEmpty()
-        ? QStringLiteral("_startup") : viewNavigationAccountId, result);
+    if (!fromViewLocation(source, viewNavigationAccountId.isEmpty()
+        ? QStringLiteral("_startup") : viewNavigationAccountId, result)) return false;
+    // The private startup session uses a sentinel only inside its model.
+    // Presentations retain the actual immutable Account ID.
+    result.accountId = presentationAccountId();
+    return true;
 }
 
 void NavigationUiController::syncViewSession()
@@ -185,6 +191,7 @@ void NavigationUiController::syncViewSession()
     state.tabs.reserve(tabModel.count());
     for (int i = 0; i < tabModel.count(); ++i) {
         auto entry = *tabModel.at(i);
+        if (entry.accountId != presentationAccountId()) return;
         entry.accountId = viewNavigationAccountId;
         state.tabs.append(std::move(entry));
     }
@@ -428,7 +435,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
             semantic.rootId = entry.rootId;
             semantic.postId = entry.postId;
             semantic.viewportAnchor = entry.viewportAnchor;
-            if (!fromViewLocation(semantic, viewNavigationAccountId, location)) continue;
+            if (!presentationLocation(semantic, location)) continue;
             const int index = appendNavigationTab(location, true);
             if (index >= 0)
                 tabModel.setPinned(index, entry.pinned);
@@ -450,7 +457,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
         activateTab(target);
 
     Location semanticCurrent;
-    if (fromViewLocation(state.current, viewNavigationAccountId, semanticCurrent)
+    if (presentationLocation(state.current, semanticCurrent)
         && semanticCurrent.isValid()
         && (!semanticCurrent.isChat()
             || !currentLocation.sameDestination(semanticCurrent)))
@@ -458,7 +465,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
 
     if (state.dockVisible && state.dock.rootId.size()) {
         Location dock;
-        if (fromViewLocation(state.dock, viewNavigationAccountId, dock)) {
+        if (presentationLocation(state.dock, dock)) {
             Backend* owner = backend();
             BackendChannel* channel = owner
                 ? owner->getStorage().getChannelById(dock.channelId) : nullptr;
@@ -473,7 +480,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
         }
     }
 
-    if (fromViewLocation(state.current, viewNavigationAccountId, semanticCurrent))
+    if (presentationLocation(state.current, semanticCurrent))
         currentLocation = semanticCurrent;
 
     replayingHistory = oldReplaying;
@@ -720,6 +727,12 @@ void NavigationUiController::restoreSession()
         return;
     }
     const bool restoreAnchors = version >= 2;
+    // Legacy disk snapshots are already scoped to this account's settings key.
+    const auto decodeLocal = [this, restoreAnchors](const QJsonObject& object) {
+        auto location = decode(object, restoreAnchors);
+        location.accountId = presentationAccountId();
+        return location;
+    };
     restoringSession = true;
     const bool wasSwitching = switchingTabs;
     switchingTabs = true;
@@ -733,7 +746,7 @@ void NavigationUiController::restoreSession()
         activeTabIndex = -1;
         for (const QJsonValue& value : state.value("tabs").toArray()) {
             const QJsonObject tab = value.toObject();
-            const Location location = decode(tab, restoreAnchors);
+            const Location location = decodeLocal(tab);
             if (!valid(location)) continue;
             const int index = appendNavigationTab(location);
             tabModel.setPinned(index, tab.value("pinned").toBool());
@@ -742,11 +755,11 @@ void NavigationUiController::restoreSession()
             // activateTab() below constructs just the selected destination.
         }
     }
-    const Location dock = decode(state.value("active_dock").toObject(), restoreAnchors);
+    const Location dock = decodeLocal(state.value("active_dock").toObject());
     const bool dockVisible = state.value("dock_visible").toBool();
     for (const QJsonValue& value : state.value("threads").toArray()) {
         const QJsonObject object = value.toObject();
-        const Location location = decode(object, restoreAnchors);
+        const Location location = decodeLocal(object);
         const QString mode = object.value("mode").toString();
         if (!valid(location) || location.rootId.isEmpty()
             || (mode != "window" && mode != "dock")
@@ -772,8 +785,8 @@ void NavigationUiController::restoreSession()
             restoreSessionBookmark(area, location.postId, location.viewportAnchor);
         }
     }
-    const Location active = decode(state.value("active_tab").toObject(), restoreAnchors);
-    int index = tabModel.findDestination(active.channelId, active.rootId);
+    const Location active = decodeLocal(state.value("active_tab").toObject());
+    int index = tabModel.findDestination(active.channelId, active.rootId, active.accountId);
     if (index < 0 && !tabModel.isEmpty()) index = 0;
     if (index >= 0) {
         // Only the selected view is constructed; all other tab anchors stay
@@ -788,7 +801,7 @@ void NavigationUiController::restoreSession()
     refreshTabBarVisibility();
     syncSplitterEdgeGutters();
     updateHistoryButtons();
-    const Location focused = decode(state.value("focused_window").toObject(), restoreAnchors);
+    const Location focused = decodeLocal(state.value("focused_window").toObject());
     if (auto* area = findThread(focused.channelId, focused.rootId);
         area && area->property("threadDetached").toBool()) {
         area->raise();

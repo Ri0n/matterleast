@@ -128,6 +128,32 @@ private slots:
                  ThreadParentTabRoute::ReuseUnpinned);
     }
 
+    void sameChannelIdsOnDifferentAccountsAreNotTheSameConversation()
+    {
+        const QString a = QStringLiteral("account-a");
+        const QString b = QStringLiteral("account-b");
+        const QString channel = QStringLiteral("same-channel");
+        const QString root = QStringLiteral("same-root");
+        NavigationTabsModel model;
+        NavigationTabsModel::Entry pinned;
+        pinned.accountId = a;
+        pinned.channelId = channel;
+        pinned.pinned = true;
+        QCOMPARE(model.append(pinned), 0);
+        QCOMPARE(chooseThreadParentTab(true, model, 0, channel, root, b).route,
+                 ThreadParentTabRoute::CreateNew);
+        auto parent = pinned;
+        parent.accountId = b;
+        parent.pinned = false;
+        QCOMPARE(model.append(parent), 1);
+        const auto decision = chooseThreadParentTab(true, model, 0, channel, root, b);
+        QCOMPARE(decision.route, ThreadParentTabRoute::ActivateExisting);
+        QCOMPARE(decision.index, 1);
+        QVERIFY(shouldOpenThreadParentChannel(true, true, channel, channel, a, b));
+        QVERIFY(shouldCloseThreadDockForChannel(true, channel, channel, a, b));
+        QVERIFY(!shouldCloseThreadDockForChannel(true, channel, channel, b, b));
+    }
+
     void unrelatedDockClosesOnlyWhenEnabled()
     {
         QVERIFY(shouldCloseThreadDockForChannel(true, QStringLiteral("dm-a"), QStringLiteral("channel-b")));

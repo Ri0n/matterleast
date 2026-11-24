@@ -48,14 +48,17 @@ public:
         Location() = default;
         Location(const QString& channel,
                  const QString& root = QString(),
-                 const QString& post = QString())
-            : channelId(channel)
+                 const QString& post = QString(),
+                 const QString& account = QString())
+            : accountId(account)
+            , channelId(channel)
             , rootId(root)
             , postId(post)
         {
         }
 
         Kind kind = Kind::Chat;
+        QString accountId;
         QString channelId;
         QString rootId;
         QString postId;
@@ -66,7 +69,7 @@ public:
         bool isValid() const { return !isChat() || !channelId.isEmpty(); }
         bool sameDestination(const Location& other) const
         {
-            if (kind != other.kind) {
+            if (kind != other.kind || accountId != other.accountId) {
                 return false;
             }
             if (!isChat()) {
@@ -185,6 +188,10 @@ private:
     void persistThreadPaneWidth();
 
     Backend* backend() const;
+    // Transitional single-account presenter. Resolve stable identity from the
+    // owning Account, never from the selected View or a server channel ID.
+    QString presentationAccountId() const;
+    static QString accountIdForBackend(const Backend& backend);
 
     MainWindow& window;
     ChannelTree* channelTree = nullptr;

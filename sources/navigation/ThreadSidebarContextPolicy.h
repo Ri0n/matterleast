@@ -26,17 +26,18 @@ struct ThreadParentTabDecision {
 // every existing tab is pinned.
 inline ThreadParentTabDecision chooseThreadParentTab(
     bool enabled, const NavigationTabsModel& tabs, int activeIndex,
-    const QString& channelId, const QString& rootId)
+    const QString& channelId, const QString& rootId,
+    const QString& accountId = {})
 {
     if (!enabled || channelId.isEmpty() || rootId.isEmpty()) {
         return {};
     }
     if (const auto* active = tabs.at(activeIndex);
-        active && active->channelId == channelId
+        active && active->accountId == accountId && active->channelId == channelId
         && (active->rootId.isEmpty() || active->rootId == rootId)) {
         return {};
     }
-    const int existing = tabs.findDestination(channelId, QString());
+    const int existing = tabs.findDestination(channelId, QString(), accountId);
     if (existing >= 0) {
         return {ThreadParentTabRoute::ActivateExisting, existing};
     }
@@ -58,21 +59,26 @@ inline ThreadParentTabDecision chooseThreadParentTab(
 inline bool shouldOpenThreadParentChannel(bool enabled,
                                            bool centralSurfaceIsMainStack,
                                            const QString& currentChannelId,
-                                           const QString& threadChannelId)
+                                           const QString& threadChannelId,
+                                           const QString& currentAccountId = {},
+                                           const QString& threadAccountId = {})
 {
     return enabled && centralSurfaceIsMainStack
-        && !threadChannelId.isEmpty() && currentChannelId != threadChannelId;
+        && !threadChannelId.isEmpty()
+        && (currentAccountId != threadAccountId || currentChannelId != threadChannelId);
 }
 
 // The dock belongs to the current channel, DM or GM. Detached/thread tabs
 // remain independent and are not governed by this presentation-only policy.
 inline bool shouldCloseThreadDockForChannel(bool enabled,
                                             const QString& currentChannelId,
-                                            const QString& dockedThreadChannelId)
+                                            const QString& dockedThreadChannelId,
+                                            const QString& currentAccountId = {},
+                                            const QString& dockedAccountId = {})
 {
     return enabled && !currentChannelId.isEmpty()
         && !dockedThreadChannelId.isEmpty()
-        && currentChannelId != dockedThreadChannelId;
+        && (currentAccountId != dockedAccountId || currentChannelId != dockedThreadChannelId);
 }
 
 } // namespace Mattermost

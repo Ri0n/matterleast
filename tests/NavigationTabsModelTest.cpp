@@ -206,6 +206,21 @@ private slots:
         QVERIFY(!chat.sameDestination(search));
     }
 
+    void historyIdentityIncludesAccountForChatsAndCollections()
+    {
+        NavigationUiController::Location first{
+            QStringLiteral("channel"), QStringLiteral("root"), {},
+            QStringLiteral("account-a")};
+        auto second = first;
+        second.accountId = QStringLiteral("account-b");
+        QVERIFY(!first.sameDestination(second));
+        second.accountId = first.accountId;
+        QVERIFY(first.sameDestination(second));
+        first.kind = second.kind = NavigationUiController::Location::Kind::Search;
+        second.accountId = QStringLiteral("account-b");
+        QVERIFY(!first.sameDestination(second));
+    }
+
     void chatHistoryLocationKeepsLegacyConstructionShape()
     {
         NavigationUiController::Location chat{

@@ -7,6 +7,7 @@ They do not create another authoritative channel/message model.
 
 A tab stores a semantic destination:
 
+- immutable local account ID;
 - channel ID;
 - optional thread root ID;
 - a best-effort post/viewport bookmark;
@@ -44,7 +45,7 @@ model merely to change its presentation.
   No known thread entry means no evidence for a star. Channel activity signals
   and `FollowingModel::changed` refresh these projections; reading a thread
   does not acknowledge its parent channel or another thread.
-- A canonical destination (`channelId + rootId`) is unique in the tab model.
+- A canonical destination (`accountId + channelId + rootId`) is unique in the tab model.
   Repeated middle-click, **Open in new tab**, permalink navigation or other
   navigation to the same destination activates the existing tab instead of
   creating a duplicate. This applies equally to channels, DMs/GMs and threads.
@@ -88,7 +89,7 @@ presentation policy. When enabled:
   thread from another conversation in that exceptional case.
 - Middle-click uses the existing independent tab path and **never** changes
   the central channel merely to establish thread context.
-- The policy is keyed by the canonical channel ID, so channels and DMs/GMs
+- The policy is keyed by the account-qualified channel ID, so channels and DMs/GMs
   share exactly the same behavior.
 - Browser Back/Forward must apply the same contextual policy when replaying a
   docked thread: restore its parent conversation before showing the thread,
@@ -104,6 +105,13 @@ presentation policy. When enabled:
 `NavigationUiController` owns presentation/lifetime operations.
 `MainWindow::openChannelPost` owns the asynchronous parent-channel navigation
 and retains the semantic destination until the channel is ready.
+
+The Widgets controller carries the owning account ID in its Locations and tab
+entries, including thread-parent selection and bookmark lookups. Legacy restart
+snapshots inherit the account ID from their settings partition; startup history
+uses a private sentinel only at its QtCore transfer boundary. This is the first
+step toward a single presenter, not yet a multi-account controller: the current
+per-Backend window still admits only its own account's destinations.
 
 ## Opening a new tab
 
