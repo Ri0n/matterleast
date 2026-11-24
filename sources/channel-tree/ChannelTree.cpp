@@ -992,9 +992,16 @@ void ChannelTree::removeTeamSidebar(const ScopedId& teamKey)
 
     const QSignalBlocker selectionGuard(this);
     const QScopedValueRollback<bool> renderingGuard(renderingSidebar, true);
-    const bool removingCurrent = currentItem()
-        && currentItem()->data(0, ItemTeamIdRole).toString() == teamKey.second
-        && currentItem()->data(0, ItemAccountIdRole).toString() == teamKey.first;
+    // The current row belongs to the retiring branch even when it has no
+    // account/team roles (e.g. a partially populated startup row). Clear it
+    // before removing any children. Otherwise QAbstractItemView attempts to
+    // select a replacement while handling rowsAboutToBeRemoved.
+    for (auto* current = currentItem(); current; current = current->parent()) {
+        if (current == teamItem) {
+            selectionModel()->clear();
+            break;
+        }
+    }
     while (teamItem->childCount() > 0) {
         QTreeWidgetItem* row = teamItem->takeChild(0);
         if (!row) {
@@ -1019,9 +1026,6 @@ void ChannelTree::removeTeamSidebar(const ScopedId& teamKey)
         takeTopLevelItem(index);
     }
     delete teamItem;
-    if (removingCurrent) {
-        setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
-    }
 }
 
 QTreeWidgetItem* ChannelTree::createCategoryItem(TeamItem& teamItem, const QString& categoryId,
