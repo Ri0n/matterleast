@@ -514,11 +514,18 @@ bool TeamSelectorLabel::hasTeamRoot(const QString& teamId) const
         if (item
             && item->data(0, ChannelTree::ItemKindRole).toInt()
                 == ChannelTree::TeamItemKind
+            && tree_->accountVisible(item->data(0, SidebarItem::AccountIdRole).toString())
             && item->data(0, ChannelTree::ItemTeamIdRole).toString() == teamId) {
             return true;
         }
     }
     return false;
+}
+
+void TeamSelectorLabel::refreshPresentation()
+{
+    attachTree();
+    rebuildTeamToolbar();
 }
 
 void TeamSelectorLabel::refreshTeams()
@@ -528,7 +535,9 @@ void TeamSelectorLabel::refreshTeams()
     }
     Backend* backend = tree_->backendInstance();
     if (!backend) {
+        tree_->setRootIndex(QModelIndex());
         setText(tr("Team"));
+        rebuildTeamToolbar();
         return;
     }
 
@@ -540,6 +549,8 @@ void TeamSelectorLabel::refreshTeams()
                 != ChannelTree::TeamItemKind) {
             continue;
         }
+        if (!tree_->accountVisible(item->data(0, SidebarItem::AccountIdRole).toString()))
+            continue;
         item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
         // Older selector code hid inactive top-level roots. rootIndex now scopes
         // the view instead, so every logical team root must remain addressable.
@@ -599,6 +610,8 @@ bool TeamSelectorLabel::setActiveTeam(const QString& teamId, bool persist)
                 != ChannelTree::TeamItemKind) {
             continue;
         }
+        if (!tree_->accountVisible(item->data(0, SidebarItem::AccountIdRole).toString()))
+            continue;
         item->setHidden(false);
         if (item->data(0, ChannelTree::ItemTeamIdRole).toString() == teamId) {
             rootIndex = tree_->model()->index(i, 0, QModelIndex());

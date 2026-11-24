@@ -44,13 +44,21 @@ void MainWindow::openDraft(const QString& channelId,
                            const QString& rootId,
                            const QString& draftKey)
 {
-    if (!backendOrNull() || channelId.isEmpty()
-        || !backendInstance().getStorage().getChannelById(channelId)) {
+    if (auto* source = backendOrNull())
+        openDraftForBackend(*source, channelId, rootId, draftKey);
+}
+
+void MainWindow::openDraftForBackend(Backend& source, const QString& channelId,
+                                     const QString& rootId, const QString& draftKey)
+{
+    if (!NavigationUiController::instance(*this).canPresentBackend(source)
+        || channelId.isEmpty() || !source.getStorage().getChannelById(channelId)) {
         return;
     }
 
     beginSemanticNavigation();
-    const QString accountId = ui->channelList->accountIdForBackend(&backendInstance());
+    const QPointer<Backend> sourceGuard(&source);
+    const QString accountId = ui->channelList->accountIdForBackend(&source);
     const quint64 generation = semanticNavigationGeneration;
 
     if (rootId.isEmpty()) {
@@ -58,23 +66,23 @@ void MainWindow::openDraft(const QString& channelId,
         QPointer<MainWindow> guard(this);
         *completion = connect(
             ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
-            [guard, completion, accountId, channelId, draftKey, generation](
+            [guard, completion, sourceGuard, accountId, channelId, draftKey, generation](
                 const QString& completedAccountId, const QString& completedChannelId,
                 bool opened) {
                 if (completedAccountId != accountId || completedChannelId != channelId) {
                     return;
                 }
                 QObject::disconnect(*completion);
-                if (!guard || !opened || guard->semanticNavigationGeneration != generation) {
+                if (!guard || !sourceGuard || !opened || guard->semanticNavigationGeneration != generation) {
                     return;
                 }
                 QTimer::singleShot(0, guard.data(),
-                                   [guard, channelId, draftKey, generation] {
-                    if (!guard || guard->semanticNavigationGeneration != generation) {
+                                   [guard, sourceGuard, channelId, draftKey, generation] {
+                    if (!guard || !sourceGuard || guard->semanticNavigationGeneration != generation) {
                         return;
                     }
                     ChatArea* area = guard->ui->channelList->getCurrentPage();
-                    if (area && &area->getBackend() == &guard->backendInstance()
+                    if (area && &area->getBackend() == sourceGuard.data()
                         && area->getChannel().id == channelId) {
                         area->restoreDraftAndFocus(draftKey);
                     }
@@ -83,7 +91,7 @@ void MainWindow::openDraft(const QString& channelId,
 
         ui->channelList->openStoredChannelForAccount(channelId, accountId);
         ChatArea* area = ui->channelList->getCurrentPage();
-        if (area && &area->getBackend() == &backendInstance() && area->getChannel().id == channelId) {
+        if (area && &area->getBackend() == &source && area->getChannel().id == channelId) {
             QObject::disconnect(*completion);
             area->restoreDraftAndFocus(draftKey);
         }
@@ -94,32 +102,32 @@ void MainWindow::openDraft(const QString& channelId,
     QPointer<MainWindow> guard(this);
     *completion = connect(
         ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
-        [guard, completion, accountId, channelId, rootId, draftKey, generation](
+        [guard, completion, sourceGuard, accountId, channelId, rootId, draftKey, generation](
             const QString& completedAccountId, const QString& completedChannelId,
             bool opened) {
             if (completedAccountId != accountId || completedChannelId != channelId) {
                 return;
             }
             QObject::disconnect(*completion);
-            if (!guard || !opened || guard->semanticNavigationGeneration != generation) {
+            if (!guard || !sourceGuard || !opened || guard->semanticNavigationGeneration != generation) {
                 return;
             }
             QTimer::singleShot(0, guard.data(),
-                               [guard, channelId, rootId, draftKey, generation] {
-                if (!guard || guard->semanticNavigationGeneration != generation) {
+                               [guard, sourceGuard, channelId, rootId, draftKey, generation] {
+                if (!guard || !sourceGuard || guard->semanticNavigationGeneration != generation) {
                     return;
                 }
                 if (ChatArea* thread = NavigationUiController::instance(*guard)
-                                           .findThread(channelId, rootId)) {
+                                           .findThreadForBackend(*sourceGuard, channelId, rootId)) {
                     thread->restoreDraftAndFocus(draftKey);
                 }
             });
         });
 
-    openChannelPost(channelId, QString(), rootId);
+    openChannelPostForBackend(source, channelId, {}, rootId, {}, false, false, false);
     QTimer::singleShot(
-        0, this, [this, completion, channelId, rootId, draftKey, generation] {
-        if (generation != semanticNavigationGeneration) return;
+        0, this, [this, completion, sourceGuard, channelId, rootId, draftKey, generation] {
+        if (!sourceGuard || generation != semanticNavigationGeneration) return;
         if (ChatArea* thread = NavigationUiController::instance(*this)
                                    .findThread(channelId, rootId)) {
             QObject::disconnect(*completion);

@@ -1295,8 +1295,8 @@ void NavigationUiController::recordArea(ChatArea* area)
     trackSessionArea(area);
     if (!area->property("headerNavigationConnected").toBool()) {
         connect(area, &ChatArea::searchInConversationRequested, this,
-                [this](const QString& channelId) {
-            window.openMessageSearchInChannel(channelId);
+                [this, area](const QString& channelId) {
+            window.openMessageSearchForBackend(area->getBackend(), channelId);
         });
         area->setProperty("headerNavigationConnected", true);
     }

@@ -100,7 +100,10 @@ public:
     // model rows with that Backend's durable local account ID; never rebind
     // it to a different account (that requires a separate presentation).
     bool bindSingleAccount(const QString& accountId);
-    QString boundAccountId() const { return _boundAccountId; }
+    QString boundAccountId() const { return _visibleAccountRootIds.size() == 1
+        ? _visibleAccountRootIds.front() : _boundAccountId; }
+    bool accountVisible(const QString& id) const { return _visibleAccountRootIds.isEmpty()
+        || _visibleAccountRootIds.contains(id); }
     // View-scoped account roots, without a replacement channel model.
     // Singletons retain the exact original team hierarchy.
     // Do not activate merged Views until their shared DM/GM section is ready.

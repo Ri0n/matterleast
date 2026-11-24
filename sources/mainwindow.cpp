@@ -140,6 +140,13 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
     refreshSearchButtonIcon();
     connect(ui->searchButton, &QToolButton::clicked,
             this, &MainWindow::openMessageSearch);
+    connect(ui->channelList, &ChannelTree::virtualDestinationRequestedForAccount,
+            this, [this](const QString& accountId, int destination, const QString& teamId) {
+        auto* source = navigationBackend(accountId);
+        if (!source) return;
+        selectPresentationBackend(source);
+        openAccountDestination(destination, teamId);
+    });
     connect(ui->channelList, &ChannelTree::virtualDestinationRequested,
             this, [this](int destination, const QString& teamId) {
         if (destination == SidebarItem::SavedDestination) {
@@ -218,10 +225,15 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
         sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
         sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
         connect(sidebarSplitter, &QSplitter::splitterMoved, this, [this](int, int) {
-            if (!backendOrNull() || !sidebarSplitter->isVisible())
-                return;
+            if (!sidebarSplitter->isVisible()) return;
             const auto sizes = sidebarSplitter->sizes();
             if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0) {
+                if (_sharedPresentation) {
+                    MLOptions::instance()->setValue(QStringLiteral("sidebar_splitter_state"),
+                                                     sidebarSplitter->saveState());
+                    return;
+                }
+                if (!backendOrNull()) return;
                 const QString partition = backendInstance().networkSession()
                     .cachePartitionId(backendInstance().getLoginUser().id);
                 MLOptions::instance()->setValue(
@@ -343,10 +355,11 @@ bool MainWindow::admitsNavigationBackend(const Backend& source) const
 
 bool MainWindow::attachNavigationBackend(Backend& source)
 {
-    if (&source == backendOrNull()) return true;
+    if (!_sharedPresentation && &source == backendOrNull()) return true;
     const auto* account = qobject_cast<const Account*>(source.parent());
     if (!account || !source.getStorage().loginUser) return false;
-    if (auto* primary = backendOrNull()) {
+    if (!_sharedPresentation && backendOrNull()) {
+        auto* primary = backendOrNull();
         const auto* primaryAccount = qobject_cast<const Account*>(primary->parent());
         if (!primaryAccount) return false;
         if (!ui->channelList->bindSingleAccount(primaryAccount->id())
@@ -401,9 +414,55 @@ void MainWindow::detachNavigationBackend(Backend& source)
     if (_profileBackend == &source) setProfileBackend(nullptr);
     NavigationUiController::instance(*this).detachBackend(source);
     ui->channelList->unregisterAccountBackend(accountId, &source);
-    if (_backend == &source) _backend.clear();
+    if (_backend == &source) {
+        if (_sharedPresentation) selectPresentationBackend(nullptr);
+        else _backend.clear();
+    }
     refreshQueueAccounts();
     refreshSidebarViews();
+}
+
+void MainWindow::enableSharedPresentation()
+{
+    if (_sharedPresentation) return;
+    _sharedPresentation = true;
+    if (sidebarSplitter) {
+        const QByteArray state = MLOptions::instance()->value<QByteArray>(
+            QStringLiteral("sidebar_splitter_state"));
+        if (!state.isEmpty()) sidebarSplitter->restoreState(state);
+        sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+    }
+    NavigationUiController::instance(*this);
+}
+
+void MainWindow::selectPresentationBackend(Backend* source)
+{
+    if (source && !admitsNavigationBackend(*source)) return;
+    _backend = source;
+    if (_profileBackend != source) setProfileBackend(source);
+    ui->searchButton->setEnabled(source);
+    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))
+        action->setEnabled(source);
+    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarUserGroupsAction")))
+        action->setEnabled(source);
+}
+
+void MainWindow::setVisibleAccounts(const QStringList& ids,
+                                    const QHash<QString, QString>& labels,
+                                    const QString& sorting)
+{
+    ui->channelList->setRootIndex(QModelIndex());
+    ui->channelList->setVisibleAccountRoots(ids, labels);
+    ui->channelList->setMergedConversationSorting(sorting);
+    ui->teamSelectorLabel->refreshPresentation();
+    ui->channelList->setConversationSearchTerm(sidebarFilterEdit->text());
+    refreshSidebarViews();
+}
+
+void MainWindow::showStartupError(const QString& message)
+{
+    showServersSidebar();
+    QMessageBox::warning(this, tr("Account settings"), message);
 }
 
 MainWindow::~MainWindow()
@@ -1088,7 +1147,9 @@ void MainWindow::refreshChannelUnreadFilter()
 			teamHasVisibleRows = teamHasVisibleRows || categoryHasVisibleChannels;
 		}
 
-		teamItem->setHidden(anyFilterActive && !teamHasVisibleRows);
+        teamItem->setHidden(!ui->channelList->accountVisible(
+            teamItem->data(0, SidebarItem::AccountIdRole).toString())
+            || (anyFilterActive && !teamHasVisibleRows));
 	}
 }
 
@@ -1110,6 +1171,17 @@ void MainWindow::openSavedMessages(const QString& teamId)
 {
     if (!backendOrNull()) return;
     Q_UNUSED(teamId)
+    if (!savedMessagesPage || &savedMessagesPage->backendInstance() != backendOrNull()) {
+        savedMessagesPage = nullptr;
+        for (auto* page : ui->chatAreaStackedWidget->findChildren<PostCollectionView*>(
+                QString(), Qt::FindDirectChildrenOnly)) {
+            if (&page->backendInstance() == backendOrNull()
+                && page->viewMode() == PostCollectionView::Mode::Saved) {
+                savedMessagesPage = page;
+                break;
+            }
+        }
+    }
     if (!savedMessagesPage) {
         savedMessagesPage = new PostCollectionView(
             backendInstance(), PostCollectionView::Mode::Saved, ui->chatAreaStackedWidget);
@@ -1122,12 +1194,27 @@ void MainWindow::openDrafts(const QString& teamId)
 {
     if (!backendOrNull()) return;
     Q_UNUSED(teamId)
+    if (!draftsPage || &draftsPage->backendInstance() != backendOrNull()) {
+        draftsPage = nullptr;
+        for (auto* page : ui->chatAreaStackedWidget->findChildren<PostCollectionView*>(
+                QString(), Qt::FindDirectChildrenOnly)) {
+            if (&page->backendInstance() == backendOrNull()
+                && page->viewMode() == PostCollectionView::Mode::Drafts) {
+                draftsPage = page;
+                break;
+            }
+        }
+    }
     if (!draftsPage) {
         draftsPage = new PostCollectionView(
             backendInstance(), PostCollectionView::Mode::Drafts,
             ui->chatAreaStackedWidget);
-        connect(draftsPage, &PostCollectionView::draftActivated,
-                this, &MainWindow::openDraft);
+        auto* page = draftsPage.data();
+        connect(page, &PostCollectionView::draftActivated, this,
+                [this, page](const QString& channelId, const QString& rootId,
+                             const QString& draftKey) {
+            openDraftForBackend(page->backendInstance(), channelId, rootId, draftKey);
+        });
     }
     showCollectionPage(draftsPage);
     draftsPage->activateDrafts();
@@ -1141,21 +1228,38 @@ void MainWindow::openMessageSearch()
 void MainWindow::openMessageSearchInChannel(const QString& channelId)
 {
     if (!backendOrNull()) return;
+    openMessageSearchForBackend(backendInstance(), channelId);
+}
+
+void MainWindow::openMessageSearchForBackend(Backend& source, const QString& channelId)
+{
+    if (!NavigationUiController::instance(*this).canPresentBackend(source)) return;
+    if (!searchMessagesPage || &searchMessagesPage->backendInstance() != &source) {
+        searchMessagesPage = nullptr;
+        for (auto* page : ui->chatAreaStackedWidget->findChildren<PostCollectionView*>(
+                QString(), Qt::FindDirectChildrenOnly)) {
+            if (&page->backendInstance() == &source
+                && page->viewMode() == PostCollectionView::Mode::Search) {
+                searchMessagesPage = page;
+                break;
+            }
+        }
+    }
     if (!searchMessagesPage) {
         searchMessagesPage = new PostCollectionView(
-            backendInstance(), PostCollectionView::Mode::Search, ui->chatAreaStackedWidget);
+            source, PostCollectionView::Mode::Search, ui->chatAreaStackedWidget);
     }
 
     const bool scopedSearch = !channelId.isEmpty();
     BackendChannel* channel = scopedSearch
-        ? backendInstance().getStorage().getChannelById(channelId)
-        : backendInstance().getCurrentChannel();
+        ? source.getStorage().getChannelById(channelId)
+        : source.getCurrentChannel();
 
     QString preferredTeamId;
     QString presetTerms;
     if (channel) {
         preferredTeamId = channel->team
-            ? channel->team->id : backendInstance().getCurrentTeamContextId();
+            ? channel->team->id : source.getCurrentTeamContextId();
         if (scopedSearch) {
             presetTerms = ConversationReference::searchTerms(*channel);
         }
@@ -1587,6 +1691,10 @@ void MainWindow::saveState()
     // AccountWorkspaceStack shell persists the single application window.
     if (isWindow()) {
         options->setValue(QStringLiteral("geometry"), saveGeometry());
+    }
+    if (_sharedPresentation && sidebarSplitter && sidebarSplitter->isVisible()) {
+        options->setValue(QStringLiteral("sidebar_splitter_state"), sidebarSplitter->saveState());
+        return;
     }
     if (backendOrNull() && sidebarSplitter && sidebarSplitter->isVisible()) {
         const QList<int> sizes = sidebarSplitter->sizes();

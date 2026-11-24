@@ -76,6 +76,11 @@ public:
     // surface. Does not switch the selected profile or restart its services.
     bool attachNavigationBackend(Backend& source);
     void detachNavigationBackend(Backend& source);
+    void enableSharedPresentation();
+    void selectPresentationBackend(Backend* source);
+    void setVisibleAccounts(const QStringList& ids, const QHash<QString, QString>& labels,
+                            const QString& sorting);
+    void showStartupError(const QString& message);
     Backend* navigationBackend(const QString& accountId) const;
     bool admitsNavigationBackend(const Backend& source) const;
     void beginSemanticNavigationFrom(Backend* source);
@@ -114,6 +119,7 @@ public:
                                    bool reachedOldest, bool reachedNewest,
                                    bool preserveIfOpen);
     void openMessageSearchInChannel(const QString& channelId);
+    void openMessageSearchForBackend(Backend& source, const QString& channelId);
 
     void showEvent(QShowEvent* event) override;
 	void changeEvent (QEvent* event) override;
@@ -157,6 +163,8 @@ private:
     void openDraft(const QString& channelId, const QString& rootId,
                    const QString& draftKey = QString());
     void showCollectionPage(PostCollectionView* page);
+    void openDraftForBackend(Backend& source, const QString& channelId,
+                             const QString& rootId, const QString& draftKey);
 	void refreshMenuButtonIcon ();
     void refreshSearchButtonIcon();
 	void refreshUnreadFilterIcon ();
@@ -165,6 +173,7 @@ private:
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
     QPointer<Backend> _backend;
+    bool _sharedPresentation = false;
     QHash<Backend*, QObject*> _navigationSubscriptions;
     QPointer<Backend> _profileBackend;
     QObject* _profileSubscriptions = nullptr;

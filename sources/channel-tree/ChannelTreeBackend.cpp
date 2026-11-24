@@ -10,6 +10,8 @@ Backend* ChannelTree::backendInstance() const
 {
     if (_visibleAccountRootIds.size() > 1)
         return nullptr;
+    if (_visibleAccountRootIds.size() == 1)
+        return backendForAccount(_visibleAccountRootIds.front());
     // This legacy API has no account parameter. Return a Backend only when
     // there is a unique live owner; never choose the primary server from a
     // multi-account presentation.

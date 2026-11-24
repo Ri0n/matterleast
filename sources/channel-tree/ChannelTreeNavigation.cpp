@@ -39,7 +39,7 @@ void ChannelTree::openStoredChannel(QString channelID)
 {
     if (_visibleAccountRootIds.size() > 1)
         return;
-    openStoredChannelForAccount(std::move(channelID), _boundAccountId);
+    openStoredChannelForAccount(std::move(channelID), boundAccountId());
 }
 
 void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& accountId)

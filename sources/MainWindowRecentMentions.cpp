@@ -14,6 +14,17 @@ void MainWindow::on_channelList_virtualDestinationRequested(
     }
     Q_UNUSED(teamId)
 
+    if (!recentMentionsPage || &recentMentionsPage->backendInstance() != backendOrNull()) {
+        recentMentionsPage = nullptr;
+        for (auto* page : ui->chatAreaStackedWidget->findChildren<PostCollectionView*>(
+                QString(), Qt::FindDirectChildrenOnly)) {
+            if (&page->backendInstance() == backendOrNull()
+                && page->viewMode() == PostCollectionView::Mode::RecentMentions) {
+                recentMentionsPage = page;
+                break;
+            }
+        }
+    }
     if (!recentMentionsPage) {
         recentMentionsPage = new PostCollectionView(
             backendInstance(), PostCollectionView::Mode::RecentMentions,

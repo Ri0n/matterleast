@@ -474,6 +474,8 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
 Backend* ChannelTree::backendForAccount(const QString& accountId) const
 {
     if (accountId.isEmpty()) {
+        if (_visibleAccountRootIds.size() == 1)
+            return backendForAccount(_visibleAccountRootIds.front());
         if (_visibleAccountRootIds.size() > 1)
             return nullptr;
         // Legacy callers can omit the account only while exactly one Backend
@@ -1372,7 +1374,7 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
         || destination == SidebarItem::DraftsDestination
         || destination == SidebarItem::RecentMentionsDestination) {
         const QString teamId = item->data(0, ItemTeamIdRole).toString();
-        if (_visibleAccountRootIds.size() > 1 && !_channelPages)
+        if (!accountId.isEmpty() && (_visibleAccountRootIds.size() > 1 || _boundAccountId.isEmpty()))
             emit virtualDestinationRequestedForAccount(accountId, destination, teamId);
         else
             emit virtualDestinationRequested(destination, teamId);
@@ -1430,7 +1432,7 @@ void ChannelTree::openChannel(QString channelID)
 {
     if (_visibleAccountRootIds.size() > 1)
         return;
-    openChannelForAccount(std::move(channelID), _boundAccountId);
+    openChannelForAccount(std::move(channelID), boundAccountId());
 }
 
 void ChannelTree::openChannelForAccount(QString channelID, const QString& accountId)

@@ -32,6 +32,7 @@ public:
     explicit TeamSelectorLabel(QWidget* parent = nullptr);
 
     QString activeTeamId() const { return activeTeamId_; }
+    void refreshPresentation();
 
     QWidget* createTeamToolbar(QWidget* parent, QWidget* leadingControl = nullptr);
 
