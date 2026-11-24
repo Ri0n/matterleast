@@ -1425,16 +1425,6 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
                          accountId);
 }
 
-void ChannelTree::addGroupChannelsList (Backend& backend)
-{
-    Q_UNUSED(backend);
-}
-
-void ChannelTree::addDirectChannelsList (Backend& backend)
-{
-    Q_UNUSED(backend);
-}
-
 void ChannelTree::setChatAreaStackedWidget (QStackedWidget* stackedWidget)
 {
     _channelPages = stackedWidget ? &ChannelPageHost::instance(*stackedWidget) : nullptr;
