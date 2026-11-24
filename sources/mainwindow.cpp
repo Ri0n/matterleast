@@ -432,13 +432,19 @@ void MainWindow::enableSharedPresentation()
 {
     if (_sharedPresentation) return;
     _sharedPresentation = true;
+    // Restore the application split only after navigation installs its final
+    // content host. The empty pre-authentication stack has no size hint.
+    NavigationUiController::instance(*this);
     if (sidebarSplitter) {
         const QByteArray state = MLOptions::instance()->value<QByteArray>(
             QStringLiteral("sidebar_splitter_state"));
         if (!state.isEmpty()) sidebarSplitter->restoreState(state);
+        sidebarSplitter->setChildrenCollapsible(false);
         sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+        const auto sizes = sidebarSplitter->sizes();
+        if (sizes.size() == 2 && (sizes[0] <= 0 || sizes[1] <= 1))
+            sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
     }
-    NavigationUiController::instance(*this);
 }
 
 void MainWindow::selectPresentationBackend(Backend* source)
@@ -1696,7 +1702,9 @@ void MainWindow::saveState()
         options->setValue(QStringLiteral("geometry"), saveGeometry());
     }
     if (_sharedPresentation && sidebarSplitter && sidebarSplitter->isVisible()) {
-        options->setValue(QStringLiteral("sidebar_splitter_state"), sidebarSplitter->saveState());
+        const auto sizes = sidebarSplitter->sizes();
+        if (sizes.size() == 2 && sizes[0] > 0 && sizes[1] > 1)
+            options->setValue(QStringLiteral("sidebar_splitter_state"), sidebarSplitter->saveState());
         return;
     }
     if (backendOrNull() && sidebarSplitter && sidebarSplitter->isVisible()) {
