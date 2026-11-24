@@ -252,7 +252,6 @@ bool MainWindow::attachInitialBackend(Backend& source)
     if (!user || user->id.isEmpty())
         return false;
     _backend = &source;
-    chooseEmojiDialog = std::make_unique<ChooseEmojiDialogWrapper>(this, source);
     ui->usericon_label->setEnabled(true);
     ui->searchButton->setEnabled(true);
     if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))

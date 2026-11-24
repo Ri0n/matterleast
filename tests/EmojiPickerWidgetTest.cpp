@@ -10,6 +10,7 @@
 #include "backend/Backend.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "choose-emoji-dialog/EmojiPickerWidget.h"
+#include "choose-emoji-dialog/ChooseEmojiDialog.h"
 #include "options/MLOptions.h"
 
 using namespace Mattermost;
@@ -19,6 +20,50 @@ class EmojiPickerWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
+    void dialogRequestsRetainTheirOwnBackendAndRequester()
+    {
+        Backend first;
+        Backend second;
+        QWidget owner;
+        QWidget firstRequester(&owner);
+        QWidget secondRequester(&owner);
+        owner.show();
+        int firstCalls = 0;
+        int secondCalls = 0;
+        const auto chooser = [&owner] {
+            return owner.findChild<ChooseEmojiDialog*>(
+                QStringLiteral("accountEmojiChooser"), Qt::FindDirectChildrenOnly);
+        };
+        ChooseEmojiDialog::showFor(first, firstRequester,
+                                    [&firstCalls](Emoji) { ++firstCalls; });
+        auto* firstDialog = chooser();
+        QVERIFY(firstDialog);
+        auto* firstPicker = firstDialog->findChild<EmojiPickerWidget*>();
+        QVERIFY(firstPicker);
+        emit firstPicker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QCOMPARE(firstCalls, 1);
+        ChooseEmojiDialog::showFor(first, firstRequester,
+                                    [&firstCalls](Emoji) { ++firstCalls; });
+        QCOMPARE(chooser(), firstDialog);
+        ChooseEmojiDialog::showFor(second, secondRequester,
+                                    [&secondCalls](Emoji) { ++secondCalls; });
+        auto* secondDialog = chooser();
+        QVERIFY(secondDialog && secondDialog != firstDialog);
+        auto* secondPicker = secondDialog->findChild<EmojiPickerWidget*>();
+        QVERIFY(secondPicker);
+        emit secondPicker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QCOMPARE(firstCalls, 1);
+        QCOMPARE(secondCalls, 1);
+
+        auto* temporaryRequester = new QWidget(&owner);
+        ChooseEmojiDialog::showFor(second, *temporaryRequester,
+                                    [&secondCalls](Emoji) { ++secondCalls; });
+        delete temporaryRequester;
+        QVERIFY(!secondDialog->isVisible());
+        emit secondPicker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QCOMPARE(secondCalls, 1);
+    }
+
     void skinToneModelIsStrict()
     {
         const auto variants =

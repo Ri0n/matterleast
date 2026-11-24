@@ -26,7 +26,6 @@
 #include <QPointer>
 #include <QSet>
 #include <QStringList>
-#include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -159,7 +158,6 @@ private:
 	std::unique_ptr<Ui::MainWindow>		ui;
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
-    std::unique_ptr<ChooseEmojiDialogWrapper> chooseEmojiDialog;
     QPointer<Backend> _backend;
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;

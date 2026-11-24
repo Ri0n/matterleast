@@ -23,7 +23,8 @@
 
 #include "backend/CustomStatusValidation.h"
 #include "backend/emoji/EmojiRegistry.h"
-#include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
+#include "choose-emoji-dialog/ChooseEmojiDialog.h"
+#include "backend/Backend.h"
 #include "ui/UserStatusEmoji.h"
 #include "ui/OverlayScrollBarManager.h"
 
@@ -96,8 +97,8 @@ QString durationLabel(const QString& duration)
 } // namespace
 
 CustomStatusEditorDialog::CustomStatusEditorDialog(
-    EmojiRegistry& registry, const BackendUserCustomStatus& current, QWidget* parent)
-    : QDialog(parent), m_registry(registry)
+    Backend& backend, const BackendUserCustomStatus& current, QWidget* parent)
+    : QDialog(parent), m_backend(backend), m_registry(backend.emojiRegistry())
 {
     setObjectName(QStringLiteral("customStatusEditor"));
     setWindowTitle(tr("Set a custom status"));
@@ -136,10 +137,10 @@ CustomStatusEditorDialog::CustomStatusEditorDialog(
     m_text->installEventFilter(this);
     connect(m_emojiAction, &QAction::triggered, this, [this] {
         QPointer<CustomStatusEditorDialog> guard(this);
-        showEmojiDialog([guard](const Emoji& emoji) {
+        ChooseEmojiDialog::showFor(m_backend, *this, [guard](const Emoji& emoji) {
             if (guard)
                 guard->setSelectedEmoji(emoji.name);
-        }, this);
+        });
     });
     connect(&m_registry, &EmojiRegistry::customEmojiAdded, this,
             [this](const QString& name) {

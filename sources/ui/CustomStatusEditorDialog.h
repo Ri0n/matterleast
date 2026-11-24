@@ -20,6 +20,7 @@ class QWidget;
 
 namespace Mattermost {
 
+class Backend;
 class EmojiRegistry;
 
 // A single editor for arbitrary and suggested Mattermost custom statuses.
@@ -31,7 +32,7 @@ public:
     using RemoveRecent = std::function<void(
         const BackendUserCustomStatus&, std::function<void(bool)>)>;
 
-    CustomStatusEditorDialog(EmojiRegistry& registry,
+    CustomStatusEditorDialog(Backend& backend,
                              const BackendUserCustomStatus& current,
                              QWidget* parent = nullptr);
 
@@ -53,6 +54,7 @@ private:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void changeEvent(QEvent* event) override;
 
+    Backend& m_backend;
     EmojiRegistry& m_registry;
     QLineEdit* m_text = nullptr;
     QAction* m_emojiAction = nullptr;

@@ -20,7 +20,6 @@
 #include "backend/CustomStatusValidation.h"
 #include "ui/CustomStatusEditorDialog.h"
 #include "backend/types/BackendUser.h"
-#include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 #include "info-dialogs/UserProfileDialog.h"
 #include "notifications/NotificationManager.h"
 
@@ -91,7 +90,7 @@ void MainWindow::on_usericon_label_clicked()
 
     QAction* setCustom = menu.addAction(tr("Set a custom status…"));
     connect(setCustom, &QAction::triggered, this, [this] {
-        CustomStatusEditorDialog editor(backendInstance().emojiRegistry(),
+        CustomStatusEditorDialog editor(backendInstance(),
                                         backendInstance().getLoginUser().props.customStatus, this);
         QPointer<CustomStatusEditorDialog> editorGuard(&editor);
         QPointer<MainWindow> mainWindowGuard(this);

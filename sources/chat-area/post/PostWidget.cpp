@@ -96,7 +96,7 @@
 #include "chat-area/QuotedReplyController.h"
 #include "chat-area/QuotedReplyFormat.h"
 #include "chat-area/ThreadWindowTitle.h"
-#include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
+#include "choose-emoji-dialog/ChooseEmojiDialog.h"
 #include "info-dialogs/UserProfileDialog.h"
 #include "integrations/KTalkMeetingWidget.h"
 #include "navigation/AppNavigationService.h"
@@ -311,7 +311,7 @@ PostWidget::PostWidget(Backend& backend,
             "matterleastPostOwner",
             QVariant::fromValue(static_cast<QObject*>(this)));
         connect(reactionAffordance_, &QPushButton::clicked, this, [this] {
-            showEmojiDialog([this](Emoji emoji) {
+            ChooseEmojiDialog::showFor(backend_, *this, [this](Emoji emoji) {
                 backend_.addPostReaction(this->post.id, emoji.name);
             });
         });
