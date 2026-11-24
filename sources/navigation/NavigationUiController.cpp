@@ -723,8 +723,7 @@ void NavigationUiController::setNavigationTabTitle(
 
 void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
 {
-    if (backendForAccount(accountIdForBackend(source)) != &source
-        || !navigationTabs || channelId.isEmpty()) {
+    if (!navigationTabs || channelId.isEmpty()) {
         return;
     }
 
@@ -1122,7 +1121,8 @@ bool NavigationUiController::activateExistingTab(
     const QString& rootId,
     bool restoreBookmark)
 {
-    if (!navigationTabs || channelId.isEmpty()) {
+    if (backendForAccount(accountIdForBackend(source)) != &source
+        || !navigationTabs || channelId.isEmpty()) {
         return false;
     }
 
@@ -2025,7 +2025,8 @@ void NavigationUiController::syncSplitterEdgeGutters()
 bool NavigationUiController::hasIndependentThreadPresentation(
     Backend& source, const QString& channelId, const QString& rootId) const
 {
-    if (channelId.isEmpty() || rootId.isEmpty()) {
+    if (backendForAccount(accountIdForBackend(source)) != &source
+        || channelId.isEmpty() || rootId.isEmpty()) {
         return false;
     }
     const auto* active = tabModel.at(activeTabIndex);
@@ -2040,7 +2041,8 @@ bool NavigationUiController::hasIndependentThreadPresentation(
 void NavigationUiController::selectContextualThreadTab(
     Backend& source, const QString& channelId, const QString& rootId)
 {
-    if (!navigationTabs || hasIndependentThreadPresentation(source, channelId, rootId)
+    if (backendForAccount(accountIdForBackend(source)) != &source
+        || !navigationTabs || hasIndependentThreadPresentation(source, channelId, rootId)
         || !MLOptions::instance()->value<bool>(
             THREAD_SIDEBAR_FOLLOWS_CHANNEL,
             THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT)) {
