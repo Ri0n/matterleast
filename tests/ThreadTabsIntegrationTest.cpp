@@ -2503,7 +2503,6 @@ private slots:
         view.setAllowedAccounts({"a"});
         MainWindow window(nullptr, tray);
         window.resize(1100, 700);
-        window.enableSharedPresentation();
         window.setVisibleAccounts({"a"}, {}, "recent");
         window.bindViewNavigation(&view);
         window.show();
@@ -2572,7 +2571,6 @@ private slots:
         ViewNavigationSession onlyA("only-a");
         onlyA.setAllowedAccounts({"a"});
         MainWindow window(nullptr, tray);
-        window.enableSharedPresentation();
         window.setVisibleAccounts({"a", "b"}, {}, "recent");
         window.bindViewNavigation(&combined);
         auto* tree = window.findChild<ChannelTree*>("channelList");
@@ -2641,7 +2639,11 @@ private slots:
         MLOptions::instance()->setValue(sessionKey(serverBaseUrl(serverA)), QByteArray());
 
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backendA);
+        MainWindow window(nullptr, tray);
+        window.setVisibleAccounts({"a", "b"}, {}, "recent");
+        backendA.startAccountData();
+        QVERIFY(window.attachNavigationBackend(backendA));
+        window.selectPresentationBackend(&backendA);
         window.resize(1100, 700);
         window.show();
         auto* tree = window.findChild<ChannelTree*>("channelList");
@@ -2658,7 +2660,6 @@ private slots:
         QVERIFY(backendB.getStorage().addGroupChannel(
             QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Chat B"}}));
         QVERIFY(window.attachNavigationBackend(backendB));
-        QVERIFY(tree->setVisibleAccountRoots({"a", "b"}));
         tree->addTeam(backendB, *teamB);
         SidebarService::instance(backendB).retrieveCategories(*teamB);
         QTRY_VERIFY(SidebarService::instance(backendB).teamState("team")
@@ -2708,7 +2709,7 @@ private slots:
         QCOMPARE(onlyA.tabs().count(), 1);
     }
 
-    void embeddedMultiAccountNavigationReachesOnlyOwningBackend()
+    void detachedThreadsDoNotCrossAccountIdentity()
     {
         Server serverA;
         Server serverB;
@@ -2717,8 +2718,10 @@ private slots:
         QVERIFY(serverA.listen(QHostAddress::LocalHost));
         QVERIFY(serverB.listen(QHostAddress::LocalHost));
 
-        Backend backendA;
-        Backend backendB;
+        Account accountA(QStringLiteral("a"), nullptr);
+        Account accountB(QStringLiteral("b"), nullptr);
+        Backend backendA(&accountA);
+        Backend backendB(&accountB);
         backendA.networkSession().setHost(serverBaseUrl(serverA));
         backendB.networkSession().setHost(serverBaseUrl(serverB));
         backendA.getStorage().addUser(
@@ -2729,15 +2732,18 @@ private slots:
         MLOptions::instance()->setValue(sessionKey(serverBaseUrl(serverB)), QByteArray());
 
         QSystemTrayIcon tray;
-        QStackedWidget accountStack;
-        auto* first = new MainWindow(nullptr, tray, backendA);
-        auto* second = new MainWindow(nullptr, tray, backendB);
-        accountStack.addWidget(first);
-        accountStack.addWidget(second);
-        accountStack.resize(1100, 700);
-        accountStack.show();
-        QVERIFY(!first->isWindow());
-        QVERIFY(!second->isWindow());
+        ViewNavigationSession view("combined");
+        view.setAllowedAccounts({"a", "b"});
+        MainWindow window(nullptr, tray);
+        window.resize(1100, 700);
+        window.setVisibleAccounts({"a", "b"}, {}, "recent");
+        window.bindViewNavigation(&view);
+        backendA.startAccountData();
+        backendB.startAccountData();
+        QVERIFY(window.attachNavigationBackend(backendA));
+        QVERIFY(window.attachNavigationBackend(backendB));
+        window.selectPresentationBackend(&backendA);
+        window.show();
         QTRY_VERIFY(backendA.getStorage().getChannelById(QStringLiteral("channel")));
         QTRY_VERIFY(backendB.getStorage().getChannelById(QStringLiteral("channel")));
         QTRY_VERIFY(SidebarService::instance(backendA).teamState(QStringLiteral("team"))
@@ -2748,10 +2754,9 @@ private slots:
                    ->category(QStringLiteral("dm")));
 
         auto& navA = AppNavigationService::instance(backendA);
-        auto& uiA = NavigationUiController::instance(*first);
-        auto& uiB = NavigationUiController::instance(*second);
+        auto& navigation = NavigationUiController::instance(window);
         navA.openChannel(QStringLiteral("channel"));
-        auto* channelsA = first->findChild<ChannelTree*>(
+        auto* channelsA = window.findChild<ChannelTree*>(
             QStringLiteral("channelList"));
         QVERIFY(channelsA);
         QTRY_VERIFY(channelsA->getCurrentPage()
@@ -2759,20 +2764,20 @@ private slots:
                    == QStringLiteral("channel"));
 
         navA.openThread(QStringLiteral("channel"), rootId(901));
-        QTRY_VERIFY(uiA.findThread(QStringLiteral("channel"), rootId(901)));
-        QVERIFY(!uiB.findThread(QStringLiteral("channel"), rootId(901)));
+        QTRY_VERIFY(navigation.findThreadForBackend(backendA, QStringLiteral("channel"), rootId(901)));
+        QVERIFY(!navigation.findThreadForBackend(backendB, QStringLiteral("channel"), rootId(901)));
 
         navA.openThreadInTab(QStringLiteral("channel"), rootId(902));
-        QTRY_VERIFY(uiA.findThread(QStringLiteral("channel"), rootId(902)));
-        QVERIFY(uiA.findThread(QStringLiteral("channel"), rootId(902))
+        QTRY_VERIFY(navigation.findThreadForBackend(backendA, QStringLiteral("channel"), rootId(902)));
+        QVERIFY(navigation.findThreadForBackend(backendA, QStringLiteral("channel"), rootId(902))
                     ->property("threadTabbed").toBool());
-        QVERIFY(!uiB.findThread(QStringLiteral("channel"), rootId(902)));
+        QVERIFY(!navigation.findThreadForBackend(backendB, QStringLiteral("channel"), rootId(902)));
 
-        accountStack.setCurrentWidget(second);
+        window.selectPresentationBackend(&backendB);
         auto& navB = AppNavigationService::instance(backendB);
         navB.openThreadInTab(QStringLiteral("channel"), rootId(903));
-        QTRY_VERIFY(uiB.findThread(QStringLiteral("channel"), rootId(903)));
-        QVERIFY(!uiA.findThread(QStringLiteral("channel"), rootId(903)));
+        QTRY_VERIFY(navigation.findThreadForBackend(backendB, QStringLiteral("channel"), rootId(903)));
+        QVERIFY(!navigation.findThreadForBackend(backendA, QStringLiteral("channel"), rootId(903)));
 
         // A detached window is found by walking all top-level widgets, not
         // just the originating account's stacks. Remote IDs deliberately
@@ -2782,19 +2787,19 @@ private slots:
         QScopedPointer<ChatArea> detached(new ChatArea(
             backendA, *channelA, rootId(904), nullptr));
         detached->setProperty("threadDetached", true);
-        uiA.presentThread(detached.data());
+        navigation.presentThread(detached.data());
         QTRY_VERIFY(detached->isVisible());
-        QCOMPARE(uiA.findThread(QStringLiteral("channel"), rootId(904)),
+        QCOMPARE(navigation.findThreadForBackend(backendA, QStringLiteral("channel"), rootId(904)),
                  detached.data());
-        QVERIFY(!uiB.findThread(QStringLiteral("channel"), rootId(904)));
+        QVERIFY(!navigation.findThreadForBackend(backendB, QStringLiteral("channel"), rootId(904)));
 
         navB.openThreadInTab(QStringLiteral("channel"), rootId(904));
-        QTRY_VERIFY(uiB.findThread(QStringLiteral("channel"), rootId(904)));
-        auto* tab = uiB.findThread(QStringLiteral("channel"), rootId(904));
+        QTRY_VERIFY(navigation.findThreadForBackend(backendB, QStringLiteral("channel"), rootId(904)));
+        auto* tab = navigation.findThreadForBackend(backendB, QStringLiteral("channel"), rootId(904));
         QVERIFY(tab != detached.data());
         QCOMPARE(&tab->getBackend(), &backendB);
         QVERIFY(detached->property("threadDetached").toBool());
-        QCOMPARE(uiA.findThread(QStringLiteral("channel"), rootId(904)),
+        QCOMPARE(navigation.findThreadForBackend(backendA, QStringLiteral("channel"), rootId(904)),
                  detached.data());
     }
 
