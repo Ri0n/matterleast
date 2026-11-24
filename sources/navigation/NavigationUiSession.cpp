@@ -258,8 +258,15 @@ void NavigationUiController::bindViewSession(
     if (!session
         || (!accountId.isEmpty() && presentationAccountId() != QStringLiteral("_startup")
             && presentationAccountId() != accountId)
-        || (viewNavigationSession == session && viewNavigationAccountId == accountId))
+        )
         return;
+    if (viewNavigationSession == session && viewNavigationAccountId == accountId) {
+        if (usesSharedView() && viewNavigationMembers != session->allowedAccounts()) {
+            viewNavigationMembers = session->allowedAccounts();
+            restoreBoundViewSession(false);
+        }
+        return;
+    }
     const bool hadView = viewNavigationSession != nullptr;
     const QString oldViewId = hadView ? viewNavigationSession->viewId() : QString();
     if (hadView && sessionRestored) {
@@ -274,6 +281,7 @@ void NavigationUiController::bindViewSession(
 
     viewNavigationSession = session;
     viewNavigationAccountId = accountId;
+    viewNavigationMembers = session->allowedAccounts();
 
     // Detached threads remain associated with their original view, rather
     // than being silently reused by a different view of the same account.

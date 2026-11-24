@@ -174,6 +174,7 @@ private:
 	NotificationManager*                    notificationManager;
     QPointer<Backend> _backend;
     bool _sharedPresentation = false;
+    QString retainedUnreadFilterAccountId;
     QHash<Backend*, QObject*> _navigationSubscriptions;
     QPointer<Backend> _profileBackend;
     QObject* _profileSubscriptions = nullptr;

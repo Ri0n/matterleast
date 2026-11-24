@@ -206,6 +206,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
 			&& channelTabs->currentWidget() == channelsPage;
 		if (channelsTabVisible && unreadFilterButton && unreadFilterButton->isChecked()) {
 			retainedUnreadFilterChannelId = channelId;
+            retainedUnreadFilterAccountId = current->data(0, SidebarItem::AccountIdRole).toString();
 			QTimer::singleShot(0, this, &MainWindow::refreshChannelUnreadFilter);
 		} else if (channelsTabVisible) {
 			retainedUnreadFilterChannelId.clear();
@@ -456,7 +457,8 @@ void MainWindow::setVisibleAccounts(const QStringList& ids,
                                     const QHash<QString, QString>& labels,
                                     const QString& sorting)
 {
-    ui->channelList->setRootIndex(QModelIndex());
+    if (ui->channelList->visibleAccountRoots() != ids)
+        ui->channelList->setRootIndex(QModelIndex());
     ui->channelList->setVisibleAccountRoots(ids, labels);
     ui->channelList->setMergedConversationSorting(sorting);
     ui->teamSelectorLabel->refreshPresentation();
@@ -1044,121 +1046,114 @@ void MainWindow::applySidebarTextFilter(QTreeWidget* tree) const
 
 void MainWindow::refreshChannelUnreadFilter()
 {
-	if (!backendOrNull() || !ui || !ui->channelList || !unreadFilterButton) {
-		return;
-	}
+    if (!ui || !ui->channelList || !unreadFilterButton) return;
 
-	const bool unreadOnly = unreadFilterButton->isChecked();
+    const bool unreadOnly = unreadFilterButton->isChecked();
     auto* options = MLOptions::instance();
-	const QString filterText = sidebarFilterEdit
-		? sidebarFilterEdit->text().trimmed() : QString();
-	const bool textFilterActive = !filterText.isEmpty();
+    const QString filterText = sidebarFilterEdit ? sidebarFilterEdit->text().trimmed() : QString();
+    const bool textFilterActive = !filterText.isEmpty();
     const bool ignoreWhileFiltering = options->value<bool>(
-        UNREAD_MODE_IGNORE_WHILE_FILTERING,
-        UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT);
+        UNREAD_MODE_IGNORE_WHILE_FILTERING, UNREAD_MODE_IGNORE_WHILE_FILTERING_DEFAULT);
     const bool unreadGateActive = SidebarUnreadPolicy::unreadGateActive(
         unreadOnly, textFilterActive, ignoreWhileFiltering);
-	const bool anyFilterActive = SidebarUnreadPolicy::anyFilterActive(
+    const bool anyFilterActive = SidebarUnreadPolicy::anyFilterActive(
         unreadOnly, textFilterActive, ignoreWhileFiltering);
 
-	if (!unreadOnly) {
-		retainedUnreadFilterChannelId.clear();
-	}
-	const bool channelsTabVisible = channelTabs && channelsPage
-		&& channelTabs->currentWidget() == channelsPage;
-	auto& sidebar = SidebarService::instance(backendInstance());
+    if (!unreadOnly) {
+        retainedUnreadFilterChannelId.clear();
+        retainedUnreadFilterAccountId.clear();
+    }
+    const bool channelsTabVisible = channelTabs && channelsPage
+        && channelTabs->currentWidget() == channelsPage;
+    auto* tree = ui->channelList;
+    const auto filterChannel = [&](QTreeWidgetItem* row, Backend& owner,
+                                   bool directMessages) {
+        const QString channelId = row->data(0, SidebarItem::IdRole).toString();
+        const QString accountId = row->data(0, SidebarItem::AccountIdRole).toString();
+        const auto* channel = owner.getStorage().getChannelById(channelId);
+        auto& sidebar = SidebarService::instance(owner);
+        bool matchesText = !textFilterActive
+            || row->text(0).contains(filterText, Qt::CaseInsensitive);
+        if (channel && channel->type == BackendChannel::directChannel && textFilterActive) {
+            if (const auto* user = owner.getStorage().getUserById(channel->name)) {
+                matchesText = matchesText
+                    || user->getDisplayName().contains(filterText, Qt::CaseInsensitive)
+                    || user->username.contains(filterText, Qt::CaseInsensitive)
+                    || user->email.contains(filterText, Qt::CaseInsensitive);
+            }
+        }
+        const bool retained = channelsTabVisible && channelId == retainedUnreadFilterChannelId
+            && accountId == retainedUnreadFilterAccountId;
+        const bool matchesUnread = !unreadGateActive || (channel
+            && !sidebar.isChannelMuted(*channel)
+            && (sidebar.isChannelUnread(*channel) || retained));
+        const bool excluded = directMessages && textFilterActive
+            && row->data(0, SidebarItem::ConversationSearchExcludedRole).toBool();
+        const bool visible = matchesText && matchesUnread && !excluded;
+        row->setHidden(!visible);
+        return visible;
+    };
 
-	for (int teamIndex = 0; teamIndex < ui->channelList->topLevelItemCount(); ++teamIndex) {
-		QTreeWidgetItem* teamItem = ui->channelList->topLevelItem(teamIndex);
-		if (!teamItem) {
-			continue;
-		}
-
-		bool teamHasVisibleRows = false;
-		for (int childIndex = 0; childIndex < teamItem->childCount(); ++childIndex) {
-			QTreeWidgetItem* childItem = teamItem->child(childIndex);
-			if (!childItem) {
-				continue;
-			}
-
-            const int kind = childItem->data(0, ChannelTree::ItemKindRole).toInt();
-            if (kind == ChannelTree::VirtualDestinationItemKind) {
-                const bool matchesText = childItem->text(0).contains(
-                    filterText, Qt::CaseInsensitive);
+    const auto filterTeam = [&](QTreeWidgetItem* team) {
+        const QString accountId = team->data(0, SidebarItem::AccountIdRole).toString();
+        auto* owner = tree->backendForAccount(accountId);
+        if (!owner || !tree->accountVisible(accountId)) {
+            team->setHidden(true);
+            return false;
+        }
+        auto& sidebar = SidebarService::instance(*owner);
+        bool hasVisibleRows = false;
+        for (int i = 0; i < team->childCount(); ++i) {
+            auto* row = team->child(i);
+            const int kind = row->data(0, SidebarItem::KindRole).toInt();
+            if (kind == SidebarItem::VirtualDestination) {
                 const bool visible = SidebarUnreadPolicy::virtualDestinationVisible(
-                    textFilterActive, matchesText);
-                childItem->setHidden(!visible);
-                teamHasVisibleRows = teamHasVisibleRows || visible;
+                    textFilterActive, row->text(0).contains(filterText, Qt::CaseInsensitive));
+                row->setHidden(!visible);
+                hasVisibleRows = hasVisibleRows || visible;
                 continue;
             }
-            if (kind != ChannelTree::CategoryItemKind) {
-                continue;
+            if (kind != SidebarItem::Category) continue;
+            const auto* state = sidebar.teamState(row->data(0, SidebarItem::TeamIdRole).toString());
+            const auto* category = state
+                ? state->category(row->data(0, SidebarItem::IdRole).toString()) : nullptr;
+            const bool direct = category && category->type == QStringLiteral("direct_messages");
+            const bool channels = category && category->type == QStringLiteral("channels");
+            row->setData(0, SidebarItem::CategoryActionRole, direct || channels);
+            row->setToolTip(0, direct ? tr("Start conversation")
+                : (channels ? tr("Browse public channels") : QString()));
+            bool visibleChannels = false;
+            for (int j = 0; j < row->childCount(); ++j)
+                visibleChannels = filterChannel(row->child(j), *owner, direct) || visibleChannels;
+            row->setHidden(anyFilterActive && !visibleChannels);
+            hasVisibleRows = hasVisibleRows || visibleChannels;
+        }
+        team->setHidden(anyFilterActive && !hasVisibleRows);
+        return hasVisibleRows;
+    };
+
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        auto* root = tree->topLevelItem(i);
+        const int kind = root->data(0, SidebarItem::KindRole).toInt();
+        if (kind == SidebarItem::Team) {
+            filterTeam(root);
+        } else if (kind == SidebarItem::AccountRoot) {
+            bool visible = false;
+            for (int j = 0; j < root->childCount(); ++j)
+                visible = filterTeam(root->child(j)) || visible;
+            root->setHidden(anyFilterActive && !visible);
+        } else if (kind == SidebarItem::SharedConversations) {
+            bool visible = false;
+            for (int j = 0; j < root->childCount(); ++j) {
+                auto* row = root->child(j);
+                auto* owner = tree->backendForAccount(
+                    row->data(0, SidebarItem::AccountIdRole).toString());
+                if (owner) visible = filterChannel(row, *owner, true) || visible;
+                else row->setHidden(true);
             }
-
-            QTreeWidgetItem* categoryItem = childItem;
-			const QString teamId = categoryItem->data(0, ChannelTree::ItemTeamIdRole).toString();
-			const QString categoryId = categoryItem->data(0, ChannelTree::ItemIdRole).toString();
-			const SidebarTeamState* state = sidebar.teamState(teamId);
-			const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
-			const bool directMessages = category
-				&& category->type == QStringLiteral("direct_messages");
-			const bool channelsCategory = category
-				&& category->type == QStringLiteral("channels");
-			const bool hasCategoryAction = directMessages || channelsCategory;
-
-			categoryItem->setData(0, SidebarItem::CategoryActionRole,
-			                      hasCategoryAction);
-			categoryItem->setToolTip(
-				0, directMessages ? tr("Start conversation")
-				                  : (channelsCategory ? tr("Browse public channels")
-				                                      : QString()));
-
-			bool categoryHasVisibleChannels = false;
-			for (int channelIndex = 0; channelIndex < categoryItem->childCount(); ++channelIndex) {
-				QTreeWidgetItem* channelItem = categoryItem->child(channelIndex);
-				if (!channelItem) {
-					continue;
-				}
-
-				const QString channelId = channelItem->data(0, ChannelTree::ItemIdRole).toString();
-				BackendChannel* channel = backendInstance().getStorage().getChannelById(channelId);
-				bool matchesText = !textFilterActive
-					|| channelItem->text(0).contains(filterText, Qt::CaseInsensitive);
-
-				if (channel && channel->type == BackendChannel::directChannel && textFilterActive) {
-					const BackendUser* user = backendInstance().getStorage().getUserById(channel->name);
-					if (user) {
-						matchesText = matchesText
-							|| user->getDisplayName().contains(filterText, Qt::CaseInsensitive)
-							|| user->username.contains(filterText, Qt::CaseInsensitive)
-							|| user->email.contains(filterText, Qt::CaseInsensitive);
-					}
-				}
-
-				bool matchesUnread = true;
-				if (unreadGateActive) {
-					const bool retained = channelsTabVisible
-						&& channelId == retainedUnreadFilterChannelId;
-					matchesUnread = channel
-						&& !sidebar.isChannelMuted(*channel)
-						&& (sidebar.isChannelUnread(*channel) || retained);
-				}
-
-				const bool excludedFromSearch = directMessages && textFilterActive
-					&& channelItem->data(0, SidebarItem::ConversationSearchExcludedRole).toBool();
-				const bool visible = matchesText && matchesUnread && !excludedFromSearch;
-				channelItem->setHidden(!visible);
-				categoryHasVisibleChannels = categoryHasVisibleChannels || visible;
-			}
-
-			categoryItem->setHidden(anyFilterActive && !categoryHasVisibleChannels);
-			teamHasVisibleRows = teamHasVisibleRows || categoryHasVisibleChannels;
-		}
-
-        teamItem->setHidden(!ui->channelList->accountVisible(
-            teamItem->data(0, SidebarItem::AccountIdRole).toString())
-            || (anyFilterActive && !teamHasVisibleRows));
-	}
+            root->setHidden(anyFilterActive && !visible);
+        }
+    }
 }
 
 void MainWindow::showCollectionPage(PostCollectionView* page)

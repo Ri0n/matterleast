@@ -102,6 +102,7 @@ public:
     bool bindSingleAccount(const QString& accountId);
     QString boundAccountId() const { return _visibleAccountRootIds.size() == 1
         ? _visibleAccountRootIds.front() : _boundAccountId; }
+    QStringList visibleAccountRoots() const { return _visibleAccountRootIds; }
     bool accountVisible(const QString& id) const { return _visibleAccountRootIds.isEmpty()
         || _visibleAccountRootIds.contains(id); }
     // View-scoped account roots, without a replacement channel model.

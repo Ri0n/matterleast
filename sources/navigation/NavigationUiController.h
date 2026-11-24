@@ -205,6 +205,7 @@ private:
     bool applyingViewSession = false;
     QPointer<ViewNavigationSession> viewNavigationSession;
     QString viewNavigationAccountId;
+    QSet<QString> viewNavigationMembers;
     bool everBoundView = false;
 };
 

@@ -2444,6 +2444,78 @@ private slots:
         QCOMPARE(attention.topLevelItemCount(), 1);
     }
 
+    void permanentWindowSurvivesAccountDetachAndViewSwitch()
+    {
+        Server serverA;
+        Server serverB;
+        serverA.startupChannels = true;
+        serverB.startupChannels = true;
+        QVERIFY(serverA.listen(QHostAddress::LocalHost));
+        QVERIFY(serverB.listen(QHostAddress::LocalHost));
+        Account accountA("a", nullptr);
+        Account accountB("b", nullptr);
+        Backend first(&accountA);
+        Backend second(&accountB);
+        first.networkSession().setHost(serverBaseUrl(serverA));
+        second.networkSession().setHost(serverBaseUrl(serverB));
+        for (auto* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            owner->startAccountData();
+        }
+        QSystemTrayIcon tray;
+        ViewNavigationSession combined("combined");
+        combined.setAllowedAccounts({"a", "b"});
+        ViewNavigationSession onlyA("only-a");
+        onlyA.setAllowedAccounts({"a"});
+        MainWindow window(nullptr, tray);
+        window.enableSharedPresentation();
+        window.setVisibleAccounts({"a", "b"}, {}, "recent");
+        window.bindViewNavigation(&combined);
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        auto* tabs = window.findChild<QTabBar*>("navigationTabs");
+        auto* stack = window.findChild<QStackedWidget*>("chatAreaStackedWidget");
+        QVERIFY(tree && tabs && stack);
+        const auto splitters = window.findChildren<QSplitter*>();
+        QVERIFY(window.attachNavigationBackend(first));
+        QVERIFY(window.attachNavigationBackend(second));
+        window.selectPresentationBackend(&first);
+        window.resize(1100, 700);
+        window.show();
+        QTRY_VERIFY(SidebarService::instance(first).teamState("team"));
+        QTRY_VERIFY(SidebarService::instance(second).teamState("team"));
+        AppNavigationService::instance(first).openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &first);
+        QPointer<ChatArea> firstPage(tree->getCurrentPage());
+        AppNavigationService::instance(second).openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &second);
+        QPointer<ChatArea> secondPage(tree->getCurrentPage());
+        QCOMPARE(window.backendOrNull(), &first);
+
+        window.setVisibleAccounts({"a"}, {}, "recent");
+        window.bindViewNavigation(&onlyA);
+        AppNavigationService::instance(first).openChannel("channel");
+        QTRY_COMPARE(tree->getCurrentPage(), firstPage.data());
+        window.setVisibleAccounts({"a", "b"}, {}, "recent");
+        window.bindViewNavigation(&combined);
+        QTRY_COMPARE(tree->getCurrentPage(), secondPage.data());
+        window.detachNavigationBackend(second);
+        QVERIFY(secondPage.isNull());
+        QVERIFY(firstPage);
+        QVERIFY(!window.admitsNavigationBackend(second));
+        QCOMPARE(combined.tabs().count(), 2);
+        AppNavigationService::instance(first).openChannel("channel");
+        QTRY_COMPARE(tree->getCurrentPage(), firstPage.data());
+        QCOMPARE(window.findChild<ChannelTree*>("channelList"), tree);
+        QCOMPARE(window.findChild<QTabBar*>("navigationTabs"), tabs);
+        QCOMPARE(window.findChild<QStackedWidget*>("chatAreaStackedWidget"), stack);
+        QCOMPARE(window.findChildren<QSplitter*>(), splitters);
+        QCOMPARE(serverA.accountChannelLookups.size(), 1);
+        QCOMPARE(serverB.accountChannelLookups.size(), 1);
+    }
+
     void oneCentralSurfaceAdmitsTwoAccountsWithCollidingIds()
     {
         Server serverA;

@@ -78,6 +78,7 @@ public:
     // supplies membership; updates prune obsolete tabs/history incrementally.
     void setAllowedAccounts(const QStringList& accountIds);
     bool allowsAccount(const QString& accountId) const;
+    QSet<QString> allowedAccounts() const { return _allowedAccounts; }
 
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
