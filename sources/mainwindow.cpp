@@ -126,8 +126,6 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
     , ui(std::make_unique<Ui::MainWindow>())
     , trayIcon(trayIcon)
     , notificationManager(&NotificationManager::instance(trayIcon))
-    , currentTeamRestoredFromSettings(false)
-    , doDeinit(false)
 {
 	LOG_DEBUG("MainWindow create start");
 
@@ -1520,26 +1518,9 @@ void MainWindow::changeEvent(QEvent* event)
 	}
 }
 
-void MainWindow::prepareForLogout()
-{
-    if (doDeinit) {
-        return;
-    }
-    doDeinit = true;
-    // closeEvent writes navigation/sidebar state while their backing storage
-    // is valid. The application destroys this widget after the QAction stack
-    // has unwound and only then initiates the asynchronous server logout.
-    close();
-}
-
 void MainWindow::closeEvent(QCloseEvent* event)
 {
 	qDebug() << "closeEvent";
-	if (doDeinit) {
-		qDebug() << "QMainWindow closeEvent";
-		saveState();
-		return QMainWindow::closeEvent(event);
-	}
 
 	if (trayIcon.isVisible()) {
 		hide();
@@ -1552,10 +1533,6 @@ void MainWindow::initializationComplete()
 	teamChannelsReady = true;
 	restoreNavigationSessionWhenReady();
 	LOG_DEBUG("MainWindow initialization comlete");
-	if (!currentTeamRestoredFromSettings) {
-		// No persisted team was restored. ChannelTree will retain its first
-		// usable selection until the user explicitly chooses another one.
-	}
 }
 
 void MainWindow::restoreNavigationSessionWhenReady()
@@ -1569,11 +1546,6 @@ void MainWindow::restoreNavigationSessionWhenReady()
 	// duplicate category HTTP requests merely to establish startup readiness.
 	navigationSessionRestoreScheduled = true;
 	NavigationUiController::instance(*this).restoreSession();
-}
-
-void MainWindow::unreadMessagesNotify(const BackendChannel& channel)
-{
-	Q_UNUSED(channel);
 }
 
 void MainWindow::setNotificationsCountVisualization(uint32_t notificationsCount)
