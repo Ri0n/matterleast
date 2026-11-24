@@ -45,6 +45,11 @@ Windows GUI-mode QtTest binaries can fail without forwarding assertion text to t
 For captured regression steps, pass an explicit `-o path,txt`, print that file, and propagate the
 original test exit code. Exclude a test from the later CTest pass only when that captured step has
 already executed it; capturing output must not turn a failure into a successful job.
+For a hanging Windows integration test, sample the original process with a
+noninvasive CDB attach before QtTest's watchdog expires. The stack capture
+must not rerun the test, change its timeout, or replace its exit status.
+Windows CI keeps linker PDBs for symbol resolution without changing Release
+optimization flags.
 
 ## Windows widget theme compatibility
 

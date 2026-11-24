@@ -54,6 +54,7 @@
 #include "ui/UserStatusEmoji.h"
 #include "backend/types/BackendTeam.h"
 #include "chat-area/ChatArea.h"
+#include "navigation/ChannelPageHost.h"
 #include "channel-tree/ChannelIcons.h"
 #include "channel-tree/ChannelItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
@@ -146,7 +147,6 @@ public:
 
 ChannelTree::ChannelTree (QWidget* parent)
 :QTreeWidget (parent)
-,chatAreaStackedWidget(nullptr)
 ,backendForSidebar(nullptr)
 ,renderingSidebar(false)
 {
@@ -237,7 +237,6 @@ bool ChannelTree::bindSingleAccount(const QString& accountId)
     };
     rekey(teamToItemMap);
     rekey(channelToItemMap);
-    rekey(channelPages);
     QSet<ScopedId> reboundUsers;
     for (const ScopedId& entry : connectedSidebarUsers)
         reboundUsers.insert({accountId, entry.second});
@@ -466,8 +465,8 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
         else
             ++userIt;
     }
-    if (accountId == _boundAccountId
-        && (!expected || expected == backendForSidebar))
+    if (backendForSidebar && (!expected || expected == backendForSidebar)
+        && (accountId == _boundAccountId || expected == backendForSidebar))
         backendForSidebar = nullptr;
     refreshMergedConversations();
 }
@@ -475,6 +474,8 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
 Backend* ChannelTree::backendForAccount(const QString& accountId) const
 {
     if (accountId.isEmpty()) {
+        if (_visibleAccountRootIds.size() == 1)
+            return backendForAccount(_visibleAccountRootIds.front());
         if (_visibleAccountRootIds.size() > 1)
             return nullptr;
         // Legacy callers can omit the account only while exactly one Backend
@@ -638,7 +639,7 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
                        {accountIdForBackend(backendGuard.data()), teamGuard->id}) != teamGuard)
                 return;
             if (_visibleAccountRootIds.size() > 1
-                && !chatAreaStackedWidget) {
+                && !_channelPages) {
                     // The account's own ChannelTree retrieves fresh category
                     // snapshots. A combined View only consumes its cache:
                     // two presenters must not double the server request.
@@ -693,8 +694,7 @@ void ChannelTree::synchronizeAccountSidebar(const QString& accountId)
             removeTeamSidebar(key);
     }
 
-    // Another account's MainWindow normally owns retrieval. Reuse the cache,
-    // not SidebarService::instance() (which may trigger startup network calls).
+    // Account startup owns retrieval; the View only consumes cached data.
     SidebarService* sidebar = SidebarService::existing(*owner);
     if (!sidebar)
         return;
@@ -702,8 +702,10 @@ void ChannelTree::synchronizeAccountSidebar(const QString& accountId)
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
         if (it.key().first != accountId || !it.value())
             continue;
-        if (const SidebarTeamState* state = sidebar->teamState(it.key().second))
+        if (const SidebarTeamState* state = sidebar->teamState(it.key().second)) {
             reconcileTeamSidebar(*owner, *it.value(), *state);
+            emit teamSidebarPopulated(it.key().second);
+        }
     }
 }
 
@@ -873,8 +875,10 @@ void ChannelTree::onSidebarCategoriesChanged(const QString& teamId)
         return;
     TeamItem* team = teamToItemMap.value({accountIdForBackend(owner), teamId}, nullptr);
     const SidebarTeamState* state = SidebarService::instance(*owner).teamState(teamId);
-    if (team && state)
+    if (team && state) {
         reconcileTeamSidebar(*owner, *team, *state);
+        emit teamSidebarPopulated(teamId);
+    }
 }
 
 void ChannelTree::observeSidebarSignals(Backend& backend, SidebarService& sidebar)
@@ -928,34 +932,15 @@ void ChannelTree::refreshServerSnapshot()
 
 void ChannelTree::refreshServerSnapshotForAccount(const QString& accountId)
 {
-    Backend* owner = backendForAccount(accountId);
-    if (!owner)
-        return;
-    const QString id = accountId.isEmpty() ? _boundAccountId : accountId;
-    auto& sidebar = SidebarService::instance(*owner);
-    sidebar.invalidateCachedReads();
-    QPointer<ChannelTree> guard(this);
-    QPointer<Backend> ownerGuard(owner);
-    sidebar.retrieveChannelMemberships([guard, ownerGuard, id] {
-        if (!guard || !ownerGuard
-            || guard->backendForAccount(id) != ownerGuard.data())
-            return;
-        auto& currentSidebar = SidebarService::instance(*ownerGuard.data());
-        currentSidebar.retrieveChannelPreferences([guard, ownerGuard, id] {
-            if (!guard || !ownerGuard
-                || guard->backendForAccount(id) != ownerGuard.data())
-                return;
-            // The authenticated Backend owns the account channel catalog.
-            // Verified websocket replay guarantees it is still current; a
-            // sequence gap recreates the session and reloads the catalog.
-            // This view must never issue a second /users/me/channels request.
-            const QList<ScopedId> teamKeys = guard->teamToItemMap.keys();
-            for (const ScopedId& key : teamKeys) {
-                if (key.first == id)
-                    guard->refreshSidebarTeam(key);
-            }
-        });
-    });
+    if (auto* owner = backendForAccount(accountId))
+        SidebarService::instance(*owner).refreshAccountSnapshot();
+}
+
+void ChannelTree::observeAccountSidebar(Backend& owner)
+{
+    if (!backendForSidebar)
+        backendForSidebar = &owner;
+    observeSidebarSignals(owner, SidebarService::instance(owner));
 }
 
 void ChannelTree::refreshSidebarTeam(const ScopedId& teamKey)
@@ -1007,9 +992,16 @@ void ChannelTree::removeTeamSidebar(const ScopedId& teamKey)
 
     const QSignalBlocker selectionGuard(this);
     const QScopedValueRollback<bool> renderingGuard(renderingSidebar, true);
-    const bool removingCurrent = currentItem()
-        && currentItem()->data(0, ItemTeamIdRole).toString() == teamKey.second
-        && currentItem()->data(0, ItemAccountIdRole).toString() == teamKey.first;
+    // The current row belongs to the retiring branch even when it has no
+    // account/team roles (e.g. a partially populated startup row). Clear it
+    // before removing any children. Otherwise QAbstractItemView attempts to
+    // select a replacement while handling rowsAboutToBeRemoved.
+    for (auto* current = currentItem(); current; current = current->parent()) {
+        if (current == teamItem) {
+            selectionModel()->clear();
+            break;
+        }
+    }
     while (teamItem->childCount() > 0) {
         QTreeWidgetItem* row = teamItem->takeChild(0);
         if (!row) {
@@ -1025,10 +1017,15 @@ void ChannelTree::removeTeamSidebar(const ScopedId& teamKey)
             destroySidebarRow(row);
         }
     }
-    delete teamItem;
-    if (removingCurrent) {
-        setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
+    // Remove the row from the model while the complete TeamItem is still
+    // alive. Qt's rowsAboutToBeRemoved handlers can inspect it synchronously;
+    // they must not run inside the QTreeWidgetItem base destructor.
+    if (auto* parent = teamItem->QTreeWidgetItem::parent()) {
+        parent->removeChild(teamItem);
+    } else if (const int index = indexOfTopLevelItem(teamItem); index >= 0) {
+        takeTopLevelItem(index);
     }
+    delete teamItem;
 }
 
 QTreeWidgetItem* ChannelTree::createCategoryItem(TeamItem& teamItem, const QString& categoryId,
@@ -1293,13 +1290,7 @@ void ChannelTree::handleChannelLeaveForAccount(const QString& accountId,
                                                const QString& channelId)
 {
     const ScopedId key {accountId, channelId};
-    // Storage can destroy the channel immediately after onLeave(), including
-    // while a drag defers removal of its rows.
-    if (ChatArea* page = channelPages.take(key)) {
-        chatAreaStackedWidget->removeWidget(page);
-        delete page;
-    }
-
+    // ChannelPageHost retires the chat independently of sidebar rows.
     const QList<QTreeWidgetItem*> items = channelToItemMap.value(key);
     if (sidebarDragActive) {
         for (QTreeWidgetItem* item : items) {
@@ -1333,35 +1324,15 @@ void ChannelTree::activateConversation(const QString& channelId, const QString& 
     if (!channel) {
         return;
     }
-    if (!chatAreaStackedWidget) {
+    if (!_channelPages) {
         // A merged View uses the existing per-account ChatArea, rather than
         // accidentally materializing a second copy under this tree.
         emit conversationOpenRequested(key.first, channelId);
         return;
     }
 
-    ChatArea* currentPage = getCurrentPage();
-    ChatArea* page = channelPages.value(key);
-    if (!page) {
-        const QString context = teamId.isEmpty() ? owner->getCurrentTeamContextId()
-                                                 : teamId;
-        page = new ChatArea(*owner, *channel, context, chatAreaStackedWidget, false);
-        channelPages.insert(key, page);
-        connect(channel, &BackendChannel::onLeave, this,
-                &ChannelTree::handleChannelLeave, Qt::UniqueConnection);
-        chatAreaStackedWidget->addWidget(page);
-    } else if (!teamId.isEmpty()) {
-        page->sidebarTeamId = teamId;
-    }
-
-    if (currentPage && currentPage != page) {
-        currentPage->onDeactivate();
-    }
-    chatAreaStackedWidget->setCurrentWidget(page);
-    // The first widget can already be current after addWidget(). Activation
-    // still initializes it and sets the backend's active channel.
-    page->onActivate();
-    emit channelActivated();
+    if (_channelPages->activate(*owner, *channel, teamId))
+        emit channelActivated();
 }
 
 void ChannelTree::activateChannelItem(QTreeWidgetItem* item)
@@ -1415,7 +1386,7 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
         || destination == SidebarItem::DraftsDestination
         || destination == SidebarItem::RecentMentionsDestination) {
         const QString teamId = item->data(0, ItemTeamIdRole).toString();
-        if (_visibleAccountRootIds.size() > 1 && !chatAreaStackedWidget)
+        if (!accountId.isEmpty() && (_visibleAccountRootIds.size() > 1 || _boundAccountId.isEmpty()))
             emit virtualDestinationRequestedForAccount(accountId, destination, teamId);
         else
             emit virtualDestinationRequested(destination, teamId);
@@ -1454,26 +1425,16 @@ void ChannelTree::activateVirtualDestination(QTreeWidgetItem* item)
                          accountId);
 }
 
-void ChannelTree::addGroupChannelsList (Backend& backend)
-{
-    Q_UNUSED(backend);
-}
-
-void ChannelTree::addDirectChannelsList (Backend& backend)
-{
-    Q_UNUSED(backend);
-}
-
 void ChannelTree::setChatAreaStackedWidget (QStackedWidget* stackedWidget)
 {
-	chatAreaStackedWidget = stackedWidget;
+    _channelPages = stackedWidget ? &ChannelPageHost::instance(*stackedWidget) : nullptr;
 }
 
 void ChannelTree::openChannel(QString channelID)
 {
     if (_visibleAccountRootIds.size() > 1)
         return;
-    openChannelForAccount(std::move(channelID), _boundAccountId);
+    openChannelForAccount(std::move(channelID), boundAccountId());
 }
 
 void ChannelTree::openChannelForAccount(QString channelID, const QString& accountId)
@@ -1527,7 +1488,7 @@ void ChannelTree::openChannelForAccount(QString channelID, const QString& accoun
     }
 
     if (!item) {
-        if (channelPages.value(key)) {
+        if (hasChannelPage(key.first, channelID)) {
             setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
             activateConversation(channelID, {}, key.first);
         } else {
@@ -1591,12 +1552,18 @@ void ChannelTree::showContextMenu (const QPoint& pos)
 	pointedItem->showContextMenu (mapToGlobal(pos) + QPoint (25, 15));
 }
 
+bool ChannelTree::hasChannelPage(const QString& accountId, const QString& channelId) const
+{
+    if (!_channelPages)
+        return false;
+    Backend* owner = backendForAccount(accountId);
+    auto* channel = owner ? owner->getStorage().getChannelById(channelId) : nullptr;
+    return channel && _channelPages->pageFor(*channel);
+}
+
 ChatArea* ChannelTree::getCurrentPage ()
 {
-    if (!chatAreaStackedWidget) {
-        return nullptr;
-    }
-	return qobject_cast<ChatArea*> (chatAreaStackedWidget->currentWidget());
+    return _channelPages ? _channelPages->currentPage() : nullptr;
 }
 
 void ChannelTree::showCategoryMenu(const QString& accountId, const QString& teamId,

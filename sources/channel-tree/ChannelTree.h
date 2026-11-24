@@ -57,6 +57,7 @@ class BackendChannel;
 class BackendTeam;
 class BackendUser;
 class ChatArea;
+class ChannelPageHost;
 class TeamItem;
 class ChannelItem;
 class Storage;
@@ -99,7 +100,11 @@ public:
     // model rows with that Backend's durable local account ID; never rebind
     // it to a different account (that requires a separate presentation).
     bool bindSingleAccount(const QString& accountId);
-    QString boundAccountId() const { return _boundAccountId; }
+    QString boundAccountId() const { return _visibleAccountRootIds.size() == 1
+        ? _visibleAccountRootIds.front() : _boundAccountId; }
+    QStringList visibleAccountRoots() const { return _visibleAccountRootIds; }
+    bool accountVisible(const QString& id) const { return _visibleAccountRootIds.isEmpty()
+        || _visibleAccountRootIds.contains(id); }
     // View-scoped account roots, without a replacement channel model.
     // Singletons retain the exact original team hierarchy.
     // Do not activate merged Views until their shared DM/GM section is ready.
@@ -129,16 +134,12 @@ public:
 	void addTeam (Backend& backend, BackendTeam& team);
 	void populateSidebars(Backend& backend);
     /** Re-fetch read state, preferences and server categories after reconnect. */
+    void observeAccountSidebar(Backend& owner);
     void refreshServerSnapshot();
     void refreshServerSnapshotForAccount(const QString& accountId);
     // Reconcile a temporary, non-persistent view of older conversations while
     // the sidebar search field is populated.
     void setConversationSearchTerm(const QString& term);
-
-	// Kept for source compatibility; the server-backed sidebar no longer uses
-	// separate global DM/GM lists.
-	void addDirectChannelsList (Backend& backend);
-	void addGroupChannelsList (Backend& backend);
 
 	void setChatAreaStackedWidget (QStackedWidget* chatAreaStackedWidget);
 	ChatArea* getCurrentPage ();
@@ -205,7 +206,7 @@ signals:
     void virtualDestinationRequestedForAccount(const QString& accountId,
                                                int destination, const QString& teamId);
     /** Completion of a stored-channel open that required asynchronous admission/join. */
-    void storedChannelOpenFinished(const QString& channelId, bool opened);
+    void storedChannelOpenFinished(const QString& accountId, const QString& channelId, bool opened);
 
 protected:
 	void currentChanged(const QModelIndex& current, const QModelIndex& previous) override;
@@ -271,6 +272,7 @@ private:
     QTreeWidgetItem* personalItemForTeam(const QString& teamId,
                                         const QString& accountId = {}) const;
     void refreshPersonalItems();
+    bool hasChannelPage(const QString& accountId, const QString& channelId) const;
     void activateConversation(const QString& channelId, const QString& teamId = {},
                               const QString& accountId = {});
 	void activateChannelItem(QTreeWidgetItem* item);
@@ -331,8 +333,7 @@ private:
     void onSidebarCategoriesChanged(const QString& teamId);
     void refreshPaletteDependentIcons();
 
-	QStackedWidget*						chatAreaStackedWidget;
-    QMap<ScopedId, QPointer<ChatArea>>  channelPages;
+    QPointer<ChannelPageHost>          _channelPages;
     QMap<ScopedId, QList<QTreeWidgetItem*>> channelToItemMap;
     QMap<ScopedId, TeamItem*>            teamToItemMap;
     QSet<ScopedId>                      connectedSidebarUsers;

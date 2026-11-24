@@ -162,6 +162,14 @@ public:
                         }}).toJson(QJsonDocument::Compact);
                         if (!secondPage)
                             ++pageZeroResponses;
+                    } else if (requestLine.startsWith("GET /api/v4/users/me/teams ")
+                               || requestLine.startsWith("GET /api/v4/users/me/channels ")
+                               || requestLine.startsWith("GET /api/v4/plugins/webapp ")
+                               || (requestLine.startsWith("GET /api/v4/users/")
+                                   && requestLine.contains("/channel_members?"))) {
+                        // Account-owned startup also loads its catalog and sidebar.
+                        // This fixture has no teams, memberships or webapp plugins.
+                        body = QByteArrayLiteral("[]");
                     } else if (requestLine.startsWith("GET /api/v4/users/")
                                && requestLine.contains("/preferences ")) {
                         ++preferencesRequests;
@@ -172,6 +180,14 @@ public:
                         } else {
                             body = QByteArrayLiteral("[]");
                         }
+                    } else if (requestLine.startsWith("GET /api/v4/users/")
+                               && requestLine.contains("/image?")) {
+                        // Avatar requests are not profile lookups. The fixture
+                        // has no avatar image; use a real missing-image response.
+                        status = QByteArrayLiteral("404 Not Found");
+                        body = QByteArrayLiteral("{}");
+                    } else if (requestLine.startsWith("POST /api/v4/users/status/ids ")) {
+                        body = QByteArrayLiteral("[]");
                     } else if (requestLine.startsWith("GET /api/v4/users/")) {
                         ++profileRequests;
                         profileCookies.append(cookie);
@@ -444,8 +460,10 @@ private slots:
 
         // Each Backend's preferences request must use its own server host
         // and authentication, without any ambient global HTTP identity.
-        QTRY_COMPARE(serverOne.preferencesRequests, 1);
-        QTRY_COMPARE(serverTwo.preferencesRequests, 1);
+        // Backend loads flagged posts at login; the account-owned sidebar
+        // independently loads its visibility and activity preferences.
+        QTRY_COMPARE(serverOne.preferencesRequests, 2);
+        QTRY_COMPARE(serverTwo.preferencesRequests, 2);
         QCOMPARE(serverOne.identityRequests, 1);
         QCOMPARE(serverTwo.identityRequests, 1);
         checkCookies(serverOne.identityCookies, "token-one", "token-two");
@@ -455,8 +473,8 @@ private slots:
 
         backendOne->retrieveUserPreferences();
         backendTwo->retrieveUserPreferences();
-        QTRY_COMPARE(serverOne.preferencesRequests, 2);
-        QTRY_COMPARE(serverTwo.preferencesRequests, 2);
+        QTRY_COMPARE(serverOne.preferencesRequests, 3);
+        QTRY_COMPARE(serverTwo.preferencesRequests, 3);
         checkCookies(serverOne.preferenceCookies, "token-one", "token-two");
         checkCookies(serverTwo.preferenceCookies, "token-two", "token-one");
 
@@ -808,8 +826,17 @@ private slots:
         QVERIFY(second->loggedIn());
         QVERIFY(!sessions.findAccount(server.origin(),
                                      QStringLiteral("shared-server-one")));
+        const auto secondPreferenceRequests = [&server] {
+            int count = 0;
+            for (const QByteArray& cookie : server.preferenceCookies) {
+                if (cookie.contains("MMAUTHTOKEN=token-two"))
+                    ++count;
+            }
+            return count;
+        };
+        QTRY_COMPARE(secondPreferenceRequests(), 2);
         second->retrieveUserPreferences();
-        QTRY_VERIFY(server.preferencesRequests >= 3);
+        QTRY_COMPARE(secondPreferenceRequests(), 3);
         // The per-request cookie lists must include both independent tokens,
         // not a single shared last-login token.
         bool sawOne = false;
@@ -1377,65 +1404,62 @@ private slots:
         QTRY_VERIFY(waitingGuard.isNull());
         QCOMPARE(sessions.registeredBackends().size(), 1);
 
-        activeBackend->retrieveUserPreferences();
         QTRY_COMPARE(healthy.preferencesRequests, 2);
+        activeBackend->retrieveUserPreferences();
+        QTRY_COMPARE(healthy.preferencesRequests, 3);
         checkCookies(healthy.preferenceCookies, "active-token", "stalled-token");
     }
-    void sidebarWidthSurvivesNavigationReparentAndHiddenShutdown()
+    void sidebarWidthSurvivesPermanentWindowRestartAndHiddenShutdown()
     {
-        FakeMattermostServer server(QByteArrayLiteral("sidebar-width-account"));
-        QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
-        bool ready = false;
-        backend.login(credentials(server, QStringLiteral("sidebar-token")),
-                      [&](const QString& token) { ready = !token.isEmpty(); });
-        QTRY_VERIFY(ready);
-
-        const QString key = QStringLiteral("workspace/%1/sidebar_width")
-            .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+        const QString key = QStringLiteral("sidebar_splitter_state");
         auto* options = MLOptions::instance();
-        // Simulate a width previously saved by a real splitter drag. The
-        // navigation controller must preserve it when it reparents widgets.
-        options->setValue(key, 400);
+        struct RestoreOption {
+            MLOptions* options;
+            QString key;
+            QByteArray original;
+            ~RestoreOption() { options->setValue(key, original); }
+        } restore {options, key, options->value<QByteArray>(key)};
+
+        QSplitter previous(Qt::Horizontal);
+        previous.addWidget(new QWidget);
+        previous.addWidget(new QWidget);
+        previous.resize(1100, 720);
+        previous.setSizes({400, 699});
+        options->setValue(key, previous.saveState());
 
         QSystemTrayIcon tray;
-        // Production MainWindow is a child of the persistent account stack.
-        // Its saved width must be restored only after the stack shows it.
-        QStackedWidget shell;
-        shell.resize(1100, 720);
-        auto* window = new MainWindow(nullptr, tray, backend);
-        shell.addWidget(window);
-        shell.show();
-        NavigationUiController::instance(*window);
-        auto* sidebar = window->findChild<QSplitter*>(
-            QStringLiteral("sidebarSplitter"));
+        QByteArray saved;
+        int savedWidth = 0;
+        {
+            MainWindow window(nullptr, tray);
+            window.resize(1100, 720);
+            window.enableSharedPresentation();
+            window.show();
+            auto* sidebar = window.findChild<QSplitter*>(QStringLiteral("sidebarSplitter"));
+            QVERIFY(sidebar);
+            QTRY_VERIFY(sidebar->width() > 800);
+            QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 400) <= 35);
+            sidebar->setSizes({340, sidebar->sizes().at(0) + sidebar->sizes().at(1) - 340});
+            QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 340) <= 35);
+            savedWidth = sidebar->sizes().at(0);
+            window.saveState();
+            saved = options->value<QByteArray>(key);
+            QVERIFY(!saved.isEmpty());
+            window.hide();
+            window.saveState();
+            QCOMPARE(options->value<QByteArray>(key), saved);
+        }
+
+        MainWindow restarted(nullptr, tray);
+        restarted.resize(1100, 720);
+        restarted.enableSharedPresentation();
+        restarted.show();
+        auto* sidebar = restarted.findChild<QSplitter*>(QStringLiteral("sidebarSplitter"));
         QVERIFY(sidebar);
         QTRY_VERIFY(sidebar->width() > 800);
-        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 400) <= 35);
-
-        sidebar->setSizes({340, 750});
-        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 340) <= 35);
-        window->saveState();
-        const int saved = options->value<int>(key, 0);
-        QVERIFY(qAbs(saved - 340) <= 35);
-
-        // A hidden account page must not replace its real width with zero
-        // when QApplication quits or when another server was selected.
-        window->hide();
-        window->saveState();
-        QCOMPARE(options->value<int>(key, 0), saved);
-        delete window;
-
-        auto* restarted = new MainWindow(nullptr, tray, backend);
-        shell.addWidget(restarted);
-        shell.setCurrentWidget(restarted);
-        NavigationUiController::instance(*restarted);
-        auto* restoredSidebar = restarted->findChild<QSplitter*>(
-            QStringLiteral("sidebarSplitter"));
-        QVERIFY(restoredSidebar);
-        QTRY_VERIFY(restoredSidebar->width() > 800);
-        QTRY_VERIFY(qAbs(restoredSidebar->sizes().at(0) - saved) <= 35);
-        delete restarted;
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - savedWidth) <= 35);
+        restarted.resize(1250, 720);
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - savedWidth) <= 35);
     }
 
     void navigationControllerStopsObservingAreasBeforeWindowDestruction()

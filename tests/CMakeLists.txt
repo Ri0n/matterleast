@@ -75,12 +75,17 @@ add_test(NAME notification-passive-focus-test COMMAND notification-passive-focus
 
 # A contextual thread pane follows the active conversation unless the tab is pinned.
 # Session-only typing activity is shared between visible channel/thread widgets.
-add_executable(notification-message-owner-test NotificationMessageOwnerTest.cpp)
+add_executable(notification-message-owner-test
+    NotificationMessageOwnerTest.cpp
+    "${CMAKE_SOURCE_DIR}/sources/notifications/NotificationManager.cpp")
 target_include_directories(notification-message-owner-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
+# Test the actual tray fallback path without a native notification daemon.
 target_link_libraries(notification-message-owner-test PRIVATE
-    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Core)
+    Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
 add_test(NAME notification-message-owner-test COMMAND notification-message-owner-test)
+set_tests_properties(notification-message-owner-test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(typing-activity-state-test TypingActivityStateTest.cpp)
 target_include_directories(typing-activity-state-test PRIVATE
@@ -905,17 +910,6 @@ if(TARGET matterleast-core)
         COMMAND channel-tree-account-identity-test)
     set_tests_properties(channel-tree-account-identity-test
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()
-
-# Account workspace switching must preserve the underlying views instead of
-# recreating pages, navigation models or draft widgets on every switch.
-if(TARGET matterleast-core)
-    add_executable(account-workspace-stack-test AccountWorkspaceStackTest.cpp)
-    target_link_libraries(account-workspace-stack-test PRIVATE
-        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
-    add_test(NAME account-workspace-stack-test COMMAND account-workspace-stack-test)
-    set_tests_properties(account-workspace-stack-test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # Authenticated Backend instances must keep login, preferences and

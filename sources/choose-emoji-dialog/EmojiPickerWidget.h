@@ -35,7 +35,9 @@ class EmojiPickerWidget final : public QWidget
     Q_OBJECT
 
 public:
+    explicit EmojiPickerWidget(QWidget* parent = nullptr);
     explicit EmojiPickerWidget(Backend& backend, QWidget* parent = nullptr);
+    void setBackend(Backend* backend);
 
     void prepare();
     void resetSearch();
@@ -69,7 +71,10 @@ private:
     void removeTabPresentation(int index);
     void syncCurrentTabButton(int index);
 
-    Backend& backend_;
+    QPointer<Backend> backend_;
+    QMetaObject::Connection customEmojiConnection_;
+    QMetaObject::Connection backendDestroyedConnection_;
+    QVector<Emoji> renderedCustomEmojis_;
     QLineEdit* searchEdit_ = nullptr;
     QWidget* categoryBar_ = nullptr;
     QStackedWidget* stackWidget_ = nullptr;
@@ -81,7 +86,6 @@ private:
     QTimer* searchTimer_ = nullptr;
     QTimer* customEmojiRefreshTimer_ = nullptr;
     int searchReturnTabIndex_ = -1;
-    int renderedCustomEmojiCount_ = -1;
     int defaultSkinTone_ = EmojiSkinTone::none;
 };
 

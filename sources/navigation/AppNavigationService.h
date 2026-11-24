@@ -24,8 +24,12 @@ public:
     using NavigationCallback = std::function<void(bool)>;
 
     static AppNavigationService& instance(Backend& backend);
-    // An account's Widgets presentation may be embedded in AccountWorkspaceStack.
+    // Bind this account's navigation service to the permanent application window.
     void bindMainWindow(MainWindow& window);
+    void unbindMainWindow(MainWindow& window);
+    void cancelPendingNavigation() { navigationRequests.begin(); }
+    quint64 beginNavigation();
+    bool isNavigationCurrent(quint64 generation) const { return navigationRequests.isCurrent(generation); }
 
     void openUrl(const QUrl& url);
     void openUrlInTab(const QUrl& url);
@@ -63,7 +67,6 @@ signals:
 private:
     explicit AppNavigationService(Backend& backend);
 
-    quint64 beginNavigation();
     void openUrlImpl(const QUrl& url, bool inTab);
     void openPostImpl(const QString& postId, bool inTab);
     bool activateExistingDestination(const QString& channelId,

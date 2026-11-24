@@ -1,6 +1,6 @@
 # Reaction quick bar and popularity ranking
 
-MatterLeast keeps one small application-wide reaction ranking. The quick bar is derived entirely from that ranking; there is no separate favorites/default-favorites model.
+MatterLeast keeps one small reaction ranking per server endpoint. The quick bar is derived entirely from that ranking; there is no separate favorites/default-favorites model.
 
 The ranking stores canonical Mattermost emoji names only, for example `fire`, `heart` or a custom name. Resolution to Unicode or a custom image belongs to `EmojiInfo` / `CustomEmojiService`.
 
@@ -31,7 +31,7 @@ flowchart LR
     B[Backend reaction request]
     E[confirmed reaction-added event]
     C[BackendChannel]
-    T[ReactionUsageTracker\napplication-global singleton]
+    T[ReactionUsageTracker\nserver-scoped tracker]
     M[ReactionUsageModel\nbackend-independent ranking]
     S[MLOptions persistent store]
     R[EmojiInfo / CustomEmojiService]
@@ -50,7 +50,7 @@ flowchart LR
 
 `ReactionUsageModel` contains no `Backend`, network, channel or server identity. It only knows reaction names and ranking values.
 
-`ReactionUsageTracker` owns the sixteen-entry model and persists it through `MLOptions`.
+`ReactionUsageTracker` owns a sixteen-entry model for each canonical server endpoint and persists it through `MLOptions`. Accounts on the same server share the ranking; different servers never share names, heat or counts. Both built-in and custom emoji use the same server-specific ranking.
 
 `BackendChannel` records usage only after the post model confirms that the logged-in user's reaction was actually added. The ranking therefore describes successful behavior rather than button clicks.
 
@@ -135,8 +135,10 @@ Heat is unchanged. Aging repeats for malformed/legacy persisted data until every
 The ranking is stored under:
 
 ```text
-reaction_usage/popularity_v1
+reaction_usage/servers/<sha256(canonical-server-url)>/popularity_v1
 ```
+
+If no scoped ranking exists, only built-in names from the former global `reaction_usage/popularity_v1` are imported. Custom names cannot be attributed reliably to a server, so they start fresh.
 
 as compact JSON:
 
@@ -229,7 +231,7 @@ never enumerated merely because of hover.
 After successful login, MatterLeast prewarms only the hottest ten names from the current ranking:
 
 ```text
-ReactionUsageTracker::topNames(10)
+ReactionUsageTracker::instance(server).topNames(10)
     -> EmojiInfo::findByName(name)
 ```
 
@@ -250,7 +252,7 @@ sources/reactions/ReactionUsage.h
     pure ranking, seed policy, cooling, count aging and serialization
 
 sources/reactions/ReactionUsageTracker.{h,cpp}
-    process-wide singleton, persistence and empty-ranking seeding
+    server-scoped trackers, persistence and empty-ranking seeding
 
 sources/backend/types/BackendChannel.cpp
     confirmed-own-reaction integration point
@@ -275,12 +277,12 @@ tests/EmojiDialogSupportTest.cpp
 
 Future changes should preserve these rules:
 
-- there is one popularity model; do not reintroduce a parallel favorites model;
+- there is one popularity model per server; do not reintroduce a parallel favorites model;
 - the ranking model stays backend-independent;
 - only a confirmed newly-added own reaction counts as usage;
 - a real use must outrank the weak startup seed immediately;
 - familiarity may slow cooling but remains bounded;
-- only a bounded sixteen-entry set of names is persisted;
+- only a bounded sixteen-entry set of names per server is persisted;
 - startup and hover network work is proportional to the small ranked working set, not the size of the server custom-emoji catalog;
 - composer hover must read only the bounded ranking and must not enumerate picker categories or the custom-emoji catalog;
 - unresolvable custom emoji must not block standard quick reactions.

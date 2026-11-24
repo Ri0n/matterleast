@@ -36,9 +36,12 @@
 
 namespace Mattermost {
 
+class NetworkSessionContext;
+
 class Storage {
 public:
-	Storage ();
+    explicit Storage(const NetworkSessionContext* session = nullptr);
+    QString serverEndpoint() const;
 	virtual ~Storage ();
 public:
 	void reset ();
@@ -99,6 +102,8 @@ public:
 	BackendUser*							matterpollUser;
 	uint32_t							totalUsersCount;
 	uint32_t							knownActiveUsersCount;
+private:
+    const NetworkSessionContext* session_;
 };
 
 } /* namespace Mattermost */

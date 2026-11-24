@@ -241,8 +241,8 @@ private slots:
         QFETCH(QString, emoji);
         QFETCH(QString, text);
         QFETCH(QString, duration);
-        EmojiRegistry registry;
-        CustomStatusEditorDialog editor(registry, {});
+        Backend backend;
+        CustomStatusEditorDialog editor(backend, {});
         editor.show();
         QCoreApplication::processEvents();
 
@@ -262,8 +262,8 @@ private slots:
 
     void recentStatusesAreSelectableAndRemovable()
     {
-        EmojiRegistry registry;
-        CustomStatusEditorDialog editor(registry, {});
+        Backend backend;
+        CustomStatusEditorDialog editor(backend, {});
         BackendUserCustomStatus recent;
         recent.emoji = QStringLiteral("calendar");
         recent.text = QStringLiteral("In a meeting");
@@ -311,11 +311,11 @@ private slots:
 
     void inlineEmojiActionAndCompactScrollLayout()
     {
-        EmojiRegistry registry;
+        Backend backend;
         BackendUserCustomStatus initial;
         initial.emoji = QStringLiteral("calendar");
         initial.text = QStringLiteral("Working");
-        CustomStatusEditorDialog editor(registry, initial);
+        CustomStatusEditorDialog editor(backend, initial);
         editor.show();
         QCoreApplication::processEvents();
 

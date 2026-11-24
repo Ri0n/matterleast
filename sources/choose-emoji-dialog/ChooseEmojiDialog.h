@@ -20,7 +20,9 @@
 
 #pragma once
 
+#include <functional>
 #include <QDialog>
+#include <QPointer>
 
 #include "backend/emoji/EmojiDefs.h"
 
@@ -33,22 +35,25 @@ class ChooseEmojiDialog : public QDialog
 {
     Q_OBJECT
 
-private:
-    explicit ChooseEmojiDialog(Backend& backend, QWidget* parent = nullptr);
-    ~ChooseEmojiDialog() override;
-
 public:
-    void show();
+    // One lazy application dialog. Its current request supplies the exact
+    // account registry and transient owner, independently of MainWindow.
+    static void showFor(Backend& backend, QWidget& requester,
+                        std::function<void(Emoji)> callback);
 
 private:
-    friend class ChooseEmojiDialogWrapper;
-
+    explicit ChooseEmojiDialog();
+    ~ChooseEmojiDialog() override;
     void ensurePicker();
-    Emoji getSelectedEmoji();
+    void clearRequest();
 
-    Backend& backend_;
+    QPointer<Backend> backend_;
+    QPointer<QWidget> requester_;
+    QMetaObject::Connection requesterDestroyed_;
+    QMetaObject::Connection backendDestroyed_;
+    std::function<void(Emoji)> callback_;
     EmojiPickerWidget* picker_ = nullptr;
-    Emoji selectedEmoji_;
+    bool opening_ = false;
 };
 
 } // namespace Mattermost

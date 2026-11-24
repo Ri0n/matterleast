@@ -159,6 +159,9 @@ SidebarService::SidebarService(Backend& backend)
             this, &SidebarService::synchronizeChannelActivity);
 
     QTimer::singleShot(0, this, [this] {
+        // A session may have been stopped before deferred startup runs.
+        if (currentUserId().isEmpty())
+            return;
         retrieveClientConfig();
         retrieveChannelPreferences();
     });
@@ -170,6 +173,19 @@ void SidebarService::invalidateCachedReads()
     // Existing retrieval APIs coalesce concurrent loads.
     membershipsLoaded = false;
     preferencesLoaded = false;
+}
+
+void SidebarService::refreshAccountSnapshot()
+{
+    invalidateCachedReads();
+    retrieveChannelMemberships([this] {
+        retrieveChannelPreferences([this] {
+            // Replay continuity preserves the catalog. Refresh only the
+            // independent server-owned sidebar snapshots, never teams/channels.
+            for (auto& team : backend.getStorage().teams)
+                retrieveCategories(team.second);
+        });
+    });
 }
 
 void SidebarService::clear()
@@ -199,7 +215,8 @@ void SidebarService::clear()
 
 QString SidebarService::currentUserId() const
 {
-    return backend.getLoginUser().id;
+    const auto* user = backend.getStorage().loginUser;
+    return user ? user->id : QString();
 }
 
 QString SidebarService::categoriesPath(const QString& teamId) const

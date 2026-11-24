@@ -3,6 +3,7 @@
 #include <QObject>
 #include <optional>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -36,45 +37,7 @@ class NavigationUiController final : public QObject
 {
     Q_OBJECT
 public:
-    struct Location {
-        enum class Kind {
-            Chat,
-            Saved,
-            Drafts,
-            RecentMentions,
-            Search,
-        };
-
-        Location() = default;
-        Location(const QString& channel,
-                 const QString& root = QString(),
-                 const QString& post = QString())
-            : channelId(channel)
-            , rootId(root)
-            , postId(post)
-        {
-        }
-
-        Kind kind = Kind::Chat;
-        QString channelId;
-        QString rootId;
-        QString postId;
-        // Shared with tab restoration, strictly in-memory; never serialized.
-        std::optional<NavigationTabsModel::ViewportAnchor> viewportAnchor;
-
-        bool isChat() const { return kind == Kind::Chat; }
-        bool isValid() const { return !isChat() || !channelId.isEmpty(); }
-        bool sameDestination(const Location& other) const
-        {
-            if (kind != other.kind) {
-                return false;
-            }
-            if (!isChat()) {
-                return true;
-            }
-            return channelId == other.channelId && rootId == other.rootId;
-        }
-    };
+    using Location = ViewNavigationSession::Location;
 
     static NavigationUiController& instance(MainWindow& window);
 
@@ -82,26 +45,30 @@ public:
     ~NavigationUiController() override;
 
     ChatArea* findThread(const QString& channelId, const QString& rootId) const;
+    ChatArea* findThreadForBackend(const Backend& owner, const QString& channelId,
+                                   const QString& rootId) const;
     /** Whether the exact conversation is visible in a focused window. */
     bool isConversationVisible(const QString& channelId,
+                               const QString& rootId) const;
+    bool isConversationVisible(const Backend& source, const QString& channelId,
                                const QString& rootId) const;
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
     /** Choose the parent channel tab for an ordinary contextual thread click. */
-    void selectContextualThreadTab(const QString& channelId,
+    void selectContextualThreadTab(Backend& source, const QString& channelId,
                                    const QString& rootId);
     /** Thread-only tabs and detached windows must stay independent. */
-    bool hasIndependentThreadPresentation(const QString& channelId,
+    bool hasIndependentThreadPresentation(Backend& source, const QString& channelId,
                                           const QString& rootId) const;
     /** Whether ordinary thread navigation should first switch the central channel. */
-    bool shouldOpenParentChannelForThread(const QString& channelId) const;
-    void openInTab(const QString& channelId,
+    bool shouldOpenParentChannelForThread(Backend& source, const QString& channelId) const;
+    void openInTab(Backend& source, const QString& channelId,
                    const QString& rootId,
                    const QString& postId,
                    const QStringList& contextPostIds,
                    bool reachedOldest,
                    bool reachedNewest);
-    bool activateExistingTab(const QString& channelId,
+    bool activateExistingTab(Backend& source, const QString& channelId,
                              const QString& rootId = QString(),
                              bool restoreBookmark = true);
     void saveSession();
@@ -109,10 +76,16 @@ public:
     // Called from MainWindow's destructor while all Widget descendants are
     // still valid. Flush once, then stop reacting to their destruction.
     void beginShutdown();
-    // Called only for a view with one owning account while the desktop still
-    // uses account-specific MainWindow instances. The state remains QtCore.
-    void bindViewSession(ViewNavigationSession* session, const QString& accountId);
-    // Stop writing a single-account presentation into a merged or inactive view.
+    void attachBackend(Backend& source);
+    void detachBackend(Backend& source);
+    void refreshAttachedDestination(Backend& source);
+    void cancelOtherNavigationRequests(const Backend* source);
+    bool canPresentBackend(const Backend& source) const;
+    QVector<Backend*> visibleBackends() const;
+    // Empty accountId binds exact account-qualified View state. The explicit
+    // alias is retained for the transitional one-account presenters/fixtures.
+    void bindViewSession(ViewNavigationSession* session, const QString& accountId = {});
+    // Stop writing presentation state into an inactive view.
     void unbindViewSession();
 
 protected:
@@ -124,6 +97,8 @@ private:
     void scheduleSessionSave();
     void syncViewSession();
     void restoreBoundViewSession(bool adoptExistingPresentation);
+    void showEmptyConversation();
+    bool usesSharedView() const;
     ViewNavigationSession* historySession() const;
     ViewNavigationSession::Location semanticLocation(const Location& location) const;
     bool presentationLocation(const ViewNavigationSession::Location& source,
@@ -135,13 +110,12 @@ private:
     void setupSidebarHeader();
     void setupThreadPane();
     void setupTabShortcuts();
-    void closeThreadDockIfDifferent(const QString& channelId,
+    void closeThreadDockIfDifferent(const QString& accountId, const QString& channelId,
                                     bool force = false);
     ChatArea* centralTabArea() const;
     void closeActiveTab();
     void activatePreviousTab();
     void activateNextTab();
-    void updateIdentityTooltip();
     void updateHistoryButtons();
 
     Location captureLocation(ChatArea* area) const;
@@ -150,7 +124,7 @@ private:
     void recordCollection(PostCollectionView* page);
     void recordLocation(const Location& location, ChatArea* area);
     void navigateTo(const Location& location);
-    PostCollectionView* findCollection(Location::Kind kind) const;
+    PostCollectionView* findCollection(const Location& location) const;
 
     NavigationTabsModel::Entry tabEntry(const Location& location) const;
     Location tabLocation(const NavigationTabsModel::Entry& entry) const;
@@ -160,8 +134,8 @@ private:
     void ensureInitialTab();
     void refreshTabBarVisibility();
     void setNavigationTabTitle(int index, const QString& title);
-    void refreshTabUnreadVisual(const QString& channelId);
-    void refreshAllTabUnreadVisuals();
+    void refreshTabUnreadVisual(const QString& accountId, const QString& channelId);
+    void refreshAllTabUnreadVisuals(const QString& accountId);
     void updateTab(int index, const Location& location);
     void saveActiveTabLocation();
     void activateTab(int index, bool restoreBookmark = true);
@@ -184,11 +158,19 @@ private:
     void rememberThreadPaneWidth();
     void persistThreadPaneWidth();
 
+    ChatArea* findThreadForEntry(const NavigationTabsModel::Entry& entry) const;
+    ChatArea* currentChannelPage() const;
     Backend* backend() const;
+    Backend* backendForAccount(const QString& accountId) const;
+    // Transitional single-account presenter. Resolve stable identity from the
+    // owning Account, never from the selected View or a server channel ID.
+    QString presentationAccountId() const;
+    static QString accountIdForBackend(const Backend& backend);
 
     MainWindow& window;
     ChannelTree* channelTree = nullptr;
     QStackedWidget* mainStack = nullptr;
+    QPointer<QWidget> emptyConversation;
     QSplitter* sidebarSplitter = nullptr;
     QPointer<QSplitter> contentSplitter;
     QWidget* contentHost = nullptr;
@@ -198,6 +180,7 @@ private:
     QToolButton* backButton = nullptr;
     QToolButton* forwardButton = nullptr;
 
+    QSet<Backend*> attachedBackends;
     QPointer<ChatArea> activeArea;
     Location currentLocation;
     // The QtCore session owns Back/Forward; no second Widgets history stacks.
@@ -222,6 +205,7 @@ private:
     bool applyingViewSession = false;
     QPointer<ViewNavigationSession> viewNavigationSession;
     QString viewNavigationAccountId;
+    QSet<QString> viewNavigationMembers;
     bool everBoundView = false;
 };
 

@@ -4,11 +4,12 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QTabWidget>
+#include <QSystemTrayIcon>
 #include <QTreeView>
 
 #include "backend/AccountManager.h"
 #include "login/LoginDialog.h"
-#include "ui/ServersWorkspacePage.h"
+#include "mainwindow.h"
 #include "workspaces/WorkspaceTreeModel.h"
 
 using namespace Mattermost;
@@ -21,16 +22,18 @@ private slots:
     {
         AccountManager accounts;
         QVERIFY(accounts.load({}));
-        ServersWorkspacePage page(accounts);
-        QCOMPARE(page.objectName(), QStringLiteral("serversWorkspacePage"));
+        QSystemTrayIcon tray;
+        MainWindow page(nullptr, tray);
+        page.enableSharedPresentation();
+        page.installServersSidebar(accounts);
+        page.showServersSidebar();
         auto* tabs = page.findChild<QTabWidget*>(
-            QStringLiteral("startupSidebarTabs"));
+            QStringLiteral("sidebarTabs"));
         QVERIFY(tabs);
-        QCOMPARE(tabs->count(), 2);
+        QCOMPARE(tabs->count(), 4);
         QCOMPARE(tabs->tabText(0), QString());
         QVERIFY(!tabs->tabIcon(0).isNull());
         QCOMPARE(tabs->tabText(1), QStringLiteral("Channels"));
-        QVERIFY(!tabs->isTabEnabled(1));
         QCOMPARE(tabs->currentIndex(), 0);
 
         auto* tree = page.findChild<QTreeView*>(
@@ -39,7 +42,7 @@ private slots:
         QCOMPARE(tree->model(), accounts.workspaceTreeModel());
         QCOMPARE(tree->model()->rowCount(), 0);
 
-        QSignalSpy add(&page, &ServersWorkspacePage::addServerRequested);
+        QSignalSpy add(&page, &MainWindow::addServerRequested);
         auto* button = page.findChild<QToolButton*>(
             QStringLiteral("serversAdd"));
         QVERIFY(button);
@@ -53,7 +56,11 @@ private slots:
     {
         AccountManager accounts;
         QVERIFY(accounts.load({}));
-        ServersWorkspacePage page(accounts);
+        QSystemTrayIcon tray;
+        MainWindow page(nullptr, tray);
+        page.enableSharedPresentation();
+        page.installServersSidebar(accounts);
+        page.showServersSidebar();
         auto* tree = page.findChild<QTreeView*>(
             QStringLiteral("serversWorkspaceTree"));
         QVERIFY(tree);

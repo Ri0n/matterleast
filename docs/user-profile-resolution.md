@@ -6,7 +6,7 @@ Profiles are not guaranteed to resolve in the first request: network errors, tem
 
 A transient unsuccessful `/users/ids` request must not immediately complete all waiters with null; the service retries the *same batch* with bounded backoff before completing callbacks. All IDs in a request stay in the in-flight set until a successful response or final failure. Avatar GET requests also retry with a bounded backoff and retain their in-flight key across retries to prevent a flood when many visible messages share an author.
 
-The backend service's generation invalidates delayed retries after account/session reset. Do not let stale profile or avatar responses mutate the new account storage.
+The backend service's generation invalidates delayed startup, batch flushes and retries at `Backend::sessionEnding` as well as on explicit profile reset. Deferred startup also checks whether the login user still exists. Do not let stale profile or avatar work mutate another account's storage or restart requests after logout.
 
 Direct-message headers and sidebar rows bind presence and avatar updates when
 `profileResolved` delivers their peer. The peer ID is the normalized DM name

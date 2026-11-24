@@ -31,7 +31,7 @@
 
 #include "backend/Backend.h"
 #include "chat-area/ChatArea.h"
-#include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
+#include "choose-emoji-dialog/ChooseEmojiDialog.h"
 #include "post/PostWidget.h"
 #include "ui/IconUtils.h"
 #include "ui/OverlayScrollBarManager.h"
@@ -194,7 +194,7 @@ void PostListWidget::ensureHoverActions()
         if (!target || target->post.isDeleted) {
             return;
         }
-        showEmojiDialog([target](Emoji emoji) {
+        ChooseEmojiDialog::showFor(target->getBackend(), *target, [target](Emoji emoji) {
             if (target && !target->post.isDeleted) {
                 target->getBackend().addPostReaction(target->post.id, emoji.name);
             }

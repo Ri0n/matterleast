@@ -66,6 +66,11 @@ public:
 	bool autoLoginEnabled ();
     bool lastLoginFailureTransient() const { return _lastLoginFailureTransient; }
     bool loggedIn() const { return isLoggedIn; }
+    // Start the authenticated account's data projections once, independently
+    // of whether a window or View has been attached.
+    void startAccountData();
+    bool accountDataStarted() const { return _accountDataStarted; }
+    bool accountCatalogReady() const { return _accountCatalogReady; }
 
 	void reset ();
 
@@ -376,6 +381,7 @@ signals:
      * Called when all public and direct channels for all teams are received and filled in storage
      */
     void onAllTeamChannelsPopulated ();
+    void ownTeamDiscovered(BackendTeam& team);
 
     /**
      * Called when the logged-in user was added to a team.
@@ -422,11 +428,11 @@ private:
                               const QString& parentId) const;
     void dropTypingView(QObject* view);
 private:
+    NetworkSessionContext            _networkSession;
     Storage							storage;
     EmojiRegistry                   _emojiRegistry;
     ServerDialogsMap				serverDialogsMap;
 
-    NetworkSessionContext            _networkSession;
     HTTPConnector 					httpConnector;
     WebSocketEventHandler			webSocketEventHandler;
     WebSocketConnector				webSocketConnector;
@@ -444,6 +450,8 @@ private:
     QTimer 							timeoutTimer;
     bool							isLoggedIn;
     bool							autoLoginEnabledFlag;
+    bool _accountDataStarted = false;
+    bool _accountCatalogReady = false;
     bool _lastLoginFailureTransient = false;
     bool _authVerificationInFlight = false;
     bool _authExpiryNotified = false;

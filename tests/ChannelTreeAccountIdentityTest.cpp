@@ -103,6 +103,23 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+    void failedAdmissionReportsExactAccount()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QSignalSpy completed(&tree, &ChannelTree::storedChannelOpenFinished);
+        tree.openStoredChannelForAccount(QStringLiteral("same-id"), QStringLiteral("b"));
+        tree.openStoredChannelForAccount(QStringLiteral("same-id"), QStringLiteral("a"));
+        QCOMPARE(completed.count(), 2);
+        QCOMPARE(completed.takeFirst(), (QList<QVariant>{
+            QStringLiteral("b"), QStringLiteral("same-id"), false}));
+        QCOMPARE(completed.takeFirst(), (QList<QVariant>{
+            QStringLiteral("a"), QStringLiteral("same-id"), false}));
+    }
+
     void backendBindingsAreAccountQualified()
     {
         Backend first;
@@ -624,6 +641,57 @@ private slots:
         QCOMPARE(oldA->text(0), QStringLiteral("Renamed Alpha"));
         QCOMPARE(oldB->text(0), QStringLiteral("Beta"));
         QCOMPARE(tree.model(), originalModel);
+        QCOMPARE(resets.count(), 0);
+    }
+
+    void removedTeamIsDetachedBeforeItemDestruction()
+    {
+        Backend a;
+        Backend b;
+        const QString accountA = QStringLiteral("a");
+        const QString accountB = QStringLiteral("b");
+        const QString teamId = QStringLiteral("same-team");
+        QVERIFY(a.getStorage().addTeam({
+            {QStringLiteral("id"), teamId},
+            {QStringLiteral("display_name"), QStringLiteral("Alpha")}}));
+        QVERIFY(b.getStorage().addTeam({
+            {QStringLiteral("id"), teamId},
+            {QStringLiteral("display_name"), QStringLiteral("Beta")}}));
+        ChannelTree tree;
+        auto* const model = tree.model();
+        QSignalSpy resets(model, &QAbstractItemModel::modelReset);
+        QVERIFY(tree.registerAccountBackend(accountA, a));
+        QVERIFY(tree.registerAccountBackend(accountB, b));
+        QVERIFY(tree.setVisibleAccountRoots({accountA, accountB}));
+        auto* const rootA = tree.topLevelItem(0);
+        auto* const rootB = tree.topLevelItem(1);
+        QCOMPARE(rootA->childCount(), 1);
+        QCOMPARE(rootB->childCount(), 1);
+        auto* const oldA = rootA->child(0);
+        auto* const oldB = rootB->child(0);
+        QPointer<QObject> lifetime(dynamic_cast<QObject*>(oldA));
+        QVERIFY(lifetime);
+        bool removedWhileAlive = false;
+        bool currentClearedBeforeRemoval = false;
+        const auto removalConnection = connect(
+            model, &QAbstractItemModel::rowsAboutToBeRemoved, &tree,
+            [&](const QModelIndex& parent, int, int) {
+                if (parent.data(SidebarItem::AccountIdRole).toString() == accountA) {
+                    removedWhileAlive = dynamic_cast<GroupTeamItem*>(oldA) != nullptr;
+                    currentClearedBeforeRemoval = !tree.currentIndex().isValid();
+                }
+            });
+        tree.setCurrentItem(oldA);
+        a.getStorage().eraseTeam(teamId);
+        emit a.onAllTeamChannelsPopulated();
+        disconnect(removalConnection);
+        QVERIFY(removedWhileAlive);
+        QVERIFY(currentClearedBeforeRemoval);
+        QVERIFY(lifetime.isNull());
+        QCOMPARE(rootA->childCount(), 0);
+        QCOMPARE(rootB->childCount(), 1);
+        QCOMPARE(rootB->child(0), oldB);
+        QCOMPARE(tree.model(), model);
         QCOMPARE(resets.count(), 0);
     }
 

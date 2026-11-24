@@ -124,8 +124,10 @@ public:
     void synchronizeChannelActivity();
     /** Require fresh membership/read cursors and preferences on next fetch. */
     void invalidateCachedReads();
+    void refreshAccountSnapshot();
     /** Mirror webapp loadNewDM/GMIfNeeded for a realtime posted event. */
     void resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt);
+    void admitStoredConversation(BackendChannel& channel);
 
     void retrieveChannelMemberships(std::function<void()> callback = {});
     void retrieveChannelPreferences(std::function<void()> callback = {});

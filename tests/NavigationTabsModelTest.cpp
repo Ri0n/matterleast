@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <type_traits>
 
 #include "navigation/NavigationTabsModel.h"
 #include "navigation/NavigationUiController.h"
@@ -182,7 +183,9 @@ private slots:
 
         NavigationUiController::Location search;
         search.kind = Kind::Search;
-        QVERIFY(search.isValid());
+        QVERIFY(!search.valid()); // A collection also requires an account.
+        search.accountId = QStringLiteral("account-a");
+        QVERIFY(search.valid());
         QVERIFY(!search.isChat());
 
         NavigationUiController::Location sameSearch = search;
@@ -190,14 +193,16 @@ private slots:
 
         NavigationUiController::Location saved;
         saved.kind = Kind::Saved;
-        QVERIFY(saved.isValid());
+        saved.accountId = search.accountId;
+        QVERIFY(saved.valid());
         QVERIFY(!search.sameDestination(saved));
 
         NavigationUiController::Location chat;
-        QVERIFY(!chat.isValid());
+        QVERIFY(!chat.valid());
+        chat.accountId = search.accountId;
         chat.channelId = QStringLiteral("channel-a");
         chat.rootId = QStringLiteral("root-a");
-        QVERIFY(chat.isValid());
+        QVERIFY(chat.valid());
         QVERIFY(chat.isChat());
 
         NavigationUiController::Location sameChat = chat;
@@ -206,18 +211,35 @@ private slots:
         QVERIFY(!chat.sameDestination(search));
     }
 
-    void chatHistoryLocationKeepsLegacyConstructionShape()
+    void historyIdentityIncludesAccountForChatsAndCollections()
     {
-        NavigationUiController::Location chat{
-            QStringLiteral("channel-a"),
-            QStringLiteral("root-a"),
-            QStringLiteral("post-a")};
+        NavigationUiController::Location first;
+        first.accountId = QStringLiteral("account-a");
+        first.channelId = QStringLiteral("channel");
+        first.rootId = QStringLiteral("root");
+        auto second = first;
+        second.accountId = QStringLiteral("account-b");
+        QVERIFY(!first.sameDestination(second));
+        second.accountId = first.accountId;
+        QVERIFY(first.sameDestination(second));
+        first.kind = second.kind = NavigationUiController::Location::Kind::Search;
+        second.accountId = QStringLiteral("account-b");
+        QVERIFY(!first.sameDestination(second));
+    }
 
+    void widgetsUseTheSameLocationAsTheViewSession()
+    {
+        static_assert(std::is_same<NavigationUiController::Location,
+                                  Mattermost::ViewNavigationSession::Location>::value,
+                      "Widgets and QML must use one semantic destination type");
+        NavigationUiController::Location chat;
+        chat.channelId = QStringLiteral("channel-a");
+        chat.rootId = QStringLiteral("root-a");
+        chat.postId = QStringLiteral("post-a");
+        QVERIFY(!chat.valid());
+        chat.accountId = QStringLiteral("account-a");
         QVERIFY(chat.isChat());
-        QVERIFY(chat.isValid());
-        QCOMPARE(chat.channelId, QStringLiteral("channel-a"));
-        QCOMPARE(chat.rootId, QStringLiteral("root-a"));
-        QCOMPARE(chat.postId, QStringLiteral("post-a"));
+        QVERIFY(chat.valid());
     }
 };
 

@@ -1,6 +1,8 @@
 #include <optional>
 
 #include <QApplication>
+#include <QPointer>
+#include <QTemporaryDir>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStackedWidget>
@@ -10,7 +12,10 @@
 #include "backend/Backend.h"
 #include "backend/emoji/EmojiInfo.h"
 #include "choose-emoji-dialog/EmojiPickerWidget.h"
+#include "choose-emoji-dialog/ChooseEmojiDialog.h"
 #include "options/MLOptions.h"
+#include "reactions/ReactionUsageTracker.h"
+#include <QUuid>
 
 using namespace Mattermost;
 
@@ -19,6 +24,89 @@ class EmojiPickerWidgetTest : public QObject
     Q_OBJECT
 
 private slots:
+    void dialogRequestsRetainTheirOwnBackendAndRequester()
+    {
+        Backend first;
+        Backend second;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        first.emojiRegistry().addCustomEmoji("server_one", dir.filePath("one.png"));
+        second.emojiRegistry().addCustomEmoji("server_two", dir.filePath("two.png"));
+        QWidget owner;
+        QWidget otherOwner;
+        QWidget firstRequester(&owner);
+        QWidget secondRequester(&otherOwner);
+        owner.show();
+        otherOwner.show();
+        int firstCalls = 0;
+        int secondCalls = 0;
+        const auto chooser = [] {
+            for (auto* widget : QApplication::topLevelWidgets())
+                if (auto* dialog = qobject_cast<ChooseEmojiDialog*>(widget))
+                    return dialog;
+            return static_cast<ChooseEmojiDialog*>(nullptr);
+        };
+        const auto customPage = [](EmojiPickerWidget* picker) {
+            return picker->findChild<QWidget*>(
+                QStringLiteral("tab") + QString::number(EmojiCategory::custom));
+        };
+        const auto hasEmoji = [](QWidget* page, const QString& name) {
+            if (!page) return false;
+            for (auto* button : page->findChildren<QPushButton*>())
+                if (button->property("mattermostEmojiName").toString() == name)
+                    return true;
+            return false;
+        };
+        ChooseEmojiDialog::showFor(first, firstRequester,
+                                    [&firstCalls](Emoji) { ++firstCalls; });
+        auto* dialog = chooser();
+        QVERIFY(dialog);
+        auto* picker = dialog->findChild<EmojiPickerWidget*>();
+        QVERIFY(picker);
+        auto* smileys = picker->findChild<QWidget*>("tab0");
+        QVERIFY(smileys);
+        QVERIFY(hasEmoji(customPage(picker), "server_one"));
+        QVERIFY(!hasEmoji(customPage(picker), "server_two"));
+        emit picker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QCOMPARE(firstCalls, 1);
+        ChooseEmojiDialog::showFor(second, secondRequester,
+                                    [&secondCalls](Emoji) { ++secondCalls; });
+        QCOMPARE(chooser(), dialog);
+        QCOMPARE(dialog->findChild<EmojiPickerWidget*>(), picker);
+        QCOMPARE(picker->findChild<QWidget*>("tab0"), smileys);
+        // Equal-sized custom catalogs must still be updated on account switch.
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!hasEmoji(customPage(picker), "server_one"));
+        QVERIFY(hasEmoji(customPage(picker), "server_two"));
+        emit picker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QCOMPARE(firstCalls, 1);
+        QCOMPARE(secondCalls, 1);
+        auto* temporaryRequester = new QWidget(&otherOwner);
+        ChooseEmojiDialog::showFor(second, *temporaryRequester,
+                                    [&secondCalls](Emoji) { ++secondCalls; });
+        delete temporaryRequester;
+        QVERIFY(!dialog->isVisible());
+        emit picker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QCOMPARE(secondCalls, 1);
+    }
+
+    void reactionRankingIsIndependentPerServer()
+    {
+        const QString base = QStringLiteral("https://") + QUuid::createUuid().toString(QUuid::WithoutBraces)
+            + QStringLiteral(".example.invalid/");
+        auto& first = ReactionUsageTracker::instance(base + QStringLiteral("a"));
+        auto& second = ReactionUsageTracker::instance(base + QStringLiteral("b"));
+        QVERIFY(&first != &second);
+        QCOMPARE(&first, &ReactionUsageTracker::instance(base + QStringLiteral("a/")));
+        const auto before = second.topNames();
+        first.recordUse(QStringLiteral("server_specific_emoji"));
+        QCOMPARE(first.topNames(1), QStringList{QStringLiteral("server_specific_emoji")});
+        QCOMPARE(second.topNames(), before);
+        second.recordUse(QStringLiteral("different_custom_emoji"));
+        QCOMPARE(second.topNames(1), QStringList{QStringLiteral("different_custom_emoji")});
+        QCOMPARE(first.topNames(1), QStringList{QStringLiteral("server_specific_emoji")});
+    }
+
     void skinToneModelIsStrict()
     {
         const auto variants =

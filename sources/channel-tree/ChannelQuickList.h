@@ -13,6 +13,7 @@
 
 #include "backend/FollowingModel.h"
 #include "channel-tree/UnreadProjectionPolicy.h"
+#include "channel-tree/SidebarQueueSources.h"
 
 class QKeyEvent;
 class QMouseEvent;
@@ -35,14 +36,15 @@ public:
     explicit ChannelQuickList(QWidget* parent = nullptr);
 
     void initialize(Backend& backend, Mode mode = Following);
+    void setAccounts(const SidebarQueueSources::Accounts& accounts);
     void refresh();
     void refreshThreads();
     void releaseSelectionRetention();
     void setUnreadFilters(const UnreadViewFilters& filters);
 
 signals:
-    void channelSelected(const QString& channelId);
-    void channelContextMenuRequested(const QString& channelId, const QPoint& globalPos);
+    void channelSelected(const QString& channelId, Backend* source);
+    void channelContextMenuRequested(const QString& channelId, const QPoint& globalPos, Backend* source);
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
@@ -52,18 +54,15 @@ protected:
 
 private:
     void activateItem(QTreeWidgetItem* item);
-    void openThread(const FollowingModel::Entry& entry);
-    QString threadLabel(const FollowingModel::Entry& entry) const;
-    void updateDirectUser(const BackendUser& user);
-    void ensureDirectUserConnections(BackendChannel& channel);
-
-    Backend* backend_ = nullptr;
-    FollowingModel* model_ = nullptr;
+    void openThread(Backend& owner, const FollowingModel::Entry& entry);
+    QString threadLabel(Backend& owner, const FollowingModel::Entry& entry) const;
+    void updateDirectUser(const QString& accountId, const BackendUser& user);
+    SidebarQueueSources sources_;
     bool refreshing_ = false;
     UnreadViewFilters unreadFilters_;
     QMap<QString, QTreeWidgetItem*> channelItems_;
-    QSet<QString> connectedUsers_;
 
+    QString retainedAccountId_;
     QString retainedKey_;
     QString lastActivatedKey_;
     std::optional<FollowingModel::Entry> retainedEntry_;

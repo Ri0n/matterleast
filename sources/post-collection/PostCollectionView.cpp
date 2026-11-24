@@ -92,6 +92,9 @@ PostCollectionView::PostCollectionView(Backend& backendInstance, Mode viewMode, 
     if (mode == Mode::Drafts) {
         connect(&DraftService::instance(backend), &DraftService::draftsChanged,
                 this, &PostCollectionView::refreshDrafts);
+    } else if (mode == Mode::Saved) {
+        connect(&backend, &Backend::onFlaggedPostChanged,
+                this, &PostCollectionView::handleFlaggedPostChanged);
     }
 }
 

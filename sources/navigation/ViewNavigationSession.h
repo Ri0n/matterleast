@@ -31,9 +31,10 @@ public:
         QString postId;
         std::optional<NavigationTabsModel::ViewportAnchor> viewportAnchor;
 
+        bool isChat() const { return kind == Kind::Chat; }
         bool valid() const {
             return !accountId.isEmpty()
-                && (kind != Kind::Chat || !channelId.isEmpty());
+                && (!isChat() || !channelId.isEmpty());
         }
         bool sameDestination(const Location& other) const {
             return kind == other.kind && accountId == other.accountId
@@ -76,6 +77,8 @@ public:
     // The initial standalone model is unrestricted until AccountManager
     // supplies membership; updates prune obsolete tabs/history incrementally.
     void setAllowedAccounts(const QStringList& accountIds);
+    bool allowsAccount(const QString& accountId) const;
+    QSet<QString> allowedAccounts() const { return _allowedAccounts; }
 
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
@@ -112,7 +115,6 @@ private:
     static void pushHistory(QVector<Location>& history, const Location& location);
     void recordLocation(const Location& location);
     void chooseTab(int index);
-    bool allowsAccount(const QString& accountId) const;
 
     QString _viewId;
     NavigationTabsModel _tabs;

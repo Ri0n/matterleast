@@ -7,18 +7,26 @@ They do not create another authoritative channel/message model.
 
 A tab stores a semantic destination:
 
+- immutable local account ID;
 - channel ID;
 - optional thread root ID;
 - a best-effort post/viewport bookmark;
 - display title;
 - whether the tab is pinned against ordinary channel-destination reuse.
 
-Ordinary channel/DM/GM tabs share one `ChatArea` per channel ID, including
-when a channel appears in more than one team or category. The central stack
-owns these pages. `ChannelTree` resolves them by channel ID and emits a
-navigation event after activation. Team context for DM/GM actions lives on
-the page and remains available when its row is absent. A real channel leave
-destroys the page before Storage releases the backing channel.
+Ordinary channel/DM/GM tabs share one `ChatArea` per live channel object
+within its owning account's Storage, including when a channel appears in
+more than one team or category. The central stack owns these pages and its
+`ChannelPageHost` indexes and activates them. `ChannelTree` requests activation
+and resolves row selection/admission, but no longer owns the page index or
+page lifetime. Navigation listens to the central host's activation signal.
+Team context for DM/GM actions lives on the page and remains available when
+its row is absent. A real channel leave destroys the page synchronously
+before Storage releases the backing channel, even without an attached tree.
+The host is currently per central stack; once MainWindow is application-wide
+the same host can handle the channels of multiple accounts. Detached thread
+lookup also requires the exact live Backend, not just the remote channel/root
+IDs: an unrelated server's top-level window must never be adopted by a tab.
 
 A thread is different because it already has an independent `ChatArea`.
 Moving a thread to a tab reparents that same widget from the right-hand thread
@@ -44,7 +52,7 @@ model merely to change its presentation.
   No known thread entry means no evidence for a star. Channel activity signals
   and `FollowingModel::changed` refresh these projections; reading a thread
   does not acknowledge its parent channel or another thread.
-- A canonical destination (`channelId + rootId`) is unique in the tab model.
+- A canonical destination (`accountId + channelId + rootId`) is unique in the tab model.
   Repeated middle-click, **Open in new tab**, permalink navigation or other
   navigation to the same destination activates the existing tab instead of
   creating a duplicate. This applies equally to channels, DMs/GMs and threads.
@@ -88,7 +96,7 @@ presentation policy. When enabled:
   thread from another conversation in that exceptional case.
 - Middle-click uses the existing independent tab path and **never** changes
   the central channel merely to establish thread context.
-- The policy is keyed by the canonical channel ID, so channels and DMs/GMs
+- The policy is keyed by the account-qualified channel ID, so channels and DMs/GMs
   share exactly the same behavior.
 - Browser Back/Forward must apply the same contextual policy when replaying a
   docked thread: restore its parent conversation before showing the thread,
@@ -104,6 +112,18 @@ presentation policy. When enabled:
 `NavigationUiController` owns presentation/lifetime operations.
 `MainWindow::openChannelPost` owns the asynchronous parent-channel navigation
 and retains the semantic destination until the channel is ready.
+
+The Widgets controller uses exactly the same `ViewNavigationSession::Location`
+type as the QtCore model, including account identity in thread-parent selection
+and bookmark lookups. Legacy restart snapshots inherit the account ID from
+their settings partition. Startup history preserves the real Account ID; only
+standalone widget tests without AccountManager use an isolated private key.
+This is a step toward a single presenter, not yet a multi-account controller:
+the current per-Backend window still admits only its own account's destinations.
+Semantic requests carry their originating Backend through tab routing, thread
+placement and asynchronous channel admission. Admission completion includes
+both account and channel IDs. Tab unread changes and dock decisions use the
+account of the affected destination, not the window's selected server.
 
 ## Opening a new tab
 
@@ -250,3 +270,14 @@ Navigation services are owned and discovered through their live Backend/MainWind
 A process-static map keyed by raw owner addresses must not retain services after owner destruction:
 a later session or integration fixture can reuse the same address. The navigation event filter must
 only inspect the sidebar viewport for relevant mouse events, not during child-destruction events.
+
+## Shared View presenter
+
+The navigation controller can bind an exact account-qualified View session and
+admit several authenticated Backends into one central surface. Tab restoration
+reconciles destination deltas rather than replacing the tab bar or its model.
+An unavailable account retains semantic tab/bookmark state without presenting a
+chat from a different account. A new View does not inherit another View's tabs.
+The old single-account settings format is never written for a shared View.
+The existing application workspace integration remains transitional until the
+account-specific sidebar and realtime services are separated from MainWindow.

@@ -22,11 +22,11 @@
 #include <cstdint>
 #include <memory>
 #include <QMainWindow>
+#include <QHash>
 #include <QMetaObject>
 #include <QPointer>
 #include <QSet>
 #include <QStringList>
-#include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -36,7 +36,6 @@ class QCheckBox;
 class QEvent;
 class QLineEdit;
 class QSplitter;
-class QStackedLayout;
 class QSystemTrayIcon;
 class QTabWidget;
 class QToolButton;
@@ -63,28 +62,39 @@ class ServersSidebarPage;
 class MainWindow: public QMainWindow {
 	Q_OBJECT
 public:
-	MainWindow (QWidget *parent, QSystemTrayIcon& trayIcon, Backend& backend);
+	MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon);
+    MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& backend);
 	~MainWindow();
 public:
-    Backend& backendInstance() const { return backend; }
+    Backend* backendOrNull() const;
+    Backend& backendInstance() const;
+    // Transitional attachment: build the permanent Widgets surface before
+    // any network session exists. An already attached window is not rebound.
+    bool attachInitialBackend(Backend& source);
+    // Attach an already initialized account's navigation to the same central
+    // surface. Does not switch the selected profile or restart its services.
+    bool attachNavigationBackend(Backend& source);
+    void detachNavigationBackend(Backend& source);
+    void enableSharedPresentation();
+    void selectPresentationBackend(Backend* source);
+    void setVisibleAccounts(const QStringList& ids, const QHash<QString, QString>& labels,
+                            const QString& sorting);
+    void showStartupError(const QString& message);
+    Backend* navigationBackend(const QString& accountId) const;
+    bool admitsNavigationBackend(const Backend& source) const;
+    void beginSemanticNavigationFrom(Backend* source);
+    // Header identity follows the selected account, not an open chat.
+    void setProfileBackend(Backend* source);
 	void initializationComplete ();
     void installRealtimeUiSync();
-    void bindViewNavigation(ViewNavigationSession* session, const QString& accountId);
+    void installRealtimeUiSync(Backend& source, QObject* context);
+    void bindViewNavigation(ViewNavigationSession* session, const QString& accountId = {});
     void unbindViewNavigation();
     // Shared account/profile model rendered as an icon-only tab before Channels.
     void installServersSidebar(AccountManager& manager);
-    // Reapply the saved left sidebar width after navigation reparents the
-    // central widget (the splitter's initial restore happens while hidden).
-    void restoreSidebarWidth();
     void showServersSidebar();
     void showChannelsSidebar();
     void openAccountDestination(int destination, const QString& teamId);
-    // Replace only the tree inside the existing Channels tab. The ThinSplitter
-    // and all other MainWindow presentation remain unchanged.
-    void setViewChannelTree(ChannelTree* tree, QWidget* parkingParent);
-    ChannelTree* viewChannelTree() const;
-    // Save and close while post widgets can still access valid Storage.
-    void prepareForLogout();
     void beginSemanticNavigation();
 	void openChannelPost(const QString& channelId,
 	                     const QString& postId = QString(),
@@ -93,25 +103,24 @@ public:
 	                     bool reachedOldest = false,
 	                     bool reachedNewest = false,
                          bool preserveIfOpen = false);
+    void openChannelPostForBackend(Backend& source, const QString& channelId,
+                                   const QString& postId, const QString& rootId,
+                                   const QStringList& contextPostIds,
+                                   bool reachedOldest, bool reachedNewest,
+                                   bool preserveIfOpen);
     void openMessageSearchInChannel(const QString& channelId);
+    void openMessageSearchForBackend(Backend& source, const QString& channelId);
 
-    void showEvent(QShowEvent* event) override;
 	void changeEvent (QEvent* event) override;
 	void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent* event) override;
 	void saveState ();
-	void messageNotify (BackendChannel& channel, const BackendPost& post);
-	void unreadMessagesNotify (const BackendChannel& channel);
 	void setNotificationsCountVisualization (uint32_t notificationsCount);
 	void moveEvent (QMoveEvent* event) override;
 	void dragMoveEvent(QDragMoveEvent* event) override;
 
 signals:
     void logoutRequested();
-    // Every server reports its badge state to the app-level tray aggregator;
-    // hidden workspaces must not overwrite other accounts' unread counters.
-    void trayBadgeStateChanged(uint32_t attentionCount, bool hasUnreadChannel);
-    // Notification activation must first select this account's workspace.
-    void presentAccountRequested();
     void serverOpenRequested(const QString& accountId);
     void viewOpenRequested(const QString& viewId);
     void addServerRequested();
@@ -129,10 +138,11 @@ protected:
 private:
 	void createMenu ();
     void reportStatusResult(bool success, const QString& reason);
+    void refreshProfileHeader();
+    void refreshQueueAccounts();
 	void setupChannelTabs ();
 	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
-    void refreshTrayIcon();
 	void refreshChannelUnreadFilter ();
 	void applySidebarTextFilter(QTreeWidget* tree) const;
 	void openDirectMessageSearch ();
@@ -142,21 +152,27 @@ private:
     void openDraft(const QString& channelId, const QString& rootId,
                    const QString& draftKey = QString());
     void showCollectionPage(PostCollectionView* page);
+    void openDraftForBackend(Backend& source, const QString& channelId,
+                             const QString& rootId, const QString& draftKey);
 	void refreshMenuButtonIcon ();
     void refreshSearchButtonIcon();
 	void refreshUnreadFilterIcon ();
+    void restoreSidebarState();
 private:
 	std::unique_ptr<Ui::MainWindow>		ui;
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
-	ChooseEmojiDialogWrapper			chooseEmojiDialog;
-	Backend&							backend;
+    QPointer<Backend> _backend;
+    bool _sharedPresentation = false;
+    bool _sidebarStateRestored = false;
+    QString retainedUnreadFilterAccountId;
+    QHash<Backend*, QObject*> _navigationSubscriptions;
+    QPointer<Backend> _profileBackend;
+    QObject* _profileSubscriptions = nullptr;
+    QFont _defaultProfileStatusFont;
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;
-    QStackedLayout*                   channelTreePages = nullptr;
-    QPointer<ChannelTree>             _viewChannelTree;
-    QMetaObject::Connection           _viewTreeSearchConnection;
     ServersSidebarPage*                  serversPage = nullptr;
     QWidget*                            sidebarFilterRow = nullptr;
     QWidget*                            _unreadPage = nullptr;
@@ -172,23 +188,17 @@ private:
 	QToolButton*						unreadFilterButton = nullptr;
 	ChannelQuickList*					recentChannels = nullptr;
 	AttentionList*						attentionList = nullptr;
-    PostCollectionView*                 savedMessagesPage = nullptr;
-    PostCollectionView*                 draftsPage = nullptr;
-    PostCollectionView*                 recentMentionsPage = nullptr;
-    PostCollectionView*                 searchMessagesPage = nullptr;
+    QPointer<PostCollectionView>         savedMessagesPage;
+    QPointer<PostCollectionView>         draftsPage;
+    QPointer<PostCollectionView>         recentMentionsPage;
+    QPointer<PostCollectionView>         searchMessagesPage;
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;
-	bool								currentTeamRestoredFromSettings;
 	bool channelMembershipsReady = false;
 	bool teamChannelsReady = false;
 	QSet<QString> populatedSessionSidebars;
 	bool navigationSessionRestoreScheduled = false;
-    std::uint32_t                     _attentionBadgeCount = 0;
-    std::uint32_t                     _shownAttentionBadgeCount = 0;
-    bool                              _shownChannelUnreadBadge = false;
-    bool                              _trayIconInitialized = false;
 	QMenu*								mainMenu;
-	bool								doDeinit;
 };
 
 } /* namespace Mattermost */

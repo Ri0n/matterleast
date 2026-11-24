@@ -331,6 +331,7 @@ void Backend::publishUserTyping(const QString& channelId, const QString& parentI
 
 Backend::Backend(QObject *parent)
 :QObject (parent)
+,storage(&_networkSession)
 ,_emojiRegistry()
 ,serverDialogsMap (*this)
 ,httpConnector(&_networkSession, &storage.localPostDeleteTracker)
@@ -663,7 +664,7 @@ void Backend::loginSuccess (const QJsonDocument& doc, const QNetworkReply& reply
     // locally; unknown names trigger CustomEmojiService's lazy lookup and disk
     // cache. Do not enumerate/download the server's custom-emoji catalog.
     for (const QString& emojiName :
-         ReactionUsageTracker::instance().topNames(10)) {
+         ReactionUsageTracker::instance(_networkSession.host()).topNames(10)) {
         (void)_emojiRegistry.resolveByName(emojiName);
     }
 
@@ -679,6 +680,8 @@ void Backend::reset ()
         emit sessionEnding();
     }
 	isLoggedIn = false;
+    _accountDataStarted = false;
+    _accountCatalogReady = false;
     _authVerificationInFlight = false;
     _authExpiryNotified = false;
     CustomEmojiService::instance(*this).resetSession();
@@ -765,10 +768,14 @@ void Backend::logout(std::function<void()> callback)
         }
         *completed = true;
         timeoutTimer.stop();
-        reset();
-        if (callback) {
-            callback();
-        }
+        // Do not destroy the network manager (and its emitting reply) from
+        // inside QNetworkReply::finished. Complete on the Backend event loop
+        // after the transport callback has returned.
+        QMetaObject::invokeMethod(this, [this, callback] {
+            reset();
+            if (callback)
+                callback();
+        }, Qt::QueuedConnection);
     };
 
     timeoutTimer.stop();

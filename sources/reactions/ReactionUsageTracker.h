@@ -10,16 +10,17 @@ namespace Mattermost {
 class ReactionUsageTracker
 {
 public:
-    static ReactionUsageTracker& instance();
+    static ReactionUsageTracker& instance(const QString& server);
 
     void recordUse(const QString& emojiName);
     QVector<ReactionUsageEntry> ranking() const;
     QStringList topNames(int limit = -1) const;
 
 private:
-    ReactionUsageTracker();
+    explicit ReactionUsageTracker(const QString& server);
     void save() const;
 
+    QString settingsKey_;
     ReactionUsageModel model_ {16};
 };
 

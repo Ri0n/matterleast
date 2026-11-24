@@ -55,6 +55,7 @@ public:
     ~PostCollectionView() override;
 
     Mode viewMode() const { return mode; }
+    Backend& backendInstance() const { return backend; }
 
     void activateSaved();
     void activateDrafts();

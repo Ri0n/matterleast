@@ -344,8 +344,23 @@ private slots:
         QCOMPARE(tree.getCurrentPage(), activePage.data());
         QCOMPARE(activations.count(), 2);
 
+        // A replacement sidebar is a projection over the same central
+        // surface. It must reuse the page, not create a second timeline.
+        {
+            ChannelTree replacement;
+            replacement.setChatAreaStackedWidget(&stack);
+            replacement.addTeam(backend, *team);
+            const int pagesBefore = stack.count();
+            replacement.openStoredChannel(first->id);
+            QCOMPARE(replacement.getCurrentPage(), activePage.data());
+            QCOMPARE(stack.count(), pagesBefore);
+        }
+        QVERIFY(activePage);
+        tree.setChatAreaStackedWidget(nullptr);
+
         // Losing channel membership still disposes of its page before the
-        // backing BackendChannel can be deleted by Storage.
+        // backing BackendChannel can be deleted by Storage, even when no
+        // sidebar is attached to the central host.
         emit first->onLeave();
         QVERIFY(activePage.isNull());
         QVERIFY(!rowFor(first->id));

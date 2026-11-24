@@ -68,15 +68,16 @@ private slots:
         // actual window cannot prove stacking behavior and crashes on some
         // Linux Qt platform plugins. Guard the concrete production delivery
         // path against direct window activation or an unguarded alert().
-        const QString source = readSource(QStringLiteral("sources/mainwindow.cpp"));
-        QVERIFY2(!source.isEmpty(), "Cannot read MainWindow source");
+        const QString source = readSource(
+            QStringLiteral("sources/notifications/AccountNotifications.cpp"));
+        QVERIFY2(!source.isEmpty(), "Cannot read account notification source");
         const QString delivery = functionSection(
-            source, QStringLiteral("void MainWindow::messageNotify("),
-            QStringLiteral("void MainWindow::unreadMessagesNotify("));
-        QVERIFY2(!delivery.isEmpty(), "Cannot locate messageNotify implementation");
-        QVERIFY(delivery.contains(QStringLiteral("notificationManager->show(")));
+            source, QStringLiteral("void AccountNotifications::notify("),
+            QStringLiteral("} // namespace Mattermost"));
+        QVERIFY2(!delivery.isEmpty(), "Cannot locate notification implementation");
+        QVERIFY(delivery.contains(QStringLiteral("notifications_.show(")));
         QVERIFY(delivery.contains(
-            QStringLiteral("notificationManager->requestTaskbarAttention(*this)")));
+            QStringLiteral("notifications_.requestTaskbarAttention(*window)")));
 
         // Match calls at the beginning of a statement. Only the platform
         // policy tested above may route a notification to QApplication::alert.
@@ -90,12 +91,12 @@ private slots:
     {
         // A notification action is intentional navigation and is exempt from
         // the passive delivery restriction.
-        const QString source = readSource(QStringLiteral("sources/MainWindowRealtime.cpp"));
-        QVERIFY2(!source.isEmpty(), "Cannot read MainWindowRealtime source");
+        const QString source = readSource(QStringLiteral("sources/main.cpp"));
+        QVERIFY2(!source.isEmpty(), "Cannot read application source");
         const QString activation = functionSection(
             source,
-            QStringLiteral("connect(notificationManager, &NotificationManager::activated,"),
-            QStringLiteral("// Server-originated ephemeral posts"));
+            QStringLiteral("connect(&NotificationManager::instance(*trayIcon), &NotificationManager::activated,"),
+            QStringLiteral("// The domain owns all network lifetimes"));
         QVERIFY2(!activation.isEmpty(), "Cannot locate notification action handler");
         QVERIFY(activation.contains(QStringLiteral("raise();")));
         QVERIFY(activation.contains(QStringLiteral("activateWindow();")));

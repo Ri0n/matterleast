@@ -12,22 +12,34 @@
 #include <QLoggingCategory>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
+#include <QSplitter>
+#include <QTabWidget>
 #include <QScrollBar>
 #include <QScopedPointer>
 #include <QTabBar>
 #include <QToolButton>
 #include <QStackedWidget>
+#include <QTreeWidgetItemIterator>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QUrlQuery>
 
 #include "backend/Backend.h"
+#include "backend/Account.h"
+#include "backend/AccountManager.h"
+#include "backend/types/BackendPost.h"
+#include "notifications/AccountNotifications.h"
+#include "notifications/NotificationManager.h"
+#include "plugins/PluginManager.h"
 #include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
 #include "backend/PostRepository.h"
 #include "backend/types/BackendChannel.h"
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree/ChannelQuickList.h"
+#include "channel-tree/AttentionList.h"
+#include "channel-tree/SidebarItem.h"
 #include "channel-tree/FollowingNavigation.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
@@ -40,6 +52,7 @@
 #include "navigation/AppNavigationService.h"
 #include "navigation/NavigationUiController.h"
 #include "ui/IconUtils.h"
+#include "ui/AccountTrayBadgeMonitor.h"
 #include "options/MLOptions.h"
 
 using namespace Mattermost;
@@ -120,6 +133,7 @@ public:
     QStringList channelContextRequests;
     int channelRootCount = 0;
     int accountChannelResponses = 0;
+    int sidebarCategoryRequests = 0;
     int delayMs = 0;
     int replyCount = 3;
     int returnedReplies = 0;
@@ -174,6 +188,7 @@ public:
                         }
                         body = QJsonDocument(channels).toJson(QJsonDocument::Compact);
                     } else if (startupChannels && url.path().endsWith("/channels/categories")) {
+                        ++sidebarCategoryRequests;
                         body = secondChannel
                             ? R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel","channel_other"]}],"order":["dm"]})"
                             : R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
@@ -277,6 +292,111 @@ class ThreadTabsIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void profileHeaderCanChangeAccountsWithoutReplacingNavigation()
+    {
+        Backend first;
+        Backend second;
+        auto* firstUser = first.getStorage().addUser(
+            QJsonObject {{"id", "same-user"}, {"username", "first"}}, true);
+        auto* secondUser = second.getStorage().addUser(
+            QJsonObject {{"id", "same-user"}, {"username", "second"}}, true);
+        QVERIFY(firstUser);
+        QVERIFY(secondUser);
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray);
+        auto* avatar = window.findChild<QWidget*>("usericon_label");
+        auto* username = window.findChild<QLabel*>("usernameLabel");
+        QVERIFY(avatar);
+        QVERIFY(username);
+        window.setProfileBackend(&first);
+        QCOMPARE(username->text(), QStringLiteral("first"));
+        window.setProfileBackend(&second);
+        QCOMPARE(username->text(), QStringLiteral("second"));
+        emit firstUser->onAvatarChanged();
+        QCOMPARE(username->text(), QStringLiteral("second"));
+        QVERIFY(!window.backendOrNull());
+        window.setProfileBackend(nullptr);
+        QVERIFY(username->text().isEmpty());
+        QVERIFY(!avatar->isEnabled());
+    }
+
+    void accountDataLoadsWithoutWindowAndIsNotReloadedOnAttachment()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        backend.networkSession().setHost(serverBaseUrl(server));
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QByteArray());
+
+        backend.startAccountData();
+        backend.startAccountData();
+        QTRY_VERIFY(backend.accountCatalogReady());
+        QTRY_VERIFY(SidebarService::instance(backend).teamState("team")
+            && SidebarService::instance(backend).teamState("team")->category("dm"));
+        QCOMPARE(server.accountChannelLookups.size(), 1);
+        QCOMPARE(server.sidebarCategoryRequests, 1);
+
+        auto* group = backend.getStorage().addGroupChannel(
+            QJsonObject {{"id", "new-dm"}, {"type", "G"}, {"display_name", "New DM"}});
+        QVERIFY(group);
+        emit backend.getStorage().groupChannels.onNewChannel(*group);
+        QVERIFY(SidebarService::instance(backend).teamState("team")->category("dm")
+                    ->channelIds.contains("new-dm"));
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        QVERIFY(tree);
+        AppNavigationService::instance(backend).openChannel("channel");
+        QTRY_VERIFY(tree->getCurrentPage());
+        QCOMPARE(server.accountChannelLookups.size(), 1);
+        QCOMPARE(server.sidebarCategoryRequests, 1);
+    }
+
+    void backendlessWindowAttachesSessionWithoutRecreatingItsSurface()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        backend.networkSession().setHost(serverBaseUrl(server));
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QByteArray());
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray);
+        window.resize(1100, 700);
+        window.show();
+        QVERIFY(!window.backendOrNull());
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        auto* stack = window.findChild<QStackedWidget*>("chatAreaStackedWidget");
+        QVERIFY(tree);
+        QVERIFY(stack);
+        auto& navigation = NavigationUiController::instance(window);
+        const auto splitters = window.findChildren<QSplitter*>();
+        auto* tabs = window.findChild<QTabBar*>("navigationTabs");
+        QVERIFY(tabs);
+        QVERIFY(window.attachInitialBackend(backend));
+        QVERIFY(window.attachInitialBackend(backend));
+        QCOMPARE(window.backendOrNull(), &backend);
+        QCOMPARE(window.findChild<ChannelTree*>("channelList"), tree);
+        QCOMPARE(window.findChild<QStackedWidget*>("chatAreaStackedWidget"), stack);
+        QCOMPARE(window.findChild<QTabBar*>("navigationTabs"), tabs);
+        QCOMPARE(window.findChildren<QSplitter*>(), splitters);
+        QCOMPARE(&NavigationUiController::instance(window), &navigation);
+        QTRY_VERIFY(backend.getStorage().getChannelById("channel"));
+        QTRY_VERIFY(SidebarService::instance(backend).teamState("team")
+                    && SidebarService::instance(backend).teamState("team")->category("dm"));
+        AppNavigationService::instance(backend).openChannel("channel");
+        QTRY_VERIFY(tree->getCurrentPage());
+        QCOMPARE(&tree->getCurrentPage()->getBackend(), &backend);
+    }
+
     void serverUnreadReplyCannotRedirectRootOnlyConversation()
     {
         // The test server returns a synthetic reply as the unread cursor.
@@ -1236,7 +1356,8 @@ private slots:
     void scrollingUpFromLiveEdgeRestoresMeasuredPositionAfterTabSwitch()
     {
         Server server;
-        server.replyCount = 24;
+        // Fully measured compact replies must still exceed the viewport.
+        server.replyCount = 48;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         Backend backend;
         backend.networkSession().setHost(serverBaseUrl(server));
@@ -1258,24 +1379,30 @@ private slots:
         }
 
         QSystemTrayIcon tray;
+        qInfo("Viewport restore: construct window");
         MainWindow window(nullptr, tray, backend);
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
         auto& ui = NavigationUiController::instance(window);
         window.resize(1000, 700);
+        qInfo("Viewport restore: show window");
         window.show();
         auto& navigation = AppNavigationService::instance(backend);
+        qInfo("Viewport restore: open first thread");
         navigation.openThreadInTab(channel->id, rootId(41));
+        qInfo("Viewport restore: wait for first timeline");
         QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
         auto* first = ui.findThread(channel->id, rootId(41));
         auto* log = first->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(log);
-        QTRY_COMPARE(log->itemCount(), 25);
+        QTRY_COMPARE(log->itemCount(), server.replyCount + 1);
         auto* bar = log->verticalScrollBar();
         QVERIFY(bar);
         QTRY_VERIFY(bar->maximum() > 400);
-        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QTRY_VERIFY(log->findPost(replyId(41, server.replyCount)));
         QPointer<ChatArea> retired = first;
+        qInfo("Viewport restore: settle initial layout");
         QTest::qWait(120); // Drain initial deferred newest-position timers.
+        qInfo("Viewport restore: scroll to live edge");
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
 
@@ -1284,6 +1411,8 @@ private slots:
         // Read from a stable middle viewport with room on both sides.
         // Explicit scrollbar ownership must win over activation's weak tail
         // positioning, just as a real user scroll does.
+        qInfo("Viewport restore: scroll away from live edge");
+        QVERIFY2(bar->maximum() > 0, "Measured fixture must allow scrolling away from the live edge");
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
@@ -1292,7 +1421,9 @@ private slots:
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
 
+        qInfo("Viewport restore: open second thread");
         navigation.openThreadInTab(channel->id, rootId(42));
+        qInfo("Viewport restore: wait for retirement of first thread");
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
         // Removing the widget from its presentation owner must make it
         // undiscoverable immediately, even if Qt defers destruction.
@@ -1304,7 +1435,9 @@ private slots:
         auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
         QVERIFY(tabs);
         QTRY_COMPARE(tabs->count(), 2);
+        qInfo("Viewport restore: return to first tab");
         tabs->setCurrentIndex(0);
+        qInfo("Viewport restore: wait for restored timeline");
         QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
         auto* reopened = ui.findThread(channel->id, rootId(41));
         auto* restoredLog = reopened->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
@@ -1316,13 +1449,14 @@ private slots:
         // Measure the saved identity itself rather than selecting a new
         // centre post, which can change at row boundaries.
         QTRY_VERIFY(semanticBookmarkRestored(restoredLog, before));
+        qInfo("Viewport restore: assertions complete, destroy window");
     }
 
     void openingSecondTabPreservesOutgoingBookmark_data()
     {
         QTest::addColumn<int>("replies");
         QTest::addColumn<int>("height");
-        QTest::newRow("short-700") << 24 << 700;
+        QTest::newRow("short-700") << 48 << 700;
         QTest::newRow("long-700") << 120 << 700;
         QTest::newRow("long-400") << 120 << 400;
         QTest::newRow("long-950") << 120 << 950;
@@ -1382,6 +1516,7 @@ private slots:
         // Read from a stable middle viewport with room on both sides.
         // Explicit scrollbar ownership must win over activation's weak tail
         // positioning, just as a real user scroll does.
+        QVERIFY2(bar->maximum() > 0, "Measured fixture must allow scrolling away from the live edge");
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
@@ -1789,7 +1924,8 @@ private slots:
     void backHistoryRestoresMeasuredPostCenter()
     {
         Server server;
-        server.replyCount = 24;
+        // Fully measured compact replies must still exceed the viewport.
+        server.replyCount = 48;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         Backend backend;
         backend.networkSession().setHost(serverBaseUrl(server));
@@ -1823,9 +1959,9 @@ private slots:
         auto* log = ui.findThread(channel->id, rootId(41))
                         ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(log);
-        QTRY_COMPARE(log->itemCount(), 25);
+        QTRY_COMPARE(log->itemCount(), server.replyCount + 1);
         QTRY_VERIFY(log->verticalScrollBar()->maximum() > 400);
-        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QTRY_VERIFY(log->findPost(replyId(41, server.replyCount)));
         QTest::qWait(120); // Drain initial deferred newest-position timers.
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
@@ -1833,6 +1969,7 @@ private slots:
         // Read from a stable middle viewport with room on both sides.
         // Explicit scrollbar ownership must win over activation's weak tail
         // positioning, just as a real user scroll does.
+        QVERIFY2(bar->maximum() > 0, "Measured fixture must allow scrolling away from the live edge");
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
@@ -2193,6 +2330,384 @@ private slots:
     }
     // Run the two-window fixture after the independent single-window cases,
     // so its process-global presentation state cannot affect scroll tests.
+    void accountNotificationsObserveOnlyRegisteredSessions()
+    {
+        AccountManager accounts;
+        PluginManager plugins(accounts);
+        Backend first;
+        Backend second;
+        for (auto* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "sender"}, {"username", "sender"}}, false);
+            QVERIFY(owner->getStorage().addGroupChannel(
+                QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Test"}}));
+        }
+        QSystemTrayIcon tray;
+        QVector<Backend*> queried;
+        AccountNotifications notifications(NotificationManager::instance(tray), plugins,
+            [&queried](Backend& owner, const QString& channelId, const QString& root) {
+                if (channelId == "channel" && root.isEmpty())
+                    queried.append(&owner);
+                return true; // No actual desktop popup required by the test.
+            }, {});
+        notifications.watch(first);
+        notifications.watch(first); // Repeated registration is idempotent.
+        notifications.watch(second);
+        const auto send = [](Backend& owner) {
+            const double now = static_cast<double>(QDateTime::currentMSecsSinceEpoch());
+            BackendPost post(QJsonObject {{"id", "same-post"}, {"channel_id", "channel"},
+                {"user_id", "sender"}, {"message", "Hello"}, {"create_at", now},
+                {"update_at", now}}, owner.getStorage());
+            emit owner.onNewPost(*owner.getStorage().getChannelById("channel"), post);
+        };
+        send(first);
+        send(second);
+        QCOMPARE(queried.size(), 2);
+        QCOMPARE(queried.at(0), &first);
+        QCOMPARE(queried.at(1), &second);
+        notifications.unwatch(&first);
+        send(first);
+        send(second);
+        QCOMPARE(queried.size(), 3);
+        QCOMPARE(queried.last(), &second);
+    }
+
+    void trayMonitorCountsAccountsOutsideCurrentQueue()
+    {
+        Backend first;
+        Backend second;
+        for (Backend* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            QVERIFY(owner->getStorage().addGroupChannel(
+                QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Test"}}));
+        }
+        QSystemTrayIcon tray;
+        AccountTrayBadgeMonitor monitor(tray);
+        monitor.watch(first);
+        monitor.watch(second);
+        FollowingModel::instance(first).markPostUnread("channel", "same-thread", "first-post", 1000);
+        FollowingModel::instance(second).markPostUnread("channel", "same-thread", "second-post", 2000);
+        QCOMPARE(monitor.aggregate().attentionCount, 2u);
+
+        AttentionList visible;
+        visible.setAccounts({{"a", &first}});
+        QCOMPARE(visible.topLevelItemCount(), 1);
+        QCOMPARE(monitor.aggregate().attentionCount, 2u);
+        FollowingModel::instance(second).markPostUnread("channel", "other-thread", "other-post", 3000);
+        QCOMPARE(monitor.aggregate().attentionCount, 3u);
+        QCOMPARE(visible.topLevelItemCount(), 1);
+        monitor.unwatch(&second);
+        QCOMPARE(monitor.aggregate().attentionCount, 1u);
+        FollowingModel::instance(second).markPostUnread("channel", "hidden-thread", "hidden-post", 4000);
+        QCOMPARE(monitor.aggregate().attentionCount, 1u);
+    }
+
+    void queueProjectionsPreserveAccountQualifiedRows()
+    {
+        Backend first;
+        Backend second;
+        for (Backend* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            QVERIFY(owner->getStorage().addGroupChannel(
+                QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Test"}}));
+        }
+        auto& firstModel = FollowingModel::instance(first);
+        auto& secondModel = FollowingModel::instance(second);
+        firstModel.markPostUnread("channel", "same-thread", "first-post", 1000);
+        secondModel.markPostUnread("channel", "same-thread", "second-post", 2000);
+        ChannelQuickList list;
+        list.setUnreadFilters({true, false, false});
+        list.setAccounts({{"a", &first}, {"b", &second}});
+        AttentionList attention;
+        qRegisterMetaType<uint32_t>("uint32_t");
+        QSignalSpy counts(&attention, &AttentionList::attentionCountChanged);
+        attention.setAccounts({{"a", &first}, {"b", &second}});
+        QCOMPARE(list.topLevelItemCount(), 2);
+        QCOMPARE(attention.topLevelItemCount(), 2);
+        QCOMPARE(counts.last().at(0).toUInt(), 2u);
+        const auto findRow = [](const QTreeWidget& queue, const QString& account) {
+            for (int i = 0; i < queue.topLevelItemCount(); ++i) {
+                auto* row = queue.topLevelItem(i);
+                if (row->data(0, SidebarItem::AccountIdRole).toString() == account)
+                    return row;
+            }
+            return static_cast<QTreeWidgetItem*>(nullptr);
+        };
+        auto* a = findRow(list, "a");
+        auto* b = findRow(list, "b");
+        auto* attentionA = findRow(attention, "a");
+        auto* attentionB = findRow(attention, "b");
+        QVERIFY(attentionA && attentionB && attentionA != attentionB);
+        QVERIFY(a && b && a != b);
+        list.setCurrentItem(a);
+        firstModel.markPostUnread("channel", "same-thread", "new-post", 3000);
+        QCOMPARE(findRow(list, "a"), a);
+        QCOMPARE(findRow(list, "b"), b);
+        QCOMPARE(findRow(attention, "a"), attentionA);
+        QCOMPARE(findRow(attention, "b"), attentionB);
+        QCOMPARE(list.currentItem(), a);
+        list.setAccounts({{"a", &first}});
+        attention.setAccounts({{"a", &first}});
+        QCOMPARE(attention.topLevelItemCount(), 1);
+        QCOMPARE(findRow(attention, "a"), attentionA);
+        QCOMPARE(counts.last().at(0).toUInt(), 1u);
+        QCOMPARE(list.topLevelItemCount(), 1);
+        QCOMPARE(findRow(list, "a"), a);
+        secondModel.markPostUnread("channel", "same-thread", "other-post", 4000);
+        QCOMPARE(list.topLevelItemCount(), 1);
+        QCOMPARE(attention.topLevelItemCount(), 1);
+    }
+
+    void permanentWindowOpensVisibleChatsFromSidebar_data()
+    {
+        QTest::addColumn<bool>("collapsedState");
+        QTest::newRow("clean-start") << false;
+        QTest::newRow("collapsed-saved-split") << true;
+    }
+
+    void permanentWindowOpensVisibleChatsFromSidebar()
+    {
+        QFETCH(bool, collapsedState);
+        const QString key = QStringLiteral("sidebar_splitter_state");
+        auto* options = MLOptions::instance();
+        struct RestoreState {
+            MLOptions* options;
+            QString key;
+            QByteArray state;
+            ~RestoreState() { options->setValue(key, state); }
+        } restore {options, key, options->value<QByteArray>(key)};
+        QByteArray saved;
+        if (collapsedState) {
+            QSplitter previous(Qt::Horizontal);
+            previous.addWidget(new QWidget);
+            previous.addWidget(new QWidget);
+            previous.resize(1100, 700);
+            previous.setSizes({1100, 0});
+            saved = previous.saveState();
+        }
+        options->setValue(key, saved);
+
+        Server server;
+        server.startupChannels = true;
+        server.secondChannel = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Account account("a", nullptr);
+        Backend backend(&account);
+        backend.networkSession().setHost(serverBaseUrl(server));
+        QSystemTrayIcon tray;
+        ViewNavigationSession view("single");
+        view.setAllowedAccounts({"a"});
+        MainWindow window(nullptr, tray);
+        window.resize(1100, 700);
+        window.enableSharedPresentation();
+        window.setVisibleAccounts({"a"}, {}, "recent");
+        window.bindViewNavigation(&view);
+        window.show();
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        auto* host = window.findChild<QWidget*>("navigationContentHost");
+        auto* surface = window.findChild<QStackedWidget*>("navigationSurfaceStack");
+        QVERIFY(tree && host && surface);
+        QTRY_VERIFY(host->isVisible() && host->width() > 200);
+        QTRY_VERIFY(surface->isVisible() && surface->width() > 200);
+
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        backend.startAccountData();
+        QVERIFY(window.attachNavigationBackend(backend));
+        window.selectPresentationBackend(&backend);
+        QTRY_VERIFY(backend.accountCatalogReady());
+        QTRY_VERIFY(SidebarService::instance(backend).teamState("team"));
+        auto findRow = [tree](const QString& channelId) -> QTreeWidgetItem* {
+            for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+                auto* row = *it;
+                if (row->data(0, SidebarItem::KindRole).toInt() == SidebarItem::Channel
+                    && row->data(0, SidebarItem::IdRole).toString() == channelId)
+                    return row;
+            }
+            return nullptr;
+        };
+        for (const QString& id : {QStringLiteral("channel"), QStringLiteral("channel_other")}) {
+            QTRY_VERIFY(findRow(id));
+            tree->expandAll();
+            auto* row = findRow(id);
+            tree->scrollToItem(row);
+            QTRY_VERIFY(tree->viewport()->rect().intersects(tree->visualItemRect(row)));
+            QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                              tree->visualItemRect(row).center());
+            QTRY_VERIFY(tree->getCurrentPage()
+                && tree->getCurrentPage()->getChannel().id == id);
+            QTRY_VERIFY(tree->getCurrentPage()->isVisible()
+                && tree->getCurrentPage()->width() > 200
+                && tree->getCurrentPage()->height() > 200);
+            QCOMPARE(&tree->getCurrentPage()->getBackend(), &backend);
+        }
+    }
+
+    void permanentWindowSurvivesAccountDetachAndViewSwitch()
+    {
+        Server serverA;
+        Server serverB;
+        serverA.startupChannels = true;
+        serverB.startupChannels = true;
+        QVERIFY(serverA.listen(QHostAddress::LocalHost));
+        QVERIFY(serverB.listen(QHostAddress::LocalHost));
+        Account accountA("a", nullptr);
+        Account accountB("b", nullptr);
+        Backend first(&accountA);
+        Backend second(&accountB);
+        first.networkSession().setHost(serverBaseUrl(serverA));
+        second.networkSession().setHost(serverBaseUrl(serverB));
+        for (auto* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            owner->startAccountData();
+        }
+        QSystemTrayIcon tray;
+        ViewNavigationSession combined("combined");
+        combined.setAllowedAccounts({"a", "b"});
+        ViewNavigationSession onlyA("only-a");
+        onlyA.setAllowedAccounts({"a"});
+        MainWindow window(nullptr, tray);
+        window.enableSharedPresentation();
+        window.setVisibleAccounts({"a", "b"}, {}, "recent");
+        window.bindViewNavigation(&combined);
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        auto* tabs = window.findChild<QTabBar*>("navigationTabs");
+        auto* stack = window.findChild<QStackedWidget*>("chatAreaStackedWidget");
+        QVERIFY(tree && tabs && stack);
+        const auto splitters = window.findChildren<QSplitter*>();
+        QVERIFY(window.attachNavigationBackend(first));
+        QVERIFY(window.attachNavigationBackend(second));
+        window.selectPresentationBackend(&first);
+        window.resize(1100, 700);
+        window.show();
+        QTRY_VERIFY(SidebarService::instance(first).teamState("team"));
+        QTRY_VERIFY(SidebarService::instance(second).teamState("team"));
+        AppNavigationService::instance(first).openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &first);
+        QPointer<ChatArea> firstPage(tree->getCurrentPage());
+        AppNavigationService::instance(second).openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &second);
+        QPointer<ChatArea> secondPage(tree->getCurrentPage());
+        QCOMPARE(window.backendOrNull(), &first);
+
+        window.setVisibleAccounts({"a"}, {}, "recent");
+        window.bindViewNavigation(&onlyA);
+        AppNavigationService::instance(first).openChannel("channel");
+        QTRY_COMPARE(tree->getCurrentPage(), firstPage.data());
+        window.setVisibleAccounts({"a", "b"}, {}, "recent");
+        window.bindViewNavigation(&combined);
+        QTRY_COMPARE(tree->getCurrentPage(), secondPage.data());
+        window.detachNavigationBackend(second);
+        QVERIFY(secondPage.isNull());
+        QVERIFY(firstPage);
+        QVERIFY(!window.admitsNavigationBackend(second));
+        QCOMPARE(combined.tabs().count(), 2);
+        AppNavigationService::instance(first).openChannel("channel");
+        QTRY_COMPARE(tree->getCurrentPage(), firstPage.data());
+        QCOMPARE(window.findChild<ChannelTree*>("channelList"), tree);
+        QCOMPARE(window.findChild<QTabBar*>("navigationTabs"), tabs);
+        QCOMPARE(window.findChild<QStackedWidget*>("chatAreaStackedWidget"), stack);
+        QCOMPARE(window.findChildren<QSplitter*>(), splitters);
+        QCOMPARE(serverA.accountChannelLookups.size(), 1);
+        QCOMPARE(serverB.accountChannelLookups.size(), 1);
+    }
+
+    void oneCentralSurfaceAdmitsTwoAccountsWithCollidingIds()
+    {
+        Server serverA;
+        Server serverB;
+        serverA.startupChannels = true;
+        serverB.startupChannels = true;
+        QVERIFY(serverA.listen(QHostAddress::LocalHost));
+        QVERIFY(serverB.listen(QHostAddress::LocalHost));
+
+        Account accountA(QStringLiteral("a"), nullptr);
+        Account accountB(QStringLiteral("b"), nullptr);
+        Backend backendA(&accountA);
+        Backend backendB(&accountB);
+        for (Backend* owner : {&backendA, &backendB}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        }
+        backendA.networkSession().setHost(serverBaseUrl(serverA));
+        backendB.networkSession().setHost(serverBaseUrl(serverB));
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(serverA)), QByteArray());
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backendA);
+        window.resize(1100, 700);
+        window.show();
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        QVERIFY(tree);
+        QTRY_VERIFY(backendA.getStorage().getChannelById("channel"));
+        QTRY_VERIFY(SidebarService::instance(backendA).teamState("team")
+            && SidebarService::instance(backendA).teamState("team")->category("dm"));
+
+        // Simulate the account-owned startup snapshot without creating a
+        // second MainWindow. The two storage objects intentionally share IDs.
+        auto* teamB = backendB.getStorage().addTeam(
+            QJsonObject {{"id", "team"}, {"name", "team"}, {"display_name", "Team B"}});
+        QVERIFY(teamB);
+        QVERIFY(backendB.getStorage().addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Chat B"}}));
+        QVERIFY(window.attachNavigationBackend(backendB));
+        QVERIFY(tree->setVisibleAccountRoots({"a", "b"}));
+        tree->addTeam(backendB, *teamB);
+        SidebarService::instance(backendB).retrieveCategories(*teamB);
+        QTRY_VERIFY(SidebarService::instance(backendB).teamState("team")
+            && SidebarService::instance(backendB).teamState("team")->category("dm"));
+        tree->synchronizeAccountSidebar("b");
+
+        auto& navA = AppNavigationService::instance(backendA);
+        auto& navB = AppNavigationService::instance(backendB);
+        auto& navigation = NavigationUiController::instance(window);
+        ViewNavigationSession combined("combined");
+        combined.setAllowedAccounts({"a", "b"});
+        window.bindViewNavigation(&combined);
+        navA.openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &backendA);
+        navB.openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &backendB);
+        auto* tabs = window.findChild<QTabBar*>("navigationTabs");
+        QVERIFY(tabs);
+        QCOMPARE(tabs->count(), 2);
+        navA.openChannel("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &backendA);
+        navB.openThreadInTab("channel", rootId(905));
+        QTRY_VERIFY(navigation.findThreadForBackend(backendB, "channel", rootId(905)));
+        QVERIFY(!navigation.findThreadForBackend(backendA, "channel", rootId(905)));
+        QCOMPARE(window.backendOrNull(), &backendA);
+        QTRY_COMPARE(combined.tabs().count(), 3);
+        QVERIFY(combined.tabs().findDestination("channel", {}, "a") >= 0);
+        QVERIFY(combined.tabs().findDestination("channel", {}, "b") >= 0);
+        QCOMPARE(combined.currentLocation().accountId, QStringLiteral("b"));
+
+        ViewNavigationSession onlyA("only-a");
+        onlyA.setAllowedAccounts({"a"});
+        window.bindViewNavigation(&onlyA);
+        QCOMPARE(onlyA.tabs().count(), 0);
+        navA.openChannel("channel");
+        QTRY_COMPARE(onlyA.tabs().count(), 1);
+        navB.openChannel("channel");
+        QCoreApplication::processEvents();
+        QCOMPARE(&tree->getCurrentPage()->getBackend(), &backendA);
+        QCOMPARE(onlyA.tabs().count(), 1);
+        window.bindViewNavigation(&combined);
+        QTRY_COMPARE(tabs->count(), 3);
+        QTRY_VERIFY(navigation.findThreadForBackend(backendB, "channel", rootId(905)));
+        QCOMPARE(onlyA.tabs().count(), 1);
+    }
+
     void embeddedMultiAccountNavigationReachesOnlyOwningBackend()
     {
         Server serverA;
@@ -2258,6 +2773,29 @@ private slots:
         navB.openThreadInTab(QStringLiteral("channel"), rootId(903));
         QTRY_VERIFY(uiB.findThread(QStringLiteral("channel"), rootId(903)));
         QVERIFY(!uiA.findThread(QStringLiteral("channel"), rootId(903)));
+
+        // A detached window is found by walking all top-level widgets, not
+        // just the originating account's stacks. Remote IDs deliberately
+        // collide in these two independent server fixtures.
+        auto* channelA = backendA.getStorage().getChannelById("channel");
+        QVERIFY(channelA);
+        QScopedPointer<ChatArea> detached(new ChatArea(
+            backendA, *channelA, rootId(904), nullptr));
+        detached->setProperty("threadDetached", true);
+        uiA.presentThread(detached.data());
+        QTRY_VERIFY(detached->isVisible());
+        QCOMPARE(uiA.findThread(QStringLiteral("channel"), rootId(904)),
+                 detached.data());
+        QVERIFY(!uiB.findThread(QStringLiteral("channel"), rootId(904)));
+
+        navB.openThreadInTab(QStringLiteral("channel"), rootId(904));
+        QTRY_VERIFY(uiB.findThread(QStringLiteral("channel"), rootId(904)));
+        auto* tab = uiB.findThread(QStringLiteral("channel"), rootId(904));
+        QVERIFY(tab != detached.data());
+        QCOMPARE(&tab->getBackend(), &backendB);
+        QVERIFY(detached->property("threadDetached").toBool());
+        QCOMPARE(uiA.findThread(QStringLiteral("channel"), rootId(904)),
+                 detached.data());
     }
 
 };

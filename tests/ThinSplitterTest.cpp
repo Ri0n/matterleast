@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QImage>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QSplitter>
 #include <QSplitterHandle>
@@ -67,6 +68,75 @@ private slots:
                  ThinSplitter::TrailingHitPadding);
         QCOMPARE(handle->mask().boundingRect(), handle->contentsRect());
         QVERIFY(handle->testAttribute(Qt::WA_MouseNoMask));
+    }
+
+    void handleRemainsDraggableAfterLayoutChanges_data()
+    {
+        QTest::addColumn<int>("orientation");
+        QTest::newRow("horizontal") << int(Qt::Horizontal);
+        QTest::newRow("vertical") << int(Qt::Vertical);
+    }
+
+    void handleRemainsDraggableAfterLayoutChanges()
+    {
+        QFETCH(int, orientation);
+        const bool horizontal = orientation == int(Qt::Horizontal);
+        ThinSplitter splitter(static_cast<Qt::Orientation>(orientation));
+        splitter.resize(420, 420);
+        auto* first = new QWidget;
+        auto* second = new QWidget;
+        splitter.addWidget(first);
+        splitter.addWidget(second);
+        splitter.setChildrenCollapsible(false);
+        splitter.setSizes({200, 219});
+        splitter.show();
+        QCoreApplication::processEvents();
+
+        auto drag = [&](int delta) {
+            auto* handle = splitter.handle(1);
+            QVERIFY(handle);
+            QVERIFY(handle->isVisible());
+            // Start inside the invisible trailing hit area, not on the
+            // one-pixel painted separator. Check widget hit testing as well
+            // as QSplitterHandle's drag implementation.
+            const QPoint local = horizontal
+                ? QPoint(handle->width() - 2, handle->height() / 2)
+                : QPoint(handle->width() / 2, handle->height() - 2);
+            QVERIFY(!handle->contentsRect().contains(local));
+            QCOMPARE(splitter.childAt(handle->mapTo(&splitter, local)),
+                     static_cast<QWidget*>(handle));
+
+            const int before = splitter.sizes().first();
+            QSignalSpy moved(&splitter, &QSplitter::splitterMoved);
+            const QPoint target = handle->mapToGlobal(local)
+                + (horizontal ? QPoint(delta, 0) : QPoint(0, delta));
+            QTest::mousePress(handle, Qt::LeftButton, Qt::NoModifier, local);
+            // Explicit held-button motion also works on offscreen CI, where
+            // moving the native cursor is not a reliable drag simulation.
+            const QPoint position = handle->mapFromGlobal(target);
+            QMouseEvent motion(QEvent::MouseMove, QPointF(position),
+                               QPointF(handle->mapTo(handle->window(), position)),
+                               QPointF(target), Qt::NoButton, Qt::LeftButton,
+                               Qt::NoModifier);
+            QCoreApplication::sendEvent(handle, &motion);
+            QTest::mouseRelease(handle, Qt::LeftButton, Qt::NoModifier,
+                                handle->mapFromGlobal(target));
+            QVERIFY(!moved.isEmpty());
+            QVERIFY(qAbs(splitter.sizes().first() - before - delta) <= 2);
+        };
+
+        drag(35);
+        second->hide();
+        QCoreApplication::processEvents();
+        second->show();
+        splitter.resize(480, 480);
+        QCoreApplication::processEvents();
+        splitter.setSizes({240, 239});
+        drag(-35);
+        splitter.hide();
+        splitter.show();
+        QCoreApplication::processEvents();
+        drag(30);
     }
 
     void separatorStaysVisibleInDarkTheme()
