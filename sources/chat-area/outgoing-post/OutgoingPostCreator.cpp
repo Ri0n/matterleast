@@ -375,7 +375,7 @@ void OutgoingPostCreator::init(Backend& backendInstance,
         this,
         [this](const QString& name) {
             if (!rankedEmojiPopup || !rankedEmojiPopup->isVisible()
-                || !ReactionUsageTracker::instance()
+                || !backend || !ReactionUsageTracker::instance(backend->networkSession().host())
                         .topNames(RankedEmojiCapacity)
                         .contains(name)) {
                 return;
@@ -1642,7 +1642,7 @@ void OutgoingPostCreator::rebuildRankedEmojiButtons()
     }
 
     const QStringList rankedNames =
-        ReactionUsageTracker::instance().topNames(RankedEmojiCapacity);
+        ReactionUsageTracker::instance(backend->networkSession().host()).topNames(RankedEmojiCapacity);
     const QStringList names =
         RankedEmojiPresentation::renderableNames(
             backend->emojiRegistry(), rankedNames)

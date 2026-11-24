@@ -230,7 +230,7 @@ private:
         const QStringList quickNames =
             RankedEmojiPresentation::renderableNames(
                 post.getBackend().emojiRegistry(),
-                ReactionUsageTracker::instance().topNames(10)).mid(0, 8);
+                ReactionUsageTracker::instance(post.getBackend().networkSession().host()).topNames(10)).mid(0, 8);
         if (quickNames.isEmpty()) {
             clearQuickBar();
             return;

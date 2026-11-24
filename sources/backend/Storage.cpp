@@ -23,18 +23,25 @@
  */
 
 #include "Storage.h"
+#include "backend/NetworkSessionContext.h"
 #include "log.h"
 
 namespace Mattermost {
 
-Storage::Storage ()
+Storage::Storage (const NetworkSessionContext* session)
 :loginUser (nullptr)
 ,matterpollUser (nullptr)
 ,totalUsersCount (0)
+,session_(session)
 {
 }
 
 Storage::~Storage () = default;
+
+QString Storage::serverEndpoint() const
+{
+    return session_ ? session_->host() : QString();
+}
 
 void Storage::reset ()
 {

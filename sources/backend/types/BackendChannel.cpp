@@ -387,7 +387,7 @@ void BackendChannel::addPostReaction(QString postId, QString userId, QString emo
 	existingPost->addReaction(userId, emojiName);
 	if (ownReaction && !alreadyPresent
         && existingPost->hasReaction(loginUserId, emojiName)) {
-		ReactionUsageTracker::instance().recordUse(emojiName);
+		ReactionUsageTracker::instance(storage.serverEndpoint()).recordUse(emojiName);
 	}
 	emit onPostReactionUpdated(*existingPost);
 }

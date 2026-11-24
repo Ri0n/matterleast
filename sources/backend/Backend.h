@@ -422,11 +422,11 @@ private:
                               const QString& parentId) const;
     void dropTypingView(QObject* view);
 private:
+    NetworkSessionContext            _networkSession;
     Storage							storage;
     EmojiRegistry                   _emojiRegistry;
     ServerDialogsMap				serverDialogsMap;
 
-    NetworkSessionContext            _networkSession;
     HTTPConnector 					httpConnector;
     WebSocketEventHandler			webSocketEventHandler;
     WebSocketConnector				webSocketConnector;

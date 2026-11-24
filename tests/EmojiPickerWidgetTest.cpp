@@ -14,6 +14,8 @@
 #include "choose-emoji-dialog/EmojiPickerWidget.h"
 #include "choose-emoji-dialog/ChooseEmojiDialog.h"
 #include "options/MLOptions.h"
+#include "reactions/ReactionUsageTracker.h"
+#include <QUuid>
 
 using namespace Mattermost;
 
@@ -86,6 +88,23 @@ private slots:
         QVERIFY(!dialog->isVisible());
         emit picker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
         QCOMPARE(secondCalls, 1);
+    }
+
+    void reactionRankingIsIndependentPerServer()
+    {
+        const QString base = QStringLiteral("https://") + QUuid::createUuid().toString(QUuid::WithoutBraces)
+            + QStringLiteral(".example.invalid/");
+        auto& first = ReactionUsageTracker::instance(base + QStringLiteral("a"));
+        auto& second = ReactionUsageTracker::instance(base + QStringLiteral("b"));
+        QVERIFY(&first != &second);
+        QCOMPARE(&first, &ReactionUsageTracker::instance(base + QStringLiteral("a/")));
+        const auto before = second.topNames();
+        first.recordUse(QStringLiteral("server_specific_emoji"));
+        QCOMPARE(first.topNames(1), QStringList{QStringLiteral("server_specific_emoji")});
+        QCOMPARE(second.topNames(), before);
+        second.recordUse(QStringLiteral("different_custom_emoji"));
+        QCOMPARE(second.topNames(1), QStringList{QStringLiteral("different_custom_emoji")});
+        QCOMPARE(first.topNames(1), QStringList{QStringLiteral("server_specific_emoji")});
     }
 
     void skinToneModelIsStrict()
