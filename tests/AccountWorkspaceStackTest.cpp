@@ -2,6 +2,7 @@
 
 #include <QLineEdit>
 #include <QPointer>
+#include <QSplitter>
 #include <QVBoxLayout>
 
 #include "ui/AccountWorkspaceStack.h"
@@ -60,50 +61,21 @@ private slots:
         QCOMPARE(switched.count(), 5); // First registration + 4 switches.
     }
 
-    void sharedSidebarFollowsWorkspaceWithoutDestroyingViewState()
+    void shellNeverIntroducesNestedSplitter()
     {
-        AccountWorkspaceStack stack;
-        QWidget* serversPage = new QWidget;
-        stack.setServersPage(serversPage);
-        auto* alpha = new QWidget;
-        auto* beta = new QWidget;
-        QVERIFY(stack.addWorkspace(QStringLiteral("a"), alpha));
-        QVERIFY(stack.addWorkspace(QStringLiteral("b"), beta));
-        QVERIFY(stack.activateWorkspace(QStringLiteral("a")));
-
-        auto* shared = new QWidget;
-        shared->setObjectName(QStringLiteral("retainedSharedSidebar"));
-        QPointer<QWidget> guard(shared);
-        auto* otherView = new QWidget;
-        QPointer<QWidget> otherGuard(otherView);
-
-        stack.setSharedSidebarWidget(shared);
-        QCOMPARE(stack.sharedSidebarWidget(), shared);
-        QVERIFY(stack.findChild<QWidget*>(
-            QStringLiteral("mergedAccountSidebarPane")));
-        stack.resize(850, 500);
-        stack.show();
-        QVERIFY(shared->isVisible());
-        QVERIFY(stack.activateWorkspace(QStringLiteral("b")));
-        QCOMPARE(stack.sharedSidebarWidget(), shared);
-        QVERIFY(shared->isVisible());
-        QCOMPARE(stack.workspace(QStringLiteral("a")), alpha);
-
-        stack.setSharedSidebarWidget(otherView);
-        QVERIFY(!shared->isVisible());
-        QVERIFY(otherView->isVisible());
-        stack.setSharedSidebarWidget(shared);
-        QVERIFY(!otherView->isVisible());
-        QVERIFY(shared->isVisible());
-
-        stack.showServers();
-        QVERIFY(!shared->isVisible());
-        QVERIFY(stack.activateWorkspace(QStringLiteral("a")));
-        QVERIFY(shared->isVisible());
-        stack.setSharedSidebarWidget(nullptr);
-        QVERIFY(!shared->isVisible());
-        QVERIFY(guard);
-        QVERIFY(otherGuard);
+        AccountWorkspaceStack shell;
+        QVERIFY(shell.findChildren<QSplitter*>().isEmpty());
+        auto* account = new QWidget;
+        auto* layout = new QVBoxLayout(account);
+        auto* existing = new QSplitter(Qt::Horizontal, account);
+        existing->addWidget(new QWidget);
+        existing->addWidget(new QWidget);
+        layout->addWidget(existing);
+        QVERIFY(shell.addWorkspace(QStringLiteral("account"), account));
+        QCOMPARE(shell.findChildren<QSplitter*>().size(), 1);
+        QCOMPARE(shell.findChildren<QSplitter*>().front(), existing);
+        QVERIFY(shell.activateWorkspace(QStringLiteral("account")));
+        QCOMPARE(shell.findChildren<QSplitter*>().size(), 1);
     }
 
     void removalDoesNotDestroyOtherAccount()

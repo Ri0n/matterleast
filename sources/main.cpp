@@ -299,8 +299,6 @@ void MattermostApplication::ensureWorkspaceShell()
 
     serversStartupPage = new ServersWorkspacePage(accounts, workspaceShell.get());
     workspaceShell->setServersPage(serversStartupPage);
-    connect(workspaceShell.get(), &AccountWorkspaceStack::serversRequested,
-            this, [this] { workspaceShell->showServers(); });
     connect(serversStartupPage, &ServersWorkspacePage::accountSelected, this,
             [this](const QString& id) {
         selectAccount(id);
@@ -347,6 +345,7 @@ void MattermostApplication::ensureWorkspaceShell()
             this, [this](const QString& id) {
         if (!id.isEmpty() && id != accounts.selectedAccountId())
             accounts.selectAccount(id);
+        syncMergedSidebarPresentation();
         updateWindowTitle();
     });
     connect(&accounts, &AccountManager::activeBackendChanged,
@@ -402,32 +401,31 @@ void MattermostApplication::syncMergedSidebarPresentation()
         if (view.id == layout.activeViewId)
             active = &view;
     }
-    // Retire presenters for deleted Views, not the Backend/storage they
-    // observe. Always detach the widget before destroying it.
+    const bool merged = active && active->accountIds.size() > 1;
+    MainWindow* target = nullptr;
+    if (merged) {
+        Account* selected = accounts.account(accounts.selectedAccountId());
+        if (selected && selected->backend()
+            && !closingAccounts.contains(selected->backend()))
+            target = accountViews.value(selected->backend(), nullptr);
+    }
+    ChannelTree* desired = merged ? viewSidebars.value(active->id).data() : nullptr;
+    // Keep the single existing ThinSplitter in each MainWindow. Park any
+    // previous View tree before switching accounts or destroying a View.
+    for (MainWindow* page : accountViews) {
+        if (page && (page != target || page->viewChannelTree() != desired))
+            page->setViewChannelTree(nullptr, workspaceShell.get());
+    }
     for (auto it = viewSidebars.begin(); it != viewSidebars.end();) {
         if (liveViewIds.contains(it.key())) {
             ++it;
             continue;
         }
-        ChannelTree* tree = it.value().data();
-        if (workspaceShell->sharedSidebarWidget() == tree)
-            workspaceShell->setSharedSidebarWidget(nullptr);
-        delete tree;
+        delete it.value().data();
         it = viewSidebars.erase(it);
     }
-
-    const bool merged = active && active->accountIds.size() > 1;
-    for (auto it = accountViews.cbegin(); it != accountViews.cend(); ++it) {
-        if (!it.value())
-            continue;
-        const Account* owner = accounts.accountForBackend(it.key());
-        it.value()->setMergedSidebarMode(
-            merged && owner && active->accountIds.contains(owner->id()));
-    }
-    if (!merged) {
-        workspaceShell->setSharedSidebarWidget(nullptr);
+    if (!merged)
         return;
-    }
 
     ChannelTree* tree = viewSidebars.value(active->id).data();
     if (!tree) {
@@ -491,7 +489,8 @@ void MattermostApplication::syncMergedSidebarPresentation()
     }
     tree->setVisibleAccountRoots(active->accountIds, labels);
     tree->setMergedConversationSorting(active->directMessagesSorting);
-    workspaceShell->setSharedSidebarWidget(tree);
+    if (target)
+        target->setViewChannelTree(tree, workspaceShell.get());
 }
 
 void MattermostApplication::selectAccount(const QString& id,
@@ -797,8 +796,10 @@ void MattermostApplication::suspendProfileConnection(Account* item,
     // neutral overview until the target view's account is ready.
     if (workspaceShell && workspaceShell->activeAccountId() == accountId)
         workspaceShell->showServers();
-    if (MainWindow* page = accountViews.value(backend, nullptr))
+    if (MainWindow* page = accountViews.value(backend, nullptr)) {
+        page->setViewChannelTree(nullptr, workspaceShell.get());
         page->prepareForLogout();
+    }
 
     // Crucially, a suspended profile is not a logout. The manager already
     // stopped its transports, but must not clear Storage until this account's
@@ -840,8 +841,10 @@ void MattermostApplication::beginLogout(Backend& backend,
         if (sidebar) sidebar->unregisterAccountBackend(id, &backend);
     QPointer<Account> guard(item);
     accounts.prepareStop(item, authenticationExpired);
-    if (MainWindow* page = accountViews.value(&backend, nullptr))
+    if (MainWindow* page = accountViews.value(&backend, nullptr)) {
+        page->setViewChannelTree(nullptr, workspaceShell.get());
         page->prepareForLogout();
+    }
 
     // Queued teardown keeps QAction callbacks out of destroyed QWidget trees.
     QMetaObject::invokeMethod(this,

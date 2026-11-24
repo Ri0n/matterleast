@@ -40,6 +40,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSplitter>
+#include <QStackedLayout>
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
@@ -491,18 +492,32 @@ void MainWindow::openAccountDestination(int destination, const QString& teamId)
         on_channelList_virtualDestinationRequested(destination, teamId);
 }
 
-void MainWindow::setMergedSidebarMode(bool enabled)
+void MainWindow::setViewChannelTree(ChannelTree* tree, QWidget* parkingParent)
 {
-    if (!sidebarSplitter || sidebarSplitter->count() < 2)
+    if (_viewChannelTree == tree || !channelTreePages)
         return;
-    QWidget* nativeSidebar = sidebarSplitter->widget(0);
-    if (!nativeSidebar || nativeSidebar->isHidden() == enabled)
-        return;
-    nativeSidebar->setHidden(enabled);
-    // Do not write a synthetic zero-width splitter state. The original
-    // account-specific width is restored when its sidebar is shown again.
-    if (!enabled && isVisible())
-        restoreSidebarWidth();
+
+    if (ChannelTree* previous = _viewChannelTree.data()) {
+        QObject::disconnect(_viewTreeSearchConnection);
+        _viewTreeSearchConnection = {};
+        // Switch to the native tree first. The shared View tree must never
+        // become a detached top-level window while moving between accounts.
+        channelTreePages->setCurrentWidget(ui->channelList);
+        previous->hide();
+        channelTreePages->removeWidget(previous);
+        previous->setParent(parkingParent ? parkingParent : this);
+    }
+    _viewChannelTree = tree;
+    if (tree) {
+        channelTreePages->addWidget(tree);
+        channelTreePages->setCurrentWidget(tree);
+        _viewTreeSearchConnection = connect(
+            sidebarFilterEdit, &QLineEdit::textChanged,
+            tree, &ChannelTree::setConversationSearchTerm);
+        tree->setConversationSearchTerm(sidebarFilterEdit->text());
+    } else {
+        channelTreePages->setCurrentWidget(ui->channelList);
+    }
 }
 
 static QString infoText()
@@ -573,7 +588,11 @@ void MainWindow::setupChannelTabs()
     // stylesheet prevents it from inheriting the new palette correctly.
     teamToolbar->installEventFilter(this);
     channelsLayout->addWidget(teamToolbar);
-	channelsLayout->addWidget(ui->channelList, 1);
+    // Preserve the original Channels tab geometry and native account tree.
+    channelTreePages = new QStackedLayout;
+    channelTreePages->setContentsMargins(0, 0, 0, 0);
+    channelTreePages->addWidget(ui->channelList);
+    channelsLayout->addLayout(channelTreePages, 1);
 
     // Reuse the existing Following projection inside an Unread tab. The
     // filters remain local view preferences, not new unread state.

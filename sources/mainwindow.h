@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <memory>
 #include <QMainWindow>
+#include <QMetaObject>
+#include <QPointer>
 #include <QSet>
 #include <QStringList>
 #include "choose-emoji-dialog/ChooseEmojiDialogWrapper.h"
@@ -34,6 +36,7 @@ class QCheckBox;
 class QEvent;
 class QLineEdit;
 class QSplitter;
+class QStackedLayout;
 class QSystemTrayIcon;
 class QTabWidget;
 class QToolButton;
@@ -49,6 +52,7 @@ class BackendChannel;
 class BackendPost;
 class BackendTeam;
 class ChannelQuickList;
+class ChannelTree;
 class NotificationManager;
 class PostCollectionView;
 class SidebarUpdateBanner;
@@ -75,9 +79,10 @@ public:
     void showServersSidebar();
     void showChannelsSidebar();
     void openAccountDestination(int destination, const QString& teamId);
-    // The account's chats remain live while the active multi-account View
-    // supplies a single ChannelTree at application-shell scope.
-    void setMergedSidebarMode(bool enabled);
+    // Replace only the tree inside the existing Channels tab. The ThinSplitter
+    // and all other MainWindow presentation remain unchanged.
+    void setViewChannelTree(ChannelTree* tree, QWidget* parkingParent);
+    ChannelTree* viewChannelTree() const { return _viewChannelTree.data(); }
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
@@ -149,6 +154,9 @@ private:
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;
+    QStackedLayout*                   channelTreePages = nullptr;
+    QPointer<ChannelTree>             _viewChannelTree;
+    QMetaObject::Connection           _viewTreeSearchConnection;
     ServersSidebarPage*                  serversPage = nullptr;
     QWidget*                            sidebarFilterRow = nullptr;
     QWidget*                            _unreadPage = nullptr;
