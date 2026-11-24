@@ -554,5 +554,10 @@ account roots and the navigation session, not the window or its splitter.
 Account connection and suspension attach/detach account-qualified UI sources;
 closing one connection releases its widgets before Storage is reset. The
 application-wide sidebar splitter state is saved under the existing global
-key. The standalone one-Backend constructor remains for widget tests while
-legacy workspace-only code is retired.
+key. Restore it after the navigation content host has replaced the original
+stack in the splitter; preserve the central stretch factor and reject a zero
+(or minimum one-pixel) conversation pane even before the first account has
+connected. Never persist a collapsed application conversation pane. Widget
+integration tests exercise real sidebar clicks and verify visible ChatArea
+geometry, not merely the current stack page. The standalone one-Backend
+constructor remains for widget tests while legacy workspace-only code is retired.
