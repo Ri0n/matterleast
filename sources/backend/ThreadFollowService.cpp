@@ -297,7 +297,8 @@ void ThreadFollowService::queryUnreadThreads(ThreadListCallback callback)
 
 void ThreadFollowService::queryThreads(bool unreadOnly, ThreadListCallback callback)
 {
-    if (_backend.getLoginUser().id.isEmpty()) {
+    const auto* user = _backend.getStorage().loginUser;
+    if (!user || user->id.isEmpty()) {
         qCDebug(lcFollowing) << "query skipped: login user id is empty";
         if (callback) {
             callback({});
