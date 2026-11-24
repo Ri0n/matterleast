@@ -113,6 +113,7 @@ public:
 
 	void changeEvent (QEvent* event) override;
 	void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent* event) override;
 	void saveState ();
 	void setNotificationsCountVisualization (uint32_t notificationsCount);
 	void moveEvent (QMoveEvent* event) override;
@@ -156,12 +157,14 @@ private:
 	void refreshMenuButtonIcon ();
     void refreshSearchButtonIcon();
 	void refreshUnreadFilterIcon ();
+    void restoreSidebarState();
 private:
 	std::unique_ptr<Ui::MainWindow>		ui;
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
     QPointer<Backend> _backend;
     bool _sharedPresentation = false;
+    bool _sidebarStateRestored = false;
     QString retainedUnreadFilterAccountId;
     QHash<Backend*, QObject*> _navigationSubscriptions;
     QPointer<Backend> _profileBackend;
