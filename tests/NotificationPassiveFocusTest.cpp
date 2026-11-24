@@ -76,7 +76,7 @@ private slots:
         QVERIFY2(!delivery.isEmpty(), "Cannot locate messageNotify implementation");
         QVERIFY(delivery.contains(QStringLiteral("notificationManager->show(")));
         QVERIFY(delivery.contains(
-            QStringLiteral("notificationManager->requestTaskbarAttention(*this)")));
+            QStringLiteral("notificationManager->requestTaskbarAttention(*window())")));
 
         // Match calls at the beginning of a statement. Only the platform
         // policy tested above may route a notification to QApplication::alert.

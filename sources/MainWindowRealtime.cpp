@@ -94,7 +94,7 @@ void MainWindow::installRealtimeUiSync()
     // and exact thread position before the concrete target widget is presented.
     connect(notificationManager, &NotificationManager::activated,
             this, [this](const NotificationTarget& target) {
-        if (!target.isValid()) {
+        if (!target.isValid() || target.accountSession != &backend) {
             return;
         }
 
@@ -128,8 +128,9 @@ void MainWindow::installRealtimeUiSync()
     if (auto* manager = PluginManager::instance()) {
     auto& plugins = *manager;
     connect(notificationManager, &NotificationManager::incomingCallAnswered,
-            this, [this, &plugins](const QString& callId, bool accept) {
-        plugins.answerIncomingCall(plugins.accountId(backend), callId, accept);
+            this, [this, &plugins](const NotificationTarget& target, bool accept) {
+        if (target.accountSession == &backend)
+            plugins.answerIncomingCall(plugins.accountId(backend), target.callId, accept);
     });
     auto* ringTimer = new QTimer(this);
     ringTimer->setInterval(2600);
@@ -168,7 +169,7 @@ void MainWindow::installRealtimeUiSync()
             [this, &plugins, stopRinging](const QString& accountId, const QString& id) {
         if (accountId != plugins.accountId(backend)) return;
         stopRinging(id);
-        notificationManager->closeIncomingCall(id);
+        notificationManager->closeIncomingCall(backend, id);
     });
     connect(&plugins, &PluginManager::incomingCallStarted, this,
             [this, &plugins, ringTimer, ring, ringing, stopRinging](const IncomingCall& call) {
@@ -190,7 +191,7 @@ void MainWindow::installRealtimeUiSync()
         notificationManager->show(tr("Incoming audio call"), caller,
                                   {call.channelId, call.postId,
                                    call.threadId == call.postId ? QString() : call.threadId,
-                                   call.id});
+                                   call.id, &backend});
     });
 
     }

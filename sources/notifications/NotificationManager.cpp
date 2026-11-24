@@ -4,7 +4,6 @@
  */
 
 #include "NotificationManager.h"
-#include "TrayFallbackOwner.h"
 
 #include "TaskbarAttentionPolicy.h"
 
@@ -29,7 +28,6 @@ namespace Mattermost {
 namespace {
 
 constexpr int IncomingCallDurationMs = 30000;
-constexpr char TrayFallbackOwnerName[] = "_matterleast_tray_fallback_owner";
 
 int notificationDisplayDurationMs(const QString& title, const QString& body)
 {
@@ -80,27 +78,22 @@ bool sendLauncherUrgency(bool urgent)
 }
 #endif
 
-TrayFallbackOwner* fallbackOwnerFor(QSystemTrayIcon& trayIcon)
-{
-    // Exactly one coordinator per tray icon, shared by all account managers.
-    for (QObject* child : trayIcon.children()) {
-        if (child->objectName() == QLatin1String(TrayFallbackOwnerName))
-            return static_cast<TrayFallbackOwner*>(child);
-    }
-    auto* owner = new TrayFallbackOwner(&trayIcon);
-    owner->setObjectName(QLatin1String(TrayFallbackOwnerName));
-    return owner;
-}
-
 } // namespace
 
-NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* parent)
-    : QObject(parent)
+NotificationManager& NotificationManager::instance(QSystemTrayIcon& trayIcon)
+{
+    if (auto* existing = trayIcon.findChild<NotificationManager*>(
+            QString(), Qt::FindDirectChildrenOnly))
+        return *existing;
+    return *new NotificationManager(trayIcon);
+}
+
+NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon)
+    : QObject(&trayIcon)
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
     , freedesktopActionsSupported(false)
 #endif
     , trayIcon(trayIcon)
-    , fallbackOwner(fallbackOwnerFor(trayIcon))
 {
     connect(&trayIcon, &QSystemTrayIcon::messageClicked,
             this, &NotificationManager::onFallbackMessageClicked);
@@ -155,8 +148,6 @@ NotificationManager::NotificationManager(QSystemTrayIcon& trayIcon, QObject* par
 
 NotificationManager::~NotificationManager()
 {
-    if (fallbackOwner)
-        fallbackOwner->release(this);
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
     for (auto it = freedesktopTargets.cbegin(); it != freedesktopTargets.cend(); ++it) {
         if (!it->callId.isEmpty()) {
@@ -177,11 +168,8 @@ void NotificationManager::show(const QString& title, const QString& body,
 #endif
 
     fallbackTarget = target;
-    // QSystemTrayIcon::messageClicked carries no notification ID. Only the
-    // manager that displayed the latest fallback popup may handle its click;
-    // otherwise two server windows could navigate using stale targets.
-    if (fallbackOwner)
-        fallbackOwner->claim(this);
+    // One tray has one delivery manager. A fallback click can refer only
+    // to its most recently displayed popup, including the originating session.
     // Headless/offscreen Qt platforms do not implement system-tray popups.
     // Keep the click routing state testable, but never call the native popup
     // API if the platform has no system tray implementation.
@@ -211,17 +199,18 @@ void NotificationManager::requestTaskbarAttention(QWidget& window)
 #endif
 }
 
-void NotificationManager::closeIncomingCall(const QString& callId)
+void NotificationManager::closeIncomingCall(QObject& accountSession, const QString& callId)
 {
     if (callId.isEmpty()) {
         return;
     }
-    if (fallbackTarget.callId == callId) {
+    if (fallbackTarget.accountSession == &accountSession
+        && fallbackTarget.callId == callId) {
         fallbackTarget = {};
     }
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
     for (auto it = freedesktopTargets.begin(); it != freedesktopTargets.end();) {
-        if (it->callId != callId) {
+        if (it->accountSession != &accountSession || it->callId != callId) {
             ++it;
             continue;
         }
@@ -231,15 +220,29 @@ void NotificationManager::closeIncomingCall(const QString& callId)
 #endif
 }
 
+void NotificationManager::clearAccountSession(QObject& accountSession)
+{
+    if (fallbackTarget.accountSession == &accountSession)
+        fallbackTarget = {};
+#ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
+    for (auto it = freedesktopTargets.begin(); it != freedesktopTargets.end();) {
+        if (it->accountSession != &accountSession) {
+            ++it;
+            continue;
+        }
+        if (!it->callId.isEmpty())
+            closeFreedesktopNotification(it.key());
+        it = freedesktopTargets.erase(it);
+    }
+#endif
+}
+
 void NotificationManager::onFallbackMessageClicked()
 {
-    if (!fallbackTarget.isValid() || !fallbackOwner
-        || !fallbackOwner->consume(this))
-        return;
-
     const NotificationTarget target = fallbackTarget;
-    fallbackTarget = NotificationTarget {};
-    emit activated(target);
+    fallbackTarget = {};
+    if (target.isValid())
+        emit activated(target);
 }
 
 #ifdef MATTERMOST_QT_FREEDESKTOP_NOTIFICATIONS
@@ -313,6 +316,10 @@ void NotificationManager::onActionInvoked(uint notificationId, const QString& ac
     }
 
     const auto target = it.value();
+    if (!target.isValid()) {
+        freedesktopTargets.remove(notificationId);
+        return;
+    }
     if (actionKey == QLatin1String("default")) {
         if (target.callId.isEmpty()) {
             freedesktopTargets.remove(notificationId);
@@ -321,7 +328,7 @@ void NotificationManager::onActionInvoked(uint notificationId, const QString& ac
     } else if (!target.callId.isEmpty()
                && (actionKey == QLatin1String("accept-call")
                    || actionKey == QLatin1String("decline-call"))) {
-        emit incomingCallAnswered(target.callId, actionKey == QLatin1String("accept-call"));
+        emit incomingCallAnswered(target, actionKey == QLatin1String("accept-call"));
     }
 }
 

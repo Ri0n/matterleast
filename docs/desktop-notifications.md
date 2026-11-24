@@ -3,7 +3,11 @@
 MatterLeast checks desktop notification eligibility in
 `MainWindow::messageNotify()`, not in the sidebar presentation. The
 `NotificationManager` only delivers notifications already approved by that
-policy.
+policy. There is one manager per application tray, not one per account
+window. Each actionable target retains the exact originating connection
+through a guarded QObject pointer. A disconnected session's old notification
+cannot navigate a replacement session or a server with the same remote IDs.
+Incoming-call dismissal and answer handling use that same session identity.
 
 ## Channel root messages
 
@@ -118,8 +122,8 @@ On Wayland, `NotificationManager` sends a D-Bus
 `com.canonical.Unity.LauncherEntry.Update` signal with the `urgent` flag
 for MatterLeast's desktop entry. Plasma's task manager uses this flag to
 highlight the taskbar item without involving the compositor. The manager
-clears the flag when the application becomes active or the login session
-ends. Panels that lack LauncherEntry support, builds without Qt DBus, and
+clears the flag when the application becomes active or the application
+notification manager is destroyed. Panels that lack LauncherEntry support, builds without Qt DBus, and
 desktops without a matching installed entry still get the usual notifications
 and tray badges. [Plasma taskbar attention state](https://github.com/KDE/plasma-desktop/blob/v6.6.6/applets/taskmanager/qml/Task.qml#L596-L602)
 
@@ -131,7 +135,11 @@ running with `xcb` still use the X11 attention hint.
 
 Notification-driven window activation requires a click. The notification's
 default action or fallback tray click emits `NotificationManager::activated`
-for a post target, which opens MatterLeast and navigates to the post or thread.
+for a post target, which opens MatterLeast and navigates to the post or thread
+in its owning account. Passive taskbar urgency is sent to the actual top-level
+application window even if the originating account presenter is hidden.
+`NotificationMessageOwnerTest` exercises the actual shared manager's tray
+fallback click routing, expired session guards and cross-account call ID collisions.
 
 ## System tray unread badges (issue #278)
 

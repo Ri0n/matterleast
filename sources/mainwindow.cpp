@@ -125,7 +125,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     : QMainWindow(parent)
     , ui(std::make_unique<Ui::MainWindow>())
     , trayIcon(trayIcon)
-    , notificationManager(new NotificationManager(trayIcon, this))
+    , notificationManager(&NotificationManager::instance(trayIcon))
     , chooseEmojiDialog(this, _backend)
     , backend(_backend)
     , currentTeamRestoredFromSettings(false)
@@ -354,6 +354,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 
 MainWindow::~MainWindow()
 {
+    notificationManager->clearAccountSession(backend);
     // QObject destroys child widgets only after this destructor body returns.
     // Finalize navigation now while every thread stack and ChatArea is valid;
     // otherwise ChatArea::destroyed synchronously triggers session updates
@@ -1570,8 +1571,10 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 	}
 
     notificationManager->show(title, post.message,
-                              NotificationTarget {channel.id, post.id, post.root_id});
-    notificationManager->requestTaskbarAttention(*this);
+                              NotificationTarget {channel.id, post.id, post.root_id, {}, &backend});
+    // The account's presenter may be hidden; taskbar urgency belongs to
+    // the application's real top-level window.
+    notificationManager->requestTaskbarAttention(*window());
 }
 
 void MainWindow::unreadMessagesNotify(const BackendChannel& channel)
