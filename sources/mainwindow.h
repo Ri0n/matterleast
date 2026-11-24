@@ -95,8 +95,6 @@ public:
     void showServersSidebar();
     void showChannelsSidebar();
     void openAccountDestination(int destination, const QString& teamId);
-    // Save and close while post widgets can still access valid Storage.
-    void prepareForLogout();
     void beginSemanticNavigation();
 	void openChannelPost(const QString& channelId,
 	                     const QString& postId = QString(),
@@ -116,7 +114,6 @@ public:
 	void changeEvent (QEvent* event) override;
 	void closeEvent(QCloseEvent *event) override;
 	void saveState ();
-	void unreadMessagesNotify (const BackendChannel& channel);
 	void setNotificationsCountVisualization (uint32_t notificationsCount);
 	void moveEvent (QMoveEvent* event) override;
 	void dragMoveEvent(QDragMoveEvent* event) override;
@@ -194,13 +191,11 @@ private:
     QPointer<PostCollectionView>         searchMessagesPage;
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;
-	bool								currentTeamRestoredFromSettings;
 	bool channelMembershipsReady = false;
 	bool teamChannelsReady = false;
 	QSet<QString> populatedSessionSidebars;
 	bool navigationSessionRestoreScheduled = false;
 	QMenu*								mainMenu;
-	bool								doDeinit;
 };
 
 } /* namespace Mattermost */
