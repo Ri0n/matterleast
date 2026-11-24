@@ -39,37 +39,40 @@ void MainWindow::openDraft(const QString& channelId,
     }
 
     beginSemanticNavigation();
+    const QString accountId = ui->channelList->accountIdForBackend(&backend);
+    const quint64 generation = semanticNavigationGeneration;
 
     if (rootId.isEmpty()) {
         auto completion = std::make_shared<QMetaObject::Connection>();
         QPointer<MainWindow> guard(this);
         *completion = connect(
             ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
-            [guard, completion, channelId, draftKey](
-                const QString& completedChannelId,
+            [guard, completion, accountId, channelId, draftKey, generation](
+                const QString& completedAccountId, const QString& completedChannelId,
                 bool opened) {
-                if (completedChannelId != channelId) {
+                if (completedAccountId != accountId || completedChannelId != channelId) {
                     return;
                 }
                 QObject::disconnect(*completion);
-                if (!guard || !opened) {
+                if (!guard || !opened || guard->semanticNavigationGeneration != generation) {
                     return;
                 }
                 QTimer::singleShot(0, guard.data(),
-                                   [guard, channelId, draftKey] {
-                    if (!guard) {
+                                   [guard, channelId, draftKey, generation] {
+                    if (!guard || guard->semanticNavigationGeneration != generation) {
                         return;
                     }
                     ChatArea* area = guard->ui->channelList->getCurrentPage();
-                    if (area && area->getChannel().id == channelId) {
+                    if (area && &area->getBackend() == &guard->backend
+                        && area->getChannel().id == channelId) {
                         area->restoreDraftAndFocus(draftKey);
                     }
                 });
             });
 
-        ui->channelList->openStoredChannel(channelId);
+        ui->channelList->openStoredChannelForAccount(channelId, accountId);
         ChatArea* area = ui->channelList->getCurrentPage();
-        if (area && area->getChannel().id == channelId) {
+        if (area && &area->getBackend() == &backend && area->getChannel().id == channelId) {
             QObject::disconnect(*completion);
             area->restoreDraftAndFocus(draftKey);
         }
@@ -80,19 +83,19 @@ void MainWindow::openDraft(const QString& channelId,
     QPointer<MainWindow> guard(this);
     *completion = connect(
         ui->channelList, &ChannelTree::storedChannelOpenFinished, this,
-        [guard, completion, channelId, rootId, draftKey](
-            const QString& completedChannelId,
+        [guard, completion, accountId, channelId, rootId, draftKey, generation](
+            const QString& completedAccountId, const QString& completedChannelId,
             bool opened) {
-            if (completedChannelId != channelId) {
+            if (completedAccountId != accountId || completedChannelId != channelId) {
                 return;
             }
             QObject::disconnect(*completion);
-            if (!guard || !opened) {
+            if (!guard || !opened || guard->semanticNavigationGeneration != generation) {
                 return;
             }
             QTimer::singleShot(0, guard.data(),
-                               [guard, channelId, rootId, draftKey] {
-                if (!guard) {
+                               [guard, channelId, rootId, draftKey, generation] {
+                if (!guard || guard->semanticNavigationGeneration != generation) {
                     return;
                 }
                 if (ChatArea* thread = NavigationUiController::instance(*guard)
@@ -104,7 +107,8 @@ void MainWindow::openDraft(const QString& channelId,
 
     openChannelPost(channelId, QString(), rootId);
     QTimer::singleShot(
-        0, this, [this, completion, channelId, rootId, draftKey] {
+        0, this, [this, completion, channelId, rootId, draftKey, generation] {
+        if (generation != semanticNavigationGeneration) return;
         if (ChatArea* thread = NavigationUiController::instance(*this)
                                    .findThread(channelId, rootId)) {
             QObject::disconnect(*completion);
@@ -121,12 +125,27 @@ void MainWindow::openChannelPost(const QString& channelId,
                                  bool reachedNewest,
                                  bool preserveIfOpen)
 {
+    openChannelPostForBackend(backend, channelId, postId, rootId, contextPostIds,
+                              reachedOldest, reachedNewest, preserveIfOpen);
+}
+
+void MainWindow::openChannelPostForBackend(Backend& source, const QString& channelId,
+                                           const QString& postId, const QString& rootId,
+                                           const QStringList& contextPostIds,
+                                           bool reachedOldest, bool reachedNewest,
+                                           bool preserveIfOpen)
+{
+    // Transitional presenter: explicitly reject an account we do not own.
+    // The shared MainWindow will replace this check with account admission.
+    if (&source != &backend) return;
+    const QString accountId = ui->channelList->accountIdForBackend(&source);
+    const QPointer<Backend> sourceGuard(&source);
     const quint64 navigationGeneration = semanticNavigationGeneration;
     if (channelId.isEmpty()) {
         return;
     }
 
-    BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+    BackendChannel* channel = source.getStorage().getChannelById(channelId);
     if (!channel) {
         return;
     }
@@ -155,7 +174,7 @@ void MainWindow::openChannelPost(const QString& channelId,
     // Preserve the complete semantic navigation request so the eventual channel
     // admission resumes the original permalink/thread jump rather than merely
     // leaving the newly joined channel open at its default position.
-    const auto armStoredChannelRetry = [this, channelId, postId, rootId,
+    const auto armStoredChannelRetry = [this, sourceGuard, accountId, channelId, postId, rootId,
                                         contextPostIds, reachedOldest,
                                         reachedNewest, preserveIfOpen,
                                         navigationGeneration] {
@@ -163,24 +182,25 @@ void MainWindow::openChannelPost(const QString& channelId,
         QPointer<MainWindow> guard(this);
         *connection = connect(ui->channelList, &ChannelTree::storedChannelOpenFinished,
                               this,
-                              [guard, connection, channelId, postId, rootId,
+                              [guard, connection, sourceGuard, accountId, channelId, postId, rootId,
                                contextPostIds, reachedOldest, reachedNewest,
-                               preserveIfOpen, navigationGeneration](const QString& completedChannelId,
+                               preserveIfOpen, navigationGeneration](const QString& completedAccountId,
+                                              const QString& completedChannelId,
                                               bool opened) {
-            if (completedChannelId != channelId) {
+            if (completedAccountId != accountId || completedChannelId != channelId) {
                 return;
             }
             QObject::disconnect(*connection);
-            if (!guard || !opened
+            if (!guard || !sourceGuard || !opened
                 || navigationGeneration != guard->semanticNavigationGeneration) {
                 return;
             }
 
             QTimer::singleShot(0, guard.data(),
-                [guard, channelId, postId, rootId, contextPostIds,
+                [guard, sourceGuard, channelId, postId, rootId, contextPostIds,
                  reachedOldest, reachedNewest, preserveIfOpen, navigationGeneration] {
-                    if (guard && navigationGeneration == guard->semanticNavigationGeneration) {
-                        guard->openChannelPost(channelId, postId, rootId,
+                    if (guard && sourceGuard && navigationGeneration == guard->semanticNavigationGeneration) {
+                        guard->openChannelPostForBackend(*sourceGuard, channelId, postId, rootId,
                                                contextPostIds, reachedOldest,
                                                reachedNewest, preserveIfOpen);
                     }
@@ -193,15 +213,15 @@ void MainWindow::openChannelPost(const QString& channelId,
     // irrespective of whether the active tab is pinned. Explicit thread-only
     // tabs (middle click / move to tab) and detached windows stay independent.
     if (!rootId.isEmpty()) {
-        navigationUi.selectContextualThreadTab(channelId, rootId);
+        navigationUi.selectContextualThreadTab(source, channelId, rootId);
         const bool independentThread =
-            navigationUi.hasIndependentThreadPresentation(channelId, rootId);
+            navigationUi.hasIndependentThreadPresentation(source, channelId, rootId);
         ChatArea* centralArea = ui->channelList->getCurrentPage();
         if (!independentThread
             && (!centralArea
-                || navigationUi.shouldOpenParentChannelForThread(channelId))) {
+                || navigationUi.shouldOpenParentChannelForThread(source, channelId))) {
             const auto retryConnection = armStoredChannelRetry();
-            ui->channelList->openStoredChannel(channelId);
+            ui->channelList->openStoredChannelForAccount(channelId, accountId);
             centralArea = ui->channelList->getCurrentPage();
             if (!centralArea || &centralArea->getChannel() != channel) {
                 return;
@@ -215,10 +235,10 @@ void MainWindow::openChannelPost(const QString& channelId,
             // semantic destination.
             QPointer<MainWindow> guard(this);
             QTimer::singleShot(0, this,
-                [guard, channelId, postId, rootId, contextPostIds,
+                [guard, sourceGuard, channelId, postId, rootId, contextPostIds,
                  reachedOldest, reachedNewest, preserveIfOpen, navigationGeneration] {
-                    if (guard && navigationGeneration == guard->semanticNavigationGeneration) {
-                        guard->openChannelPost(channelId, postId, rootId,
+                    if (guard && sourceGuard && navigationGeneration == guard->semanticNavigationGeneration) {
+                        guard->openChannelPostForBackend(*sourceGuard, channelId, postId, rootId,
                                                contextPostIds, reachedOldest,
                                                reachedNewest, preserveIfOpen);
                     }
@@ -226,7 +246,7 @@ void MainWindow::openChannelPost(const QString& channelId,
             return;
         }
 
-        ChatArea* threadArea = navigationUi.findThread(channelId, rootId);
+        ChatArea* threadArea = navigationUi.findThreadForBackend(source, channelId, rootId);
         if (threadArea && preserveIfOpen) {
             navigationUi.presentThread(threadArea);
             threadArea->refreshReadState();
@@ -240,7 +260,7 @@ void MainWindow::openChannelPost(const QString& channelId,
                 parentArea = nullptr;
             }
 
-            threadArea = new ChatArea(backend, *channel, rootId, parentArea);
+            threadArea = new ChatArea(source, *channel, rootId, parentArea);
             if (parentArea) {
                 parentArea->threadsAreas.insert(threadArea);
             }
@@ -276,7 +296,7 @@ void MainWindow::openChannelPost(const QString& channelId,
     }
 
     const auto retryConnection = armStoredChannelRetry();
-    ui->channelList->openStoredChannel(channelId);
+    ui->channelList->openStoredChannelForAccount(channelId, accountId);
     ChatArea* area = ui->channelList->getCurrentPage();
     if (!area || &area->getChannel() != channel) {
         return;

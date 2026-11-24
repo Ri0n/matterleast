@@ -723,7 +723,8 @@ void NavigationUiController::setNavigationTabTitle(
 
 void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
 {
-    if (!navigationTabs || channelId.isEmpty()) {
+    if (backendForAccount(accountIdForBackend(source)) != &source
+        || !navigationTabs || channelId.isEmpty()) {
         return;
     }
 
@@ -1117,7 +1118,7 @@ void NavigationUiController::tabifyThread(ChatArea* area, int tabIndex)
 }
 
 bool NavigationUiController::activateExistingTab(
-    const QString& channelId,
+    Backend& source, const QString& channelId,
     const QString& rootId,
     bool restoreBookmark)
 {
@@ -1128,12 +1129,12 @@ bool NavigationUiController::activateExistingTab(
     int index = -1;
     const auto* activeEntry = tabModel.at(activeTabIndex);
     if (activeEntry
-        && activeEntry->accountId == presentationAccountId()
+        && activeEntry->accountId == accountIdForBackend(source)
         && activeEntry->channelId == channelId
         && activeEntry->rootId == rootId) {
         index = activeTabIndex;
     } else {
-        index = tabModel.findDestination(channelId, rootId, presentationAccountId());
+        index = tabModel.findDestination(channelId, rootId, accountIdForBackend(source));
     }
 
     if (index < 0) {
@@ -1149,17 +1150,15 @@ bool NavigationUiController::activateExistingTab(
 }
 
 void NavigationUiController::openInTab(
-    const QString& channelId,
+    Backend& source, const QString& channelId,
     const QString& rootId,
     const QString& postId,
     const QStringList& contextPostIds,
     bool reachedOldest,
     bool reachedNewest)
 {
-    Backend* sourceBackend = backend();
-    BackendChannel* channel = sourceBackend
-        ? sourceBackend->getStorage().getChannelById(channelId)
-        : nullptr;
+    if (backendForAccount(accountIdForBackend(source)) != &source) return;
+    BackendChannel* channel = source.getStorage().getChannelById(channelId);
     if (!navigationTabs || !channel) {
         return;
     }
@@ -1170,7 +1169,7 @@ void NavigationUiController::openInTab(
     // must not be converted into a bookmark because bookmark restoration is
     // intentionally silent (no navigation highlight).
     Location destination;
-    destination.accountId = presentationAccountId();
+    destination.accountId = accountIdForBackend(source);
     destination.channelId = channelId;
     destination.rootId = rootId;
 
@@ -1194,7 +1193,7 @@ void NavigationUiController::openInTab(
 
     // Use the exact explicit-post path used outside tabs. It owns context
     // installation, viewport locking and highlightPostWhenReady().
-    window.openChannelPost(channelId, postId, rootId, contextPostIds,
+    window.openChannelPostForBackend(source, channelId, postId, rootId, contextPostIds,
                            reachedOldest, reachedNewest, false);
 }
 
@@ -1518,7 +1517,7 @@ void NavigationUiController::navigateTo(const Location& location)
             location.channelId, location.rootId, location.accountId).route != ThreadParentTabRoute::KeepCurrent;
         if (!independentThread
             && (needsParentTab
-                || shouldOpenParentChannelForThread(location.channelId))) {
+                || shouldOpenParentChannelForThread(*sourceBackend, location.channelId))) {
             // History must obey the same cross-channel tab invariant as
             // regular navigation, even when starting from a thread-only tab.
             // MainWindow handles asynchronous channel admission and restores
@@ -1526,7 +1525,7 @@ void NavigationUiController::navigateTo(const Location& location)
             pendingHistoryThread = location;
             currentLocation = location;
             activeArea = nullptr;
-            window.openChannelPost(location.channelId, QString(), location.rootId,
+            window.openChannelPostForBackend(*sourceBackend, location.channelId, QString(), location.rootId,
                                    {}, false, false, true);
             return;
         }
@@ -2024,24 +2023,24 @@ void NavigationUiController::syncSplitterEdgeGutters()
 }
 
 bool NavigationUiController::hasIndependentThreadPresentation(
-    const QString& channelId, const QString& rootId) const
+    Backend& source, const QString& channelId, const QString& rootId) const
 {
     if (channelId.isEmpty() || rootId.isEmpty()) {
         return false;
     }
     const auto* active = tabModel.at(activeTabIndex);
-    if (active && active->accountId == presentationAccountId()
+    if (active && active->accountId == accountIdForBackend(source)
         && active->channelId == channelId && active->rootId == rootId) {
         return true;
     }
-    const ChatArea* thread = findThread(channelId, rootId);
+    const ChatArea* thread = findThreadForBackend(source, channelId, rootId);
     return thread && thread->property("threadDetached").toBool();
 }
 
 void NavigationUiController::selectContextualThreadTab(
-    const QString& channelId, const QString& rootId)
+    Backend& source, const QString& channelId, const QString& rootId)
 {
-    if (!navigationTabs || hasIndependentThreadPresentation(channelId, rootId)
+    if (!navigationTabs || hasIndependentThreadPresentation(source, channelId, rootId)
         || !MLOptions::instance()->value<bool>(
             THREAD_SIDEBAR_FOLLOWS_CHANNEL,
             THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT)) {
@@ -2050,7 +2049,7 @@ void NavigationUiController::selectContextualThreadTab(
 
     ensureInitialTab();
     Location target;
-    target.accountId = presentationAccountId();
+    target.accountId = accountIdForBackend(source);
     target.channelId = channelId;
     target.rootId = rootId;
     const auto decision = chooseThreadParentTab(
@@ -2110,7 +2109,7 @@ void NavigationUiController::selectContextualThreadTab(
         }
 
         Location parent;
-        parent.accountId = presentationAccountId();
+        parent.accountId = target.accountId;
         parent.channelId = channelId;
         updateTab(decision.index, parent);
         if (decision.index == activeTabIndex) {
@@ -2126,7 +2125,7 @@ void NavigationUiController::selectContextualThreadTab(
     // All existing tabs are pinned: preserve them and create a separate tab
     // for the thread's parent channel. Explicit thread-only tabs bypass this.
     Location parent;
-    parent.accountId = presentationAccountId();
+    parent.accountId = target.accountId;
     parent.channelId = channelId;
     const int index = appendNavigationTab(parent, true);
     if (index >= 0) {
@@ -2135,7 +2134,7 @@ void NavigationUiController::selectContextualThreadTab(
 }
 
 bool NavigationUiController::shouldOpenParentChannelForThread(
-    const QString& channelId) const
+    Backend& source, const QString& channelId) const
 {
     if (!MLOptions::instance()->value<bool>(
             THREAD_SIDEBAR_FOLLOWS_CHANNEL,
@@ -2151,7 +2150,7 @@ bool NavigationUiController::shouldOpenParentChannelForThread(
                                          centralArea ? centralArea->getChannel().id : QString(),
                                          channelId,
                                          centralArea ? accountIdForBackend(centralArea->getBackend()) : QString(),
-                                         presentationAccountId());
+                                         accountIdForBackend(source));
 }
 
 void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId,

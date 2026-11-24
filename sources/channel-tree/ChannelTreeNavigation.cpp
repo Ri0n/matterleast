@@ -61,14 +61,14 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
 
     Backend* owner = backendForAccount(key.first);
     if (!owner) {
-        emit storedChannelOpenFinished(channelID, false);
+        emit storedChannelOpenFinished(key.first, channelID, false);
         return;
     }
 
     BackendChannel* channel = owner->getStorage().getChannelById(channelID);
     if (!channel) {
         qDebug() << "openStoredChannel" << channelID << ": channel not found in storage";
-        emit storedChannelOpenFinished(channelID, false);
+        emit storedChannelOpenFinished(key.first, channelID, false);
         return;
     }
 
@@ -151,7 +151,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
         if (!channel->team) {
             qDebug() << "openStoredChannel" << channelID
                      << ": no sidebar category contains channel";
-            emit storedChannelOpenFinished(channelID, false);
+            emit storedChannelOpenFinished(key.first, channelID, false);
             return;
         }
         if (pendingChannelAdmissions.contains(key)) {
@@ -177,7 +177,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
                         && current->data(0, ItemKindRole).toInt() == ChannelItemKind
                         && current->data(0, ItemIdRole).toString() == channelID
                         && current->data(0, ItemAccountIdRole).toString() == key.first;
-                    emit guard->storedChannelOpenFinished(channelID, opened);
+                    emit guard->storedChannelOpenFinished(key.first, channelID, opened);
                     return;
                 }
 
@@ -187,7 +187,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
                     guard->pendingChannelAdmissions.remove(key);
                     qWarning() << "Channel is absent after sidebar refresh and cannot be auto-joined"
                                << channelID;
-                    emit guard->storedChannelOpenFinished(channelID, false);
+                    emit guard->storedChannelOpenFinished(key.first, channelID, false);
                     return;
                 }
 
@@ -211,7 +211,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
                             guard->pendingChannelAdmissions.remove(key);
                             qWarning() << "Failed to auto-join public channel" << channelID
                                        << "network status" << status.toInt();
-                            emit guard->storedChannelOpenFinished(channelID, false);
+                            emit guard->storedChannelOpenFinished(key.first, channelID, false);
                             return;
                         }
 
@@ -221,7 +221,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
                             guard->pendingChannelAdmissions.remove(key);
                             qWarning() << "Joined channel" << channelID
                                        << "but team disappeared" << teamId;
-                            emit guard->storedChannelOpenFinished(channelID, false);
+                            emit guard->storedChannelOpenFinished(key.first, channelID, false);
                             return;
                         }
 
@@ -236,7 +236,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
                                 if (!containsChannel(joinedState, channelID)) {
                                     qWarning() << "Joined channel" << channelID
                                                << "but it is still absent from sidebar categories";
-                                    emit guard->storedChannelOpenFinished(channelID, false);
+                                    emit guard->storedChannelOpenFinished(key.first, channelID, false);
                                     return;
                                 }
 
@@ -246,7 +246,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
                                     && current->data(0, ItemKindRole).toInt() == ChannelItemKind
                                     && current->data(0, ItemIdRole).toString() == channelID
                         && current->data(0, ItemAccountIdRole).toString() == key.first;
-                                emit guard->storedChannelOpenFinished(channelID, opened);
+                                emit guard->storedChannelOpenFinished(key.first, channelID, opened);
                             });
                     }));
             });
@@ -258,7 +258,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
                                           *fallback.categoryItem,
                                           *channel);
     if (!item) {
-        emit storedChannelOpenFinished(channelID, false);
+        emit storedChannelOpenFinished(key.first, channelID, false);
         return;
     }
 

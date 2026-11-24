@@ -93,6 +93,11 @@ public:
 	                     bool reachedOldest = false,
 	                     bool reachedNewest = false,
                          bool preserveIfOpen = false);
+    void openChannelPostForBackend(Backend& source, const QString& channelId,
+                                   const QString& postId, const QString& rootId,
+                                   const QStringList& contextPostIds,
+                                   bool reachedOldest, bool reachedNewest,
+                                   bool preserveIfOpen);
     void openMessageSearchInChannel(const QString& channelId);
 
     void showEvent(QShowEvent* event) override;

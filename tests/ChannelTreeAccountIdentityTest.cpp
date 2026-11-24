@@ -103,6 +103,23 @@ private slots:
         QCOMPARE(resets.count(), 0);
     }
 
+    void failedAdmissionReportsExactAccount()
+    {
+        Backend first;
+        Backend second;
+        ChannelTree tree;
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QSignalSpy completed(&tree, &ChannelTree::storedChannelOpenFinished);
+        tree.openStoredChannelForAccount(QStringLiteral("same-id"), QStringLiteral("b"));
+        tree.openStoredChannelForAccount(QStringLiteral("same-id"), QStringLiteral("a"));
+        QCOMPARE(completed.count(), 2);
+        QCOMPARE(completed.takeFirst(), (QList<QVariant>{
+            QStringLiteral("b"), QStringLiteral("same-id"), false}));
+        QCOMPARE(completed.takeFirst(), (QList<QVariant>{
+            QStringLiteral("a"), QStringLiteral("same-id"), false}));
+    }
+
     void backendBindingsAreAccountQualified()
     {
         Backend first;

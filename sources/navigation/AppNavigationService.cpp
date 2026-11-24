@@ -303,18 +303,24 @@ void AppNavigationService::bindMainWindow(MainWindow& window)
     presentationWindow = &window;
     connect(this, &AppNavigationService::navigationStarted,
             &window, &MainWindow::beginSemanticNavigation);
-    connect(this, &AppNavigationService::channelRequested,
-            &window, &MainWindow::openChannelPost);
+    connect(this, &AppNavigationService::channelRequested, &window,
+            [this, &window](const QString& channelId, const QString& postId,
+                            const QString& rootId, const QStringList& contextPostIds,
+                            bool reachedOldest, bool reachedNewest, bool preserveIfOpen) {
+        window.openChannelPostForBackend(backend, channelId, postId, rootId,
+                                         contextPostIds, reachedOldest, reachedNewest,
+                                         preserveIfOpen);
+    });
     // Binding must not instantiate the navigation controller while MainWindow
     // is still being constructed. It reparents the central content splitter;
     // doing so prematurely changes widget geometry and scroll anchoring.
     // The tab slot is resolved lazily only when a tab is actually requested.
     connect(this, &AppNavigationService::tabRequested, &window,
-            [&window](const QString& channelId, const QString& rootId,
+            [this, &window](const QString& channelId, const QString& rootId,
                       const QString& postId, const QStringList& contextPostIds,
                       bool reachedOldest, bool reachedNewest) {
         NavigationUiController::instance(window).openInTab(
-            channelId, rootId, postId, contextPostIds,
+            backend, channelId, rootId, postId, contextPostIds,
             reachedOldest, reachedNewest);
     });
 }
@@ -334,7 +340,7 @@ bool AppNavigationService::activateExistingDestination(
     if (channelId.isEmpty() || !presentationWindow)
         return false;
     return NavigationUiController::instance(*presentationWindow).activateExistingTab(
-        channelId, rootId, restoreBookmark);
+        backend, channelId, rootId, restoreBookmark);
 }
 
 BackendChannel* AppNavigationService::findChannel(const QString& teamName,

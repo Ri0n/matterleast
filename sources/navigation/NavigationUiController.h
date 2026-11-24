@@ -44,26 +44,28 @@ public:
     ~NavigationUiController() override;
 
     ChatArea* findThread(const QString& channelId, const QString& rootId) const;
+    ChatArea* findThreadForBackend(const Backend& owner, const QString& channelId,
+                                   const QString& rootId) const;
     /** Whether the exact conversation is visible in a focused window. */
     bool isConversationVisible(const QString& channelId,
                                const QString& rootId) const;
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
     /** Choose the parent channel tab for an ordinary contextual thread click. */
-    void selectContextualThreadTab(const QString& channelId,
+    void selectContextualThreadTab(Backend& source, const QString& channelId,
                                    const QString& rootId);
     /** Thread-only tabs and detached windows must stay independent. */
-    bool hasIndependentThreadPresentation(const QString& channelId,
+    bool hasIndependentThreadPresentation(Backend& source, const QString& channelId,
                                           const QString& rootId) const;
     /** Whether ordinary thread navigation should first switch the central channel. */
-    bool shouldOpenParentChannelForThread(const QString& channelId) const;
-    void openInTab(const QString& channelId,
+    bool shouldOpenParentChannelForThread(Backend& source, const QString& channelId) const;
+    void openInTab(Backend& source, const QString& channelId,
                    const QString& rootId,
                    const QString& postId,
                    const QStringList& contextPostIds,
                    bool reachedOldest,
                    bool reachedNewest);
-    bool activateExistingTab(const QString& channelId,
+    bool activateExistingTab(Backend& source, const QString& channelId,
                              const QString& rootId = QString(),
                              bool restoreBookmark = true);
     void saveSession();
@@ -149,8 +151,6 @@ private:
     ChatArea* currentChannelPage() const;
     Backend* backend() const;
     Backend* backendForAccount(const QString& accountId) const;
-    ChatArea* findThreadForBackend(const Backend& owner, const QString& channelId,
-                                   const QString& rootId) const;
     // Transitional single-account presenter. Resolve stable identity from the
     // owning Account, never from the selected View or a server channel ID.
     QString presentationAccountId() const;
