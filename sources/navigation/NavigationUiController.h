@@ -82,9 +82,8 @@ public:
     void cancelOtherNavigationRequests(const Backend* source);
     bool canPresentBackend(const Backend& source) const;
     QVector<Backend*> visibleBackends() const;
-    // Empty accountId binds exact account-qualified View state. The explicit
-    // alias is retained for the transitional one-account presenters/fixtures.
-    void bindViewSession(ViewNavigationSession* session, const QString& accountId = {});
+    // Bind the View using its immutable account-qualified destinations.
+    void bindViewSession(ViewNavigationSession* session);
     // Stop writing presentation state into an inactive view.
     void unbindViewSession();
 
@@ -96,9 +95,9 @@ private:
     QString sessionSettingsKey() const;
     void scheduleSessionSave();
     void syncViewSession();
-    void restoreBoundViewSession(bool adoptExistingPresentation);
+    void restoreBoundViewSession();
     void showEmptyConversation();
-    bool usesSharedView() const;
+    bool hasBoundView() const;
     ViewNavigationSession* historySession() const;
     ViewNavigationSession::Location semanticLocation(const Location& location) const;
     bool presentationLocation(const ViewNavigationSession::Location& source,
@@ -204,9 +203,7 @@ private:
     bool restoringSession = false;
     bool applyingViewSession = false;
     QPointer<ViewNavigationSession> viewNavigationSession;
-    QString viewNavigationAccountId;
     QSet<QString> viewNavigationMembers;
-    bool everBoundView = false;
 };
 
 } // namespace Mattermost

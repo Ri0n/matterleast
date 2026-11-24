@@ -23,9 +23,8 @@ page lifetime. Navigation listens to the central host's activation signal.
 Team context for DM/GM actions lives on the page and remains available when
 its row is absent. A real channel leave destroys the page synchronously
 before Storage releases the backing channel, even without an attached tree.
-The host is currently per central stack; once MainWindow is application-wide
-the same host can handle the channels of multiple accounts. Detached thread
-lookup also requires the exact live Backend, not just the remote channel/root
+The permanent central stack has one host shared by its attached accounts.
+Detached thread lookup also requires the exact live Backend, not just the remote channel/root
 IDs: an unrelated server's top-level window must never be adopted by a tab.
 
 A thread is different because it already has an independent `ChatArea`.
@@ -118,8 +117,8 @@ type as the QtCore model, including account identity in thread-parent selection
 and bookmark lookups. Legacy restart snapshots inherit the account ID from
 their settings partition. Startup history preserves the real Account ID; only
 standalone widget tests without AccountManager use an isolated private key.
-This is a step toward a single presenter, not yet a multi-account controller:
-the current per-Backend window still admits only its own account's destinations.
+The permanent MainWindow admits the connected Backends allowed by its active View.
+Binding a View never relabels an account ID or adopts an unrelated startup snapshot.
 Semantic requests carry their originating Backend through tab routing, thread
 placement and asynchronous channel admission. Admission completion includes
 both account and channel IDs. Tab unread changes and dock decisions use the
@@ -279,5 +278,6 @@ reconciles destination deltas rather than replacing the tab bar or its model.
 An unavailable account retains semantic tab/bookmark state without presenting a
 chat from a different account. A new View does not inherit another View's tabs.
 The old single-account settings format is never written for a shared View.
-The existing application workspace integration remains transitional until the
-account-specific sidebar and realtime services are separated from MainWindow.
+Account startup data and notification routing are independent of the window.
+The unbound standalone fixture path retains its legacy restart format until
+those fixtures are migrated to production View initialization.

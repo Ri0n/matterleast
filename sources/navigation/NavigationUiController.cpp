@@ -480,7 +480,7 @@ void NavigationUiController::cancelOtherNavigationRequests(const Backend* source
 
 void NavigationUiController::refreshAttachedDestination(Backend& source)
 {
-    if (!usesSharedView() || !canPresentBackend(source)) return;
+    if (!hasBoundView() || !canPresentBackend(source)) return;
     refreshAllTabUnreadVisuals(accountIdForBackend(source));
     if (activeArea || currentLocation.accountId != accountIdForBackend(source))
         return;
@@ -610,7 +610,7 @@ Backend* NavigationUiController::backend() const
 
 Backend* NavigationUiController::backendForAccount(const QString& accountId) const
 {
-    if (usesSharedView() && !viewNavigationSession->allowsAccount(accountId))
+    if (hasBoundView() && !viewNavigationSession->allowsAccount(accountId))
         return nullptr;
     auto* owner = window.navigationBackend(accountId);
     return owner && attachedBackends.contains(owner) ? owner : nullptr;
@@ -1010,7 +1010,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
     const auto* entry = tabModel.at(index);
     if (!entry || !navigationTabs
         || (!backendForAccount(entry->accountId)
-            && !(usesSharedView() && viewNavigationSession->allowsAccount(entry->accountId)))) {
+            && !(hasBoundView() && viewNavigationSession->allowsAccount(entry->accountId)))) {
         return;
     }
 
@@ -1088,7 +1088,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             if (!location.postId.isEmpty()) {
                 restoreSessionBookmark(area, location.postId, location.viewportAnchor);
             }
-        } else if (usesSharedView()) {
+        } else if (hasBoundView()) {
             showEmptyConversation();
             recordLocation(location, nullptr);
         }
@@ -1569,7 +1569,7 @@ void NavigationUiController::navigateTo(const Location& location)
 {
     if (!location.valid()) return;
     if (!backendForAccount(location.accountId)) {
-        if (usesSharedView() && viewNavigationSession->allowsAccount(location.accountId)) {
+        if (hasBoundView() && viewNavigationSession->allowsAccount(location.accountId)) {
             showEmptyConversation();
             recordLocation(location, nullptr);
         }
@@ -1598,7 +1598,7 @@ void NavigationUiController::navigateTo(const Location& location)
 
     BackendChannel* channel = sourceBackend->getStorage().getChannelById(location.channelId);
     if (!channel) {
-        if (usesSharedView()) {
+        if (hasBoundView()) {
             showEmptyConversation();
             recordLocation(location, nullptr);
         }

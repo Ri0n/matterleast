@@ -497,13 +497,10 @@ MainWindow::~MainWindow()
         navigation->beginShutdown();
 }
 
-void MainWindow::bindViewNavigation(ViewNavigationSession* session,
-                                    const QString& accountId)
+void MainWindow::bindViewNavigation(ViewNavigationSession* session)
 {
-    if (backendOrNull() || accountId.isEmpty()) {
-        NavigationUiController::instance(*this).bindViewSession(session, accountId);
-        refreshQueueAccounts();
-    }
+    NavigationUiController::instance(*this).bindViewSession(session);
+    refreshQueueAccounts();
 }
 
 void MainWindow::unbindViewNavigation()
