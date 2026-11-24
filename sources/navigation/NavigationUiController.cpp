@@ -129,8 +129,7 @@ void NavigationUiController::beginShutdown()
 {
     if (shuttingDown)
         return;
-    // Saving navigation belongs to MainWindow::saveState (aboutToQuit or
-    // prepareForLogout), not QObject teardown. A detached ChatArea may have
+    // Saving navigation belongs to MainWindow::saveState, not QObject teardown. A detached ChatArea may have
     // closed after an explicit snapshot was saved; rewriting that snapshot
     // as its test fixture is destroyed would lose the user's last state.
     // Stop observing children before QWidget teardown, but do not persist
@@ -303,11 +302,8 @@ void NavigationUiController::setupThreadPane()
     const int oldIndex = sidebarSplitter->indexOf(mainStack);
     const QList<int> outerSizes = sidebarSplitter->sizes();
 
-    // Build the replacement pane parentless. MainWindow is already visible when
-    // this controller is bootstrapped; constructing a QWidget directly under a
-    // visible QSplitter leaves the new subtree explicitly hidden while mainStack
-    // is reparented into it. insertWidget() below becomes the single ownership
-    // transition, matching the previously working splitter setup.
+    // Construct the replacement pane parentless, then establish its final
+    // splitter ownership once. This happens during MainWindow construction.
     contentHost = new QWidget;
     contentHost->setObjectName(QStringLiteral("navigationContentHost"));
     // The backendless window starts with an empty stack. Its zero size hint
@@ -619,9 +615,7 @@ Backend* NavigationUiController::backendForAccount(const QString& accountId) con
 QString NavigationUiController::accountIdForBackend(const Backend& source)
 {
     const auto* account = qobject_cast<const Account*>(source.parent());
-    // Standalone widget fixtures do not have an AccountManager. Their
-    // private history still uses a valid, isolated semantic account key.
-    return account ? account->id() : QStringLiteral("_startup");
+    return account ? account->id() : QString();
 }
 
 QString NavigationUiController::presentationAccountId() const
