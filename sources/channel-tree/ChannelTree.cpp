@@ -633,11 +633,12 @@ void ChannelTree::addTeam (Backend& backend, BackendTeam& team)
         QPointer<Backend> backendGuard(&backend);
         connect(&team, &BackendTeam::onNewChannel, this,
                 [this, teamGuard, backendGuard](BackendChannel&) {
-            if (teamGuard && backendGuard
-                && _observedTeams.value(
-                       {accountIdForBackend(backendGuard.data()), teamGuard->id}) == teamGuard)
-                if (_visibleAccountRootIds.size() > 1
-                    && !chatAreaStackedWidget) {
+            if (!teamGuard || !backendGuard
+                || _observedTeams.value(
+                       {accountIdForBackend(backendGuard.data()), teamGuard->id}) != teamGuard)
+                return;
+            if (_visibleAccountRootIds.size() > 1
+                && !chatAreaStackedWidget) {
                     // The account's own ChannelTree retrieves fresh category
                     // snapshots. A combined View only consumes its cache:
                     // two presenters must not double the server request.
