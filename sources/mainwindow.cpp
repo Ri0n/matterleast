@@ -263,30 +263,30 @@ bool MainWindow::attachInitialBackend(Backend& source)
     // path. The production AccountManager has already started it.
     source.startAccountData();
     auto& sidebar = SidebarService::instance(source);
-	connect(&sidebar, &SidebarService::channelActivityChanged, this,
-	        [this](const QString&) { refreshSidebarViews(); });
-	connect(&sidebar, &SidebarService::channelActivityReset,
-	        this, &MainWindow::refreshSidebarViews);
-	connect(&sidebar, &SidebarService::categoriesChanged, this,
-	        [this](const QString&) {
-		QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
-	});
+    connect(&sidebar, &SidebarService::channelActivityChanged, this,
+            [this](const QString&) { refreshSidebarViews(); });
+    connect(&sidebar, &SidebarService::channelActivityReset,
+            this, &MainWindow::refreshSidebarViews);
+    connect(&sidebar, &SidebarService::categoriesChanged, this,
+            [this](const QString&) {
+        QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
+    });
 
-	recentChannels->initialize(backendInstance());
-	attentionList->initialize(backendInstance());
-	installRealtimeUiSync();
+    recentChannels->initialize(backendInstance());
+    attentionList->initialize(backendInstance());
+    installRealtimeUiSync();
 
     QPointer<MainWindow> windowGuard(this);
-	sidebar.retrieveChannelMemberships([windowGuard] {
-		if (!windowGuard) return;
-		windowGuard->channelMembershipsReady = true;
-		windowGuard->restoreNavigationSessionWhenReady();
-	});
-	connect(ui->channelList, &ChannelTree::teamSidebarPopulated, this,
-		[this](const QString& teamId) {
-			populatedSessionSidebars.insert(teamId);
-			restoreNavigationSessionWhenReady();
-		});
+    sidebar.retrieveChannelMemberships([windowGuard] {
+        if (!windowGuard) return;
+        windowGuard->channelMembershipsReady = true;
+        windowGuard->restoreNavigationSessionWhenReady();
+    });
+    connect(ui->channelList, &ChannelTree::teamSidebarPopulated, this,
+        [this](const QString& teamId) {
+            populatedSessionSidebars.insert(teamId);
+            restoreNavigationSessionWhenReady();
+        });
 
 
     const auto addTeam = [this, &source](BackendTeam& team) {
@@ -303,10 +303,11 @@ bool MainWindow::attachInitialBackend(Backend& source)
     for (auto& team : source.getStorage().teams)
         addTeam(team.second);
     ui->channelList->observeAccountSidebar(source);
-    if (source.accountCatalogReady())
+    if (source.accountCatalogReady()) {
         synchronize();
+    }
 
-	LOG_DEBUG("MainWindow signal register finish");
+    LOG_DEBUG("MainWindow signal register finish");
 
     // Register the Backend-owned navigation receiver once the complete
     // channel/thread presentation exists, before plugins can navigate.
