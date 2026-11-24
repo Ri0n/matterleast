@@ -78,15 +78,8 @@ UserProfileService::UserProfileService(Backend& backend)
     connect(&httpConnector, &HTTPConnector::onHttpError,
             &backend, &Backend::onHttpError);
 
-    connect(&backend, &Backend::sessionEnding, this, [this] {
-        // Invalidate delayed profile/avatar work before Storage is reset.
-        ++_profileGeneration;
-        queuedUserIds.clear();
-        inFlightUserIds.clear();
-        inFlightAvatarKeys.clear();
-        waiters.clear();
-        flushScheduled = false;
-    });
+    connect(&backend, &Backend::sessionEnding,
+            this, &UserProfileService::invalidatePendingWork);
 
     connect(&backend, &Backend::onWebSocketDisconnect, this, [this] {
         if (disconnectedAt == 0) {
@@ -104,16 +97,21 @@ UserProfileService::UserProfileService(Backend& backend)
     });
 }
 
-void UserProfileService::clear()
+void UserProfileService::invalidatePendingWork()
 {
     ++_profileGeneration;
-    httpConnector.reset();
     queuedUserIds.clear();
     inFlightUserIds.clear();
     inFlightAvatarKeys.clear();
     waiters.clear();
     disconnectedAt = 0;
     flushScheduled = false;
+}
+
+void UserProfileService::clear()
+{
+    invalidatePendingWork();
+    httpConnector.reset();
 
     // The legacy startup path happened to load the login user's avatar at the
     // end of retrieveAllUsers(). With the global directory preload gone, make
