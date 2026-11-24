@@ -1010,6 +1010,14 @@ void ChannelTree::removeTeamSidebar(const ScopedId& teamKey)
             destroySidebarRow(row);
         }
     }
+    // Remove the row from the model while the complete TeamItem is still
+    // alive. Qt's rowsAboutToBeRemoved handlers can inspect it synchronously;
+    // they must not run inside the QTreeWidgetItem base destructor.
+    if (auto* parent = teamItem->parent()) {
+        parent->removeChild(teamItem);
+    } else if (const int index = indexOfTopLevelItem(teamItem); index >= 0) {
+        takeTopLevelItem(index);
+    }
     delete teamItem;
     if (removingCurrent) {
         setCurrentItem(nullptr, 0, QItemSelectionModel::Clear);
