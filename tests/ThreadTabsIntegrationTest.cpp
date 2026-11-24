@@ -19,6 +19,7 @@
 #include <QTabBar>
 #include <QToolButton>
 #include <QStackedWidget>
+#include <QTreeWidgetItemIterator>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -2454,6 +2455,91 @@ private slots:
         secondModel.markPostUnread("channel", "same-thread", "other-post", 4000);
         QCOMPARE(list.topLevelItemCount(), 1);
         QCOMPARE(attention.topLevelItemCount(), 1);
+    }
+
+    void permanentWindowOpensVisibleChatsFromSidebar_data()
+    {
+        QTest::addColumn<bool>("collapsedState");
+        QTest::newRow("clean-start") << false;
+        QTest::newRow("collapsed-saved-split") << true;
+    }
+
+    void permanentWindowOpensVisibleChatsFromSidebar()
+    {
+        QFETCH(bool, collapsedState);
+        const QString key = QStringLiteral("sidebar_splitter_state");
+        auto* options = MLOptions::instance();
+        struct RestoreState {
+            MLOptions* options;
+            QString key;
+            QByteArray state;
+            ~RestoreState() { options->setValue(key, state); }
+        } restore {options, key, options->value<QByteArray>(key)};
+        QByteArray saved;
+        if (collapsedState) {
+            QSplitter previous(Qt::Horizontal);
+            previous.addWidget(new QWidget);
+            previous.addWidget(new QWidget);
+            previous.resize(1100, 700);
+            previous.setSizes({1100, 0});
+            saved = previous.saveState();
+        }
+        options->setValue(key, saved);
+
+        Server server;
+        server.startupChannels = true;
+        server.secondChannel = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Account account("a", nullptr);
+        Backend backend(&account);
+        backend.networkSession().setHost(serverBaseUrl(server));
+        QSystemTrayIcon tray;
+        ViewNavigationSession view("single");
+        view.setAllowedAccounts({"a"});
+        MainWindow window(nullptr, tray);
+        window.resize(1100, 700);
+        window.enableSharedPresentation();
+        window.setVisibleAccounts({"a"}, {}, "recent");
+        window.bindViewNavigation(&view);
+        window.show();
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        auto* host = window.findChild<QWidget*>("navigationContentHost");
+        auto* surface = window.findChild<QStackedWidget*>("navigationSurfaceStack");
+        QVERIFY(tree && host && surface);
+        QTRY_VERIFY(host->isVisible() && host->width() > 200);
+        QTRY_VERIFY(surface->isVisible() && surface->width() > 200);
+
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        backend.startAccountData();
+        QVERIFY(window.attachNavigationBackend(backend));
+        window.selectPresentationBackend(&backend);
+        QTRY_VERIFY(backend.accountCatalogReady());
+        QTRY_VERIFY(SidebarService::instance(backend).teamState("team"));
+        auto findRow = [tree](const QString& channelId) -> QTreeWidgetItem* {
+            for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+                auto* row = *it;
+                if (row->data(0, SidebarItem::KindRole).toInt() == SidebarItem::Channel
+                    && row->data(0, SidebarItem::IdRole).toString() == channelId)
+                    return row;
+            }
+            return nullptr;
+        };
+        for (const QString& id : {QStringLiteral("channel"), QStringLiteral("channel_other")}) {
+            QTRY_VERIFY(findRow(id));
+            tree->expandAll();
+            auto* row = findRow(id);
+            tree->scrollToItem(row);
+            QTRY_VERIFY(tree->viewport()->rect().intersects(tree->visualItemRect(row)));
+            QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                              tree->visualItemRect(row).center());
+            QTRY_VERIFY(tree->getCurrentPage()
+                && tree->getCurrentPage()->getChannel().id == id);
+            QTRY_VERIFY(tree->getCurrentPage()->isVisible()
+                && tree->getCurrentPage()->width() > 200
+                && tree->getCurrentPage()->height() > 200);
+            QCOMPARE(&tree->getCurrentPage()->getBackend(), &backend);
+        }
     }
 
     void permanentWindowSurvivesAccountDetachAndViewSwitch()
