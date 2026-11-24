@@ -2,9 +2,12 @@
 
 #include <QApplication>
 #include <QContextMenuEvent>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QTreeWidgetItem>
 
+#include "backend/Backend.h"
+#include "backend/FollowingModel.h"
 #include "channel-tree/AttentionList.h"
 #include "channel-tree/ChannelQuickList.h"
 #include "channel-tree/ChannelTree.h"
@@ -69,22 +72,53 @@ private slots:
 
     void contextMenuStillTargetsPointedFollowingRow()
     {
-        ChannelQuickList view;
-        view.resize(360, 160);
-        auto* row = new QTreeWidgetItem(&view);
-        row->setText(0, QStringLiteral("Target conversation"));
-        row->setData(0, SidebarItem::KindRole, SidebarItem::Channel);
-        row->setData(0, SidebarItem::ChannelIdRole, QStringLiteral("target-id"));
-        view.show();
+        Backend first;
+        Backend second;
+        for (auto* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            QVERIFY(owner->getStorage().addGroupChannel(
+                QJsonObject {{"id", "target-id"}, {"type", "G"},
+                             {"display_name", "Target conversation"}}));
+            FollowingModel::instance(*owner).markPostUnread(
+                "target-id", "same-thread", "unread-post", 1000);
+        }
 
-        const QPoint pos = view.visualItemRect(row).center();
+        ChannelQuickList view;
+        view.setUnreadFilters({true, false, false});
+        view.setAccounts({{"a", &first}, {"b", &second}});
+        view.resize(360, 160);
+        view.show();
+        QCOMPARE(view.topLevelItemCount(), 2);
+        auto* active = view.topLevelItem(0);
+        auto* target = view.topLevelItem(1);
+        QVERIFY(active->data(0, SidebarItem::AccountIdRole)
+                != target->data(0, SidebarItem::AccountIdRole));
+        Backend* expected = target->data(0, SidebarItem::AccountIdRole).toString() == "a"
+            ? &first : &second;
+        view.setCurrentItem(active);
+
+        int requests = 0;
+        QString requestedChannel;
+        Backend* requestedOwner = nullptr;
+        QPoint requestedPosition;
+        connect(&view, &ChannelQuickList::channelContextMenuRequested, &view,
+                [&](const QString& channelId, const QPoint& globalPos, Backend* owner) {
+            ++requests;
+            requestedChannel = channelId;
+            requestedOwner = owner;
+            requestedPosition = globalPos;
+        });
+        const QPoint pos = view.visualItemRect(target).center();
         QVERIFY(view.viewport()->rect().contains(pos));
-        QSignalSpy requested(&view, &ChannelQuickList::channelContextMenuRequested);
-        QContextMenuEvent context(QContextMenuEvent::Mouse, pos,
-                                  view.viewport()->mapToGlobal(pos));
+        const QPoint global = view.viewport()->mapToGlobal(pos);
+        QContextMenuEvent context(QContextMenuEvent::Mouse, pos, global);
         QApplication::sendEvent(view.viewport(), &context);
-        QCOMPARE(requested.size(), 1);
-        QCOMPARE(requested.takeFirst().at(0).toString(), QStringLiteral("target-id"));
+        QCOMPARE(requests, 1);
+        QCOMPARE(requestedChannel, QStringLiteral("target-id"));
+        QCOMPARE(requestedOwner, expected);
+        QCOMPARE(requestedPosition, global);
+        QCOMPARE(view.currentItem(), active);
     }
 };
 
