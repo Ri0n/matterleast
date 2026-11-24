@@ -1479,8 +1479,8 @@ private slots:
         auto* window = new MainWindow(nullptr, tray, backend);
         auto& navigation = NavigationUiController::instance(*window);
         ViewNavigationSession view(QStringLiteral("exit-view"));
-        view.setAllowedAccounts({QStringLiteral("exit-account-local")});
-        navigation.bindViewSession(&view, QStringLiteral("exit-account-local"));
+        view.setAllowedAccounts({QStringLiteral("_startup")});
+        navigation.bindViewSession(&view);
         navigation.restoreSession();
 
         auto* threads = window->findChild<QStackedWidget*>(
