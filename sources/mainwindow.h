@@ -147,6 +147,7 @@ private:
 	void createMenu ();
     void reportStatusResult(bool success, const QString& reason);
     void refreshProfileHeader();
+    void refreshQueueAccounts();
 	void setupChannelTabs ();
 	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();

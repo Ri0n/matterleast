@@ -374,6 +374,7 @@ bool MainWindow::attachNavigationBackend(Backend& source)
     auto& navigation = NavigationUiController::instance(*this);
     navigation.attachBackend(source);
     AppNavigationService::instance(source).bindMainWindow(*this);
+    refreshQueueAccounts();
     return true;
 }
 
@@ -454,13 +455,25 @@ void MainWindow::restoreSidebarWidth()
 void MainWindow::bindViewNavigation(ViewNavigationSession* session,
                                     const QString& accountId)
 {
-    if (backendOrNull() || accountId.isEmpty())
+    if (backendOrNull() || accountId.isEmpty()) {
         NavigationUiController::instance(*this).bindViewSession(session, accountId);
+        refreshQueueAccounts();
+    }
 }
 
 void MainWindow::unbindViewNavigation()
 {
     NavigationUiController::instance(*this).unbindViewSession();
+    refreshQueueAccounts();
+}
+
+void MainWindow::refreshQueueAccounts()
+{
+    SidebarQueueSources::Accounts sources;
+    for (auto* owner : NavigationUiController::instance(*this).visibleBackends())
+        sources.insert(SidebarQueueSources::accountId(*owner), owner);
+    recentChannels->setAccounts(sources);
+    applySidebarTextFilter(recentChannels);
 }
 
 void MainWindow::installServersSidebar(AccountManager& manager)
@@ -827,10 +840,18 @@ void MainWindow::setupChannelTabs()
     connect(ignoreFilteringOption, &MLOptionObject::changed, this,
             [this](const QVariant&) { refreshChannelUnreadFilter(); });
 
-	connect(recentChannels, &ChannelQuickList::channelSelected,
-	        ui->channelList, &ChannelTree::openChannel);
-	connect(recentChannels, &ChannelQuickList::channelContextMenuRequested,
-	        ui->channelList, &ChannelTree::showChannelContextMenu);
+    connect(recentChannels, &ChannelQuickList::channelSelected, this,
+            [this](const QString& channelId, Backend* owner) {
+        if (owner)
+            ui->channelList->openStoredChannelForAccount(
+                channelId, ui->channelList->accountIdForBackend(owner));
+    });
+    connect(recentChannels, &ChannelQuickList::channelContextMenuRequested, this,
+            [this](const QString& channelId, const QPoint& pos, Backend* owner) {
+        if (owner)
+            ui->channelList->showChannelContextMenuForAccount(
+                channelId, ui->channelList->accountIdForBackend(owner), pos);
+    });
 	connect(attentionList, &AttentionList::channelSelected,
 	        ui->channelList, &ChannelTree::openChannel);
 	connect(attentionList, &QTreeWidget::customContextMenuRequested, this,

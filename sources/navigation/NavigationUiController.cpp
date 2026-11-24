@@ -450,6 +450,14 @@ bool NavigationUiController::canPresentBackend(const Backend& source) const
     return backendForAccount(accountIdForBackend(source)) == &source;
 }
 
+QVector<Backend*> NavigationUiController::visibleBackends() const
+{
+    QVector<Backend*> result;
+    for (auto* owner : attachedBackends)
+        if (canPresentBackend(*owner)) result.append(owner);
+    return result;
+}
+
 void NavigationUiController::cancelOtherNavigationRequests(const Backend* source)
 {
     for (Backend* owner : attachedBackends) {

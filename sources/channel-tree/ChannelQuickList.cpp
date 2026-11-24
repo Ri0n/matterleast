@@ -4,6 +4,7 @@
  */
 
 #include "ChannelQuickList.h"
+#include "SidebarQueueRows.h"
 
 #include <algorithm>
 #include <utility>
@@ -14,6 +15,8 @@
 #include <QMouseEvent>
 #include <QPointer>
 #include <QShowEvent>
+#include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QTimer>
 #include <QVariant>
 #include <QVector>
@@ -36,7 +39,7 @@
 namespace Mattermost {
 namespace {
 
-constexpr int FollowingKeyRole = Qt::UserRole + 100;
+constexpr int FollowingKeyRole = SidebarQueueRows::KeyRole;
 constexpr int ThreadSnippetLength = 120;
 
 QString entryKey(const FollowingModel::Entry& entry)
@@ -60,6 +63,8 @@ QString compactMessage(QString message)
 
 ChannelQuickList::ChannelQuickList(QWidget* parent)
     : QTreeWidget(parent)
+    , sources_(this, [this] { refresh(); },
+               [this](const QString& id, const BackendUser& user) { updateDirectUser(id, user); })
 {
     setColumnCount(1);
     setHeaderHidden(true);
@@ -92,42 +97,24 @@ ChannelQuickList::ChannelQuickList(QWidget* parent)
         }
         const QString channelId = item->data(0, SidebarItem::ChannelIdRole).toString();
         if (!channelId.isEmpty()) {
-            emit channelContextMenuRequested(channelId, viewport()->mapToGlobal(pos));
+            if (auto* owner = sources_.backend(item->data(0, SidebarItem::AccountIdRole).toString()))
+                emit channelContextMenuRequested(channelId, viewport()->mapToGlobal(pos), owner);
         }
     });
 }
 
 void ChannelQuickList::initialize(Backend& backend, Mode)
 {
-    backend_ = &backend;
-    model_ = &FollowingModel::instance(backend);
+    setAccounts({{SidebarQueueSources::accountId(backend), &backend}});
+}
 
-    connect(model_, &FollowingModel::changed,
-            this, &ChannelQuickList::refresh);
-    connect(&UserProfileService::instance(backend),
-            &UserProfileService::profileResolved, this,
-            [this](const QString& userId) {
-        if (!backend_) return;
-        BackendChannel* channel =
-            backend_->getStorage().getDirectChannelByUserId(userId);
-        if (!channel || !channelItems_.contains(channel->id)) return;
-        BackendUser* user = backend_->getStorage().getUserById(userId);
-        if (!user) return;
-        ensureDirectUserConnections(*channel);
-        updateDirectUser(*user);
-    });
-    connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
-            this, [this](const QString& name) {
-        if (!backend_) return;
-        for (const QString& id : connectedUsers_) {
-            const BackendUser* user = backend_->getStorage().getUserById(id);
-            if (user && UserStatusEmoji::name(*user) == name) {
-                updateDirectUser(*user);
-            }
-        }
-    });
+void ChannelQuickList::setAccounts(const SidebarQueueSources::Accounts& accounts)
+{
+    if (sources_.accounts() == accounts) return;
+    if (sources_.backend(retainedAccountId_) != accounts.value(retainedAccountId_))
+        releaseSelectionRetention();
+    sources_.setAccounts(accounts);
     refresh();
-    model_->ensureThreadsFresh();
 }
 
 void ChannelQuickList::setUnreadFilters(const UnreadViewFilters& filters)
@@ -168,16 +155,18 @@ void ChannelQuickList::mousePressEvent(QMouseEvent* event)
 #endif
     }
 
-    if (event && event->button() == Qt::MiddleButton
-        && pressedItem && backend_ && model_) {
+    Backend* owner = pressedItem
+        ? sources_.backend(pressedItem->data(0, SidebarItem::AccountIdRole).toString()) : nullptr;
+    if (event && event->button() == Qt::MiddleButton && pressedItem && owner) {
+        auto* model = &FollowingModel::instance(*owner);
         const QString channelId =
             pressedItem->data(0, SidebarItem::ChannelIdRole).toString();
         const QString threadId =
             pressedItem->data(0, SidebarItem::ThreadIdRole).toString();
         const FollowingModel::Entry* entry =
-            model_->findEntry(channelId, threadId);
+            model->findEntry(channelId, threadId);
         if (entry || (threadId.isEmpty() && !channelId.isEmpty())) {
-            auto& navigation = AppNavigationService::instance(*backend_);
+            auto& navigation = AppNavigationService::instance(*owner);
             if (entry && entry->isThread()) {
                 if (entry->synthetic) {
                     navigation.openPostInTab(entry->threadId);
@@ -212,35 +201,38 @@ void ChannelQuickList::mouseReleaseEvent(QMouseEvent* event)
 void ChannelQuickList::showEvent(QShowEvent* event)
 {
     QTreeWidget::showEvent(event);
-    if (model_) {
-        model_->ensureThreadsFresh();
-    }
+    sources_.refreshThreads();
 }
 
 void ChannelQuickList::refreshThreads()
 {
-    if (model_) {
-        model_->ensureThreadsFresh();
-    }
+    sources_.refreshThreads();
 }
 
 void ChannelQuickList::activateItem(QTreeWidgetItem* current)
 {
-    if (refreshing_ || !current || !backend_ || !model_) {
-        return;
-    }
-
+    if (refreshing_ || !current) return;
+    const QString accountId = current->data(0, SidebarItem::AccountIdRole).toString();
+    Backend* owner = sources_.backend(accountId);
+    if (!owner) return;
+    auto* model = &FollowingModel::instance(*owner);
+    const QPointer<Backend> sourceGuard(owner);
     const QString key = current->data(0, FollowingKeyRole).toString();
     const bool repeatedActivation =
         !key.isEmpty() && lastActivatedKey_ == key;
+    if (retainedKey_ != key) {
+        retainedEntry_.reset();
+        retainedFromFollowing_ = false;
+    }
     retainedKey_ = key;
+    retainedAccountId_ = accountId;
 
     const QString channelId = current->data(0, SidebarItem::ChannelIdRole).toString();
     const QString threadId = current->data(0, SidebarItem::ThreadIdRole).toString();
     // Only treat this row as a Following destination when that source is
     // enabled. The same channel may be present through Channels alone.
     const FollowingModel::Entry* modelEntry = unreadFilters_.following
-        ? model_->findEntry(channelId, threadId) : nullptr;
+        ? model->findEntry(channelId, threadId) : nullptr;
     if (modelEntry) {
         retainedEntry_ = *modelEntry;
         retainedFromFollowing_ = true;
@@ -257,8 +249,8 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
     // snapshot for click stability, without creating a second read cursor.
     if (!entry && threadId.isEmpty()
         && (unreadFilters_.channels || unreadFilters_.muted)) {
-        BackendChannel* channel = backend_->getStorage().getChannelById(channelId);
-        auto& sidebar = SidebarService::instance(*backend_);
+        BackendChannel* channel = owner->getStorage().getChannelById(channelId);
+        auto& sidebar = SidebarService::instance(*owner);
         if (channel && includeChannelInUnread(
                 channel->type == BackendChannel::publicChannel
                     || channel->type == BackendChannel::privateChannel,
@@ -283,23 +275,23 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
     lastActivatedKey_ = key;
 
     if (entry->isThread()) {
-        openThread(*entry);
+        openThread(*owner, *entry);
         return;
     }
 
-    BackendChannel* channel = backend_->getStorage().getChannelById(channelId);
+    BackendChannel* channel = owner->getStorage().getChannelById(channelId);
     if (!channel) {
-        emit channelSelected(channelId);
+        emit channelSelected(channelId, owner);
         return;
     }
 
-    const BackendChannel* currentChannel = backend_->getCurrentChannel();
+    const BackendChannel* currentChannel = owner->getCurrentChannel();
     if (shouldPreserveRepeatedConversationActivation(
             entry->isThread(),
             entry->channelId,
             currentChannel ? currentChannel->id : QString(),
             repeatedActivation)) {
-        AppNavigationService::instance(*backend_).openChannel(channelId);
+        AppNavigationService::instance(*owner).openChannel(channelId);
         return;
     }
 
@@ -308,22 +300,25 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
         // the server's unread boundary without inventing model membership.
         QPointer<ChannelQuickList> guard(this);
         const QString requestedKey = key;
-        const bool rootsOnly = SidebarService::instance(*backend_)
+        const bool rootsOnly = SidebarService::instance(*owner)
                                    .usesRootUnreadCounts(*channel);
-        backend_->retrieveChannelUnreadPost(
-            *channel, [guard, channelId, requestedKey](const QString& postId) {
-                if (!guard || !guard->backend_
+        const auto request = AppNavigationService::instance(*owner).beginNavigation();
+        owner->retrieveChannelUnreadPost(
+            *channel, [guard, sourceGuard, accountId, channelId, requestedKey, request](const QString& postId) {
+                if (!guard || !sourceGuard
+                    || guard->sources_.backend(accountId) != sourceGuard.data()
+                    || !AppNavigationService::instance(*sourceGuard).isNavigationCurrent(request)
                     || guard->retainedKey_ != requestedKey
                     || guard->lastActivatedKey_ != requestedKey) {
                     return;
                 }
                 BackendChannel* currentChannel =
-                    guard->backend_->getStorage().getChannelById(channelId);
+                    sourceGuard->getStorage().getChannelById(channelId);
                 if (!currentChannel) return;
                 if (!postId.isEmpty()) {
-                    AppNavigationService::instance(*guard->backend_).openPost(postId);
+                    AppNavigationService::instance(*sourceGuard).openPost(postId);
                 } else {
-                    AppNavigationService::instance(*guard->backend_).openChannel(channelId);
+                    AppNavigationService::instance(*sourceGuard).openChannel(channelId);
                 }
             }, rootsOnly);
         return;
@@ -331,47 +326,50 @@ void ChannelQuickList::activateItem(QTreeWidgetItem* current)
 
     if (entry->resumeState == FollowingModel::ResumeState::FirstUnread
         && !entry->firstUnreadPostId.isEmpty()) {
-        AppNavigationService::instance(*backend_).openPost(entry->firstUnreadPostId);
+        AppNavigationService::instance(*owner).openPost(entry->firstUnreadPostId);
         return;
     }
     if (entry->resumeState == FollowingModel::ResumeState::AtEnd) {
-        AppNavigationService::instance(*backend_).openChannel(channelId);
+        AppNavigationService::instance(*owner).openChannel(channelId);
         return;
     }
 
-    if (backend_->getCurrentChannel() == channel && !entry->requiresAttention()) {
-        AppNavigationService::instance(*backend_).openChannel(channelId);
+    if (owner->getCurrentChannel() == channel && !entry->requiresAttention()) {
+        AppNavigationService::instance(*owner).openChannel(channelId);
         return;
     }
 
     QPointer<ChannelQuickList> guard(this);
     const QString requestedKey = key;
-    backend_->retrieveChannelUnreadPost(
-        *channel, [guard, channelId, requestedKey](const QString& postId) {
-            if (!guard || !guard->backend_ || !guard->model_
+    const auto request = AppNavigationService::instance(*owner).beginNavigation();
+    owner->retrieveChannelUnreadPost(
+        *channel, [guard, sourceGuard, accountId, channelId, requestedKey, request](const QString& postId) {
+            if (!guard || !sourceGuard
+                || guard->sources_.backend(accountId) != sourceGuard.data()
+                || !AppNavigationService::instance(*sourceGuard).isNavigationCurrent(request)
                 || guard->retainedKey_ != requestedKey) {
                 return;
             }
 
-            const FollowingModel::Entry* current = guard->model_->findEntry(channelId);
+            const FollowingModel::Entry* current = FollowingModel::instance(*sourceGuard).findEntry(channelId);
             if (!current || current->resumeState == FollowingModel::ResumeState::AtEnd) {
-                AppNavigationService::instance(*guard->backend_).openChannel(channelId);
+                AppNavigationService::instance(*sourceGuard).openChannel(channelId);
                 return;
             }
             if (current->resumeState == FollowingModel::ResumeState::FirstUnread
                 && !current->firstUnreadPostId.isEmpty()) {
-                AppNavigationService::instance(*guard->backend_).openPost(
+                AppNavigationService::instance(*sourceGuard).openPost(
                     current->firstUnreadPostId);
                 return;
             }
 
             BackendChannel* currentChannel =
-                guard->backend_->getStorage().getChannelById(channelId);
+                sourceGuard->getStorage().getChannelById(channelId);
             if (!postId.isEmpty() && currentChannel
                 && !isStaleConversationResumeTarget(*current, *currentChannel, postId)) {
-                AppNavigationService::instance(*guard->backend_).openPost(postId);
+                AppNavigationService::instance(*sourceGuard).openPost(postId);
             } else {
-                AppNavigationService::instance(*guard->backend_).openChannel(channelId);
+                AppNavigationService::instance(*sourceGuard).openChannel(channelId);
             }
         });
 }
@@ -382,6 +380,7 @@ void ChannelQuickList::releaseSelectionRetention()
         return;
     }
 
+    retainedAccountId_.clear();
     retainedKey_.clear();
     lastActivatedKey_.clear();
     retainedEntry_.reset();
@@ -393,13 +392,9 @@ void ChannelQuickList::releaseSelectionRetention()
     });
 }
 
-QString ChannelQuickList::threadLabel(const FollowingModel::Entry& entry) const
+QString ChannelQuickList::threadLabel(Backend& owner, const FollowingModel::Entry& entry) const
 {
-    if (!backend_) {
-        return compactMessage(entry.message);
-    }
-
-    const BackendChannel* channel = backend_->getStorage().getChannelById(entry.channelId);
+    const BackendChannel* channel = owner.getStorage().getChannelById(entry.channelId);
     const QString channelName = channel ? channel->display_name : entry.channelId;
     const QString snippet = compactMessage(entry.message);
     const QString prefix = entry.synthetic || entry.unreadMentions > 0
@@ -410,20 +405,20 @@ QString ChannelQuickList::threadLabel(const FollowingModel::Entry& entry) const
         : prefix + channelName + QStringLiteral(" \u2014 ") + snippet;
 }
 
-void ChannelQuickList::openThread(const FollowingModel::Entry& entry)
+void ChannelQuickList::openThread(Backend& owner, const FollowingModel::Entry& entry)
 {
-    if (!backend_ || !model_ || entry.threadId.isEmpty() || entry.channelId.isEmpty()) {
+    if (entry.threadId.isEmpty() || entry.channelId.isEmpty()) {
         return;
     }
 
     if (entry.synthetic) {
-        model_->ensureThreadsFresh();
-        AppNavigationService::instance(*backend_).openPost(entry.threadId);
+        FollowingModel::instance(owner).ensureThreadsFresh();
+        AppNavigationService::instance(owner).openPost(entry.threadId);
         return;
     }
 
     if (entry.resumeState == FollowingModel::ResumeState::AtEnd) {
-        AppNavigationService::instance(*backend_).openThread(entry.channelId, entry.threadId);
+        AppNavigationService::instance(owner).openThread(entry.channelId, entry.threadId);
         return;
     }
 
@@ -438,17 +433,17 @@ void ChannelQuickList::openThread(const FollowingModel::Entry& entry)
     // Navigation itself is not a read acknowledgement. The thread ChatArea
     // marks it read only when the user has actually reached the newest edge;
     // oversized targets therefore remain unread until their lower edge is seen.
-    AppNavigationService::instance(*backend_).openThreadAtLastViewed(
+    AppNavigationService::instance(owner).openThreadAtLastViewed(
         entry.channelId, entry.threadId, resumeAfter, fallbackPostId, {}, false);
 }
 
 void ChannelQuickList::refresh()
 {
-    if (!backend_ || !model_) {
-        return;
-    }
-
+    if (refreshing_) return;
+    QScopedValueRollback<bool> updating(refreshing_, true);
+    QSignalBlocker blockSelection(this);
     struct Candidate {
+        QString accountId;
         FollowingModel::Entry entry;
         QString key;
         UnreadSortKey sort;
@@ -456,81 +451,91 @@ void ChannelQuickList::refresh()
 
     QVector<Candidate> candidates;
     QSet<QString> projectedKeys;
-    for (const FollowingModel::Entry& entry : model_->entries()) {
-        if (!includeFollowingInUnread(entry.isThread(), entry.muted, unreadFilters_)) {
-            continue;
-        }
-        if (entry.isThread() && !backend_->getStorage().getChannelById(entry.channelId)) {
-            continue;
-        }
-
-        Candidate candidate;
-        candidate.entry = entry;
-        candidate.key = entryKey(entry);
-        const bool unread = entry.requiresAttention();
-        const uint64_t sortTime = unread && entry.attentionSince != 0
-            ? entry.attentionSince : entry.lastReplyAt;
-        candidate.sort = {unreadSortGroup(true, unread), sortTime, candidate.key};
-        projectedKeys.insert(candidate.key);
-        candidates.push_back(std::move(candidate));
-    }
-
-    // Add all unread public/private channels, including channels with
-    // outstanding mentions: Following represents mentions as post/thread
-    // rows, not necessarily as the channel conversation itself. Joined/
-    // tracked membership and unread authority remain in SidebarService.
-    // The c:<channelId> key avoids duplicate Following conversation rows.
-    auto& sidebar = SidebarService::instance(*backend_);
-    if (unreadFilters_.channels || unreadFilters_.muted) {
-        for (auto it = backend_->getStorage().channels.cbegin();
-             it != backend_->getStorage().channels.cend(); ++it) {
-            BackendChannel* channel = it.value();
-            if (!channel || channel->delete_at != 0
-                || !sidebar.isChannelUnread(*channel)) {
+    const auto accounts = sources_.accounts();
+    for (auto it = accounts.cbegin(); it != accounts.cend(); ++it) {
+        const QString accountId = it.key();
+        Backend* owner = it.value();
+        const auto& model = FollowingModel::instance(*owner);
+        for (const FollowingModel::Entry& entry : model.entries()) {
+            if (!includeFollowingInUnread(entry.isThread(), entry.muted, unreadFilters_)) {
                 continue;
             }
-            const bool publicOrPrivate =
-                channel->type == BackendChannel::publicChannel
-                || channel->type == BackendChannel::privateChannel;
-            const bool muted = sidebar.isChannelMuted(*channel);
-            const bool mentioned = sidebar.hasUnreadMention(channel->id);
-            // Avoid scanning category membership for ineligible candidates.
-            if ((muted && !unreadFilters_.muted)
-                || (!muted && (!unreadFilters_.channels
-                               || !publicOrPrivate))) {
+            if (entry.isThread() && !owner->getStorage().getChannelById(entry.channelId)) {
                 continue;
             }
-            if (!includeChannelInUnread(publicOrPrivate,
-                                        sidebar.isChannelTracked(channel->id),
-                                        true, muted, unreadFilters_)) {
-                continue;
-            }
-            const QString key = QStringLiteral("c:") + channel->id;
-            if (projectedKeys.contains(key)) continue;
 
             Candidate candidate;
-            candidate.entry.kind = FollowingModel::Kind::Conversation;
-            candidate.entry.channelId = channel->id;
-            candidate.entry.teamId = channel->team ? channel->team->id : QString();
-            candidate.entry.unread = true;
-            candidate.entry.mentioned = mentioned;
-            candidate.entry.muted = muted;
-            candidate.entry.lastReplyAt = sidebar.channelActivityTime(*channel);
-            candidate.key = key;
-            candidate.sort = {
-                unreadSortGroup(false, true), candidate.entry.lastReplyAt, key
-            };
-            projectedKeys.insert(key);
+            candidate.accountId = accountId;
+            candidate.entry = entry;
+            candidate.key = SidebarQueueSources::key(accountId, entryKey(entry));
+            const bool unread = entry.requiresAttention();
+            const uint64_t sortTime = unread && entry.attentionSince != 0
+                ? entry.attentionSince : entry.lastReplyAt;
+            candidate.sort = {unreadSortGroup(true, unread), sortTime, candidate.key};
+            projectedKeys.insert(candidate.key);
             candidates.push_back(std::move(candidate));
         }
+
+        // Add all unread public/private channels, including channels with
+        // outstanding mentions: Following represents mentions as post/thread
+        // rows, not necessarily as the channel conversation itself. Joined/
+        // tracked membership and unread authority remain in SidebarService.
+        // The c:<channelId> key avoids duplicate Following conversation rows.
+        auto& sidebar = SidebarService::instance(*owner);
+        if (unreadFilters_.channels || unreadFilters_.muted) {
+            for (auto it = owner->getStorage().channels.cbegin();
+                 it != owner->getStorage().channels.cend(); ++it) {
+                BackendChannel* channel = it.value();
+                if (!channel || channel->delete_at != 0
+                    || !sidebar.isChannelUnread(*channel)) {
+                    continue;
+                }
+                const bool publicOrPrivate =
+                    channel->type == BackendChannel::publicChannel
+                    || channel->type == BackendChannel::privateChannel;
+                const bool muted = sidebar.isChannelMuted(*channel);
+                const bool mentioned = sidebar.hasUnreadMention(channel->id);
+                // Avoid scanning category membership for ineligible candidates.
+                if ((muted && !unreadFilters_.muted)
+                    || (!muted && (!unreadFilters_.channels
+                                   || !publicOrPrivate))) {
+                    continue;
+                }
+                if (!includeChannelInUnread(publicOrPrivate,
+                                            sidebar.isChannelTracked(channel->id),
+                                            true, muted, unreadFilters_)) {
+                    continue;
+                }
+                const QString key = SidebarQueueSources::key(accountId, QStringLiteral("c:") + channel->id);
+                if (projectedKeys.contains(key)) continue;
+
+                Candidate candidate;
+            candidate.accountId = accountId;
+                candidate.entry.kind = FollowingModel::Kind::Conversation;
+                candidate.entry.channelId = channel->id;
+                candidate.entry.teamId = channel->team ? channel->team->id : QString();
+                candidate.entry.unread = true;
+                candidate.entry.mentioned = mentioned;
+                candidate.entry.muted = muted;
+                candidate.entry.lastReplyAt = sidebar.channelActivityTime(*channel);
+                candidate.key = key;
+                candidate.sort = {
+                    unreadSortGroup(false, true), candidate.entry.lastReplyAt, key
+                };
+                projectedKeys.insert(key);
+                candidates.push_back(std::move(candidate));
+            }
+        }
+
     }
 
     // A read DM/GM disappears from the shared model immediately. Keep only the
     // selected row in this view so an action never removes the item under the
     // pointer; this retention must not prolong its cursor/model lifetime.
-    if (retainedFromFollowing_ && unreadFilters_.following
+    Backend* retainedOwner = sources_.backend(retainedAccountId_);
+    if (retainedOwner && retainedFromFollowing_ && unreadFilters_.following
         && retainedEntry_ && !retainedEntry_->isThread()) {
-        const QString key = entryKey(*retainedEntry_);
+        const QString key = SidebarQueueSources::key(retainedAccountId_, entryKey(*retainedEntry_));
         bool present = false;
         for (const Candidate& candidate : std::as_const(candidates)) {
             if (candidate.key == key) {
@@ -539,13 +544,14 @@ void ChannelQuickList::refresh()
             }
         }
 
-        BackendChannel* channel = backend_->getStorage().getChannelById(
+        BackendChannel* channel = retainedOwner->getStorage().getChannelById(
             retainedEntry_->channelId);
         const bool muted = channel
-            ? SidebarService::instance(*backend_).isChannelMuted(*channel)
+            ? SidebarService::instance(*retainedOwner).isChannelMuted(*channel)
             : true;
         if (!present && channel && (!muted || unreadFilters_.muted)) {
             Candidate candidate;
+            candidate.accountId = retainedAccountId_;
             candidate.entry = *retainedEntry_;
             candidate.entry.unread = false;
             candidate.entry.mentioned = false;
@@ -568,14 +574,24 @@ void ChannelQuickList::refresh()
     const QString selectedKey = currentItem()
         ? currentItem()->data(0, FollowingKeyRole).toString() : QString();
 
-    refreshing_ = true;
-    clear();
+    QSet<QString> desired;
+    for (const auto& candidate : std::as_const(candidates)) {
+        auto* owner = sources_.backend(candidate.accountId);
+        if (owner && (candidate.entry.isThread()
+            || owner->getStorage().getChannelById(candidate.entry.channelId)))
+            desired.insert(candidate.key);
+    }
+    SidebarQueueRows rows(*this, desired);
     channelItems_.clear();
     QTreeWidgetItem* itemToRestore = nullptr;
+    int row = 0;
 
     for (const Candidate& candidate : std::as_const(candidates)) {
+        Backend* owner = sources_.backend(candidate.accountId);
+        if (!owner || !desired.contains(candidate.key)) continue;
         const FollowingModel::Entry& entry = candidate.entry;
-        auto* item = new QTreeWidgetItem(this);
+        auto* item = rows.place(candidate.key, row++);
+        item->setData(0, SidebarItem::AccountIdRole, candidate.accountId);
         item->setData(0, FollowingKeyRole, candidate.key);
         item->setData(0, SidebarItem::UnreadRole, entry.requiresAttention());
         item->setData(0, SidebarItem::MentionedRole,
@@ -586,7 +602,7 @@ void ChannelQuickList::refresh()
         item->setData(0, SidebarItem::MutedRole, entry.muted);
 
         if (!entry.isThread()) {
-            BackendChannel* channel = backend_->getStorage().getChannelById(entry.channelId);
+            BackendChannel* channel = owner->getStorage().getChannelById(entry.channelId);
             if (!channel) {
                 delete item;
                 continue;
@@ -599,24 +615,26 @@ void ChannelQuickList::refresh()
             item->setToolTip(0, channel->getTeamAndChannelName());
 
             if (channel->type == BackendChannel::directChannel) {
-                BackendUser* user = backend_->getStorage().getUserById(channel->name);
+                BackendUser* user = owner->getStorage().getUserById(channel->name);
                 if (user) {
-                    if (!user->avatar.isNull()) {
-                        item->setIcon(0, QIcon(user->avatar));
-                    }
+                    item->setIcon(0, QIcon(user->avatar));
                     item->setData(0, SidebarItem::PresenceRole, user->status);
                     item->setData(0, SidebarItem::CustomStatusEmojiRole,
                                   UserStatusEmoji::pixmap(
-                                      backend_->emojiRegistry(), *user, 18, font()));
-                    ensureDirectUserConnections(*channel);
+                                      owner->emojiRegistry(), *user, 18, font()));
+                    sources_.observeUser(candidate.accountId, *user);
+                } else {
+                    item->setIcon(0, QIcon());
+                    item->setData(0, SidebarItem::PresenceRole, QVariant());
+                    item->setData(0, SidebarItem::CustomStatusEmojiRole, QVariant());
                 }
             } else {
                 item->setIcon(0, ChannelIcons::groupConversation());
             }
-            channelItems_.insert(channel->id, item);
+            channelItems_.insert(candidate.key, item);
         } else {
-            BackendChannel* channel = backend_->getStorage().getChannelById(entry.channelId);
-            item->setText(0, threadLabel(entry));
+            BackendChannel* channel = owner->getStorage().getChannelById(entry.channelId);
+            item->setText(0, threadLabel(*owner, entry));
             item->setData(0, SidebarItem::KindRole, SidebarItem::Thread);
             item->setData(0, SidebarItem::IdRole, entry.threadId);
             item->setData(0, SidebarItem::ChannelTypeRole,
@@ -640,55 +658,31 @@ void ChannelQuickList::refresh()
         setCurrentItem(nullptr);
         clearSelection();
     }
-    refreshing_ = false;
 }
 
-void ChannelQuickList::ensureDirectUserConnections(BackendChannel& channel)
+void ChannelQuickList::updateDirectUser(const QString& accountId, const BackendUser& user)
 {
-    if (!backend_ || channel.type != BackendChannel::directChannel) {
-        return;
-    }
+    auto* owner = sources_.backend(accountId);
+    if (!owner) return;
 
-    BackendUser* user = backend_->getStorage().getUserById(channel.name);
-    if (!user || connectedUsers_.contains(user->id)) {
-        return;
-    }
-
-    connectedUsers_.insert(user->id);
-    connect(user, &BackendUser::onStatusChanged, this, [this, user] {
-        updateDirectUser(*user);
-    });
-    connect(user, &BackendUser::onCustomStatusChanged, this, [this, user] {
-        updateDirectUser(*user);
-    });
-    connect(user, &BackendUser::onAvatarChanged, this, [this, user] {
-        updateDirectUser(*user);
-    });
-}
-
-void ChannelQuickList::updateDirectUser(const BackendUser& user)
-{
-    if (!backend_) {
-        return;
-    }
-
-    BackendChannel* channel = backend_->getStorage().getDirectChannelByUserId(user.id);
+    BackendChannel* channel = owner->getStorage().getDirectChannelByUserId(user.id);
     if (!channel) {
         return;
     }
 
-    QTreeWidgetItem* item = channelItems_.value(channel->id, nullptr);
+    QTreeWidgetItem* item = channelItems_.value(
+        SidebarQueueSources::key(accountId, QStringLiteral("c:") + channel->id), nullptr);
     if (!item) {
         return;
     }
 
+    if (auto* current = owner->getStorage().getUserById(user.id))
+        sources_.observeUser(accountId, *current);
     item->setData(0, SidebarItem::PresenceRole, user.status);
     item->setData(0, SidebarItem::CustomStatusEmojiRole,
                   UserStatusEmoji::pixmap(
-                      backend_->emojiRegistry(), user, 18, font()));
-    if (!user.avatar.isNull()) {
-        item->setIcon(0, QIcon(user.avatar));
-    }
+                      owner->emojiRegistry(), user, 18, font()));
+    item->setIcon(0, QIcon(user.avatar));
     viewport()->update();
 }
 

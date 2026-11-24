@@ -31,6 +31,8 @@
 #include "backend/PostRepository.h"
 #include "backend/types/BackendChannel.h"
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree/ChannelQuickList.h"
+#include "channel-tree/SidebarItem.h"
 #include "channel-tree/FollowingNavigation.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
@@ -2265,6 +2267,47 @@ private slots:
     }
     // Run the two-window fixture after the independent single-window cases,
     // so its process-global presentation state cannot affect scroll tests.
+    void unreadProjectionPreservesAccountQualifiedRows()
+    {
+        Backend first;
+        Backend second;
+        for (Backend* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            QVERIFY(owner->getStorage().addGroupChannel(
+                QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Test"}}));
+        }
+        auto& firstModel = FollowingModel::instance(first);
+        auto& secondModel = FollowingModel::instance(second);
+        firstModel.markPostUnread("channel", "same-thread", "first-post", 1000);
+        secondModel.markPostUnread("channel", "same-thread", "second-post", 2000);
+        ChannelQuickList list;
+        list.setUnreadFilters({true, false, false});
+        list.setAccounts({{"a", &first}, {"b", &second}});
+        QCOMPARE(list.topLevelItemCount(), 2);
+        const auto findRow = [&list](const QString& account) {
+            for (int i = 0; i < list.topLevelItemCount(); ++i) {
+                auto* row = list.topLevelItem(i);
+                if (row->data(0, SidebarItem::AccountIdRole).toString() == account)
+                    return row;
+            }
+            return static_cast<QTreeWidgetItem*>(nullptr);
+        };
+        auto* a = findRow("a");
+        auto* b = findRow("b");
+        QVERIFY(a && b && a != b);
+        list.setCurrentItem(a);
+        firstModel.markPostUnread("channel", "same-thread", "new-post", 3000);
+        QCOMPARE(findRow("a"), a);
+        QCOMPARE(findRow("b"), b);
+        QCOMPARE(list.currentItem(), a);
+        list.setAccounts({{"a", &first}});
+        QCOMPARE(list.topLevelItemCount(), 1);
+        QCOMPARE(findRow("a"), a);
+        secondModel.markPostUnread("channel", "same-thread", "other-post", 4000);
+        QCOMPARE(list.topLevelItemCount(), 1);
+    }
+
     void oneCentralSurfaceAdmitsTwoAccountsWithCollidingIds()
     {
         Server serverA;

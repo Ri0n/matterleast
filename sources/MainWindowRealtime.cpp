@@ -204,11 +204,6 @@ void MainWindow::installRealtimeUiSync()
     // conversation before the server-backed Channels tree has materialized its
     // row. Route them through the Storage-aware navigation path rather than
     // requiring channelToItemMap to be populated already.
-    disconnect(recentChannels, &ChannelQuickList::channelSelected,
-               ui->channelList, &ChannelTree::openChannel);
-    connect(recentChannels, &ChannelQuickList::channelSelected,
-            ui->channelList, &ChannelTree::openStoredChannel);
-
     disconnect(attentionList, &AttentionList::channelSelected,
                ui->channelList, &ChannelTree::openChannel);
     connect(attentionList, &AttentionList::channelSelected,
