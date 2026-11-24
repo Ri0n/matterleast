@@ -36,7 +36,6 @@ class QCheckBox;
 class QEvent;
 class QLineEdit;
 class QSplitter;
-class QStackedLayout;
 class QSystemTrayIcon;
 class QTabWidget;
 class QToolButton;
@@ -93,16 +92,9 @@ public:
     void unbindViewNavigation();
     // Shared account/profile model rendered as an icon-only tab before Channels.
     void installServersSidebar(AccountManager& manager);
-    // Reapply the saved left sidebar width after navigation reparents the
-    // central widget (the splitter's initial restore happens while hidden).
-    void restoreSidebarWidth();
     void showServersSidebar();
     void showChannelsSidebar();
     void openAccountDestination(int destination, const QString& teamId);
-    // Replace only the tree inside the existing Channels tab. The ThinSplitter
-    // and all other MainWindow presentation remain unchanged.
-    void setViewChannelTree(ChannelTree* tree, QWidget* parkingParent);
-    ChannelTree* viewChannelTree() const;
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
@@ -121,7 +113,6 @@ public:
     void openMessageSearchInChannel(const QString& channelId);
     void openMessageSearchForBackend(Backend& source, const QString& channelId);
 
-    void showEvent(QShowEvent* event) override;
 	void changeEvent (QEvent* event) override;
 	void closeEvent(QCloseEvent *event) override;
 	void saveState ();
@@ -182,9 +173,6 @@ private:
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;
-    QStackedLayout*                   channelTreePages = nullptr;
-    QPointer<ChannelTree>             _viewChannelTree;
-    QMetaObject::Connection           _viewTreeSearchConnection;
     ServersSidebarPage*                  serversPage = nullptr;
     QWidget*                            sidebarFilterRow = nullptr;
     QWidget*                            _unreadPage = nullptr;
