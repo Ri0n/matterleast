@@ -7,7 +7,9 @@
 #include "ChooseEmojiDialog.h"
 
 #include <utility>
+#include <QApplication>
 #include <QPalette>
+#include <QWindow>
 #include <QScopedValueRollback>
 #include <QSizePolicy>
 #include <QVBoxLayout>
@@ -17,9 +19,8 @@
 
 namespace Mattermost {
 
-ChooseEmojiDialog::ChooseEmojiDialog(Backend& backend, QWidget* parent)
-    : QDialog(parent)
-    , backend_(&backend)
+ChooseEmojiDialog::ChooseEmojiDialog()
+    : QDialog(nullptr)
 {
     setObjectName(QStringLiteral("accountEmojiChooser"));
     setWindowTitle(tr("Choose Emoji - Mattermost"));
@@ -33,7 +34,6 @@ ChooseEmojiDialog::ChooseEmojiDialog(Backend& backend, QWidget* parent)
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    connect(&backend, &QObject::destroyed, this, [this] { delete this; });
     connect(this, &QDialog::rejected, this, &ChooseEmojiDialog::clearRequest);
 }
 
@@ -45,7 +45,7 @@ void ChooseEmojiDialog::ensurePicker()
         return;
     }
 
-    picker_ = new EmojiPickerWidget(*backend_, this);
+    picker_ = new EmojiPickerWidget(this);
     layout()->addWidget(picker_);
 
     connect(picker_, &EmojiPickerWidget::emojiChosen,
@@ -64,9 +64,12 @@ void ChooseEmojiDialog::ensurePicker()
 void ChooseEmojiDialog::clearRequest()
 {
     QObject::disconnect(requesterDestroyed_);
+    QObject::disconnect(backendDestroyed_);
     requesterDestroyed_ = {};
+    backendDestroyed_ = {};
     requester_.clear();
     callback_ = {};
+    backend_.clear();
 }
 
 void ChooseEmojiDialog::showFor(Backend& backend, QWidget& requester,
@@ -74,20 +77,14 @@ void ChooseEmojiDialog::showFor(Backend& backend, QWidget& requester,
 {
     QWidget* owner = requester.window();
     if (!owner) return;
-    auto* dialog = owner->findChild<ChooseEmojiDialog*>(
-        QStringLiteral("accountEmojiChooser"), Qt::FindDirectChildrenOnly);
-    if (dialog && dialog->opening_)
-        return;
-    if (dialog && dialog->backend_ != &backend) {
-        // The registry and picker contents belong to the live connection.
-        // Retire the old picker instead of changing its Backend reference.
-        dialog->reject();
-        dialog->setObjectName(QString());
-        dialog->deleteLater();
-        dialog = nullptr;
+    static QPointer<ChooseEmojiDialog> instance;
+    if (!instance) {
+        instance = new ChooseEmojiDialog;
+        connect(qApp, &QApplication::aboutToQuit, instance.data(),
+                [dialog = instance] { delete dialog.data(); });
     }
-    if (!dialog)
-        dialog = new ChooseEmojiDialog(backend, owner);
+    auto* dialog = instance.data();
+    if (dialog->opening_) return;
     if (dialog->isVisible()) {
         dialog->raise();
         dialog->activateWindow();
@@ -96,13 +93,26 @@ void ChooseEmojiDialog::showFor(Backend& backend, QWidget& requester,
 
     QScopedValueRollback<bool> opening(dialog->opening_, true);
     dialog->clearRequest();
+    dialog->backend_ = &backend;
     dialog->requester_ = &requester;
     dialog->callback_ = std::move(callback);
+    dialog->backendDestroyed_ = connect(
+        &backend, &QObject::destroyed, dialog, &QDialog::reject);
     dialog->requesterDestroyed_ = connect(
         &requester, &QObject::destroyed, dialog, &QDialog::reject);
     dialog->ensurePicker();
+    dialog->picker_->setBackend(&backend);
     dialog->picker_->prepare();
+    // Preserve native transient stacking for detached chats and modal
+    // status editors, without transferring QWidget ownership.
+    owner->winId();
+    QPointer<QWindow> transientOwner(owner->windowHandle());
+    dialog->winId();
+    if (auto* native = dialog->windowHandle())
+        native->setTransientParent(transientOwner.data());
     dialog->show();
+    if (auto* native = dialog->windowHandle())
+        native->setTransientParent(transientOwner.data());
     dialog->picker_->focusSearch();
     dialog->raise();
     dialog->activateWindow();

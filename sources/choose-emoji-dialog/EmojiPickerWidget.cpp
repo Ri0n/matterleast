@@ -282,8 +282,13 @@ QString customEmojiImagePath(const QString& value)
 } // namespace
 
 EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
+    : EmojiPickerWidget(parent)
+{
+    setBackend(&backend);
+}
+
+EmojiPickerWidget::EmojiPickerWidget(QWidget* parent)
     : QWidget(parent)
-    , backend_(backend)
 {
     useBaseBackground(*this);
 
@@ -337,8 +342,8 @@ EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
             this, &EmojiPickerWidget::syncCurrentTabButton);
     connect(stackWidget_, &QStackedWidget::currentChanged,
             this, [this](int index) {
-        if (index == tabIndexForCategory(EmojiCategory::custom)) {
-            CustomEmojiService::instance(backend_).ensureBrowsePageLoaded();
+        if (backend_ && index == tabIndexForCategory(EmojiCategory::custom)) {
+            CustomEmojiService::instance(*backend_).ensureBrowsePageLoaded();
         }
     });
 
@@ -350,8 +355,8 @@ EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
         updateSearchResults(text);
         const QString search =
             EmojiDialogSupport::customEmojiServerSearchTerm(text);
-        if (!search.isEmpty()) {
-            CustomEmojiService::instance(backend_).searchEmojis(search);
+        if (backend_ && !search.isEmpty()) {
+            CustomEmojiService::instance(*backend_).searchEmojis(search);
         }
     });
     connect(searchEdit_, &QLineEdit::textChanged, this,
@@ -374,20 +379,35 @@ EmojiPickerWidget::EmojiPickerWidget(Backend& backend, QWidget* parent)
             updateSearchResults(searchEdit_->text());
         }
     });
-    connect(&backend_.emojiRegistry(),
-            &EmojiRegistry::customEmojiAdded,
-            this, [this](const QString&) {
-        customEmojiRefreshTimer_->start();
-    });
+}
+
+void EmojiPickerWidget::setBackend(Backend* backend)
+{
+    if (backend_ == backend && backend) return;
+    QObject::disconnect(customEmojiConnection_);
+    QObject::disconnect(backendDestroyedConnection_);
+    backend_ = backend;
+    customEmojiRefreshTimer_->stop();
+    resetSearch();
+    if (backend) {
+        customEmojiConnection_ = connect(&backend->emojiRegistry(),
+            &EmojiRegistry::customEmojiAdded, this, [this](const QString&) {
+                customEmojiRefreshTimer_->start();
+            });
+        backendDestroyedConnection_ = connect(backend, &QObject::destroyed,
+            this, [this] { setBackend(nullptr); });
+    }
+    if (stackWidget_->count() > 0)
+        refreshCustomEmojiCatalog();
 }
 
 void EmojiPickerWidget::prepare()
 {
     createEmojiTabs();
     refreshCustomEmojiCatalog();
-    if (stackWidget_->currentIndex()
+    if (backend_ && stackWidget_->currentIndex()
         == tabIndexForCategory(EmojiCategory::custom)) {
-        CustomEmojiService::instance(backend_).ensureBrowsePageLoaded();
+        CustomEmojiService::instance(*backend_).ensureBrowsePageLoaded();
     }
     resetSearch();
 }
@@ -440,6 +460,7 @@ QLayout* EmojiPickerWidget::createTab(uint32_t categoryIdx, int tabIndex)
         QWidget* previousTab = stackWidget_->widget(tabIndex);
         stackWidget_->removeWidget(previousTab);
         if (previousTab && previousTab != searchTab_) {
+            previousTab->setEnabled(false);
             previousTab->deleteLater();
         }
         stackWidget_->insertWidget(tabIndex, tab);
@@ -463,7 +484,9 @@ void EmojiPickerWidget::createEmojiTabs()
         }
 
         const QVector<Emoji> emojis =
-            backend_.emojiRegistry().getAllEmojis(categoryIdx, 0);
+            categoryIdx == EmojiCategory::custom && backend_
+                ? backend_->emojiRegistry().getAllEmojis(categoryIdx, 0)
+                : EmojiInfo::getAllBuiltInEmojis(categoryIdx, 0);
         createTabForCategory(
             categoryIdx,
             tabIndex,
@@ -473,8 +496,9 @@ void EmojiPickerWidget::createEmojiTabs()
     }
 
     rebuildSearchableEmojis();
-    renderedCustomEmojiCount_ =
-        backend_.emojiRegistry().getAllEmojis(EmojiCategory::custom, 0).size();
+    renderedCustomEmojis_ = backend_
+        ? backend_->emojiRegistry().getAllEmojis(EmojiCategory::custom, 0)
+        : EmojiInfo::getAllBuiltInEmojis(EmojiCategory::custom, 0);
 
     if (stackWidget_->count() > 0
         && stackWidget_->currentIndex() < 0) {
@@ -492,7 +516,9 @@ void EmojiPickerWidget::rebuildSearchableEmojis()
         if (categoryIdx == EmojiCategory::component) {
             continue;
         }
-        searchableEmojis_ += backend_.emojiRegistry().getAllEmojis(categoryIdx, 0);
+        searchableEmojis_ += categoryIdx == EmojiCategory::custom && backend_
+            ? backend_->emojiRegistry().getAllEmojis(categoryIdx, 0)
+            : EmojiInfo::getAllBuiltInEmojis(categoryIdx, 0);
     }
 }
 
@@ -500,10 +526,15 @@ void EmojiPickerWidget::refreshCustomEmojiCatalog()
 {
     rebuildSearchableEmojis();
 
-    const QVector<Emoji> customEmojis =
-        backend_.emojiRegistry().getAllEmojis(EmojiCategory::custom, 0);
+    const QVector<Emoji> customEmojis = backend_
+        ? backend_->emojiRegistry().getAllEmojis(EmojiCategory::custom, 0)
+        : EmojiInfo::getAllBuiltInEmojis(EmojiCategory::custom, 0);
     if (stackWidget_->count() < 1
-        || customEmojis.size() == renderedCustomEmojiCount_) {
+        || (customEmojis.size() == renderedCustomEmojis_.size()
+            && std::equal(customEmojis.cbegin(), customEmojis.cend(),
+                          renderedCustomEmojis_.cbegin(), [](const Emoji& a, const Emoji& b) {
+                return a.name == b.name && a.unicodeString == b.unicodeString;
+            }))) {
         return;
     }
 
@@ -512,7 +543,7 @@ void EmojiPickerWidget::refreshCustomEmojiCatalog()
         tabIndexForCategory(EmojiCategory::custom),
         categoryDisplayNames[EmojiCategory::custom],
         customEmojis);
-    renderedCustomEmojiCount_ = customEmojis.size();
+    renderedCustomEmojis_ = customEmojis;
 }
 
 void EmojiPickerWidget::createTabForCategory(

@@ -1,6 +1,8 @@
 #include <optional>
 
 #include <QApplication>
+#include <QPointer>
+#include <QTemporaryDir>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStackedWidget>
@@ -24,43 +26,65 @@ private slots:
     {
         Backend first;
         Backend second;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        first.emojiRegistry().addCustomEmoji("server_one", dir.filePath("one.png"));
+        second.emojiRegistry().addCustomEmoji("server_two", dir.filePath("two.png"));
         QWidget owner;
+        QWidget otherOwner;
         QWidget firstRequester(&owner);
-        QWidget secondRequester(&owner);
+        QWidget secondRequester(&otherOwner);
         owner.show();
+        otherOwner.show();
         int firstCalls = 0;
         int secondCalls = 0;
-        const auto chooser = [&owner] {
-            return owner.findChild<ChooseEmojiDialog*>(
-                QStringLiteral("accountEmojiChooser"), Qt::FindDirectChildrenOnly);
+        const auto chooser = [] {
+            for (auto* widget : QApplication::topLevelWidgets())
+                if (auto* dialog = qobject_cast<ChooseEmojiDialog*>(widget))
+                    return dialog;
+            return static_cast<ChooseEmojiDialog*>(nullptr);
+        };
+        const auto customPage = [](EmojiPickerWidget* picker) {
+            return picker->findChild<QWidget*>(
+                QStringLiteral("tab") + QString::number(EmojiCategory::custom));
+        };
+        const auto hasEmoji = [](QWidget* page, const QString& name) {
+            if (!page) return false;
+            for (auto* button : page->findChildren<QPushButton*>())
+                if (button->property("mattermostEmojiName").toString() == name)
+                    return true;
+            return false;
         };
         ChooseEmojiDialog::showFor(first, firstRequester,
                                     [&firstCalls](Emoji) { ++firstCalls; });
-        auto* firstDialog = chooser();
-        QVERIFY(firstDialog);
-        auto* firstPicker = firstDialog->findChild<EmojiPickerWidget*>();
-        QVERIFY(firstPicker);
-        emit firstPicker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        auto* dialog = chooser();
+        QVERIFY(dialog);
+        auto* picker = dialog->findChild<EmojiPickerWidget*>();
+        QVERIFY(picker);
+        auto* smileys = picker->findChild<QWidget*>("tab0");
+        QVERIFY(smileys);
+        QVERIFY(hasEmoji(customPage(picker), "server_one"));
+        QVERIFY(!hasEmoji(customPage(picker), "server_two"));
+        emit picker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
         QCOMPARE(firstCalls, 1);
-        ChooseEmojiDialog::showFor(first, firstRequester,
-                                    [&firstCalls](Emoji) { ++firstCalls; });
-        QCOMPARE(chooser(), firstDialog);
         ChooseEmojiDialog::showFor(second, secondRequester,
                                     [&secondCalls](Emoji) { ++secondCalls; });
-        auto* secondDialog = chooser();
-        QVERIFY(secondDialog && secondDialog != firstDialog);
-        auto* secondPicker = secondDialog->findChild<EmojiPickerWidget*>();
-        QVERIFY(secondPicker);
-        emit secondPicker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QCOMPARE(chooser(), dialog);
+        QCOMPARE(dialog->findChild<EmojiPickerWidget*>(), picker);
+        QCOMPARE(picker->findChild<QWidget*>("tab0"), smileys);
+        // Equal-sized custom catalogs must still be updated on account switch.
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!hasEmoji(customPage(picker), "server_one"));
+        QVERIFY(hasEmoji(customPage(picker), "server_two"));
+        emit picker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
         QCOMPARE(firstCalls, 1);
         QCOMPARE(secondCalls, 1);
-
-        auto* temporaryRequester = new QWidget(&owner);
+        auto* temporaryRequester = new QWidget(&otherOwner);
         ChooseEmojiDialog::showFor(second, *temporaryRequester,
                                     [&secondCalls](Emoji) { ++secondCalls; });
         delete temporaryRequester;
-        QVERIFY(!secondDialog->isVisible());
-        emit secondPicker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
+        QVERIFY(!dialog->isVisible());
+        emit picker->emojiChosen({QStringLiteral("eyes"), QStringLiteral("eyes")});
         QCOMPARE(secondCalls, 1);
     }
 

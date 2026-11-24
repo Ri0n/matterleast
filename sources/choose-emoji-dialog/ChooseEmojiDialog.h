@@ -36,13 +36,13 @@ class ChooseEmojiDialog : public QDialog
     Q_OBJECT
 
 public:
-    // Lazily reuse one picker in the requesting top-level window, never a
-    // process-global picker belonging to the last constructed MainWindow.
+    // One lazy application dialog. Its current request supplies the exact
+    // account registry and transient owner, independently of MainWindow.
     static void showFor(Backend& backend, QWidget& requester,
                         std::function<void(Emoji)> callback);
 
 private:
-    explicit ChooseEmojiDialog(Backend& backend, QWidget* parent);
+    explicit ChooseEmojiDialog();
     ~ChooseEmojiDialog() override;
     void ensurePicker();
     void clearRequest();
@@ -50,6 +50,7 @@ private:
     QPointer<Backend> backend_;
     QPointer<QWidget> requester_;
     QMetaObject::Connection requesterDestroyed_;
+    QMetaObject::Connection backendDestroyed_;
     std::function<void(Emoji)> callback_;
     EmojiPickerWidget* picker_ = nullptr;
     bool opening_ = false;

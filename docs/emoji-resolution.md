@@ -217,3 +217,14 @@ the application exits.
 
 `EmojiSmoothScalingTest` checks that real downscaling blends alternating
 columns, preserves non-square aspect ratio and rejects remote image URLs.
+
+## Shared chooser
+
+The standalone `ChooseEmojiDialog` is created lazily once for the application.
+Each request binds its `EmojiPickerWidget` to the originating Backend and uses
+its requester's native window as transient parent. Switching sessions keeps the
+built-in category widgets and replaces only the custom category and search
+index. A matching custom catalog size alone is not a cache identity. Backend
+or requester destruction invalidates the pending selection; no custom emoji
+from the previous session may remain selectable. Embedded composer pickers
+continue to use their own chat's Backend.
