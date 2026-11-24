@@ -15,18 +15,6 @@
 
 namespace Mattermost {
 
-void MainWindow::installRealtimeUiSync()
-{
-    if (!backendOrNull()) return;
-    static constexpr char InstalledProperty[] = "_mmqt_realtime_ui_sync_installed";
-    if (property(InstalledProperty).toBool()) {
-        return;
-    }
-    setProperty(InstalledProperty, true);
-
-    installRealtimeUiSync(backendInstance(), this);
-}
-
 void MainWindow::installRealtimeUiSync(Backend& source, QObject* context)
 {
     auto& serverUi = ServerUiService::instance(source);
