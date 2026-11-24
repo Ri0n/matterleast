@@ -162,6 +162,14 @@ public:
                         }}).toJson(QJsonDocument::Compact);
                         if (!secondPage)
                             ++pageZeroResponses;
+                    } else if (requestLine.startsWith("GET /api/v4/users/me/teams ")
+                               || requestLine.startsWith("GET /api/v4/users/me/channels ")
+                               || requestLine.startsWith("GET /api/v4/plugins/webapp ")
+                               || (requestLine.startsWith("GET /api/v4/users/")
+                                   && requestLine.contains("/channel_members?"))) {
+                        // Account-owned startup also loads its catalog and sidebar.
+                        // This fixture has no teams, memberships or webapp plugins.
+                        body = QByteArrayLiteral("[]");
                     } else if (requestLine.startsWith("GET /api/v4/users/")
                                && requestLine.contains("/preferences ")) {
                         ++preferencesRequests;
@@ -444,8 +452,10 @@ private slots:
 
         // Each Backend's preferences request must use its own server host
         // and authentication, without any ambient global HTTP identity.
-        QTRY_COMPARE(serverOne.preferencesRequests, 1);
-        QTRY_COMPARE(serverTwo.preferencesRequests, 1);
+        // Backend loads flagged posts at login; the account-owned sidebar
+        // independently loads its visibility and activity preferences.
+        QTRY_COMPARE(serverOne.preferencesRequests, 2);
+        QTRY_COMPARE(serverTwo.preferencesRequests, 2);
         QCOMPARE(serverOne.identityRequests, 1);
         QCOMPARE(serverTwo.identityRequests, 1);
         checkCookies(serverOne.identityCookies, "token-one", "token-two");
@@ -455,8 +465,8 @@ private slots:
 
         backendOne->retrieveUserPreferences();
         backendTwo->retrieveUserPreferences();
-        QTRY_COMPARE(serverOne.preferencesRequests, 2);
-        QTRY_COMPARE(serverTwo.preferencesRequests, 2);
+        QTRY_COMPARE(serverOne.preferencesRequests, 3);
+        QTRY_COMPARE(serverTwo.preferencesRequests, 3);
         checkCookies(serverOne.preferenceCookies, "token-one", "token-two");
         checkCookies(serverTwo.preferenceCookies, "token-two", "token-one");
 
@@ -1377,8 +1387,9 @@ private slots:
         QTRY_VERIFY(waitingGuard.isNull());
         QCOMPARE(sessions.registeredBackends().size(), 1);
 
-        activeBackend->retrieveUserPreferences();
         QTRY_COMPARE(healthy.preferencesRequests, 2);
+        activeBackend->retrieveUserPreferences();
+        QTRY_COMPARE(healthy.preferencesRequests, 3);
         checkCookies(healthy.preferenceCookies, "active-token", "stalled-token");
     }
     void sidebarWidthSurvivesNavigationReparentAndHiddenShutdown()
