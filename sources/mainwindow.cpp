@@ -24,6 +24,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QShowEvent>
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QDateTime>
@@ -423,16 +424,32 @@ void MainWindow::enableSharedPresentation()
     // Restore the application split only after navigation installs its final
     // content host. The empty pre-authentication stack has no size hint.
     NavigationUiController::instance(*this);
-    if (sidebarSplitter) {
-        const QByteArray state = MLOptions::instance()->value<QByteArray>(
-            QStringLiteral("sidebar_splitter_state"));
-        if (!state.isEmpty()) sidebarSplitter->restoreState(state);
-        sidebarSplitter->setChildrenCollapsible(false);
-        sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
-        const auto sizes = sidebarSplitter->sizes();
-        if (sizes.size() == 2 && (sizes[0] <= 0 || sizes[1] <= 1))
-            sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
-    }
+    if (isVisible())
+        restoreSidebarState();
+}
+
+void MainWindow::showEvent(QShowEvent* event)
+{
+    QMainWindow::showEvent(event);
+    if (_sharedPresentation)
+        restoreSidebarState();
+}
+
+void MainWindow::restoreSidebarState()
+{
+    if (_sidebarStateRestored || !sidebarSplitter)
+        return;
+    _sidebarStateRestored = true;
+    // QSplitter::sizes() reflects widget geometry, not the saved size hints.
+    // Restore only after the first layout has assigned the actual pane sizes.
+    const QByteArray state = MLOptions::instance()->value<QByteArray>(
+        QStringLiteral("sidebar_splitter_state"));
+    const bool restored = !state.isEmpty() && sidebarSplitter->restoreState(state);
+    sidebarSplitter->setChildrenCollapsible(false);
+    sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+    const auto sizes = sidebarSplitter->sizes();
+    if (!restored || sizes.size() != 2 || sizes[0] <= 0 || sizes[1] <= 1)
+        sidebarSplitter->setSizes({280, std::max(360, sidebarSplitter->width() - 280)});
 }
 
 void MainWindow::selectPresentationBackend(Backend* source)
