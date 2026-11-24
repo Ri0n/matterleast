@@ -167,7 +167,10 @@ lifetimes.
 `MainWindowOverlayInterface/1.0` allows an enabled native plugin to
 attach a presentation-only overlay to the main window without exposing a
 MatterLeast implementation type across the plugin ABI. The host passes
-only a Qt `QWidget*` after the main window has been constructed; a plugin
+only a Qt `QWidget*` for the single persistent application window, after
+its construction. Account connections and View switches never attach
+another overlay or change its host; even the disconnected Servers page
+uses the same window. A plugin
 must clean up its child widgets and event filters in `disable()` before
 unload. A re-enabled plugin is attached again.
 

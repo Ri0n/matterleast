@@ -299,6 +299,9 @@ void MattermostApplication::ensureWorkspaceShell()
 
     serversStartupPage = new ServersWorkspacePage(accounts, workspaceShell.get());
     workspaceShell->setServersPage(serversStartupPage);
+    // Window overlays belong to the single application surface, not to
+    // each account presenter. The surface survives session transitions.
+    plugins.attachMainWindow(*workspaceShell);
     connect(serversStartupPage, &ServersWorkspacePage::accountSelected, this,
             [this](const QString& id) {
         selectAccount(id);

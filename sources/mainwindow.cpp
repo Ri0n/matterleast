@@ -349,11 +349,6 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     // channel/thread presentation exists, before plugins can navigate.
     AppNavigationService::instance(backend).bindMainWindow(*this);
 	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
-    // The main window is fully constructed before optional visual plugins
-    // receive its QWidget surface. No MatterLeast UI class crosses the ABI.
-    if (auto* plugins = PluginManager::instance()) {
-        plugins->attachMainWindow(*this);
-    }
 	LOG_DEBUG("MainWindow create finish");
 }
 

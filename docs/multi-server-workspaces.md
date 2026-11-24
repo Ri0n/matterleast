@@ -162,9 +162,10 @@ future mobile QML are alternative presentations of the **same** model.
   decide when to reconnect, mutate account identities, or directly read
   secrets. A QML view can consume the same model and trigger equivalent
   manager commands through a frontend-agnostic action API.
-- `AccountWorkspaceStack` is only a **Widgets presentation container**.
-  Its mapping uses immutable local account IDs, not `Backend*`, so a future
-  transport restart or a replacement mobile UI does not redefine identity.
+- `AccountWorkspaceStack` is a **temporary Widgets presentation container**
+  of the staged implementation. It must disappear when the single application
+  MainWindow presents account-qualified View state directly. Its current
+  mapping uses immutable local account IDs, not `Backend*`.
 - Use row-level `dataChanged`, insertion, removal and moves for small
   state changes. Avoid unconditional `beginResetModel` and re-creating
   entire widget trees on a connection-status update.
@@ -310,8 +311,25 @@ Never swap one global Backend between URLs: late callbacks, cache keys, requests
 reaction/emoji registries and notifications must remain scoped to their originating account.
 
 The current staged implementation uses one MainWindow per account under a persistent
-AccountWorkspaceStack; the eventual multiple-account view projection must preserve the
-per-view semantics above, without duplicate network clients or duplicate post caches.
+AccountWorkspaceStack. This is transitional, not the target ownership structure.
+The desktop must have exactly one MainWindow for the entire application, including
+startup with no connected Backend. Its existing ThinSplitter, sidebar tab bar
+(Servers, Channels, Unread, Attention), menus, toolbars and central navigation
+surface are application-owned. Switching a View changes its projected contents and
+semantic state, not the MainWindow or splitter. Window geometry and the sidebar
+width are global presentation settings. Account-specific actions resolve the owning
+account explicitly; an active chat can belong to a different account from the
+currently selected sidebar account.
+
+Refactor the existing presenters incrementally: first move application-scoped
+window services out of account windows (plugin overlays attach once to the
+persistent application surface); then qualify navigation and chat ownership by
+account, bind the single sidebar and central navigation surface to View state, and
+remove AccountWorkspaceStack and the per-Backend MainWindow instances. Do not
+replace the stack with another container of complete account windows, reparent a
+shared ChannelTree between windows as the final solution, or introduce parallel
+sidebar models. Preserve the per-view semantics above, without duplicate network
+clients or duplicate post caches.
 Transport and cache services operate on account-scoped data even when the view is hidden.
 Any singleton keyed by `Backend&` must be audited for lifetime/address reuse. Async
 completions must be fenced by stable account ID and session generation, never by whichever
