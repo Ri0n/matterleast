@@ -1469,19 +1469,24 @@ private slots:
         // navigation controller immediately synchronized using that dead widget.
         FakeMattermostServer server(QByteArrayLiteral("exit-account"));
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("exit-account-local"), nullptr);
+        Backend backend(&account);
         bool ready = false;
         backend.login(credentials(server, QStringLiteral("saved-token")),
                       [&](const QString& token) { ready = !token.isEmpty(); });
         QTRY_VERIFY(ready);
 
         QSystemTrayIcon tray;
-        auto* window = new MainWindow(nullptr, tray, backend);
-        auto& navigation = NavigationUiController::instance(*window);
         ViewNavigationSession view(QStringLiteral("exit-view"));
-        view.setAllowedAccounts({QStringLiteral("_startup")});
-        navigation.bindViewSession(&view);
-        navigation.restoreSession();
+        view.setAllowedAccounts({account.id()});
+        auto* window = new MainWindow(nullptr, tray);
+        window->enableSharedPresentation();
+        window->setVisibleAccounts({account.id()}, {}, QStringLiteral("recent"));
+        window->bindViewNavigation(&view);
+        backend.startAccountData();
+        QVERIFY(window->attachNavigationBackend(backend));
+        window->selectPresentationBackend(&backend);
+        auto& navigation = NavigationUiController::instance(*window);
 
         auto* threads = window->findChild<QStackedWidget*>(
             QStringLiteral("threadStack"));
