@@ -1,7 +1,13 @@
-#include "AccountPostNotifications.h"
+#include "AccountNotifications.h"
 
 #include <utility>
+#include <QApplication>
 #include <QDateTime>
+#include <QUrl>
+#include "build-config.h"
+#if BUILD_MULTIMEDIA
+#include <QSoundEffect>
+#endif
 #include <QPointer>
 #include <QWidget>
 
@@ -12,6 +18,7 @@
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
+#include "backend/ServerUiService.h"
 #include "backend/types/BackendChannel.h"
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendUser.h"
@@ -21,26 +28,44 @@
 
 namespace Mattermost {
 
-AccountPostNotifications::AccountPostNotifications(NotificationManager& notifications,
+AccountNotifications::AccountNotifications(NotificationManager& notifications,
+                                                   PluginManager& plugins,
                                                    Visibility visible, Window window,
                                                    QObject* parent)
-    : QObject(parent), notifications_(notifications), visible_(std::move(visible)),
-      window_(std::move(window))
+    : QObject(parent), notifications_(notifications), plugins_(plugins),
+      visible_(std::move(visible)), window_(std::move(window))
 {
+    ringTimer_.setInterval(2600);
+    connect(&ringTimer_, &QTimer::timeout, this, &AccountNotifications::playRingtone);
+    connect(&plugins_, &PluginManager::incomingCallStarted,
+            this, &AccountNotifications::incomingCall);
+    connect(&plugins_, &PluginManager::incomingCallClosed, this,
+            [this](const QString& accountId, const QString& callId) {
+        if (auto* source = sourceForAccount(accountId)) {
+            stopRinging(source, callId);
+            notifications_.closeIncomingCall(*source, callId);
+        }
+    });
+    connect(&notifications_, &NotificationManager::incomingCallAnswered, this,
+            [this](const NotificationTarget& target, bool accept) {
+        auto* source = qobject_cast<Backend*>(target.accountSession.data());
+        if (!source || !subscriptions_.contains(source)) return;
+        plugins_.answerIncomingCall(plugins_.accountId(*source), target.callId, accept);
+    });
 }
 
-AccountPostNotifications::~AccountPostNotifications()
+AccountNotifications::~AccountNotifications()
 {
     // Disconnect callbacks before the monitor's own members disappear.
-    for (auto* context : subscriptions_)
-        delete context;
+    for (const auto& subscription : subscriptions_)
+        delete subscription.context;
 }
 
-void AccountPostNotifications::watch(Backend& source)
+void AccountNotifications::watch(Backend& source)
 {
     if (subscriptions_.contains(&source)) return;
     auto* context = new QObject(this);
-    subscriptions_.insert(&source, context);
+    subscriptions_.insert(&source, {&source, context});
     const QPointer<Backend> guard(&source);
     connect(&source, &Backend::onNewPost, context,
             [this, guard](BackendChannel& channel, const BackendPost& post) {
@@ -49,21 +74,104 @@ void AccountPostNotifications::watch(Backend& source)
     connect(&source, &QObject::destroyed, context, [this, key = &source] {
         unwatch(key);
     });
+    connect(&ServerUiService::instance(source), &ServerUiService::ephemeralMessageReceived,
+            context, [this](const QString& message) {
+        notifications_.show(tr("Mattermost"), message, NotificationTarget{});
+    });
 }
 
-void AccountPostNotifications::unwatch(const Backend* source)
+void AccountNotifications::unwatch(const Backend* source)
 {
-    delete subscriptions_.take(source);
+    const auto subscription = subscriptions_.take(source);
+    delete subscription.context;
+    if (subscription.source)
+        notifications_.clearAccountSession(*subscription.source);
+    ringing_.remove(source);
+    stopRingtoneIfIdle();
 }
 
-void AccountPostNotifications::notify(Backend& source, BackendChannel& channel,
+Backend* AccountNotifications::sourceForAccount(const QString& accountId) const
+{
+    if (accountId.isEmpty()) return nullptr;
+    for (const auto& subscription : subscriptions_) {
+        if (subscription.source && plugins_.accountId(*subscription.source) == accountId)
+            return subscription.source.data();
+    }
+    return nullptr;
+}
+
+void AccountNotifications::incomingCall(const IncomingCall& call)
+{
+    Backend* source = sourceForAccount(call.accountId);
+    if (!source || call.id.isEmpty()) return;
+    const auto* channel = source->getStorage().getChannelById(call.channelId);
+    if (!channel || SidebarService::instance(*source).isChannelMuted(*channel)) return;
+    const auto* caller = source->getStorage().getUserById(call.ownerId);
+    const QString callerName = caller ? caller->getDisplayName() : channel->display_name;
+    // Account + call ID is the key, not a server-wide call ID alone. A late
+    // timeout for a previous invitation cannot stop a replacement.
+    const quint64 generation = ++callGeneration_;
+    ringing_[source].insert(call.id, generation);
+    if (!ringTimer_.isActive()) {
+        playRingtone();
+        ringTimer_.start();
+    }
+    QPointer<Backend> guard(source);
+    QTimer::singleShot(30000, this, [this, guard, id = call.id, generation] {
+        if (guard) stopRinging(guard.data(), id, generation);
+    });
+    notifications_.show(tr("Incoming audio call"), callerName,
+                        {call.channelId, call.postId,
+                         call.threadId == call.postId ? QString() : call.threadId,
+                         call.id, source});
+}
+
+void AccountNotifications::stopRinging(const Backend* source, const QString& callId,
+                                            quint64 generation)
+{
+    auto account = ringing_.find(source);
+    if (account == ringing_.end()) return;
+    auto invitation = account->find(callId);
+    if (invitation == account->end() || (generation && invitation.value() != generation))
+        return;
+    account->erase(invitation);
+    if (account->isEmpty())
+        ringing_.erase(account);
+    stopRingtoneIfIdle();
+}
+
+void AccountNotifications::playRingtone()
+{
+#if BUILD_MULTIMEDIA
+    if (!ringtone_) {
+        ringtone_ = new QSoundEffect(this);
+        ringtone_->setVolume(0.45f);
+        ringtone_->setSource(QUrl(QStringLiteral("qrc:/sounds/incoming-call.wav")));
+    }
+    if (ringtone_->status() != QSoundEffect::Error) {
+        ringtone_->play();
+        return;
+    }
+#endif
+    QApplication::beep();
+}
+
+void AccountNotifications::stopRingtoneIfIdle()
+{
+    if (!ringing_.isEmpty()) return;
+    ringTimer_.stop();
+#if BUILD_MULTIMEDIA
+    if (ringtone_) ringtone_->stop();
+#endif
+}
+
+void AccountNotifications::notify(Backend& source, BackendChannel& channel,
                                       const BackendPost& post)
 {
     if (post.type == QLatin1String("custom_calls")
         && (channel.type == BackendChannel::directChannel
             || channel.type == BackendChannel::groupChannel)
-        && PluginManager::instance()
-        && PluginManager::instance()->callsAvailable()) {
+        && plugins_.callsAvailable()) {
         return;  // Calls owns the live invitation notification.
     }
     if (post.isOwnPost()) {

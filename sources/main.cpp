@@ -73,9 +73,12 @@
 #include "ui/ServersWorkspacePage.h"
 #include "ui/ServersSidebarPage.h"
 #include "ui/AccountTrayBadgeMonitor.h"
-#include "notifications/AccountPostNotifications.h"
+#include "notifications/AccountNotifications.h"
 #include "notifications/NotificationManager.h"
 #include "navigation/NavigationUiController.h"
+#include "navigation/AppNavigationService.h"
+#include "ui/TeamSelectorLabel.h"
+#include "backend/types/BackendChannel.h"
 
 namespace Mattermost {
 
@@ -110,7 +113,7 @@ private:
     std::unique_ptr<QMenu> trayIconMenu;
     std::unique_ptr<QSystemTrayIcon> trayIcon;
     AccountTrayBadgeMonitor trayBadges;
-    AccountPostNotifications postNotifications;
+    AccountNotifications accountNotifications;
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
     ServersWorkspacePage* serversStartupPage = nullptr;
     QHash<Backend*, MainWindow*> accountViews; // Presentation only.
@@ -129,7 +132,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 ,trayBadges(*trayIcon)
-,postNotifications(NotificationManager::instance(*trayIcon),
+,accountNotifications(NotificationManager::instance(*trayIcon), plugins,
     [this](Backend& source, const QString& channelId, const QString& rootId) {
         MainWindow* page = accountViews.value(&source, nullptr);
         return page && NavigationUiController::instance(*page)
@@ -211,19 +214,44 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     connect(servers, &QMenu::aboutToShow, this,
             [this, servers] { populateAccountMenu(*servers); });
 
+    // Notification actions intentionally select their originating account
+    // and raise the actual top-level window. Passive delivery never does.
+    connect(&NotificationManager::instance(*trayIcon), &NotificationManager::activated,
+            this, [this](const NotificationTarget& target) {
+        if (!target.isValid()) return;
+        auto* source = qobject_cast<Backend*>(target.accountSession.data());
+        const auto* owner = accounts.accountForBackend(source);
+        if (!owner || closingAccounts.contains(source)) return;
+        selectAccount(owner->id());
+        if (accounts.activeBackend() != source || !workspaceShell) return;
+        auto* page = accountViews.value(source, nullptr);
+        if (!page) return;
+        if (workspaceShell->isMinimized())
+            workspaceShell->showNormal();
+        else
+            workspaceShell->show();
+        workspaceShell->raise();
+        workspaceShell->activateWindow();
+        if (auto* channel = source->getStorage().getChannelById(target.channelId)) {
+            if (channel->team)
+                TeamSelectorLabel::activateTeam(page, channel->team->id);
+        }
+        AppNavigationService::instance(*source).openPost(target.postId);
+    });
+
     // The domain owns all network lifetimes; the app creates/removes only
     // account-specific Widgets when the domain reports a connected session.
     connect(&accounts, &AccountManager::accountConnected, this,
             [this](Account* account, Backend* backend) {
         trayBadges.watch(*backend);
-        postNotifications.watch(*backend);
+        accountNotifications.watch(*backend);
         addAccountWorkspace(*backend,
                             account->id() == accounts.selectedAccountId());
     });
     connect(&accounts, &AccountManager::accountUnregistered, this,
             [this](Backend* backend) {
         trayBadges.unwatch(backend);
-        postNotifications.unwatch(backend);
+        accountNotifications.unwatch(backend);
         closingAccounts.remove(backend);
     });
     connect(&accounts, &AccountManager::profileSuspensionRequested, this,
@@ -628,8 +656,6 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
     });
     connect(page, &MainWindow::logoutRequested, this,
             [this, owner = &backend] { beginLogout(*owner); });
-    connect(page, &MainWindow::presentAccountRequested, this,
-            [this, id] { selectAccount(id); });
     connect(&backend, &Backend::authenticationExpired, this,
             [this, owner = &backend] { beginLogout(*owner, true); });
 
@@ -792,7 +818,7 @@ void MattermostApplication::suspendProfileConnection(Account* item,
         return;
 
     closingAccounts.insert(backend);
-    postNotifications.unwatch(backend);
+    accountNotifications.unwatch(backend);
     const QString accountId = item->id();
     for (auto sidebar : viewSidebars)
         if (sidebar) sidebar->unregisterAccountBackend(accountId, backend);
@@ -842,7 +868,7 @@ void MattermostApplication::beginLogout(Backend& backend,
         return;
 
     closingAccounts.insert(&backend);
-    postNotifications.unwatch(&backend);
+    accountNotifications.unwatch(&backend);
     const QString id = item->id();
     for (auto sidebar : viewSidebars)
         if (sidebar) sidebar->unregisterAccountBackend(id, &backend);

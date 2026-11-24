@@ -374,8 +374,6 @@ bool MainWindow::attachNavigationBackend(Backend& source)
 
 MainWindow::~MainWindow()
 {
-    if (auto* owner = backendOrNull())
-        notificationManager->clearAccountSession(*owner);
     // QObject destroys child widgets only after this destructor body returns.
     // Finalize navigation now while every thread stack and ChatArea is valid;
     // otherwise ChatArea::destroyed synchronously triggers session updates

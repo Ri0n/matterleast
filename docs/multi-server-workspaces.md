@@ -513,3 +513,13 @@ activity models at application level. The visible Attention count is used only
 for the View's tab/title; hiding a connected account cannot clear its tray
 badge. Account unregistration removes its own contribution, without creating
 or updating a sidebar widget.
+
+## Application notification routing
+
+`AccountNotifications` observes all authenticated sessions independently of
+Widgets. Desktop post suppression queries the exact source Backend and focused
+conversation; a notification click selects the source account and navigates
+through its own AppNavigationService. Incoming call identities include the
+source session, and all invitations share one ringtone timer and lazy sound
+effect. Disconnecting a session stops only its ringing and notification
+targets. No notification subscriptions belong to MainWindow.

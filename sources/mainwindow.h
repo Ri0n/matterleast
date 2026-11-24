@@ -123,8 +123,6 @@ public:
 
 signals:
     void logoutRequested();
-    // Notification activation must first select this account's workspace.
-    void presentAccountRequested();
     void serverOpenRequested(const QString& accountId);
     void viewOpenRequested(const QString& viewId);
     void addServerRequested();
