@@ -25,6 +25,19 @@ void Backend::startAccountData()
     webappPlugins.clear();
     webappPlugins.refresh();
 
+    connect(&storage.directChannels, &BackendDirectChannelsTeam::onNewChannel,
+            &sidebar, &SidebarService::admitStoredConversation, Qt::UniqueConnection);
+    connect(&storage.groupChannels, &BackendDirectChannelsTeam::onNewChannel,
+            &sidebar, &SidebarService::admitStoredConversation, Qt::UniqueConnection);
+    connect(this, &Backend::onNewPost, this,
+            [this](BackendChannel& channel, const BackendPost& post) {
+        if (channel.type != BackendChannel::directChannel
+            && channel.type != BackendChannel::groupChannel)
+            return;
+        auto& currentSidebar = SidebarService::instance(*this);
+        currentSidebar.resurfaceDirectConversation(channel, post.create_at);
+        currentSidebar.admitStoredConversation(channel);
+    });
     connect(this, &Backend::onChannelViewed, this, [this](const BackendChannel& channel) {
         SidebarService::instance(*this).setChannelMentioned(channel.id, false);
     });

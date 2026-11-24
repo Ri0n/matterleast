@@ -132,6 +132,7 @@ public:
     QStringList channelContextRequests;
     int channelRootCount = 0;
     int accountChannelResponses = 0;
+    int sidebarCategoryRequests = 0;
     int delayMs = 0;
     int replyCount = 3;
     int returnedReplies = 0;
@@ -186,6 +187,7 @@ public:
                         }
                         body = QJsonDocument(channels).toJson(QJsonDocument::Compact);
                     } else if (startupChannels && url.path().endsWith("/channels/categories")) {
+                        ++sidebarCategoryRequests;
                         body = secondChannel
                             ? R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel","channel_other"]}],"order":["dm"]})"
                             : R"({"categories":[{"id":"dm","team_id":"team","type":"direct_messages","display_name":"Direct Messages","channel_ids":["channel"]}],"order":["dm"]})";
@@ -316,6 +318,42 @@ private slots:
         window.setProfileBackend(nullptr);
         QVERIFY(username->text().isEmpty());
         QVERIFY(!avatar->isEnabled());
+    }
+
+    void accountDataLoadsWithoutWindowAndIsNotReloadedOnAttachment()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        backend.networkSession().setHost(serverBaseUrl(server));
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QByteArray());
+
+        backend.startAccountData();
+        backend.startAccountData();
+        QTRY_VERIFY(backend.accountCatalogReady());
+        QTRY_VERIFY(SidebarService::instance(backend).teamState("team")
+            && SidebarService::instance(backend).teamState("team")->category("dm"));
+        QCOMPARE(server.accountChannelLookups.size(), 1);
+        QCOMPARE(server.sidebarCategoryRequests, 1);
+
+        auto* group = backend.getStorage().addGroupChannel(
+            QJsonObject {{"id", "new-dm"}, {"type", "G"}, {"display_name", "New DM"}});
+        QVERIFY(group);
+        emit backend.getStorage().groupChannels.onNewChannel(*group);
+        QVERIFY(SidebarService::instance(backend).teamState("team")->category("dm")
+                    ->channelIds.contains("new-dm"));
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backend);
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        QVERIFY(tree);
+        AppNavigationService::instance(backend).openChannel("channel");
+        QTRY_VERIFY(tree->getCurrentPage());
+        QCOMPARE(server.accountChannelLookups.size(), 1);
+        QCOMPARE(server.sidebarCategoryRequests, 1);
     }
 
     void backendlessWindowAttachesSessionWithoutRecreatingItsSurface()

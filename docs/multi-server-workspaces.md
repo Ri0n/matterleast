@@ -523,3 +523,14 @@ through its own AppNavigationService. Incoming call identities include the
 source session, and all invitations share one ringtone timer and lazy sound
 effect. Disconnecting a session stops only its ringing and notification
 targets. No notification subscriptions belong to MainWindow.
+
+## Account-owned startup data
+
+The AccountManager starts the authenticated Backend's catalog, membership,
+webapp-plugin and pending-send projections once. `SidebarService` owns the
+category snapshot and realtime DM/GM admission, including when no tree exists.
+Verified replay refreshes membership/preferences/categories on the account,
+not on any View. ChannelTree subscribes to the cached snapshots. Saved
+collections subscribe directly to their own Backend's flagged-post events.
+The standalone constructor still starts the same idempotent startup path for
+widget fixtures; production session initialization does not require a window.

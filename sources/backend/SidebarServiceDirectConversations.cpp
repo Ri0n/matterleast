@@ -37,6 +37,36 @@ QJsonObject preference(const QString& userId,
 
 } // namespace
 
+void SidebarService::admitStoredConversation(BackendChannel& channel)
+{
+    if (&channel.storage != &backend.getStorage()
+        || (channel.type != BackendChannel::directChannel
+            && channel.type != BackendChannel::groupChannel))
+        return;
+
+    // The authoritative category cache belongs to the account, not the
+    // currently visible tree. Preserve placement and manual ordering.
+    // Reconcile every loaded team containing this global conversation.
+    QStringList changedTeams;
+    for (auto team = sidebarByTeam.begin(); team != sidebarByTeam.end(); ++team) {
+        bool present = false;
+        for (const auto& category : team->categories) {
+            if (category.channelIds.contains(channel.id)) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) {
+            auto* direct = team->categoryByType(QStringLiteral("direct_messages"));
+            if (!direct) continue;
+            promoteSidebarConversation(direct->channelIds, channel.id);
+        }
+        changedTeams.append(team.key());
+    }
+    for (const auto& teamId : changedTeams)
+        emit categoriesChanged(teamId);
+}
+
 void SidebarService::resurfaceDirectConversation(BackendChannel& channel, uint64_t activityAt)
 {
     if (channel.type != BackendChannel::directChannel
