@@ -30,6 +30,7 @@
 #include "backend/types/BackendTeam.h"
 #include "channel-tree/ChannelIcons.h"
 #include "channel-tree/ChannelTree.h"
+#include "channel-tree/SidebarItem.h"
 #include "channel-tree-dialogs/TeamChannelsListDialog.h"
 #include "options/MLOptions.h"
 #include "ui/IconUtils.h"

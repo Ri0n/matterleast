@@ -515,8 +515,19 @@ void NavigationUiController::detachBackend(Backend& source)
         if (area && area->isThread && &area->getBackend() == &source)
             threads.append(area);
     }
-    if (currentLocation.accountId == accountId)
-        showEmptyConversation();
+    if (currentLocation.accountId == accountId && mainStack) {
+        if (auto* previous = currentChannelPage(); previous && &previous->getBackend() == &source)
+            previous->onDeactivate();
+        if (!emptyConversation) {
+            emptyConversation = new QWidget(mainStack);
+            emptyConversation->setObjectName(QStringLiteral("emptyConversationPage"));
+            mainStack->addWidget(emptyConversation);
+        }
+        if (navigationSurfaceStack)
+            navigationSurfaceStack->setCurrentWidget(mainStack);
+        mainStack->setCurrentWidget(emptyConversation);
+        activeArea = nullptr;
+    }
     for (const auto& thread : threads) {
         if (!thread) continue;
         thread->onDeactivate();

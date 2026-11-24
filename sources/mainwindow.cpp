@@ -144,8 +144,8 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
             this, [this](const QString& accountId, int destination, const QString& teamId) {
         auto* source = navigationBackend(accountId);
         if (!source) return;
-        selectPresentationBackend(source);
-        openAccountDestination(destination, teamId);
+        if (backendOrNull() != source) emit serverOpenRequested(accountId);
+        if (backendOrNull() == source) openAccountDestination(destination, teamId);
     });
     connect(ui->channelList, &ChannelTree::virtualDestinationRequested,
             this, [this](int destination, const QString& teamId) {
@@ -186,6 +186,11 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
 
 	connect(ui->channelList, &QTreeWidget::currentItemChanged, this,
 	        [this](QTreeWidgetItem* current, QTreeWidgetItem*) {
+        if (_sharedPresentation && current
+            && current->data(0, SidebarItem::KindRole).toInt() == SidebarItem::AccountRoot) {
+            emit serverOpenRequested(current->data(0, SidebarItem::AccountIdRole).toString());
+            return;
+        }
 		if (!current
 			|| current->data(0, ChannelTree::ItemKindRole).toInt()
 				!= ChannelTree::ChannelItemKind) {
@@ -462,7 +467,10 @@ void MainWindow::setVisibleAccounts(const QStringList& ids,
 void MainWindow::showStartupError(const QString& message)
 {
     showServersSidebar();
-    QMessageBox::warning(this, tr("Account settings"), message);
+    auto* dialog = new QMessageBox(QMessageBox::Warning, tr("Account settings"),
+                                   message, QMessageBox::Ok, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
 }
 
 MainWindow::~MainWindow()

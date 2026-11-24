@@ -534,3 +534,14 @@ not on any View. ChannelTree subscribes to the cached snapshots. Saved
 collections subscribe directly to their own Backend's flagged-post events.
 The standalone constructor still starts the same idempotent startup path for
 widget fixtures; production session initialization does not require a window.
+
+## Permanent desktop window
+
+The application creates one MainWindow before authentication. The Servers tab
+is available even with no account. A selected View changes the native tree's
+account roots and the navigation session, not the window or its splitter.
+Account connection and suspension attach/detach account-qualified UI sources;
+closing one connection releases its widgets before Storage is reset. The
+application-wide sidebar splitter state is saved under the existing global
+key. The standalone one-Backend constructor remains for widget tests while
+legacy workspace-only code is retired.

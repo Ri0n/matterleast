@@ -129,7 +129,7 @@ void MainWindow::openDraftForBackend(Backend& source, const QString& channelId,
         0, this, [this, completion, sourceGuard, channelId, rootId, draftKey, generation] {
         if (!sourceGuard || generation != semanticNavigationGeneration) return;
         if (ChatArea* thread = NavigationUiController::instance(*this)
-                                   .findThread(channelId, rootId)) {
+                                   .findThreadForBackend(*sourceGuard, channelId, rootId)) {
             QObject::disconnect(*completion);
             thread->restoreDraftAndFocus(draftKey);
         }

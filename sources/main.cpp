@@ -67,10 +67,8 @@
 #include "ui/ApplicationFont.h"
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/TrayWindowController.h"
-#include "ui/AccountWorkspaceStack.h"
 #include "channel-tree/ChannelTree.h"
 #include "channel-tree/SidebarItem.h"
-#include "ui/ServersWorkspacePage.h"
 #include "ui/ServersSidebarPage.h"
 #include "ui/AccountTrayBadgeMonitor.h"
 #include "notifications/AccountNotifications.h"
@@ -96,14 +94,13 @@ public:
     void beginLogout(Backend& backend, bool authenticationExpired = false);
 
 private:
-    void ensureWorkspaceShell();
-    void addAccountWorkspace(Backend& backend, bool activate);
+    void ensureMainWindow();
+    void attachAccountPresentation(Backend& backend, bool activate);
     void suspendProfileConnection(Account* account, Backend* backend);
     void populateAccountMenu(QMenu& menu);
-    void updateWindowTitle();
     void selectAccount(const QString& accountId, bool presentWindow = false);
     void bindActiveNavigationView();
-    void syncMergedSidebarPresentation();
+    void syncViewSidebar();
 
     // One account domain; the application only owns its Widgets and tray.
     AccountManager accounts;
@@ -114,10 +111,7 @@ private:
     std::unique_ptr<QSystemTrayIcon> trayIcon;
     AccountTrayBadgeMonitor trayBadges;
     AccountNotifications accountNotifications;
-    std::unique_ptr<AccountWorkspaceStack> workspaceShell;
-    ServersWorkspacePage* serversStartupPage = nullptr;
-    QHash<Backend*, MainWindow*> accountViews; // Presentation only.
-    QHash<QString, QPointer<ChannelTree>> viewSidebars; // One existing tree per merged View.
+    std::unique_ptr<MainWindow> mainWindow;
     QSet<Backend*> closingAccounts;
     QPointer<LoginDialog> loginDialog;
     TrayWindowController trayWindow;
@@ -134,11 +128,10 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 ,trayBadges(*trayIcon)
 ,accountNotifications(NotificationManager::instance(*trayIcon), plugins,
     [this](Backend& source, const QString& channelId, const QString& rootId) {
-        MainWindow* page = accountViews.value(&source, nullptr);
-        return page && NavigationUiController::instance(*page)
+        return mainWindow && NavigationUiController::instance(*mainWindow)
             .isConversationVisible(source, channelId, rootId);
     },
-    [this]() -> QWidget* { return workspaceShell.get(); })
+    [this]() -> QWidget* { return mainWindow.get(); })
 {
     QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
     // Match the installed .desktop file for notification portal identity.
@@ -223,29 +216,28 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
         const auto* owner = accounts.accountForBackend(source);
         if (!owner || closingAccounts.contains(source)) return;
         selectAccount(owner->id());
-        if (accounts.activeBackend() != source || !workspaceShell) return;
-        auto* page = accountViews.value(source, nullptr);
-        if (!page) return;
-        if (workspaceShell->isMinimized())
-            workspaceShell->showNormal();
+        if (accounts.activeBackend() != source || !mainWindow) return;
+        if (!mainWindow->admitsNavigationBackend(*source)) return;
+        if (mainWindow->isMinimized())
+            mainWindow->showNormal();
         else
-            workspaceShell->show();
-        workspaceShell->raise();
-        workspaceShell->activateWindow();
+            mainWindow->show();
+        mainWindow->raise();
+        mainWindow->activateWindow();
         if (auto* channel = source->getStorage().getChannelById(target.channelId)) {
             if (channel->team)
-                TeamSelectorLabel::activateTeam(page, channel->team->id);
+                TeamSelectorLabel::activateTeam(mainWindow.get(), channel->team->id);
         }
         AppNavigationService::instance(*source).openPost(target.postId);
     });
 
-    // The domain owns all network lifetimes; the app creates/removes only
-    // account-specific Widgets when the domain reports a connected session.
+    // The domain owns all network lifetimes; one permanent Widgets surface
+    // admits and retires account presentations.
     connect(&accounts, &AccountManager::accountConnected, this,
             [this](Account* account, Backend* backend) {
         trayBadges.watch(*backend);
         accountNotifications.watch(*backend);
-        addAccountWorkspace(*backend,
+        attachAccountPresentation(*backend,
                             account->id() == accounts.selectedAccountId());
     });
     connect(&accounts, &AccountManager::accountUnregistered, this,
@@ -260,13 +252,13 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     });
     connect(&accounts, &AccountManager::activeViewChanged, this,
             [this](const QString&) {
+        syncViewSidebar();
         bindActiveNavigationView();
-        syncMergedSidebarPresentation();
     });
     connect(&accounts, &AccountManager::layoutChanged, this,
             [this] {
+        syncViewSidebar();
         bindActiveNavigationView();
-        syncMergedSidebarPresentation();
     });
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
@@ -277,6 +269,13 @@ MattermostApplication::~MattermostApplication()
     // A top-level login dialog can outlive its last accepted/rejected signal;
     // close it while AccountManager still owns its pending Backend.
     delete loginDialog.data();
+    if (mainWindow) {
+        mainWindow->saveState();
+        for (auto* backend : accounts.registeredBackends())
+            if (backend && mainWindow->admitsNavigationBackend(*backend))
+                mainWindow->detachNavigationBackend(*backend);
+        mainWindow.reset();
+    }
 }
 
 void MattermostApplication::start()
@@ -285,34 +284,34 @@ void MattermostApplication::start()
     QString error;
     if (!accounts.loadFromOptions(&error)) {
         qWarning() << "Cannot load saved account catalog:" << error;
-        ensureWorkspaceShell();
-        serversStartupPage->setError(tr("Saved account settings could not be read. "
+        ensureMainWindow();
+        mainWindow->showStartupError(tr("Saved account settings could not be read. "
                                   "The original configuration has been preserved."));
-        workspaceShell->showServers();
-        trayWindow.setWindow(workspaceShell.get());
-        workspaceShell->show();
+        mainWindow->showServersSidebar();
+        trayWindow.setWindow(mainWindow.get());
+        mainWindow->show();
         return;
     }
 
     // Show persistent accounts immediately. Migrations are asynchronous and
     // must never hold the entire interface hostage to an offline server.
-    ensureWorkspaceShell();
-    workspaceShell->showServers();
-    trayWindow.setWindow(workspaceShell.get());
-    workspaceShell->show();
+    ensureMainWindow();
+    mainWindow->showServersSidebar();
+    trayWindow.setWindow(mainWindow.get());
+    mainWindow->show();
 
     migrations.run([this](MigrationManager::Result result) {
         qInfo() << "MatterLeast startup: migration callback result"
                 << static_cast<int>(result)
                 << "known-accounts" << accounts.allAccounts().size();
         if (result == MigrationManager::Result::UnsupportedVersion) {
-            serversStartupPage->setError(tr("Account settings were written by a newer "
+            mainWindow->showStartupError(tr("Account settings were written by a newer "
                 "version of MatterLeast. No migration was attempted."));
             return;
         }
         if (accounts.empty()) {
             if (result == MigrationManager::Result::Unavailable)
-                serversStartupPage->setError(tr("The previous session could not be "
+                mainWindow->showStartupError(tr("The previous session could not be "
                     "migrated. Original settings were preserved."));
             // The Servers tab is usable without saved accounts. The user
             // opens credentials explicitly via Add server, not at startup.
@@ -323,240 +322,104 @@ void MattermostApplication::start()
         // are left untouched, e.g. after the v1 credential migration.
         accounts.restoreActiveProfile();
         if (accounts.activeBackend())
-            workspaceShell->activateWorkspace(accounts.selectedAccountId());
+            mainWindow->showChannelsSidebar();
     });
 }
 
-void MattermostApplication::ensureWorkspaceShell()
+void MattermostApplication::ensureMainWindow()
 {
-    if (workspaceShell)
-        return;
+    if (mainWindow) return;
 
-    workspaceShell = std::make_unique<AccountWorkspaceStack>();
-    workspaceShell->setWindowIcon(IconUtils::applicationIcon());
-    workspaceShell->setWindowTitle(applicationDisplayName());
+    mainWindow = std::make_unique<MainWindow>(nullptr, *trayIcon);
+    mainWindow->setWindowIcon(IconUtils::applicationIcon());
+    mainWindow->setWindowTitle(applicationDisplayName());
     const QByteArray geometry = MLOptions::instance()->value<QByteArray>(
         QStringLiteral("geometry"));
     if (!geometry.isEmpty())
-        workspaceShell->restoreGeometry(geometry);
+        mainWindow->restoreGeometry(geometry);
     else
-        workspaceShell->resize(1200, 800);
+        mainWindow->resize(1200, 800);
+    mainWindow->enableSharedPresentation();
+    mainWindow->installServersSidebar(accounts);
+    plugins.attachMainWindow(*mainWindow);
 
-    serversStartupPage = new ServersWorkspacePage(accounts, workspaceShell.get());
-    workspaceShell->setServersPage(serversStartupPage);
-    // Window overlays belong to the single application surface, not to
-    // each account presenter. The surface survives session transitions.
-    plugins.attachMainWindow(*workspaceShell);
-    connect(serversStartupPage, &ServersWorkspacePage::accountSelected, this,
-            [this](const QString& id) {
-        selectAccount(id);
-        Account* selected = accounts.account(id);
-        if (selected && selected->backend()) {
-            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
-                target->showChannelsSidebar();
-        }
-    });
-    connect(serversStartupPage, &ServersWorkspacePage::viewSelected, this,
+    connect(mainWindow.get(), &MainWindow::serverOpenRequested, this,
+            [this](const QString& id) { selectAccount(id); });
+    connect(mainWindow.get(), &MainWindow::viewOpenRequested, this,
             [this](const QString& id) {
         if (!accounts.activateView(id)) return;
-        const QString selectedId = accounts.selectedAccountId();
-        Account* selected = accounts.account(selectedId);
-        if (selected && selected->backend()
-            && !closingAccounts.contains(selected->backend())) {
-            workspaceShell->activateWorkspace(selectedId);
-            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
-                target->showChannelsSidebar();
-        } else {
-            workspaceShell->showServers();
-        }
+        syncViewSidebar();
         bindActiveNavigationView();
-        updateWindowTitle();
+        if (mainWindow->backendOrNull()) mainWindow->showChannelsSidebar();
+        else mainWindow->showServersSidebar();
     });
-    connect(serversStartupPage, &ServersWorkspacePage::retryRequested, this,
+    connect(mainWindow.get(), &MainWindow::serverConnectRequested, this,
             [this](const QString& id) {
         if (accounts.selectAccount(id)) accounts.restoreAccount(id);
     });
-    connect(serversStartupPage, &ServersWorkspacePage::serverSettingsRequested,
-            this, [this](const QString& id) { openLoginWindow(id); });
-    connect(serversStartupPage, &ServersWorkspacePage::serverDisconnectRequested,
-            this, [this](const QString& id) { accounts.disconnectAccount(id); });
-    connect(serversStartupPage, &ServersWorkspacePage::addServerRequested, this,
+    connect(mainWindow.get(), &MainWindow::serverSettingsRequested, this,
+            [this](const QString& id) { openLoginWindow(id); });
+    connect(mainWindow.get(), &MainWindow::serverDisconnectRequested, this,
+            [this](const QString& id) { accounts.disconnectAccount(id); });
+    connect(mainWindow.get(), &MainWindow::addServerRequested, this,
             [this] { openLoginWindow(); });
-
-    connect(this, &QCoreApplication::aboutToQuit, workspaceShell.get(),
-            [this] {
-        if (workspaceShell)
-            MLOptions::instance()->setValue(
-                QStringLiteral("geometry"), workspaceShell->saveGeometry());
+    connect(mainWindow.get(), &MainWindow::logoutRequested, this, [this] {
+        if (auto* source = mainWindow->backendOrNull()) beginLogout(*source);
     });
-    connect(workspaceShell.get(), &AccountWorkspaceStack::activeWorkspaceChanged,
-            this, [this](const QString& id) {
-        if (!id.isEmpty() && id != accounts.selectedAccountId())
-            accounts.selectAccount(id);
-        syncMergedSidebarPresentation();
-        updateWindowTitle();
-    });
-    connect(&accounts, &AccountManager::activeBackendChanged,
-            workspaceShell.get(), [this](Backend* backend) {
-        if (backend && workspaceShell)
-            workspaceShell->activateWorkspace(accounts.selectedAccountId());
-        updateWindowTitle();
-    });
+    connect(&accounts, &AccountManager::activeBackendChanged, mainWindow.get(),
+            [this](Backend*) { syncViewSidebar(); });
+    syncViewSidebar();
+    bindActiveNavigationView();
+    trayWindow.setWindow(mainWindow.get());
 }
 
 void MattermostApplication::bindActiveNavigationView()
 {
-    // The current Widgets shell still owns a MainWindow per Backend. Binding
-    // the same shared view session to two account windows would let either
-    // overwrite cross-account tabs with an incomplete single-account snapshot.
-    // A merged view must wait for its own multi-account presenter.
-    const QString viewId = accounts.activeViewId();
-    QString singleAccount;
-    for (const auto& view : accounts.layout().views) {
-        if (view.id == viewId && view.accountIds.size() == 1) {
-            singleAccount = view.accountIds.front();
-            break;
-        }
-    }
-
-    MainWindow* target = nullptr;
-    if (!singleAccount.isEmpty()) {
-        Account* account = accounts.account(singleAccount);
-        if (account && account->backend()
-            && !closingAccounts.contains(account->backend()))
-            target = accountViews.value(account->backend(), nullptr);
-    }
-    // A combined view must never receive a single Backend's tab/history
-    // updates, even after editing an existing one-server view into a merged one.
-    for (MainWindow* page : accountViews) {
-        if (page && page != target)
-            page->unbindViewNavigation();
-    }
-    if (target)
-        target->bindViewNavigation(accounts.viewSession(viewId), singleAccount);
+    if (!mainWindow) return;
+    if (auto* session = accounts.viewSession(accounts.activeViewId()))
+        mainWindow->bindViewNavigation(session);
+    else
+        mainWindow->unbindViewNavigation();
 }
 
-void MattermostApplication::syncMergedSidebarPresentation()
+void MattermostApplication::syncViewSidebar()
 {
-    if (!workspaceShell)
-        return;
-
-    const auto& layout = accounts.layout();
-    const WorkspaceLayout::View* active = nullptr;
-    QSet<QString> liveViewIds;
-    for (const auto& view : layout.views) {
-        liveViewIds.insert(view.id);
-        if (view.id == layout.activeViewId)
-            active = &view;
-    }
-    const bool merged = active && active->accountIds.size() > 1;
-    MainWindow* target = nullptr;
-    if (merged) {
-        Account* selected = accounts.account(accounts.selectedAccountId());
-        if (selected && selected->backend()
-            && !closingAccounts.contains(selected->backend()))
-            target = accountViews.value(selected->backend(), nullptr);
-    }
-    ChannelTree* desired = merged ? viewSidebars.value(active->id).data() : nullptr;
-    // Keep the single existing ThinSplitter in each MainWindow. Park any
-    // previous View tree before switching accounts or destroying a View.
-    for (MainWindow* page : accountViews) {
-        if (page && (page != target || page->viewChannelTree() != desired))
-            page->setViewChannelTree(nullptr, workspaceShell.get());
-    }
-    for (auto it = viewSidebars.begin(); it != viewSidebars.end();) {
-        if (liveViewIds.contains(it.key())) {
-            ++it;
-            continue;
-        }
-        delete it.value().data();
-        it = viewSidebars.erase(it);
-    }
-    if (!merged)
-        return;
-
-    ChannelTree* tree = viewSidebars.value(active->id).data();
-    if (!tree) {
-        tree = new ChannelTree(workspaceShell.get());
-        tree->setObjectName(QStringLiteral("mergedViewChannelTree"));
-        tree->setHeaderHidden(true);
-        tree->setContextMenuPolicy(Qt::CustomContextMenu);
-        viewSidebars.insert(active->id, tree);
-        const QString viewId = active->id;
-        connect(tree, &ChannelTree::conversationOpenRequested, this,
-                [this, viewId](const QString& accountId, const QString& channelId) {
-            if (accounts.activeViewId() != viewId)
-                return;
-            Account* owner = accounts.account(accountId);
-            if (!owner || !owner->backend() || closingAccounts.contains(owner->backend()))
-                return;
-            selectAccount(accountId);
-            if (MainWindow* target = accountViews.value(owner->backend(), nullptr)) {
-                target->showChannelsSidebar();
-                target->openChannelPost(channelId);
-            }
-        });
-        connect(tree, &ChannelTree::virtualDestinationRequestedForAccount, this,
-                [this, viewId](const QString& accountId, int destination,
-                               const QString& teamId) {
-            if (accounts.activeViewId() != viewId)
-                return;
-            Account* owner = accounts.account(accountId);
-            if (!owner || !owner->backend() || closingAccounts.contains(owner->backend()))
-                return;
-            selectAccount(accountId);
-            if (MainWindow* target = accountViews.value(owner->backend(), nullptr))
-                target->openAccountDestination(destination, teamId);
-        });
-        connect(tree, &QTreeWidget::currentItemChanged, this,
-                [this, viewId](QTreeWidgetItem* item, QTreeWidgetItem*) {
-            if (accounts.activeViewId() != viewId || !item
-                || item->data(0, SidebarItem::KindRole).toInt()
-                    != SidebarItem::AccountRoot)
-                return;
-            selectAccount(item->data(0, SidebarItem::AccountIdRole).toString());
-        });
-    }
-
+    if (!mainWindow) return;
+    QStringList ids;
     QHash<QString, QString> labels;
-    for (const QString& id : active->accountIds) {
-        const Account* owner = accounts.account(id);
+    QString sorting = QStringLiteral("recent");
+    for (const auto& view : accounts.layout().views) {
+        if (view.id != accounts.activeViewId()) continue;
+        ids = view.accountIds;
+        sorting = view.directMessagesSorting;
+        break;
+    }
+    for (const QString& id : ids) {
+        const auto* owner = accounts.account(id);
         const auto* record = owner ? owner->record() : nullptr;
         labels.insert(id, record ? record->name : id);
     }
-    // Source bindings and their cached rows are account-qualified. Only the
-    // active View is projected; hidden Views retain their own presentation.
-    for (Account* owner : accounts.allAccounts()) {
-        if (!active->accountIds.contains(owner->id()))
-            tree->unregisterAccountBackend(owner->id(), owner->backend());
-    }
-    for (const QString& id : active->accountIds) {
-        Account* owner = accounts.account(id);
-        if (owner && owner->backend() && !closingAccounts.contains(owner->backend()))
-            tree->registerAccountBackend(id, *owner->backend());
-    }
-    tree->setVisibleAccountRoots(active->accountIds, labels);
-    tree->setMergedConversationSorting(active->directMessagesSorting);
-    if (target)
-        target->setViewChannelTree(tree, workspaceShell.get());
+    Backend* selected = accounts.activeBackend();
+    if (selected && (closingAccounts.contains(selected)
+                    || !mainWindow->admitsNavigationBackend(*selected)))
+        selected = nullptr;
+    mainWindow->selectPresentationBackend(selected);
+    mainWindow->setVisibleAccounts(ids, labels, sorting);
 }
 
-void MattermostApplication::selectAccount(const QString& id,
-                                           bool presentWindow)
+void MattermostApplication::selectAccount(const QString& id, bool presentWindow)
 {
-    if (!accounts.selectAccount(id))
-        return;
-    if (workspaceShell) {
-        Account* item = accounts.account(id);
-        if (item && item->backend() && !closingAccounts.contains(item->backend()))
-            workspaceShell->activateWorkspace(id);
+    if (!accounts.selectAccount(id)) return;
+    if (mainWindow) {
+        syncViewSidebar();
+        bindActiveNavigationView();
+        if (mainWindow->backendOrNull())
+            mainWindow->showChannelsSidebar();
         else
-            workspaceShell->showServers();
-        trayWindow.setWindow(workspaceShell.get());
+            mainWindow->showServersSidebar();
+        trayWindow.setWindow(mainWindow.get());
     }
-    updateWindowTitle();
-    if (presentWindow)
-        trayWindow.showWindow();
+    if (presentWindow) trayWindow.showWindow();
 }
 
 void MattermostApplication::populateAccountMenu(QMenu& menu)
@@ -584,92 +447,22 @@ void MattermostApplication::populateAccountMenu(QMenu& menu)
                    [this] { openLoginWindow(); });
 }
 
-void MattermostApplication::updateWindowTitle()
+void MattermostApplication::attachAccountPresentation(Backend& backend, bool activate)
 {
-    if (!workspaceShell)
-        return;
-    Backend* selected = accounts.activeBackend();
-    MainWindow* page = accountViews.value(selected, nullptr);
-    if (!selected || !page) {
-        workspaceShell->setWindowTitle(applicationDisplayName());
+    ensureMainWindow();
+    if (!accounts.accountForBackend(&backend)
+        || !mainWindow->attachNavigationBackend(backend)) {
+        qCritical("Unable to attach account presentation");
         return;
     }
-    workspaceShell->setWindowTitle(page->windowTitle()
-        + QStringLiteral(" — ") + QUrl(selected->serverDomain()).host());
-}
-
-void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
-{
-    ensureWorkspaceShell();
-    Account* item = accounts.accountForBackend(&backend);
-    if (!item)
-        return;
-
-    auto* page = new MainWindow(nullptr, *trayIcon, backend);
-    const QString id = item->id();
-    if (!workspaceShell->addWorkspace(id, page)) {
-        delete page;
-        qCritical("Unable to install account workspace");
-        return;
-    }
-    accountViews.insert(&backend, page);
-
-    page->installServersSidebar(accounts);
-    connect(page, &MainWindow::serverOpenRequested, this,
-            [this](const QString& id) {
-        selectAccount(id);
-        Account* selected = accounts.account(id);
-        if (selected && selected->backend()) {
-            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
-                target->showChannelsSidebar();
-        }
-    });
-    connect(page, &MainWindow::viewOpenRequested, this,
-            [this](const QString& id) {
-        if (!accounts.activateView(id) || !workspaceShell) return;
-        Account* selected = accounts.account(accounts.selectedAccountId());
-        if (selected && selected->backend()
-            && !closingAccounts.contains(selected->backend())) {
-            workspaceShell->activateWorkspace(selected->id());
-            if (MainWindow* target = accountViews.value(selected->backend(), nullptr))
-                target->showChannelsSidebar();
-        } else {
-            workspaceShell->showServers();
-        }
-        bindActiveNavigationView();
-        updateWindowTitle();
-    });
-    connect(page, &MainWindow::addServerRequested, this,
-            [this] { openLoginWindow(); });
-    connect(page, &MainWindow::serverSettingsRequested, this,
-            [this](const QString& id) { openLoginWindow(id); });
-    connect(page, &MainWindow::serverDisconnectRequested, this,
-            [this](const QString& id) { accounts.disconnectAccount(id); });
-    connect(page, &MainWindow::serverConnectRequested, this,
-            [this](const QString& id) {
-        if (accounts.selectAccount(id)) accounts.restoreAccount(id);
-    });
-    connect(page, &QWidget::windowTitleChanged, this,
-            [this, owner = &backend](const QString&) {
-        if (accounts.activeBackend() == owner)
-            updateWindowTitle();
-    });
-    connect(page, &MainWindow::logoutRequested, this,
-            [this, owner = &backend] { beginLogout(*owner); });
     connect(&backend, &Backend::authenticationExpired, this,
             [this, owner = &backend] { beginLogout(*owner, true); });
-
-    page->installRealtimeUiSync();
-    syncMergedSidebarPresentation();
-    // A backend arriving after view activation must adopt its retained view
-    // session before the startup channel snapshot is replayed.
+    syncViewSidebar();
     bindActiveNavigationView();
-    if (activate)
-        workspaceShell->activateWorkspace(id);
-    trayWindow.setWindow(workspaceShell.get());
-    updateWindowTitle();
-    if (activate)
-        workspaceShell->show();
+    if (activate) {
+        mainWindow->showChannelsSidebar();
+        mainWindow->show();
+    }
 }
 
 void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
@@ -680,7 +473,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
     // HTTP identity check or asynchronous migration attempt.
     if (migrations.isRunning())
         migrations.cancel();
-    if (!workspaceShell && !closingAccounts.isEmpty())
+    if (!mainWindow && !closingAccounts.isEmpty())
         return;
     if (loginDialog) {
         loginDialog->raise();
@@ -692,7 +485,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         // First/additional server: the dialog only collects credentials. No
         // network operation or artificial Backend belongs to the modal form.
         // Once accepted it disappears and the Servers tree shows progress.
-        auto* dialog = new LoginDialog(workspaceShell.get(),
+        auto* dialog = new LoginDialog(mainWindow.get(),
                                        suggestedServer, suggestedLogin);
         dialog->setWindowModality(Qt::WindowModal);
         loginDialog = dialog;
@@ -732,7 +525,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
     // Migrations may suggest old non-secret login coordinates. They never
     // authenticate or access keychain from the Widgets credential editor.
     const bool lockIdentity = !fixedServer.isEmpty() && !fixedLogin.isEmpty();
-    auto* dialog = new LoginDialog(workspaceShell.get(), *candidate,
+    auto* dialog = new LoginDialog(mainWindow.get(), *candidate,
         lockIdentity ? fixedServer : suggestedServer,
         lockIdentity ? fixedLogin : suggestedLogin, lockIdentity);
     loginDialog = dialog;
@@ -742,7 +535,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
                 record->name, record->serverUserId,
                 existing->state() == AccountConnectionState::Connected);
     }
-    if (!workspaceShell)
+    if (!mainWindow)
         trayWindow.setWindow(dialog);
 
     auto adopted = std::make_shared<bool>(false);
@@ -755,7 +548,7 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         if (loginDialog == dialog)
             loginDialog = nullptr;
         if (trayWindow.window() == dialog)
-            trayWindow.setWindow(workspaceShell.get());
+            trayWindow.setWindow(mainWindow.get());
     });
     connect(dialog, &QDialog::accepted, this,
             [this, dialog, candidate, adopted, recoveryAccountId] {
@@ -799,103 +592,53 @@ void MattermostApplication::openLoginWindow(const QString& recoveryAccountId,
         *adopted = true;
         saveAlias(item->id());
         selectAccount(item->id());
-        if (workspaceShell) {
-            trayWindow.setWindow(workspaceShell.get());
-            workspaceShell->show();
+        if (mainWindow) {
+            trayWindow.setWindow(mainWindow.get());
+            mainWindow->show();
         }
     });
     dialog->open();
 }
 
-void MattermostApplication::suspendProfileConnection(Account* item,
-                                                       Backend* backend)
+void MattermostApplication::suspendProfileConnection(Account* item, Backend* backend)
 {
-    if (!item || !backend || item->backend() != backend)
+    if (!item || !backend || item->backend() != backend
+        || closingAccounts.contains(backend))
         return;
-    // Explicit logout/authentication expiry already owns teardown. When it
-    // completes, AccountManager reconciles the latest requested profile.
-    if (closingAccounts.contains(backend))
-        return;
-
     closingAccounts.insert(backend);
     accountNotifications.unwatch(backend);
-    const QString accountId = item->id();
-    for (auto sidebar : viewSidebars)
-        if (sidebar) sidebar->unregisterAccountBackend(accountId, backend);
-    QPointer<Account> itemGuard(item);
-    QPointer<Backend> backendGuard(backend);
-    // Do not let QStackedWidget::removeWidget() automatically select another
-    // account when an outgoing page happens to be current. Display the
-    // neutral overview until the target view's account is ready.
-    if (workspaceShell && workspaceShell->activeAccountId() == accountId)
-        workspaceShell->showServers();
-    if (MainWindow* page = accountViews.value(backend, nullptr)) {
-        page->setViewChannelTree(nullptr, workspaceShell.get());
-        page->prepareForLogout();
-    }
-
-    // Crucially, a suspended profile is not a logout. The manager already
-    // stopped its transports, but must not clear Storage until this account's
-    // Widgets (including thread panes) have been released.
-    QMetaObject::invokeMethod(this,
-        [this, itemGuard, backendGuard, accountId] {
-        if (workspaceShell) {
-            QWidget* view = workspaceShell->takeWorkspace(accountId);
-            delete view;
-        }
-        if (backendGuard) {
-            accountViews.remove(backendGuard.data());
-            trayBadges.unwatch(backendGuard.data());
-        }
-        if (workspaceShell && accounts.selectedAccountId() == accountId)
-            workspaceShell->showServers();
-
-        if (itemGuard && backendGuard)
-            accounts.finishProfileSuspension(itemGuard.data(),
-                                             backendGuard.data());
-        syncMergedSidebarPresentation();
-        updateWindowTitle();
+    trayBadges.unwatch(backend);
+    const QPointer<Account> itemGuard(item);
+    const QPointer<Backend> backendGuard(backend);
+    // Retire dependent widgets before the manager resets Storage, after
+    // the triggering menu/signal stack unwinds. The window survives.
+    QMetaObject::invokeMethod(this, [this, itemGuard, backendGuard] {
+        if (!backendGuard) return;
+        if (mainWindow) mainWindow->detachNavigationBackend(*backendGuard);
+        if (itemGuard)
+            accounts.finishProfileSuspension(itemGuard.data(), backendGuard.data());
+        syncViewSidebar();
     }, Qt::QueuedConnection);
 }
 
-void MattermostApplication::beginLogout(Backend& backend,
-                                        bool authenticationExpired)
+void MattermostApplication::beginLogout(Backend& backend, bool authenticationExpired)
 {
-    if (closingAccounts.contains(&backend) || !accountViews.contains(&backend))
-        return;
+    if (closingAccounts.contains(&backend)) return;
     Account* item = accounts.accountForBackend(&backend);
-    if (!item)
-        return;
-
+    if (!item) return;
     closingAccounts.insert(&backend);
     accountNotifications.unwatch(&backend);
-    const QString id = item->id();
-    for (auto sidebar : viewSidebars)
-        if (sidebar) sidebar->unregisterAccountBackend(id, &backend);
-    QPointer<Account> guard(item);
+    trayBadges.unwatch(&backend);
+    const QPointer<Account> guard(item);
+    const QPointer<Backend> backendGuard(&backend);
     accounts.prepareStop(item, authenticationExpired);
-    if (MainWindow* page = accountViews.value(&backend, nullptr)) {
-        page->setViewChannelTree(nullptr, workspaceShell.get());
-        page->prepareForLogout();
-    }
 
-    // Queued teardown keeps QAction callbacks out of destroyed QWidget trees.
-    QMetaObject::invokeMethod(this,
-                              [this, owner = &backend, guard, id,
-                               authenticationExpired] {
-        QWidget* view = workspaceShell
-            ? workspaceShell->takeWorkspace(id) : nullptr;
-        accountViews.remove(owner);
-        delete view;
-        trayBadges.unwatch(owner);
-        if (workspaceShell && accounts.selectedAccountId() == id)
-            workspaceShell->showServers();
-        if (guard)
-            accounts.finishStop(guard.data(), authenticationExpired);
-        else
-            closingAccounts.remove(owner);
-        syncMergedSidebarPresentation();
-        updateWindowTitle();
+    QMetaObject::invokeMethod(this, [this, guard, backendGuard, authenticationExpired] {
+        if (!backendGuard) return;
+        if (mainWindow) mainWindow->detachNavigationBackend(*backendGuard);
+        if (guard) accounts.finishStop(guard.data(), authenticationExpired);
+        else closingAccounts.remove(backendGuard.data());
+        syncViewSidebar();
     }, Qt::QueuedConnection);
 }
 
@@ -905,8 +648,8 @@ inline void MattermostApplication::showWindow()
         if (accounts.empty())
             openLoginWindow();
         else {
-            ensureWorkspaceShell();
-            trayWindow.setWindow(workspaceShell.get());
+            ensureMainWindow();
+            trayWindow.setWindow(mainWindow.get());
         }
     }
     trayWindow.showWindow();
