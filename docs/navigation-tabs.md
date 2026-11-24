@@ -120,6 +120,10 @@ their settings partition. Startup history preserves the real Account ID; only
 standalone widget tests without AccountManager use an isolated private key.
 This is a step toward a single presenter, not yet a multi-account controller:
 the current per-Backend window still admits only its own account's destinations.
+Semantic requests carry their originating Backend through tab routing, thread
+placement and asynchronous channel admission. Admission completion includes
+both account and channel IDs. Tab unread changes and dock decisions use the
+account of the affected destination, not the window's selected server.
 
 ## Opening a new tab
 

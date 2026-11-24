@@ -161,7 +161,8 @@ void NavigationUiController::setupMainWindow()
             ? qobject_cast<ChatArea*>(mainStack->currentWidget())
             : qobject_cast<ChatArea*>(current);
         if (active) {
-            closeThreadDockIfDifferent(active->getChannel().id);
+            closeThreadDockIfDifferent(accountIdForBackend(active->getBackend()),
+                                       active->getChannel().id);
         }
     });
 
@@ -176,15 +177,20 @@ void NavigationUiController::setupMainWindow()
                     pendingContextualThread.reset();
                 });
         auto& sidebar = SidebarService::instance(*sourceBackend);
-        connect(&sidebar, &SidebarService::channelActivityChanged,
-                this, &NavigationUiController::refreshTabUnreadVisual,
-                Qt::UniqueConnection);
-        connect(&sidebar, &SidebarService::channelActivityReset,
-                this, &NavigationUiController::refreshAllTabUnreadVisuals,
-                Qt::UniqueConnection);
+        const QString accountId = accountIdForBackend(*sourceBackend);
+        QPointer<Backend> sourceGuard(sourceBackend);
+        const auto refreshAll = [this, sourceGuard, accountId] {
+            if (sourceGuard && backendForAccount(accountId) == sourceGuard.data())
+                refreshAllTabUnreadVisuals(accountId);
+        };
+        connect(&sidebar, &SidebarService::channelActivityChanged, this,
+                [this, sourceGuard, accountId](const QString& channelId) {
+            if (sourceGuard && backendForAccount(accountId) == sourceGuard.data())
+                refreshTabUnreadVisual(accountId, channelId);
+        });
+        connect(&sidebar, &SidebarService::channelActivityReset, this, refreshAll);
         connect(&FollowingModel::instance(*sourceBackend), &FollowingModel::changed,
-                this, &NavigationUiController::refreshAllTabUnreadVisuals,
-                Qt::UniqueConnection);
+                this, refreshAll);
     }
 
     if (mainStack) {
@@ -195,7 +201,8 @@ void NavigationUiController::setupMainWindow()
             QWidget* page = mainStack->widget(index);
             if (auto* channelArea = qobject_cast<ChatArea*>(page);
                 channelArea && !channelArea->isThread) {
-                closeThreadDockIfDifferent(channelArea->getChannel().id);
+                closeThreadDockIfDifferent(accountIdForBackend(channelArea->getBackend()),
+                                       channelArea->getChannel().id);
             }
             const bool chatSurface = qobject_cast<ChatArea*>(page) != nullptr;
             if (!chatSurface) {
@@ -703,7 +710,7 @@ int NavigationUiController::appendNavigationTab(const Location& location,
         navigationTabs->addTab(title);
     }
     setNavigationTabTitle(index, title);
-    refreshTabUnreadVisual(location.channelId);
+    refreshTabUnreadVisual(location.accountId, location.channelId);
     if (!deferVisibility) {
         refreshTabBarVisibility();
     }
@@ -721,13 +728,14 @@ void NavigationUiController::setNavigationTabTitle(
     navigationTabs->setTabToolTip(index, title);
 }
 
-void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
+void NavigationUiController::refreshTabUnreadVisual(const QString& accountId,
+                                                    const QString& channelId)
 {
     if (!navigationTabs || channelId.isEmpty()) {
         return;
     }
 
-    Backend* sourceBackend = backend();
+    Backend* sourceBackend = backendForAccount(accountId);
     BackendChannel* channel = sourceBackend
         ? sourceBackend->getStorage().getChannelById(channelId)
         : nullptr;
@@ -743,7 +751,7 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
 
     for (int index = 0; index < tabModel.count(); ++index) {
         const auto* entry = tabModel.at(index);
-        if (!entry || entry->accountId != presentationAccountId()
+        if (!entry || entry->accountId != accountId
             || entry->channelId != channelId) {
             continue;
         }
@@ -762,17 +770,17 @@ void NavigationUiController::refreshTabUnreadVisual(const QString& channelId)
     }
 }
 
-void NavigationUiController::refreshAllTabUnreadVisuals()
+void NavigationUiController::refreshAllTabUnreadVisuals(const QString& accountId)
 {
     QSet<QString> channelIds;
     for (int index = 0; index < tabModel.count(); ++index) {
         if (const auto* entry = tabModel.at(index);
-            entry && !entry->channelId.isEmpty()) {
+            entry && entry->accountId == accountId && !entry->channelId.isEmpty()) {
             channelIds.insert(entry->channelId);
         }
     }
     for (const QString& channelId : channelIds) {
-        refreshTabUnreadVisual(channelId);
+        refreshTabUnreadVisual(accountId, channelId);
     }
 }
 
@@ -815,7 +823,7 @@ void NavigationUiController::updateTab(int index, const Location& location)
         return;
     }
     setNavigationTabTitle(index, tabTitle(location));
-    refreshTabUnreadVisual(location.channelId);
+    refreshTabUnreadVisual(location.accountId, location.channelId);
 }
 
 void NavigationUiController::saveActiveTabLocation()
@@ -827,7 +835,7 @@ void NavigationUiController::saveActiveTabLocation()
 
     ChatArea* area = nullptr;
     if (!entry->rootId.isEmpty()) {
-        area = findThread(entry->channelId, entry->rootId);
+        area = findThreadForEntry(*entry);
     } else if (!navigationSurfaceStack
                || navigationSurfaceStack->currentWidget() == mainStack) {
         area = mainStack
@@ -918,7 +926,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
         // A hidden thread must not retain its timeline or issue new requests.
         const auto* outgoing = tabModel.at(activeTabIndex);
         ChatArea* old = outgoing && !outgoing->rootId.isEmpty()
-            ? findThread(outgoing->channelId, outgoing->rootId) : nullptr;
+            ? findThreadForEntry(*outgoing) : nullptr;
         if (old && old->property("threadTabbed").toBool()) {
             old->onDeactivate();
             old->hide();
@@ -957,7 +965,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
     if (!location.rootId.isEmpty()) {
         // A thread-only tab is independent, but its right pane must still not
         // show a docked thread from an unrelated channel in contextual mode.
-        closeThreadDockIfDifferent(location.channelId);
+        closeThreadDockIfDifferent(location.accountId, location.channelId);
         Backend* sourceBackend = backendForAccount(location.accountId);
         ChatArea* area = sourceBackend
             ? findThreadForBackend(*sourceBackend, location.channelId, location.rootId)
@@ -1014,7 +1022,7 @@ void NavigationUiController::removeTab(int index, bool closeThread)
 
     ChatArea* thread = nullptr;
     if (!removedEntry.rootId.isEmpty()) {
-        thread = findThread(removedEntry.channelId, removedEntry.rootId);
+        thread = findThreadForEntry(removedEntry);
         if (thread && thread->property("threadTabbed").toBool()) {
             thread->hide();
             if (navigationSurfaceStack
@@ -1212,7 +1220,8 @@ void NavigationUiController::recordArea(ChatArea* area)
     }
     if (!area->isThread) {
         ensureTabPinAction(area);
-        closeThreadDockIfDifferent(area->getChannel().id);
+        closeThreadDockIfDifferent(accountIdForBackend(area->getBackend()),
+                                       area->getChannel().id);
     }
     scheduleSessionSave();
 
@@ -1487,7 +1496,7 @@ void NavigationUiController::navigateTo(const Location& location)
             && MLOptions::instance()->value<bool>(
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL,
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT);
-        closeThreadDockIfDifferent(location.channelId, restoreChannelOnly);
+        closeThreadDockIfDifferent(location.accountId, location.channelId, restoreChannelOnly);
         recordArea(area);
     } else {
         // A Back/Forward target already represented by a thread-only tab must
@@ -1588,6 +1597,12 @@ ChatArea* NavigationUiController::findThread(const QString& channelId,
 {
     const Backend* owner = backend();
     return owner ? findThreadForBackend(*owner, channelId, rootId) : nullptr;
+}
+
+ChatArea* NavigationUiController::findThreadForEntry(const NavigationTabsModel::Entry& entry) const
+{
+    const Backend* owner = backendForAccount(entry.accountId);
+    return owner ? findThreadForBackend(*owner, entry.channelId, entry.rootId) : nullptr;
 }
 
 ChatArea* NavigationUiController::findThreadForBackend(
@@ -2093,9 +2108,7 @@ void NavigationUiController::selectContextualThreadTab(
         if (decision.index == activeTabIndex) {
             saveActiveTabLocation();
         }
-        const QString oldChannelId = entry->channelId;
-        const QString oldRootId = entry->rootId;
-        if (ChatArea* old = findThread(oldChannelId, oldRootId);
+        if (ChatArea* old = findThreadForEntry(*entry);
             old && old->property("threadTabbed").toBool()) {
             old->onDeactivate();
             old->hide();
@@ -2155,7 +2168,8 @@ bool NavigationUiController::shouldOpenParentChannelForThread(
                                          accountIdForBackend(source));
 }
 
-void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId,
+void NavigationUiController::closeThreadDockIfDifferent(const QString& accountId,
+                                                         const QString& channelId,
                                                          bool force)
 {
     if (!threadStack || threadStack->isHidden()) return;
@@ -2164,7 +2178,7 @@ void NavigationUiController::closeThreadDockIfDifferent(const QString& channelId
             MLOptions::instance()->value<bool>(
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL,
                 THREAD_SIDEBAR_FOLLOWS_CHANNEL_DEFAULT),
-            channelId, docked->getChannel().id, presentationAccountId(),
+            channelId, docked->getChannel().id, accountId,
             accountIdForBackend(docked->getBackend())))) {
         return;
     }

@@ -99,7 +99,7 @@ private:
     void setupSidebarHeader();
     void setupThreadPane();
     void setupTabShortcuts();
-    void closeThreadDockIfDifferent(const QString& channelId,
+    void closeThreadDockIfDifferent(const QString& accountId, const QString& channelId,
                                     bool force = false);
     ChatArea* centralTabArea() const;
     void closeActiveTab();
@@ -124,8 +124,8 @@ private:
     void ensureInitialTab();
     void refreshTabBarVisibility();
     void setNavigationTabTitle(int index, const QString& title);
-    void refreshTabUnreadVisual(const QString& channelId);
-    void refreshAllTabUnreadVisuals();
+    void refreshTabUnreadVisual(const QString& accountId, const QString& channelId);
+    void refreshAllTabUnreadVisuals(const QString& accountId);
     void updateTab(int index, const Location& location);
     void saveActiveTabLocation();
     void activateTab(int index, bool restoreBookmark = true);
@@ -148,6 +148,7 @@ private:
     void rememberThreadPaneWidth();
     void persistThreadPaneWidth();
 
+    ChatArea* findThreadForEntry(const NavigationTabsModel::Entry& entry) const;
     ChatArea* currentChannelPage() const;
     Backend* backend() const;
     Backend* backendForAccount(const QString& accountId) const;

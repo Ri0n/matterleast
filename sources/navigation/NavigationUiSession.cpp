@@ -201,7 +201,7 @@ void NavigationUiController::unbindViewSession()
     switchingTabs = true;
     // The dock is a view-specific presentation. Its semantic bookmark has
     // already been transferred, so retire only the live ChatArea and timeline.
-    closeThreadDockIfDifferent({}, true);
+    closeThreadDockIfDifferent({}, {}, true);
     if (Backend* owner = backend()) {
         for (QWidget* widget : QApplication::allWidgets()) {
             auto* thread = qobject_cast<ChatArea*>(widget);
@@ -365,7 +365,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
             thread->close();
         }
     }
-    closeThreadDockIfDifferent({}, true);
+    closeThreadDockIfDifferent({}, {}, true);
 
     {
         QSignalBlocker blocker(navigationTabs);
