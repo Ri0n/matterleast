@@ -1409,61 +1409,57 @@ private slots:
         QTRY_COMPARE(healthy.preferencesRequests, 3);
         checkCookies(healthy.preferenceCookies, "active-token", "stalled-token");
     }
-    void sidebarWidthSurvivesNavigationReparentAndHiddenShutdown()
+    void sidebarWidthSurvivesPermanentWindowRestartAndHiddenShutdown()
     {
-        FakeMattermostServer server(QByteArrayLiteral("sidebar-width-account"));
-        QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
-        bool ready = false;
-        backend.login(credentials(server, QStringLiteral("sidebar-token")),
-                      [&](const QString& token) { ready = !token.isEmpty(); });
-        QTRY_VERIFY(ready);
-
-        const QString key = QStringLiteral("workspace/%1/sidebar_width")
-            .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
+        const QString key = QStringLiteral("sidebar_splitter_state");
         auto* options = MLOptions::instance();
-        // Simulate a width previously saved by a real splitter drag. The
-        // navigation controller must preserve it when it reparents widgets.
-        options->setValue(key, 400);
+        struct RestoreOption {
+            MLOptions* options;
+            QString key;
+            QByteArray original;
+            ~RestoreOption() { options->setValue(key, original); }
+        } restore {options, key, options->value<QByteArray>(key)};
+
+        QSplitter previous(Qt::Horizontal);
+        previous.addWidget(new QWidget);
+        previous.addWidget(new QWidget);
+        previous.resize(1100, 720);
+        previous.setSizes({400, 699});
+        options->setValue(key, previous.saveState());
 
         QSystemTrayIcon tray;
-        // Production MainWindow is a child of the persistent account stack.
-        // Its saved width must be restored only after the stack shows it.
-        QStackedWidget shell;
-        shell.resize(1100, 720);
-        auto* window = new MainWindow(nullptr, tray, backend);
-        shell.addWidget(window);
-        shell.show();
-        NavigationUiController::instance(*window);
-        auto* sidebar = window->findChild<QSplitter*>(
-            QStringLiteral("sidebarSplitter"));
+        QByteArray saved;
+        int savedWidth = 0;
+        {
+            MainWindow window(nullptr, tray);
+            window.resize(1100, 720);
+            window.enableSharedPresentation();
+            window.show();
+            auto* sidebar = window.findChild<QSplitter*>(QStringLiteral("sidebarSplitter"));
+            QVERIFY(sidebar);
+            QTRY_VERIFY(sidebar->width() > 800);
+            QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 400) <= 35);
+            sidebar->setSizes({340, sidebar->sizes().at(0) + sidebar->sizes().at(1) - 340});
+            QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 340) <= 35);
+            savedWidth = sidebar->sizes().at(0);
+            window.saveState();
+            saved = options->value<QByteArray>(key);
+            QVERIFY(!saved.isEmpty());
+            window.hide();
+            window.saveState();
+            QCOMPARE(options->value<QByteArray>(key), saved);
+        }
+
+        MainWindow restarted(nullptr, tray);
+        restarted.resize(1100, 720);
+        restarted.enableSharedPresentation();
+        restarted.show();
+        auto* sidebar = restarted.findChild<QSplitter*>(QStringLiteral("sidebarSplitter"));
         QVERIFY(sidebar);
         QTRY_VERIFY(sidebar->width() > 800);
-        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 400) <= 35);
-
-        sidebar->setSizes({340, 750});
-        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - 340) <= 35);
-        window->saveState();
-        const int saved = options->value<int>(key, 0);
-        QVERIFY(qAbs(saved - 340) <= 35);
-
-        // A hidden account page must not replace its real width with zero
-        // when QApplication quits or when another server was selected.
-        window->hide();
-        window->saveState();
-        QCOMPARE(options->value<int>(key, 0), saved);
-        delete window;
-
-        auto* restarted = new MainWindow(nullptr, tray, backend);
-        shell.addWidget(restarted);
-        shell.setCurrentWidget(restarted);
-        NavigationUiController::instance(*restarted);
-        auto* restoredSidebar = restarted->findChild<QSplitter*>(
-            QStringLiteral("sidebarSplitter"));
-        QVERIFY(restoredSidebar);
-        QTRY_VERIFY(restoredSidebar->width() > 800);
-        QTRY_VERIFY(qAbs(restoredSidebar->sizes().at(0) - saved) <= 35);
-        delete restarted;
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - savedWidth) <= 35);
+        restarted.resize(1250, 720);
+        QTRY_VERIFY(qAbs(sidebar->sizes().at(0) - savedWidth) <= 35);
     }
 
     void navigationControllerStopsObservingAreasBeforeWindowDestruction()
