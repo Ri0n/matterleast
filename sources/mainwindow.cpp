@@ -121,13 +121,17 @@ bool filterTreeItem(QTreeWidgetItem* item, const QString& term)
 
 } // namespace
 
-MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _backend)
+MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& source)
+    : MainWindow(parent, trayIcon)
+{
+    attachInitialBackend(source);
+}
+
+MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
     : QMainWindow(parent)
     , ui(std::make_unique<Ui::MainWindow>())
     , trayIcon(trayIcon)
     , notificationManager(&NotificationManager::instance(trayIcon))
-    , chooseEmojiDialog(this, _backend)
-    , backend(_backend)
     , currentTeamRestoredFromSettings(false)
     , doDeinit(false)
 {
@@ -152,19 +156,22 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     if (auto* delegate = qobject_cast<ChannelItemDelegate*>(
             ui->channelList->itemDelegate())) {
         connect(delegate, &ChannelItemDelegate::categoryActionRequested,
-                this, [this](const QString& teamId, const QString& categoryId) {
+                this, [this](const QString& accountId, const QString& teamId,
+                             const QString& categoryId) {
+            auto* owner = ui->channelList->backendForAccount(accountId);
+            if (!owner) return;
             const SidebarTeamState* state =
-                SidebarService::instance(backend).teamState(teamId);
+                SidebarService::instance(*owner).teamState(teamId);
             const SidebarCategory* category = state ? state->category(categoryId) : nullptr;
             if (!category) {
                 return;
             }
             if (category->type == QStringLiteral("direct_messages")) {
-                openDirectMessageSearch();
+                UserSearchDialog::showConversationPicker(*owner, this);
             } else if (category->type == QStringLiteral("channels")) {
-                if (BackendTeam* team = backend.getStorage().getTeamById(teamId)) {
+                if (BackendTeam* team = owner->getStorage().getTeamById(teamId)) {
                     TeamChannelsListDialog::showForTeam(
-                        backend, *team, ui->channelList);
+                        *owner, *team, ui->channelList);
                 }
             }
         });
@@ -174,28 +181,6 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 	ui->channelList->setFocus();
 
 	createMenu();
-
-	const BackendUser& currentUser = backend.getLoginUser();
-	if (currentUser.id.isEmpty()) {
-		ui->usericon_label->clear();
-		qCritical() << "Current User's ID is empty string";
-		return;
-	}
-
-	// Recover previous-process unresolved sends before Drafts can be opened.
-	// Construction never retransmits them; it converts them to local drafts.
-	PendingPostService::instance(backend);
-
-	auto& sidebar = SidebarService::instance(backend);
-	auto& userProfiles = UserProfileService::instance(backend);
-	connect(&sidebar, &SidebarService::channelActivityChanged, this,
-	        [this](const QString&) { refreshSidebarViews(); });
-	connect(&sidebar, &SidebarService::channelActivityReset,
-	        this, &MainWindow::refreshSidebarViews);
-	connect(&sidebar, &SidebarService::categoriesChanged, this,
-	        [this](const QString&) {
-		QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
-	});
 
 	connect(ui->channelList, &QTreeWidget::currentItemChanged, this,
 	        [this](QTreeWidgetItem* current, QTreeWidgetItem*) {
@@ -220,8 +205,80 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 		}
 	});
 
-	recentChannels->initialize(backend);
-	attentionList->initialize(backend);
+    // These widgets belong to the window and are created even when every
+    // account is offline. Session attachment only enables their actions.
+    ui->usericon_label->clear();
+    ui->usericon_label->setEnabled(false);
+    ui->searchButton->setEnabled(false);
+    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))
+        action->setEnabled(false);
+    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarUserGroupsAction")))
+        action->setEnabled(false);
+
+    if (sidebarSplitter) {
+        sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
+        sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
+        connect(sidebarSplitter, &QSplitter::splitterMoved, this, [this](int, int) {
+            if (!backendOrNull() || !sidebarSplitter->isVisible())
+                return;
+            const auto sizes = sidebarSplitter->sizes();
+            if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0) {
+                const QString partition = backendInstance().networkSession()
+                    .cachePartitionId(backendInstance().getLoginUser().id);
+                MLOptions::instance()->setValue(
+                    QStringLiteral("workspace/%1/sidebar_width").arg(partition), sizes[0]);
+            }
+        });
+    }
+    connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
+}
+
+Backend* MainWindow::backendOrNull() const
+{
+    return _backend.data();
+}
+
+Backend& MainWindow::backendInstance() const
+{
+    Q_ASSERT(_backend);
+    return *_backend.data();
+}
+
+bool MainWindow::attachInitialBackend(Backend& source)
+{
+    if (_backend)
+        return _backend.data() == &source;
+    const BackendUser* user = source.getStorage().loginUser;
+    if (!user || user->id.isEmpty())
+        return false;
+    _backend = &source;
+    chooseEmojiDialog = std::make_unique<ChooseEmojiDialogWrapper>(this, source);
+    ui->usericon_label->setEnabled(true);
+    ui->searchButton->setEnabled(true);
+    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))
+        action->setEnabled(true);
+    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarUserGroupsAction")))
+        action->setEnabled(true);
+
+    const BackendUser& currentUser = *user;
+
+	// Recover previous-process unresolved sends before Drafts can be opened.
+	// Construction never retransmits them; it converts them to local drafts.
+	PendingPostService::instance(backendInstance());
+
+	auto& sidebar = SidebarService::instance(backendInstance());
+	auto& userProfiles = UserProfileService::instance(backendInstance());
+	connect(&sidebar, &SidebarService::channelActivityChanged, this,
+	        [this](const QString&) { refreshSidebarViews(); });
+	connect(&sidebar, &SidebarService::channelActivityReset,
+	        this, &MainWindow::refreshSidebarViews);
+	connect(&sidebar, &SidebarService::categoriesChanged, this,
+	        [this](const QString&) {
+		QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
+	});
+
+	recentChannels->initialize(backendInstance());
+	attentionList->initialize(backendInstance());
 	installRealtimeUiSync();
 
 	sidebar.clear();
@@ -260,7 +317,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
             return;
         }
 
-        const auto presentation = backend.emojiRegistry().resolveByName(custom.emoji);
+        const auto presentation = backendInstance().emojiRegistry().resolveByName(custom.emoji);
         QString icon = presentation
             ? presentation->unicodeString
             : QStringLiteral(":%1:").arg(custom.emoji.toHtmlEscaped());
@@ -269,7 +326,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
                 icon, defaultStatusFont,
                 emojiOnly ? EmojiPresentation::Mode::StatusJumbo
                           : EmojiPresentation::Mode::Reaction,
-                &backend.emojiRegistry());
+                &backendInstance().emojiRegistry());
         } else {
             icon = icon.toHtmlEscaped();
         }
@@ -280,9 +337,9 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     };
     connect(&currentUser, &BackendUser::onStatusChanged,
             this, refreshProfileStatus);
-    connect(&backend, &Backend::onOwnCustomStatusChanged,
+    connect(&backendInstance(), &Backend::onOwnCustomStatusChanged,
             this, refreshProfileStatus);
-    connect(&backend.emojiRegistry(), &EmojiRegistry::customEmojiAdded,
+    connect(&backendInstance().emojiRegistry(), &EmojiRegistry::customEmojiAdded,
             this, refreshProfileStatus);
     refreshProfileStatus();
 	ui->usernameLabel->setText(currentUser.username);
@@ -292,69 +349,46 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
 		ui->usericon_label->setPixmap(currentUser.avatar);
 	});
 
-	connect(&backend, &Backend::onAllTeamChannelsPopulated, [this] {
-		ui->channelList->populateSidebars(backend);
+	connect(&backendInstance(), &Backend::onAllTeamChannelsPopulated, [this] {
+		ui->channelList->populateSidebars(backendInstance());
 		attentionList->refreshThreads();
 		QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
 		initializationComplete();
 	});
 
-	connect(&backend, &Backend::onNewPost,
+	connect(&backendInstance(), &Backend::onNewPost,
 	        [this](BackendChannel& channel, const BackendPost& post) {
 		messageNotify(channel, post);
 	});
 
-	connect(&backend, &Backend::onChannelViewed, [this](const BackendChannel& channel) {
-		SidebarService::instance(backend).setChannelMentioned(channel.id, false);
+	connect(&backendInstance(), &Backend::onChannelViewed, [this](const BackendChannel& channel) {
+		SidebarService::instance(backendInstance()).setChannelMentioned(channel.id, false);
 	});
 
-	connect(&backend, &Backend::onAddedToTeam, [this](BackendTeam& team) {
-		ui->channelList->addTeam(backend, team);
+	connect(&backendInstance(), &Backend::onAddedToTeam, [this](BackendTeam& team) {
+		ui->channelList->addTeam(backendInstance(), team);
 	});
 
-	backend.retrieveOwnTeams([this](BackendTeam& team) {
-		ui->channelList->addTeam(backend, team);
+	backendInstance().retrieveOwnTeams([this](BackendTeam& team) {
+		ui->channelList->addTeam(backendInstance(), team);
 	});
 
 	LOG_DEBUG("MainWindow signal register finish");
 
-    // Window geometry belongs exclusively to AccountWorkspaceStack.
-    // MainWindow is created as a temporary top-level widget but then embedded;
-    // restoring the shell geometry here would perturb the hidden splitter.
-    const QString sidebarWidthKey = QStringLiteral("workspace/%1/sidebar_width")
-        .arg(backend.networkSession().cachePartitionId(backend.getLoginUser().id));
-    // The splitter is not yet visible inside AccountWorkspaceStack.
-    // Applying restored sizes here lets the first real layout overwrite them.
-    // restoreSidebarWidth() runs after its workspace is shown instead.
-	if (sidebarSplitter) {
-        // Keep usable initial proportions even before QStackedWidget shows an
-        // account. In particular, standalone test windows must not start with
-        // an unconstrained splitter that can reflow short thread timelines.
-        // The saved account width is applied after embedding and showing.
-        sidebarSplitter->setSizes({280, std::max(360, width() - 280)});
-		sidebarSplitter->setHandleWidth(ThinSplitter::VisibleHandleExtent);
-        // Persist user adjustment while the view is active; at application
-        // exit another server view may already be hidden in the stack.
-        connect(sidebarSplitter, &QSplitter::splitterMoved, this,
-                [this, sidebarWidthKey](int, int) {
-            if (!sidebarSplitter || !sidebarSplitter->isVisible())
-                return;
-            const QList<int> sizes = sidebarSplitter->sizes();
-            if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0)
-                MLOptions::instance()->setValue(sidebarWidthKey, sizes[0]);
-        });
-	}
-
     // Register the Backend-owned navigation receiver once the complete
     // channel/thread presentation exists, before plugins can navigate.
-    AppNavigationService::instance(backend).bindMainWindow(*this);
-	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
-	LOG_DEBUG("MainWindow create finish");
+    AppNavigationService::instance(backendInstance()).bindMainWindow(*this);
+    if (auto* navigation = findChild<NavigationUiController*>(
+            QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
+        navigation->attachBackend(source);
+    LOG_DEBUG("MainWindow account attached");
+    return true;
 }
 
 MainWindow::~MainWindow()
 {
-    notificationManager->clearAccountSession(backend);
+    if (auto* owner = backendOrNull())
+        notificationManager->clearAccountSession(*owner);
     // QObject destroys child widgets only after this destructor body returns.
     // Finalize navigation now while every thread stack and ChatArea is valid;
     // otherwise ChatArea::destroyed synchronously triggers session updates
@@ -385,12 +419,12 @@ void MainWindow::restoreSidebarWidth()
 {
     // Embedded workspaces own their geometry through AccountWorkspaceStack.
     // A standalone top-level window follows the normal QSplitter layout.
-    if (isWindow() || !sidebarSplitter || !sidebarSplitter->isVisible()
+    if (!backendOrNull() || isWindow() || !sidebarSplitter || !sidebarSplitter->isVisible()
         || sidebarSplitter->count() < 2
         || sidebarSplitter->widget(0)->isHidden())
         return;
     const QString partition =
-        backend.networkSession().cachePartitionId(backend.getLoginUser().id);
+        backendInstance().networkSession().cachePartitionId(backendInstance().getLoginUser().id);
     auto* options = MLOptions::instance();
     const QString widthKey = QStringLiteral("workspace/%1/sidebar_width")
         .arg(partition);
@@ -428,7 +462,8 @@ void MainWindow::restoreSidebarWidth()
 void MainWindow::bindViewNavigation(ViewNavigationSession* session,
                                     const QString& accountId)
 {
-    NavigationUiController::instance(*this).bindViewSession(session, accountId);
+    if (backendOrNull())
+        NavigationUiController::instance(*this).bindViewSession(session, accountId);
 }
 
 void MainWindow::unbindViewNavigation()
@@ -439,7 +474,7 @@ void MainWindow::unbindViewNavigation()
 void MainWindow::installServersSidebar(AccountManager& manager)
 {
     if (!channelTabs || serversPage) return;
-    if (const Account* owner = manager.accountForBackend(&backend))
+    if (const Account* owner = manager.accountForBackend(backendOrNull()))
         ui->channelList->bindSingleAccount(owner->id());
     serversPage = new ServersSidebarPage(manager, channelTabs);
     // One icon, no caption, immediately before Channels. The server manager
@@ -890,7 +925,7 @@ void MainWindow::applySidebarTextFilter(QTreeWidget* tree) const
 
 void MainWindow::refreshChannelUnreadFilter()
 {
-	if (!ui || !ui->channelList || !unreadFilterButton) {
+	if (!backendOrNull() || !ui || !ui->channelList || !unreadFilterButton) {
 		return;
 	}
 
@@ -912,7 +947,7 @@ void MainWindow::refreshChannelUnreadFilter()
 	}
 	const bool channelsTabVisible = channelTabs && channelsPage
 		&& channelTabs->currentWidget() == channelsPage;
-	auto& sidebar = SidebarService::instance(backend);
+	auto& sidebar = SidebarService::instance(backendInstance());
 
 	for (int teamIndex = 0; teamIndex < ui->channelList->topLevelItemCount(); ++teamIndex) {
 		QTreeWidgetItem* teamItem = ui->channelList->topLevelItem(teamIndex);
@@ -967,12 +1002,12 @@ void MainWindow::refreshChannelUnreadFilter()
 				}
 
 				const QString channelId = channelItem->data(0, ChannelTree::ItemIdRole).toString();
-				BackendChannel* channel = backend.getStorage().getChannelById(channelId);
+				BackendChannel* channel = backendInstance().getStorage().getChannelById(channelId);
 				bool matchesText = !textFilterActive
 					|| channelItem->text(0).contains(filterText, Qt::CaseInsensitive);
 
 				if (channel && channel->type == BackendChannel::directChannel && textFilterActive) {
-					const BackendUser* user = backend.getStorage().getUserById(channel->name);
+					const BackendUser* user = backendInstance().getStorage().getUserById(channel->name);
 					if (user) {
 						matchesText = matchesText
 							|| user->getDisplayName().contains(filterText, Qt::CaseInsensitive)
@@ -1021,10 +1056,11 @@ void MainWindow::showCollectionPage(PostCollectionView* page)
 
 void MainWindow::openSavedMessages(const QString& teamId)
 {
+    if (!backendOrNull()) return;
     Q_UNUSED(teamId)
     if (!savedMessagesPage) {
         savedMessagesPage = new PostCollectionView(
-            backend, PostCollectionView::Mode::Saved, ui->chatAreaStackedWidget);
+            backendInstance(), PostCollectionView::Mode::Saved, ui->chatAreaStackedWidget);
     }
     showCollectionPage(savedMessagesPage);
     savedMessagesPage->activateSaved();
@@ -1032,10 +1068,11 @@ void MainWindow::openSavedMessages(const QString& teamId)
 
 void MainWindow::openDrafts(const QString& teamId)
 {
+    if (!backendOrNull()) return;
     Q_UNUSED(teamId)
     if (!draftsPage) {
         draftsPage = new PostCollectionView(
-            backend, PostCollectionView::Mode::Drafts,
+            backendInstance(), PostCollectionView::Mode::Drafts,
             ui->chatAreaStackedWidget);
         connect(draftsPage, &PostCollectionView::draftActivated,
                 this, &MainWindow::openDraft);
@@ -1051,21 +1088,22 @@ void MainWindow::openMessageSearch()
 
 void MainWindow::openMessageSearchInChannel(const QString& channelId)
 {
+    if (!backendOrNull()) return;
     if (!searchMessagesPage) {
         searchMessagesPage = new PostCollectionView(
-            backend, PostCollectionView::Mode::Search, ui->chatAreaStackedWidget);
+            backendInstance(), PostCollectionView::Mode::Search, ui->chatAreaStackedWidget);
     }
 
     const bool scopedSearch = !channelId.isEmpty();
     BackendChannel* channel = scopedSearch
-        ? backend.getStorage().getChannelById(channelId)
-        : backend.getCurrentChannel();
+        ? backendInstance().getStorage().getChannelById(channelId)
+        : backendInstance().getCurrentChannel();
 
     QString preferredTeamId;
     QString presetTerms;
     if (channel) {
         preferredTeamId = channel->team
-            ? channel->team->id : backend.getCurrentTeamContextId();
+            ? channel->team->id : backendInstance().getCurrentTeamContextId();
         if (scopedSearch) {
             presetTerms = ConversationReference::searchTerms(*channel);
         }
@@ -1081,7 +1119,8 @@ void MainWindow::openMessageSearchInChannel(const QString& channelId)
 
 void MainWindow::openDirectMessageSearch()
 {
-	UserSearchDialog::showConversationPicker(backend, this);
+    if (!backendOrNull()) return;
+	UserSearchDialog::showConversationPicker(backendInstance(), this);
 }
 
 void MainWindow::createMenu()
@@ -1108,14 +1147,15 @@ void MainWindow::createMenu()
         // The application must destroy all chat/post widgets while their
         // Backend::Storage objects are still alive. Never reset the backend
         // from a callback that retains this MainWindow.
-        emit logoutRequested();
+        if (backendOrNull()) emit logoutRequested();
     });
     logoutAction->setObjectName(QStringLiteral("sidebarLogoutAction"));
     IconUtils::setMenuActionIcon(*logoutAction,
                                  QStringLiteral(":/icons/menu-logout"));
 
     QAction* groupsAction = mainMenu->addAction(tr("User groups…"), [this] {
-        auto* dialog = new UserGroupsDialog(backend, this);
+        if (!backendOrNull()) return;
+        auto* dialog = new UserGroupsDialog(backendInstance(), this);
         dialog->show();
     });
     groupsAction->setObjectName(QStringLiteral("sidebarUserGroupsAction"));
@@ -1462,8 +1502,9 @@ void MainWindow::initializationComplete()
 
 void MainWindow::restoreNavigationSessionWhenReady()
 {
+    if (!backendOrNull()) return;
 	if (!channelMembershipsReady || !teamChannelsReady || navigationSessionRestoreScheduled) return;
-	for (const auto& team : backend.getStorage().teams) {
+	for (const auto& team : backendInstance().getStorage().teams) {
 		if (!populatedSessionSidebars.contains(team.first)) return;
 	}
 	// Wait for the existing sidebar requests/rendering; restoration must not
@@ -1474,6 +1515,7 @@ void MainWindow::restoreNavigationSessionWhenReady()
 
 void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 {
+    if (!backendOrNull()) return;
     if (post.type == QLatin1String("custom_calls")
         && (channel.type == BackendChannel::directChannel
             || channel.type == BackendChannel::groupChannel)
@@ -1485,7 +1527,7 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 		return;
 	}
 
-    const BackendUser* loginUser = backend.getStorage().loginUser;
+    const BackendUser* loginUser = backendInstance().getStorage().loginUser;
     if (!shouldShowMainTimelinePost(post.type, post.props.toObject(),
                                     loginUser ? loginUser->username : QString())) {
         // Also keep suppressed membership events out of the explicit mention
@@ -1493,7 +1535,7 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
         return;
     }
 
-	auto& sidebar = SidebarService::instance(backend);
+	auto& sidebar = SidebarService::instance(backendInstance());
     // SidebarService::recordChannelPost() already tracks reply mentions in
     // the thread domain. Never promote a reply mention to a root-channel
     // mention: with CRT enabled this would pin the parent DM in Attention
@@ -1510,7 +1552,7 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
     // use the optimistic local read cursor (or the channel cursor for CRT
     // replies): only server-confirmed progress suppresses a desktop popup.
     const FollowingModel::Entry* threadState = post.root_id.isEmpty()
-        ? nullptr : FollowingModel::instance(backend).findEntry(channel.id, post.root_id);
+        ? nullptr : FollowingModel::instance(backendInstance()).findEntry(channel.id, post.root_id);
     const quint64 threadServerReadAt = threadState && threadState->isThread()
         && !threadState->synthetic ? threadState->lastViewedAt : 0;
     if (!isUnreadDesktopPost(
@@ -1571,7 +1613,7 @@ void MainWindow::messageNotify(BackendChannel& channel, const BackendPost& post)
 	}
 
     notificationManager->show(title, post.message,
-                              NotificationTarget {channel.id, post.id, post.root_id, {}, &backend});
+                              NotificationTarget {channel.id, post.id, post.root_id, {}, &backendInstance()});
     // The account's presenter may be hidden; taskbar urgency belongs to
     // the application's real top-level window.
     notificationManager->requestTaskbarAttention(*window());
@@ -1594,14 +1636,15 @@ void MainWindow::setNotificationsCountVisualization(uint32_t notificationsCount)
 
 void MainWindow::refreshTrayIcon()
 {
+    if (!backendOrNull()) return;
     // AttentionList is the existing authority for the red counter. When it
     // clears, fall back to the ordinary public/private channel unread state,
     // including channels outside the currently selected sidebar team.
     bool hasUnreadChannel = false;
     if (_attentionBadgeCount == 0) {
-        const auto& sidebar = SidebarService::instance(backend);
-        for (auto it = backend.getStorage().channels.cbegin();
-             it != backend.getStorage().channels.cend(); ++it) {
+        const auto& sidebar = SidebarService::instance(backendInstance());
+        for (auto it = backendInstance().getStorage().channels.cbegin();
+             it != backendInstance().getStorage().channels.cend(); ++it) {
             const BackendChannel* channel = it.value();
             if (!channel || channel->delete_at != 0) {
                 continue;
@@ -1652,11 +1695,11 @@ void MainWindow::saveState()
     if (isWindow()) {
         options->setValue(QStringLiteral("geometry"), saveGeometry());
     }
-    if (sidebarSplitter && sidebarSplitter->isVisible()) {
+    if (backendOrNull() && sidebarSplitter && sidebarSplitter->isVisible()) {
         const QList<int> sizes = sidebarSplitter->sizes();
         if (sizes.size() >= 2 && sizes[0] > 0 && sizes[1] > 0) {
             const QString partition =
-                backend.networkSession().cachePartitionId(backend.getLoginUser().id);
+                backendInstance().networkSession().cachePartitionId(backendInstance().getLoginUser().id);
             options->setValue(
                 QStringLiteral("workspace/%1/sidebar_width").arg(partition), sizes[0]);
             const QByteArray state = sidebarSplitter->saveState();

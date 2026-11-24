@@ -48,6 +48,7 @@ namespace Mattermost {
 
 void MainWindow::installRealtimeUiSync()
 {
+    if (!backendOrNull()) return;
     static constexpr char InstalledProperty[] = "_mmqt_realtime_ui_sync_installed";
     if (property(InstalledProperty).toBool()) {
         return;
@@ -64,20 +65,20 @@ void MainWindow::installRealtimeUiSync()
         }
         ui->usericon_label->setConnectionIndicatorState(indicatorState);
     };
-    connect(&backend, &Backend::onWebSocketConnectionStateChanged,
+    connect(&backendInstance(), &Backend::onWebSocketConnectionStateChanged,
             this, updateConnectionIndicator);
     connect(ui->usericon_label, &PresenceAvatarLabel::reconnectRequested,
-            this, [this] { backend.retryWebSocketConnectionNow(); });
-    updateConnectionIndicator(backend.webSocketConnectionState());
+            this, [this] { backendInstance().retryWebSocketConnectionNow(); });
+    updateConnectionIndicator(backendInstance().webSocketConnectionState());
 
     // As in the official client, REST projections are reconciled after a
     // WebSocket reconnect, not after an arbitrary amount of wall-clock time.
     // The connector itself handles heartbeat timeouts and sequence gaps.
-    connect(&backend, &Backend::onRealtimeRecovered, this, [this] {
-        if (!backend.loggedIn()) return;
+    connect(&backendInstance(), &Backend::onRealtimeRecovered, this, [this] {
+        if (!backendInstance().loggedIn()) return;
         ui->channelList->refreshServerSnapshot();
         // The Attention sidebar has an independent CRT/followed-thread snapshot.
-        FollowingModel::instance(backend).noteThreadUpdated();
+        FollowingModel::instance(backendInstance()).noteThreadUpdated();
         refreshSidebarViews();
     });
 
@@ -85,7 +86,7 @@ void MainWindow::installRealtimeUiSync()
     // integrations too. Keep the manifest snapshot session-local; adapters can
     // subscribe to pluginsChanged() and derive installation-specific endpoints
     // from the advertised manifest without executing its JavaScript bundle.
-    auto& webappPlugins = WebappPluginService::instance(backend);
+    auto& webappPlugins = WebappPluginService::instance(backendInstance());
     webappPlugins.clear();
     webappPlugins.refresh();
 
@@ -94,7 +95,7 @@ void MainWindow::installRealtimeUiSync()
     // and exact thread position before the concrete target widget is presented.
     connect(notificationManager, &NotificationManager::activated,
             this, [this](const NotificationTarget& target) {
-        if (!target.isValid() || target.accountSession != &backend) {
+        if (!target.isValid() || target.accountSession != &backendInstance()) {
             return;
         }
 
@@ -115,13 +116,13 @@ void MainWindow::installRealtimeUiSync()
         // visible sidebar context before semantic navigation opens the target.
         // Direct/group conversations are server-wide and intentionally keep the
         // user's current team context.
-        if (BackendChannel* channel = backend.getStorage().getChannelById(target.channelId)) {
+        if (BackendChannel* channel = backendInstance().getStorage().getChannelById(target.channelId)) {
             if (channel->team) {
                 TeamSelectorLabel::activateTeam(this, channel->team->id);
             }
         }
 
-        AppNavigationService::instance(backend).openPost(target.postId);
+        AppNavigationService::instance(backendInstance()).openPost(target.postId);
     });
 
     // Standalone widget tests do not have the application's plugin manager.
@@ -129,8 +130,8 @@ void MainWindow::installRealtimeUiSync()
     auto& plugins = *manager;
     connect(notificationManager, &NotificationManager::incomingCallAnswered,
             this, [this, &plugins](const NotificationTarget& target, bool accept) {
-        if (target.accountSession == &backend)
-            plugins.answerIncomingCall(plugins.accountId(backend), target.callId, accept);
+        if (target.accountSession == &backendInstance())
+            plugins.answerIncomingCall(plugins.accountId(backendInstance()), target.callId, accept);
     });
     auto* ringTimer = new QTimer(this);
     ringTimer->setInterval(2600);
@@ -167,18 +168,18 @@ void MainWindow::installRealtimeUiSync()
     };
     connect(&plugins, &PluginManager::incomingCallClosed, this,
             [this, &plugins, stopRinging](const QString& accountId, const QString& id) {
-        if (accountId != plugins.accountId(backend)) return;
+        if (accountId != plugins.accountId(backendInstance())) return;
         stopRinging(id);
-        notificationManager->closeIncomingCall(backend, id);
+        notificationManager->closeIncomingCall(backendInstance(), id);
     });
     connect(&plugins, &PluginManager::incomingCallStarted, this,
             [this, &plugins, ringTimer, ring, ringing, stopRinging](const IncomingCall& call) {
-        if (call.accountId != plugins.accountId(backend)) return;
-        auto* channel = backend.getStorage().getChannelById(call.channelId);
-        if (!channel || SidebarService::instance(backend).isChannelMuted(*channel)) {
+        if (call.accountId != plugins.accountId(backendInstance())) return;
+        auto* channel = backendInstance().getStorage().getChannelById(call.channelId);
+        if (!channel || SidebarService::instance(backendInstance()).isChannelMuted(*channel)) {
             return;
         }
-        const auto* owner = backend.getStorage().getUserById(call.ownerId);
+        const auto* owner = backendInstance().getStorage().getUserById(call.ownerId);
         const QString caller = owner ? owner->getDisplayName() : channel->display_name;
         ringing->insert(call.id);
         if (!ringTimer->isActive()) {
@@ -191,7 +192,7 @@ void MainWindow::installRealtimeUiSync()
         notificationManager->show(tr("Incoming audio call"), caller,
                                   {call.channelId, call.postId,
                                    call.threadId == call.postId ? QString() : call.threadId,
-                                   call.id, &backend});
+                                   call.id, &backendInstance()});
     });
 
     }
@@ -200,7 +201,7 @@ void MainWindow::installRealtimeUiSync()
     // them through the existing desktop notification path rather than adding
     // them to PostRepository or a channel timeline. Interactive dialogs remain
     // native Qt dialogs and never run a nested event loop.
-    auto& serverUi = ServerUiService::instance(backend);
+    auto& serverUi = ServerUiService::instance(backendInstance());
     connect(&serverUi, &ServerUiService::ephemeralMessageReceived,
             this, [this](const QString& message) {
         notificationManager->show(tr("Mattermost"), message, NotificationTarget {});
@@ -211,7 +212,7 @@ void MainWindow::installRealtimeUiSync()
                          const QString& channelId,
                          const QString& teamId) {
         auto* serverDialog = new ServerDialog(
-            backend, dialog, url, channelId, teamId, this);
+            backendInstance(), dialog, url, channelId, teamId, this);
         serverDialog->show();
     });
 
@@ -246,22 +247,22 @@ void MainWindow::installRealtimeUiSync()
             refreshSidebarViews();
         });
     };
-    connectConversationSource(backend.getStorage().directChannels);
-    connectConversationSource(backend.getStorage().groupChannels);
+    connectConversationSource(backendInstance().getStorage().directChannels);
+    connectConversationSource(backendInstance().getStorage().groupChannels);
 
     // Mattermost's webapp runs loadNewDMIfNeeded/loadNewGMIfNeeded for every
     // posted websocket event. An old conversation may no longer be present in
     // the limited Direct Messages category, so restore its preference state and
     // locally admit it immediately instead of leaving it visible only in
     // Attention until the next full sidebar refresh.
-    connect(&backend, &Backend::onNewPost,
+    connect(&backendInstance(), &Backend::onNewPost,
             this, [this](BackendChannel& channel, const BackendPost& post) {
         if (channel.type != BackendChannel::directChannel
             && channel.type != BackendChannel::groupChannel) {
             return;
         }
 
-        SidebarService::instance(backend).resurfaceDirectConversation(
+        SidebarService::instance(backendInstance()).resurfaceDirectConversation(
             channel, post.create_at);
         ui->channelList->admitStoredConversation(channel);
         refreshSidebarViews();
@@ -270,7 +271,7 @@ void MainWindow::installRealtimeUiSync()
     // Mattermost synchronizes flagged_post through preference websocket
     // events. Feed them into the collection only when it has been opened; its
     // initial activation already loads the authoritative current snapshot.
-    connect(&backend, &Backend::onFlaggedPostChanged,
+    connect(&backendInstance(), &Backend::onFlaggedPostChanged,
             this, [this](const QString& postId, bool flagged) {
         if (savedMessagesPage) {
             savedMessagesPage->syncFlaggedPost(postId, flagged);

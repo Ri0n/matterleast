@@ -166,32 +166,8 @@ void NavigationUiController::setupMainWindow()
         }
     });
 
-    if (Backend* sourceBackend = backend()) {
-        // A new explicit navigation cancels a deferred Back/Forward replay.
-        // The history path below calls MainWindow directly, so it does not
-        // publish this semantic-navigation signal itself.
-        connect(&AppNavigationService::instance(*sourceBackend),
-                &AppNavigationService::navigationStarted, this,
-                [this] {
-                    pendingHistoryThread.reset();
-                    pendingContextualThread.reset();
-                });
-        auto& sidebar = SidebarService::instance(*sourceBackend);
-        const QString accountId = accountIdForBackend(*sourceBackend);
-        QPointer<Backend> sourceGuard(sourceBackend);
-        const auto refreshAll = [this, sourceGuard, accountId] {
-            if (sourceGuard && backendForAccount(accountId) == sourceGuard.data())
-                refreshAllTabUnreadVisuals(accountId);
-        };
-        connect(&sidebar, &SidebarService::channelActivityChanged, this,
-                [this, sourceGuard, accountId](const QString& channelId) {
-            if (sourceGuard && backendForAccount(accountId) == sourceGuard.data())
-                refreshTabUnreadVisual(accountId, channelId);
-        });
-        connect(&sidebar, &SidebarService::channelActivityReset, this, refreshAll);
-        connect(&FollowingModel::instance(*sourceBackend), &FollowingModel::changed,
-                this, refreshAll);
-    }
+    if (Backend* sourceBackend = backend())
+        attachBackend(*sourceBackend);
 
     if (mainStack) {
         connect(mainStack, &QStackedWidget::currentChanged, this,
@@ -471,6 +447,40 @@ void NavigationUiController::activateNextTab()
     if (index >= 0 && index != activeTabIndex) activateTab(index);
 }
 
+void NavigationUiController::attachBackend(Backend& source)
+{
+    if (attachedBackend == &source) return;
+    Q_ASSERT(!attachedBackend);
+    if (attachedBackend) return;
+    attachedBackend = &source;
+    Backend* sourceBackend = &source;
+    // A new explicit navigation cancels a deferred Back/Forward replay.
+    // The history path below calls MainWindow directly, so it does not
+    // publish this semantic-navigation signal itself.
+    connect(&AppNavigationService::instance(*sourceBackend),
+            &AppNavigationService::navigationStarted, this,
+            [this] {
+                pendingHistoryThread.reset();
+                pendingContextualThread.reset();
+            });
+    auto& sidebar = SidebarService::instance(*sourceBackend);
+    const QString accountId = accountIdForBackend(*sourceBackend);
+    QPointer<Backend> sourceGuard(sourceBackend);
+    const auto refreshAll = [this, sourceGuard, accountId] {
+        if (sourceGuard && backendForAccount(accountId) == sourceGuard.data())
+            refreshAllTabUnreadVisuals(accountId);
+    };
+    connect(&sidebar, &SidebarService::channelActivityChanged, this,
+            [this, sourceGuard, accountId](const QString& channelId) {
+        if (sourceGuard && backendForAccount(accountId) == sourceGuard.data())
+            refreshTabUnreadVisual(accountId, channelId);
+    });
+    connect(&sidebar, &SidebarService::channelActivityReset, this, refreshAll);
+    connect(&FollowingModel::instance(*sourceBackend), &FollowingModel::changed,
+            this, refreshAll);
+    updateIdentityTooltip();
+}
+
 void NavigationUiController::updateIdentityTooltip()
 {
     auto* avatar = window.findChild<QWidget*>(QStringLiteral("usericon_label"));
@@ -485,10 +495,10 @@ void NavigationUiController::updateIdentityTooltip()
                 avatar->setToolTip(username->text());
             }
         }
-        QTimer::singleShot(500, this, &NavigationUiController::updateIdentityTooltip);
         return;
     }
 
+    if (!sourceBackend->getStorage().loginUser) return;
     const BackendUser& user = sourceBackend->getLoginUser();
     const QString displayName = user.getDisplayName().trimmed();
     const QString accountName = user.username.trimmed();
@@ -513,7 +523,7 @@ ChatArea* NavigationUiController::currentChannelPage() const
 
 Backend* NavigationUiController::backend() const
 {
-    return &window.backendInstance();
+    return window.backendOrNull();
 }
 
 Backend* NavigationUiController::backendForAccount(const QString& accountId) const
@@ -534,7 +544,8 @@ QString NavigationUiController::accountIdForBackend(const Backend& source)
 
 QString NavigationUiController::presentationAccountId() const
 {
-    return accountIdForBackend(window.backendInstance());
+    const auto* owner = backend();
+    return owner ? accountIdForBackend(*owner) : QString();
 }
 
 NavigationUiController::Location

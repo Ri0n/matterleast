@@ -9,14 +9,14 @@ namespace Mattermost {
 void MainWindow::on_channelList_virtualDestinationRequested(
     int destination, const QString& teamId)
 {
-    if (destination != SidebarItem::RecentMentionsDestination) {
+    if (!backendOrNull() || destination != SidebarItem::RecentMentionsDestination) {
         return;
     }
     Q_UNUSED(teamId)
 
     if (!recentMentionsPage) {
         recentMentionsPage = new PostCollectionView(
-            backend, PostCollectionView::Mode::RecentMentions,
+            backendInstance(), PostCollectionView::Mode::RecentMentions,
             ui->chatAreaStackedWidget);
     }
     showCollectionPage(recentMentionsPage);

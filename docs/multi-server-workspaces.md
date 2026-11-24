@@ -321,6 +321,12 @@ width are global presentation settings. Account-specific actions resolve the own
 account explicitly; an active chat can belong to a different account from the
 currently selected sidebar account.
 
+The Widgets MainWindow can now construct its permanent layout without a Backend
+and attach its first authenticated session in place. Navigation observes the
+attachment explicitly rather than polling for an available identity. This is a
+construction/lifecycle boundary, not yet support for replacing an attached
+session or for presenting multiple accounts in one window.
+
 Refactor the existing presenters incrementally: first move application-scoped
 window services out of account windows (plugin overlays attach once to the
 persistent application surface); then qualify navigation and chat ownership by

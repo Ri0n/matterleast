@@ -63,10 +63,15 @@ class ServersSidebarPage;
 class MainWindow: public QMainWindow {
 	Q_OBJECT
 public:
-	MainWindow (QWidget *parent, QSystemTrayIcon& trayIcon, Backend& backend);
+	MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon);
+    MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& backend);
 	~MainWindow();
 public:
-    Backend& backendInstance() const { return backend; }
+    Backend* backendOrNull() const;
+    Backend& backendInstance() const;
+    // Transitional attachment: build the permanent Widgets surface before
+    // any network session exists. An already attached window is not rebound.
+    bool attachInitialBackend(Backend& source);
 	void initializationComplete ();
     void installRealtimeUiSync();
     void bindViewNavigation(ViewNavigationSession* session, const QString& accountId);
@@ -154,8 +159,8 @@ private:
 	std::unique_ptr<Ui::MainWindow>		ui;
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
-	ChooseEmojiDialogWrapper			chooseEmojiDialog;
-	Backend&							backend;
+    std::unique_ptr<ChooseEmojiDialogWrapper> chooseEmojiDialog;
+    QPointer<Backend> _backend;
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;

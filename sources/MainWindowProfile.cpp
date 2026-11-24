@@ -45,7 +45,8 @@ void MainWindow::on_usericon_label_clicked()
     // A late network recovery or session reset can temporarily leave the
     // profile widget alive without a logged-in user. getLoginUser()
     // dereferences that pointer, so inspect it before opening the menu.
-    const BackendUser* userPtr = backend.getStorage().loginUser;
+    if (!backendOrNull()) return;
+    const BackendUser* userPtr = backendInstance().getStorage().loginUser;
     if (!userPtr || userPtr->id.isEmpty()) {
         return;
     }
@@ -71,7 +72,7 @@ void MainWindow::on_usericon_label_clicked()
         availability.addAction(item);
         connect(item, &QAction::triggered, this, [this, value] {
             QPointer<MainWindow> guard(this);
-            backend.setOwnAvailability(value, [guard](bool ok, const QString& error) {
+            backendInstance().setOwnAvailability(value, [guard](bool ok, const QString& error) {
                 if (guard) guard->reportStatusResult(ok, error);
             });
         });
@@ -90,21 +91,21 @@ void MainWindow::on_usericon_label_clicked()
 
     QAction* setCustom = menu.addAction(tr("Set a custom status…"));
     connect(setCustom, &QAction::triggered, this, [this] {
-        CustomStatusEditorDialog editor(backend.emojiRegistry(),
-                                        backend.getLoginUser().props.customStatus, this);
+        CustomStatusEditorDialog editor(backendInstance().emojiRegistry(),
+                                        backendInstance().getLoginUser().props.customStatus, this);
         QPointer<CustomStatusEditorDialog> editorGuard(&editor);
         QPointer<MainWindow> mainWindowGuard(this);
         editor.setRemoveRecentCallback(
             [this, mainWindowGuard](const BackendUserCustomStatus& status,
                                     std::function<void(bool)> done) {
-                backend.removeRecentCustomStatus(status,
+                backendInstance().removeRecentCustomStatus(status,
                     [mainWindowGuard, done](bool ok, const QString& error) {
                         if (mainWindowGuard)
                             mainWindowGuard->reportStatusResult(ok, error);
                         done(ok);
                     });
             });
-        backend.retrieveRecentCustomStatuses(
+        backendInstance().retrieveRecentCustomStatuses(
             [editorGuard](QVector<BackendUserCustomStatus> statuses) {
                 if (editorGuard)
                     editorGuard->setRecentStatuses(statuses);
@@ -119,9 +120,9 @@ void MainWindow::on_usericon_label_clicked()
                 mainWindowGuard->reportStatusResult(ok, error);
         };
         if (!hasCustomStatusContent(emoji, message)) {
-            backend.clearOwnCustomStatus(finished);
+            backendInstance().clearOwnCustomStatus(finished);
         } else {
-            backend.setOwnCustomStatus(emoji, message, editor.statusDuration(),
+            backendInstance().setOwnCustomStatus(emoji, message, editor.statusDuration(),
                                        editor.statusExpiresAt(), finished);
         }
     });
@@ -130,7 +131,7 @@ void MainWindow::on_usericon_label_clicked()
     clear->setEnabled(hasCustomStatus);
     connect(clear, &QAction::triggered, this, [this] {
         QPointer<MainWindow> guard(this);
-        backend.clearOwnCustomStatus([guard](bool ok, const QString& error) {
+        backendInstance().clearOwnCustomStatus([guard](bool ok, const QString& error) {
             if (guard) guard->reportStatusResult(ok, error);
         });
     });
@@ -138,7 +139,7 @@ void MainWindow::on_usericon_label_clicked()
     menu.addSeparator();
     QAction* profile = menu.addAction(tr("View profile…"));
     connect(profile, &QAction::triggered, this, [this] {
-        UserProfileDialog::showTransient(backend, backend.getLoginUser(), this);
+        UserProfileDialog::showTransient(backendInstance(), backendInstance().getLoginUser(), this);
     });
 
     menu.exec(ui->usericon_label->mapToGlobal(QPoint(0, ui->usericon_label->height())));

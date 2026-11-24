@@ -12,6 +12,8 @@
 #include <QLoggingCategory>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
+#include <QSplitter>
+#include <QTabWidget>
 #include <QScrollBar>
 #include <QScopedPointer>
 #include <QTabBar>
@@ -277,6 +279,46 @@ class ThreadTabsIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void backendlessWindowAttachesSessionWithoutRecreatingItsSurface()
+    {
+        Server server;
+        server.startupChannels = true;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        Backend backend;
+        backend.networkSession().setHost(serverBaseUrl(server));
+        backend.getStorage().addUser(
+            QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QByteArray());
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray);
+        window.resize(1100, 700);
+        window.show();
+        QVERIFY(!window.backendOrNull());
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        auto* stack = window.findChild<QStackedWidget*>("chatAreaStackedWidget");
+        QVERIFY(tree);
+        QVERIFY(stack);
+        auto& navigation = NavigationUiController::instance(window);
+        const auto splitters = window.findChildren<QSplitter*>();
+        auto* tabs = window.findChild<QTabBar*>("navigationTabs");
+        QVERIFY(tabs);
+        QVERIFY(window.attachInitialBackend(backend));
+        QVERIFY(window.attachInitialBackend(backend));
+        QCOMPARE(window.backendOrNull(), &backend);
+        QCOMPARE(window.findChild<ChannelTree*>("channelList"), tree);
+        QCOMPARE(window.findChild<QStackedWidget*>("chatAreaStackedWidget"), stack);
+        QCOMPARE(window.findChild<QTabBar*>("navigationTabs"), tabs);
+        QCOMPARE(window.findChildren<QSplitter*>(), splitters);
+        QCOMPARE(&NavigationUiController::instance(window), &navigation);
+        QTRY_VERIFY(backend.getStorage().getChannelById("channel"));
+        QTRY_VERIFY(SidebarService::instance(backend).teamState("team")
+                    && SidebarService::instance(backend).teamState("team")->category("dm"));
+        AppNavigationService::instance(backend).openChannel("channel");
+        QTRY_VERIFY(tree->getCurrentPage());
+        QCOMPARE(&tree->getCurrentPage()->getBackend(), &backend);
+    }
+
     void serverUnreadReplyCannotRedirectRootOnlyConversation()
     {
         // The test server returns a synthetic reply as the unread cursor.

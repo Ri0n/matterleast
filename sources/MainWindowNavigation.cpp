@@ -33,13 +33,13 @@ void MainWindow::openDraft(const QString& channelId,
                            const QString& rootId,
                            const QString& draftKey)
 {
-    if (channelId.isEmpty()
-        || !backend.getStorage().getChannelById(channelId)) {
+    if (!backendOrNull() || channelId.isEmpty()
+        || !backendInstance().getStorage().getChannelById(channelId)) {
         return;
     }
 
     beginSemanticNavigation();
-    const QString accountId = ui->channelList->accountIdForBackend(&backend);
+    const QString accountId = ui->channelList->accountIdForBackend(&backendInstance());
     const quint64 generation = semanticNavigationGeneration;
 
     if (rootId.isEmpty()) {
@@ -63,7 +63,7 @@ void MainWindow::openDraft(const QString& channelId,
                         return;
                     }
                     ChatArea* area = guard->ui->channelList->getCurrentPage();
-                    if (area && &area->getBackend() == &guard->backend
+                    if (area && &area->getBackend() == &guard->backendInstance()
                         && area->getChannel().id == channelId) {
                         area->restoreDraftAndFocus(draftKey);
                     }
@@ -72,7 +72,7 @@ void MainWindow::openDraft(const QString& channelId,
 
         ui->channelList->openStoredChannelForAccount(channelId, accountId);
         ChatArea* area = ui->channelList->getCurrentPage();
-        if (area && &area->getBackend() == &backend && area->getChannel().id == channelId) {
+        if (area && &area->getBackend() == &backendInstance() && area->getChannel().id == channelId) {
             QObject::disconnect(*completion);
             area->restoreDraftAndFocus(draftKey);
         }
@@ -125,7 +125,8 @@ void MainWindow::openChannelPost(const QString& channelId,
                                  bool reachedNewest,
                                  bool preserveIfOpen)
 {
-    openChannelPostForBackend(backend, channelId, postId, rootId, contextPostIds,
+    if (!backendOrNull()) return;
+    openChannelPostForBackend(backendInstance(), channelId, postId, rootId, contextPostIds,
                               reachedOldest, reachedNewest, preserveIfOpen);
 }
 
@@ -137,7 +138,7 @@ void MainWindow::openChannelPostForBackend(Backend& source, const QString& chann
 {
     // Transitional presenter: explicitly reject an account we do not own.
     // The shared MainWindow will replace this check with account admission.
-    if (&source != &backend) return;
+    if (&source != backendOrNull()) return;
     const QString accountId = ui->channelList->accountIdForBackend(&source);
     const QPointer<Backend> sourceGuard(&source);
     const quint64 navigationGeneration = semanticNavigationGeneration;
