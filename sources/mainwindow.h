@@ -75,7 +75,6 @@ public:
     // surface. Does not switch the selected profile or restart its services.
     bool attachNavigationBackend(Backend& source);
     void detachNavigationBackend(Backend& source);
-    void enableSharedPresentation();
     void selectPresentationBackend(Backend* source);
     void setVisibleAccounts(const QStringList& ids, const QHash<QString, QString>& labels,
                             const QString& sorting);
@@ -163,7 +162,6 @@ private:
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
     QPointer<Backend> _backend;
-    bool _sharedPresentation = false;
     bool _sidebarStateRestored = false;
     QString retainedUnreadFilterAccountId;
     QHash<Backend*, QObject*> _navigationSubscriptions;
