@@ -768,10 +768,14 @@ void Backend::logout(std::function<void()> callback)
         }
         *completed = true;
         timeoutTimer.stop();
-        reset();
-        if (callback) {
-            callback();
-        }
+        // Do not destroy the network manager (and its emitting reply) from
+        // inside QNetworkReply::finished. Complete on the Backend event loop
+        // after the transport callback has returned.
+        QMetaObject::invokeMethod(this, [this, callback] {
+            reset();
+            if (callback)
+                callback();
+        }, Qt::QueuedConnection);
     };
 
     timeoutTimer.stop();
