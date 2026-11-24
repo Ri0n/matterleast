@@ -103,24 +103,27 @@ ViewNavigationSession* NavigationUiController::historySession() const
 ViewNavigationSession::Location NavigationUiController::semanticLocation(
     const Location& source) const
 {
-    if (!source.valid() || source.accountId != presentationAccountId()) return {};
+    if (!source.valid() || !backendForAccount(source.accountId)) return {};
     auto result = source;
     // Production views use the actual Account ID. Only standalone fixtures
     // may bind a synthetic View ID different from their private local key.
-    if (viewNavigationSession)
+    if (viewNavigationSession) {
+        if (source.accountId != presentationAccountId()) return {};
         result.accountId = viewNavigationAccountId;
+    }
     return result;
 }
 
 bool NavigationUiController::presentationLocation(
     const ViewNavigationSession::Location& source, Location& result) const
 {
-    const QString expected = viewNavigationSession
-        ? viewNavigationAccountId : presentationAccountId();
-    if (!source.valid() || source.accountId != expected) return false;
+    if (!source.valid()) return false;
     result = source;
-    result.accountId = presentationAccountId();
-    return true;
+    if (viewNavigationSession) {
+        if (source.accountId != viewNavigationAccountId) return false;
+        result.accountId = presentationAccountId();
+    }
+    return backendForAccount(result.accountId) != nullptr;
 }
 
 void NavigationUiController::syncViewSession()
@@ -595,6 +598,12 @@ void NavigationUiController::restoreSessionBookmark(
 void NavigationUiController::saveSession()
 {
     if (shuttingDown || !sessionRestored || restoringSession) return;
+    // Never encode a multi-account presentation using the legacy single
+    // account snapshot format (which deliberately has no account IDs).
+    if (attachedBackends.size() > 1) {
+        syncViewSession();
+        return;
+    }
     const QString key = sessionSettingsKey();
     if (key.isEmpty()) return;
 

@@ -71,6 +71,12 @@ public:
     // Transitional attachment: build the permanent Widgets surface before
     // any network session exists. An already attached window is not rebound.
     bool attachInitialBackend(Backend& source);
+    // Attach an already initialized account's navigation to the same central
+    // surface. Does not switch the selected profile or restart its services.
+    bool attachNavigationBackend(Backend& source);
+    Backend* navigationBackend(const QString& accountId) const;
+    bool admitsNavigationBackend(const Backend& source) const;
+    void beginSemanticNavigationFrom(Backend* source);
     // Header identity follows the selected account, not an open chat.
     void setProfileBackend(Backend* source);
 	void initializationComplete ();

@@ -26,6 +26,7 @@ public:
     static AppNavigationService& instance(Backend& backend);
     // An account's Widgets presentation may be embedded in AccountWorkspaceStack.
     void bindMainWindow(MainWindow& window);
+    void cancelPendingNavigation() { navigationRequests.begin(); }
 
     void openUrl(const QUrl& url);
     void openUrlInTab(const QUrl& url);

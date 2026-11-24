@@ -3,6 +3,7 @@
 #include <QObject>
 #include <optional>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -74,6 +75,7 @@ public:
     // still valid. Flush once, then stop reacting to their destruction.
     void beginShutdown();
     void attachBackend(Backend& source);
+    void cancelOtherNavigationRequests(const Backend* source);
     // Called only for a view with one owning account while the desktop still
     // uses account-specific MainWindow instances. The state remains QtCore.
     void bindViewSession(ViewNavigationSession* session, const QString& accountId);
@@ -169,7 +171,7 @@ private:
     QToolButton* backButton = nullptr;
     QToolButton* forwardButton = nullptr;
 
-    QPointer<Backend> attachedBackend;
+    QSet<Backend*> attachedBackends;
     QPointer<ChatArea> activeArea;
     Location currentLocation;
     // The QtCore session owns Back/Forward; no second Widgets history stacks.

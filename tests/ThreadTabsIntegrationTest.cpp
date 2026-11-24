@@ -25,6 +25,7 @@
 #include <QUrlQuery>
 
 #include "backend/Backend.h"
+#include "backend/Account.h"
 #include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
 #include "backend/PostRepository.h"
@@ -2264,6 +2265,73 @@ private slots:
     }
     // Run the two-window fixture after the independent single-window cases,
     // so its process-global presentation state cannot affect scroll tests.
+    void oneCentralSurfaceAdmitsTwoAccountsWithCollidingIds()
+    {
+        Server serverA;
+        Server serverB;
+        serverA.startupChannels = true;
+        serverB.startupChannels = true;
+        QVERIFY(serverA.listen(QHostAddress::LocalHost));
+        QVERIFY(serverB.listen(QHostAddress::LocalHost));
+
+        Account accountA(QStringLiteral("a"), nullptr);
+        Account accountB(QStringLiteral("b"), nullptr);
+        Backend backendA(&accountA);
+        Backend backendB(&accountB);
+        for (Backend* owner : {&backendA, &backendB}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+        }
+        backendA.networkSession().setHost(serverBaseUrl(serverA));
+        backendB.networkSession().setHost(serverBaseUrl(serverB));
+        MLOptions::instance()->setValue(sessionKey(serverBaseUrl(serverA)), QByteArray());
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray, backendA);
+        window.resize(1100, 700);
+        window.show();
+        auto* tree = window.findChild<ChannelTree*>("channelList");
+        QVERIFY(tree);
+        QTRY_VERIFY(backendA.getStorage().getChannelById("channel"));
+        QTRY_VERIFY(SidebarService::instance(backendA).teamState("team")
+            && SidebarService::instance(backendA).teamState("team")->category("dm"));
+
+        // Simulate the account-owned startup snapshot without creating a
+        // second MainWindow. The two storage objects intentionally share IDs.
+        auto* teamB = backendB.getStorage().addTeam(
+            QJsonObject {{"id", "team"}, {"name", "team"}, {"display_name", "Team B"}});
+        QVERIFY(teamB);
+        QVERIFY(backendB.getStorage().addGroupChannel(
+            QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Chat B"}}));
+        QVERIFY(window.attachNavigationBackend(backendB));
+        QVERIFY(tree->setVisibleAccountRoots({"a", "b"}));
+        tree->addTeam(backendB, *teamB);
+        SidebarService::instance(backendB).retrieveCategories(*teamB);
+        QTRY_VERIFY(SidebarService::instance(backendB).teamState("team")
+            && SidebarService::instance(backendB).teamState("team")->category("dm"));
+        tree->synchronizeAccountSidebar("b");
+
+        auto& navA = AppNavigationService::instance(backendA);
+        auto& navB = AppNavigationService::instance(backendB);
+        auto& navigation = NavigationUiController::instance(window);
+        navA.openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &backendA);
+        navB.openChannelInTab("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &backendB);
+        auto* tabs = window.findChild<QTabBar*>("navigationTabs");
+        QVERIFY(tabs);
+        QCOMPARE(tabs->count(), 2);
+        navA.openChannel("channel");
+        QTRY_VERIFY(tree->getCurrentPage()
+            && &tree->getCurrentPage()->getBackend() == &backendA);
+        navB.openThreadInTab("channel", rootId(905));
+        QTRY_VERIFY(navigation.findThreadForBackend(backendB, "channel", rootId(905)));
+        QVERIFY(!navigation.findThreadForBackend(backendA, "channel", rootId(905)));
+        QCOMPARE(window.backendOrNull(), &backendA);
+    }
+
     void embeddedMultiAccountNavigationReachesOnlyOwningBackend()
     {
         Server serverA;

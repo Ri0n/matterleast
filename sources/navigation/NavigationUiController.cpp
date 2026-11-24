@@ -445,12 +445,24 @@ void NavigationUiController::activateNextTab()
     if (index >= 0 && index != activeTabIndex) activateTab(index);
 }
 
+void NavigationUiController::cancelOtherNavigationRequests(const Backend* source)
+{
+    for (Backend* owner : attachedBackends) {
+        if (owner != source) {
+            if (auto* service = owner->findChild<AppNavigationService*>(
+                    QStringLiteral("appNavigationService"), Qt::FindDirectChildrenOnly))
+                service->cancelPendingNavigation();
+        }
+    }
+}
+
 void NavigationUiController::attachBackend(Backend& source)
 {
-    if (attachedBackend == &source) return;
-    Q_ASSERT(!attachedBackend);
-    if (attachedBackend) return;
-    attachedBackend = &source;
+    if (attachedBackends.contains(&source)) return;
+    attachedBackends.insert(&source);
+    connect(&source, &QObject::destroyed, this, [this, key = &source] {
+        attachedBackends.remove(key);
+    });
     Backend* sourceBackend = &source;
     // A new explicit navigation cancels a deferred Back/Forward replay.
     // The history path below calls MainWindow directly, so it does not
@@ -490,10 +502,7 @@ Backend* NavigationUiController::backend() const
 
 Backend* NavigationUiController::backendForAccount(const QString& accountId) const
 {
-    // The current presenter still has exactly one owner. This is the
-    // account-resolution boundary to replace when MainWindow becomes shared.
-    Backend* owner = backend();
-    return owner && accountIdForBackend(*owner) == accountId ? owner : nullptr;
+    return window.navigationBackend(accountId);
 }
 
 QString NavigationUiController::accountIdForBackend(const Backend& source)

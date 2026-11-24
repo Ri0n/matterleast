@@ -328,11 +328,50 @@ bool MainWindow::attachInitialBackend(Backend& source)
 
     // Register the Backend-owned navigation receiver once the complete
     // channel/thread presentation exists, before plugins can navigate.
-    AppNavigationService::instance(backendInstance()).bindMainWindow(*this);
+    AppNavigationService::instance(source).bindMainWindow(*this);
     if (auto* navigation = findChild<NavigationUiController*>(
             QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
         navigation->attachBackend(source);
     LOG_DEBUG("MainWindow account attached");
+    return true;
+}
+
+Backend* MainWindow::navigationBackend(const QString& accountId) const
+{
+    if (auto* owner = ui->channelList->backendForAccount(accountId))
+        return owner;
+    // Existing standalone widgets have no Account object. Preserve their
+    // private semantic identity without inventing an ID for another session.
+    if (auto* primary = backendOrNull()) {
+        const auto* account = qobject_cast<const Account*>(primary->parent());
+        if ((!account && accountId == QStringLiteral("_startup"))
+            || (account && account->id() == accountId))
+            return primary;
+    }
+    return nullptr;
+}
+
+bool MainWindow::admitsNavigationBackend(const Backend& source) const
+{
+    if (&source == backendOrNull()) return true;
+    const auto* account = qobject_cast<const Account*>(source.parent());
+    return account && navigationBackend(account->id()) == &source;
+}
+
+bool MainWindow::attachNavigationBackend(Backend& source)
+{
+    if (&source == backendOrNull()) return true;
+    const auto* account = qobject_cast<const Account*>(source.parent());
+    if (!account || !source.getStorage().loginUser) return false;
+    if (auto* primary = backendOrNull()) {
+        const auto* primaryAccount = qobject_cast<const Account*>(primary->parent());
+        if (!primaryAccount) return false;
+        if (!ui->channelList->bindSingleAccount(primaryAccount->id())) return false;
+    }
+    if (!ui->channelList->registerAccountBackend(account->id(), source)) return false;
+    auto& navigation = NavigationUiController::instance(*this);
+    navigation.attachBackend(source);
+    AppNavigationService::instance(source).bindMainWindow(*this);
     return true;
 }
 

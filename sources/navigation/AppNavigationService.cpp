@@ -288,10 +288,9 @@ AppNavigationService::AppNavigationService(Backend& sourceBackend)
 
 void AppNavigationService::bindMainWindow(MainWindow& window)
 {
-    // A MainWindow can be a child of the account workspace rather than a
-    // top-level window. Bind the presentation to this exact Backend, never
-    // to an unrelated server's MainWindow.
-    if (&window.backendInstance() != &backend) {
+    // A shared MainWindow admits each live account explicitly. Never bind
+    // an unregistered session or resolve it from the selected profile.
+    if (!window.admitsNavigationBackend(backend)) {
         qWarning("Cannot bind navigation to a MainWindow from another account");
         return;
     }
@@ -301,8 +300,8 @@ void AppNavigationService::bindMainWindow(MainWindow& window)
     if (presentationWindow)
         QObject::disconnect(this, nullptr, presentationWindow, nullptr);
     presentationWindow = &window;
-    connect(this, &AppNavigationService::navigationStarted,
-            &window, &MainWindow::beginSemanticNavigation);
+    connect(this, &AppNavigationService::navigationStarted, &window,
+            [this, &window] { window.beginSemanticNavigationFrom(&backend); });
     connect(this, &AppNavigationService::channelRequested, &window,
             [this, &window](const QString& channelId, const QString& postId,
                             const QString& rootId, const QStringList& contextPostIds,

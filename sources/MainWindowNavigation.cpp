@@ -23,6 +23,15 @@ Q_LOGGING_CATEGORY(lcNavigationJump, "mattermost.navigation.jump", QtWarningMsg)
 
 void MainWindow::beginSemanticNavigation()
 {
+    beginSemanticNavigationFrom(nullptr);
+}
+
+void MainWindow::beginSemanticNavigationFrom(Backend* source)
+{
+    if (source && !admitsNavigationBackend(*source)) return;
+    if (auto* controller = findChild<NavigationUiController*>(
+            QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
+        controller->cancelOtherNavigationRequests(source);
     ++semanticNavigationGeneration;
     if (semanticNavigationGeneration == 0) {
         ++semanticNavigationGeneration;
@@ -136,9 +145,7 @@ void MainWindow::openChannelPostForBackend(Backend& source, const QString& chann
                                            bool reachedOldest, bool reachedNewest,
                                            bool preserveIfOpen)
 {
-    // Transitional presenter: explicitly reject an account we do not own.
-    // The shared MainWindow will replace this check with account admission.
-    if (&source != backendOrNull()) return;
+    if (!admitsNavigationBackend(source)) return;
     const QString accountId = ui->channelList->accountIdForBackend(&source);
     const QPointer<Backend> sourceGuard(&source);
     const quint64 navigationGeneration = semanticNavigationGeneration;

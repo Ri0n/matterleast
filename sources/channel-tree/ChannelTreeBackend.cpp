@@ -29,7 +29,7 @@ Backend* ChannelTree::backendInstance() const
     if (!_accountBackends.isEmpty())
         return nullptr;
     auto* mainWindow = qobject_cast<MainWindow*>(window());
-    return mainWindow ? &mainWindow->backendInstance() : nullptr;
+    return mainWindow ? mainWindow->backendOrNull() : nullptr;
 }
 
 } // namespace Mattermost
