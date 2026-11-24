@@ -63,14 +63,10 @@ class MainWindow: public QMainWindow {
 	Q_OBJECT
 public:
 	MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon);
-    MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& backend);
 	~MainWindow();
 public:
     Backend* backendOrNull() const;
     Backend& backendInstance() const;
-    // Transitional attachment: build the permanent Widgets surface before
-    // any network session exists. An already attached window is not rebound.
-    bool attachInitialBackend(Backend& source);
     // Attach an already initialized account's navigation to the same central
     // surface. Does not switch the selected profile or restart its services.
     bool attachNavigationBackend(Backend& source);
@@ -84,8 +80,6 @@ public:
     void beginSemanticNavigationFrom(Backend* source);
     // Header identity follows the selected account, not an open chat.
     void setProfileBackend(Backend* source);
-	void initializationComplete ();
-    void installRealtimeUiSync();
     void installRealtimeUiSync(Backend& source, QObject* context);
     void bindViewNavigation(ViewNavigationSession* session);
     void unbindViewNavigation();
@@ -140,7 +134,6 @@ private:
     void refreshProfileHeader();
     void refreshQueueAccounts();
 	void setupChannelTabs ();
-	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
 	void refreshChannelUnreadFilter ();
 	void applySidebarTextFilter(QTreeWidget* tree) const;
@@ -192,10 +185,6 @@ private:
     QPointer<PostCollectionView>         searchMessagesPage;
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;
-	bool channelMembershipsReady = false;
-	bool teamChannelsReady = false;
-	QSet<QString> populatedSessionSidebars;
-	bool navigationSessionRestoreScheduled = false;
 	QMenu*								mainMenu;
 };
 
