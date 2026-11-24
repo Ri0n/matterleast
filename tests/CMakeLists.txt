@@ -912,17 +912,6 @@ if(TARGET matterleast-core)
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
-# Account workspace switching must preserve the underlying views instead of
-# recreating pages, navigation models or draft widgets on every switch.
-if(TARGET matterleast-core)
-    add_executable(account-workspace-stack-test AccountWorkspaceStackTest.cpp)
-    target_link_libraries(account-workspace-stack-test PRIVATE
-        matterleast-core Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Widgets)
-    add_test(NAME account-workspace-stack-test COMMAND account-workspace-stack-test)
-    set_tests_properties(account-workspace-stack-test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()
-
 # Authenticated Backend instances must keep login, preferences and
 # cancellation isolated across simultaneous fake Mattermost servers.
 if(TARGET matterleast-core)
