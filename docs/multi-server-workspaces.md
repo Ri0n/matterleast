@@ -546,7 +546,12 @@ not the restored size hints; do not reject a valid saved split on that basis.
 Preserve the central stretch factor and reject a zero (or minimum one-pixel)
 conversation pane even before the first account has connected. Never persist
 a collapsed application conversation pane. The first-show restoration does not
-schedule timers or run again when switching views or showing the tray window. Widget
+schedule timers or run again when switching views or showing the tray window. The
+outer splitter uses native QSplitter size negotiation (sidebar stretch 0,
+conversation stretch 1); there is no global event-filter width keeper or
+deferred setSizes() on resize. The shared ThinSplitter handle is tested for
+repeated drags from its trailing hit area after pane visibility, resize and
+window hide/show transitions. Widget
 integration tests exercise real sidebar clicks and verify visible ChatArea
 geometry, not merely the current stack page. The standalone one-Backend
 constructor remains for widget tests; the obsolete workspace stack and separate
