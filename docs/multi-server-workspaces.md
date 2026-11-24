@@ -533,8 +533,10 @@ Verified replay refreshes membership/preferences/categories on the account,
 not on any View. ChannelTree subscribes to the cached snapshots. When a team
 vanishes, detach its row from the Qt item model before destroying the derived
 TeamItem: synchronous removal observers must see the intact item, not its
-partially destroyed QTreeWidgetItem base. Other account rows and the model
-remain unchanged. Saved
+partially destroyed QTreeWidgetItem base. If the current selection belongs to
+that branch, clear it before removing any rows, so Qt does not choose a new
+current index during structural removal. Other account rows and selections,
+and the model itself, remain unchanged. Saved
 collections subscribe directly to their own Backend's flagged-post events.
 The standalone constructor still starts the same idempotent startup path for
 widget fixtures; production session initialization does not require a window.
