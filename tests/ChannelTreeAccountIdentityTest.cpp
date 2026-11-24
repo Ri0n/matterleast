@@ -610,7 +610,9 @@ private slots:
         QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), a));
         QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), b));
         QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
-        QCOMPARE(tree.topLevelItemCount(), 2);
+        QCOMPARE(tree.topLevelItemCount(), 3); // two accounts + shared DM/GM
+        QCOMPARE(tree.topLevelItem(2)->data(0, SidebarItem::KindRole).toInt(),
+                 int(SidebarItem::SharedConversations));
         QCOMPARE(tree.topLevelItem(0)->childCount(), 1);
         QCOMPARE(tree.topLevelItem(1)->childCount(), 1);
         QTreeWidgetItem* const oldA = tree.topLevelItem(0)->child(0);
