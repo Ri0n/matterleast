@@ -116,7 +116,6 @@ public:
 	void changeEvent (QEvent* event) override;
 	void closeEvent(QCloseEvent *event) override;
 	void saveState ();
-	void messageNotify (BackendChannel& channel, const BackendPost& post);
 	void unreadMessagesNotify (const BackendChannel& channel);
 	void setNotificationsCountVisualization (uint32_t notificationsCount);
 	void moveEvent (QMoveEvent* event) override;

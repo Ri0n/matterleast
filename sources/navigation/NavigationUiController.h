@@ -50,6 +50,8 @@ public:
     /** Whether the exact conversation is visible in a focused window. */
     bool isConversationVisible(const QString& channelId,
                                const QString& rootId) const;
+    bool isConversationVisible(const Backend& source, const QString& channelId,
+                               const QString& rootId) const;
     void presentChannel(ChatArea* area);
     void presentThread(ChatArea* area);
     /** Choose the parent channel tab for an ordinary contextual thread click. */

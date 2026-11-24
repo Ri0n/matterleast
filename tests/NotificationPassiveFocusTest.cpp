@@ -68,15 +68,16 @@ private slots:
         // actual window cannot prove stacking behavior and crashes on some
         // Linux Qt platform plugins. Guard the concrete production delivery
         // path against direct window activation or an unguarded alert().
-        const QString source = readSource(QStringLiteral("sources/mainwindow.cpp"));
-        QVERIFY2(!source.isEmpty(), "Cannot read MainWindow source");
+        const QString source = readSource(
+            QStringLiteral("sources/notifications/AccountPostNotifications.cpp"));
+        QVERIFY2(!source.isEmpty(), "Cannot read account notification source");
         const QString delivery = functionSection(
-            source, QStringLiteral("void MainWindow::messageNotify("),
-            QStringLiteral("void MainWindow::unreadMessagesNotify("));
-        QVERIFY2(!delivery.isEmpty(), "Cannot locate messageNotify implementation");
-        QVERIFY(delivery.contains(QStringLiteral("notificationManager->show(")));
+            source, QStringLiteral("void AccountPostNotifications::notify("),
+            QStringLiteral("} // namespace Mattermost"));
+        QVERIFY2(!delivery.isEmpty(), "Cannot locate notification implementation");
+        QVERIFY(delivery.contains(QStringLiteral("notifications_.show(")));
         QVERIFY(delivery.contains(
-            QStringLiteral("notificationManager->requestTaskbarAttention(*window())")));
+            QStringLiteral("notifications_.requestTaskbarAttention(*window)")));
 
         // Match calls at the beginning of a statement. Only the platform
         // policy tested above may route a notification to QApplication::alert.

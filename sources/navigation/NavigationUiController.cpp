@@ -1603,6 +1603,13 @@ void NavigationUiController::navigateTo(const Location& location)
 bool NavigationUiController::isConversationVisible(
     const QString& channelId, const QString& rootId) const
 {
+    const Backend* owner = backend();
+    return owner && isConversationVisible(*owner, channelId, rootId);
+}
+
+bool NavigationUiController::isConversationVisible(
+    const Backend& source, const QString& channelId, const QString& rootId) const
+{
     ChatArea* area = nullptr;
     if (rootId.isEmpty()) {
         // A docked thread may be active while its parent channel remains
@@ -1611,10 +1618,10 @@ bool NavigationUiController::isConversationVisible(
             ? qobject_cast<ChatArea*>(mainStack->currentWidget()) : nullptr;
         if (!area || area->isThread) return false;
     } else {
-        area = findThread(channelId, rootId);
+        area = findThreadForBackend(source, channelId, rootId);
     }
 
-    if (!area || &area->getBackend() != backend() || area->getChannel().id != channelId
+    if (!area || &area->getBackend() != &source || area->getChannel().id != channelId
         || !area->isVisible() || !area->window()) {
         return false;
     }

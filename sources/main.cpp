@@ -73,6 +73,9 @@
 #include "ui/ServersWorkspacePage.h"
 #include "ui/ServersSidebarPage.h"
 #include "ui/AccountTrayBadgeMonitor.h"
+#include "notifications/AccountPostNotifications.h"
+#include "notifications/NotificationManager.h"
+#include "navigation/NavigationUiController.h"
 
 namespace Mattermost {
 
@@ -107,6 +110,7 @@ private:
     std::unique_ptr<QMenu> trayIconMenu;
     std::unique_ptr<QSystemTrayIcon> trayIcon;
     AccountTrayBadgeMonitor trayBadges;
+    AccountPostNotifications postNotifications;
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
     ServersWorkspacePage* serversStartupPage = nullptr;
     QHash<Backend*, MainWindow*> accountViews; // Presentation only.
@@ -125,6 +129,13 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
 ,trayBadges(*trayIcon)
+,postNotifications(NotificationManager::instance(*trayIcon),
+    [this](Backend& source, const QString& channelId, const QString& rootId) {
+        MainWindow* page = accountViews.value(&source, nullptr);
+        return page && NavigationUiController::instance(*page)
+            .isConversationVisible(source, channelId, rootId);
+    },
+    [this]() -> QWidget* { return workspaceShell.get(); })
 {
     QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
     // Match the installed .desktop file for notification portal identity.
@@ -205,12 +216,14 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     connect(&accounts, &AccountManager::accountConnected, this,
             [this](Account* account, Backend* backend) {
         trayBadges.watch(*backend);
+        postNotifications.watch(*backend);
         addAccountWorkspace(*backend,
                             account->id() == accounts.selectedAccountId());
     });
     connect(&accounts, &AccountManager::accountUnregistered, this,
             [this](Backend* backend) {
         trayBadges.unwatch(backend);
+        postNotifications.unwatch(backend);
         closingAccounts.remove(backend);
     });
     connect(&accounts, &AccountManager::profileSuspensionRequested, this,
@@ -779,6 +792,7 @@ void MattermostApplication::suspendProfileConnection(Account* item,
         return;
 
     closingAccounts.insert(backend);
+    postNotifications.unwatch(backend);
     const QString accountId = item->id();
     for (auto sidebar : viewSidebars)
         if (sidebar) sidebar->unregisterAccountBackend(accountId, backend);
@@ -828,6 +842,7 @@ void MattermostApplication::beginLogout(Backend& backend,
         return;
 
     closingAccounts.insert(&backend);
+    postNotifications.unwatch(&backend);
     const QString id = item->id();
     for (auto sidebar : viewSidebars)
         if (sidebar) sidebar->unregisterAccountBackend(id, &backend);
