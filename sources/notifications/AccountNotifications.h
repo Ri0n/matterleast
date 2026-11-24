@@ -28,8 +28,7 @@ public:
     using Window = std::function<QWidget*()>;
 
     AccountNotifications(NotificationManager& notifications, PluginManager& plugins,
-                             Visibility visible,
-                             Window window, QObject* parent = nullptr);
+                         Visibility visible, Window window, QObject* parent = nullptr);
     ~AccountNotifications() override;
 
     void watch(Backend& source);

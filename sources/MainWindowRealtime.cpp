@@ -11,16 +11,6 @@
 
 #include "ui_mainwindow.h"
 
-#include <memory>
-
-#include <QApplication>
-#include <QSet>
-#include <QTimer>
-
-#include "build-config.h"
-#if BUILD_MULTIMEDIA
-#include <QSoundEffect>
-#endif
 
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
@@ -33,16 +23,9 @@
 #include "backend/types/BackendPost.h"
 #include "backend/types/BackendUser.h"
 #include "channel-tree/AttentionList.h"
-#include "channel-tree/ChannelQuickList.h"
 #include "channel-tree/ChannelTree.h"
-#include "chat-area/ChatArea.h"
-#include "navigation/AppNavigationService.h"
-#include "notifications/NotificationManager.h"
-#include "plugins/PluginManager.h"
 #include "post-collection/PostCollectionView.h"
 #include "server-dialog/ServerDialog.h"
-#include "ui/PresenceAvatarLabel.h"
-#include "ui/TeamSelectorLabel.h"
 
 namespace Mattermost {
 

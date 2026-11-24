@@ -4,7 +4,7 @@ namespace Mattermost {
 
 // Desktop notification eligibility for NEW ROOT posts. Muted channels,
 // own posts, already-active conversations and thread replies are filtered
-// separately by MainWindow and are intentionally unaffected by this setting.
+// separately by AccountNotifications and are intentionally unaffected by this setting.
 enum class ChannelRootNotificationMode {
     MentionsOnly = 0,
     MentionsOrFavorites = 1,

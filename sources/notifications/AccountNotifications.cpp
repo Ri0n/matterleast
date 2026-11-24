@@ -263,7 +263,7 @@ void AccountNotifications::notify(Backend& source, BackendChannel& channel,
     }
 
     notifications_.show(title, post.message,
-                              NotificationTarget {channel.id, post.id, post.root_id, {}, &source});
+                        NotificationTarget {channel.id, post.id, post.root_id, {}, &source});
     // Taskbar urgency belongs to the actual application window, not to a
     // hidden account's presentation.
     if (auto* window = window_ ? window_() : nullptr)

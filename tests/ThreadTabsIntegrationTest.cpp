@@ -26,6 +26,11 @@
 
 #include "backend/Backend.h"
 #include "backend/Account.h"
+#include "backend/AccountManager.h"
+#include "backend/types/BackendPost.h"
+#include "notifications/AccountNotifications.h"
+#include "notifications/NotificationManager.h"
+#include "plugins/PluginManager.h"
 #include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
 #include "backend/PostRepository.h"
@@ -2269,6 +2274,50 @@ private slots:
     }
     // Run the two-window fixture after the independent single-window cases,
     // so its process-global presentation state cannot affect scroll tests.
+    void accountNotificationsObserveOnlyRegisteredSessions()
+    {
+        AccountManager accounts;
+        PluginManager plugins(accounts);
+        Backend first;
+        Backend second;
+        for (auto* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "sender"}, {"username", "sender"}}, false);
+            QVERIFY(owner->getStorage().addGroupChannel(
+                QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Test"}}));
+        }
+        QSystemTrayIcon tray;
+        QVector<Backend*> queried;
+        AccountNotifications notifications(NotificationManager::instance(tray), plugins,
+            [&queried](Backend& owner, const QString& channelId, const QString& root) {
+                if (channelId == "channel" && root.isEmpty())
+                    queried.append(&owner);
+                return true; // No actual desktop popup required by the test.
+            }, {});
+        notifications.watch(first);
+        notifications.watch(first); // Repeated registration is idempotent.
+        notifications.watch(second);
+        const auto send = [](Backend& owner) {
+            const double now = static_cast<double>(QDateTime::currentMSecsSinceEpoch());
+            BackendPost post(QJsonObject {{"id", "same-post"}, {"channel_id", "channel"},
+                {"user_id", "sender"}, {"message", "Hello"}, {"create_at", now},
+                {"update_at", now}}, owner.getStorage());
+            emit owner.onNewPost(*owner.getStorage().getChannelById("channel"), post);
+        };
+        send(first);
+        send(second);
+        QCOMPARE(queried.size(), 2);
+        QCOMPARE(queried.at(0), &first);
+        QCOMPARE(queried.at(1), &second);
+        notifications.unwatch(&first);
+        send(first);
+        send(second);
+        QCOMPARE(queried.size(), 3);
+        QCOMPARE(queried.last(), &second);
+    }
+
     void trayMonitorCountsAccountsOutsideCurrentQueue()
     {
         Backend first;
