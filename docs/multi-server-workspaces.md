@@ -523,8 +523,10 @@ that branch, clear it before removing any rows, so Qt does not choose a new
 current index during structural removal. Other account rows and selections,
 and the model itself, remain unchanged. Saved
 collections subscribe directly to their own Backend's flagged-post events.
-The standalone constructor still starts the same idempotent startup path for
-widget fixtures; production session initialization does not require a window.
+All widget integration fixtures attach real Account-owned Backends through
+the same registration path as production; account startup remains independent
+of MainWindow. The old snapshot readiness gate lives only in the test fixture
+until View persistence is implemented.
 
 Account-owned deferred profile requests are invalidated when the session ends.
 The logout reply and timeout share a single completion path; the final reset
@@ -553,6 +555,8 @@ deferred setSizes() on resize. The shared ThinSplitter handle is tested for
 repeated drags from its trailing hit area after pane visibility, resize and
 window hide/show transitions. Widget
 integration tests exercise real sidebar clicks and verify visible ChatArea
-geometry, not merely the current stack page. The standalone one-Backend
-constructor remains for widget tests; the obsolete workspace stack and separate
-startup page have been removed. Startup tests exercise the real Servers tab.
+geometry, not merely the current stack page. The obsolete workspace stack, separate startup page, one-Backend constructor
+and alternate attachment path have been removed. The MainWindow constructor
+installs the navigation surface once, before its first show; there is no
+application-level Show event filter or shared-presentation mode switch.
+Startup tests exercise the real Servers tab.
