@@ -260,8 +260,9 @@ bool MainWindow::attachInitialBackend(Backend& source)
     ui->searchButton->setEnabled(true);
     if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))
         action->setEnabled(true);
-    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarUserGroupsAction")))
+    if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarUserGroupsAction"))) {
         action->setEnabled(true);
+    }
 
 	// Recover previous-process unresolved sends before Drafts can be opened.
 	// Construction never retransmits them; it converts them to local drafts.
