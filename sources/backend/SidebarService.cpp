@@ -159,6 +159,9 @@ SidebarService::SidebarService(Backend& backend)
             this, &SidebarService::synchronizeChannelActivity);
 
     QTimer::singleShot(0, this, [this] {
+        // A session may have been stopped before deferred startup runs.
+        if (currentUserId().isEmpty())
+            return;
         retrieveClientConfig();
         retrieveChannelPreferences();
     });
@@ -212,7 +215,8 @@ void SidebarService::clear()
 
 QString SidebarService::currentUserId() const
 {
-    return backend.getLoginUser().id;
+    const auto* user = backend.getStorage().loginUser;
+    return user ? user->id : QString();
 }
 
 QString SidebarService::categoriesPath(const QString& teamId) const
