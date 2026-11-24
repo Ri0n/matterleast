@@ -3,6 +3,7 @@
 #include "ViewNavigationSession.h"
 
 #include <QApplication>
+#include <algorithm>
 #include <cmath>
 #include <QCryptographicHash>
 #include <QJsonArray>

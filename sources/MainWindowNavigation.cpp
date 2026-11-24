@@ -30,8 +30,10 @@ void MainWindow::beginSemanticNavigationFrom(Backend* source)
 {
     if (source && !admitsNavigationBackend(*source)) return;
     if (auto* controller = findChild<NavigationUiController*>(
-            QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly))
+            QStringLiteral("navigationUiController"), Qt::FindDirectChildrenOnly)) {
+        if (source && !controller->canPresentBackend(*source)) return;
         controller->cancelOtherNavigationRequests(source);
+    }
     ++semanticNavigationGeneration;
     if (semanticNavigationGeneration == 0) {
         ++semanticNavigationGeneration;
@@ -177,6 +179,7 @@ void MainWindow::openChannelPostForBackend(Backend& source, const QString& chann
     }
 
     auto& navigationUi = NavigationUiController::instance(*this);
+    if (!navigationUi.canPresentBackend(source)) return;
 
     // openStoredChannel() may have to join a public channel asynchronously.
     // Preserve the complete semantic navigation request so the eventual channel

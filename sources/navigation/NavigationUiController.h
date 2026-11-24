@@ -76,6 +76,7 @@ public:
     void beginShutdown();
     void attachBackend(Backend& source);
     void cancelOtherNavigationRequests(const Backend* source);
+    bool canPresentBackend(const Backend& source) const;
     // Empty accountId binds exact account-qualified View state. The explicit
     // alias is retained for the transitional one-account presenters/fixtures.
     void bindViewSession(ViewNavigationSession* session, const QString& accountId = {});

@@ -2344,6 +2344,10 @@ private slots:
         QCOMPARE(onlyA.tabs().count(), 0);
         navA.openChannel("channel");
         QTRY_COMPARE(onlyA.tabs().count(), 1);
+        navB.openChannel("channel");
+        QCoreApplication::processEvents();
+        QCOMPARE(&tree->getCurrentPage()->getBackend(), &backendA);
+        QCOMPARE(onlyA.tabs().count(), 1);
         window.bindViewNavigation(&combined);
         QTRY_COMPARE(tabs->count(), 3);
         QTRY_VERIFY(navigation.findThreadForBackend(backendB, "channel", rootId(905)));

@@ -445,6 +445,11 @@ void NavigationUiController::activateNextTab()
     if (index >= 0 && index != activeTabIndex) activateTab(index);
 }
 
+bool NavigationUiController::canPresentBackend(const Backend& source) const
+{
+    return backendForAccount(accountIdForBackend(source)) == &source;
+}
+
 void NavigationUiController::cancelOtherNavigationRequests(const Backend* source)
 {
     for (Backend* owner : attachedBackends) {
@@ -469,7 +474,8 @@ void NavigationUiController::attachBackend(Backend& source)
     // publish this semantic-navigation signal itself.
     connect(&AppNavigationService::instance(*sourceBackend),
             &AppNavigationService::navigationStarted, this,
-            [this] {
+            [this, sourceBackend] {
+                if (!canPresentBackend(*sourceBackend)) return;
                 pendingHistoryThread.reset();
                 pendingContextualThread.reset();
             });
@@ -979,6 +985,9 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             if (!location.postId.isEmpty()) {
                 restoreSessionBookmark(area, location.postId, location.viewportAnchor);
             }
+        } else if (usesSharedView()) {
+            showEmptyConversation();
+            recordLocation(location, nullptr);
         }
     } else {
         if (navigationSurfaceStack && mainStack) {
@@ -1196,7 +1205,7 @@ void NavigationUiController::openInTab(
 
 void NavigationUiController::recordArea(ChatArea* area)
 {
-    if (!area) {
+    if (!area || !canPresentBackend(area->getBackend())) {
         return;
     }
     trackSessionArea(area);
