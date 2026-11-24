@@ -141,11 +141,6 @@ public:
     // the sidebar search field is populated.
     void setConversationSearchTerm(const QString& term);
 
-	// Kept for source compatibility; the server-backed sidebar no longer uses
-	// separate global DM/GM lists.
-	void addDirectChannelsList (Backend& backend);
-	void addGroupChannelsList (Backend& backend);
-
 	void setChatAreaStackedWidget (QStackedWidget* chatAreaStackedWidget);
 	ChatArea* getCurrentPage ();
 
