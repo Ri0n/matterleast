@@ -24,7 +24,7 @@ Team context for DM/GM actions lives on the page and remains available when
 its row is absent. A real channel leave destroys the page synchronously
 before Storage releases the backing channel, even without an attached tree.
 The permanent central stack has one host shared by its attached accounts.
-lookup also requires the exact live Backend, not just the remote channel/root
+Detached thread lookup also requires the exact live Backend, not just the remote channel/root
 IDs: an unrelated server's top-level window must never be adopted by a tab.
 
 A thread is different because it already has an independent `ChatArea`.
