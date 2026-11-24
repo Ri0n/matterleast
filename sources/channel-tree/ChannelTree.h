@@ -57,6 +57,7 @@ class BackendChannel;
 class BackendTeam;
 class BackendUser;
 class ChatArea;
+class ChannelPageHost;
 class TeamItem;
 class ChannelItem;
 class Storage;
@@ -271,6 +272,7 @@ private:
     QTreeWidgetItem* personalItemForTeam(const QString& teamId,
                                         const QString& accountId = {}) const;
     void refreshPersonalItems();
+    bool hasChannelPage(const QString& accountId, const QString& channelId) const;
     void activateConversation(const QString& channelId, const QString& teamId = {},
                               const QString& accountId = {});
 	void activateChannelItem(QTreeWidgetItem* item);
@@ -331,8 +333,7 @@ private:
     void onSidebarCategoriesChanged(const QString& teamId);
     void refreshPaletteDependentIcons();
 
-	QStackedWidget*						chatAreaStackedWidget;
-    QMap<ScopedId, QPointer<ChatArea>>  channelPages;
+    QPointer<ChannelPageHost>          _channelPages;
     QMap<ScopedId, QList<QTreeWidgetItem*>> channelToItemMap;
     QMap<ScopedId, TeamItem*>            teamToItemMap;
     QSet<ScopedId>                      connectedSidebarUsers;

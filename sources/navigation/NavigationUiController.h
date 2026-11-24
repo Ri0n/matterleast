@@ -187,6 +187,7 @@ private:
     void rememberThreadPaneWidth();
     void persistThreadPaneWidth();
 
+    ChatArea* currentChannelPage() const;
     Backend* backend() const;
     // Transitional single-account presenter. Resolve stable identity from the
     // owning Account, never from the selected View or a server channel ID.

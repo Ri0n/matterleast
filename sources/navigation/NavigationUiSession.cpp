@@ -443,7 +443,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
         if (tabModel.isEmpty()) {
             // A newly created view starts with just the current channel, not
             // the old view's pinned tabs or Back/Forward history.
-            auto* area = channelTree ? channelTree->getCurrentPage() : nullptr;
+            auto* area = currentChannelPage();
             const auto initial = captureLocation(area);
             if (initial.isValid() && !area->isThread)
                 appendNavigationTab(initial, true);

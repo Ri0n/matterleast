@@ -151,6 +151,7 @@ private slots:
 
 private:
     friend class ChannelTree;
+    friend class ChannelPageHost;
     bool eventFilter(QObject* watched, QEvent* event) override;
 	void changeEvent(QEvent* event) override;
 	void showEvent(QShowEvent* event) override;

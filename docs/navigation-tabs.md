@@ -14,12 +14,17 @@ A tab stores a semantic destination:
 - display title;
 - whether the tab is pinned against ordinary channel-destination reuse.
 
-Ordinary channel/DM/GM tabs share one `ChatArea` per channel ID, including
-when a channel appears in more than one team or category. The central stack
-owns these pages. `ChannelTree` resolves them by channel ID and emits a
-navigation event after activation. Team context for DM/GM actions lives on
-the page and remains available when its row is absent. A real channel leave
-destroys the page before Storage releases the backing channel.
+Ordinary channel/DM/GM tabs share one `ChatArea` per live channel object
+within its owning account's Storage, including when a channel appears in
+more than one team or category. The central stack owns these pages and its
+`ChannelPageHost` indexes and activates them. `ChannelTree` requests activation
+and resolves row selection/admission, but no longer owns the page index or
+page lifetime. Navigation listens to the central host's activation signal.
+Team context for DM/GM actions lives on the page and remains available when
+its row is absent. A real channel leave destroys the page synchronously
+before Storage releases the backing channel, even without an attached tree.
+The host is currently per central stack; once MainWindow is application-wide
+the same host can handle the channels of multiple accounts.
 
 A thread is different because it already has an independent `ChatArea`.
 Moving a thread to a tab reparents that same widget from the right-hand thread

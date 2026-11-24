@@ -54,7 +54,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
 
     auto existing = channelToItemMap.constFind(key);
     if ((existing != channelToItemMap.cend() && !existing.value().isEmpty())
-        || channelPages.value(key)) {
+        || hasChannelPage(key.first, channelID)) {
         openChannelForAccount(std::move(channelID), key.first);
         return;
     }

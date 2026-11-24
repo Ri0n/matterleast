@@ -41,6 +41,7 @@
 #include "mainwindow.h"
 #include "options/MLOptions.h"
 #include "navigation/AppNavigationService.h"
+#include "navigation/ChannelPageHost.h"
 #include "navigation/ViewNavigationSession.h"
 #include "navigation/ThreadPaneLayout.h"
 #include "navigation/ThreadSidebarContextPolicy.h"
@@ -217,23 +218,26 @@ void NavigationUiController::setupMainWindow()
         });
     }
 
-    if (channelTree) {
-        connect(channelTree, &ChannelTree::channelActivated, this, [this] {
+    if (mainStack) {
+        connect(&ChannelPageHost::instance(*mainStack), &ChannelPageHost::channelActivated,
+                this, [this] {
             if (switchingTabs || restoringSession) return;
             QTimer::singleShot(0, this, [this] {
                 // A deferred channel activation must not steal an independently
                 // activated thread tab (including startup session replay).
-                if (channelTree && (!navigationSurfaceStack
+                if (mainStack && (!navigationSurfaceStack
                     || navigationSurfaceStack->currentWidget() == mainStack)) {
-                    recordArea(channelTree->getCurrentPage());
+                    recordArea(currentChannelPage());
                 }
             });
         });
+        recordArea(currentChannelPage());
+    }
+    if (channelTree) {
         channelTree->installEventFilter(this);
         if (channelTree->viewport()) {
             channelTree->viewport()->installEventFilter(this);
         }
-        recordArea(channelTree->getCurrentPage());
     }
 
     connect(qApp, &QApplication::aboutToQuit, this, [this] {
@@ -493,6 +497,11 @@ void NavigationUiController::updateIdentityTooltip()
         lines.push_back(accountName);
     }
     avatar->setToolTip(lines.join(QLatin1Char('\n')));
+}
+
+ChatArea* NavigationUiController::currentChannelPage() const
+{
+    return mainStack ? qobject_cast<ChatArea*>(mainStack->currentWidget()) : nullptr;
 }
 
 Backend* NavigationUiController::backend() const
@@ -945,7 +954,7 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
             ? sourceBackend->getStorage().getChannelById(location.channelId)
             : nullptr;
         if (!area && sourceBackend && channel) {
-            ChatArea* parent = channelTree ? channelTree->getCurrentPage() : nullptr;
+            ChatArea* parent = currentChannelPage();
             if (!parent || &parent->getChannel() != channel) {
                 parent = nullptr;
             }
@@ -1013,7 +1022,7 @@ void NavigationUiController::removeTab(int index, bool closeThread)
         if (tabModel.isEmpty()) {
             Location fallback;
             if (ChatArea* channelArea =
-                    channelTree ? channelTree->getCurrentPage() : nullptr) {
+                    currentChannelPage()) {
                 fallback = captureLocation(channelArea);
             }
             if (!fallback.isValid()) {
@@ -1450,7 +1459,7 @@ void NavigationUiController::navigateTo(const Location& location)
     ChatArea* area = nullptr;
     if (location.rootId.isEmpty()) {
         channelTree->openStoredChannel(location.channelId);
-        area = channelTree->getCurrentPage();
+        area = currentChannelPage();
         if (!area || &area->getChannel() != channel) {
             return;
         }
@@ -1507,7 +1516,7 @@ void NavigationUiController::navigateTo(const Location& location)
             return;
         }
         if (!area) {
-            ChatArea* parent = channelTree->getCurrentPage();
+            ChatArea* parent = currentChannelPage();
             if (!parent || &parent->getChannel() != channel) {
                 parent = nullptr;
             }
@@ -1795,7 +1804,7 @@ void NavigationUiController::ensureThreadButton(ChatArea* area)
             if (wasActive) {
                 QTimer::singleShot(0, this, [this] {
                     if (channelTree) {
-                        recordArea(channelTree->getCurrentPage());
+                        recordArea(currentChannelPage());
                     }
                 });
             }
@@ -2257,7 +2266,7 @@ bool NavigationUiController::eventFilter(QObject* watched, QEvent* event)
         && (watched == channelTree || watched == channelTree->viewport())) {
         QTimer::singleShot(0, this, [this] {
             if (channelTree) {
-                recordArea(channelTree->getCurrentPage());
+                recordArea(currentChannelPage());
             }
         });
     }
