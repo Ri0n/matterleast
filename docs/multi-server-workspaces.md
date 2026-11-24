@@ -535,6 +535,11 @@ collections subscribe directly to their own Backend's flagged-post events.
 The standalone constructor still starts the same idempotent startup path for
 widget fixtures; production session initialization does not require a window.
 
+Account-owned deferred profile requests are invalidated when the session ends.
+The logout reply and timeout share a single completion path; the final reset
+runs on the Backend event loop outside the HTTP reply signal so it cannot
+destroy the emitting reply or its network manager on that signal's stack.
+
 ## Permanent desktop window
 
 The application creates one MainWindow before authentication. The Servers tab
