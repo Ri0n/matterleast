@@ -1,3 +1,4 @@
+#include <memory>
 #include <QtTest>
 #include <QJsonArray>
 #include <QAction>
@@ -286,6 +287,49 @@ public:
         });
     }
 };
+
+// The historical disk snapshot tests remain unbound to a View until the
+// account-qualified View persistence format is implemented. They attach a
+// real account through the normal MainWindow path; only their snapshot
+// readiness gate is a fixture concern.
+bool attachSnapshotFixture(MainWindow& window, Backend& backend)
+{
+    const auto* account = qobject_cast<const Account*>(backend.parent());
+    if (!account) return false;
+    auto* tree = window.findChild<ChannelTree*>(QStringLiteral("channelList"));
+    if (!tree) return false;
+
+    struct Readiness {
+        bool membershipsReady = false;
+        QSet<QString> populatedTeams;
+    };
+    auto state = std::make_shared<Readiness>();
+    QPointer<MainWindow> guard(&window);
+    QPointer<Backend> source(&backend);
+    const auto restore = [state, guard, source] {
+        if (!guard || !source || !state->membershipsReady
+            || !source->accountCatalogReady())
+            return;
+        for (const auto& team : source->getStorage().teams)
+            if (!state->populatedTeams.contains(team.first)) return;
+        NavigationUiController::instance(*guard).restoreSession();
+    };
+    backend.startAccountData();
+    QObject::connect(&backend, &Backend::onAllTeamChannelsPopulated, &window, restore);
+    QObject::connect(tree, &ChannelTree::teamSidebarPopulated, &window,
+                     [state, restore](const QString& teamId) {
+        state->populatedTeams.insert(teamId);
+        restore();
+    });
+    window.setVisibleAccounts({account->id()}, {}, QStringLiteral("recent"));
+    if (!window.attachNavigationBackend(backend)) return false;
+    window.selectPresentationBackend(&backend);
+    SidebarService::instance(backend).retrieveChannelMemberships([state, restore] {
+        state->membershipsReady = true;
+        restore();
+    });
+    return true;
+}
 }
 
 class ThreadTabsIntegrationTest : public QObject
@@ -326,7 +370,8 @@ private slots:
         Server server;
         server.startupChannels = true;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -348,7 +393,8 @@ private slots:
                     ->channelIds.contains("new-dm"));
 
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         auto* tree = window.findChild<ChannelTree*>("channelList");
         QVERIFY(tree);
         AppNavigationService::instance(backend).openChannel("channel");
@@ -362,14 +408,19 @@ private slots:
         Server server;
         server.startupChannels = true;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QByteArray());
 
         QSystemTrayIcon tray;
+        ViewNavigationSession view(QStringLiteral("fixture-view"));
+        view.setAllowedAccounts({account.id()});
         MainWindow window(nullptr, tray);
+        window.setVisibleAccounts({account.id()}, {}, QStringLiteral("recent"));
+        window.bindViewNavigation(&view);
         window.resize(1100, 700);
         window.show();
         QVERIFY(!window.backendOrNull());
@@ -381,8 +432,10 @@ private slots:
         const auto splitters = window.findChildren<QSplitter*>();
         auto* tabs = window.findChild<QTabBar*>("navigationTabs");
         QVERIFY(tabs);
-        QVERIFY(window.attachInitialBackend(backend));
-        QVERIFY(window.attachInitialBackend(backend));
+        backend.startAccountData();
+        QVERIFY(window.attachNavigationBackend(backend));
+        QVERIFY(window.attachNavigationBackend(backend));
+        window.selectPresentationBackend(&backend);
         QCOMPARE(window.backendOrNull(), &backend);
         QCOMPARE(window.findChild<ChannelTree*>("channelList"), tree);
         QCOMPARE(window.findChild<QStackedWidget*>("chatAreaStackedWidget"), stack);
@@ -457,12 +510,14 @@ private slots:
         Server server;
         server.startupChannels = true;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.show();
         QTRY_VERIFY(backend.getStorage().getChannelById(QStringLiteral("channel")));
         QTRY_COMPARE(server.accountChannelLookups.size(), 1);
@@ -515,7 +570,8 @@ private slots:
     {
         Server server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {
@@ -536,7 +592,8 @@ private slots:
         QVERIFY(channel);
 
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         auto* sidebar = window.findChild<QMenu*>(
             QStringLiteral("sidebarMainMenu"));
         QVERIFY(sidebar);
@@ -604,10 +661,12 @@ private slots:
         MLOptions::instance()->setValue(key, QByteArray());
         QSystemTrayIcon tray;
         {
-            Backend backend;
+            Account account(QStringLiteral("fixture-account"), nullptr);
+            Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
             backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
-            MainWindow window(nullptr, tray, backend);
+            MainWindow window(nullptr, tray);
+            QVERIFY(attachSnapshotFixture(window, backend));
             window.show();
             QTRY_VERIFY(window.findChild<QTabBar*>(QStringLiteral("navigationTabs")));
             QTRY_VERIFY(backend.getStorage().getChannelById("channel"));
@@ -654,10 +713,12 @@ private slots:
             delete detached;
         }
         {
-            Backend backend;
+            Account account(QStringLiteral("fixture-account"), nullptr);
+            Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
             backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
-            MainWindow window(nullptr, tray, backend);
+            MainWindow window(nullptr, tray);
+            QVERIFY(attachSnapshotFixture(window, backend));
             window.show();
             // No manual restore call: exercise the real startup readiness path.
             QTRY_VERIFY(NavigationUiController::instance(window).findThread("channel", rootId(204)));
@@ -696,7 +757,8 @@ private slots:
         // fixture. saveSession() otherwise intentionally refuses to write
         // before the one-time restoreSession() readiness gate has run.
         MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QByteArray());
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(
@@ -705,7 +767,8 @@ private slots:
             QJsonObject {{"id", "channel"}, {"type", "G"}});
         QVERIFY(channel);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.show();
 
         auto& controller = NavigationUiController::instance(window);
@@ -747,12 +810,14 @@ private slots:
         MLOptions::instance()->setValue(
             sessionKey(serverBaseUrl(server)), QJsonDocument(snapshot).toJson(QJsonDocument::Compact));
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.show();
         auto& ui = NavigationUiController::instance(window);
         auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
@@ -797,12 +862,14 @@ private slots:
                 {"active_tab", destination}})
                 .toJson(QJsonDocument::Compact));
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.resize(1000, 700);
         window.show();
         // The navigation controller owns the tab bar and is constructed lazily.
@@ -862,12 +929,14 @@ private slots:
                 {"active_tab", destination}})
                 .toJson(QJsonDocument::Compact));
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.resize(1000, 700);
         window.show();
         auto& ui = NavigationUiController::instance(window);
@@ -951,12 +1020,14 @@ private slots:
                 {"focused_window", detached}})
                 .toJson(QJsonDocument::Compact));
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(
             QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.show();
         auto& ui = NavigationUiController::instance(window);
         auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
@@ -1081,11 +1152,13 @@ private slots:
         const QJsonObject snapshot {{"version", 1}, {"tabs", QJsonArray {destination}},
                                     {"active_tab", destination}};
         MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QJsonDocument(snapshot).toJson());
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.show();
         auto& ui = NavigationUiController::instance(window);
         QTRY_VERIFY(ui.findThread("channel", rootId(205)));
@@ -1111,11 +1184,13 @@ private slots:
         const QByteArray original = QJsonDocument(QJsonObject {{"version", 1},
             {"tabs", QJsonArray {destination}}, {"active_tab", destination}}).toJson();
         MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), original);
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         backend.getStorage().addUser(QJsonObject {{"id", "other-user"}, {"username", "other"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.show();
         QTRY_VERIFY(SidebarService::instance(backend).teamState("team")
                     && SidebarService::instance(backend).teamState("team")->category("dm"));
@@ -1169,7 +1244,8 @@ private slots:
         server.crtMentionFixture = true;
         QVERIFY(server.listen(QHostAddress::LocalHost));
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -1183,7 +1259,8 @@ private slots:
 
         auto& sidebar = SidebarService::instance(backend);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         sidebar.retrieveChannelMemberships();
         QTRY_VERIFY(sidebar.usesRootUnreadCounts(*channel));
         QVERIFY(!sidebar.isChannelUnread(*channel));
@@ -1216,7 +1293,8 @@ private slots:
     {
         Server server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -1234,7 +1312,8 @@ private slots:
 
         auto& sidebar = SidebarService::instance(backend);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
         NavigationUiController::instance(window);
         sidebar.setChannelMentioned(channel->id, true);
@@ -1283,12 +1362,14 @@ private slots:
         } restore {original};
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, false);
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.resize(1100, 700);
         window.show();
 
@@ -1359,7 +1440,8 @@ private slots:
         // Fully measured compact replies must still exceed the viewport.
         server.replyCount = 48;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -1380,7 +1462,8 @@ private slots:
 
         QSystemTrayIcon tray;
         qInfo("Viewport restore: construct window");
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
         auto& ui = NavigationUiController::instance(window);
         window.resize(1000, 700);
@@ -1469,7 +1552,8 @@ private slots:
         QFETCH(int, height);
         server.replyCount = replies;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -1489,7 +1573,8 @@ private slots:
         }
 
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
         auto& ui = NavigationUiController::instance(window);
         MLOptions::instance()->setValue(sessionKey(serverBaseUrl(server)), QByteArray());
@@ -1573,12 +1658,14 @@ private slots:
         } restore {original};
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.resize(1100, 700);
         window.show();
 
@@ -1721,12 +1808,14 @@ private slots:
         } restore {original};
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.resize(1100, 700);
         window.show();
 
@@ -1847,12 +1936,14 @@ private slots:
         } restore {originalPolicy};
         MLOptions::instance()->setValue(THREAD_SIDEBAR_FOLLOWS_CHANNEL, true);
 
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.resize(1100, 700);
         window.show();
 
@@ -1927,7 +2018,8 @@ private slots:
         // Fully measured compact replies must still exceed the viewport.
         server.replyCount = 48;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -1947,7 +2039,8 @@ private slots:
         }
 
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
         auto& ui = NavigationUiController::instance(window);
         window.resize(1000, 700);
@@ -1999,7 +2092,8 @@ private slots:
     {
         Server server;
         QVERIFY(server.listen(QHostAddress::LocalHost));
-        Backend backend;
+        Account account(QStringLiteral("fixture-account"), nullptr);
+        Backend backend(&account);
         backend.networkSession().setHost(serverBaseUrl(server));
         auto& storage = backend.getStorage();
         storage.addUser(QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
@@ -2009,7 +2103,8 @@ private slots:
         QVERIFY(channel);
         channel->addPost(post(1)); // Only the first Following entry has a resident root.
         QSystemTrayIcon tray;
-        MainWindow window(nullptr, tray, backend);
+        MainWindow window(nullptr, tray);
+        QVERIFY(attachSnapshotFixture(window, backend));
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
         auto& ui = NavigationUiController::instance(window);
         window.resize(1000, 700);
