@@ -1377,13 +1377,17 @@ private slots:
         }
 
         QSystemTrayIcon tray;
+        qInfo("Viewport restore: construct window");
         MainWindow window(nullptr, tray, backend);
         window.findChild<ChannelTree*>(QStringLiteral("channelList"))->addTeam(backend, *team);
         auto& ui = NavigationUiController::instance(window);
         window.resize(1000, 700);
+        qInfo("Viewport restore: show window");
         window.show();
         auto& navigation = AppNavigationService::instance(backend);
+        qInfo("Viewport restore: open first thread");
         navigation.openThreadInTab(channel->id, rootId(41));
+        qInfo("Viewport restore: wait for first timeline");
         QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
         auto* first = ui.findThread(channel->id, rootId(41));
         auto* log = first->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
@@ -1394,7 +1398,9 @@ private slots:
         QTRY_VERIFY(bar->maximum() > 400);
         QTRY_VERIFY(log->findPost(replyId(41, 24)));
         QPointer<ChatArea> retired = first;
+        qInfo("Viewport restore: settle initial layout");
         QTest::qWait(120); // Drain initial deferred newest-position timers.
+        qInfo("Viewport restore: scroll to live edge");
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
 
@@ -1403,6 +1409,7 @@ private slots:
         // Read from a stable middle viewport with room on both sides.
         // Explicit scrollbar ownership must win over activation's weak tail
         // positioning, just as a real user scroll does.
+        qInfo("Viewport restore: scroll away from live edge");
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
         bar->setValue(bar->maximum() / 2);
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
@@ -1411,7 +1418,9 @@ private slots:
         QTRY_VERIFY(log->captureSemanticViewportBookmark(before));
         QVERIFY(before.point == LongListWidget::SemanticAnchorPoint::ItemCenter);
 
+        qInfo("Viewport restore: open second thread");
         navigation.openThreadInTab(channel->id, rootId(42));
+        qInfo("Viewport restore: wait for retirement of first thread");
         QTRY_VERIFY(ui.findThread(channel->id, rootId(42)));
         // Removing the widget from its presentation owner must make it
         // undiscoverable immediately, even if Qt defers destruction.
@@ -1423,7 +1432,9 @@ private slots:
         auto* tabs = window.findChild<QTabBar*>(QStringLiteral("navigationTabs"));
         QVERIFY(tabs);
         QTRY_COMPARE(tabs->count(), 2);
+        qInfo("Viewport restore: return to first tab");
         tabs->setCurrentIndex(0);
+        qInfo("Viewport restore: wait for restored timeline");
         QTRY_VERIFY(ui.findThread(channel->id, rootId(41)));
         auto* reopened = ui.findThread(channel->id, rootId(41));
         auto* restoredLog = reopened->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
@@ -1435,6 +1446,7 @@ private slots:
         // Measure the saved identity itself rather than selecting a new
         // centre post, which can change at row boundaries.
         QTRY_VERIFY(semanticBookmarkRestored(restoredLog, before));
+        qInfo("Viewport restore: assertions complete, destroy window");
     }
 
     void openingSecondTabPreservesOutgoingBookmark_data()
