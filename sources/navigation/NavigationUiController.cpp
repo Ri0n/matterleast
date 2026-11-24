@@ -520,7 +520,9 @@ Backend* NavigationUiController::backendForAccount(const QString& accountId) con
 QString NavigationUiController::accountIdForBackend(const Backend& source)
 {
     const auto* account = qobject_cast<const Account*>(source.parent());
-    return account ? account->id() : QString();
+    // Standalone widget fixtures do not have an AccountManager. Their
+    // private history still uses a valid, isolated semantic account key.
+    return account ? account->id() : QStringLiteral("_startup");
 }
 
 QString NavigationUiController::presentationAccountId() const
@@ -685,7 +687,7 @@ QString NavigationUiController::tabTitle(const Location& location) const
 int NavigationUiController::appendNavigationTab(const Location& location,
                                               bool deferVisibility)
 {
-    if (!navigationTabs || !location.isChat() || !location.isValid()) {
+    if (!navigationTabs || !location.isChat() || !location.valid()) {
         return -1;
     }
 
@@ -784,7 +786,7 @@ void NavigationUiController::ensureInitialTab()
         ? qobject_cast<ChatArea*>(mainStack->currentWidget())
         : nullptr;
     const Location location = captureLocation(area);
-    if (!location.isValid()) {
+    if (!location.valid()) {
         return;
     }
 
@@ -808,7 +810,7 @@ void NavigationUiController::refreshTabBarVisibility()
 
 void NavigationUiController::updateTab(int index, const Location& location)
 {
-    if (!navigationTabs || !location.isChat() || !location.isValid()
+    if (!navigationTabs || !location.isChat() || !location.valid()
         || !tabModel.replace(index, tabEntry(location))) {
         return;
     }
@@ -839,7 +841,7 @@ void NavigationUiController::saveActiveTabLocation()
 
     const Location location = captureLocation(area);
     const Location expected = tabLocation(*entry);
-    if (location.isValid() && location.sameDestination(expected)) {
+    if (location.valid() && location.sameDestination(expected)) {
         // Capture before the outgoing tab's ChatArea is destroyed. History
         // must not recapture an already hidden or deactivated presentation.
         if (currentLocation.isChat() && currentLocation.sameDestination(location)) {
@@ -1035,7 +1037,7 @@ void NavigationUiController::removeTab(int index, bool closeThread)
                     currentChannelPage()) {
                 fallback = captureLocation(channelArea);
             }
-            if (!fallback.isValid()) {
+            if (!fallback.valid()) {
                 fallback.accountId = removedEntry.accountId;
                 fallback.channelId = removedEntry.channelId;
             }
@@ -1216,7 +1218,7 @@ void NavigationUiController::recordArea(ChatArea* area)
     scheduleSessionSave();
 
     const Location next = captureLocation(area);
-    if (!next.isValid()) {
+    if (!next.valid() || backendForAccount(next.accountId) != &area->getBackend()) {
         return;
     }
 
@@ -1315,7 +1317,8 @@ void NavigationUiController::recordArea(ChatArea* area)
 void NavigationUiController::recordCollection(PostCollectionView* page)
 {
     const Location next = captureCollection(page);
-    if (!next.isValid() || next.isChat()) {
+    if (!next.valid() || next.isChat()
+        || backendForAccount(next.accountId) != &page->backendInstance()) {
         return;
     }
     recordLocation(next, nullptr);
@@ -1323,7 +1326,7 @@ void NavigationUiController::recordCollection(PostCollectionView* page)
 
 void NavigationUiController::recordLocation(const Location& next, ChatArea* area)
 {
-    if (!next.isValid()) return;
+    if (!next.valid()) return;
     // Session restore may temporarily activate a channel before applying its
     // saved tab and history snapshot. Those QWidget events are presentation
     // activity, not new navigation; they must not rewrite the owning model.
@@ -1341,7 +1344,7 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
     }
 
     auto* session = historySession();
-    if (!currentLocation.isValid()) {
+    if (!currentLocation.valid()) {
         currentLocation = next;
         activeArea = area;
         if (!replayingHistory)
@@ -1361,7 +1364,7 @@ void NavigationUiController::recordLocation(const Location& next, ChatArea* area
     // Only the session stores the Back/Forward stacks.
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
-        if (latest.isValid() && currentLocation.sameDestination(latest))
+        if (latest.valid() && currentLocation.sameDestination(latest))
             currentLocation = latest;
     }
     if (!replayingHistory) {
@@ -1394,10 +1397,10 @@ void NavigationUiController::goBack()
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
-        if (latest.isValid() && currentLocation.sameDestination(latest))
+        if (latest.valid() && currentLocation.sameDestination(latest))
             currentLocation = latest;
     }
-    if (currentLocation.isValid())
+    if (currentLocation.valid())
         session->updateCurrentBookmark(semanticLocation(currentLocation));
 
     const auto target = session->goBack();
@@ -1420,10 +1423,10 @@ void NavigationUiController::goForward()
 
     if (activeArea && currentLocation.isChat()) {
         const Location latest = captureLocation(activeArea);
-        if (latest.isValid() && currentLocation.sameDestination(latest))
+        if (latest.valid() && currentLocation.sameDestination(latest))
             currentLocation = latest;
     }
-    if (currentLocation.isValid())
+    if (currentLocation.valid())
         session->updateCurrentBookmark(semanticLocation(currentLocation));
 
     const auto target = session->goForward();
@@ -1438,7 +1441,7 @@ void NavigationUiController::goForward()
 
 void NavigationUiController::navigateTo(const Location& location)
 {
-    if (!location.isValid() || !backendForAccount(location.accountId)) {
+    if (!location.valid() || !backendForAccount(location.accountId)) {
         return;
     }
 
@@ -1469,7 +1472,8 @@ void NavigationUiController::navigateTo(const Location& location)
 
     ChatArea* area = nullptr;
     if (location.rootId.isEmpty()) {
-        channelTree->openStoredChannelForAccount(location.channelId, location.accountId);
+        channelTree->openStoredChannelForAccount(
+            location.channelId, channelTree->accountIdForBackend(sourceBackend));
         area = currentChannelPage();
         if (!area || &area->getChannel() != channel) {
             return;
@@ -2045,13 +2049,16 @@ void NavigationUiController::selectContextualThreadTab(
     }
 
     ensureInitialTab();
+    Location target;
+    target.accountId = presentationAccountId();
+    target.channelId = channelId;
+    target.rootId = rootId;
     const auto decision = chooseThreadParentTab(
-        true, tabModel, activeTabIndex, channelId, rootId, presentationAccountId());
+        true, tabModel, activeTabIndex, target.channelId, target.rootId, target.accountId);
     if (decision.route != ThreadParentTabRoute::KeepCurrent
         && !pendingHistoryThread
-        && (!pendingContextualThread
-            || !pendingContextualThread->sameDestination(Location(channelId, rootId, {}, presentationAccountId())))) {
-        pendingContextualThread = Location(channelId, rootId, {}, presentationAccountId());
+        && (!pendingContextualThread || !pendingContextualThread->sameDestination(target))) {
+        pendingContextualThread = target;
     }
     if (decision.route == ThreadParentTabRoute::KeepCurrent) {
         return;

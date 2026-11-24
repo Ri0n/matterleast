@@ -113,12 +113,13 @@ presentation policy. When enabled:
 `MainWindow::openChannelPost` owns the asynchronous parent-channel navigation
 and retains the semantic destination until the channel is ready.
 
-The Widgets controller carries the owning account ID in its Locations and tab
-entries, including thread-parent selection and bookmark lookups. Legacy restart
-snapshots inherit the account ID from their settings partition; startup history
-uses a private sentinel only at its QtCore transfer boundary. This is the first
-step toward a single presenter, not yet a multi-account controller: the current
-per-Backend window still admits only its own account's destinations.
+The Widgets controller uses exactly the same `ViewNavigationSession::Location`
+type as the QtCore model, including account identity in thread-parent selection
+and bookmark lookups. Legacy restart snapshots inherit the account ID from
+their settings partition. Startup history preserves the real Account ID; only
+standalone widget tests without AccountManager use an isolated private key.
+This is a step toward a single presenter, not yet a multi-account controller:
+the current per-Backend window still admits only its own account's destinations.
 
 ## Opening a new tab
 

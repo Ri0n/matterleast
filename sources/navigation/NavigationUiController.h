@@ -36,48 +36,7 @@ class NavigationUiController final : public QObject
 {
     Q_OBJECT
 public:
-    struct Location {
-        enum class Kind {
-            Chat,
-            Saved,
-            Drafts,
-            RecentMentions,
-            Search,
-        };
-
-        Location() = default;
-        Location(const QString& channel,
-                 const QString& root = QString(),
-                 const QString& post = QString(),
-                 const QString& account = QString())
-            : accountId(account)
-            , channelId(channel)
-            , rootId(root)
-            , postId(post)
-        {
-        }
-
-        Kind kind = Kind::Chat;
-        QString accountId;
-        QString channelId;
-        QString rootId;
-        QString postId;
-        // Shared with tab restoration, strictly in-memory; never serialized.
-        std::optional<NavigationTabsModel::ViewportAnchor> viewportAnchor;
-
-        bool isChat() const { return kind == Kind::Chat; }
-        bool isValid() const { return !isChat() || !channelId.isEmpty(); }
-        bool sameDestination(const Location& other) const
-        {
-            if (kind != other.kind || accountId != other.accountId) {
-                return false;
-            }
-            if (!isChat()) {
-                return true;
-            }
-            return channelId == other.channelId && rootId == other.rootId;
-        }
-    };
+    using Location = ViewNavigationSession::Location;
 
     static NavigationUiController& instance(MainWindow& window);
 

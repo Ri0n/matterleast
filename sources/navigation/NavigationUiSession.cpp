@@ -45,8 +45,9 @@ QJsonObject encode(const Location& location)
 
 Location decode(const QJsonObject& object, bool restoreAnchors)
 {
-    Location location {object.value("channel").toString(),
-                       object.value("root").toString()};
+    Location location;
+    location.channelId = object.value("channel").toString();
+    location.rootId = object.value("root").toString();
     // Version 1 sessions predate measured post-relative anchors. Their legacy
     // "post" field is not precise enough to restore and must be ignored.
     if (!restoreAnchors) return location;
@@ -93,67 +94,6 @@ QString NavigationUiController::sessionSettingsKey() const
 }
 
 
-namespace {
-using Location = NavigationUiController::Location;
-ViewNavigationSession::Location toViewLocation(
-    const NavigationUiController::Location& source, const QString& accountId)
-{
-    ViewNavigationSession::Location result;
-    if (!source.isValid() || accountId.isEmpty()) return result;
-    switch (source.kind) {
-    case Location::Kind::Chat:
-        result.kind = ViewNavigationSession::Location::Kind::Chat;
-        break;
-    case Location::Kind::Saved:
-        result.kind = ViewNavigationSession::Location::Kind::Saved;
-        break;
-    case Location::Kind::Drafts:
-        result.kind = ViewNavigationSession::Location::Kind::Drafts;
-        break;
-    case Location::Kind::RecentMentions:
-        result.kind = ViewNavigationSession::Location::Kind::RecentMentions;
-        break;
-    case Location::Kind::Search:
-        result.kind = ViewNavigationSession::Location::Kind::Search;
-        break;
-    }
-    result.accountId = accountId;
-    result.channelId = source.channelId;
-    result.rootId = source.rootId;
-    result.postId = source.postId;
-    result.viewportAnchor = source.viewportAnchor;
-    return result;
-}
-bool fromViewLocation(
-    const ViewNavigationSession::Location& source, const QString& accountId,
-    Location& result)
-{
-    if (!source.valid() || source.accountId != accountId) return false;
-    switch (source.kind) {
-    case ViewNavigationSession::Location::Kind::Chat:
-        result.kind = Location::Kind::Chat;
-        break;
-    case ViewNavigationSession::Location::Kind::Saved:
-        result.kind = Location::Kind::Saved;
-        break;
-    case ViewNavigationSession::Location::Kind::Drafts:
-        result.kind = Location::Kind::Drafts;
-        break;
-    case ViewNavigationSession::Location::Kind::RecentMentions:
-        result.kind = Location::Kind::RecentMentions;
-        break;
-    case ViewNavigationSession::Location::Kind::Search:
-        result.kind = Location::Kind::Search;
-        break;
-    }
-    result.accountId = source.accountId;
-    result.channelId = source.channelId;
-    result.rootId = source.rootId;
-    result.postId = source.postId;
-    result.viewportAnchor = source.viewportAnchor;
-    return true;
-}
-}
 
 ViewNavigationSession* NavigationUiController::historySession() const
 {
@@ -163,18 +103,22 @@ ViewNavigationSession* NavigationUiController::historySession() const
 ViewNavigationSession::Location NavigationUiController::semanticLocation(
     const Location& source) const
 {
-    if (source.accountId != presentationAccountId()) return {};
-    return toViewLocation(source, viewNavigationAccountId.isEmpty()
-        ? QStringLiteral("_startup") : viewNavigationAccountId);
+    if (!source.valid() || source.accountId != presentationAccountId()) return {};
+    auto result = source;
+    // Production views use the actual Account ID. Only standalone fixtures
+    // may bind a synthetic View ID different from their private local key.
+    if (viewNavigationSession)
+        result.accountId = viewNavigationAccountId;
+    return result;
 }
 
 bool NavigationUiController::presentationLocation(
     const ViewNavigationSession::Location& source, Location& result) const
 {
-    if (!fromViewLocation(source, viewNavigationAccountId.isEmpty()
-        ? QStringLiteral("_startup") : viewNavigationAccountId, result)) return false;
-    // The private startup session uses a sentinel only inside its model.
-    // Presentations retain the actual immutable Account ID.
+    const QString expected = viewNavigationSession
+        ? viewNavigationAccountId : presentationAccountId();
+    if (!source.valid() || source.accountId != expected) return false;
+    result = source;
     result.accountId = presentationAccountId();
     return true;
 }
@@ -200,13 +144,13 @@ void NavigationUiController::syncViewSession()
     // Widgets channel activation must not roll it back during a Back/Forward
     // replay or while the target is still being admitted asynchronously.
     // Only initialize an empty view from a previously restored legacy UI.
-    if (!state.current.valid() && currentLocation.isValid())
+    if (!state.current.valid() && currentLocation.valid())
         state.current = semanticLocation(currentLocation);
 
     auto* dock = threadStack && !threadStack->isHidden()
         ? qobject_cast<ChatArea*>(threadStack->currentWidget()) : nullptr;
     if (dock && dock->isThread) {
-        state.dock = toViewLocation(captureLocation(dock), viewNavigationAccountId);
+        state.dock = semanticLocation(captureLocation(dock));
         state.dockVisible = state.dock.valid();
     } else {
         // A previously visible dock must not reappear when this view is
@@ -232,11 +176,12 @@ void NavigationUiController::unbindViewSession()
     // to an account-isolated (also QtCore) startup session.
     auto local = viewNavigationSession->snapshot();
     const QString outgoingView = viewNavigationSession->viewId();
+    const QString accountId = presentationAccountId();
     for (auto& entry : local.tabs)
-        entry.accountId = QStringLiteral("_startup");
-    auto relabel = [](ViewNavigationSession::Location& location) {
+        entry.accountId = accountId;
+    auto relabel = [&accountId](ViewNavigationSession::Location& location) {
         if (location.valid())
-            location.accountId = QStringLiteral("_startup");
+            location.accountId = accountId;
     };
     relabel(local.current);
     relabel(local.dock);
@@ -280,6 +225,8 @@ void NavigationUiController::bindViewSession(
     ViewNavigationSession* session, const QString& accountId)
 {
     if (!session || accountId.isEmpty()
+        || (presentationAccountId() != QStringLiteral("_startup")
+            && presentationAccountId() != accountId)
         || (viewNavigationSession == session && viewNavigationAccountId == accountId))
         return;
     const bool hadView = viewNavigationSession != nullptr;
@@ -288,7 +235,7 @@ void NavigationUiController::bindViewSession(
         saveActiveTabLocation();
         if (activeArea && currentLocation.isChat()) {
             const Location latest = captureLocation(activeArea);
-            if (latest.isValid() && latest.sameDestination(currentLocation))
+            if (latest.valid() && latest.sameDestination(currentLocation))
                 currentLocation = latest;
         }
         syncViewSession();
@@ -369,7 +316,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
         // provisional channel displayed while the account was connecting.
         // The completed Widgets restoration, not the bootstrap placeholder,
         // determines the initial semantic current destination.
-        if (currentLocation.isValid())
+        if (currentLocation.valid())
             initial.current = semanticLocation(currentLocation);
         else if (bootstrap.current.valid()) {
             initial.current = bootstrap.current;
@@ -445,7 +392,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
             // the old view's pinned tabs or Back/Forward history.
             auto* area = currentChannelPage();
             const auto initial = captureLocation(area);
-            if (initial.isValid() && !area->isThread)
+            if (initial.valid() && !area->isThread)
                 appendNavigationTab(initial, true);
         }
     }
@@ -458,7 +405,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
 
     Location semanticCurrent;
     if (presentationLocation(state.current, semanticCurrent)
-        && semanticCurrent.isValid()
+        && semanticCurrent.valid()
         && (!semanticCurrent.isChat()
             || !currentLocation.sameDestination(semanticCurrent)))
         navigateTo(semanticCurrent);
@@ -737,7 +684,7 @@ void NavigationUiController::restoreSession()
     const bool wasSwitching = switchingTabs;
     switchingTabs = true;
     auto valid = [this](const Location& location) {
-        return location.isValid() && backend()->getStorage().getChannelById(location.channelId);
+        return location.valid() && backend()->getStorage().getChannelById(location.channelId);
     };
     {
         QSignalBlocker blocker(navigationTabs);

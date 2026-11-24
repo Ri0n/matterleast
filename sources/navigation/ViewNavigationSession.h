@@ -31,9 +31,10 @@ public:
         QString postId;
         std::optional<NavigationTabsModel::ViewportAnchor> viewportAnchor;
 
+        bool isChat() const { return kind == Kind::Chat; }
         bool valid() const {
             return !accountId.isEmpty()
-                && (kind != Kind::Chat || !channelId.isEmpty());
+                && (!isChat() || !channelId.isEmpty());
         }
         bool sameDestination(const Location& other) const {
             return kind == other.kind && accountId == other.accountId
