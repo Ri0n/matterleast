@@ -112,6 +112,7 @@ signals:
 private:
     explicit UserProfileService(Backend& backend);
 
+    void invalidatePendingWork();
     void scheduleFlush();
     void flushProfiles();
     void requestProfileBatch(const QStringList& userIds, int attempt);
