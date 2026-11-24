@@ -826,8 +826,17 @@ private slots:
         QVERIFY(second->loggedIn());
         QVERIFY(!sessions.findAccount(server.origin(),
                                      QStringLiteral("shared-server-one")));
+        const auto secondPreferenceRequests = [&server] {
+            int count = 0;
+            for (const QByteArray& cookie : server.preferenceCookies) {
+                if (cookie.contains("MMAUTHTOKEN=token-two"))
+                    ++count;
+            }
+            return count;
+        };
+        QTRY_COMPARE(secondPreferenceRequests(), 2);
         second->retrieveUserPreferences();
-        QTRY_VERIFY(server.preferencesRequests >= 3);
+        QTRY_COMPARE(secondPreferenceRequests(), 3);
         // The per-request cookie lists must include both independent tokens,
         // not a single shared last-login token.
         bool sawOne = false;
