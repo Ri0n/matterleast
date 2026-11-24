@@ -1356,7 +1356,8 @@ private slots:
     void scrollingUpFromLiveEdgeRestoresMeasuredPositionAfterTabSwitch()
     {
         Server server;
-        server.replyCount = 24;
+        // Fully measured compact replies must still exceed the viewport.
+        server.replyCount = 48;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         Backend backend;
         backend.networkSession().setHost(serverBaseUrl(server));
@@ -1393,11 +1394,11 @@ private slots:
         auto* first = ui.findThread(channel->id, rootId(41));
         auto* log = first->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(log);
-        QTRY_COMPARE(log->itemCount(), 25);
+        QTRY_COMPARE(log->itemCount(), server.replyCount + 1);
         auto* bar = log->verticalScrollBar();
         QVERIFY(bar);
         QTRY_VERIFY(bar->maximum() > 400);
-        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QTRY_VERIFY(log->findPost(replyId(41, server.replyCount)));
         QPointer<ChatArea> retired = first;
         qInfo("Viewport restore: settle initial layout");
         QTest::qWait(120); // Drain initial deferred newest-position timers.
@@ -1411,17 +1412,9 @@ private slots:
         // Explicit scrollbar ownership must win over activation's weak tail
         // positioning, just as a real user scroll does.
         qInfo("Viewport restore: scroll away from live edge");
-        qInfo() << "Viewport before user scroll:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
+        QVERIFY2(bar->maximum() > 0, "Measured fixture must allow scrolling away from the live edge");
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
-        qInfo() << "Viewport after single step:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
         bar->setValue(bar->maximum() / 2);
-        qInfo() << "Viewport after midpoint:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
         ChatLogWidget::SemanticViewportBookmark before;
@@ -1463,7 +1456,7 @@ private slots:
     {
         QTest::addColumn<int>("replies");
         QTest::addColumn<int>("height");
-        QTest::newRow("short-700") << 24 << 700;
+        QTest::newRow("short-700") << 48 << 700;
         QTest::newRow("long-700") << 120 << 700;
         QTest::newRow("long-400") << 120 << 400;
         QTest::newRow("long-950") << 120 << 950;
@@ -1523,17 +1516,9 @@ private slots:
         // Read from a stable middle viewport with room on both sides.
         // Explicit scrollbar ownership must win over activation's weak tail
         // positioning, just as a real user scroll does.
-        qInfo() << "Viewport before user scroll:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
+        QVERIFY2(bar->maximum() > 0, "Measured fixture must allow scrolling away from the live edge");
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
-        qInfo() << "Viewport after single step:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
         bar->setValue(bar->maximum() / 2);
-        qInfo() << "Viewport after midpoint:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
         // Allow initial measurements to finish before taking the baseline.
@@ -1939,7 +1924,8 @@ private slots:
     void backHistoryRestoresMeasuredPostCenter()
     {
         Server server;
-        server.replyCount = 24;
+        // Fully measured compact replies must still exceed the viewport.
+        server.replyCount = 48;
         QVERIFY(server.listen(QHostAddress::LocalHost));
         Backend backend;
         backend.networkSession().setHost(serverBaseUrl(server));
@@ -1973,9 +1959,9 @@ private slots:
         auto* log = ui.findThread(channel->id, rootId(41))
                         ->findChild<ChatLogWidget*>(QStringLiteral("listWidget"));
         QVERIFY(log);
-        QTRY_COMPARE(log->itemCount(), 25);
+        QTRY_COMPARE(log->itemCount(), server.replyCount + 1);
         QTRY_VERIFY(log->verticalScrollBar()->maximum() > 400);
-        QTRY_VERIFY(log->findPost(replyId(41, 24)));
+        QTRY_VERIFY(log->findPost(replyId(41, server.replyCount)));
         QTest::qWait(120); // Drain initial deferred newest-position timers.
         log->scrollToEnd();
         QTRY_VERIFY(log->isAtEnd());
@@ -1983,17 +1969,9 @@ private slots:
         // Read from a stable middle viewport with room on both sides.
         // Explicit scrollbar ownership must win over activation's weak tail
         // positioning, just as a real user scroll does.
-        qInfo() << "Viewport before user scroll:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
+        QVERIFY2(bar->maximum() > 0, "Measured fixture must allow scrolling away from the live edge");
         bar->triggerAction(QAbstractSlider::SliderSingleStepSub);
-        qInfo() << "Viewport after single step:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
         bar->setValue(bar->maximum() / 2);
-        qInfo() << "Viewport after midpoint:" << log->viewport()->size()
-                << "range" << bar->minimum() << bar->maximum()
-                << "value" << bar->value();
         QTRY_VERIFY(bar->value() > 0 && bar->value() < bar->maximum());
         QTRY_VERIFY(!log->isAtEnd());
 
