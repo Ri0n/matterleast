@@ -310,6 +310,9 @@ void NavigationUiController::setupThreadPane()
     // transition, matching the previously working splitter setup.
     contentHost = new QWidget;
     contentHost->setObjectName(QStringLiteral("navigationContentHost"));
+    // The backendless window starts with an empty stack. Its zero size hint
+    // must not make the permanent conversation pane collapsible.
+    contentHost->setMinimumWidth(1);
     auto* hostLayout = new QVBoxLayout(contentHost);
     hostLayout->setContentsMargins(0, 0, 0, 0);
     hostLayout->setSpacing(0);
@@ -340,6 +343,8 @@ void NavigationUiController::setupThreadPane()
     navigationSurfaceStack->addWidget(mainStack);
     navigationSurfaceStack->setCurrentWidget(mainStack);
     contentSplitter->addWidget(navigationSurfaceStack);
+    navigationSurfaceStack->setMinimumWidth(1);
+    contentSplitter->setCollapsible(0, false);
 
     threadStack = new QStackedWidget(contentSplitter);
     threadStack->setObjectName(QStringLiteral("threadStack"));
@@ -350,9 +355,9 @@ void NavigationUiController::setupThreadPane()
     contentSplitter->setStretchFactor(1, 1);
 
     sidebarSplitter->insertWidget(std::max(0, oldIndex), contentHost);
-    if (!outerSizes.isEmpty()) {
-        sidebarSplitter->setSizes(outerSizes);
-    }
+    // Stretch belongs to the replacement widget, not the former stack.
+    sidebarSplitter->setStretchFactor(oldIndex, 1);
+    sidebarSplitter->setCollapsible(oldIndex, false);
 
     // Reparenting a visible widget hides it. Establish the central surface and
     // splitter explicitly; thread presentation controls only the right sibling.
@@ -360,6 +365,14 @@ void NavigationUiController::setupThreadPane()
     contentSplitter->show();
     navigationSurfaceStack->show();
     mainStack->show();
+    // Before the first show, sizes() may describe a zero-sized layout.
+    // Never turn that into the persisted split of the replacement hierarchy.
+    if (outerSizes.size() == sidebarSplitter->count()
+        && outerSizes.at(oldIndex) > 0) {
+        sidebarSplitter->setSizes(outerSizes);
+    } else {
+        sidebarSplitter->setSizes({280, std::max(360, window.width() - 280)});
+    }
 
     // This navigation controller replaces a QSplitter child after the
     // MainWindow constructor's restoreState() has run. Reapply the saved
