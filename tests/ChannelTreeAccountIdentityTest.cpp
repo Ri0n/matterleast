@@ -672,17 +672,21 @@ private slots:
         QPointer<QObject> lifetime(dynamic_cast<QObject*>(oldA));
         QVERIFY(lifetime);
         bool removedWhileAlive = false;
+        bool currentClearedBeforeRemoval = false;
         const auto removalConnection = connect(
             model, &QAbstractItemModel::rowsAboutToBeRemoved, &tree,
             [&](const QModelIndex& parent, int, int) {
-                if (parent.data(SidebarItem::AccountIdRole).toString() == accountA)
+                if (parent.data(SidebarItem::AccountIdRole).toString() == accountA) {
                     removedWhileAlive = dynamic_cast<GroupTeamItem*>(oldA) != nullptr;
+                    currentClearedBeforeRemoval = !tree.currentIndex().isValid();
+                }
             });
         tree.setCurrentItem(oldA);
         a.getStorage().eraseTeam(teamId);
         emit a.onAllTeamChannelsPopulated();
         disconnect(removalConnection);
         QVERIFY(removedWhileAlive);
+        QVERIFY(currentClearedBeforeRemoval);
         QVERIFY(lifetime.isNull());
         QCOMPARE(rootA->childCount(), 0);
         QCOMPARE(rootB->childCount(), 1);
