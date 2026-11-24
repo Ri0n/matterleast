@@ -339,7 +339,6 @@ void MattermostApplication::ensureMainWindow()
         mainWindow->restoreGeometry(geometry);
     else
         mainWindow->resize(1200, 800);
-    mainWindow->enableSharedPresentation();
     mainWindow->installServersSidebar(accounts);
     plugins.attachMainWindow(*mainWindow);
 
