@@ -132,7 +132,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
+            build-essential gdb \
             libqt6sql6-sqlite \
             libqt6svg6 \
             qt6-svg-dev \
@@ -159,7 +159,19 @@ jobs:
         run: cmake --build build --parallel 4
 
       - name: Unit tests
+        id: unit_tests
         run: ctest --test-dir build --output-on-failure
+
+      - name: Multi-server login crash backtrace (diagnostic only)
+        if: failure() && steps.unit_tests.outcome == 'failure'
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTEST_DISABLE_STACK_DUMP: '1'
+        run: |
+          # Keep the first CTest result authoritative; this run only collects
+          # a stack for the full fixture, including cross-test lifetime issues.
+          timeout 90s gdb --batch -ex 'set pagination off' -ex run \
+            -ex 'thread apply all bt' --args ./build/tests/backend-multi-server-login-test
 
   ubuntu-2204:
     name: Qt 5.15.3 + AI / Ubuntu 22.04
