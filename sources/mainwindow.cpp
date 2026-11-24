@@ -184,7 +184,7 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
 
 	connect(ui->channelList, &QTreeWidget::currentItemChanged, this,
 	        [this](QTreeWidgetItem* current, QTreeWidgetItem*) {
-        if (_sharedPresentation && current
+        if (current
             && current->data(0, SidebarItem::KindRole).toInt() == SidebarItem::AccountRoot) {
             emit serverOpenRequested(current->data(0, SidebarItem::AccountIdRole).toString());
             return;
@@ -237,6 +237,8 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
         });
     }
     connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
+    // Construct the permanent navigation surface before the first show.
+    NavigationUiController::instance(*this);
 }
 
 Backend* MainWindow::backendOrNull() const
@@ -350,17 +352,8 @@ bool MainWindow::admitsNavigationBackend(const Backend& source) const
 
 bool MainWindow::attachNavigationBackend(Backend& source)
 {
-    if (!_sharedPresentation && &source == backendOrNull()) return true;
     const auto* account = qobject_cast<const Account*>(source.parent());
     if (!account || !source.getStorage().loginUser) return false;
-    if (!_sharedPresentation && backendOrNull()) {
-        auto* primary = backendOrNull();
-        const auto* primaryAccount = qobject_cast<const Account*>(primary->parent());
-        if (!primaryAccount) return false;
-        if (!ui->channelList->bindSingleAccount(primaryAccount->id())
-            || !ui->channelList->registerAccountBackend(primaryAccount->id(), *primary))
-            return false;
-    }
     if (!ui->channelList->registerAccountBackend(account->id(), source)) return false;
     auto& navigation = NavigationUiController::instance(*this);
     navigation.attachBackend(source);
@@ -409,30 +402,16 @@ void MainWindow::detachNavigationBackend(Backend& source)
     if (_profileBackend == &source) setProfileBackend(nullptr);
     NavigationUiController::instance(*this).detachBackend(source);
     ui->channelList->unregisterAccountBackend(accountId, &source);
-    if (_backend == &source) {
-        if (_sharedPresentation) selectPresentationBackend(nullptr);
-        else _backend.clear();
-    }
+    if (_backend == &source)
+        selectPresentationBackend(nullptr);
     refreshQueueAccounts();
     refreshSidebarViews();
-}
-
-void MainWindow::enableSharedPresentation()
-{
-    if (_sharedPresentation) return;
-    _sharedPresentation = true;
-    // Restore the application split only after navigation installs its final
-    // content host. The empty pre-authentication stack has no size hint.
-    NavigationUiController::instance(*this);
-    if (isVisible())
-        restoreSidebarState();
 }
 
 void MainWindow::showEvent(QShowEvent* event)
 {
     QMainWindow::showEvent(event);
-    if (_sharedPresentation)
-        restoreSidebarState();
+    restoreSidebarState();
 }
 
 void MainWindow::restoreSidebarState()
@@ -523,8 +502,6 @@ void MainWindow::refreshQueueAccounts()
 void MainWindow::installServersSidebar(AccountManager& manager)
 {
     if (!channelTabs || serversPage) return;
-    if (const Account* owner = manager.accountForBackend(backendOrNull()))
-        ui->channelList->bindSingleAccount(owner->id());
     serversPage = new ServersSidebarPage(manager, channelTabs);
     // One icon, no caption, immediately before Channels. The server manager
     // is a navigation surface, not another button in the avatar header.
