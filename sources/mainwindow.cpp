@@ -492,6 +492,11 @@ void MainWindow::openAccountDestination(int destination, const QString& teamId)
         on_channelList_virtualDestinationRequested(destination, teamId);
 }
 
+ChannelTree* MainWindow::viewChannelTree() const
+{
+    return _viewChannelTree.data();
+}
+
 void MainWindow::setViewChannelTree(ChannelTree* tree, QWidget* parkingParent)
 {
     if (_viewChannelTree == tree || !channelTreePages)

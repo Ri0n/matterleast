@@ -82,7 +82,7 @@ public:
     // Replace only the tree inside the existing Channels tab. The ThinSplitter
     // and all other MainWindow presentation remain unchanged.
     void setViewChannelTree(ChannelTree* tree, QWidget* parkingParent);
-    ChannelTree* viewChannelTree() const { return _viewChannelTree.data(); }
+    ChannelTree* viewChannelTree() const;
     // Save and close while post widgets can still access valid Storage.
     void prepareForLogout();
     void beginSemanticNavigation();
