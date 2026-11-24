@@ -78,6 +78,16 @@ UserProfileService::UserProfileService(Backend& backend)
     connect(&httpConnector, &HTTPConnector::onHttpError,
             &backend, &Backend::onHttpError);
 
+    connect(&backend, &Backend::sessionEnding, this, [this] {
+        // Invalidate delayed profile/avatar work before Storage is reset.
+        ++_profileGeneration;
+        queuedUserIds.clear();
+        inFlightUserIds.clear();
+        inFlightAvatarKeys.clear();
+        waiters.clear();
+        flushScheduled = false;
+    });
+
     connect(&backend, &Backend::onWebSocketDisconnect, this, [this] {
         if (disconnectedAt == 0) {
             disconnectedAt = QDateTime::currentMSecsSinceEpoch();
@@ -109,11 +119,13 @@ void UserProfileService::clear()
     // end of retrieveAllUsers(). With the global directory preload gone, make
     // the two pieces of login-user state explicit and defer them one event-loop
     // turn so MainWindow has installed its avatar/status signal handlers first.
-    QTimer::singleShot(0, this, [this] {
-        const QString loginUserId = backend.getLoginUser().id;
-        if (loginUserId.isEmpty()) {
+    const auto generation = _profileGeneration;
+    QTimer::singleShot(0, this, [this, generation] {
+        const auto* user = backend.getStorage().loginUser;
+        if (generation != _profileGeneration || !user || user->id.isEmpty()) {
             return;
         }
+        const QString loginUserId = user->id;
 
         ensureStatuses(QStringList {loginUserId});
         if (const BackendUser* loginUser = backend.getStorage().getUserById(loginUserId)) {
@@ -546,7 +558,10 @@ void UserProfileService::scheduleFlush()
     // Match Mattermost's missing-profile loader: wait briefly so dozens of
     // widgets/posts created in the same burst collapse into one /users/ids
     // request instead of several tiny requests.
-    QTimer::singleShot(MissingProfilesWaitMs, this, [this] {
+    const auto generation = _profileGeneration;
+    QTimer::singleShot(MissingProfilesWaitMs, this, [this, generation] {
+        if (generation != _profileGeneration)
+            return;
         flushScheduled = false;
         flushProfiles();
     });
