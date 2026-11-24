@@ -465,8 +465,8 @@ void ChannelTree::unregisterAccountBackend(const QString& accountId,
         else
             ++userIt;
     }
-    if (accountId == _boundAccountId
-        && (!expected || expected == backendForSidebar))
+    if (backendForSidebar && (!expected || expected == backendForSidebar)
+        && (accountId == _boundAccountId || expected == backendForSidebar))
         backendForSidebar = nullptr;
     refreshMergedConversations();
 }

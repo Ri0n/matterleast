@@ -324,6 +324,14 @@ void AppNavigationService::bindMainWindow(MainWindow& window)
     });
 }
 
+void AppNavigationService::unbindMainWindow(MainWindow& window)
+{
+    if (presentationWindow != &window) return;
+    cancelPendingNavigation();
+    disconnect(this, nullptr, &window, nullptr);
+    presentationWindow.clear();
+}
+
 quint64 AppNavigationService::beginNavigation()
 {
     const quint64 generation = navigationRequests.begin();

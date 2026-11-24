@@ -24,17 +24,20 @@ void MainWindow::installRealtimeUiSync()
     }
     setProperty(InstalledProperty, true);
 
-    // Interactive server dialogs remain native Qt dialogs. Their lifetime
-    // will be tied to the originating session when the presenter is shared.
-    auto& serverUi = ServerUiService::instance(backendInstance());
+    installRealtimeUiSync(backendInstance(), this);
+}
+
+void MainWindow::installRealtimeUiSync(Backend& source, QObject* context)
+{
+    auto& serverUi = ServerUiService::instance(source);
     connect(&serverUi, &ServerUiService::interactiveDialogRequested,
-            this, [this](const QJsonObject& dialog,
+            context, [this, &source](const QJsonObject& dialog,
                          const QString& url,
                          const QString& channelId,
                          const QString& teamId) {
         auto* serverDialog = new ServerDialog(
-            backendInstance(), dialog, url, channelId, teamId, this);
-        connect(&backendInstance(), &Backend::sessionEnding, serverDialog,
+            source, dialog, url, channelId, teamId, this);
+        connect(&source, &Backend::sessionEnding, serverDialog,
                 [serverDialog] { delete serverDialog; });
         serverDialog->show();
     });

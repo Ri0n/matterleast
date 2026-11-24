@@ -511,7 +511,7 @@ void NavigationUiController::restoreBoundViewSession(bool adoptExistingPresentat
 
 void NavigationUiController::scheduleSessionSave()
 {
-    if (!shuttingDown && sessionRestored && !restoringSession) {
+    if (!shuttingDown && sessionRestored && !restoringSession && !applyingViewSession) {
         syncViewSession();
         if (sessionSaveTimer) sessionSaveTimer->start();
     }
@@ -528,6 +528,7 @@ void NavigationUiController::trackSessionArea(ChatArea* area)
         if (area->isThread || restoringSession || switchingTabs) return;
         const auto* entry = tabModel.at(activeTabIndex);
         if (entry && entry->rootId.isEmpty()
+            && entry->accountId == accountIdForBackend(area->getBackend())
             && entry->channelId == area->getChannel().id) {
             // ChannelTree switches its central stack only after deactivation.
             // Snapshot the old viewport now, while the source is attached.

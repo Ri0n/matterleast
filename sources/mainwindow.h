@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <memory>
 #include <QMainWindow>
+#include <QHash>
 #include <QMetaObject>
 #include <QPointer>
 #include <QSet>
@@ -74,6 +75,7 @@ public:
     // Attach an already initialized account's navigation to the same central
     // surface. Does not switch the selected profile or restart its services.
     bool attachNavigationBackend(Backend& source);
+    void detachNavigationBackend(Backend& source);
     Backend* navigationBackend(const QString& accountId) const;
     bool admitsNavigationBackend(const Backend& source) const;
     void beginSemanticNavigationFrom(Backend* source);
@@ -81,6 +83,7 @@ public:
     void setProfileBackend(Backend* source);
 	void initializationComplete ();
     void installRealtimeUiSync();
+    void installRealtimeUiSync(Backend& source, QObject* context);
     void bindViewNavigation(ViewNavigationSession* session, const QString& accountId = {});
     void unbindViewNavigation();
     // Shared account/profile model rendered as an icon-only tab before Channels.
@@ -162,6 +165,7 @@ private:
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
     QPointer<Backend> _backend;
+    QHash<Backend*, QObject*> _navigationSubscriptions;
     QPointer<Backend> _profileBackend;
     QObject* _profileSubscriptions = nullptr;
     QFont _defaultProfileStatusFont;
@@ -186,10 +190,10 @@ private:
 	QToolButton*						unreadFilterButton = nullptr;
 	ChannelQuickList*					recentChannels = nullptr;
 	AttentionList*						attentionList = nullptr;
-    PostCollectionView*                 savedMessagesPage = nullptr;
-    PostCollectionView*                 draftsPage = nullptr;
-    PostCollectionView*                 recentMentionsPage = nullptr;
-    PostCollectionView*                 searchMessagesPage = nullptr;
+    QPointer<PostCollectionView>         savedMessagesPage;
+    QPointer<PostCollectionView>         draftsPage;
+    QPointer<PostCollectionView>         recentMentionsPage;
+    QPointer<PostCollectionView>         searchMessagesPage;
 	QString								retainedUnreadFilterChannelId;
     quint64                             semanticNavigationGeneration = 0;
 	bool								currentTeamRestoredFromSettings;

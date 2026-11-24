@@ -77,6 +77,8 @@ public:
     // still valid. Flush once, then stop reacting to their destruction.
     void beginShutdown();
     void attachBackend(Backend& source);
+    void detachBackend(Backend& source);
+    void refreshAttachedDestination(Backend& source);
     void cancelOtherNavigationRequests(const Backend* source);
     bool canPresentBackend(const Backend& source) const;
     QVector<Backend*> visibleBackends() const;

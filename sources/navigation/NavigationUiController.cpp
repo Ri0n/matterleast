@@ -19,6 +19,7 @@
 #include <QSet>
 #include <QShortcut>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStyle>
@@ -469,6 +470,80 @@ void NavigationUiController::cancelOtherNavigationRequests(const Backend* source
     }
 }
 
+void NavigationUiController::refreshAttachedDestination(Backend& source)
+{
+    if (!usesSharedView() || !canPresentBackend(source)) return;
+    refreshAllTabUnreadVisuals(accountIdForBackend(source));
+    if (activeArea || currentLocation.accountId != accountIdForBackend(source))
+        return;
+    // Restore only the retained destination of the arriving account. Do not
+    // reopen another account's current chat on each connection or reconnect.
+    const auto location = currentLocation;
+    if (location.isChat() && source.getStorage().getChannelById(location.channelId)) {
+        const int index = tabModel.findDestination(location.channelId, location.rootId,
+                                                   location.accountId);
+        if (index >= 0) activateTab(index);
+        else navigateTo(location);
+    }
+}
+
+void NavigationUiController::detachBackend(Backend& source)
+{
+    if (!attachedBackends.contains(&source)) return;
+    saveActiveTabLocation();
+    syncViewSession();
+    const QString accountId = accountIdForBackend(source);
+    const QScopedValueRollback<bool> applying(applyingViewSession, true);
+    const QScopedValueRollback<bool> switching(switchingTabs, true);
+    attachedBackends.remove(&source);
+    AppNavigationService::instance(source).unbindMainWindow(window);
+    disconnect(&source, nullptr, this, nullptr);
+    disconnect(&SidebarService::instance(source), nullptr, this, nullptr);
+    disconnect(&FollowingModel::instance(source), nullptr, this, nullptr);
+    disconnect(&AppNavigationService::instance(source), nullptr, this, nullptr);
+    if (pendingHistoryThread && pendingHistoryThread->accountId == accountId)
+        pendingHistoryThread.reset();
+    if (pendingContextualThread && pendingContextualThread->accountId == accountId)
+        pendingContextualThread.reset();
+
+    // Threads may already be hidden, removed from a stack and awaiting
+    // DeferredDelete, or detached top-level windows. Release those before
+    // their parent channel; all of them still reference the old Storage.
+    QVector<QPointer<ChatArea>> threads;
+    for (auto* widget : QApplication::allWidgets()) {
+        auto* area = qobject_cast<ChatArea*>(widget);
+        if (area && area->isThread && &area->getBackend() == &source)
+            threads.append(area);
+    }
+    if (currentLocation.accountId == accountId)
+        showEmptyConversation();
+    for (const auto& thread : threads) {
+        if (!thread) continue;
+        thread->onDeactivate();
+        if (navigationSurfaceStack) navigationSurfaceStack->removeWidget(thread);
+        if (threadStack) threadStack->removeWidget(thread);
+        delete thread.data();
+    }
+    if (threadStack && !threadStack->count()) threadStack->hide();
+
+    if (mainStack) {
+        for (int i = mainStack->count() - 1; i >= 0; --i) {
+            QWidget* page = mainStack->widget(i);
+            auto* area = qobject_cast<ChatArea*>(page);
+            auto* collection = qobject_cast<PostCollectionView*>(page);
+            if ((!area || &area->getBackend() != &source)
+                && (!collection || &collection->backendInstance() != &source))
+                continue;
+            if (area) area->onDeactivate();
+            mainStack->removeWidget(page);
+            delete page;
+        }
+    }
+    // The View retains its semantic destinations. They can become available
+    // again with a new Backend, but no tab retains a pointer to old Storage.
+    syncSplitterEdgeGutters();
+}
+
 void NavigationUiController::attachBackend(Backend& source)
 {
     if (attachedBackends.contains(&source)) return;
@@ -518,7 +593,8 @@ Backend* NavigationUiController::backendForAccount(const QString& accountId) con
 {
     if (usesSharedView() && !viewNavigationSession->allowsAccount(accountId))
         return nullptr;
-    return window.navigationBackend(accountId);
+    auto* owner = window.navigationBackend(accountId);
+    return owner && attachedBackends.contains(owner) ? owner : nullptr;
 }
 
 QString NavigationUiController::accountIdForBackend(const Backend& source)

@@ -357,8 +357,53 @@ bool MainWindow::attachNavigationBackend(Backend& source)
     auto& navigation = NavigationUiController::instance(*this);
     navigation.attachBackend(source);
     AppNavigationService::instance(source).bindMainWindow(*this);
+    if (!_navigationSubscriptions.contains(&source)) {
+        auto* context = new QObject(this);
+        _navigationSubscriptions.insert(&source, context);
+        const QString accountId = account->id();
+        connect(&source, &QObject::destroyed, context, [this, key = &source] {
+            delete _navigationSubscriptions.take(key);
+        });
+        auto& sidebar = SidebarService::instance(source);
+        connect(&sidebar, &SidebarService::channelActivityChanged, context,
+                [this] { refreshSidebarViews(); });
+        connect(&sidebar, &SidebarService::channelActivityReset, context,
+                [this] { refreshSidebarViews(); });
+        connect(&sidebar, &SidebarService::categoriesChanged, context,
+                [this, &source, accountId] {
+            if (ui->channelList->backendForAccount(accountId) != &source) return;
+            refreshSidebarViews();
+            NavigationUiController::instance(*this).refreshAttachedDestination(source);
+        });
+        connect(&source, &Backend::ownTeamDiscovered, context,
+                [this, &source](BackendTeam& team) { ui->channelList->addTeam(source, team); });
+        connect(&source, &Backend::onAddedToTeam, context,
+                [this, &source](BackendTeam& team) { ui->channelList->addTeam(source, team); });
+        connect(&source, &Backend::onAllTeamChannelsPopulated, context,
+                [this, &source, accountId] {
+            ui->channelList->synchronizeAccountSidebar(accountId);
+            NavigationUiController::instance(*this).refreshAttachedDestination(source);
+        });
+        installRealtimeUiSync(source, context);
+        ui->channelList->synchronizeAccountSidebar(accountId);
+        ui->channelList->observeAccountSidebar(source);
+    }
     refreshQueueAccounts();
     return true;
+}
+
+void MainWindow::detachNavigationBackend(Backend& source)
+{
+    if (!admitsNavigationBackend(source)) return;
+    beginSemanticNavigation();
+    const QString accountId = ui->channelList->accountIdForBackend(&source);
+    delete _navigationSubscriptions.take(&source);
+    if (_profileBackend == &source) setProfileBackend(nullptr);
+    NavigationUiController::instance(*this).detachBackend(source);
+    ui->channelList->unregisterAccountBackend(accountId, &source);
+    if (_backend == &source) _backend.clear();
+    refreshQueueAccounts();
+    refreshSidebarViews();
 }
 
 MainWindow::~MainWindow()
