@@ -77,6 +77,7 @@ public:
     // The initial standalone model is unrestricted until AccountManager
     // supplies membership; updates prune obsolete tabs/history incrementally.
     void setAllowedAccounts(const QStringList& accountIds);
+    bool allowsAccount(const QString& accountId) const;
 
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
@@ -113,7 +114,6 @@ private:
     static void pushHistory(QVector<Location>& history, const Location& location);
     void recordLocation(const Location& location);
     void chooseTab(int index);
-    bool allowsAccount(const QString& accountId) const;
 
     QString _viewId;
     NavigationTabsModel _tabs;

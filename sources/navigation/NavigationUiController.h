@@ -76,10 +76,10 @@ public:
     void beginShutdown();
     void attachBackend(Backend& source);
     void cancelOtherNavigationRequests(const Backend* source);
-    // Called only for a view with one owning account while the desktop still
-    // uses account-specific MainWindow instances. The state remains QtCore.
-    void bindViewSession(ViewNavigationSession* session, const QString& accountId);
-    // Stop writing a single-account presentation into a merged or inactive view.
+    // Empty accountId binds exact account-qualified View state. The explicit
+    // alias is retained for the transitional one-account presenters/fixtures.
+    void bindViewSession(ViewNavigationSession* session, const QString& accountId = {});
+    // Stop writing presentation state into an inactive view.
     void unbindViewSession();
 
 protected:
@@ -91,6 +91,8 @@ private:
     void scheduleSessionSave();
     void syncViewSession();
     void restoreBoundViewSession(bool adoptExistingPresentation);
+    void showEmptyConversation();
+    bool usesSharedView() const;
     ViewNavigationSession* historySession() const;
     ViewNavigationSession::Location semanticLocation(const Location& location) const;
     bool presentationLocation(const ViewNavigationSession::Location& source,
@@ -162,6 +164,7 @@ private:
     MainWindow& window;
     ChannelTree* channelTree = nullptr;
     QStackedWidget* mainStack = nullptr;
+    QPointer<QWidget> emptyConversation;
     QSplitter* sidebarSplitter = nullptr;
     QPointer<QSplitter> contentSplitter;
     QWidget* contentHost = nullptr;

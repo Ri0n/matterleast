@@ -270,3 +270,14 @@ Navigation services are owned and discovered through their live Backend/MainWind
 A process-static map keyed by raw owner addresses must not retain services after owner destruction:
 a later session or integration fixture can reuse the same address. The navigation event filter must
 only inspect the sidebar viewport for relevant mouse events, not during child-destruction events.
+
+## Shared View presenter
+
+The navigation controller can bind an exact account-qualified View session and
+admit several authenticated Backends into one central surface. Tab restoration
+reconciles destination deltas rather than replacing the tab bar or its model.
+An unavailable account retains semantic tab/bookmark state without presenting a
+chat from a different account. A new View does not inherit another View's tabs.
+The old single-account settings format is never written for a shared View.
+The existing application workspace integration remains transitional until the
+account-specific sidebar and realtime services are separated from MainWindow.

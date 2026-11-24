@@ -81,7 +81,7 @@ public:
     void setProfileBackend(Backend* source);
 	void initializationComplete ();
     void installRealtimeUiSync();
-    void bindViewNavigation(ViewNavigationSession* session, const QString& accountId);
+    void bindViewNavigation(ViewNavigationSession* session, const QString& accountId = {});
     void unbindViewNavigation();
     // Shared account/profile model rendered as an icon-only tab before Channels.
     void installServersSidebar(AccountManager& manager);

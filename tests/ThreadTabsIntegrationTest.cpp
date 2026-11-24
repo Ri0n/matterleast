@@ -2314,6 +2314,9 @@ private slots:
         auto& navA = AppNavigationService::instance(backendA);
         auto& navB = AppNavigationService::instance(backendB);
         auto& navigation = NavigationUiController::instance(window);
+        ViewNavigationSession combined("combined");
+        combined.setAllowedAccounts({"a", "b"});
+        window.bindViewNavigation(&combined);
         navA.openChannelInTab("channel");
         QTRY_VERIFY(tree->getCurrentPage()
             && &tree->getCurrentPage()->getBackend() == &backendA);
@@ -2330,6 +2333,21 @@ private slots:
         QTRY_VERIFY(navigation.findThreadForBackend(backendB, "channel", rootId(905)));
         QVERIFY(!navigation.findThreadForBackend(backendA, "channel", rootId(905)));
         QCOMPARE(window.backendOrNull(), &backendA);
+        QTRY_COMPARE(combined.tabs().count(), 3);
+        QVERIFY(combined.tabs().findDestination("channel", {}, "a") >= 0);
+        QVERIFY(combined.tabs().findDestination("channel", {}, "b") >= 0);
+        QCOMPARE(combined.currentLocation().accountId, QStringLiteral("b"));
+
+        ViewNavigationSession onlyA("only-a");
+        onlyA.setAllowedAccounts({"a"});
+        window.bindViewNavigation(&onlyA);
+        QCOMPARE(onlyA.tabs().count(), 0);
+        navA.openChannel("channel");
+        QTRY_COMPARE(onlyA.tabs().count(), 1);
+        window.bindViewNavigation(&combined);
+        QTRY_COMPARE(tabs->count(), 3);
+        QTRY_VERIFY(navigation.findThreadForBackend(backendB, "channel", rootId(905)));
+        QCOMPARE(onlyA.tabs().count(), 1);
     }
 
     void embeddedMultiAccountNavigationReachesOnlyOwningBackend()

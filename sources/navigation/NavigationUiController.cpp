@@ -502,6 +502,8 @@ Backend* NavigationUiController::backend() const
 
 Backend* NavigationUiController::backendForAccount(const QString& accountId) const
 {
+    if (usesSharedView() && !viewNavigationSession->allowsAccount(accountId))
+        return nullptr;
     return window.navigationBackend(accountId);
 }
 
@@ -897,7 +899,9 @@ int NavigationUiController::releaseThreadFromTabSurface(ChatArea* area)
 void NavigationUiController::activateTab(int index, bool restoreBookmark)
 {
     const auto* entry = tabModel.at(index);
-    if (!entry || !navigationTabs || !backendForAccount(entry->accountId)) {
+    if (!entry || !navigationTabs
+        || (!backendForAccount(entry->accountId)
+            && !(usesSharedView() && viewNavigationSession->allowsAccount(entry->accountId)))) {
         return;
     }
 
@@ -944,7 +948,10 @@ void NavigationUiController::activateTab(int index, bool restoreBookmark)
     const bool previousSwitching = switchingTabs;
     switchingTabs = true;
 
-    if (!location.rootId.isEmpty()) {
+    if (!backendForAccount(location.accountId)) {
+        showEmptyConversation();
+        recordLocation(location, nullptr);
+    } else if (!location.rootId.isEmpty()) {
         // A thread-only tab is independent, but its right pane must still not
         // show a docked thread from an unrelated channel in contextual mode.
         closeThreadDockIfDifferent(location.accountId, location.channelId);
@@ -1429,9 +1436,31 @@ void NavigationUiController::goForward()
     updateHistoryButtons();
 }
 
+void NavigationUiController::showEmptyConversation()
+{
+    if (!mainStack) return;
+    if (auto* previous = currentChannelPage())
+        previous->onDeactivate();
+    closeThreadDockIfDifferent({}, {}, true);
+    if (!emptyConversation) {
+        emptyConversation = new QWidget(mainStack);
+        emptyConversation->setObjectName(QStringLiteral("emptyConversationPage"));
+        mainStack->addWidget(emptyConversation);
+    }
+    if (navigationSurfaceStack)
+        navigationSurfaceStack->setCurrentWidget(mainStack);
+    mainStack->setCurrentWidget(emptyConversation);
+    activeArea = nullptr;
+}
+
 void NavigationUiController::navigateTo(const Location& location)
 {
-    if (!location.valid() || !backendForAccount(location.accountId)) {
+    if (!location.valid()) return;
+    if (!backendForAccount(location.accountId)) {
+        if (usesSharedView() && viewNavigationSession->allowsAccount(location.accountId)) {
+            showEmptyConversation();
+            recordLocation(location, nullptr);
+        }
         return;
     }
 
@@ -1457,6 +1486,10 @@ void NavigationUiController::navigateTo(const Location& location)
 
     BackendChannel* channel = sourceBackend->getStorage().getChannelById(location.channelId);
     if (!channel) {
+        if (usesSharedView()) {
+            showEmptyConversation();
+            recordLocation(location, nullptr);
+        }
         return;
     }
 

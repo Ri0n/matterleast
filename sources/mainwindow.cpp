@@ -366,7 +366,9 @@ bool MainWindow::attachNavigationBackend(Backend& source)
     if (auto* primary = backendOrNull()) {
         const auto* primaryAccount = qobject_cast<const Account*>(primary->parent());
         if (!primaryAccount) return false;
-        if (!ui->channelList->bindSingleAccount(primaryAccount->id())) return false;
+        if (!ui->channelList->bindSingleAccount(primaryAccount->id())
+            || !ui->channelList->registerAccountBackend(primaryAccount->id(), *primary))
+            return false;
     }
     if (!ui->channelList->registerAccountBackend(account->id(), source)) return false;
     auto& navigation = NavigationUiController::instance(*this);
@@ -452,7 +454,7 @@ void MainWindow::restoreSidebarWidth()
 void MainWindow::bindViewNavigation(ViewNavigationSession* session,
                                     const QString& accountId)
 {
-    if (backendOrNull())
+    if (backendOrNull() || accountId.isEmpty())
         NavigationUiController::instance(*this).bindViewSession(session, accountId);
 }
 
