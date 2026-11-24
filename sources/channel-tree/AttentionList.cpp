@@ -477,7 +477,16 @@ void AttentionList::refresh()
 
     // The existing settle period protects only the selected row's geometry;
     // it must not delay the semantic count or retain rows of a removed account.
-    if (selectionRefreshTimer_->isActive()) return;
+    if (selectionRefreshTimer_->isActive()) {
+        bool obsoleteRows = false;
+        for (int i = 0; i < topLevelItemCount(); ++i)
+            if (!sources_.backend(topLevelItem(i)->data(0, SidebarItem::AccountIdRole).toString())) {
+                obsoleteRows = true;
+                break;
+            }
+        if (!obsoleteRows) return;
+        selectionRefreshTimer_->stop();
+    }
     QSignalBlocker blockSelection(this);
     Backend* retainedOwner = sources_.backend(retainedAccountId_);
     if (retainedOwner && retainedEntry_) {

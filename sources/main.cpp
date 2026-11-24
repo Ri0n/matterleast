@@ -72,7 +72,7 @@
 #include "channel-tree/SidebarItem.h"
 #include "ui/ServersWorkspacePage.h"
 #include "ui/ServersSidebarPage.h"
-#include "ui/AccountTrayBadgeModel.h"
+#include "ui/AccountTrayBadgeMonitor.h"
 
 namespace Mattermost {
 
@@ -95,7 +95,6 @@ private:
     void suspendProfileConnection(Account* account, Backend* backend);
     void populateAccountMenu(QMenu& menu);
     void updateWindowTitle();
-    void updateTrayIcon();
     void selectAccount(const QString& accountId, bool presentWindow = false);
     void bindActiveNavigationView();
     void syncMergedSidebarPresentation();
@@ -107,7 +106,7 @@ private:
     MigrationManager migrations;
     std::unique_ptr<QMenu> trayIconMenu;
     std::unique_ptr<QSystemTrayIcon> trayIcon;
-    AccountTrayBadgeModel trayBadges;
+    AccountTrayBadgeMonitor trayBadges;
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
     ServersWorkspacePage* serversStartupPage = nullptr;
     QHash<Backend*, MainWindow*> accountViews; // Presentation only.
@@ -125,6 +124,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
 ,migrations(accounts, this)
 ,trayIconMenu (std::make_unique<QMenu> (nullptr))
 ,trayIcon (std::make_unique<QSystemTrayIcon> (IconUtils::applicationIcon(), nullptr))
+,trayBadges(*trayIcon)
 {
     QGuiApplication::setApplicationDisplayName(QStringLiteral("MatterLeast"));
     // Match the installed .desktop file for notification portal identity.
@@ -204,11 +204,15 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
     // account-specific Widgets when the domain reports a connected session.
     connect(&accounts, &AccountManager::accountConnected, this,
             [this](Account* account, Backend* backend) {
+        trayBadges.watch(*backend);
         addAccountWorkspace(*backend,
                             account->id() == accounts.selectedAccountId());
     });
     connect(&accounts, &AccountManager::accountUnregistered, this,
-            [this](Backend* backend) { closingAccounts.remove(backend); });
+            [this](Backend* backend) {
+        trayBadges.unwatch(backend);
+        closingAccounts.remove(backend);
+    });
     connect(&accounts, &AccountManager::profileSuspensionRequested, this,
             [this](Account* account, Backend* backend) {
         suspendProfileConnection(account, backend);
@@ -553,13 +557,6 @@ void MattermostApplication::updateWindowTitle()
         + QStringLiteral(" — ") + QUrl(selected->serverDomain()).host());
 }
 
-void MattermostApplication::updateTrayIcon()
-{
-    const auto combined = trayBadges.aggregate();
-    trayIcon->setIcon(IconUtils::applicationIcon(
-        combined.attentionCount, combined.hasUnreadChannel));
-}
-
 void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
 {
     ensureWorkspaceShell();
@@ -575,7 +572,6 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
         return;
     }
     accountViews.insert(&backend, page);
-    trayBadges.update(&backend, 0, false);
 
     page->installServersSidebar(accounts);
     connect(page, &MainWindow::serverOpenRequested, this,
@@ -611,11 +607,6 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
     connect(page, &MainWindow::serverConnectRequested, this,
             [this](const QString& id) {
         if (accounts.selectAccount(id)) accounts.restoreAccount(id);
-    });
-        connect(page, &MainWindow::trayBadgeStateChanged, this,
-            [this, owner = &backend](uint32_t count, bool hasUnreadChannel) {
-        trayBadges.update(owner, count, hasUnreadChannel);
-        updateTrayIcon();
     });
     connect(page, &QWidget::windowTitleChanged, this,
             [this, owner = &backend](const QString&) {
@@ -815,9 +806,8 @@ void MattermostApplication::suspendProfileConnection(Account* item,
         }
         if (backendGuard) {
             accountViews.remove(backendGuard.data());
-            trayBadges.remove(backendGuard.data());
+            trayBadges.unwatch(backendGuard.data());
         }
-        updateTrayIcon();
         if (workspaceShell && accounts.selectedAccountId() == accountId)
             workspaceShell->showServers();
 
@@ -857,8 +847,7 @@ void MattermostApplication::beginLogout(Backend& backend,
             ? workspaceShell->takeWorkspace(id) : nullptr;
         accountViews.remove(owner);
         delete view;
-        trayBadges.remove(owner);
-        updateTrayIcon();
+        trayBadges.unwatch(owner);
         if (workspaceShell && accounts.selectedAccountId() == id)
             workspaceShell->showServers();
         if (guard)

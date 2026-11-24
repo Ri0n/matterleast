@@ -508,5 +508,8 @@ Refresh reconciles the row delta, preserving existing items and selection.
 Switching View membership disconnects obsolete subscriptions; no account's
 read cursor belongs to the queue widget. Context menus and deferred navigation
 resolve the exact row owner rather than the profile displayed in the header.
-The tray aggregation is separate work: the visible Attention count is not the
-application-wide notification count when a View excludes connected accounts.
+AccountTrayBadgeMonitor subscribes to every authenticated account's existing
+activity models at application level. The visible Attention count is used only
+for the View's tab/title; hiding a connected account cannot clear its tray
+badge. Account unregistration removes its own contribution, without creating
+or updating a sidebar widget.

@@ -124,9 +124,6 @@ public:
 
 signals:
     void logoutRequested();
-    // Every server reports its badge state to the app-level tray aggregator;
-    // hidden workspaces must not overwrite other accounts' unread counters.
-    void trayBadgeStateChanged(uint32_t attentionCount, bool hasUnreadChannel);
     // Notification activation must first select this account's workspace.
     void presentAccountRequested();
     void serverOpenRequested(const QString& accountId);
@@ -151,7 +148,6 @@ private:
 	void setupChannelTabs ();
 	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
-    void refreshTrayIcon();
 	void refreshChannelUnreadFilter ();
 	void applySidebarTextFilter(QTreeWidget* tree) const;
 	void openDirectMessageSearch ();
@@ -204,10 +200,6 @@ private:
 	bool teamChannelsReady = false;
 	QSet<QString> populatedSessionSidebars;
 	bool navigationSessionRestoreScheduled = false;
-    std::uint32_t                     _attentionBadgeCount = 0;
-    std::uint32_t                     _shownAttentionBadgeCount = 0;
-    bool                              _shownChannelUnreadBadge = false;
-    bool                              _trayIconInitialized = false;
 	QMenu*								mainMenu;
 	bool								doDeinit;
 };

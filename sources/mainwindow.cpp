@@ -93,7 +93,6 @@
 #include "post-collection/PostCollectionView.h"
 #include "plugins/PluginManager.h"
 #include "ui/IconUtils.h"
-#include "ui/TrayBadgePolicy.h"
 #include "ui/EmojiPresentation.h"
 #include "ui/TeamSelectorLabel.h"
 #include "ui/ThinSplitter.h"
@@ -935,7 +934,6 @@ void MainWindow::refreshSidebarViews()
 		applySidebarTextFilter(attentionList);
 	}
 	refreshChannelUnreadFilter();
-    refreshTrayIcon();
 }
 
 void MainWindow::applySidebarTextFilter(QTreeWidget* tree) const
@@ -1653,63 +1651,10 @@ void MainWindow::unreadMessagesNotify(const BackendChannel& channel)
 
 void MainWindow::setNotificationsCountVisualization(uint32_t notificationsCount)
 {
-    _attentionBadgeCount = notificationsCount;
     const QString productName = qApp->applicationDisplayName();
     setWindowTitle(notificationsCount == 0
         ? productName
         : QStringLiteral("(%1) %2").arg(notificationsCount).arg(productName));
-    refreshTrayIcon();
-}
-
-void MainWindow::refreshTrayIcon()
-{
-    if (!backendOrNull()) return;
-    // AttentionList is the existing authority for the red counter. When it
-    // clears, fall back to the ordinary public/private channel unread state,
-    // including channels outside the currently selected sidebar team.
-    bool hasUnreadChannel = false;
-    if (_attentionBadgeCount == 0) {
-        const auto& sidebar = SidebarService::instance(backendInstance());
-        for (auto it = backendInstance().getStorage().channels.cbegin();
-             it != backendInstance().getStorage().channels.cend(); ++it) {
-            const BackendChannel* channel = it.value();
-            if (!channel || channel->delete_at != 0) {
-                continue;
-            }
-            const bool publicOrPrivate =
-                channel->type == BackendChannel::publicChannel
-                || channel->type == BackendChannel::privateChannel;
-            // Avoid the more expensive category membership lookup for
-            // channels that cannot contribute to the tray indicator.
-            const bool muted = sidebar.isChannelMuted(*channel);
-            const bool unread = sidebar.isChannelUnread(*channel);
-            if (!publicOrPrivate || muted || !unread) {
-                continue;
-            }
-            if (isTrayUnreadChannel(publicOrPrivate,
-                                    sidebar.isChannelTracked(channel->id),
-                                    muted, unread)) {
-                hasUnreadChannel = true;
-                break;
-            }
-        }
-    }
-
-    if (_trayIconInitialized
-        && _shownAttentionBadgeCount == _attentionBadgeCount
-        && _shownChannelUnreadBadge == hasUnreadChannel) {
-        return;
-    }
-    _trayIconInitialized = true;
-    _shownAttentionBadgeCount = _attentionBadgeCount;
-    _shownChannelUnreadBadge = hasUnreadChannel;
-    emit trayBadgeStateChanged(_attentionBadgeCount, hasUnreadChannel);
-    if (isWindow()) {
-        // Preserve the standalone MainWindow test/legacy behavior; embedded
-        // workspaces publish state for aggregation by their parent shell.
-        trayIcon.setIcon(IconUtils::applicationIcon(_attentionBadgeCount,
-                                                   hasUnreadChannel));
-    }
 }
 
 void MainWindow::saveState()

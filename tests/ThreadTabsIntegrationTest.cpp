@@ -46,6 +46,7 @@
 #include "navigation/AppNavigationService.h"
 #include "navigation/NavigationUiController.h"
 #include "ui/IconUtils.h"
+#include "ui/AccountTrayBadgeMonitor.h"
 #include "options/MLOptions.h"
 
 using namespace Mattermost;
@@ -2268,6 +2269,37 @@ private slots:
     }
     // Run the two-window fixture after the independent single-window cases,
     // so its process-global presentation state cannot affect scroll tests.
+    void trayMonitorCountsAccountsOutsideCurrentQueue()
+    {
+        Backend first;
+        Backend second;
+        for (Backend* owner : {&first, &second}) {
+            owner->getStorage().addUser(
+                QJsonObject {{"id", "user"}, {"username", "tester"}}, true);
+            QVERIFY(owner->getStorage().addGroupChannel(
+                QJsonObject {{"id", "channel"}, {"type", "G"}, {"display_name", "Test"}}));
+        }
+        QSystemTrayIcon tray;
+        AccountTrayBadgeMonitor monitor(tray);
+        monitor.watch(first);
+        monitor.watch(second);
+        FollowingModel::instance(first).markPostUnread("channel", "same-thread", "first-post", 1000);
+        FollowingModel::instance(second).markPostUnread("channel", "same-thread", "second-post", 2000);
+        QCOMPARE(monitor.aggregate().attentionCount, 2u);
+
+        AttentionList visible;
+        visible.setAccounts({{"a", &first}});
+        QCOMPARE(visible.topLevelItemCount(), 1);
+        QCOMPARE(monitor.aggregate().attentionCount, 2u);
+        FollowingModel::instance(second).markPostUnread("channel", "other-thread", "other-post", 3000);
+        QCOMPARE(monitor.aggregate().attentionCount, 3u);
+        QCOMPARE(visible.topLevelItemCount(), 1);
+        monitor.unwatch(&second);
+        QCOMPARE(monitor.aggregate().attentionCount, 1u);
+        FollowingModel::instance(second).markPostUnread("channel", "hidden-thread", "hidden-post", 4000);
+        QCOMPARE(monitor.aggregate().attentionCount, 1u);
+    }
+
     void queueProjectionsPreserveAccountQualifiedRows()
     {
         Backend first;

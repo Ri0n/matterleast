@@ -13,9 +13,8 @@ struct AggregateTrayBadge {
     bool hasUnreadChannel = false;
 };
 
-// Each authenticated workspace publishes its own badge projection. The tray
-// must aggregate all servers: whichever view updates last cannot overwrite
-// attention from another (possibly hidden) server.
+// Aggregate live account activity independently of the current View.
+// Whichever account updates last cannot overwrite another server's state.
 class AccountTrayBadgeModel final
 {
 public:
