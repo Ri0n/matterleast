@@ -162,10 +162,8 @@ future mobile QML are alternative presentations of the **same** model.
   decide when to reconnect, mutate account identities, or directly read
   secrets. A QML view can consume the same model and trigger equivalent
   manager commands through a frontend-agnostic action API.
-- `AccountWorkspaceStack` is a **temporary Widgets presentation container**
-  of the staged implementation. It must disappear when the single application
-  MainWindow presents account-qualified View state directly. Its current
-  mapping uses immutable local account IDs, not `Backend*`.
+- The permanent MainWindow presents account-qualified View state directly;
+  no account-owned window or separate startup workspace container exists.
 - Use row-level `dataChanged`, insertion, removal and moves for small
   state changes. Avoid unconditional `beginResetModel` and re-creating
   entire widget trees on a connection-status update.
@@ -287,11 +285,9 @@ The existing per-account restart snapshot is adopted into an initially empty
 view session. The common snapshot is not yet a persisted per-view restart
 format, so saving all views across process restarts is still pending.
 
-**Merged-view presentation is still pending.** The existing
-`NavigationUiController` currently renders within one Backend-specific
-MainWindow; it must be migrated to handle account-qualified tabs before
-the Servers tab permits switching merged views that contain several accounts.
-Do not simply update the view ID while retaining window-global tab contents.
+Merged views use account-qualified destinations in the same MainWindow and
+`NavigationUiController`. Switching the active View reconciles its own tab
+snapshot rather than retaining window-global tab contents.
 Continue to obey the tab/thread reparent and viewport-anchor invariants in
 [Central navigation tabs](navigation-tabs.md).
 
@@ -303,16 +299,13 @@ can remain process-local initially, but it may never be silently shared.
 ## Runtime ownership and lifecycle
 
 The AccountManager owns durable Account QObjects, each with an optional
-QObject-parented Backend, and the staged live-switching UI retains separate
-per-account workspaces. Accounts persist across disconnects and have stable
+QObject-parented Backend. Accounts persist across disconnects and have stable
 local IDs. Never confuse the lifetime of a Backend with the existence of its
 account record.
 Never swap one global Backend between URLs: late callbacks, cache keys, requests,
 reaction/emoji registries and notifications must remain scoped to their originating account.
 
-The current staged implementation uses one MainWindow per account under a persistent
-AccountWorkspaceStack. This is transitional, not the target ownership structure.
-The desktop must have exactly one MainWindow for the entire application, including
+The desktop has exactly one MainWindow for the entire application, including
 startup with no connected Backend. Its existing ThinSplitter, sidebar tab bar
 (Servers, Channels, Unread, Attention), menus, toolbars and central navigation
 surface are application-owned. Switching a View changes its projected contents and
@@ -321,21 +314,13 @@ width are global presentation settings. Account-specific actions resolve the own
 account explicitly; an active chat can belong to a different account from the
 currently selected sidebar account.
 
-The Widgets MainWindow can now construct its permanent layout without a Backend
-and attach its first authenticated session in place. Navigation observes the
-attachment explicitly rather than polling for an available identity. This is a
-construction/lifecycle boundary, not yet support for replacing an attached
-session or for presenting multiple accounts in one window.
-
-Refactor the existing presenters incrementally: first move application-scoped
-window services out of account windows (plugin overlays attach once to the
-persistent application surface); then qualify navigation and chat ownership by
-account, bind the single sidebar and central navigation surface to View state, and
-remove AccountWorkspaceStack and the per-Backend MainWindow instances. Do not
-replace the stack with another container of complete account windows, reparent a
-shared ChannelTree between windows as the final solution, or introduce parallel
-sidebar models. Preserve the per-view semantics above, without duplicate network
-clients or duplicate post caches.
+MainWindow constructs its permanent layout before authentication. Navigation
+observes account attachment and detachment explicitly rather than polling.
+Plugin overlays attach once to this surface. The single Channels tree remains
+in its original layout; switching views does not reparent it or replace it with
+another tree. No per-account geometry or sidebar width is written or restored.
+Preserve per-view navigation semantics without duplicate network clients or
+post caches.
 Transport and cache services operate on account-scoped data even when the view is hidden.
 Any singleton keyed by `Backend&` must be audited for lifetime/address reuse. Async
 completions must be fenced by stable account ID and session generation, never by whichever
@@ -560,4 +545,5 @@ stack in the splitter; preserve the central stretch factor and reject a zero
 connected. Never persist a collapsed application conversation pane. Widget
 integration tests exercise real sidebar clicks and verify visible ChatArea
 geometry, not merely the current stack page. The standalone one-Backend
-constructor remains for widget tests while legacy workspace-only code is retired.
+constructor remains for widget tests; the obsolete workspace stack and separate
+startup page have been removed. Startup tests exercise the real Servers tab.
