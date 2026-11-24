@@ -629,7 +629,6 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
         workspaceShell->activateWorkspace(id);
     trayWindow.setWindow(workspaceShell.get());
     updateWindowTitle();
-    updateTrayIcon();
     if (activate)
         workspaceShell->show();
 }

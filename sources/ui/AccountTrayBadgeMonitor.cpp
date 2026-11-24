@@ -6,6 +6,7 @@
 #include "backend/Backend.h"
 #include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
+#include "backend/types/BackendChannel.h"
 #include "channel-tree/FollowingPresentation.h"
 #include "ui/IconUtils.h"
 #include "ui/TrayBadgePolicy.h"

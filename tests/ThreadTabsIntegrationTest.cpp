@@ -2318,6 +2318,7 @@ private slots:
         list.setUnreadFilters({true, false, false});
         list.setAccounts({{"a", &first}, {"b", &second}});
         AttentionList attention;
+        qRegisterMetaType<uint32_t>("uint32_t");
         QSignalSpy counts(&attention, &AttentionList::attentionCountChanged);
         attention.setAccounts({{"a", &first}, {"b", &second}});
         QCOMPARE(list.topLevelItemCount(), 2);
