@@ -600,6 +600,7 @@ void MainWindow::setupChannelTabs()
 	ui->gridLayout_2->removeWidget(ui->chatAreaStackedWidget);
 
 	channelTabs = new QTabWidget(ui->centralwidget);
+	channelTabs->setObjectName(QStringLiteral("sidebarTabs"));
 	channelTabs->setDocumentMode(true);
 	channelTabs->setSizePolicy(ui->channelList->sizePolicy());
 
