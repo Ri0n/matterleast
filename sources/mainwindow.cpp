@@ -473,7 +473,9 @@ void MainWindow::refreshQueueAccounts()
     for (auto* owner : NavigationUiController::instance(*this).visibleBackends())
         sources.insert(SidebarQueueSources::accountId(*owner), owner);
     recentChannels->setAccounts(sources);
+    attentionList->setAccounts(sources);
     applySidebarTextFilter(recentChannels);
+    applySidebarTextFilter(attentionList);
 }
 
 void MainWindow::installServersSidebar(AccountManager& manager)
@@ -852,15 +854,27 @@ void MainWindow::setupChannelTabs()
             ui->channelList->showChannelContextMenuForAccount(
                 channelId, ui->channelList->accountIdForBackend(owner), pos);
     });
-	connect(attentionList, &AttentionList::channelSelected,
-	        ui->channelList, &ChannelTree::openChannel);
+    connect(attentionList, &AttentionList::conversationAttentionReactivated,
+            this, [this](const QString& channelId, Backend* owner) {
+        ChatArea* active = ui->channelList->getCurrentPage();
+        if (active && !active->isThread && &active->getBackend() == owner
+            && active->getChannel().id == channelId)
+            active->flashVisibleAttention();
+    });
+    connect(attentionList, &AttentionList::channelSelected, this,
+            [this](const QString& channelId, Backend* owner) {
+        if (owner)
+            ui->channelList->openStoredChannelForAccount(
+                channelId, ui->channelList->accountIdForBackend(owner));
+    });
 	connect(attentionList, &QTreeWidget::customContextMenuRequested, this,
 	        [this](const QPoint& pos) {
 		const QString channelId = attentionList->channelIdAt(pos);
-		if (!channelId.isEmpty()) {
-			ui->channelList->showChannelContextMenu(
-				channelId, attentionList->viewport()->mapToGlobal(pos));
-		}
+        if (Backend* owner = attentionList->backendAt(pos); owner && !channelId.isEmpty()) {
+            ui->channelList->showChannelContextMenuForAccount(
+                channelId, ui->channelList->accountIdForBackend(owner),
+                attentionList->viewport()->mapToGlobal(pos));
+        }
 	});
 	connect(attentionList, &AttentionList::attentionCountChanged, this,
 	        [this](uint32_t count) {

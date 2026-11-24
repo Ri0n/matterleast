@@ -200,22 +200,6 @@ void MainWindow::installRealtimeUiSync()
         serverDialog->show();
     });
 
-    // Alternate sidebar views can legitimately know about a direct/group
-    // conversation before the server-backed Channels tree has materialized its
-    // row. Route them through the Storage-aware navigation path rather than
-    // requiring channelToItemMap to be populated already.
-    disconnect(attentionList, &AttentionList::channelSelected,
-               ui->channelList, &ChannelTree::openChannel);
-    connect(attentionList, &AttentionList::channelSelected,
-            ui->channelList, &ChannelTree::openStoredChannel);
-    connect(attentionList, &AttentionList::conversationAttentionReactivated,
-            this, [this](const QString& channelId) {
-        ChatArea* active = ui->channelList->getCurrentPage();
-        if (active && !active->isThread && active->getChannel().id == channelId) {
-            active->flashVisibleAttention();
-        }
-    });
-
     auto connectConversationSource = [this](BackendDirectChannelsTeam& conversations) {
         connect(&conversations, &BackendDirectChannelsTeam::onNewChannel,
                 this, [this](BackendChannel& channel) {

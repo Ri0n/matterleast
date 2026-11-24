@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <utility>
 #include <QMap>
 #include <QObject>
 #include <QPointer>

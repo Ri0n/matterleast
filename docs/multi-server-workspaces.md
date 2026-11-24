@@ -497,3 +497,16 @@ a shared account, disconnected active view, duplicate channel/user IDs across
 servers, rapid switch during HTTP/WS callbacks, pinned tabs, Back/Forward,
 docked/tabbed/detached threads, drafts, unread+Attention, notification click,
 cold startup restoration, and failed/partial login.
+
+## Combined Unread and Attention projections
+
+The two queue widgets subscribe to the existing FollowingModel for every live
+account in the active View. Account-qualified row identities prevent remote
+channel/thread/user ID collisions. Unread retains its source priority groups
+and Attention retains its chronological order across all contributing accounts.
+Refresh reconciles the row delta, preserving existing items and selection.
+Switching View membership disconnects obsolete subscriptions; no account's
+read cursor belongs to the queue widget. Context menus and deferred navigation
+resolve the exact row owner rather than the profile displayed in the header.
+The tray aggregation is separate work: the visible Attention count is not the
+application-wide notification count when a View excludes connected accounts.

@@ -510,7 +510,7 @@ void ChannelQuickList::refresh()
                 if (projectedKeys.contains(key)) continue;
 
                 Candidate candidate;
-            candidate.accountId = accountId;
+                candidate.accountId = accountId;
                 candidate.entry.kind = FollowingModel::Kind::Conversation;
                 candidate.entry.channelId = channel->id;
                 candidate.entry.teamId = channel->team ? channel->team->id : QString();
@@ -526,7 +526,6 @@ void ChannelQuickList::refresh()
                 candidates.push_back(std::move(candidate));
             }
         }
-
     }
 
     // A read DM/GM disappears from the shared model immediately. Keep only the
@@ -581,8 +580,8 @@ void ChannelQuickList::refresh()
             || owner->getStorage().getChannelById(candidate.entry.channelId)))
             desired.insert(candidate.key);
     }
-    SidebarQueueRows rows(*this, desired);
     channelItems_.clear();
+    SidebarQueueRows rows(*this, desired);
     QTreeWidgetItem* itemToRestore = nullptr;
     int row = 0;
 
@@ -663,7 +662,7 @@ void ChannelQuickList::refresh()
 void ChannelQuickList::updateDirectUser(const QString& accountId, const BackendUser& user)
 {
     auto* owner = sources_.backend(accountId);
-    if (!owner) return;
+    if (!owner || refreshing_) return;
 
     BackendChannel* channel = owner->getStorage().getDirectChannelByUserId(user.id);
     if (!channel) {
