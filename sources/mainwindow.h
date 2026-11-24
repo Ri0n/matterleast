@@ -71,6 +71,8 @@ public:
     // Transitional attachment: build the permanent Widgets surface before
     // any network session exists. An already attached window is not rebound.
     bool attachInitialBackend(Backend& source);
+    // Header identity follows the selected account, not an open chat.
+    void setProfileBackend(Backend* source);
 	void initializationComplete ();
     void installRealtimeUiSync();
     void bindViewNavigation(ViewNavigationSession* session, const QString& accountId);
@@ -138,6 +140,7 @@ protected:
 private:
 	void createMenu ();
     void reportStatusResult(bool success, const QString& reason);
+    void refreshProfileHeader();
 	void setupChannelTabs ();
 	void restoreNavigationSessionWhenReady();
 	void refreshSidebarViews ();
@@ -159,6 +162,9 @@ private:
 	QSystemTrayIcon&					trayIcon;
 	NotificationManager*                    notificationManager;
     QPointer<Backend> _backend;
+    QPointer<Backend> _profileBackend;
+    QObject* _profileSubscriptions = nullptr;
+    QFont _defaultProfileStatusFont;
 	QSplitter*							sidebarSplitter = nullptr;
 	QTabWidget*							channelTabs = nullptr;
 	QWidget*							channelsPage = nullptr;

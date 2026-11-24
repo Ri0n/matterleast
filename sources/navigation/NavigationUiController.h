@@ -106,7 +106,6 @@ private:
     void closeActiveTab();
     void activatePreviousTab();
     void activateNextTab();
-    void updateIdentityTooltip();
     void updateHistoryButtons();
 
     Location captureLocation(ChatArea* area) const;

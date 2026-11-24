@@ -279,6 +279,35 @@ class ThreadTabsIntegrationTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void profileHeaderCanChangeAccountsWithoutReplacingNavigation()
+    {
+        Backend first;
+        Backend second;
+        auto* firstUser = first.getStorage().addUser(
+            QJsonObject {{"id", "same-user"}, {"username", "first"}}, true);
+        auto* secondUser = second.getStorage().addUser(
+            QJsonObject {{"id", "same-user"}, {"username", "second"}}, true);
+        QVERIFY(firstUser);
+        QVERIFY(secondUser);
+
+        QSystemTrayIcon tray;
+        MainWindow window(nullptr, tray);
+        auto* avatar = window.findChild<QWidget*>("usericon_label");
+        auto* username = window.findChild<QLabel*>("usernameLabel");
+        QVERIFY(avatar);
+        QVERIFY(username);
+        window.setProfileBackend(&first);
+        QCOMPARE(username->text(), QStringLiteral("first"));
+        window.setProfileBackend(&second);
+        QCOMPARE(username->text(), QStringLiteral("second"));
+        emit firstUser->onAvatarChanged();
+        QCOMPARE(username->text(), QStringLiteral("second"));
+        QVERIFY(!window.backendOrNull());
+        window.setProfileBackend(nullptr);
+        QVERIFY(username->text().isEmpty());
+        QVERIFY(!avatar->isEnabled());
+    }
+
     void backendlessWindowAttachesSessionWithoutRecreatingItsSurface()
     {
         Server server;

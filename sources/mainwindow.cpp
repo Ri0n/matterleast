@@ -207,8 +207,12 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon)
 
     // These widgets belong to the window and are created even when every
     // account is offline. Session attachment only enables their actions.
+    _defaultProfileStatusFont = ui->statusLabel->font();
     ui->usericon_label->clear();
     ui->usericon_label->setEnabled(false);
+    connect(ui->usericon_label, &PresenceAvatarLabel::reconnectRequested, this, [this] {
+        if (_profileBackend) _profileBackend->retryWebSocketConnectionNow();
+    });
     ui->searchButton->setEnabled(false);
     if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))
         action->setEnabled(false);
@@ -252,14 +256,12 @@ bool MainWindow::attachInitialBackend(Backend& source)
     if (!user || user->id.isEmpty())
         return false;
     _backend = &source;
-    ui->usericon_label->setEnabled(true);
+    setProfileBackend(&source);
     ui->searchButton->setEnabled(true);
     if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarLogoutAction")))
         action->setEnabled(true);
     if (auto* action = mainMenu->findChild<QAction*>(QStringLiteral("sidebarUserGroupsAction")))
         action->setEnabled(true);
-
-    const BackendUser& currentUser = *user;
 
 	// Recover previous-process unresolved sends before Drafts can be opened.
 	// Construction never retransmits them; it converts them to local drafts.
@@ -294,83 +296,32 @@ bool MainWindow::attachInitialBackend(Backend& source)
 			restoreNavigationSessionWhenReady();
 		});
 
-    // Always scale from the baseline font: repeated status updates must not
-    // multiply an already enlarged emoji-only font.
-    const QFont defaultStatusFont = ui->statusLabel->font();
-    const auto refreshProfileStatus = [this, &currentUser, defaultStatusFont] {
-        ui->usericon_label->setStatus(currentUser.status);
-        const auto& custom = currentUser.props.customStatus;
-        const bool emojiOnly = isEmojiOnlyCustomStatus(custom.emoji, custom.text);
-        ui->statusLabel->setFont(emojiOnly
-            ? EmojiPresentation::fontForMode(
-                  defaultStatusFont, EmojiPresentation::Mode::StatusJumbo)
-            : defaultStatusFont);
-        // Rich-text emoji glyphs/images otherwise start almost flush against
-        // the 48px avatar. Reserve an 8px character-sized visual gutter only
-        // while an emoji status is present.
-        ui->statusLabel->setContentsMargins(
-            custom.emoji.isEmpty() ? 0 : 8, 0, 0, 0);
-        if (custom.emoji.isEmpty()) {
-            ui->statusLabel->setText(
-                custom.text.isEmpty() ? currentUser.status : custom.text);
-            return;
-        }
 
-        const auto presentation = backendInstance().emojiRegistry().resolveByName(custom.emoji);
-        QString icon = presentation
-            ? presentation->unicodeString
-            : QStringLiteral(":%1:").arg(custom.emoji.toHtmlEscaped());
-        if (icon.contains(QStringLiteral("<img"), Qt::CaseInsensitive)) {
-            icon = EmojiPresentation::normalizeHtml(
-                icon, defaultStatusFont,
-                emojiOnly ? EmojiPresentation::Mode::StatusJumbo
-                          : EmojiPresentation::Mode::Reaction,
-                &backendInstance().emojiRegistry());
-        } else {
-            icon = icon.toHtmlEscaped();
-        }
-        const QString message = custom.text.isEmpty()
-            ? QString()
-            : QStringLiteral(" ") + custom.text.toHtmlEscaped();
-        ui->statusLabel->setText(QStringLiteral("<span>%1%2</span>").arg(icon, message));
-    };
-    connect(&currentUser, &BackendUser::onStatusChanged,
-            this, refreshProfileStatus);
-    connect(&backendInstance(), &Backend::onOwnCustomStatusChanged,
-            this, refreshProfileStatus);
-    connect(&backendInstance().emojiRegistry(), &EmojiRegistry::customEmojiAdded,
-            this, refreshProfileStatus);
-    refreshProfileStatus();
-	ui->usernameLabel->setText(currentUser.username);
-
-	connect(&currentUser, &BackendUser::onAvatarChanged, [this, &currentUser] {
-		LOG_DEBUG("Got User Image");
-		ui->usericon_label->setPixmap(currentUser.avatar);
-	});
-
-	connect(&backendInstance(), &Backend::onAllTeamChannelsPopulated, [this] {
-		ui->channelList->populateSidebars(backendInstance());
+	connect(&source, &Backend::onAllTeamChannelsPopulated, this, [this, &source] {
+		ui->channelList->populateSidebars(source);
 		attentionList->refreshThreads();
 		QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
 		initializationComplete();
 	});
 
-	connect(&backendInstance(), &Backend::onNewPost,
+	connect(&source, &Backend::onNewPost, this,
 	        [this](BackendChannel& channel, const BackendPost& post) {
 		messageNotify(channel, post);
 	});
 
-	connect(&backendInstance(), &Backend::onChannelViewed, [this](const BackendChannel& channel) {
-		SidebarService::instance(backendInstance()).setChannelMentioned(channel.id, false);
+	connect(&source, &Backend::onChannelViewed, this, [&source](const BackendChannel& channel) {
+		SidebarService::instance(source).setChannelMentioned(channel.id, false);
 	});
 
-	connect(&backendInstance(), &Backend::onAddedToTeam, [this](BackendTeam& team) {
-		ui->channelList->addTeam(backendInstance(), team);
+	connect(&source, &Backend::onAddedToTeam, this, [this, &source](BackendTeam& team) {
+		ui->channelList->addTeam(source, team);
 	});
 
-	backendInstance().retrieveOwnTeams([this](BackendTeam& team) {
-		ui->channelList->addTeam(backendInstance(), team);
-	});
+	const QPointer<Backend> sourceGuard(&source);
+    source.retrieveOwnTeams([windowGuard, sourceGuard](BackendTeam& team) {
+        if (windowGuard && sourceGuard)
+            windowGuard->ui->channelList->addTeam(*sourceGuard, team);
+    });
 
 	LOG_DEBUG("MainWindow signal register finish");
 

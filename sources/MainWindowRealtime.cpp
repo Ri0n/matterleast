@@ -55,22 +55,6 @@ void MainWindow::installRealtimeUiSync()
     }
     setProperty(InstalledProperty, true);
 
-    auto updateConnectionIndicator = [this](WebSocketConnector::ConnectionState state) {
-        using IndicatorState = PresenceAvatarLabel::ConnectionIndicatorState;
-        IndicatorState indicatorState = IndicatorState::None;
-        if (state == WebSocketConnector::ConnectionState::Connecting) {
-            indicatorState = IndicatorState::Connecting;
-        } else if (state == WebSocketConnector::ConnectionState::WaitingForReconnect) {
-            indicatorState = IndicatorState::WaitingForReconnect;
-        }
-        ui->usericon_label->setConnectionIndicatorState(indicatorState);
-    };
-    connect(&backendInstance(), &Backend::onWebSocketConnectionStateChanged,
-            this, updateConnectionIndicator);
-    connect(ui->usericon_label, &PresenceAvatarLabel::reconnectRequested,
-            this, [this] { backendInstance().retryWebSocketConnectionNow(); });
-    updateConnectionIndicator(backendInstance().webSocketConnectionState());
-
     // As in the official client, REST projections are reconciled after a
     // WebSocket reconnect, not after an arbitrary amount of wall-clock time.
     // The connector itself handles heartbeat timeouts and sequence gaps.

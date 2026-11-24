@@ -34,7 +34,6 @@
 #include "backend/FollowingModel.h"
 #include "backend/SidebarService.h"
 #include "backend/types/BackendChannel.h"
-#include "backend/types/BackendUser.h"
 #include "channel-tree/ChannelTree.h"
 #include "chat-area/ChatArea.h"
 #include "chat-area/ChatLogWidget.h"
@@ -228,7 +227,6 @@ void NavigationUiController::setupMainWindow()
         persistThreadPaneWidth();
     });
 
-    updateIdentityTooltip();
     updateHistoryButtons();
 }
 
@@ -478,42 +476,6 @@ void NavigationUiController::attachBackend(Backend& source)
     connect(&sidebar, &SidebarService::channelActivityReset, this, refreshAll);
     connect(&FollowingModel::instance(*sourceBackend), &FollowingModel::changed,
             this, refreshAll);
-    updateIdentityTooltip();
-}
-
-void NavigationUiController::updateIdentityTooltip()
-{
-    auto* avatar = window.findChild<QWidget*>(QStringLiteral("usericon_label"));
-    if (!avatar) {
-        return;
-    }
-
-    Backend* sourceBackend = backend();
-    if (!sourceBackend) {
-        if (auto* username = window.findChild<QLabel*>(QStringLiteral("usernameLabel"))) {
-            if (!username->text().isEmpty()) {
-                avatar->setToolTip(username->text());
-            }
-        }
-        return;
-    }
-
-    if (!sourceBackend->getStorage().loginUser) return;
-    const BackendUser& user = sourceBackend->getLoginUser();
-    const QString displayName = user.getDisplayName().trimmed();
-    const QString accountName = user.username.trimmed();
-    QStringList lines;
-    if (!displayName.isEmpty()) {
-        lines.push_back(displayName);
-    }
-    if (!accountName.isEmpty()
-        && QString::compare(displayName, accountName, Qt::CaseInsensitive) != 0) {
-        lines.push_back(QStringLiteral("@") + accountName);
-    }
-    if (lines.isEmpty() && !accountName.isEmpty()) {
-        lines.push_back(accountName);
-    }
-    avatar->setToolTip(lines.join(QLatin1Char('\n')));
 }
 
 ChatArea* NavigationUiController::currentChannelPage() const
