@@ -539,10 +539,14 @@ account roots and the navigation session, not the window or its splitter.
 Account connection and suspension attach/detach account-qualified UI sources;
 closing one connection releases its widgets before Storage is reset. The
 application-wide sidebar splitter state is saved under the existing global
-key. Restore it after the navigation content host has replaced the original
-stack in the splitter; preserve the central stretch factor and reject a zero
-(or minimum one-pixel) conversation pane even before the first account has
-connected. Never persist a collapsed application conversation pane. Widget
+key. Restore it once on the first window show, after the navigation content
+host has replaced the original stack and the splitter has actual widget
+geometry. Before that point QSplitter::sizes() may report transient geometry,
+not the restored size hints; do not reject a valid saved split on that basis.
+Preserve the central stretch factor and reject a zero (or minimum one-pixel)
+conversation pane even before the first account has connected. Never persist
+a collapsed application conversation pane. The first-show restoration does not
+schedule timers or run again when switching views or showing the tray window. Widget
 integration tests exercise real sidebar clicks and verify visible ChatArea
 geometry, not merely the current stack page. The standalone one-Backend
 constructor remains for widget tests; the obsolete workspace stack and separate
