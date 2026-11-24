@@ -6,6 +6,7 @@
 #include "ChannelTree.h"
 
 #include <QItemSelectionModel>
+#include <algorithm>
 #include <QPointer>
 #include <QScopedValueRollback>
 #include <QSet>
@@ -270,6 +271,17 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
             continue;
         }
         QStringList ids = sidebar.visibleChannelIds(*category);
+        if (_visibleAccountRootIds.size() > 1) {
+            // DM/GM have one combined branch per View. They must not also
+            // appear beneath each account's team, including Favorites.
+            ids.erase(std::remove_if(ids.begin(), ids.end(),
+                [&backend](const QString& id) {
+                    const BackendChannel* channel =
+                        backend.getStorage().getChannelById(id);
+                    return channel && (channel->type == BackendChannel::directChannel
+                                       || channel->type == BackendChannel::groupChannel);
+                }), ids.end());
+        }
         if (sidebar.conversationSearchActive()
             && category->type == QLatin1String("direct_messages")) {
             // The directory search augments the regular projection. Keep
@@ -331,7 +343,9 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
     QSet<QString> seenCategories;
     for (const QString& categoryId : state.order) {
         const SidebarCategory* category = state.category(categoryId);
-        if (!category || seenCategories.contains(categoryId)) {
+        if (!category || seenCategories.contains(categoryId)
+            || (_visibleAccountRootIds.size() > 1
+                && category->type == QLatin1String("direct_messages"))) {
             continue;
         }
         seenCategories.insert(categoryId);
@@ -395,7 +409,7 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
                 }
             }
             if (!row) {
-                row = createChannelItem(backend, teamItem, *categoryItem, *channel);
+                row = createChannelItem(backend, &teamItem, *categoryItem, *channel);
             }
             // Only mutate the affected row role when category mute changed;
             // no model reset, no wholesale ChatArea rebuild.

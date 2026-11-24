@@ -2,6 +2,7 @@
 
 #include <QLineEdit>
 #include <QPointer>
+#include <QSplitter>
 #include <QVBoxLayout>
 
 #include "ui/AccountWorkspaceStack.h"
@@ -58,6 +59,23 @@ private slots:
         QCOMPARE(secondEdit->text(), QStringLiteral("second updated"));
         QCOMPARE(stack.workspaceCount(), 2);
         QCOMPARE(switched.count(), 5); // First registration + 4 switches.
+    }
+
+    void shellNeverIntroducesNestedSplitter()
+    {
+        AccountWorkspaceStack shell;
+        QVERIFY(shell.findChildren<QSplitter*>().isEmpty());
+        auto* account = new QWidget;
+        auto* layout = new QVBoxLayout(account);
+        auto* existing = new QSplitter(Qt::Horizontal, account);
+        existing->addWidget(new QWidget);
+        existing->addWidget(new QWidget);
+        layout->addWidget(existing);
+        QVERIFY(shell.addWorkspace(QStringLiteral("account"), account));
+        QCOMPARE(shell.findChildren<QSplitter*>().size(), 1);
+        QCOMPARE(shell.findChildren<QSplitter*>().front(), existing);
+        QVERIFY(shell.activateWorkspace(QStringLiteral("account")));
+        QCOMPARE(shell.findChildren<QSplitter*>().size(), 1);
     }
 
     void removalDoesNotDestroyOtherAccount()

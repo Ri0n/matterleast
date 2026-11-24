@@ -3,7 +3,6 @@
 #include <QTreeWidgetItem>
 
 #include "channel-tree/ChannelTree.h"
-#include "workspaces/ViewConversationModel.h"
 #include "channel-tree/ChannelTreeItem.h"
 #include "channel-tree/ChannelItemDelegate.h"
 #include "backend/Backend.h"
@@ -168,99 +167,6 @@ private slots:
     }
 
 
-    void viewConversationModelUsesAccountCatalogWithoutTeamWalks()
-    {
-        Backend first;
-        Backend second;
-        auto addServer = [](Backend& backend, const QString& name, int activity) {
-            auto& storage = backend.getStorage();
-            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
-                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
-            auto* channel = storage.addOwnChannel({
-                {QStringLiteral("id"), QStringLiteral("same-remote-id")},
-                {QStringLiteral("type"), QStringLiteral("G")},
-                {QStringLiteral("display_name"), QStringLiteral("self, ") + name},
-                {QStringLiteral("last_post_at"), activity}});
-            QVERIFY(channel);
-            QCOMPARE(storage.groupChannels.channels.size(), size_t(1));
-            QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-1")}}));
-            QVERIFY(storage.addTeam({{QStringLiteral("id"), QStringLiteral("team-2")}}));
-            SidebarTeamState state;
-            SidebarCategory dm;
-            dm.id = QStringLiteral("dm");
-            dm.type = QStringLiteral("direct_messages");
-            dm.sorting = QStringLiteral("manual");
-            dm.channelIds = QStringList{QStringLiteral("same-remote-id")};
-            state.order = QStringList{dm.id};
-            state.categories.insert(dm.id, dm);
-            SidebarService::instance(backend).applyLocalTeamState(
-                QStringLiteral("team-1"), state);
-            SidebarService::instance(backend).applyLocalTeamState(
-                QStringLiteral("team-2"), state);
-        };
-        addServer(first, QStringLiteral("Zebra"), 300);
-        addServer(second, QStringLiteral("Alpha"), 100);
-        ViewConversationModel model;
-        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
-        model.setSources({{QStringLiteral("a"), &first},
-                          {QStringLiteral("b"), &second}});
-        QCOMPARE(model.rowCount(), 2);
-        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("a"));
-        QCOMPARE(model.entryAt(1).accountId, QStringLiteral("b"));
-        QCOMPARE(model.entryAt(0).channelId, model.entryAt(1).channelId);
-        QCOMPARE(model.rowFor(QStringLiteral("b"), QStringLiteral("same-remote-id")), 1);
-
-        QSignalSpy moves(&model, &QAbstractItemModel::rowsMoved);
-        QVERIFY(model.setSorting(QStringLiteral("alpha")));
-        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("b"));
-        QCOMPARE(model.entryAt(1).accountId, QStringLiteral("a"));
-        QVERIFY(moves.count() > 0);
-        QVERIFY(!model.setSorting(QStringLiteral("invalid")));
-        QCOMPARE(model.sorting(), QStringLiteral("alpha"));
-        QCOMPARE(SidebarService::instance(first).teamState(QStringLiteral("team-1"))
-                     ->category(QStringLiteral("dm"))->sorting,
-                 QStringLiteral("manual"));
-        QCOMPARE(resets.count(), 0);
-        // Single-account views retain the original server-backed tree.
-        model.setSources({{QStringLiteral("a"), &first}});
-        QCOMPARE(model.rowCount(), 0);
-        QCOMPARE(resets.count(), 0);
-    }
-
-    void mergedSearchReconcilesImmediatelyAndWithoutModelReset()
-    {
-        Backend a;
-        Backend b;
-        auto setup = [](Backend& backend, const QString& id, const QString& name) {
-            auto& storage = backend.getStorage();
-            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
-                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
-            QVERIFY(storage.addOwnChannel({
-                {QStringLiteral("id"), id},
-                {QStringLiteral("type"), QStringLiteral("G")},
-                {QStringLiteral("display_name"), name},
-                {QStringLiteral("last_post_at"), 100}}));
-            SidebarService::instance(backend);
-        };
-        setup(a, QStringLiteral("one"), QStringLiteral("Alpha"));
-        setup(b, QStringLiteral("two"), QStringLiteral("Beta"));
-        ViewConversationModel model;
-        model.setSources({{QStringLiteral("a"), &a},
-                          {QStringLiteral("b"), &b}});
-        QCOMPARE(model.rowCount(), 2);
-        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
-        auto& firstSidebar = SidebarService::instance(a);
-        auto& secondSidebar = SidebarService::instance(b);
-        firstSidebar.setConversationSearchTerm(QStringLiteral("Alpha"));
-        secondSidebar.setConversationSearchTerm(QStringLiteral("Alpha"));
-        QCOMPARE(model.rowCount(), 1);
-        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("a"));
-        firstSidebar.setConversationSearchTerm({});
-        secondSidebar.setConversationSearchTerm({});
-        QCOMPARE(model.rowCount(), 2);
-        QCOMPARE(resets.count(), 0);
-    }
-
     void accountCatalogKeepsCanonicalChannelsAcrossTeams()
     {
         Backend backend;
@@ -345,57 +251,6 @@ private slots:
         const QStringList matches = sidebar.visibleDirectConversationIds();
         QCOMPARE(matches.size(), 1);
         QCOMPARE(matches.first(), QStringLiteral("group-0"));
-    }
-
-    void sharedConversationsReconcileRowsWithoutReset()
-    {
-        Backend a;
-        Backend b;
-        auto setup = [](Backend& backend, const QString& id,
-                        const QString& title, int activity) {
-            auto& storage = backend.getStorage();
-            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
-                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
-            return storage.addOwnChannel({
-                {QStringLiteral("id"), id},
-                {QStringLiteral("type"), QStringLiteral("G")},
-                {QStringLiteral("display_name"), title},
-                {QStringLiteral("last_post_at"), activity}});
-        };
-        BackendChannel* first = setup(a, QStringLiteral("same"),
-                                      QStringLiteral("zebra"), 100);
-        BackendChannel* second = setup(b, QStringLiteral("same"),
-                                       QStringLiteral("Alpha"), 200);
-        QVERIFY(first);
-        QVERIFY(second);
-        // Simulate normal sidebar initialization; model source registration
-        // must not trigger the service's implicit HTTP startup requests.
-        SidebarService::instance(a);
-        SidebarService::instance(b);
-        ViewConversationModel model;
-        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
-        QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
-        QSignalSpy moves(&model, &QAbstractItemModel::rowsMoved);
-        model.setSources({{QStringLiteral("a"), &a},
-                          {QStringLiteral("b"), &b}});
-        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("b"));
-        first->last_post_at = 300;
-        emit a.onAllTeamChannelsPopulated();
-        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("a"));
-        QVERIFY(moves.count() > 0);
-        first->display_name = QStringLiteral("New name");
-        emit a.onAllTeamChannelsPopulated();
-        QCOMPARE(model.entryAt(0).title, QStringLiteral("New name"));
-        QVERIFY(changes.count() > 0);
-        QVERIFY(model.setSorting(QStringLiteral("alpha")));
-        QCOMPARE(model.entryAt(0).accountId, QStringLiteral("b"));
-        QCOMPARE(model.entryAt(1).accountId, QStringLiteral("a"));
-        QSignalSpy removed(&model, &QAbstractItemModel::rowsRemoved);
-        model.setSources({{QStringLiteral("a"), &a},
-                          {QStringLiteral("b"), nullptr}});
-        QCOMPARE(model.rowCount(), 1);
-        QVERIFY(removed.count() > 0);
-        QCOMPARE(resets.count(), 0);
     }
 
     void mergedViewRejectsUnqualifiedActionsWithOnlyOneBackendOnline()
@@ -494,7 +349,9 @@ private slots:
                                             {{QStringLiteral("a"), QStringLiteral("Alpha")},
                                              {QStringLiteral("b"), QStringLiteral("Beta")}}));
         QCOMPARE(tree.model(), oldModel);
-        QCOMPARE(tree.topLevelItemCount(), 2);
+        QCOMPARE(tree.topLevelItemCount(), 3);
+        QCOMPARE(tree.topLevelItem(2)->data(0, SidebarItem::KindRole).toInt(),
+                 int(SidebarItem::SharedConversations));
         auto* aRoot = tree.topLevelItem(0);
         auto* bRoot = tree.topLevelItem(1);
         QCOMPARE(aRoot->data(0, SidebarItem::KindRole).toInt(),
@@ -732,6 +589,209 @@ private slots:
             {QStringLiteral("account-b"), QStringLiteral("same-channel")}).first(), rowB);
         tree.removeChannelToItem(QStringLiteral("same-channel"), rowB);
         QVERIFY(tree.channelToItemMap.isEmpty());
+    }
+
+
+    void accountRootsSynchronizeLoadedTeamsWithoutExtraModel()
+    {
+        Backend a;
+        Backend b;
+        auto* teamA = a.getStorage().addTeam({
+            {QStringLiteral("id"), QStringLiteral("same-team")},
+            {QStringLiteral("display_name"), QStringLiteral("Alpha")}});
+        auto* teamB = b.getStorage().addTeam({
+            {QStringLiteral("id"), QStringLiteral("same-team")},
+            {QStringLiteral("display_name"), QStringLiteral("Beta")}});
+        QVERIFY(teamA);
+        QVERIFY(teamB);
+        ChannelTree tree;
+        QAbstractItemModel* const originalModel = tree.model();
+        QSignalSpy resets(originalModel, &QAbstractItemModel::modelReset);
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), a));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), b));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        QCOMPARE(tree.topLevelItemCount(), 3); // two accounts + shared DM/GM
+        QCOMPARE(tree.topLevelItem(2)->data(0, SidebarItem::KindRole).toInt(),
+                 int(SidebarItem::SharedConversations));
+        QCOMPARE(tree.topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(1)->childCount(), 1);
+        QTreeWidgetItem* const oldA = tree.topLevelItem(0)->child(0);
+        QTreeWidgetItem* const oldB = tree.topLevelItem(1)->child(0);
+        teamA->display_name = QStringLiteral("Renamed Alpha");
+        emit a.onAllTeamChannelsPopulated();
+        QCOMPARE(tree.topLevelItem(0)->child(0), oldA);
+        QCOMPARE(tree.topLevelItem(1)->child(0), oldB);
+        QCOMPARE(oldA->text(0), QStringLiteral("Renamed Alpha"));
+        QCOMPARE(oldB->text(0), QStringLiteral("Beta"));
+        QCOMPARE(tree.model(), originalModel);
+        QCOMPARE(resets.count(), 0);
+    }
+
+    void mergedViewReusesOriginalTreeAndRoutesByAccount()
+    {
+        Backend first;
+        Backend second;
+        auto setup = [](Backend& backend, const QString& title) {
+            auto& storage = backend.getStorage();
+            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
+            auto* team = storage.addTeam({
+                {QStringLiteral("id"), QStringLiteral("shared-team")},
+                {QStringLiteral("display_name"), title}});
+            QVERIFY(team);
+            QVERIFY(storage.addOwnChannel({
+                {QStringLiteral("id"), QStringLiteral("same-channel")},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"), title + QStringLiteral(" DM")}}));
+        };
+        setup(first, QStringLiteral("Alpha"));
+        setup(second, QStringLiteral("Beta"));
+
+        ChannelTree tree;
+        QAbstractItemModel* const originalModel = tree.model();
+        QSignalSpy resets(originalModel, &QAbstractItemModel::modelReset);
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QVERIFY(tree.setVisibleAccountRoots(
+            {QStringLiteral("a"), QStringLiteral("b")}));
+
+        auto* firstTeam = first.getStorage().getTeamById(QStringLiteral("shared-team"));
+        auto* secondTeam = second.getStorage().getTeamById(QStringLiteral("shared-team"));
+        QVERIFY(firstTeam);
+        QVERIFY(secondTeam);
+        tree.addTeam(first, *firstTeam);
+        tree.addTeam(second, *secondTeam);
+        QCOMPARE(tree.topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(1)->childCount(), 1);
+        auto* firstRow = tree.topLevelItem(0)->child(0);
+        auto* secondRow = tree.topLevelItem(1)->child(0);
+        QVERIFY(firstRow != secondRow);
+
+        // A repeated team snapshot updates the existing node in place.
+        firstTeam->display_name = QStringLiteral("Renamed Alpha");
+        tree.addTeam(first, *firstTeam);
+        tree.addTeam(second, *secondTeam);
+        QCOMPARE(tree.topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(1)->childCount(), 1);
+        QCOMPARE(tree.topLevelItem(0)->child(0), firstRow);
+        QCOMPARE(tree.topLevelItem(1)->child(0), secondRow);
+        QCOMPARE(firstRow->text(0), QStringLiteral("Renamed Alpha"));
+
+        // The same remote channel ID must resolve through the account in
+        // the original ChannelTree, without creating another chat widget.
+        auto addChannelRow = [&tree](QTreeWidgetItem* parent, const QString& account) {
+            auto* row = addRow(parent, SidebarItem::Channel,
+                               QStringLiteral("same-channel"));
+            row->setData(0, SidebarItem::AccountIdRole, account);
+            tree.addChannelToItem(QStringLiteral("same-channel"), row);
+            return row;
+        };
+        auto* a = addChannelRow(firstRow, QStringLiteral("a"));
+        auto* b = addChannelRow(secondRow, QStringLiteral("b"));
+        QSignalSpy opened(&tree, &ChannelTree::conversationOpenRequested);
+        tree.openChannelForAccount(QStringLiteral("same-channel"), QStringLiteral("b"));
+        QCOMPARE(tree.currentItem(), b);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.takeFirst(),
+                 (QList<QVariant>{QStringLiteral("b"),
+                                  QStringLiteral("same-channel")}));
+        tree.openChannelForAccount(QStringLiteral("same-channel"), QStringLiteral("a"));
+        QCOMPARE(tree.currentItem(), a);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.takeFirst(),
+                 (QList<QVariant>{QStringLiteral("a"),
+                                  QStringLiteral("same-channel")}));
+        QCOMPARE(tree.model(), originalModel);
+        QCOMPARE(resets.count(), 0);
+    }
+
+    void mergedVirtualDestinationsRetainTheirOwningAccount()
+    {
+        Backend a;
+        Backend b;
+        ChannelTree tree;
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), a));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), b));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        auto* team = addRow(tree.topLevelItem(1), SidebarItem::Team,
+                            QStringLiteral("team-b"));
+        team->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        auto* saved = addRow(team, SidebarItem::VirtualDestination,
+                             QStringLiteral("saved"));
+        saved->setData(0, SidebarItem::AccountIdRole, QStringLiteral("b"));
+        saved->setData(0, SidebarItem::TeamIdRole, QStringLiteral("team-b"));
+        saved->setData(0, SidebarItem::DestinationRole,
+                       int(SidebarItem::SavedDestination));
+        QSignalSpy shared(&tree, &ChannelTree::virtualDestinationRequestedForAccount);
+        QSignalSpy legacy(&tree, &ChannelTree::virtualDestinationRequested);
+        tree.setCurrentItem(saved);
+        QCOMPARE(shared.count(), 1);
+        QCOMPARE(legacy.count(), 0);
+        QCOMPARE(shared.at(0).at(0).toString(), QStringLiteral("b"));
+        QCOMPARE(shared.at(0).at(1).toInt(), int(SidebarItem::SavedDestination));
+        QCOMPARE(shared.at(0).at(2).toString(), QStringLiteral("team-b"));
+    }
+
+    void mergedConversationsReuseChannelTreeRowsAndViewLocalSorting()
+    {
+        Backend first;
+        Backend second;
+        auto prepare = [](Backend& backend, const QString& title, int at) {
+            auto& storage = backend.getStorage();
+            storage.addUser({{QStringLiteral("id"), QStringLiteral("self")},
+                             {QStringLiteral("username"), QStringLiteral("self")}}, true);
+            QVERIFY(storage.addOwnChannel({
+                {QStringLiteral("id"), QStringLiteral("same-dm")},
+                {QStringLiteral("type"), QStringLiteral("G")},
+                {QStringLiteral("display_name"), title},
+                {QStringLiteral("last_post_at"), at}}));
+            SidebarService::instance(backend);
+        };
+        prepare(first, QStringLiteral("Zebra"), 300);
+        prepare(second, QStringLiteral("Alpha"), 100);
+        ChannelTree tree;
+        auto* const model = tree.model();
+        QSignalSpy resets(model, &QAbstractItemModel::modelReset);
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("a"), first));
+        QVERIFY(tree.registerAccountBackend(QStringLiteral("b"), second));
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a"), QStringLiteral("b")}));
+        QCOMPARE(tree.topLevelItemCount(), 3);
+        QTreeWidgetItem* root = tree.topLevelItem(2);
+        QCOMPARE(root->data(0, SidebarItem::KindRole).toInt(),
+                 int(SidebarItem::SharedConversations));
+        QCOMPARE(root->childCount(), 2);
+        QTreeWidgetItem* zebra = root->child(0);
+        QTreeWidgetItem* alpha = root->child(1);
+        QCOMPARE(zebra->data(0, SidebarItem::AccountIdRole).toString(),
+                 QStringLiteral("a"));
+        QCOMPARE(alpha->data(0, SidebarItem::AccountIdRole).toString(),
+                 QStringLiteral("b"));
+        QCOMPARE(zebra->data(0, SidebarItem::IdRole),
+                 alpha->data(0, SidebarItem::IdRole));
+        QVERIFY(tree.setMergedConversationSorting(QStringLiteral("alpha")));
+        QCOMPARE(root->child(0), alpha);
+        QCOMPARE(root->child(1), zebra);
+        QVERIFY(!tree.setMergedConversationSorting(QStringLiteral("invalid")));
+        QSignalSpy opened(&tree, &ChannelTree::conversationOpenRequested);
+        tree.openChannelForAccount(QStringLiteral("same-dm"), QStringLiteral("b"));
+        QCOMPARE(tree.currentItem(), alpha);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.takeFirst().at(0).toString(), QStringLiteral("b"));
+        // Cached account-wide search affects the same rows, without a second
+        // QAbstractItemModel or a modelReset. Restore the other account later.
+        SidebarService::instance(first).setConversationSearchTerm(
+            QStringLiteral("Zebra"));
+        SidebarService::instance(second).setConversationSearchTerm(
+            QStringLiteral("Zebra"));
+        QCOMPARE(root->childCount(), 1);
+        QCOMPARE(root->child(0), zebra);
+        SidebarService::instance(second).setConversationSearchTerm({});
+        QCOMPARE(root->childCount(), 2);
+        QCOMPARE(root->child(1), zebra);
+        QVERIFY(tree.setVisibleAccountRoots({QStringLiteral("a")}));
+        QCOMPARE(tree.topLevelItemCount(), 0);
+        QCOMPARE(tree.model(), model);
+        QCOMPARE(resets.count(), 0);
     }
 
     void identicalRemoteIdsRemainDistinguishableAcrossExistingTrees()

@@ -60,7 +60,7 @@ public:
         const QString& conversationId,
         const QString& threadRootId);
 
-    /** Attach enabled window-overlay extensions to this main window. */
+    /** Attach enabled window-overlay extensions to the application window once. */
     void attachMainWindow(QWidget& window);
 
     QList<PluginInfo> pluginInfos() const;
@@ -126,7 +126,7 @@ private:
     MatterLeast::PluginApi::CallsProviderInterface* callsProvider() const;
 
     AccountManager& accounts_;
-    QList<QPointer<QWidget>> _mainWindows;
+    QPointer<QWidget> _mainWindow;
     std::unique_ptr<ConversationHost> conversationHost_;
     std::unique_ptr<CallsHost> callsHost_;
     std::unique_ptr<QTemporaryDir> _verifiedPluginDirectory;

@@ -40,6 +40,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSplitter>
+#include <QStackedLayout>
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
@@ -348,11 +349,6 @@ MainWindow::MainWindow(QWidget* parent, QSystemTrayIcon& trayIcon, Backend& _bac
     // channel/thread presentation exists, before plugins can navigate.
     AppNavigationService::instance(backend).bindMainWindow(*this);
 	connect(qApp, &QApplication::aboutToQuit, this, &MainWindow::saveState);
-    // The main window is fully constructed before optional visual plugins
-    // receive its QWidget surface. No MatterLeast UI class crosses the ABI.
-    if (auto* plugins = PluginManager::instance()) {
-        plugins->attachMainWindow(*this);
-    }
 	LOG_DEBUG("MainWindow create finish");
 }
 
@@ -389,7 +385,8 @@ void MainWindow::restoreSidebarWidth()
     // Embedded workspaces own their geometry through AccountWorkspaceStack.
     // A standalone top-level window follows the normal QSplitter layout.
     if (isWindow() || !sidebarSplitter || !sidebarSplitter->isVisible()
-        || sidebarSplitter->count() < 2)
+        || sidebarSplitter->count() < 2
+        || sidebarSplitter->widget(0)->isHidden())
         return;
     const QString partition =
         backend.networkSession().cachePartitionId(backend.getLoginUser().id);
@@ -480,6 +477,49 @@ void MainWindow::showChannelsSidebar()
         channelTabs->setCurrentWidget(channelsPage);
 }
 
+void MainWindow::openAccountDestination(int destination, const QString& teamId)
+{
+    if (destination == SidebarItem::SavedDestination)
+        openSavedMessages(teamId);
+    else if (destination == SidebarItem::DraftsDestination)
+        openDrafts(teamId);
+    else if (destination == SidebarItem::RecentMentionsDestination)
+        on_channelList_virtualDestinationRequested(destination, teamId);
+}
+
+ChannelTree* MainWindow::viewChannelTree() const
+{
+    return _viewChannelTree.data();
+}
+
+void MainWindow::setViewChannelTree(ChannelTree* tree, QWidget* parkingParent)
+{
+    if (_viewChannelTree == tree || !channelTreePages)
+        return;
+
+    if (ChannelTree* previous = _viewChannelTree.data()) {
+        QObject::disconnect(_viewTreeSearchConnection);
+        _viewTreeSearchConnection = {};
+        // Switch to the native tree first. The shared View tree must never
+        // become a detached top-level window while moving between accounts.
+        channelTreePages->setCurrentWidget(ui->channelList);
+        previous->hide();
+        channelTreePages->removeWidget(previous);
+        previous->setParent(parkingParent ? parkingParent : this);
+    }
+    _viewChannelTree = tree;
+    if (tree) {
+        channelTreePages->addWidget(tree);
+        channelTreePages->setCurrentWidget(tree);
+        _viewTreeSearchConnection = connect(
+            sidebarFilterEdit, &QLineEdit::textChanged,
+            tree, &ChannelTree::setConversationSearchTerm);
+        tree->setConversationSearchTerm(sidebarFilterEdit->text());
+    } else {
+        channelTreePages->setCurrentWidget(ui->channelList);
+    }
+}
+
 static QString infoText()
 {
     QString description = QString("MatterLeast " PROJECT_VER "<br/>"
@@ -548,7 +588,11 @@ void MainWindow::setupChannelTabs()
     // stylesheet prevents it from inheriting the new palette correctly.
     teamToolbar->installEventFilter(this);
     channelsLayout->addWidget(teamToolbar);
-	channelsLayout->addWidget(ui->channelList, 1);
+    // Preserve the original Channels tab geometry and native account tree.
+    channelTreePages = new QStackedLayout;
+    channelTreePages->setContentsMargins(0, 0, 0, 0);
+    channelTreePages->addWidget(ui->channelList);
+    channelsLayout->addLayout(channelTreePages, 1);
 
     // Reuse the existing Following projection inside an Unread tab. The
     // filters remain local view preferences, not new unread state.

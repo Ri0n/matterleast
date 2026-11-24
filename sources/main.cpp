@@ -68,6 +68,8 @@
 #include "ui/OverlayScrollBarManager.h"
 #include "ui/TrayWindowController.h"
 #include "ui/AccountWorkspaceStack.h"
+#include "channel-tree/ChannelTree.h"
+#include "channel-tree/SidebarItem.h"
 #include "ui/ServersWorkspacePage.h"
 #include "ui/ServersSidebarPage.h"
 #include "ui/AccountTrayBadgeModel.h"
@@ -96,6 +98,7 @@ private:
     void updateTrayIcon();
     void selectAccount(const QString& accountId, bool presentWindow = false);
     void bindActiveNavigationView();
+    void syncMergedSidebarPresentation();
 
     // One account domain; the application only owns its Widgets and tray.
     AccountManager accounts;
@@ -108,6 +111,7 @@ private:
     std::unique_ptr<AccountWorkspaceStack> workspaceShell;
     ServersWorkspacePage* serversStartupPage = nullptr;
     QHash<Backend*, MainWindow*> accountViews; // Presentation only.
+    QHash<QString, QPointer<ChannelTree>> viewSidebars; // One existing tree per merged View.
     QSet<Backend*> closingAccounts;
     QPointer<LoginDialog> loginDialog;
     TrayWindowController trayWindow;
@@ -210,9 +214,15 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
         suspendProfileConnection(account, backend);
     });
     connect(&accounts, &AccountManager::activeViewChanged, this,
-            [this](const QString&) { bindActiveNavigationView(); });
+            [this](const QString&) {
+        bindActiveNavigationView();
+        syncMergedSidebarPresentation();
+    });
     connect(&accounts, &AccountManager::layoutChanged, this,
-            [this] { bindActiveNavigationView(); });
+            [this] {
+        bindActiveNavigationView();
+        syncMergedSidebarPresentation();
+    });
 	trayIconMenu->addAction (tr("Quit"), qApp, &QApplication::quit);
 	qApp->setQuitOnLastWindowClosed(false);
 }
@@ -289,6 +299,9 @@ void MattermostApplication::ensureWorkspaceShell()
 
     serversStartupPage = new ServersWorkspacePage(accounts, workspaceShell.get());
     workspaceShell->setServersPage(serversStartupPage);
+    // Window overlays belong to the single application surface, not to
+    // each account presenter. The surface survives session transitions.
+    plugins.attachMainWindow(*workspaceShell);
     connect(serversStartupPage, &ServersWorkspacePage::accountSelected, this,
             [this](const QString& id) {
         selectAccount(id);
@@ -335,6 +348,7 @@ void MattermostApplication::ensureWorkspaceShell()
             this, [this](const QString& id) {
         if (!id.isEmpty() && id != accounts.selectedAccountId())
             accounts.selectAccount(id);
+        syncMergedSidebarPresentation();
         updateWindowTitle();
     });
     connect(&accounts, &AccountManager::activeBackendChanged,
@@ -375,6 +389,111 @@ void MattermostApplication::bindActiveNavigationView()
     }
     if (target)
         target->bindViewNavigation(accounts.viewSession(viewId), singleAccount);
+}
+
+void MattermostApplication::syncMergedSidebarPresentation()
+{
+    if (!workspaceShell)
+        return;
+
+    const auto& layout = accounts.layout();
+    const WorkspaceLayout::View* active = nullptr;
+    QSet<QString> liveViewIds;
+    for (const auto& view : layout.views) {
+        liveViewIds.insert(view.id);
+        if (view.id == layout.activeViewId)
+            active = &view;
+    }
+    const bool merged = active && active->accountIds.size() > 1;
+    MainWindow* target = nullptr;
+    if (merged) {
+        Account* selected = accounts.account(accounts.selectedAccountId());
+        if (selected && selected->backend()
+            && !closingAccounts.contains(selected->backend()))
+            target = accountViews.value(selected->backend(), nullptr);
+    }
+    ChannelTree* desired = merged ? viewSidebars.value(active->id).data() : nullptr;
+    // Keep the single existing ThinSplitter in each MainWindow. Park any
+    // previous View tree before switching accounts or destroying a View.
+    for (MainWindow* page : accountViews) {
+        if (page && (page != target || page->viewChannelTree() != desired))
+            page->setViewChannelTree(nullptr, workspaceShell.get());
+    }
+    for (auto it = viewSidebars.begin(); it != viewSidebars.end();) {
+        if (liveViewIds.contains(it.key())) {
+            ++it;
+            continue;
+        }
+        delete it.value().data();
+        it = viewSidebars.erase(it);
+    }
+    if (!merged)
+        return;
+
+    ChannelTree* tree = viewSidebars.value(active->id).data();
+    if (!tree) {
+        tree = new ChannelTree(workspaceShell.get());
+        tree->setObjectName(QStringLiteral("mergedViewChannelTree"));
+        tree->setHeaderHidden(true);
+        tree->setContextMenuPolicy(Qt::CustomContextMenu);
+        viewSidebars.insert(active->id, tree);
+        const QString viewId = active->id;
+        connect(tree, &ChannelTree::conversationOpenRequested, this,
+                [this, viewId](const QString& accountId, const QString& channelId) {
+            if (accounts.activeViewId() != viewId)
+                return;
+            Account* owner = accounts.account(accountId);
+            if (!owner || !owner->backend() || closingAccounts.contains(owner->backend()))
+                return;
+            selectAccount(accountId);
+            if (MainWindow* target = accountViews.value(owner->backend(), nullptr)) {
+                target->showChannelsSidebar();
+                target->openChannelPost(channelId);
+            }
+        });
+        connect(tree, &ChannelTree::virtualDestinationRequestedForAccount, this,
+                [this, viewId](const QString& accountId, int destination,
+                               const QString& teamId) {
+            if (accounts.activeViewId() != viewId)
+                return;
+            Account* owner = accounts.account(accountId);
+            if (!owner || !owner->backend() || closingAccounts.contains(owner->backend()))
+                return;
+            selectAccount(accountId);
+            if (MainWindow* target = accountViews.value(owner->backend(), nullptr))
+                target->openAccountDestination(destination, teamId);
+        });
+        connect(tree, &QTreeWidget::currentItemChanged, this,
+                [this, viewId](QTreeWidgetItem* item, QTreeWidgetItem*) {
+            if (accounts.activeViewId() != viewId || !item
+                || item->data(0, SidebarItem::KindRole).toInt()
+                    != SidebarItem::AccountRoot)
+                return;
+            selectAccount(item->data(0, SidebarItem::AccountIdRole).toString());
+        });
+    }
+
+    QHash<QString, QString> labels;
+    for (const QString& id : active->accountIds) {
+        const Account* owner = accounts.account(id);
+        const auto* record = owner ? owner->record() : nullptr;
+        labels.insert(id, record ? record->name : id);
+    }
+    // Source bindings and their cached rows are account-qualified. Only the
+    // active View is projected; hidden Views retain their own presentation.
+    for (Account* owner : accounts.allAccounts()) {
+        if (!active->accountIds.contains(owner->id()))
+            tree->unregisterAccountBackend(owner->id(), owner->backend());
+    }
+    for (const QString& id : active->accountIds) {
+        Account* owner = accounts.account(id);
+        if (owner && owner->backend() && !closingAccounts.contains(owner->backend()))
+            tree->registerAccountBackend(id, *owner->backend());
+    }
+    tree->setVisibleAccountRoots(active->accountIds, labels);
+    tree->setMergedConversationSorting(active->directMessagesSorting);
+    if (target)
+        target->setViewChannelTree(tree, workspaceShell.get());
 }
 
 void MattermostApplication::selectAccount(const QString& id,
@@ -511,6 +630,7 @@ void MattermostApplication::addAccountWorkspace(Backend& backend, bool activate)
             [this, owner = &backend] { beginLogout(*owner, true); });
 
     page->installRealtimeUiSync();
+    syncMergedSidebarPresentation();
     // A backend arriving after view activation must adopt its retained view
     // session before the startup channel snapshot is replayed.
     bindActiveNavigationView();
@@ -670,6 +790,8 @@ void MattermostApplication::suspendProfileConnection(Account* item,
 
     closingAccounts.insert(backend);
     const QString accountId = item->id();
+    for (auto sidebar : viewSidebars)
+        if (sidebar) sidebar->unregisterAccountBackend(accountId, backend);
     QPointer<Account> itemGuard(item);
     QPointer<Backend> backendGuard(backend);
     // Do not let QStackedWidget::removeWidget() automatically select another
@@ -677,8 +799,10 @@ void MattermostApplication::suspendProfileConnection(Account* item,
     // neutral overview until the target view's account is ready.
     if (workspaceShell && workspaceShell->activeAccountId() == accountId)
         workspaceShell->showServers();
-    if (MainWindow* page = accountViews.value(backend, nullptr))
+    if (MainWindow* page = accountViews.value(backend, nullptr)) {
+        page->setViewChannelTree(nullptr, workspaceShell.get());
         page->prepareForLogout();
+    }
 
     // Crucially, a suspended profile is not a logout. The manager already
     // stopped its transports, but must not clear Storage until this account's
@@ -700,6 +824,7 @@ void MattermostApplication::suspendProfileConnection(Account* item,
         if (itemGuard && backendGuard)
             accounts.finishProfileSuspension(itemGuard.data(),
                                              backendGuard.data());
+        syncMergedSidebarPresentation();
         updateWindowTitle();
     }, Qt::QueuedConnection);
 }
@@ -715,10 +840,14 @@ void MattermostApplication::beginLogout(Backend& backend,
 
     closingAccounts.insert(&backend);
     const QString id = item->id();
+    for (auto sidebar : viewSidebars)
+        if (sidebar) sidebar->unregisterAccountBackend(id, &backend);
     QPointer<Account> guard(item);
     accounts.prepareStop(item, authenticationExpired);
-    if (MainWindow* page = accountViews.value(&backend, nullptr))
+    if (MainWindow* page = accountViews.value(&backend, nullptr)) {
+        page->setViewChannelTree(nullptr, workspaceShell.get());
         page->prepareForLogout();
+    }
 
     // Queued teardown keeps QAction callbacks out of destroyed QWidget trees.
     QMetaObject::invokeMethod(this,
@@ -736,6 +865,7 @@ void MattermostApplication::beginLogout(Backend& backend,
             accounts.finishStop(guard.data(), authenticationExpired);
         else
             closingAccounts.remove(owner);
+        syncMergedSidebarPresentation();
         updateWindowTitle();
     }, Qt::QueuedConnection);
 }

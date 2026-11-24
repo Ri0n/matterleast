@@ -409,10 +409,12 @@ QStringList PluginManager::pluginSearchPaths() const
 
 void PluginManager::attachMainWindow(QWidget& window)
 {
-    for (const auto& existing : _mainWindows) {
-        if (existing == &window) return;
+    // The application window is stable across account and View switches.
+    if (_mainWindow) {
+        Q_ASSERT(_mainWindow == &window);
+        return;
     }
-    _mainWindows.append(&window);
+    _mainWindow = &window;
     for (const auto& host : plugins_) {
         if (host && host->isEnabled()) attachWindowOverlay(*host);
     }
@@ -426,9 +428,7 @@ void PluginManager::attachWindowOverlay(PluginHost& host)
         ? qobject_cast<MatterLeast::PluginApi::MainWindowOverlayInterface*>(object)
         : nullptr;
     if (!overlay) return;
-    for (const auto& window : _mainWindows) {
-        if (window) overlay->attachToMainWindow(window);
-    }
+    if (_mainWindow) overlay->attachToMainWindow(_mainWindow.data());
 }
 
 void PluginManager::loadStandardPlugins()

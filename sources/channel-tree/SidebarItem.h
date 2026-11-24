@@ -33,6 +33,7 @@ enum Kind {
     Thread,
     VirtualDestination,
     AccountRoot, // View-owned grouping, not a Mattermost team
+    SharedConversations, // Combined DM/GM branch in a multi-account View
 };
 
 /** Local destinations that are not ordinary server sidebar rows. */

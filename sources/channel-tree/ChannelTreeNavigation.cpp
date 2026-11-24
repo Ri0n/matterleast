@@ -254,7 +254,7 @@ void ChannelTree::openStoredChannelForAccount(QString channelID, const QString& 
     }
 
     ChannelItem* item = createChannelItem(*owner,
-                                          *fallback.teamItem,
+                                          fallback.teamItem,
                                           *fallback.categoryItem,
                                           *channel);
     if (!item) {
