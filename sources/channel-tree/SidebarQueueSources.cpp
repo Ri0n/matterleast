@@ -95,8 +95,8 @@ void SidebarQueueSources::observeUser(const QString& id, BackendUser& user)
     connect(&user, &BackendUser::onAvatarChanged, context, notify);
     connect(&user, &BackendUser::onCustomStatusChanged, context, notify);
     connect(&user, &QObject::destroyed, context, [this, id, key = &user] {
-        auto it = sources_.find(id);
-        if (it != sources_.end()) it->users.remove(key);
+        auto sourceIt = sources_.find(id);
+        if (sourceIt != sources_.end()) sourceIt->users.remove(key);
     });
 }
 

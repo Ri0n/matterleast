@@ -452,9 +452,9 @@ void ChannelQuickList::refresh()
     QVector<Candidate> candidates;
     QSet<QString> projectedKeys;
     const auto accounts = sources_.accounts();
-    for (auto it = accounts.cbegin(); it != accounts.cend(); ++it) {
-        const QString accountId = it.key();
-        Backend* owner = it.value();
+    for (auto accountIt = accounts.cbegin(); accountIt != accounts.cend(); ++accountIt) {
+        const QString accountId = accountIt.key();
+        Backend* owner = accountIt.value();
         const auto& model = FollowingModel::instance(*owner);
         for (const FollowingModel::Entry& entry : model.entries()) {
             if (!includeFollowingInUnread(entry.isThread(), entry.muted, unreadFilters_)) {

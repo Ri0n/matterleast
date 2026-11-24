@@ -2324,9 +2324,9 @@ private slots:
         QCOMPARE(list.topLevelItemCount(), 2);
         QCOMPARE(attention.topLevelItemCount(), 2);
         QCOMPARE(counts.last().at(0).toUInt(), 2u);
-        const auto findRow = [](const QTreeWidget& list, const QString& account) {
-            for (int i = 0; i < list.topLevelItemCount(); ++i) {
-                auto* row = list.topLevelItem(i);
+        const auto findRow = [](const QTreeWidget& queue, const QString& account) {
+            for (int i = 0; i < queue.topLevelItemCount(); ++i) {
+                auto* row = queue.topLevelItem(i);
                 if (row->data(0, SidebarItem::AccountIdRole).toString() == account)
                     return row;
             }
