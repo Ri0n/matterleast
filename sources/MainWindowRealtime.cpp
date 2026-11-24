@@ -38,25 +38,6 @@ void MainWindow::installRealtimeUiSync()
     }
     setProperty(InstalledProperty, true);
 
-    // As in the official client, REST projections are reconciled after a
-    // WebSocket reconnect, not after an arbitrary amount of wall-clock time.
-    // The connector itself handles heartbeat timeouts and sequence gaps.
-    connect(&backendInstance(), &Backend::onRealtimeRecovered, this, [this] {
-        if (!backendInstance().loggedIn()) return;
-        ui->channelList->refreshServerSnapshot();
-        // The Attention sidebar has an independent CRT/followed-thread snapshot.
-        FollowingModel::instance(backendInstance()).noteThreadUpdated();
-        refreshSidebarViews();
-    });
-
-    // Active webapp plugins are the server-owned discovery surface for native
-    // integrations too. Keep the manifest snapshot session-local; adapters can
-    // subscribe to pluginsChanged() and derive installation-specific endpoints
-    // from the advertised manifest without executing its JavaScript bundle.
-    auto& webappPlugins = WebappPluginService::instance(backendInstance());
-    webappPlugins.clear();
-    webappPlugins.refresh();
-
     // Interactive server dialogs remain native Qt dialogs. Their lifetime
     // will be tied to the originating session when the presenter is shared.
     auto& serverUi = ServerUiService::instance(backendInstance());

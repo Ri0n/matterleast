@@ -172,6 +172,19 @@ void SidebarService::invalidateCachedReads()
     preferencesLoaded = false;
 }
 
+void SidebarService::refreshAccountSnapshot()
+{
+    invalidateCachedReads();
+    retrieveChannelMemberships([this] {
+        retrieveChannelPreferences([this] {
+            // Replay continuity preserves the catalog. Refresh only the
+            // independent server-owned sidebar snapshots, never teams/channels.
+            for (auto& team : backend.getStorage().teams)
+                retrieveCategories(team.second);
+        });
+    });
+}
+
 void SidebarService::clear()
 {
     httpConnector.reset();

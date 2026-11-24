@@ -811,6 +811,7 @@ Account* AccountManager::adoptAuthenticated(Backend* backend,
     }
     if (firstAccount)
         emit activeBackendChanged(backend);
+    backend->startAccountData();
     emit accountRegistered(backend);
     emit accountConnected(item, backend);
     return item;

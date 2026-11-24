@@ -259,12 +259,10 @@ bool MainWindow::attachInitialBackend(Backend& source)
         action->setEnabled(true);
     }
 
-	// Recover previous-process unresolved sends before Drafts can be opened.
-	// Construction never retransmits them; it converts them to local drafts.
-	PendingPostService::instance(backendInstance());
-
-	auto& sidebar = SidebarService::instance(backendInstance());
-	auto& userProfiles = UserProfileService::instance(backendInstance());
+    // Standalone widget fixtures also use the account's idempotent startup
+    // path. The production AccountManager has already started it.
+    source.startAccountData();
+    auto& sidebar = SidebarService::instance(source);
 	connect(&sidebar, &SidebarService::channelActivityChanged, this,
 	        [this](const QString&) { refreshSidebarViews(); });
 	connect(&sidebar, &SidebarService::channelActivityReset,
@@ -278,9 +276,7 @@ bool MainWindow::attachInitialBackend(Backend& source)
 	attentionList->initialize(backendInstance());
 	installRealtimeUiSync();
 
-	sidebar.clear();
-	userProfiles.clear();
-	QPointer<MainWindow> windowGuard(this);
+    QPointer<MainWindow> windowGuard(this);
 	sidebar.retrieveChannelMemberships([windowGuard] {
 		if (!windowGuard) return;
 		windowGuard->channelMembershipsReady = true;
@@ -293,26 +289,22 @@ bool MainWindow::attachInitialBackend(Backend& source)
 		});
 
 
-	connect(&source, &Backend::onAllTeamChannelsPopulated, this, [this, &source] {
-		ui->channelList->populateSidebars(source);
-		attentionList->refreshThreads();
-		QTimer::singleShot(0, this, &MainWindow::refreshSidebarViews);
-		initializationComplete();
-	});
-
-	connect(&source, &Backend::onChannelViewed, this, [&source](const BackendChannel& channel) {
-		SidebarService::instance(source).setChannelMentioned(channel.id, false);
-	});
-
-	connect(&source, &Backend::onAddedToTeam, this, [this, &source](BackendTeam& team) {
-		ui->channelList->addTeam(source, team);
-	});
-
-	const QPointer<Backend> sourceGuard(&source);
-    source.retrieveOwnTeams([windowGuard, sourceGuard](BackendTeam& team) {
-        if (windowGuard && sourceGuard)
-            windowGuard->ui->channelList->addTeam(*sourceGuard, team);
-    });
+    const auto addTeam = [this, &source](BackendTeam& team) {
+        ui->channelList->addTeam(source, team);
+    };
+    connect(&source, &Backend::ownTeamDiscovered, this, addTeam);
+    connect(&source, &Backend::onAddedToTeam, this, addTeam);
+    const auto synchronize = [this, &source] {
+        ui->channelList->synchronizeAccountSidebar(ui->channelList->accountIdForBackend(&source));
+        refreshSidebarViews();
+        initializationComplete();
+    };
+    connect(&source, &Backend::onAllTeamChannelsPopulated, this, synchronize);
+    for (auto& team : source.getStorage().teams)
+        addTeam(team.second);
+    ui->channelList->observeAccountSidebar(source);
+    if (source.accountCatalogReady())
+        synchronize();
 
 	LOG_DEBUG("MainWindow signal register finish");
 

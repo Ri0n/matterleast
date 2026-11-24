@@ -130,6 +130,7 @@ public:
 	void addTeam (Backend& backend, BackendTeam& team);
 	void populateSidebars(Backend& backend);
     /** Re-fetch read state, preferences and server categories after reconnect. */
+    void observeAccountSidebar(Backend& owner);
     void refreshServerSnapshot();
     void refreshServerSnapshotForAccount(const QString& accountId);
     // Reconcile a temporary, non-persistent view of older conversations while

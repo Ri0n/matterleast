@@ -680,6 +680,8 @@ void Backend::reset ()
         emit sessionEnding();
     }
 	isLoggedIn = false;
+    _accountDataStarted = false;
+    _accountCatalogReady = false;
     _authVerificationInFlight = false;
     _authExpiryNotified = false;
     CustomEmojiService::instance(*this).resetSession();

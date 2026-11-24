@@ -692,8 +692,7 @@ void ChannelTree::synchronizeAccountSidebar(const QString& accountId)
             removeTeamSidebar(key);
     }
 
-    // Another account's MainWindow normally owns retrieval. Reuse the cache,
-    // not SidebarService::instance() (which may trigger startup network calls).
+    // Account startup owns retrieval; the View only consumes cached data.
     SidebarService* sidebar = SidebarService::existing(*owner);
     if (!sidebar)
         return;
@@ -701,8 +700,10 @@ void ChannelTree::synchronizeAccountSidebar(const QString& accountId)
     for (auto it = teamToItemMap.cbegin(); it != teamToItemMap.cend(); ++it) {
         if (it.key().first != accountId || !it.value())
             continue;
-        if (const SidebarTeamState* state = sidebar->teamState(it.key().second))
+        if (const SidebarTeamState* state = sidebar->teamState(it.key().second)) {
             reconcileTeamSidebar(*owner, *it.value(), *state);
+            emit teamSidebarPopulated(it.key().second);
+        }
     }
 }
 
@@ -872,8 +873,10 @@ void ChannelTree::onSidebarCategoriesChanged(const QString& teamId)
         return;
     TeamItem* team = teamToItemMap.value({accountIdForBackend(owner), teamId}, nullptr);
     const SidebarTeamState* state = SidebarService::instance(*owner).teamState(teamId);
-    if (team && state)
+    if (team && state) {
         reconcileTeamSidebar(*owner, *team, *state);
+        emit teamSidebarPopulated(teamId);
+    }
 }
 
 void ChannelTree::observeSidebarSignals(Backend& backend, SidebarService& sidebar)
@@ -927,34 +930,15 @@ void ChannelTree::refreshServerSnapshot()
 
 void ChannelTree::refreshServerSnapshotForAccount(const QString& accountId)
 {
-    Backend* owner = backendForAccount(accountId);
-    if (!owner)
-        return;
-    const QString id = accountId.isEmpty() ? _boundAccountId : accountId;
-    auto& sidebar = SidebarService::instance(*owner);
-    sidebar.invalidateCachedReads();
-    QPointer<ChannelTree> guard(this);
-    QPointer<Backend> ownerGuard(owner);
-    sidebar.retrieveChannelMemberships([guard, ownerGuard, id] {
-        if (!guard || !ownerGuard
-            || guard->backendForAccount(id) != ownerGuard.data())
-            return;
-        auto& currentSidebar = SidebarService::instance(*ownerGuard.data());
-        currentSidebar.retrieveChannelPreferences([guard, ownerGuard, id] {
-            if (!guard || !ownerGuard
-                || guard->backendForAccount(id) != ownerGuard.data())
-                return;
-            // The authenticated Backend owns the account channel catalog.
-            // Verified websocket replay guarantees it is still current; a
-            // sequence gap recreates the session and reloads the catalog.
-            // This view must never issue a second /users/me/channels request.
-            const QList<ScopedId> teamKeys = guard->teamToItemMap.keys();
-            for (const ScopedId& key : teamKeys) {
-                if (key.first == id)
-                    guard->refreshSidebarTeam(key);
-            }
-        });
-    });
+    if (auto* owner = backendForAccount(accountId))
+        SidebarService::instance(*owner).refreshAccountSnapshot();
+}
+
+void ChannelTree::observeAccountSidebar(Backend& owner)
+{
+    if (!backendForSidebar)
+        backendForSidebar = &owner;
+    observeSidebarSignals(owner, SidebarService::instance(owner));
 }
 
 void ChannelTree::refreshSidebarTeam(const ScopedId& teamKey)
