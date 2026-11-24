@@ -180,6 +180,14 @@ public:
                         } else {
                             body = QByteArrayLiteral("[]");
                         }
+                    } else if (requestLine.startsWith("GET /api/v4/users/")
+                               && requestLine.contains("/image?")) {
+                        // Avatar requests are not profile lookups. The fixture
+                        // has no avatar image; use a real missing-image response.
+                        status = QByteArrayLiteral("404 Not Found");
+                        body = QByteArrayLiteral("{}");
+                    } else if (requestLine.startsWith("POST /api/v4/users/status/ids ")) {
+                        body = QByteArrayLiteral("[]");
                     } else if (requestLine.startsWith("GET /api/v4/users/")) {
                         ++profileRequests;
                         profileCookies.append(cookie);
