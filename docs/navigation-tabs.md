@@ -294,7 +294,8 @@ Backend or QWidget pointers. A dated migration imports the former
 only after verifying the saved account's server/user identity. Legacy keys are
 retired only after a healthy write of the new snapshots. Disconnected accounts
 retain their semantic destinations and detached windows are admitted when the
-corresponding account catalog becomes available.
+corresponding account catalog becomes available. Detached windows for the same
+thread in different Views remain distinct presentation objects.
 
 The old unbound restart fixture path is temporarily retained until its tests
 are rewritten to use the same View-owned persisted format. It is not used by
