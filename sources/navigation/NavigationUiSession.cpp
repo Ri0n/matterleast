@@ -236,7 +236,8 @@ void NavigationUiController::bindViewSession(ViewNavigationSession* session)
 {
     if (!session) return;
     if (viewNavigationSession == session) {
-        if (viewNavigationMembers != session->allowedAccounts()) {
+        if (viewNavigationMembers != session->allowedAccounts()
+            || (tabModel.isEmpty() && session->rowCount() > 0)) {
             viewNavigationMembers = session->allowedAccounts();
             restoreBoundViewSession();
         }
