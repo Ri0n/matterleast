@@ -1,5 +1,6 @@
 #include <QtTest>
 #include "navigation/ViewNavigationSession.h"
+#include "migrations/NavigationSnapshotMigration.h"
 
 using namespace Mattermost;
 
@@ -67,6 +68,35 @@ private slots:
         restricted.setAllowedAccounts({"office"});
         QVERIFY(!restricted.restoreSerializedSnapshot(json));
         QCOMPARE(restricted.rowCount(), 0);
+    }
+
+    void legacyAccountSnapshotImportsIntoOneViewWithoutLosingOtherAccounts()
+    {
+        ViewNavigationSession view(QStringLiteral("combined"));
+        view.setAllowedAccounts({"office", "home"});
+        QVERIFY(view.openTab(chat("home", "shared"), "Home") >= 0);
+        const QByteArray old = R"({"version":2,"tabs":[{"channel":"shared","root":"","pinned":true,"anchor":{"post":"p1","bottom":false,"fraction":0.5}}],"threads":[{"channel":"shared","root":"root1","mode":"window","geometry":""}],"active_tab":{"channel":"shared","root":""},"dock_visible":false})";
+        QVERIFY(NavigationSnapshotMigration::importLegacy(old, "office", view));
+        QCOMPARE(view.rowCount(), 2);
+        QCOMPARE(view.tabs().at(0)->accountId, QStringLiteral("home"));
+        QCOMPARE(view.tabs().at(1)->accountId, QStringLiteral("office"));
+        QVERIFY(view.tabs().at(1)->pinned);
+        QCOMPARE(view.tabs().at(1)->viewportAnchor->fraction, qreal(0.5));
+        QCOMPARE(view.snapshot().detached.size(), 1);
+        QCOMPARE(view.snapshot().detached.first().location.accountId,
+                 QStringLiteral("office"));
+        const QByteArray encoded = view.serializeSnapshot();
+        ViewNavigationSession reopened(QStringLiteral("combined"));
+        reopened.setAllowedAccounts({"office", "home"});
+        QVERIFY(reopened.restoreSerializedSnapshot(encoded));
+        QCOMPARE(reopened.snapshot().detached.size(), 1);
+        QCOMPARE(reopened.snapshot().detached.first().location.rootId,
+                 QStringLiteral("root1"));
+        const QByteArray before = view.serializeSnapshot();
+        QVERIFY(!NavigationSnapshotMigration::importLegacy(
+            QByteArrayLiteral(R"({"version":9,"tabs":[],"threads":[]})"),
+            "office", view));
+        QCOMPARE(view.serializeSnapshot(), before);
     }
 
     void sameChannelIdFromTwoAccountsNeverCollides()
