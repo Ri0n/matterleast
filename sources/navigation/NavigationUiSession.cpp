@@ -462,11 +462,20 @@ void NavigationUiController::restoreDetachedWindowsForBackend(Backend& source)
         if (location.accountId != accountId) continue;
         auto* channel = source.getStorage().getChannelById(location.channelId);
         if (!channel) continue;
-        ChatArea* area = findThreadForBackend(source, location.channelId, location.rootId);
-        if (area && (area->property("threadTabbed").toBool()
-            || area->property("navigationViewId").toString()
-                != viewNavigationSession->viewId()))
-            continue;
+        ChatArea* area = nullptr;
+        for (QWidget* widget : QApplication::allWidgets()) {
+            auto* candidate = qobject_cast<ChatArea*>(widget);
+            if (candidate && candidate->isThread
+                && &candidate->getBackend() == &source
+                && candidate->getChannel().id == location.channelId
+                && candidate->root_id == location.rootId
+                && candidate->property("threadDetached").toBool()
+                && candidate->property("navigationViewId").toString()
+                    == viewNavigationSession->viewId()) {
+                area = candidate;
+                break;
+            }
+        }
         if (area && area->isVisible()) continue;
         if (!area) {
             area = new ChatArea(source, *channel, location.rootId, nullptr);
