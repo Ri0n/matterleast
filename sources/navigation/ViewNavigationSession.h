@@ -46,6 +46,10 @@ public:
     // UI-independent transfer contract. Widgets may exchange their semantic
     // presentation state when switching views without transferring QWidgets.
     // A snapshot contains no Backend, Storage, credential or QObject pointer.
+    struct DetachedThread {
+        Location location;
+        QByteArray geometry;
+    };
     struct Snapshot {
         QVector<NavigationTabsModel::Entry> tabs;
         int activeTab = -1;
@@ -55,6 +59,7 @@ public:
         // The independent right-hand thread is not a central tab.
         Location dock;
         bool dockVisible = false;
+        QVector<DetachedThread> detached;
     };
 
     enum Role {
@@ -127,6 +132,7 @@ private:
     QVector<Location> _forward;
     Location _dock;
     bool _dockVisible = false;
+    QVector<DetachedThread> _detached;
     bool _membershipRestricted = false;
     QSet<QString> _allowedAccounts;
 };
