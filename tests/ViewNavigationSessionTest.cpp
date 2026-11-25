@@ -99,6 +99,22 @@ private slots:
         QCOMPARE(view.serializeSnapshot(), before);
     }
 
+    void removingAccountPrunesDetachedWindowsWithoutModelReset()
+    {
+        ViewNavigationSession session(QStringLiteral("all"));
+        session.setAllowedAccounts({"office", "home"});
+        auto state = session.snapshot();
+        state.detached.append({chat("office", "shared", "root1"), QByteArray("geometry")});
+        state.detached.append({chat("home", "shared", "root1"), QByteArray("geometry")});
+        QVERIFY(session.restoreSnapshot(state));
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        session.setAllowedAccounts({"home"});
+        QCOMPARE(session.snapshot().detached.size(), 1);
+        QCOMPARE(session.snapshot().detached.first().location.accountId,
+                 QStringLiteral("home"));
+        QCOMPARE(reset.count(), 0);
+    }
+
     void sameChannelIdFromTwoAccountsNeverCollides()
     {
         ViewNavigationSession session(QStringLiteral("merged"));
