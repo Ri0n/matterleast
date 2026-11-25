@@ -1,6 +1,7 @@
 #include "AccountManager.h"
 
 #include <QLoggingCategory>
+#include <QCryptographicHash>
 #include <QTimer>
 #include <QUrl>
 #include <QUuid>
@@ -28,6 +29,7 @@
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
 #include "navigation/ViewNavigationSession.h"
+#include "migrations/NavigationSnapshotMigration.h"
 #include "options/MLOptions.h"
 
 namespace Mattermost {
@@ -251,6 +253,54 @@ bool AccountManager::loadFromOptions(QString* error)
         qCWarning(accountRestoreLog) << "Saved account catalog is invalid";
         _invalidCatalog = true;
         return false;
+    }
+    // 2026-11-25: import old account-scoped navigation only when the
+    // destination View has no durable snapshot. Never guess an account from
+    // a remote channel ID, and never erase the legacy key before the new
+    // View data has been durably written.
+    auto* options = MLOptions::instance();
+    QStringList migratedKeys;
+    for (const auto& account : _layout.accounts) {
+        if (account.serverBaseUrl.isEmpty() || account.serverUserId.isEmpty())
+            continue;
+        const QByteArray identity = (account.serverBaseUrl + QChar(0x1f)
+                                    + account.serverUserId).toUtf8();
+        const QString legacyKey = QStringLiteral("navigation_session/")
+            + QString::fromLatin1(QCryptographicHash::hash(
+                identity, QCryptographicHash::Sha256).toHex());
+        const QByteArray legacy = options->value<QByteArray>(legacyKey);
+        if (legacy.isEmpty()) continue;
+        const WorkspaceLayout::View* target = nullptr;
+        for (const auto& view : _layout.views)
+            if (view.id == _layout.activeViewId
+                && view.accountIds.contains(account.id)) {
+                target = &view;
+                break;
+            }
+        if (!target)
+            for (const auto& view : _layout.views)
+                if (view.accountIds.contains(account.id)) {
+                    target = &view;
+                    break;
+                }
+        if (!target) continue;
+        // An existing View snapshot is authoritative, even when empty.
+        const QString targetKey = QStringLiteral("navigation/views/") + target->id;
+        if (!options->value<QByteArray>(targetKey).isEmpty()) continue;
+        auto* session = _viewSessions.value(target->id, nullptr);
+        if (!session || !NavigationSnapshotMigration::importLegacy(
+                legacy, account.id, *session)) {
+            qCWarning(accountRestoreLog) << "Unable to import legacy navigation" << legacyKey;
+            continue;
+        }
+        migratedKeys.append(legacyKey);
+    }
+    if (!migratedKeys.isEmpty()) {
+        persistViewSessions();
+        if (options->persistenceHealthy()) {
+            for (const QString& key : migratedKeys)
+                options->setValue<QByteArray>(key, {});
+        }
     }
     return true;
 }
