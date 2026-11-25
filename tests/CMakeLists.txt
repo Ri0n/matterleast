@@ -14,7 +14,8 @@ set_tests_properties(application-font-test PROPERTIES
 # must never access the old QWidget pointer; it can target a new login window.
 add_executable(view-navigation-session-test
     ViewNavigationSessionTest.cpp
-    "${CMAKE_SOURCE_DIR}/sources/navigation/ViewNavigationSession.cpp")
+    "${CMAKE_SOURCE_DIR}/sources/navigation/ViewNavigationSession.cpp"
+    "${CMAKE_SOURCE_DIR}/sources/migrations/NavigationSnapshotMigration.cpp")
 target_include_directories(view-navigation-session-test PRIVATE
     "${CMAKE_SOURCE_DIR}/sources")
 target_link_libraries(view-navigation-session-test PRIVATE
