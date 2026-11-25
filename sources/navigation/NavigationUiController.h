@@ -96,6 +96,7 @@ private:
     void scheduleSessionSave();
     void syncViewSession();
     void restoreBoundViewSession();
+    void restoreDetachedWindowsForBackend(Backend& source);
     void showEmptyConversation();
     bool hasBoundView() const;
     ViewNavigationSession* historySession() const;
