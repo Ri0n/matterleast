@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <QByteArray>
 #include <QAbstractListModel>
 #include <QSet>
 #include <QStringList>
@@ -70,6 +71,8 @@ public:
     const Location& currentLocation() const { return _current; }
     const NavigationTabsModel& tabs() const { return _tabs; }
     Snapshot snapshot() const;
+    QByteArray serializeSnapshot() const;
+    bool restoreSerializedSnapshot(const QByteArray& json);
     // Reject malformed or ambiguous snapshots without changing state. The
     // existing list model is updated incrementally, never reset/recreated.
     bool restoreSnapshot(const Snapshot& snapshot);
