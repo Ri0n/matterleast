@@ -652,6 +652,7 @@ void NavigationUiController::saveSession()
     // Never encode a multi-account presentation using the legacy single
     // account snapshot format (which deliberately has no account IDs).
     if (hasBoundView() || attachedBackends.size() > 1) {
+        saveActiveTabLocation();
         syncViewSession();
         return;
     }
