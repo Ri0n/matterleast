@@ -115,8 +115,7 @@ and retains the semantic destination until the channel is ready.
 The Widgets controller uses exactly the same `ViewNavigationSession::Location`
 type as the QtCore model, including account identity in thread-parent selection
 and bookmark lookups. Legacy restart snapshots inherit the account ID from
-their settings partition. Startup history preserves the real Account ID; only
-standalone widget tests without AccountManager use an isolated private key.
+their settings partition. Startup history and all widget integration fixtures use the real Account ID.
 The permanent MainWindow admits the connected Backends allowed by its active View.
 Binding a View never relabels an account ID or adopts an unrelated startup snapshot.
 Semantic requests carry their originating Backend through tab routing, thread
@@ -279,5 +278,7 @@ An unavailable account retains semantic tab/bookmark state without presenting a
 chat from a different account. A new View does not inherit another View's tabs.
 The old single-account settings format is never written for a shared View.
 Account startup data and notification routing are independent of the window.
-The unbound standalone fixture path retains its legacy restart format until
-those fixtures are migrated to production View initialization.
+The unbound navigation snapshot tests retain the legacy restart format until
+account-qualified View persistence is implemented. Their readiness gate lives
+in the test fixture, not MainWindow; all Backends attach through the same
+account registration path.

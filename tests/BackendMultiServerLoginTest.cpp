@@ -1433,7 +1433,6 @@ private slots:
         {
             MainWindow window(nullptr, tray);
             window.resize(1100, 720);
-            window.enableSharedPresentation();
             window.show();
             auto* sidebar = window.findChild<QSplitter*>(QStringLiteral("sidebarSplitter"));
             QVERIFY(sidebar);
@@ -1452,7 +1451,6 @@ private slots:
 
         MainWindow restarted(nullptr, tray);
         restarted.resize(1100, 720);
-        restarted.enableSharedPresentation();
         restarted.show();
         auto* sidebar = restarted.findChild<QSplitter*>(QStringLiteral("sidebarSplitter"));
         QVERIFY(sidebar);
@@ -1480,7 +1478,6 @@ private slots:
         ViewNavigationSession view(QStringLiteral("exit-view"));
         view.setAllowedAccounts({account.id()});
         auto* window = new MainWindow(nullptr, tray);
-        window->enableSharedPresentation();
         window->setVisibleAccounts({account.id()}, {}, QStringLiteral("recent"));
         window->bindViewNavigation(&view);
         backend.startAccountData();

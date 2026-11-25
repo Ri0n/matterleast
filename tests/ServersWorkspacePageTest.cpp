@@ -24,7 +24,6 @@ private slots:
         QVERIFY(accounts.load({}));
         QSystemTrayIcon tray;
         MainWindow page(nullptr, tray);
-        page.enableSharedPresentation();
         page.installServersSidebar(accounts);
         page.showServersSidebar();
         auto* tabs = page.findChild<QTabWidget*>(
@@ -58,7 +57,6 @@ private slots:
         QVERIFY(accounts.load({}));
         QSystemTrayIcon tray;
         MainWindow page(nullptr, tray);
-        page.enableSharedPresentation();
         page.installServersSidebar(accounts);
         page.showServersSidebar();
         auto* tree = page.findChild<QTreeView*>(
