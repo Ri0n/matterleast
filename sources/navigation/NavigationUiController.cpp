@@ -478,6 +478,7 @@ void NavigationUiController::refreshAttachedDestination(Backend& source)
 {
     if (!hasBoundView() || !canPresentBackend(source)) return;
     refreshAllTabUnreadVisuals(accountIdForBackend(source));
+    restoreDetachedWindowsForBackend(source);
     if (activeArea || currentLocation.accountId != accountIdForBackend(source))
         return;
     // Restore only the retained destination of the arriving account. Do not
