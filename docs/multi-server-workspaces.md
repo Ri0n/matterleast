@@ -283,9 +283,10 @@ navigation state without duplicating a Backend or Storage; detached threads
 remain associated with their originating view while the Backend is live.
 The existing per-account restart snapshot is adopted into an initially empty
 view session. The common snapshot now has a versioned per-view restart format, storing
-account-qualified tabs, history, viewport anchors and the visible dock. Legacy
-per-account import and detached-window restoration remain pending before the
-old navigation snapshot writer can be retired.
+account-qualified tabs, history, viewport anchors and the visible dock. A dated migration imports legacy v1/v2 per-account snapshots into the selected
+View, preserving detached-thread identities and geometry. The old unbound
+navigation snapshot writer remains for its regression fixtures until those
+fixtures are converted to the new persisted View format.
 
 Merged views use account-qualified destinations in the same MainWindow and
 `NavigationUiController`. Switching the active View reconciles its own tab
