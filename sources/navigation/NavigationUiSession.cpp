@@ -435,29 +435,8 @@ void NavigationUiController::restoreBoundViewSession()
         }
     }
 
-    // Restore only windows belonging to an attached account in this View.
-    // Unavailable accounts retain lightweight descriptors for later admission.
-    for (const auto& detached : state.detached) {
-        Location location;
-        if (!presentationLocation(detached.location, location)) continue;
-        Backend* owner = backendForAccount(location.accountId);
-        BackendChannel* channel = owner
-            ? owner->getStorage().getChannelById(location.channelId) : nullptr;
-        if (!channel) continue;
-        ChatArea* area = findThreadForBackend(*owner, location.channelId, location.rootId);
-        if (!area) {
-            area = new ChatArea(*owner, *channel, location.rootId, nullptr);
-            ensureThreadButton(area);
-        }
-        area->setProperty("threadDetached", true);
-        area->setProperty("navigationViewId", viewNavigationSession->viewId());
-        if (!detached.geometry.isEmpty()) area->restoreGeometry(detached.geometry);
-        updateThreadButton(area);
-        area->setAttribute(Qt::WA_ShowWithoutActivating, true);
-        area->show();
-        if (!location.postId.isEmpty())
-            restoreSessionBookmark(area, location.postId, location.viewportAnchor);
-    }
+    for (Backend* source : attachedBackends)
+        if (source) restoreDetachedWindowsForBackend(*source);
 
     if (presentationLocation(state.current, semanticCurrent))
         currentLocation = semanticCurrent;
@@ -471,6 +450,37 @@ void NavigationUiController::restoreBoundViewSession()
         && state.current.kind != ViewNavigationSession::Location::Kind::Chat)
         navigationTabs->hide();
     updateHistoryButtons(); // Synchronizes the settled semantic snapshot.
+}
+
+void NavigationUiController::restoreDetachedWindowsForBackend(Backend& source)
+{
+    if (!viewNavigationSession || !canPresentBackend(source)) return;
+    const QString accountId = accountIdForBackend(source);
+    const auto state = viewNavigationSession->snapshot();
+    for (const auto& detached : state.detached) {
+        const Location& location = detached.location;
+        if (location.accountId != accountId) continue;
+        auto* channel = source.getStorage().getChannelById(location.channelId);
+        if (!channel) continue;
+        ChatArea* area = findThreadForBackend(source, location.channelId, location.rootId);
+        if (area && area->property("navigationViewId").toString()
+                != viewNavigationSession->viewId())
+            continue;
+        if (!area) {
+            area = new ChatArea(source, *channel, location.rootId, nullptr);
+            ensureThreadButton(area);
+        }
+        area->setProperty("threadDetached", true);
+        area->setProperty("navigationViewId", viewNavigationSession->viewId());
+        if (!detached.geometry.isEmpty()) area->restoreGeometry(detached.geometry);
+        updateThreadButton(area);
+        if (!area->isVisible()) {
+            area->setAttribute(Qt::WA_ShowWithoutActivating, true);
+            area->show();
+        }
+        if (!location.postId.isEmpty())
+            restoreSessionBookmark(area, location.postId, location.viewportAnchor);
+    }
 }
 
 void NavigationUiController::scheduleSessionSave()
