@@ -20,6 +20,55 @@ class ViewNavigationSessionTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void serializedViewsSurviveRestartWithAccountQualifiedBookmarks()
+    {
+        ViewNavigationSession original(QStringLiteral("merged"));
+        original.setAllowedAccounts({"office", "home"});
+        auto office = chat("office", "shared");
+        office.postId = "post-office";
+        office.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+            "post-office", false, qreal(0.375)};
+        auto home = chat("home", "shared", "thread-home");
+        home.postId = "post-home";
+        home.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+            "post-home", true, qreal(0.25)};
+        QCOMPARE(original.openTab(office, "Office", true), 0);
+        QCOMPARE(original.openTab(home, "Home"), 1);
+        QVERIFY(original.goBack().has_value());
+        auto state = original.snapshot();
+        state.dock = home;
+        state.dockVisible = true;
+        QVERIFY(original.restoreSnapshot(state));
+        const QByteArray json = original.serializeSnapshot();
+
+        ViewNavigationSession restored(QStringLiteral("merged"));
+        restored.setAllowedAccounts({"office", "home"});
+        QSignalSpy reset(&restored, &QAbstractItemModel::modelReset);
+        QVERIFY(restored.restoreSerializedSnapshot(json));
+        QCOMPARE(restored.rowCount(), 2);
+        QCOMPARE(restored.activeTab(), 0);
+        QCOMPARE(restored.tabs().at(0)->accountId, QStringLiteral("office"));
+        QCOMPARE(restored.tabs().at(1)->accountId, QStringLiteral("home"));
+        QVERIFY(restored.tabs().at(0)->pinned);
+        QCOMPARE(restored.tabs().at(0)->viewportAnchor->fraction, qreal(0.375));
+        QCOMPARE(restored.tabs().at(1)->viewportAnchor->bottom, true);
+        QCOMPARE(restored.snapshot().dock.rootId, QStringLiteral("thread-home"));
+        QVERIFY(restored.snapshot().dockVisible);
+        QVERIFY(!restored.snapshot().forward.isEmpty());
+        QCOMPARE(reset.count(), 0);
+
+        const QByteArray previous = restored.serializeSnapshot();
+        QVERIFY(!restored.restoreSerializedSnapshot(
+            QByteArrayLiteral("{\\"version\\":2}")));
+        QVERIFY(!restored.restoreSerializedSnapshot(
+            QByteArrayLiteral("{\\"version\\":1,\\"view\\":\\"wrong\\"}")));
+        QCOMPARE(restored.serializeSnapshot(), previous);
+        ViewNavigationSession restricted(QStringLiteral("merged"));
+        restricted.setAllowedAccounts({"office"});
+        QVERIFY(!restricted.restoreSerializedSnapshot(json));
+        QCOMPARE(restricted.rowCount(), 0);
+    }
+
     void sameChannelIdFromTwoAccountsNeverCollides()
     {
         ViewNavigationSession session(QStringLiteral("merged"));
