@@ -299,4 +299,5 @@ thread in different Views remain distinct presentation objects.
 
 The old unbound restart fixture path is temporarily retained until its tests
 are rewritten to use the same View-owned persisted format. It is not used by
-production windows.
+production windows. The QtCore snapshot test also links the dated migration
+implementation to exercise the actual import path.
