@@ -1,6 +1,7 @@
 #include "MigrationManager.h"
 
 #include <QLoggingCategory>
+#include <QCryptographicHash>
 #include <QPointer>
 #include <QUrl>
 #include <utility>
@@ -12,6 +13,8 @@
 #include "backend/types/BackendLoginData.h"
 #include "backend/types/BackendUser.h"
 #include "options/MLOptions.h"
+#include "NavigationSnapshotMigration.h"
+#include "navigation/ViewNavigationSession.h"
 
 namespace Mattermost {
 namespace {
@@ -138,6 +141,57 @@ bool MigrationManager::completeLegacyMigration()
         qCWarning(migrationLog) << "Cannot complete migration: settings storage unavailable";
         return false;
     }
+
+    // 2026-11-25: import legacy pinned tabs as part of the unreleased v1 step, when the
+    // destination View has no durable snapshot. Never guess an account from
+    // a remote channel ID, and never erase the legacy key before the new
+    // View data has been durably written.
+    auto* options = _options;
+    QStringList migratedKeys;
+    for (const auto& account : _accounts.layout().accounts) {
+        if (account.serverBaseUrl.isEmpty() || account.serverUserId.isEmpty())
+            continue;
+        const QByteArray identity = (account.serverBaseUrl + QChar(0x1f)
+                                    + account.serverUserId).toUtf8();
+        const QString legacyKey = QStringLiteral("navigation_session/")
+            + QString::fromLatin1(QCryptographicHash::hash(
+                identity, QCryptographicHash::Sha256).toHex());
+        const QByteArray legacy = options->value<QByteArray>(legacyKey);
+        if (legacy.isEmpty()) continue;
+        const WorkspaceLayout::View* target = nullptr;
+        for (const auto& view : _accounts.layout().views)
+            if (view.id == _accounts.layout().activeViewId
+                && view.accountIds.contains(account.id)) {
+                target = &view;
+                break;
+            }
+        if (!target)
+            for (const auto& view : _accounts.layout().views)
+                if (view.accountIds.contains(account.id)) {
+                    target = &view;
+                    break;
+                }
+        if (!target) continue;
+        // An existing View snapshot is authoritative, even when empty.
+        const QString targetKey = QStringLiteral("navigation/views/") + target->id;
+        if (!options->value<QByteArray>(targetKey).isEmpty()) continue;
+        auto* session = _accounts.viewSession(target->id);
+        if (!session || !NavigationSnapshotMigration::importLegacy(
+                legacy, account.id, *session)) {
+            qCWarning(migrationLog) << "Unable to import legacy navigation" << legacyKey;
+            continue;
+        }
+        migratedKeys.append(legacyKey);
+    }
+    if (!migratedKeys.isEmpty()) {
+        _accounts.persistViewSessions();
+        if (options->persistenceHealthy()) {
+            for (const QString& key : migratedKeys)
+                options->setValue<QByteArray>(key, {});
+        }
+    }
+
+    if (!_options->persistenceHealthy()) return false;
 
     // Wipe plaintext *before* recording the version. A crash during the
     // intermediate writes is safe to replay from the persisted Account.
