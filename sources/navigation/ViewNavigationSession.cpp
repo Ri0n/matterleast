@@ -90,6 +90,13 @@ QByteArray ViewNavigationSession::serializeSnapshot() const
             tab.insert("anchor", encodeAnchor(entry.viewportAnchor));
         tabs.append(tab);
     }
+    QJsonArray detached;
+    for (const auto& window : state.detached) {
+        detached.append(QJsonObject {
+            {"location", encodeLocation(window.location)},
+            {"geometry", QString::fromLatin1(window.geometry.toBase64())}
+        });
+    }
     const QJsonObject document {
         {"version", 1}, {"view", _viewId}, {"tabs", tabs},
         {"active", state.activeTab},
@@ -98,7 +105,7 @@ QByteArray ViewNavigationSession::serializeSnapshot() const
         {"back", encodeHistory(state.back)}, {"forward", encodeHistory(state.forward)},
         {"dock", state.dock.valid()
             ? QJsonValue(encodeLocation(state.dock)) : QJsonValue(QJsonValue::Null)},
-        {"dock_visible", state.dockVisible}
+        {"dock_visible", state.dockVisible}, {"detached", detached}
     };
     return QJsonDocument(document).toJson(QJsonDocument::Compact);
 }
@@ -137,6 +144,22 @@ bool ViewNavigationSession::restoreSerializedSnapshot(const QByteArray& json)
         entry.pinned = tab.value("pinned").toBool();
         if (!decodeAnchor(tab.value("anchor"), entry.viewportAnchor)) return false;
         state.tabs.append(std::move(entry));
+    }
+    const auto windows = object.value("detached");
+    if (!windows.isUndefined()) {
+        if (!windows.isArray() || windows.toArray().size() > 100) return false;
+        for (const auto& item : windows.toArray()) {
+            if (!item.isObject()) return false;
+            const auto window = item.toObject();
+            if (!window.value("geometry").isString()) return false;
+            DetachedThread detached;
+            if (!decodeLocation(window.value("location"), detached.location, false))
+                return false;
+            const QByteArray encoded = window.value("geometry").toString().toLatin1();
+            if (encoded.size() > 90000) return false;
+            detached.geometry = QByteArray::fromBase64(encoded);
+            state.detached.append(std::move(detached));
+        }
     }
     if (!decodeLocation(object.value("current"), state.current, true)
         || !decodeLocation(object.value("dock"), state.dock, true)
@@ -186,6 +209,8 @@ void ViewNavigationSession::setAllowedAccounts(const QStringList& accountIds)
         state.dock = {};
         state.dockVisible = false;
     }
+    for (int i = state.detached.size() - 1; i >= 0; --i)
+        if (!belongs(state.detached[i].location)) state.detached.removeAt(i);
     _allowedAccounts = allowed;
     _membershipRestricted = true;
     // Snapshot is guaranteed valid after filtering account membership; never
@@ -205,6 +230,7 @@ ViewNavigationSession::Snapshot ViewNavigationSession::snapshot() const
     result.forward = _forward;
     result.dock = _dock;
     result.dockVisible = _dockVisible;
+    result.detached = _detached;
     return result;
 }
 
@@ -239,6 +265,18 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
     for (const auto& item : state.forward)
         if (!item.valid() || !allowsAccount(item.accountId)
             || !validAnchor(item.viewportAnchor)) return false;
+    if (state.detached.size() > 100) return false;
+    for (int i = 0; i < state.detached.size(); ++i) {
+        const auto& detached = state.detached.at(i);
+        if (!detached.location.valid() || !allowsAccount(detached.location.accountId)
+            || detached.location.kind != Location::Kind::Chat
+            || detached.location.rootId.isEmpty()
+            || !validAnchor(detached.location.viewportAnchor)
+            || detached.geometry.size() > 65536) return false;
+        for (int j = 0; j < i; ++j)
+            if (detached.location.sameDestination(state.detached[j].location))
+                return false;
+    }
     if (state.dockVisible
         && (!state.dock.valid()
             || !allowsAccount(state.dock.accountId)
@@ -306,6 +344,7 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
     _forward = state.forward;
     _dock = state.dock;
     _dockVisible = state.dockVisible;
+    _detached = state.detached;
     constexpr int MaxHistory = 100;
     if (_back.size() > MaxHistory)
         _back.remove(0, _back.size() - MaxHistory);
