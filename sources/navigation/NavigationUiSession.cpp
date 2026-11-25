@@ -463,9 +463,11 @@ void NavigationUiController::restoreDetachedWindowsForBackend(Backend& source)
         auto* channel = source.getStorage().getChannelById(location.channelId);
         if (!channel) continue;
         ChatArea* area = findThreadForBackend(source, location.channelId, location.rootId);
-        if (area && area->property("navigationViewId").toString()
-                != viewNavigationSession->viewId())
+        if (area && (area->property("threadTabbed").toBool()
+            || area->property("navigationViewId").toString()
+                != viewNavigationSession->viewId()))
             continue;
+        if (area && area->isVisible()) continue;
         if (!area) {
             area = new ChatArea(source, *channel, location.rootId, nullptr);
             ensureThreadButton(area);
