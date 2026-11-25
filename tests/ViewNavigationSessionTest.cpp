@@ -59,9 +59,9 @@ private slots:
 
         const QByteArray previous = restored.serializeSnapshot();
         QVERIFY(!restored.restoreSerializedSnapshot(
-            QByteArrayLiteral("{\\"version\\":2}")));
+            QByteArrayLiteral(R"({"version":2})")));
         QVERIFY(!restored.restoreSerializedSnapshot(
-            QByteArrayLiteral("{\\"version\\":1,\\"view\\":\\"wrong\\"}")));
+            QByteArrayLiteral(R"({"version":1,"view":"wrong"})")));
         QCOMPARE(restored.serializeSnapshot(), previous);
         ViewNavigationSession restricted(QStringLiteral("merged"));
         restricted.setAllowedAccounts({"office"});
