@@ -282,3 +282,22 @@ The unbound navigation snapshot tests retain the legacy restart format until
 account-qualified View persistence is implemented. Their readiness gate lives
 in the test fixture, not MainWindow; all Backends attach through the same
 account registration path.
+
+## Durable View snapshots (2026-11-25)
+
+The AccountManager restores versioned `navigation/views/<viewId>` snapshots
+before opening connections. These snapshots contain account-qualified tabs,
+pins, semantic post-relative viewport anchors, Back/Forward, the right-hand
+thread and detached thread window geometry; they contain no credentials,
+Backend or QWidget pointers. A dated migration imports the former
+`navigation_session/<server-user-hash>` v1/v2 snapshots into the active View
+only after verifying the saved account's server/user identity. Legacy keys are
+retired only after a healthy write of the new snapshots. Disconnected accounts
+retain their semantic destinations and detached windows are admitted when the
+corresponding account catalog becomes available. Detached windows for the same
+thread in different Views remain distinct presentation objects.
+
+The old unbound restart fixture path is temporarily retained until its tests
+are rewritten to use the same View-owned persisted format. It is not used by
+production windows. The QtCore snapshot test also links the dated migration
+implementation to exercise the actual import path.

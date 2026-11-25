@@ -254,6 +254,7 @@ inline MattermostApplication::MattermostApplication (int& argc, char *argv[])
             [this](const QString&) {
         syncViewSidebar();
         bindActiveNavigationView();
+        accounts.persistViewSessions();
     });
     connect(&accounts, &AccountManager::layoutChanged, this,
             [this] {
@@ -271,6 +272,7 @@ MattermostApplication::~MattermostApplication()
     delete loginDialog.data();
     if (mainWindow) {
         mainWindow->saveState();
+        accounts.persistViewSessions();
         for (auto* backend : accounts.registeredBackends())
             if (backend && mainWindow->admitsNavigationBackend(*backend))
                 mainWindow->detachNavigationBackend(*backend);
@@ -342,6 +344,10 @@ void MattermostApplication::ensureMainWindow()
     mainWindow->installServersSidebar(accounts);
     plugins.attachMainWindow(*mainWindow);
 
+    // MainWindow saves the active Widgets bookmark first; AccountManager then
+    // serializes all View sessions, including those not currently presented.
+    connect(qApp, &QApplication::aboutToQuit, this,
+            [this] { accounts.persistViewSessions(); });
     connect(mainWindow.get(), &MainWindow::serverOpenRequested, this,
             [this](const QString& id) { selectAccount(id); });
     connect(mainWindow.get(), &MainWindow::viewOpenRequested, this,

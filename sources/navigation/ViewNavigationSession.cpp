@@ -1,8 +1,173 @@
 #include "ViewNavigationSession.h"
 #include <cmath>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <utility>
 
 namespace Mattermost {
+
+namespace {
+using Location = ViewNavigationSession::Location;
+using Anchor = NavigationTabsModel::ViewportAnchor;
+QJsonObject encodeAnchor(const std::optional<Anchor>& anchor)
+{
+    if (!anchor || !anchor->isValid() || !std::isfinite(double(anchor->fraction)))
+        return {};
+    return {{"post", anchor->postId}, {"bottom", anchor->bottom},
+            {"fraction", double(anchor->fraction)}};
+}
+bool decodeAnchor(const QJsonValue& value, std::optional<Anchor>& result)
+{
+    if (value.isUndefined() || value.isNull()) return true;
+    if (!value.isObject()) return false;
+    const auto object = value.toObject();
+    if (!object.value("post").isString() || !object.value("bottom").isBool()
+        || !object.value("fraction").isDouble()) return false;
+    Anchor anchor {object.value("post").toString(),
+                   object.value("bottom").toBool(),
+                   qreal(object.value("fraction").toDouble())};
+    if (!anchor.isValid() || !std::isfinite(double(anchor.fraction))) return false;
+    result = anchor;
+    return true;
+}
+QJsonObject encodeLocation(const Location& location)
+{
+    QJsonObject object {{"kind", int(location.kind)}, {"account", location.accountId},
+                        {"channel", location.channelId}, {"root", location.rootId},
+                        {"post", location.postId}};
+    if (location.viewportAnchor)
+        object.insert("anchor", encodeAnchor(location.viewportAnchor));
+    return object;
+}
+bool decodeLocation(const QJsonValue& value, Location& result, bool allowEmpty)
+{
+    if (allowEmpty && value.isNull()) return true;
+    if (!value.isObject()) return false;
+    const auto object = value.toObject();
+    const auto kind = object.value("kind");
+    if (!kind.isDouble() || kind.toInt(-1) < 0
+        || kind.toInt(-1) > int(Location::Kind::Search)
+        || !object.value("account").isString()
+        || !object.value("channel").isString()
+        || !object.value("root").isString()
+        || !object.value("post").isString()) return false;
+    result.kind = static_cast<Location::Kind>(kind.toInt());
+    result.accountId = object.value("account").toString();
+    result.channelId = object.value("channel").toString();
+    result.rootId = object.value("root").toString();
+    result.postId = object.value("post").toString();
+    return decodeAnchor(object.value("anchor"), result.viewportAnchor)
+        && result.valid();
+}
+QJsonArray encodeHistory(const QVector<Location>& locations)
+{
+    QJsonArray array;
+    for (const auto& location : locations) array.append(encodeLocation(location));
+    return array;
+}
+bool decodeHistory(const QJsonValue& value, QVector<Location>& locations)
+{
+    if (!value.isArray() || value.toArray().size() > 100) return false;
+    for (const auto& item : value.toArray()) {
+        Location location;
+        if (!decodeLocation(item, location, false)) return false;
+        locations.append(std::move(location));
+    }
+    return true;
+}
+}
+
+QByteArray ViewNavigationSession::serializeSnapshot() const
+{
+    const auto state = snapshot();
+    QJsonArray tabs;
+    for (const auto& entry : state.tabs) {
+        QJsonObject tab {{"account", entry.accountId}, {"channel", entry.channelId},
+                         {"root", entry.rootId}, {"post", entry.postId},
+                         {"title", entry.title}, {"pinned", entry.pinned}};
+        if (entry.viewportAnchor)
+            tab.insert("anchor", encodeAnchor(entry.viewportAnchor));
+        tabs.append(tab);
+    }
+    QJsonArray detached;
+    for (const auto& window : state.detached) {
+        detached.append(QJsonObject {
+            {"location", encodeLocation(window.location)},
+            {"geometry", QString::fromLatin1(window.geometry.toBase64())}
+        });
+    }
+    const QJsonObject document {
+        {"version", 1}, {"view", _viewId}, {"tabs", tabs},
+        {"active", state.activeTab},
+        {"current", state.current.valid()
+            ? QJsonValue(encodeLocation(state.current)) : QJsonValue(QJsonValue::Null)},
+        {"back", encodeHistory(state.back)}, {"forward", encodeHistory(state.forward)},
+        {"dock", state.dock.valid()
+            ? QJsonValue(encodeLocation(state.dock)) : QJsonValue(QJsonValue::Null)},
+        {"dock_visible", state.dockVisible}, {"detached", detached}
+    };
+    return QJsonDocument(document).toJson(QJsonDocument::Compact);
+}
+
+bool ViewNavigationSession::restoreSerializedSnapshot(const QByteArray& json)
+{
+    QJsonParseError error;
+    const auto document = QJsonDocument::fromJson(json, &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) return false;
+    const auto object = document.object();
+    if (object.value("version").toInt(-1) != 1
+        || object.value("view").toString() != _viewId
+        || !object.value("tabs").isArray()
+        || !object.value("active").isDouble()
+        || !object.value("dock_visible").isBool()) return false;
+    const auto tabArray = object.value("tabs").toArray();
+    if (tabArray.size() > 1000) return false;
+    Snapshot state;
+    state.activeTab = object.value("active").toInt(-2);
+    state.dockVisible = object.value("dock_visible").toBool();
+    for (const auto& value : tabArray) {
+        if (!value.isObject()) return false;
+        const auto tab = value.toObject();
+        if (!tab.value("account").isString()
+            || !tab.value("channel").isString()
+            || !tab.value("root").isString()
+            || !tab.value("post").isString()
+            || !tab.value("title").isString()
+            || !tab.value("pinned").isBool()) return false;
+        NavigationTabsModel::Entry entry;
+        entry.accountId = tab.value("account").toString();
+        entry.channelId = tab.value("channel").toString();
+        entry.rootId = tab.value("root").toString();
+        entry.postId = tab.value("post").toString();
+        entry.title = tab.value("title").toString();
+        entry.pinned = tab.value("pinned").toBool();
+        if (!decodeAnchor(tab.value("anchor"), entry.viewportAnchor)) return false;
+        state.tabs.append(std::move(entry));
+    }
+    const auto windows = object.value("detached");
+    if (!windows.isUndefined()) {
+        if (!windows.isArray() || windows.toArray().size() > 100) return false;
+        for (const auto& item : windows.toArray()) {
+            if (!item.isObject()) return false;
+            const auto window = item.toObject();
+            if (!window.value("geometry").isString()) return false;
+            DetachedThread detached;
+            if (!decodeLocation(window.value("location"), detached.location, false))
+                return false;
+            const QByteArray encoded = window.value("geometry").toString().toLatin1();
+            if (encoded.size() > 90000) return false;
+            detached.geometry = QByteArray::fromBase64(encoded);
+            state.detached.append(std::move(detached));
+        }
+    }
+    if (!decodeLocation(object.value("current"), state.current, true)
+        || !decodeLocation(object.value("dock"), state.dock, true)
+        || !decodeHistory(object.value("back"), state.back)
+        || !decodeHistory(object.value("forward"), state.forward)) return false;
+    // The model validates all identities and anchors before changing any rows.
+    return restoreSnapshot(state);
+}
 
 ViewNavigationSession::ViewNavigationSession(QString viewId, QObject* parent)
     : QAbstractListModel(parent), _viewId(std::move(viewId))
@@ -44,6 +209,8 @@ void ViewNavigationSession::setAllowedAccounts(const QStringList& accountIds)
         state.dock = {};
         state.dockVisible = false;
     }
+    for (int i = state.detached.size() - 1; i >= 0; --i)
+        if (!belongs(state.detached[i].location)) state.detached.removeAt(i);
     _allowedAccounts = allowed;
     _membershipRestricted = true;
     // Snapshot is guaranteed valid after filtering account membership; never
@@ -63,6 +230,7 @@ ViewNavigationSession::Snapshot ViewNavigationSession::snapshot() const
     result.forward = _forward;
     result.dock = _dock;
     result.dockVisible = _dockVisible;
+    result.detached = _detached;
     return result;
 }
 
@@ -97,6 +265,18 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
     for (const auto& item : state.forward)
         if (!item.valid() || !allowsAccount(item.accountId)
             || !validAnchor(item.viewportAnchor)) return false;
+    if (state.detached.size() > 100) return false;
+    for (int i = 0; i < state.detached.size(); ++i) {
+        const auto& detached = state.detached.at(i);
+        if (!detached.location.valid() || !allowsAccount(detached.location.accountId)
+            || detached.location.kind != Location::Kind::Chat
+            || detached.location.rootId.isEmpty()
+            || !validAnchor(detached.location.viewportAnchor)
+            || detached.geometry.size() > 65536) return false;
+        for (int j = 0; j < i; ++j)
+            if (detached.location.sameDestination(state.detached[j].location))
+                return false;
+    }
     if (state.dockVisible
         && (!state.dock.valid()
             || !allowsAccount(state.dock.accountId)
@@ -164,6 +344,7 @@ bool ViewNavigationSession::restoreSnapshot(const Snapshot& state)
     _forward = state.forward;
     _dock = state.dock;
     _dockVisible = state.dockVisible;
+    _detached = state.detached;
     constexpr int MaxHistory = 100;
     if (_back.size() > MaxHistory)
         _back.remove(0, _back.size() - MaxHistory);

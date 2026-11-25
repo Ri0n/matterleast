@@ -43,6 +43,7 @@ public:
     // View session contains only semantic tab/history state, not duplicated
     // Backend or chat widgets. Views may share accounts freely.
     ViewNavigationSession* viewSession(const QString& viewId) const;
+    void persistViewSessions() const;
     QAbstractItemModel* activeViewTabs() const;
 
     Account* account(const QString& id) const { return _byId.value(id, nullptr); }

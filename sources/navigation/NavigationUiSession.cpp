@@ -169,6 +169,24 @@ void NavigationUiController::syncViewSession()
         state.dock = {};
         state.dockVisible = false;
     }
+    // Keep semantic detached windows of disconnected accounts. Connected
+    // accounts supply the authoritative set of currently open windows.
+    QVector<ViewNavigationSession::DetachedThread> retained;
+    for (const auto& detached : state.detached)
+        if (!backendForAccount(detached.location.accountId))
+            retained.append(detached);
+    for (QWidget* widget : QApplication::allWidgets()) {
+        auto* area = qobject_cast<ChatArea*>(widget);
+        if (!area || !area->isThread || !area->isVisible()
+            || !area->property("threadDetached").toBool()
+            || area->property("navigationViewId").toString() != viewNavigationSession->viewId())
+            continue;
+        const Location location = semanticLocation(captureLocation(area));
+        if (!location.valid() || !viewNavigationSession->allowsAccount(location.accountId))
+            continue;
+        retained.append({location, area->saveGeometry()});
+    }
+    state.detached = std::move(retained);
     if (!viewNavigationSession->restoreSnapshot(state))
         qWarning("Unable to transfer Widgets navigation state into its view session");
 }
@@ -218,7 +236,8 @@ void NavigationUiController::bindViewSession(ViewNavigationSession* session)
 {
     if (!session) return;
     if (viewNavigationSession == session) {
-        if (viewNavigationMembers != session->allowedAccounts()) {
+        if (viewNavigationMembers != session->allowedAccounts()
+            || (tabModel.isEmpty() && session->rowCount() > 0)) {
             viewNavigationMembers = session->allowedAccounts();
             restoreBoundViewSession();
         }
@@ -417,6 +436,9 @@ void NavigationUiController::restoreBoundViewSession()
         }
     }
 
+    for (Backend* source : attachedBackends)
+        if (source) restoreDetachedWindowsForBackend(*source);
+
     if (presentationLocation(state.current, semanticCurrent))
         currentLocation = semanticCurrent;
 
@@ -429,6 +451,48 @@ void NavigationUiController::restoreBoundViewSession()
         && state.current.kind != ViewNavigationSession::Location::Kind::Chat)
         navigationTabs->hide();
     updateHistoryButtons(); // Synchronizes the settled semantic snapshot.
+}
+
+void NavigationUiController::restoreDetachedWindowsForBackend(Backend& source)
+{
+    if (!viewNavigationSession || !canPresentBackend(source)) return;
+    const QString accountId = accountIdForBackend(source);
+    const auto state = viewNavigationSession->snapshot();
+    for (const auto& detached : state.detached) {
+        const Location& location = detached.location;
+        if (location.accountId != accountId) continue;
+        auto* channel = source.getStorage().getChannelById(location.channelId);
+        if (!channel) continue;
+        ChatArea* area = nullptr;
+        for (QWidget* widget : QApplication::allWidgets()) {
+            auto* candidate = qobject_cast<ChatArea*>(widget);
+            if (candidate && candidate->isThread
+                && &candidate->getBackend() == &source
+                && candidate->getChannel().id == location.channelId
+                && candidate->root_id == location.rootId
+                && candidate->property("threadDetached").toBool()
+                && candidate->property("navigationViewId").toString()
+                    == viewNavigationSession->viewId()) {
+                area = candidate;
+                break;
+            }
+        }
+        if (area && area->isVisible()) continue;
+        if (!area) {
+            area = new ChatArea(source, *channel, location.rootId, nullptr);
+            ensureThreadButton(area);
+        }
+        area->setProperty("threadDetached", true);
+        area->setProperty("navigationViewId", viewNavigationSession->viewId());
+        if (!detached.geometry.isEmpty()) area->restoreGeometry(detached.geometry);
+        updateThreadButton(area);
+        if (!area->isVisible()) {
+            area->setAttribute(Qt::WA_ShowWithoutActivating, true);
+            area->show();
+        }
+        if (!location.postId.isEmpty())
+            restoreSessionBookmark(area, location.postId, location.viewportAnchor);
+    }
 }
 
 void NavigationUiController::scheduleSessionSave()
@@ -589,6 +653,7 @@ void NavigationUiController::saveSession()
     // Never encode a multi-account presentation using the legacy single
     // account snapshot format (which deliberately has no account IDs).
     if (hasBoundView() || attachedBackends.size() > 1) {
+        saveActiveTabLocation();
         syncViewSession();
         return;
     }

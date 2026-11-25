@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <QByteArray>
 #include <QAbstractListModel>
 #include <QSet>
 #include <QStringList>
@@ -45,6 +46,10 @@ public:
     // UI-independent transfer contract. Widgets may exchange their semantic
     // presentation state when switching views without transferring QWidgets.
     // A snapshot contains no Backend, Storage, credential or QObject pointer.
+    struct DetachedThread {
+        Location location;
+        QByteArray geometry;
+    };
     struct Snapshot {
         QVector<NavigationTabsModel::Entry> tabs;
         int activeTab = -1;
@@ -54,6 +59,7 @@ public:
         // The independent right-hand thread is not a central tab.
         Location dock;
         bool dockVisible = false;
+        QVector<DetachedThread> detached;
     };
 
     enum Role {
@@ -70,6 +76,8 @@ public:
     const Location& currentLocation() const { return _current; }
     const NavigationTabsModel& tabs() const { return _tabs; }
     Snapshot snapshot() const;
+    QByteArray serializeSnapshot() const;
+    bool restoreSerializedSnapshot(const QByteArray& json);
     // Reject malformed or ambiguous snapshots without changing state. The
     // existing list model is updated incrementally, never reset/recreated.
     bool restoreSnapshot(const Snapshot& snapshot);
@@ -124,6 +132,7 @@ private:
     QVector<Location> _forward;
     Location _dock;
     bool _dockVisible = false;
+    QVector<DetachedThread> _detached;
     bool _membershipRestricted = false;
     QSet<QString> _allowedAccounts;
 };

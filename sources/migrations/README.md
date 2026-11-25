@@ -36,6 +36,11 @@ has completed its durable changes. Retrying a failed step must be safe.
    `LoginDialog` is only a manual credential editor; `AccountManager` owns
    normal authenticated sessions, independent of the old format.
 
+7. Pinned-tab import (2026-11-25) is part of v1. Import only explicitly
+   pinned destinations from the old account-scoped navigation snapshot into
+   its View; do not import viewport bookmarks, ordinary tabs or open windows.
+   The existing release migration version remains unchanged.
+
 ## Adding another migration
 
 Append a monotonically increasing step to the dated descriptor array in
@@ -43,7 +48,7 @@ Append a monotonically increasing step to the dated descriptor array in
 `LatestVersion`. Put step-specific logic here (or in a dedicated
 `sources/migrations/vN_*.cpp` file as it grows), with tests for fresh installs,
 upgrade paths, interruptions, future versions and repeated startups.
-Never repurpose an old version number or move compatibility logic into
+Never repurpose a released version number or move compatibility logic into
 the account domain or the Widgets frontend.
 
 ## Diagnosing upgrade and saved-session restoration

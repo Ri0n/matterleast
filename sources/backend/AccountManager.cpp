@@ -365,12 +365,34 @@ QAbstractItemModel* AccountManager::activeViewTabs() const
 void AccountManager::ensureViewSessions()
 {
     for (const auto& view : _layout.views) {
-        if (!_viewSessions.contains(view.id))
-            _viewSessions.insert(view.id, new ViewNavigationSession(view.id, this));
-        // Membership edits are domain-level security/identity changes, not
-        // merely a filtered sidebar. Retired destinations must disappear from
-        // the view's tabs, dock and Back/Forward before Widgets can rebind.
-        _viewSessions.value(view.id)->setAllowedAccounts(view.accountIds);
+        if (!_viewSessions.contains(view.id)) {
+            auto* session = new ViewNavigationSession(view.id, this);
+            session->setAllowedAccounts(view.accountIds);
+            // A View is restored before any Backend connects. Only semantic
+            // destinations and bookmarks are materialized at this stage.
+            const QByteArray stored = MLOptions::instance()->value<QByteArray>(
+                QStringLiteral("navigation/views/") + view.id);
+            if (!stored.isEmpty() && !session->restoreSerializedSnapshot(stored))
+                qCWarning(accountRestoreLog) << "Invalid navigation snapshot for view" << view.id;
+            _viewSessions.insert(view.id, session);
+        } else {
+            // Retire destinations that no longer belong to this View without
+            // resetting its model or allocating a second presenter.
+            _viewSessions.value(view.id)->setAllowedAccounts(view.accountIds);
+        }
+    }
+}
+
+void AccountManager::persistViewSessions() const
+{
+    if (_invalidCatalog) return;
+    auto* options = MLOptions::instance();
+    for (const auto& view : _layout.views) {
+        const auto* session = _viewSessions.value(view.id, nullptr);
+        if (!session) continue;
+        options->setValue<QByteArray>(
+            QStringLiteral("navigation/views/") + view.id,
+            session->serializeSnapshot());
     }
 }
 

@@ -1,5 +1,6 @@
 #include <QtTest>
 #include "navigation/ViewNavigationSession.h"
+#include "migrations/NavigationSnapshotMigration.h"
 
 using namespace Mattermost;
 
@@ -20,6 +21,132 @@ class ViewNavigationSessionTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void serializedViewsSurviveRestartWithAccountQualifiedBookmarks()
+    {
+        ViewNavigationSession original(QStringLiteral("merged"));
+        original.setAllowedAccounts({"office", "home"});
+        auto office = chat("office", "shared");
+        office.postId = "post-office";
+        office.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+            "post-office", false, qreal(0.375)};
+        auto home = chat("home", "shared", "thread-home");
+        home.postId = "post-home";
+        home.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+            "post-home", true, qreal(0.25)};
+        QCOMPARE(original.openTab(office, "Office", true), 0);
+        QCOMPARE(original.openTab(home, "Home"), 1);
+        QVERIFY(original.goBack().has_value());
+        auto state = original.snapshot();
+        state.dock = home;
+        state.dockVisible = true;
+        QVERIFY(original.restoreSnapshot(state));
+        const QByteArray json = original.serializeSnapshot();
+
+        ViewNavigationSession restored(QStringLiteral("merged"));
+        restored.setAllowedAccounts({"office", "home"});
+        QSignalSpy reset(&restored, &QAbstractItemModel::modelReset);
+        QVERIFY(restored.restoreSerializedSnapshot(json));
+        QCOMPARE(restored.rowCount(), 2);
+        QCOMPARE(restored.activeTab(), 0);
+        QCOMPARE(restored.tabs().at(0)->accountId, QStringLiteral("office"));
+        QCOMPARE(restored.tabs().at(1)->accountId, QStringLiteral("home"));
+        QVERIFY(restored.tabs().at(0)->pinned);
+        QCOMPARE(restored.tabs().at(0)->viewportAnchor->fraction, qreal(0.375));
+        QCOMPARE(restored.tabs().at(1)->viewportAnchor->bottom, true);
+        QCOMPARE(restored.snapshot().dock.rootId, QStringLiteral("thread-home"));
+        QVERIFY(restored.snapshot().dockVisible);
+        QVERIFY(!restored.snapshot().forward.isEmpty());
+        QCOMPARE(reset.count(), 0);
+
+        const QByteArray previous = restored.serializeSnapshot();
+        QVERIFY(!restored.restoreSerializedSnapshot(
+            QByteArrayLiteral(R"({"version":2})")));
+        QVERIFY(!restored.restoreSerializedSnapshot(
+            QByteArrayLiteral(R"({"version":1,"view":"wrong"})")));
+        QCOMPARE(restored.serializeSnapshot(), previous);
+        ViewNavigationSession restricted(QStringLiteral("merged"));
+        restricted.setAllowedAccounts({"office"});
+        QVERIFY(!restricted.restoreSerializedSnapshot(json));
+        QCOMPARE(restricted.rowCount(), 0);
+    }
+
+    void legacyMigrationImportsOnlyPinnedTabs()
+    {
+        ViewNavigationSession view(QStringLiteral("combined"));
+        view.setAllowedAccounts({"office", "home"});
+        QVERIFY(view.openTab(chat("home", "shared"), "Home") >= 0);
+        const QByteArray old = R"({"version":2,"tabs":[{"channel":"shared","root":"","pinned":true,"anchor":{"post":"p1","bottom":false,"fraction":0.5}},{"channel":"ordinary","root":"","pinned":false},{"channel":"shared","root":"pinned-thread","pinned":true}],"threads":[{"channel":"shared","root":"root1","mode":"window","geometry":""}],"active_tab":{"channel":"ordinary","root":""},"active_dock":{"channel":"shared","root":"root2"},"dock_visible":true})";
+        QVERIFY(NavigationSnapshotMigration::importLegacy(old, "office", view));
+        QCOMPARE(view.rowCount(), 3);
+        QCOMPARE(view.tabs().at(0)->accountId, QStringLiteral("home"));
+        QCOMPARE(view.tabs().at(1)->accountId, QStringLiteral("office"));
+        QCOMPARE(view.tabs().at(1)->channelId, QStringLiteral("shared"));
+        QVERIFY(view.tabs().at(1)->pinned);
+        QVERIFY(view.tabs().at(1)->postId.isEmpty());
+        QVERIFY(!view.tabs().at(1)->viewportAnchor.has_value());
+        QCOMPARE(view.tabs().at(2)->rootId, QStringLiteral("pinned-thread"));
+        QVERIFY(view.tabs().at(2)->pinned);
+        QCOMPARE(view.activeTab(), 0);
+        QVERIFY(view.snapshot().detached.isEmpty());
+        QVERIFY(!view.snapshot().dockVisible);
+        QVERIFY(view.snapshot().back.isEmpty());
+        QVERIFY(view.snapshot().forward.isEmpty());
+        QVERIFY(NavigationSnapshotMigration::importLegacy(old, "office", view));
+        QCOMPARE(view.rowCount(), 3);
+
+        const QByteArray encoded = view.serializeSnapshot();
+        ViewNavigationSession reopened(QStringLiteral("combined"));
+        reopened.setAllowedAccounts({"office", "home"});
+        QVERIFY(reopened.restoreSerializedSnapshot(encoded));
+        QCOMPARE(reopened.rowCount(), 3);
+        QVERIFY(reopened.tabs().at(1)->pinned);
+        QVERIFY(reopened.tabs().at(2)->pinned);
+        const QByteArray before = view.serializeSnapshot();
+        QVERIFY(!NavigationSnapshotMigration::importLegacy(
+            QByteArrayLiteral(R"({"version":9,"tabs":[]})"),
+            "office", view));
+        QCOMPARE(view.serializeSnapshot(), before);
+    }
+
+    void detachedWindowsSurviveNewFormatRoundTrip()
+    {
+        ViewNavigationSession session(QStringLiteral("all"));
+        session.setAllowedAccounts({"office", "home"});
+        auto state = session.snapshot();
+        auto location = chat("office", "shared", "root1");
+        location.postId = "post1";
+        location.viewportAnchor = NavigationTabsModel::ViewportAnchor {
+            "post1", true, qreal(0.25)};
+        state.detached.append({location, QByteArray("geometry")});
+        QVERIFY(session.restoreSnapshot(state));
+        ViewNavigationSession reopened(QStringLiteral("all"));
+        reopened.setAllowedAccounts({"office", "home"});
+        QVERIFY(reopened.restoreSerializedSnapshot(session.serializeSnapshot()));
+        QCOMPARE(reopened.snapshot().detached.size(), 1);
+        const auto detached = reopened.snapshot().detached.first();
+        QCOMPARE(detached.location.accountId, QStringLiteral("office"));
+        QCOMPARE(detached.location.rootId, QStringLiteral("root1"));
+        QCOMPARE(detached.geometry, QByteArray("geometry"));
+        QVERIFY(detached.location.viewportAnchor.has_value());
+        QCOMPARE(detached.location.viewportAnchor->fraction, qreal(0.25));
+    }
+
+    void removingAccountPrunesDetachedWindowsWithoutModelReset()
+    {
+        ViewNavigationSession session(QStringLiteral("all"));
+        session.setAllowedAccounts({"office", "home"});
+        auto state = session.snapshot();
+        state.detached.append({chat("office", "shared", "root1"), QByteArray("geometry")});
+        state.detached.append({chat("home", "shared", "root1"), QByteArray("geometry")});
+        QVERIFY(session.restoreSnapshot(state));
+        QSignalSpy reset(&session, &QAbstractItemModel::modelReset);
+        session.setAllowedAccounts({"home"});
+        QCOMPARE(session.snapshot().detached.size(), 1);
+        QCOMPARE(session.snapshot().detached.first().location.accountId,
+                 QStringLiteral("home"));
+        QCOMPARE(reset.count(), 0);
+    }
+
     void sameChannelIdFromTwoAccountsNeverCollides()
     {
         ViewNavigationSession session(QStringLiteral("merged"));
