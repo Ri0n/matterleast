@@ -96,6 +96,7 @@ private:
     void scheduleSessionSave();
     void syncViewSession();
     void restoreBoundViewSession();
+    void restoreDeferredThreadSurfaces(Backend& source);
     void restoreDetachedWindowsForBackend(Backend& source);
     void showEmptyConversation();
     bool hasBoundView() const;
@@ -203,6 +204,8 @@ private:
     bool shuttingDown = false;
     bool restoringSession = false;
     bool applyingViewSession = false;
+    std::optional<Location> deferredDock;
+    QVector<ViewNavigationSession::DetachedThread> deferredDetached;
     QPointer<ViewNavigationSession> viewNavigationSession;
     QSet<QString> viewNavigationMembers;
 };

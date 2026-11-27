@@ -478,7 +478,7 @@ void NavigationUiController::refreshAttachedDestination(Backend& source)
 {
     if (!hasBoundView() || !canPresentBackend(source)) return;
     refreshAllTabUnreadVisuals(accountIdForBackend(source));
-    restoreDetachedWindowsForBackend(source);
+    restoreDeferredThreadSurfaces(source);
     if (activeArea || currentLocation.accountId != accountIdForBackend(source))
         return;
     // Restore only the retained destination of the arriving account. Do not
@@ -2012,6 +2012,7 @@ void NavigationUiController::attachThread(ChatArea* area)
         return;
     }
 
+    deferredDock.reset();
     ensureThreadButton(area);
 
     const int releasedTabIndex = releaseThreadFromTabSurface(area);
@@ -2362,6 +2363,8 @@ void NavigationUiController::presentThread(ChatArea* area)
         return;
     }
     if (area->property("threadDetached").toBool()) {
+        if (viewNavigationSession)
+            area->setProperty("navigationViewId", viewNavigationSession->viewId());
         area->show();
         area->raise();
         area->activateWindow();

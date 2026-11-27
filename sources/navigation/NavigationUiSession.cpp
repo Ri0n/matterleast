@@ -163,17 +163,18 @@ void NavigationUiController::syncViewSession()
     if (dock && dock->isThread) {
         state.dock = semanticLocation(captureLocation(dock));
         state.dockVisible = state.dock.valid();
+    } else if (deferredDock) {
+        state.dock = *deferredDock;
+        state.dockVisible = true;
     } else {
-        // A previously visible dock must not reappear when this view is
-        // activated again after the user explicitly closed the right pane.
         state.dock = {};
         state.dockVisible = false;
     }
     // Keep semantic detached windows of disconnected accounts. Connected
     // accounts supply the authoritative set of currently open windows.
     QVector<ViewNavigationSession::DetachedThread> retained;
-    for (const auto& detached : state.detached)
-        if (!backendForAccount(detached.location.accountId))
+    for (const auto& detached : deferredDetached)
+        if (viewNavigationSession->allowsAccount(detached.location.accountId))
             retained.append(detached);
     for (QWidget* widget : QApplication::allWidgets()) {
         auto* area = qobject_cast<ChatArea*>(widget);
@@ -184,7 +185,12 @@ void NavigationUiController::syncViewSession()
         const Location location = semanticLocation(captureLocation(area));
         if (!location.valid() || !viewNavigationSession->allowsAccount(location.accountId))
             continue;
-        retained.append({location, area->saveGeometry()});
+        auto existing = std::find_if(retained.begin(), retained.end(),
+            [&location](const auto& item) { return item.location.sameDestination(location); });
+        if (existing == retained.end())
+            retained.append({location, area->saveGeometry()});
+        else
+            *existing = {location, area->saveGeometry()};
     }
     state.detached = std::move(retained);
     if (!viewNavigationSession->restoreSnapshot(state))
@@ -202,6 +208,8 @@ void NavigationUiController::unbindViewSession()
     const QString outgoingView = viewNavigationSession->viewId();
     viewNavigationSession.clear();
     viewNavigationMembers.clear();
+    deferredDock.reset();
+    deferredDetached.clear();
 
     // Detached threads remain owned by their original view, and cannot
     // accidentally appear above a different server's active workspace.
@@ -419,25 +427,10 @@ void NavigationUiController::restoreBoundViewSession()
             || !currentLocation.sameDestination(semanticCurrent)))
         navigateTo(semanticCurrent);
 
-    if (state.dockVisible && state.dock.rootId.size()) {
-        Location dock;
-        if (presentationLocation(state.dock, dock)) {
-            Backend* owner = backendForAccount(dock.accountId);
-            BackendChannel* channel = owner
-                ? owner->getStorage().getChannelById(dock.channelId) : nullptr;
-            if (channel) {
-                ChatArea* area = findThreadForBackend(*owner, dock.channelId, dock.rootId);
-                if (!area)
-                    area = new ChatArea(*owner, *channel, dock.rootId, nullptr);
-                attachThread(area);
-                if (!dock.postId.isEmpty())
-                    restoreSessionBookmark(area, dock.postId, dock.viewportAnchor);
-            }
-        }
-    }
-
+    deferredDock = state.dockVisible ? std::optional<Location>(state.dock) : std::nullopt;
+    deferredDetached = state.detached;
     for (Backend* source : attachedBackends)
-        if (source) restoreDetachedWindowsForBackend(*source);
+        if (source) restoreDeferredThreadSurfaces(*source);
 
     if (presentationLocation(state.current, semanticCurrent))
         currentLocation = semanticCurrent;
@@ -453,16 +446,45 @@ void NavigationUiController::restoreBoundViewSession()
     updateHistoryButtons(); // Synchronizes the settled semantic snapshot.
 }
 
+void NavigationUiController::restoreDeferredThreadSurfaces(Backend& source)
+{
+    if (!viewNavigationSession || !canPresentBackend(source)) return;
+    const QString accountId = accountIdForBackend(source);
+    const bool wasApplying = applyingViewSession;
+    const bool wasSwitching = switchingTabs;
+    const Location previousLocation = currentLocation;
+    QPointer<ChatArea> previousArea = activeArea;
+    applyingViewSession = true;
+    switchingTabs = true;
+    if (deferredDock && deferredDock->accountId == accountId) {
+        const auto dock = *deferredDock;
+        if (auto* channel = source.getStorage().getChannelById(dock.channelId)) {
+            deferredDock.reset();
+            auto* area = findThreadForBackend(source, dock.channelId, dock.rootId);
+            if (!area) area = new ChatArea(source, *channel, dock.rootId, nullptr);
+            attachThread(area);
+            if (!dock.postId.isEmpty())
+                restoreSessionBookmark(area, dock.postId, dock.viewportAnchor);
+        }
+    }
+    restoreDetachedWindowsForBackend(source);
+    currentLocation = previousLocation;
+    activeArea = previousArea;
+    switchingTabs = wasSwitching;
+    applyingViewSession = wasApplying;
+}
+
 void NavigationUiController::restoreDetachedWindowsForBackend(Backend& source)
 {
     if (!viewNavigationSession || !canPresentBackend(source)) return;
     const QString accountId = accountIdForBackend(source);
-    const auto state = viewNavigationSession->snapshot();
-    for (const auto& detached : state.detached) {
+    for (int i = 0; i < deferredDetached.size();) {
+        const auto detached = deferredDetached.at(i);
         const Location& location = detached.location;
-        if (location.accountId != accountId) continue;
+        if (location.accountId != accountId) { ++i; continue; }
         auto* channel = source.getStorage().getChannelById(location.channelId);
-        if (!channel) continue;
+        if (!channel) { ++i; continue; }
+        deferredDetached.removeAt(i);
         ChatArea* area = nullptr;
         for (QWidget* widget : QApplication::allWidgets()) {
             auto* candidate = qobject_cast<ChatArea*>(widget);
