@@ -42,6 +42,9 @@ public:
      */
     static std::optional<Emoji> resolveBuiltInByName(const QString& emojiName);
 
+    // Canonical built-in name for an exact Unicode grapheme; empty if unknown.
+    static QString builtInNameForUnicode(const QString& glyph);
+
     static QVector<Emoji> getAllBuiltInEmojis(
         uint32_t category, uint32_t skinTone);
 

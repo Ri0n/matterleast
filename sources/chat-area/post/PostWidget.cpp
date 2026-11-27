@@ -2315,6 +2315,26 @@ void PostWidget::addThreadButton()
     updateEngagementRow();
 }
 
+void PostWidget::activateDefault()
+{
+    if (post.id.isEmpty() || post.isDeleted || wholeMessageSelectionMode_
+        || presentationMode_ == PresentationMode::Pending) {
+        return;
+    }
+    if (!parentChatArea) {
+        emit defaultActivated();
+        return;
+    }
+    if (!parentChatArea->isThread && presentationMode_ == PresentationMode::Interactive) {
+        if (post.root_id.isEmpty()) {
+            openThreadWindow();
+        } else {
+            AppNavigationService::instance(backend_).openThread(
+                parentChatArea->getChannel().id, post.root_id);
+        }
+    }
+}
+
 void PostWidget::openThreadWindow()
 {
     if (!parentChatArea || post.id.isEmpty()) {

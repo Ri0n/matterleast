@@ -2024,6 +2024,28 @@ void ChatLogWidget::updateMessageSelectionDrag(const QString& currentPostId)
     setMessageSelectionRange(currentPostId);
 }
 
+void ChatLogWidget::suspendMessageSelectionDrag()
+{
+    if (!messageSelectionDragActive_) {
+        return;
+    }
+    selectedPostIds_.clear();
+    selectedOwnPostIds_.clear();
+    selectedFormattedPosts_.clear();
+    const Range range = materializedRange();
+    if (range.isValid()) {
+        for (int index = range.first; index <= range.last; ++index) {
+            if (auto* widget = qobject_cast<PostWidget*>(itemWidget(index))) {
+                widget->setWholeMessageSelected(false);
+            }
+        }
+    }
+    // Keep the checkbox gutter and row geometry stable until mouse release.
+    if (selectionToolbar_) {
+        selectionToolbar_->hide();
+    }
+}
+
 void ChatLogWidget::finishMessageSelectionDrag()
 {
     messageSelectionDragActive_ = false;

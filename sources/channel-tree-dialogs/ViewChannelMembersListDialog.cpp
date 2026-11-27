@@ -32,6 +32,7 @@
 #include <memory>
 #include <utility>
 
+#include <QComboBox>
 #include <QEvent>
 #include <QDateTime>
 #include <QFont>
@@ -132,6 +133,7 @@ public:
                      QString fallbackName,
                      QString role,
                      std::function<void(const BackendUser*, const QPoint&)> contextMenu,
+                     std::function<void(bool)> changeRole,
                      QWidget* parent = nullptr)
         : QWidget(parent)
         , backend_(backend)
@@ -139,6 +141,7 @@ public:
         , fallbackName_(std::move(fallbackName))
         , role_(std::move(role))
         , contextMenu_(std::move(contextMenu))
+        , changeRole_(std::move(changeRole))
     {
         setMinimumHeight(MemberRowHeight);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -194,10 +197,31 @@ public:
         updateAvatar();
     }
 
-    void setRole(QString role)
+    void setRole(QString role, bool editable, bool admin, bool pending)
     {
         role_ = std::move(role);
         roleLabel_->setText(role_);
+        if (editable && !roleEditor_) {
+            roleEditor_ = new QComboBox(this);
+            roleEditor_->setObjectName(QStringLiteral("memberRoleEditor"));
+            roleEditor_->setAccessibleName(QObject::tr("Channel role"));
+            roleEditor_->addItem(QObject::tr("Member"), false);
+            roleEditor_->addItem(QObject::tr("Channel admin"), true);
+            roleEditor_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            roleEditor_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+            static_cast<QHBoxLayout*>(layout())->insertWidget(3, roleEditor_, 1);
+            connect(roleEditor_, QOverload<int>::of(&QComboBox::activated), this,
+                    [this](int index) {
+                if (changeRole_)
+                    changeRole_(roleEditor_->itemData(index).toBool());
+            });
+        }
+        roleLabel_->setVisible(!editable);
+        if (roleEditor_) {
+            roleEditor_->setCurrentIndex(admin ? 1 : 0);
+            roleEditor_->setEnabled(editable && !pending);
+            roleEditor_->setVisible(editable);
+        }
     }
 
 protected:
@@ -255,6 +279,8 @@ private:
     QString fallbackName_;
     QString role_;
     std::function<void(const BackendUser*, const QPoint&)> contextMenu_;
+    std::function<void(bool)> changeRole_;
+    QComboBox* roleEditor_ = nullptr;
     QLabel* avatar_ = nullptr;
     QLabel* name_ = nullptr;
     QLabel* roleLabel_ = nullptr;
@@ -383,6 +409,7 @@ void ViewChannelMembersListDialog::refreshRolePermission()
 {
     const int generation = ++rolePermissionGeneration;
     canEditRoles = false;
+    refreshMemberRoleRows();
     setProperty("channelRolePermissionReady", false);
     QPointer<ViewChannelMembersListDialog> guard(this);
     backend.canManageChannelRoles(channel, [guard, generation](bool allowed) {
@@ -390,17 +417,57 @@ void ViewChannelMembersListDialog::refreshRolePermission()
             return;
         }
         guard->canEditRoles = allowed;
+        guard->refreshMemberRoleRows();
         guard->setProperty("channelRolePermissionReady", true);
     });
 }
 
+void ViewChannelMembersListDialog::refreshMemberRoleRow(QWidget* widget)
+{
+    const QString userId = widget->property("memberUserId").toString();
+    const auto it = channel.members.constFind(userId);
+    const BackendChannelMember* member = it == channel.members.cend() ? nullptr : &it.value();
+    const BackendUser* user = backend.getStorage().getUserById(userId);
+    const QStringList roles = member ? splitRoleNames(member->roles) : QStringList();
+    const QStringList systemRoles = user
+        ? splitRoleNames(user->roles.join(QLatin1Char(' '))) : QStringList();
+    const bool admin = member && (member->isAdmin || roles.contains(QStringLiteral("channel_admin")));
+    // System and guest roles are not channel scheme roles. Keep their
+    // existing labels and only offer the two channel roles for normal members.
+    const bool editable = canEditRoles && member && user
+        && !roles.contains(QStringLiteral("channel_guest"))
+        && !systemRoles.contains(QStringLiteral("system_guest"))
+        && !systemRoles.contains(QStringLiteral("system_admin"));
+    static_cast<ChannelMemberRow*>(widget)->setRole(channelMemberRole(member, user),
+        editable, admin, pendingRoleUpdates.contains(userId));
+}
+
+void ViewChannelMembersListDialog::refreshMemberRoleRows(const QString& userId)
+{
+    for (QWidget* row : findChildren<QWidget*>(QStringLiteral("channelMemberRow"))) {
+        if (userId.isEmpty() || row->property("memberUserId").toString() == userId)
+            refreshMemberRoleRow(row);
+    }
+}
+
 void ViewChannelMembersListDialog::setMemberRole(const QString& userId, bool admin)
 {
+    const auto member = channel.members.constFind(userId);
     if (!canEditRoles || pendingRoleUpdates.contains(userId)
-        || !channel.members.contains(userId)) {
+        || member == channel.members.cend()) {
+        refreshMemberRoleRows(userId);
+        return;
+    }
+    const QStringList roles = splitRoleNames(member.value().roles);
+    const bool currentAdmin = member.value().isAdmin || roles.contains(QStringLiteral("channel_admin"));
+    if (currentAdmin == admin) {
+        refreshMemberRoleRows(userId);
         return;
     }
     pendingRoleUpdates.insert(userId);
+    // Do not display an optimistic role. Keep the canonical selection while
+    // the request is pending, including rows materialized during the request.
+    refreshMemberRoleRows(userId);
     QPointer<ViewChannelMembersListDialog> guard(this);
     backend.setChannelMemberAdmin(channel, userId, admin,
         [guard, userId](bool success, const QString& error) {
@@ -408,6 +475,7 @@ void ViewChannelMembersListDialog::setMemberRole(const QString& userId, bool adm
             return;
         }
         guard->pendingRoleUpdates.remove(userId);
+        guard->refreshMemberRoleRows(userId);
         if (!success) {
             QMessageBox::warning(guard, guard->tr("Change channel role"),
                 error.isEmpty() ? guard->tr("Could not change the member's role.")
@@ -415,20 +483,6 @@ void ViewChannelMembersListDialog::setMemberRole(const QString& userId, bool adm
             return;
         }
 
-        const auto it = guard->channel.members.constFind(userId);
-        if (it == guard->channel.members.cend()) {
-            return;
-        }
-        const BackendUser* user = guard->backend.getStorage().getUserById(userId);
-        const QString role = channelMemberRole(&it.value(), user);
-        // Only rows currently materialized by LongList need updating. Newly
-        // materialized rows will read the canonical channel membership.
-        for (QWidget* row : guard->findChildren<QWidget*>(
-                 QStringLiteral("channelMemberRow"))) {
-            if (row->property("memberUserId").toString() == userId) {
-                static_cast<ChannelMemberRow*>(row)->setRole(role);
-            }
-        }
     });
 }
 
@@ -679,11 +733,13 @@ QWidget* ViewChannelMembersListDialog::createMemberRow(int index)
     const auto it = channel.members.constFind(userId);
     const BackendChannelMember* membership = it == channel.members.cend()
         ? nullptr : &it.value();
-    return new ChannelMemberRow(
+    auto* row = new ChannelMemberRow(
         backend, user, userId, channelMemberRole(membership, user),
         [this](const BackendUser* rowUser, const QPoint& globalPos) {
             showMemberContextMenu(rowUser, globalPos);
-        });
+        }, [this, userId](bool admin) { setMemberRole(userId, admin); });
+    refreshMemberRoleRow(row);
+    return row;
 }
 
 void ViewChannelMembersListDialog::showMemberContextMenu(

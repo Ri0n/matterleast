@@ -152,7 +152,13 @@ protected:
             return;
         }
         _dragConsumed = false;
+        const bool plainQuoteClick = event && event->button() == Qt::LeftButton
+            && objectName() == QStringLiteral("messageQuoteRichText")
+            && anchorAt(event->pos()).isEmpty();
         QTextBrowser::mouseReleaseEvent(event);
+        if (plainQuoteClick && !textCursor().hasSelection()) {
+            event->ignore();
+        }
     }
 
 private:

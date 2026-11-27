@@ -320,6 +320,7 @@ protected:
      * enter/leave events.
      */
     void setHoverHighlightOverride(QWidget* widget);
+    virtual QColor hoverHighlightOverlayColor() const;
     QWidget* hoverHighlightOverrideWidget() const
     {
         return hoverHighlightOverride.data();

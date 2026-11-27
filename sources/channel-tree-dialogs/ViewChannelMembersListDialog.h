@@ -62,6 +62,8 @@ private:
     void refreshAddPermission();
     void refreshRolePermission();
     void setMemberRole(const QString& userId, bool admin);
+    void refreshMemberRoleRow(QWidget* row);
+    void refreshMemberRoleRows(const QString& userId = {});
     void addMembers();
     void reloadMemberCount();
     void resetPagedMembers();

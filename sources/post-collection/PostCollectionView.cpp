@@ -961,6 +961,7 @@ QWidget* PostCollectionView::createRow(int index, QWidget* parent)
     // Collections mix messages from unrelated dates and conversations; the
     // clock-only channel display requires a hover for every item's date.
     postWidget->setShowFullTimestamp(true);
+    connect(postWidget, &PostWidget::defaultActivated, jump, &QPushButton::click);
     layout->addWidget(postWidget);
     connect(postWidget, &PostWidget::dimensionsChanged, this, [this, postId] {
         const int currentIndex = indexOfPost(postId);

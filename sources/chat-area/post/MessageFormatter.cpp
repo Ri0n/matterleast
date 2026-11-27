@@ -8,6 +8,7 @@
 #include <QVector>
 
 #include <QTextBlock>
+#include <QTextBoundaryFinder>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextFormat>
@@ -68,6 +69,7 @@ struct EmojiReplacement {
     int position = 0;
     int length = 0;
     Emoji emoji;
+    QString shortcode;
 };
 
 struct LinkReplacement {
@@ -680,6 +682,7 @@ void replaceEmojisInDocument(QTextDocument& document, EmojiRegistry* registry)
                 block.position() + static_cast<int>(match.capturedStart(0)),
                 static_cast<int>(match.capturedLength(0)),
                 *emoji,
+                match.captured(0),
             });
         }
     }
@@ -691,15 +694,43 @@ void replaceEmojisInDocument(QTextDocument& document, EmojiRegistry* registry)
     for (const EmojiReplacement& replacement: replacements) {
         QTextCursor cursor(&document);
         cursor.setPosition(replacement.position);
-        const QTextCharFormat textFormat = cursor.charFormat();
         cursor.setPosition(replacement.position + replacement.length, QTextCursor::KeepAnchor);
+        QTextCharFormat textFormat = cursor.charFormat();
+        textFormat.setToolTip(replacement.shortcode);
 
         QTextImageFormat imageFormat;
         if (customEmojiImageFormat(replacement.emoji, imageFormat)) {
+            imageFormat.setToolTip(replacement.shortcode);
             cursor.removeSelectedText();
             cursor.insertImage(imageFormat);
         } else {
             cursor.insertText(replacement.emoji.unicodeString, textFormat);
+        }
+    }
+}
+
+// Literal Unicode emoji have no wire shortcode to preserve. Resolve their
+// exact grapheme once while formatting, not on every mouse-move event.
+void applyUnicodeEmojiToolTips(QTextDocument& document)
+{
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        const QString text = block.text();
+        QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
+        finder.toStart();
+        int start = 0;
+        for (int end = finder.toNextBoundary(); end >= 0; end = finder.toNextBoundary()) {
+            const QString name = EmojiInfo::builtInNameForUnicode(text.mid(start, end - start));
+            if (!name.isEmpty()) {
+                QTextCursor cursor(&document);
+                cursor.setPosition(block.position() + end);
+                if (cursor.charFormat().toolTip().isEmpty()) {
+                    cursor.setPosition(block.position() + start, QTextCursor::KeepAnchor);
+                    QTextCharFormat tooltip;
+                    tooltip.setToolTip(QStringLiteral(":%1:").arg(name));
+                    cursor.mergeCharFormat(tooltip);
+                }
+            }
+            start = end;
         }
     }
 }
@@ -896,6 +927,7 @@ void buildMarkdownDocument(QTextDocument& document, const QString& text,
     // Emoji are applied after Markdown parsing. Custom emoji are inserted as
     // QTextImageFormat objects, so enabling raw user HTML is unnecessary.
     replaceEmojisInDocument(document, registry);
+    applyUnicodeEmojiToolTips(document);
     separateLargeImages(document);
     applyLinkToolTips(document);
 }

@@ -48,6 +48,7 @@ public:
 protected:
     /** All post-based LongLists use the semantic post ID as their stable row key. */
     QString itemIdentity(const QWidget* widget) const override;
+    QColor hoverHighlightOverlayColor() const override;
     bool eventFilter(QObject* watched, QEvent* event) override;
     void changeEvent(QEvent* event) override;
 
