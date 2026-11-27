@@ -664,7 +664,8 @@ QStringList SidebarService::visibleChannelIds(const SidebarCategory& category, b
             || channel->type == BackendChannel::groupChannel;
         // A converted GM can temporarily remain in a cached DM category or
         // another team's old snapshot until the server categories catch up.
-        if (!conversation && (directs || (channel->team && channel->team->id != category.teamId)))
+        if (!conversation && (directs || (channel->team && !category.teamId.isEmpty()
+            && channel->team->id != category.teamId)))
             continue;
         if (channel->delete_at != 0
             && (searchingDirects || channel != currentChannel)) {
