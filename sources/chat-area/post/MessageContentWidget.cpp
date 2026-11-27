@@ -424,7 +424,14 @@ protected:
             return;
         }
         dragConsumed = false;
+        const bool plainClick = event && event->button() == Qt::LeftButton
+            && anchorAt(event->pos()).isEmpty();
         QTextBrowser::mouseReleaseEvent(event);
+        // QTextBrowser accepts even a plain click to place its text cursor.
+        // Let only an unselected, non-link release reach the parent post.
+        if (plainClick && !textCursor().hasSelection()) {
+            event->ignore();
+        }
     }
 
     void resizeEvent(QResizeEvent* event) override
@@ -781,6 +788,14 @@ public:
     }
 
 protected:
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        QPlainTextEdit::mouseReleaseEvent(event);
+        if (event && event->button() == Qt::LeftButton && !textCursor().hasSelection()) {
+            event->ignore();
+        }
+    }
+
     void resizeEvent(QResizeEvent* event) override
     {
         QPlainTextEdit::resizeEvent(event);
