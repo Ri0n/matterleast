@@ -249,7 +249,11 @@ private slots:
         const auto destination = renderItem(SidebarItem::VirtualDestination,
                                             BackendChannel::directChannel,
                                             QString());
-        QCOMPARE(destination, channel);
+        // Read conversations are deliberately dimmer than virtual destinations.
+        // Their avatar/presence rendering must still be identical.
+        QVERIFY(destination != channel);
+        QCOMPARE(destination.copy(0, 0, 32, destination.height()),
+                 channel.copy(0, 0, 32, channel.height()));
     }
 
     void rendersVirtualDirectDestinationWithSamePresenceChrome()
@@ -260,7 +264,11 @@ private slots:
         const auto destination = renderItem(SidebarItem::VirtualDestination,
                                             BackendChannel::directChannel,
                                             QStringLiteral("online"));
-        QCOMPARE(destination, channel);
+        // Read conversations are deliberately dimmer than virtual destinations.
+        // Their avatar/presence rendering must still be identical.
+        QVERIFY(destination != channel);
+        QCOMPARE(destination.copy(0, 0, 32, destination.height()),
+                 channel.copy(0, 0, 32, channel.height()));
     }
 };
 
