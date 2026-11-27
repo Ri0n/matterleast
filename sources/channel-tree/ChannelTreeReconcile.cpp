@@ -19,6 +19,7 @@
 #include "backend/types/BackendChannel.h"
 #include "chat-area/ChatArea.h"
 #include "channel-tree/ChannelItem.h"
+#include "channel-tree/ChannelIcons.h"
 #include "channel-tree/team-item/TeamItem.h"
 
 namespace Mattermost {
@@ -410,6 +411,13 @@ void ChannelTree::reconcileTeamSidebar(Backend& backend, TeamItem& teamItem,
             }
             if (!row) {
                 row = createChannelItem(backend, &teamItem, *categoryItem, *channel);
+            }
+            // Conversion preserves the channel ID, so a reused GM row must
+            // adopt the private-channel presentation rather than its old icon.
+            if (row->data(0, SidebarItem::ChannelTypeRole).toInt() != channel->type) {
+                auto* item = static_cast<ChannelItem*>(row);
+                item->setLabel(channel->display_name);
+                item->setIcon(ChannelIcons::conversation(channel->type));
             }
             // Only mutate the affected row role when category mute changed;
             // no model reset, no wholesale ChatArea rebuild.
