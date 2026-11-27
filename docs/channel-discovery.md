@@ -8,7 +8,7 @@ The visible sidebar category headers are the primary discovery affordances:
 
 - **Channels +** opens `TeamChannelsListDialog` for that category's team.
 - **Direct Messages +** opens `UserSearchDialog` in `ConversationPicker` mode.
-- The active-team selector menu also exposes **Browse public channels…**.
+- The Channels toolbar **+** menu offers **Direct or group messages…**, **Browse public channels…**, and **Add another team…**, independently of the scroll position of the tree.
 
 Category + controls are real `QToolButton` widgets installed in column 1 of the tree, not text painted into a narrow column. Keep a right gutter between the button and the vertical scrollbar so the action remains an easy click target.
 
