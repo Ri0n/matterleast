@@ -13,9 +13,11 @@ Team names are always shown on clickable buttons. The active team has a
 rounded inset/pressed background. Delicate gray dotted separators sit between
 names, which are shortened only when exceptionally long (full name in tooltip).
 A scroll area with ‹/› controls handles more teams than fit the width.
-The right-hand hashtag icon opens Browse public channels directly;
-the 20px symbolic plus is identical to the sidebar category plus and joins a
-new team. No team dropdown or overflow action menu is present.
+The right-hand symbolic plus opens a menu for direct/group conversations,
+public-channel browsing (including channel creation), and joining another
+team. Each action reuses the existing discovery dialog or controller.
+The sidebar tabs use native QTabBar layout with icon-sized minimum widths
+and elided labels instead of horizontal scrolling.
 
 A separate avatar menu manages user availability and custom status.
 
@@ -26,9 +28,9 @@ starts at the sidebar tree edge instead of floating in the center of the row.
 
 The channel toolbar uses the same `IconUtils` tinting as other buttons.
 Because the tinted icons are pixmaps, `TeamSelectorLabel` recreates the
-`+` and `#` icons when its detached toolbar's palette or style changes.
+`+` icon when its detached toolbar's palette or style changes.
 The unread-only filter uses the existing `MainWindow::refreshUnreadFilterIcon()`
-path, refreshed on the **same toolbar palette event** as `+` and `#`.
+path, refreshed on the **same toolbar palette event** as `+`.
 Its checked-state stylesheet can retain an old button-local foreground palette,
 so the filter icon is tinted from the surrounding toolbar's current palette
 rather than `unreadFilterButton->palette()`. No team toolbar rebuild is required.
