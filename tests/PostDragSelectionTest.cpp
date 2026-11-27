@@ -354,11 +354,29 @@ private slots:
         QVERIFY(thread.rootPost->wholeMessageSelected());
         QVERIFY(thread.secondPost->wholeMessageSelected());
 
-        // Coming back shrinks the range to the anchor post again.
-        QTest::mouseMove(window, onRootText);
-        QVERIFY(thread.rootPost->wholeMessageSelected());
+        // Returning to the original text restores its selection without
+        // removing the checkbox gutter until the release.
+        const QPoint returnPoint = rootBrowser->viewport()->mapTo(
+            &area, firstLineRect(rootBrowser).center().toPoint() + QPoint(30, 0));
+        QTest::mouseMove(window, returnPoint);
+        QVERIFY(thread.log->isMessageSelectionMode());
+        QVERIFY(thread.rootPost->wholeMessageSelectionMode());
+        QVERIFY(!thread.rootPost->wholeMessageSelected());
         QVERIFY(!thread.secondPost->wholeMessageSelected());
-        QTest::mouseRelease(window, Qt::LeftButton, {}, onRootText);
+        QVERIFY(!thread.rootPost->getSelectedText().isEmpty());
+
+        // Leaving again resumes whole-message selection.
+        QTest::mouseMove(window, secondTop);
+        QVERIFY(thread.rootPost->wholeMessageSelected());
+        QVERIFY(thread.secondPost->wholeMessageSelected());
+        QVERIFY(thread.rootPost->getSelectedText().isEmpty());
+        QTest::mouseMove(window, returnPoint);
+        const QString selected = thread.rootPost->getSelectedText();
+        QVERIFY(!selected.isEmpty());
+        QTest::mouseRelease(window, Qt::LeftButton, {}, returnPoint);
+        QVERIFY(!thread.log->isMessageSelectionMode());
+        QVERIFY(!thread.rootPost->wholeMessageSelectionMode());
+        QCOMPARE(thread.rootPost->getSelectedText(), selected);
     }
 
     void draggingProfileCloseDoesNotSelectPosts()
